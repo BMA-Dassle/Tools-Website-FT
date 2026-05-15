@@ -159,7 +159,11 @@ export async function addDeposit(params: AddDepositParams): Promise<string> {
   });
   const text = await res.text();
   let json: DepositInsertResponse | null = null;
-  try { json = JSON.parse(text) as DepositInsertResponse; } catch { /* non-JSON body */ }
+  try {
+    json = JSON.parse(text) as DepositInsertResponse;
+  } catch {
+    /* non-JSON body */
+  }
 
   if (!res.ok || !json?.success || !json.data?.depositID) {
     const msg = json?.message || text.slice(0, 200) || `HTTP ${res.status}`;

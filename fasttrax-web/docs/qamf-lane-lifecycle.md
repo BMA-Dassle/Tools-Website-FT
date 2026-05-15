@@ -7,10 +7,10 @@ Auth: OAuth2 `client_credentials`, scope `bowling_reservations`, per-center toke
 
 ## Two Service Types
 
-| Service | Use case | ExpiresAt while Temporary | Availability search |
-|---------|----------|--------------------------|---------------------|
-| `BookForLater` | Advance reservation | Yes (10-min hold) | Works via `POST /availability/search` |
-| `PlayNow` | Walk-in / bowl now | No (`null`) | Returns 404 — just create directly |
+| Service        | Use case            | ExpiresAt while Temporary | Availability search                   |
+| -------------- | ------------------- | ------------------------- | ------------------------------------- |
+| `BookForLater` | Advance reservation | Yes (10-min hold)         | Works via `POST /availability/search` |
+| `PlayNow`      | Walk-in / bowl now  | No (`null`)               | Returns 404 — just create directly    |
 
 Both use the same `POST /centers/{centerId}/reservations` endpoint.
 Only difference is `WebOffer.Services: ["BookForLater"]` vs `["PlayNow"]`.
@@ -44,15 +44,15 @@ Allowed values: `None`, `Canceled`, `Temporary`, `Confirmed`, `Ready`, `Running`
 
 ## Full Lifecycle (tested both PlayNow and BookForLater — identical)
 
-| Step | Endpoint | Body | Res Status | Lane Status | HTTP |
-|------|----------|------|-----------|-------------|------|
-| 1 | `POST /reservations` | `{ Services: [...] }` | Temporary | Temporary | 201 |
-| 2 | `PATCH /reservations/{id}/status` | `{ Status: "Confirmed" }` | **Confirmed** | Confirmed | 200 |
-| 3 | `PATCH /reservations/{id}/status` | `{ Status: "Arrived" }` | **Arrived** | Confirmed | 200 |
-| 4 | `PATCH /reservations/{id}/lanes/{guid}/status` | `{ Status: "Ready" }` | Arrived | **Ready** | 200 |
-| 5 | `PATCH /reservations/{id}/lanes/{guid}/status` | `{ Status: "Running" }` | Arrived | **Running** | 200 |
-| 6 | `PATCH /reservations/{id}/lanes/{guid}/status` | `{ Status: "Completed" }` | — | reverts to Ready | **400** |
-| 7 | `PATCH /reservations/{id}/status` | `{ Status: "Completed" }` | — | — | **400** |
+| Step | Endpoint                                       | Body                      | Res Status    | Lane Status      | HTTP    |
+| ---- | ---------------------------------------------- | ------------------------- | ------------- | ---------------- | ------- |
+| 1    | `POST /reservations`                           | `{ Services: [...] }`     | Temporary     | Temporary        | 201     |
+| 2    | `PATCH /reservations/{id}/status`              | `{ Status: "Confirmed" }` | **Confirmed** | Confirmed        | 200     |
+| 3    | `PATCH /reservations/{id}/status`              | `{ Status: "Arrived" }`   | **Arrived**   | Confirmed        | 200     |
+| 4    | `PATCH /reservations/{id}/lanes/{guid}/status` | `{ Status: "Ready" }`     | Arrived       | **Ready**        | 200     |
+| 5    | `PATCH /reservations/{id}/lanes/{guid}/status` | `{ Status: "Running" }`   | Arrived       | **Running**      | 200     |
+| 6    | `PATCH /reservations/{id}/lanes/{guid}/status` | `{ Status: "Completed" }` | —             | reverts to Ready | **400** |
+| 7    | `PATCH /reservations/{id}/status`              | `{ Status: "Completed" }` | —             | —                | **400** |
 
 ## How to Open a Lane (Self-Service Check-In)
 

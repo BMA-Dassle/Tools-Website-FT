@@ -81,10 +81,7 @@ export async function GET(req: NextRequest) {
         type: s.type,
       }));
 
-    return NextResponse.json(
-      { sessions: upcoming },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ sessions: upcoming }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("[camera-assign/upcoming]", err);
     return NextResponse.json(

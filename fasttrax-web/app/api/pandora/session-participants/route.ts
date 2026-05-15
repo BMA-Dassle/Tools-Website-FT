@@ -239,7 +239,14 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId);
     if (!res.ok) {
       console.error(`[session-participants] Pandora ${res.status}: ${await res.text()}`);
-      return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, `pandora-${res.status}`);
+      return await fallbackResponse(
+        req,
+        locationId,
+        sessionId,
+        excludeRemoved,
+        excludeUnpaid,
+        `pandora-${res.status}`,
+      );
     }
     const json = await res.json();
     const rawSuperset: Participant[] = Array.isArray(json.data) ? json.data : [];
@@ -275,18 +282,27 @@ export async function GET(req: NextRequest) {
       `[session-participants] ${isTimeout ? `TIMEOUT (>${timeoutMs / 1000}s, warm=${isWarmCall})` : "fetch error"}:`,
       err,
     );
-    return await fallbackResponse(req, locationId, sessionId, excludeRemoved, excludeUnpaid, isTimeout ? "timeout" : "fetch-failed");
+    return await fallbackResponse(
+      req,
+      locationId,
+      sessionId,
+      excludeRemoved,
+      excludeUnpaid,
+      isTimeout ? "timeout" : "fetch-failed",
+    );
   }
 }
 
 /** Strip PII unless the caller proved server-side trust via the
  *  internal-secret header. Lean shape is just `{ personId }`. */
-function redactIfUntrusted(req: NextRequest, full: Participant[]): Participant[] | { personId: string | number }[] {
+function redactIfUntrusted(
+  req: NextRequest,
+  full: Participant[],
+): Participant[] | { personId: string | number }[] {
   const internalHeader = req.headers.get("x-pandora-internal");
   const trusted = !!API_KEY && internalHeader === API_KEY;
   return trusted ? full : full.map((p) => ({ personId: p.personId }));
 }
-
 
 /** Pandora unreachable / errored — try the Redis cache before
  *  giving up. The cache holds the unpaid SUPERSET; we apply the

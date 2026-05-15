@@ -44,7 +44,7 @@ const KIND_LABEL: Record<string, string> = {
 const SOURCE_LABEL: Record<string, string> = {
   "race-pack-square": "Race pack (Square)",
   "pov-claim": "POV claim",
-  "manual": "Manual",
+  manual: "Manual",
   "sales-log-backfill": "Backfill",
 };
 
@@ -91,16 +91,21 @@ export default function DepositFailuresClient({ token }: { token: string }) {
     }
   }, [token, includeResolved]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function retryOne(id: number) {
     setBusyIds((prev) => new Set(prev).add(id));
     try {
-      const res = await fetch(`/api/admin/deposit-failures/retry?token=${encodeURIComponent(token)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
+      const res = await fetch(
+        `/api/admin/deposit-failures/retry?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        },
+      );
       const json = await res.json();
       if (res.ok && json.ok) {
         setToast(`Retry succeeded — depositId ${json.depositId ?? "(unknown)"}`);
@@ -122,12 +127,18 @@ export default function DepositFailuresClient({ token }: { token: string }) {
   }
 
   async function runBackfill() {
-    if (!confirm("Import every sales_log row with deposit_credit_pending=TRUE into the retry queue?")) return;
+    if (
+      !confirm("Import every sales_log row with deposit_credit_pending=TRUE into the retry queue?")
+    )
+      return;
     setBackfillBusy(true);
     try {
-      const res = await fetch(`/api/admin/deposit-failures/backfill?token=${encodeURIComponent(token)}`, {
-        method: "POST",
-      });
+      const res = await fetch(
+        `/api/admin/deposit-failures/backfill?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+        },
+      );
       const json = await res.json();
       if (res.ok && json.ok) {
         setToast(`Backfill: scanned ${json.scanned}, enqueued ${json.enqueued}`);
@@ -149,8 +160,8 @@ export default function DepositFailuresClient({ token }: { token: string }) {
           <div>
             <h1 className="text-2xl font-bold">BMI Deposit Failures</h1>
             <p className="text-white/60 text-sm mt-1">
-              Race packs charged but no credits, POV claims that issued codes but didn&apos;t deduct.
-              Sweep cron retries every 5 min — staff can also retry manually here.
+              Race packs charged but no credits, POV claims that issued codes but didn&apos;t
+              deduct. Sweep cron retries every 5 min — staff can also retry manually here.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -184,7 +195,12 @@ export default function DepositFailuresClient({ token }: { token: string }) {
         {toast && (
           <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-sm text-amber-200 flex items-center justify-between">
             <span>{toast}</span>
-            <button onClick={() => setToast(null)} className="text-amber-200/60 hover:text-amber-200">×</button>
+            <button
+              onClick={() => setToast(null)}
+              className="text-amber-200/60 hover:text-amber-200"
+            >
+              ×
+            </button>
           </div>
         )}
 
@@ -196,13 +212,19 @@ export default function DepositFailuresClient({ token }: { token: string }) {
               label="Oldest"
               value={
                 data.summary.oldestUnresolvedAt
-                  ? new Date(data.summary.oldestUnresolvedAt).toLocaleDateString("en-US", { timeZone: "America/New_York" })
+                  ? new Date(data.summary.oldestUnresolvedAt).toLocaleDateString("en-US", {
+                      timeZone: "America/New_York",
+                    })
                   : "—"
               }
             />
             <Stat
               label="Sources"
-              value={data.summary.bySource.map((s) => `${SOURCE_LABEL[s.source] ?? s.source}: ${s.count}`).join(", ") || "—"}
+              value={
+                data.summary.bySource
+                  .map((s) => `${SOURCE_LABEL[s.source] ?? s.source}: ${s.count}`)
+                  .join(", ") || "—"
+              }
             />
           </div>
         )}
@@ -211,14 +233,11 @@ export default function DepositFailuresClient({ token }: { token: string }) {
           <>
             <Section title={`Unresolved (${data.unresolved.length})`}>
               {data.unresolved.length === 0 ? (
-                <p className="text-white/40 text-sm py-6 text-center">All clear — nothing to retry.</p>
+                <p className="text-white/40 text-sm py-6 text-center">
+                  All clear — nothing to retry.
+                </p>
               ) : (
-                <Table
-                  rows={data.unresolved}
-                  busyIds={busyIds}
-                  onRetry={retryOne}
-                  showRetry
-                />
+                <Table rows={data.unresolved} busyIds={busyIds} onRetry={retryOne} showRetry />
               )}
             </Section>
 
@@ -227,7 +246,12 @@ export default function DepositFailuresClient({ token }: { token: string }) {
                 {data.resolved.length === 0 ? (
                   <p className="text-white/40 text-sm py-6 text-center">No recent resolutions.</p>
                 ) : (
-                  <Table rows={data.resolved} busyIds={busyIds} onRetry={retryOne} showRetry={false} />
+                  <Table
+                    rows={data.resolved}
+                    busyIds={busyIds}
+                    onRetry={retryOne}
+                    showRetry={false}
+                  />
                 )}
               </Section>
             )}
@@ -247,10 +271,20 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function Section({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+function Section({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <section className={className}>
-      <h2 className="text-sm font-semibold uppercase tracking-widest text-white/60 mb-3">{title}</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-widest text-white/60 mb-3">
+        {title}
+      </h2>
       <div className="rounded-lg border border-white/10 bg-white/[0.02] overflow-x-auto">
         {children}
       </div>
@@ -258,7 +292,12 @@ function Section({ title, children, className }: { title: string; children: Reac
   );
 }
 
-function Table({ rows, busyIds, onRetry, showRetry }: {
+function Table({
+  rows,
+  busyIds,
+  onRetry,
+  showRetry,
+}: {
   rows: FailureRow[];
   busyIds: Set<number>;
   onRetry: (id: number) => void;
@@ -294,7 +333,10 @@ function Table({ rows, busyIds, onRetry, showRetry }: {
               </span>
             </td>
             <td className="px-3 py-2 text-white/60 text-xs">{r.sourceRef}</td>
-            <td className="px-3 py-2 text-white/60 text-xs max-w-[280px] truncate" title={r.lastError ?? undefined}>
+            <td
+              className="px-3 py-2 text-white/60 text-xs max-w-[280px] truncate"
+              title={r.lastError ?? undefined}
+            >
               {r.lastError || "—"}
             </td>
             <td className="px-3 py-2 text-white/60 text-xs">{r.attempts}</td>

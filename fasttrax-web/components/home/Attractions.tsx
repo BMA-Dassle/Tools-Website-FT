@@ -57,12 +57,12 @@ const row2 = [
 // Hours data matching live site colors exactly
 const hours = [
   { day: "Mon–Thu", time: "3:00 PM – 11:00 PM", color: "rgb(228,28,29)", border: "rgb(228,28,29)" },
-  { day: "Fri",     time: "3:00 PM – 12:00 AM",  color: "rgb(134,82,255)", border: "rgb(134,82,255)" },
-  { day: "Sat",     time: "11:00 AM – 12:00 AM", color: "rgb(248,0,198)",  border: "rgb(248,0,198)" },
-  { day: "Sun",     time: "11:00 AM – 11:00 PM", color: "rgb(0,74,173)",   border: "rgb(0,74,173)" },
+  { day: "Fri", time: "3:00 PM – 12:00 AM", color: "rgb(134,82,255)", border: "rgb(134,82,255)" },
+  { day: "Sat", time: "11:00 AM – 12:00 AM", color: "rgb(248,0,198)", border: "rgb(248,0,198)" },
+  { day: "Sun", time: "11:00 AM – 11:00 PM", color: "rgb(0,74,173)", border: "rgb(0,74,173)" },
 ];
 
-function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: boolean }) {
+function AttractionCard({ card, wide = false }: { card: (typeof row1)[0]; wide?: boolean }) {
   return (
     <div
       className="flex flex-col rounded-lg overflow-hidden h-full"
@@ -88,11 +88,24 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
       <div className="flex flex-col gap-3 p-5 flex-1">
         <h3
           className="font-heading uppercase"
-          style={{ color: card.border.replace("0.59", "1").replace("rgba", "rgb").replace(/,\s*[0-9.]+\)/, ")"), fontSize: "24px" }}
+          style={{
+            color: card.border
+              .replace("0.59", "1")
+              .replace("rgba", "rgb")
+              .replace(/,\s*[0-9.]+\)/, ")"),
+            fontSize: "24px",
+          }}
         >
           {card.title}
         </h3>
-        <p style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", fontFamily: "var(--font-body)", lineHeight: "1.5" }}>
+        <p
+          style={{
+            color: "rgba(245,236,238,0.8)",
+            fontSize: "16px",
+            fontFamily: "var(--font-body)",
+            lineHeight: "1.5",
+          }}
+        >
           {card.desc}
         </p>
         <div className="mt-auto">
@@ -133,9 +146,11 @@ function AttractionCard({ card, wide = false }: { card: typeof row1[0]; wide?: b
 
 export default function Attractions() {
   return (
-    <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+    <section
+      className="bg-[#000418]"
+      style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+    >
       <div className="max-w-7xl mx-auto">
-
         {/* Title */}
         <h2
           className="font-heading font-black uppercase text-white text-center mb-8"
@@ -152,8 +167,25 @@ export default function Attractions() {
               className="flex items-center gap-3 px-4 py-3 rounded-xl"
               style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${h.border}` }}
             >
-              <span style={{ color: h.color, fontSize: "18px", fontFamily: "var(--font-body)", fontWeight: 600 }}>{h.day}</span>
-              <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-body)" }}>{h.time}</span>
+              <span
+                style={{
+                  color: h.color,
+                  fontSize: "18px",
+                  fontFamily: "var(--font-body)",
+                  fontWeight: 600,
+                }}
+              >
+                {h.day}
+              </span>
+              <span
+                style={{
+                  color: "rgb(245,236,238)",
+                  fontSize: "16px",
+                  fontFamily: "var(--font-body)",
+                }}
+              >
+                {h.time}
+              </span>
             </div>
           ))}
         </div>
@@ -175,7 +207,6 @@ export default function Attractions() {
             </div>
           ))}
         </div>
-
       </div>
     </section>
   );

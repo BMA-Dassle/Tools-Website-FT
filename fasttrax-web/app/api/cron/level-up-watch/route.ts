@@ -60,7 +60,10 @@ function qualifiesFor(bestLapMs: number, track: string): "Intermediate" | "Pro" 
 /**
  * Check if a racer's BMI profile has a specific qualification membership.
  */
-async function hasMembership(persId: number, levelName: "Intermediate" | "Pro"): Promise<{
+async function hasMembership(
+  persId: number,
+  levelName: "Intermediate" | "Pro",
+): Promise<{
   hasIt: boolean;
   email: string;
   phone: string;
@@ -74,15 +77,16 @@ async function hasMembership(persId: number, levelName: "Intermediate" | "Pro"):
     const p = await res.json();
     const target = `Qualified ${levelName}`;
     const memberships = p.memberships || [];
-    const hasIt = memberships.some((m: { name: string; stops?: string }) =>
-      m.name === target && (!m.stops || new Date(m.stops) > new Date())
+    const hasIt = memberships.some(
+      (m: { name: string; stops?: string }) =>
+        m.name === target && (!m.stops || new Date(m.stops) > new Date()),
     );
     const email = p.addresses?.[0]?.email || "";
     const phone = (p.addresses?.[0]?.phone || "").replace(/\D/g, "");
     const firstName = p.firstName || "";
     const lastName = p.name || "";
     const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-      (b.lastSeen || "").localeCompare(a.lastSeen || "")
+      (b.lastSeen || "").localeCompare(a.lastSeen || ""),
     );
     const loginCode = tags[0]?.tag || "";
     return { hasIt, email, phone, firstName, lastName, loginCode };
@@ -116,7 +120,12 @@ export async function GET(_req: NextRequest) {
 
     // Today's date range in ET
     const now = new Date();
-    const etFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+    const etFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
     const todayET = etFormatter.format(now);
     const startDate = `${todayET}T00:00:00`;
     const endDate = `${todayET}T23:59:59`;
@@ -134,7 +143,7 @@ export async function GET(_req: NextRequest) {
 
         // Only sessions finished in the last 10 minutes
         const cutoffMs = Date.now() - 10 * 60_000;
-        const recent = sessions.filter(s => {
+        const recent = sessions.filter((s) => {
           if (s.state < 3) return false;
           const ts = new Date(s.actualStart || s.scheduledStart).getTime();
           return ts >= cutoffMs;
@@ -184,7 +193,9 @@ export async function GET(_req: NextRequest) {
             await redis.set(watchKey, JSON.stringify(watch), "EX", 60 * 60);
             await redis.sadd("levelup:watches", `${score.persId}:${newLevel}`);
             await redis.expire("levelup:watches", 60 * 60);
-            newWatches.push(`${score.name} → ${newLevel} (${formatLap(score.bestLap)}s on ${sg.track})`);
+            newWatches.push(
+              `${score.name} → ${newLevel} (${formatLap(score.bestLap)}s on ${sg.track})`,
+            );
           }
 
           // Mark session as processed
@@ -221,7 +232,10 @@ export async function GET(_req: NextRequest) {
       if (ageMin > 15) {
         await redis.del(watchKey);
         await redis.srem("levelup:watches", wid);
-        await redis.rpush("levelup:gave-up", JSON.stringify({ ...watch, gaveUpAt: new Date().toISOString() }));
+        await redis.rpush(
+          "levelup:gave-up",
+          JSON.stringify({ ...watch, gaveUpAt: new Date().toISOString() }),
+        );
         await redis.expire("levelup:gave-up", 30 * 24 * 60 * 60);
         gaveUp.push(`${watch.racerName} → ${levelName}`);
         continue;
@@ -243,7 +257,9 @@ export async function GET(_req: NextRequest) {
 
       // Membership confirmed — send notification
       const sessionTime = new Date(watch.sessionActualStart).toLocaleTimeString("en-US", {
-        hour: "numeric", minute: "2-digit", hour12: true,
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
       });
       const notifRes = await fetch(`${BASE_URL}/api/notifications/level-up`, {
         method: "POST",
@@ -266,7 +282,9 @@ export async function GET(_req: NextRequest) {
         const result = await notifRes.json();
         await redis.del(watchKey);
         await redis.srem("levelup:watches", wid);
-        sent.push(`${watch.racerName} → ${levelName} (email=${result.emailSent}, sms=${result.smsSent})`);
+        sent.push(
+          `${watch.racerName} → ${levelName} (email=${result.emailSent}, sms=${result.smsSent})`,
+        );
       } else {
         stillWaiting.push(`${watch.racerName} → ${levelName} (notif API failed)`);
       }
@@ -286,6 +304,9 @@ export async function GET(_req: NextRequest) {
   } catch (err) {
     redis.disconnect();
     console.error("[level-up-watch] error:", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed" },
+      { status: 500 },
+    );
   }
 }

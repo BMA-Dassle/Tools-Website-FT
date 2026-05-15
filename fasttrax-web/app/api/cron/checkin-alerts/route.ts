@@ -160,7 +160,11 @@ async function fetchExpressParticipants(sessionId: number): Promise<Participant[
       const raw = await redis.get(`bookingrecord:${billId}`);
       if (!raw) continue;
       let rec: ExpressBookingRecord;
-      try { rec = JSON.parse(raw) as ExpressBookingRecord; } catch { continue; }
+      try {
+        rec = JSON.parse(raw) as ExpressBookingRecord;
+      } catch {
+        continue;
+      }
       if (rec.fastLane !== true) continue;
       const contact = rec.contact || {};
       const phone = contact.phone || null;
@@ -171,7 +175,8 @@ async function fetchExpressParticipants(sessionId: number): Promise<Participant[
         if (String(r.sessionId ?? "") !== String(sessionId)) continue;
         if (!r.personId) continue;
         const firstName = r.firstName || (r.racerName ? r.racerName.split(" ")[0] : "") || "Racer";
-        const lastName = r.lastName || (r.racerName ? r.racerName.split(" ").slice(1).join(" ") : "") || "";
+        const lastName =
+          r.lastName || (r.racerName ? r.racerName.split(" ").slice(1).join(" ") : "") || "";
         out.push({
           personId: r.personId,
           firstName,
@@ -207,8 +212,12 @@ function etMinuteKey(iso: string): string {
   if (isNaN(d.getTime())) return iso.slice(0, 16);
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   }).formatToParts(d);
   const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
@@ -218,7 +227,9 @@ function etMinuteKey(iso: string): string {
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -244,7 +255,9 @@ function todayETYmd(): string {
  *
  * Returns `{ added, scanned }` for logging.
  */
-async function backfillExpressSessionIndex(race: CurrentRace): Promise<{ added: number; scanned: number }> {
+async function backfillExpressSessionIndex(
+  race: CurrentRace,
+): Promise<{ added: number; scanned: number }> {
   try {
     const todayYmd = todayETYmd();
     const billIds = await redis.smembers(`bookingrecord:date:${todayYmd}`);
@@ -260,9 +273,17 @@ async function backfillExpressSessionIndex(race: CurrentRace): Promise<{ added: 
       if (!raw) continue;
       let rec: {
         fastLane?: boolean;
-        racers?: Array<{ track?: string | null; heatStart?: string; sessionId?: string | number | null }>;
+        racers?: Array<{
+          track?: string | null;
+          heatStart?: string;
+          sessionId?: string | number | null;
+        }>;
       };
-      try { rec = JSON.parse(raw); } catch { continue; }
+      try {
+        rec = JSON.parse(raw);
+      } catch {
+        continue;
+      }
       if (rec.fastLane !== true || !Array.isArray(rec.racers)) continue;
 
       // Does ANY racer on this booking belong to the active session?
@@ -272,9 +293,7 @@ async function backfillExpressSessionIndex(race: CurrentRace): Promise<{ added: 
         const rt = (r.track || "").toLowerCase();
         // Accept "mega" ≈ "mega", "blue" ≈ "blue track", "red" ≈ "red track"
         const tracksMatch =
-          rt === sessTrackLower ||
-          sessTrackLower.startsWith(rt) ||
-          rt.startsWith(sessTrackLower);
+          rt === sessTrackLower || sessTrackLower.startsWith(rt) || rt.startsWith(sessTrackLower);
         if (!tracksMatch) return false;
         if (!r.heatStart) return false;
         return etMinuteKey(r.heatStart) === sessMinute;
@@ -294,9 +313,7 @@ async function backfillExpressSessionIndex(race: CurrentRace): Promise<{ added: 
         if (r.sessionId) continue;
         const rt = (r.track || "").toLowerCase();
         const tracksMatch =
-          rt === sessTrackLower ||
-          sessTrackLower.startsWith(rt) ||
-          rt.startsWith(sessTrackLower);
+          rt === sessTrackLower || sessTrackLower.startsWith(rt) || rt.startsWith(sessTrackLower);
         if (!tracksMatch) continue;
         if (!r.heatStart || etMinuteKey(r.heatStart) !== sessMinute) continue;
         r.sessionId = race.sessionId;
@@ -307,11 +324,16 @@ async function backfillExpressSessionIndex(race: CurrentRace): Promise<{ added: 
       }
     }
     if (added > 0) {
-      console.log(`[checkin-alerts] backfill session=${race.sessionId} scanned=${billIds.length} added=${added}`);
+      console.log(
+        `[checkin-alerts] backfill session=${race.sessionId} scanned=${billIds.length} added=${added}`,
+      );
     }
     return { added, scanned: billIds.length };
   } catch (err) {
-    console.error(`[checkin-alerts] backfillExpressSessionIndex error for session=${race.sessionId}:`, err);
+    console.error(
+      `[checkin-alerts] backfillExpressSessionIndex error for session=${race.sessionId}:`,
+      err,
+    );
     return { added: 0, scanned: 0 };
   }
 }
@@ -337,20 +359,43 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
   const toFormatted = canonicalizePhone(to);
   if (!VOX_API_KEY) {
     console.error("[checkin-alerts] VOX_API_KEY missing");
-    await logSms({ ts, phone: toFormatted || to, source: "checkin-cron", status: null, ok: false, error: "VOX_API_KEY missing", body, ...audit });
+    await logSms({
+      ts,
+      phone: toFormatted || to,
+      source: "checkin-cron",
+      status: null,
+      ok: false,
+      error: "VOX_API_KEY missing",
+      body,
+      ...audit,
+    });
     return false;
   }
   if (!toFormatted) {
-    await logSms({ ts, phone: to, source: "checkin-cron", status: null, ok: false, error: "invalid phone format", body, ...audit });
+    await logSms({
+      ts,
+      phone: to,
+      source: "checkin-cron",
+      status: null,
+      ok: false,
+      error: "invalid phone format",
+      body,
+      ...audit,
+    });
     return false;
   }
 
   const result = await voxSend(toFormatted, body);
   if (result.ok) {
     await logSms({
-      ts, phone: toFormatted, source: "checkin-cron",
-      status: result.status, ok: true, body,
-      provider: result.provider, failedOver: result.failedOver,
+      ts,
+      phone: toFormatted,
+      source: "checkin-cron",
+      status: result.status,
+      ok: true,
+      body,
+      provider: result.provider,
+      failedOver: result.failedOver,
       // Carry voxId so the Vox status webhook can update this
       // entry's deliveryStatus when the carrier reports back.
       providerMessageId: result.voxId,
@@ -368,20 +413,44 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
       source: "checkin-cron",
       queuedAt: ts,
       shortCode: audit.shortCode,
-      audit: { sessionIds: audit.sessionIds, personIds: audit.personIds, memberCount: audit.memberCount },
+      audit: {
+        sessionIds: audit.sessionIds,
+        personIds: audit.personIds,
+        memberCount: audit.memberCount,
+      },
     });
     await logSms({
-      ts, phone: toFormatted, source: "checkin-cron",
-      status: result.status, ok: false,
+      ts,
+      phone: toFormatted,
+      source: "checkin-cron",
+      status: result.status,
+      ok: false,
       error: `[quota] queued for next reset window (${result.error || "429"})`,
-      body, ...audit,
+      body,
+      ...audit,
     });
     return false;
   }
 
   console.error(`[checkin-alerts] SMS ${result.status}: ${result.error}`);
-  await logSms({ ts, phone: toFormatted, source: "checkin-cron", status: result.status, ok: false, error: result.error || "", body, ...audit });
-  await queueRetry({ cron: "checkin-cron", phone: toFormatted, body, audit, status: result.status, error: result.error || "" });
+  await logSms({
+    ts,
+    phone: toFormatted,
+    source: "checkin-cron",
+    status: result.status,
+    ok: false,
+    error: result.error || "",
+    body,
+    ...audit,
+  });
+  await queueRetry({
+    cron: "checkin-cron",
+    phone: toFormatted,
+    body,
+    audit,
+    status: result.status,
+    error: result.error || "",
+  });
   return false;
 }
 
@@ -417,9 +486,13 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
 function timeET(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString("en-US", {
-      hour: "numeric", minute: "2-digit", timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York",
     });
-  } catch { return ""; }
+  } catch {
+    return "";
+  }
 }
 
 function raceHeader(race: CurrentRace): string {
@@ -439,7 +512,11 @@ function racerLabel(m: { firstName: string; lastName: string }): string {
 // punctuation. Trimmed the lockers reminder which lived purely to
 // blow segment count anyway.
 
-function buildSingleSmsBody(race: CurrentRace, member: GroupTicketMember, shortUrl: string): string {
+function buildSingleSmsBody(
+  race: CurrentRace,
+  member: GroupTicketMember,
+  shortUrl: string,
+): string {
   // URL embedded into the action line — keeping it on its own line
   // (the old shape) made some carriers / iOS render it as a separate
   // bubble or strip the link preview. Inline reads as one message.
@@ -464,7 +541,9 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
   const lines: string[] = [`FastTrax: NOW CHECKING IN`];
   for (const group of bySession.values()) {
     const first = group[0];
-    lines.push(`${first.heatNumber} - ${first.track} ${first.raceType} | ${timeET(first.scheduledStart)}`);
+    lines.push(
+      `${first.heatNumber} - ${first.track} ${first.raceType} | ${timeET(first.scheduledStart)}`,
+    );
     for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
   lines.push(`Head to Karting (1st Floor) now: ${shortUrl}`);
@@ -540,19 +619,21 @@ function buildGroupEmailHtml(
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
   );
-  const heading = recipient === "guardian"
-    ? `🏁 Your Racers Are Checking In`
-    : `🏁 Your Heats Are Checking In`;
-  const intro = recipient === "guardian"
-    ? `Heads up — your racers' heats are now checking in.`
-    : `Heads up — your heats are now checking in.`;
-  const rows = sorted.map((m) => {
-    return `<tr><td style="padding:6px 0;border-bottom:1px solid #eee;">
+  const heading =
+    recipient === "guardian" ? `🏁 Your Racers Are Checking In` : `🏁 Your Heats Are Checking In`;
+  const intro =
+    recipient === "guardian"
+      ? `Heads up — your racers' heats are now checking in.`
+      : `Heads up — your heats are now checking in.`;
+  const rows = sorted
+    .map((m) => {
+      return `<tr><td style="padding:6px 0;border-bottom:1px solid #eee;">
       <strong style="color:#1a1a1a">${racerLabel(m)}</strong>
       <span style="color:#555"> — ${m.track} ${m.raceType} Heat ${m.heatNumber}</span>
       <span style="color:#888"> · ${timeET(m.scheduledStart)}</span>
     </td></tr>`;
-  }).join("");
+    })
+    .join("");
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
@@ -614,7 +695,9 @@ export async function GET(req: NextRequest) {
   let singleSmsSends = 0;
   let emailSends = 0;
   const sessionResults: { track: string; sessionId: number; reason?: string }[] = [];
-  const retryStats = !dryRun ? await drainRetries("checkin-cron") : { attempted: 0, ok: 0, requeued: 0, dead: 0 };
+  const retryStats = !dryRun
+    ? await drainRetries("checkin-cron")
+    : { attempted: 0, ok: 0, requeued: 0, dead: 0 };
 
   try {
     const races = await fetchCurrentRaces();
@@ -659,7 +742,11 @@ export async function GET(req: NextRequest) {
       // their racer record.
       const backfill = await backfillExpressSessionIndex(race);
       if (backfill.added > 0) {
-        sessionResults.push({ track: trackKey, sessionId, note: `express-backfill: +${backfill.added}` } as typeof sessionResults[number] & { note: string });
+        sessionResults.push({
+          track: trackKey,
+          sessionId,
+          note: `express-backfill: +${backfill.added}`,
+        } as (typeof sessionResults)[number] & { note: string });
       }
 
       const [participants, allPandoraPids, expressHolders] = await Promise.all([
@@ -761,7 +848,8 @@ export async function GET(req: NextRequest) {
     for (const [phone, fresh] of freshSmsByPhone) {
       const all = allByPhone.get(phone) || fresh;
       const isGuardianFlavored = all.some((c) => c.resolved?.recipient === "guardian");
-      const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved?.contactFirstName;
+      const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved
+        ?.contactFirstName;
 
       if (all.length === 1) {
         const c = fresh[0];
@@ -795,17 +883,13 @@ export async function GET(req: NextRequest) {
           const body = isGuardianFlavored
             ? buildGuardianSingleSmsBody(member, url)
             : buildSingleSmsBody(c.race, member, url);
-          const ok = await sendSms(
-            phone,
-            body,
-            {
-              sessionIds: [c.race.sessionId],
-              personIds: [c.participant.personId],
-              memberCount: 1,
-              shortCode: code,
-              viaGuardian: isGuardianFlavored,
-            },
-          );
+          const ok = await sendSms(phone, body, {
+            sessionIds: [c.race.sessionId],
+            personIds: [c.participant.personId],
+            memberCount: 1,
+            shortCode: code,
+            viaGuardian: isGuardianFlavored,
+          });
           if (ok) {
             await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
             sent++;
@@ -988,7 +1072,10 @@ export async function GET(req: NextRequest) {
             errors++;
           }
         } catch (err) {
-          console.error(`[checkin-alerts] email error for personId=${c.participant.personId}:`, err);
+          console.error(
+            `[checkin-alerts] email error for personId=${c.participant.personId}:`,
+            err,
+          );
           errors++;
         }
         continue;
@@ -998,12 +1085,15 @@ export async function GET(req: NextRequest) {
       const members: GroupTicketMember[] = all.map(memberFromCandidate);
       if (dryRun) {
         const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
-        console.log(`[checkin-alerts DRY] would email ${displayEmail} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`);
+        console.log(
+          `[checkin-alerts DRY] would email ${displayEmail} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`,
+        );
         continue;
       }
 
       try {
-        const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved?.contactFirstName;
+        const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved
+          ?.contactFirstName;
         const groupId = await upsertGroupTicket({
           phone: "", // email-bucketed group has no phone
           locationId: FASTTRAX_LOCATION_ID,
@@ -1045,7 +1135,9 @@ export async function GET(req: NextRequest) {
       cron: "checkin",
       dryRun,
       elapsedMs: Date.now() - started,
-      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      invoker: req.headers.get("x-vercel-cron")
+        ? "vercel-cron"
+        : req.headers.get("user-agent") || "unknown",
       candidates: candidates.length,
       sent,
       skipped,
@@ -1076,7 +1168,9 @@ export async function GET(req: NextRequest) {
       cron: "checkin",
       dryRun,
       elapsedMs: Date.now() - started,
-      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      invoker: req.headers.get("x-vercel-cron")
+        ? "vercel-cron"
+        : req.headers.get("user-agent") || "unknown",
       candidates: 0,
       sent,
       skipped,
@@ -1084,7 +1178,13 @@ export async function GET(req: NextRequest) {
       fatalError: err instanceof Error ? err.message : "cron error",
     });
     return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "cron error", sent, skipped, errors },
+      {
+        ok: false,
+        error: err instanceof Error ? err.message : "cron error",
+        sent,
+        skipped,
+        errors,
+      },
       { status: 500 },
     );
   }

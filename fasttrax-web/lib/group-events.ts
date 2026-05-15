@@ -9,9 +9,9 @@
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface GroupEventRaceTrack {
-  track: string;        // "Red" | "Blue"
-  productId: string;    // $0 BMI product ID
-  pageId: string;       // BMI page ID
+  track: string; // "Red" | "Blue"
+  productId: string; // $0 BMI product ID
+  pageId: string; // BMI page ID
 }
 
 export interface GroupEventAttraction {
@@ -32,24 +32,24 @@ export interface GroupEventAttraction {
 }
 
 export interface GroupEventMealWindow {
-  label: string;               // "Food Buffet"
-  location: string;            // "HeadPinz"
-  startTime: string;           // "11:30" (24h)
-  endTime: string;             // "12:30" (24h)
+  label: string; // "Food Buffet"
+  location: string; // "HeadPinz"
+  startTime: string; // "11:30" (24h)
+  endTime: string; // "12:30" (24h)
 }
 
 export interface GroupEvent {
   slug: string;
   companyName: string;
   eventTitle: string;
-  eventDate: string;           // "2026-06-19"
-  startTime: string;           // "09:00"
-  endTime: string;             // "13:00"
-  allowedDomains: string[];    // ["healthnet.com", "headpinz.com"]
+  eventDate: string; // "2026-06-19"
+  startTime: string; // "09:00"
+  endTime: string; // "13:00"
+  allowedDomains: string[]; // ["healthnet.com", "headpinz.com"]
   heroImage?: string;
-  accentColor: string;         // hex, used for buttons/accents
+  accentColor: string; // hex, used for buttons/accents
   attractions: GroupEventAttraction[];
-  racingTier: "starter";       // all group events = starter only
+  racingTier: "starter"; // all group events = starter only
   includesLicense: boolean;
   maxGuests?: number;
   /** Minimum age to RSVP (e.g. 18 for corporate events). Validated at name step. */
@@ -69,7 +69,8 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     startTime: "09:00",
     endTime: "14:00",
     allowedDomains: ["healthcareswfl.org", "headpinz.com", "fasttraxent.com"],
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/group-events/healthcare-network-logo.png",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/group-events/healthcare-network-logo.png",
     accentColor: "#00E2E5",
     racingTier: "starter",
     includesLicense: true,
@@ -87,7 +88,8 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "reservation",
         label: "Go-Kart Racing",
         description: "High-speed electric karts on Red or Blue track",
-        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+        image:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
         maxPerGuest: 1,
         bmiTracks: [
           { track: "Red", productId: "47122743", pageId: "47123025" },
@@ -99,7 +101,8 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "reservation",
         label: "Nexus Gel Blaster",
         description: "15-min gel blaster battles in a glowing arena",
-        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
+        image:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
         maxPerGuest: 1,
         bmiProductId: "47122817",
         bmiPageId: "47123025",
@@ -109,7 +112,8 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "reservation",
         label: "Nexus Laser Tag",
         description: "Multi-level laser tag with haptic vests",
-        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
+        image:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
         maxPerGuest: 1,
         bmiProductId: "47122935",
         bmiPageId: "47123025",
@@ -120,14 +124,16 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "freeflow",
         label: "Bowling",
         description: "Classic & VIP bowling lanes",
-        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+        image:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
       },
       {
         slug: "electric-shuffle",
         type: "freeflow",
         label: "Electric Shuffle",
         description: "AR-powered shuffleboard tables",
-        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
+        image:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
       },
       {
         slug: "food",
@@ -146,7 +152,8 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         type: "freeflow",
         label: "Arcade Games",
         description: "Full arcade access",
-        image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp",
+        image:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp",
       },
     ],
   },

@@ -24,7 +24,10 @@ export default function RacingPage() {
       <TrackStatus />
 
       {/* ── Section: Race Types & Qualifications ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="bg-[#000418]"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"
@@ -40,7 +43,12 @@ export default function RacingPage() {
           </h2>
           <p
             className="text-center mx-auto mb-10 font-body"
-            style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
+            style={{
+              color: "rgba(245,236,238,0.8)",
+              fontSize: "18px",
+              lineHeight: "1.6",
+              maxWidth: "700px",
+            }}
           >
             Every racer starts in Starter. Prove your speed to unlock faster tiers.
           </p>
@@ -107,7 +115,10 @@ export default function RacingPage() {
                   padding: "24px 20px",
                 }}
               >
-                <h3 className="font-heading uppercase mb-3" style={{ color: rt.color, fontSize: "24px", letterSpacing: "1.2px" }}>
+                <h3
+                  className="font-heading uppercase mb-3"
+                  style={{ color: rt.color, fontSize: "24px", letterSpacing: "1.2px" }}
+                >
                   {rt.title}
                 </h3>
                 <div className="font-body mb-3 flex flex-col gap-1" style={{ fontSize: "14px" }}>
@@ -115,14 +126,21 @@ export default function RacingPage() {
                     <strong style={{ color: "rgba(245,236,238,0.9)" }}>Age/Height:</strong> {rt.age}
                   </p>
                   <p style={{ color: "rgba(245,236,238,0.6)" }}>
-                    <strong style={{ color: "rgba(245,236,238,0.9)" }}>Qualification:</strong> {rt.qual}
+                    <strong style={{ color: "rgba(245,236,238,0.9)" }}>Qualification:</strong>{" "}
+                    {rt.qual}
                   </p>
                 </div>
-                <p className="font-body flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}>
+                <p
+                  className="font-body flex-1"
+                  style={{ color: "rgba(245,236,238,0.8)", fontSize: "15px", lineHeight: "1.5" }}
+                >
                   {rt.desc}
                 </p>
                 {"note" in rt && (
-                  <p className="font-body font-semibold mt-3" style={{ color: "rgb(255,193,7)", fontSize: "13px" }}>
+                  <p
+                    className="font-body font-semibold mt-3"
+                    style={{ color: "rgb(255,193,7)", fontSize: "13px" }}
+                  >
                     ⚠ {(rt as { note: string }).note}
                   </p>
                 )}
@@ -143,13 +161,18 @@ export default function RacingPage() {
               border: "1px solid rgba(255,193,7,0.25)",
             }}
           >
-            All racers must start in Starter — you cannot skip levels. To unlock Intermediate, you must hit the qualifying lap time in Starter. To unlock Pro, you must qualify in Intermediate first.
+            All racers must start in Starter — you cannot skip levels. To unlock Intermediate, you
+            must hit the qualifying lap time in Starter. To unlock Pro, you must qualify in
+            Intermediate first.
           </p>
         </div>
       </section>
 
       {/* ── Section: Racer Requirements ── */}
-      <section className="bg-[#000418]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}>
+      <section
+        className="bg-[#000418]"
+        style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 120px)" }}
+      >
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"
@@ -165,9 +188,15 @@ export default function RacingPage() {
           </h2>
           <p
             className="text-center mx-auto mb-10 font-body"
-            style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
+            style={{
+              color: "rgba(245,236,238,0.8)",
+              fontSize: "18px",
+              lineHeight: "1.6",
+              maxWidth: "700px",
+            }}
           >
-            All racers must meet the age and height requirements for their kart class. A $4.99 Racing License (valid for one year) is required.
+            All racers must meet the age and height requirements for their kart class. A $4.99
+            Racing License (valid for one year) is required.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
@@ -189,7 +218,10 @@ export default function RacingPage() {
                   { label: "Ages", value: "7\u201313" },
                   { label: "Height", value: "49\u201d to 70\u201d" },
                   { label: "Track", value: "Blue Track only" },
-                  { label: "Note", value: "First-time Junior races not available on Mega Track Tuesdays" },
+                  {
+                    label: "Note",
+                    value: "First-time Junior races not available on Mega Track Tuesdays",
+                  },
                 ],
               },
               {
@@ -213,14 +245,33 @@ export default function RacingPage() {
                   padding: "24px 20px",
                 }}
               >
-                <h3 className="font-heading uppercase mb-4" style={{ color: kart.color, fontSize: "24px", letterSpacing: "1.2px" }}>
+                <h3
+                  className="font-heading uppercase mb-4"
+                  style={{ color: kart.color, fontSize: "24px", letterSpacing: "1.2px" }}
+                >
                   {kart.title}
                 </h3>
                 <div className="flex flex-col gap-2">
                   {kart.items.map((item) => (
-                    <div key={item.label} className="font-body flex justify-between gap-3" style={{ fontSize: "15px", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "8px" }}>
+                    <div
+                      key={item.label}
+                      className="font-body flex justify-between gap-3"
+                      style={{
+                        fontSize: "15px",
+                        borderBottom: "1px solid rgba(255,255,255,0.06)",
+                        paddingBottom: "8px",
+                      }}
+                    >
                       <span style={{ color: "rgba(245,236,238,0.6)" }}>{item.label}</span>
-                      <span style={{ color: "rgba(245,236,238,0.95)", fontWeight: 500, textAlign: "right" }}>{item.value}</span>
+                      <span
+                        style={{
+                          color: "rgba(245,236,238,0.95)",
+                          fontWeight: 500,
+                          textAlign: "right",
+                        }}
+                      >
+                        {item.value}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -241,7 +292,8 @@ export default function RacingPage() {
               border: "1px solid rgba(255,193,7,0.25)",
             }}
           >
-            FastTrax has strict age and height requirements, some enforceable by state regulations. Misrepresenting age may result in removal from the facility.
+            FastTrax has strict age and height requirements, some enforceable by state regulations.
+            Misrepresenting age may result in removal from the facility.
           </p>
         </div>
       </section>
@@ -364,7 +416,10 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: World-Class Partnerships ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="bg-[#000418]"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"
@@ -418,7 +473,14 @@ export default function RacingPage() {
                   <img
                     src={card.logo}
                     alt={card.title}
-                    style={{ maxHeight: "48px", maxWidth: "160px", objectFit: "contain", borderRadius: "555px", backgroundColor: "rgba(255,255,255,0.92)", padding: "6px 16px" }}
+                    style={{
+                      maxHeight: "48px",
+                      maxWidth: "160px",
+                      objectFit: "contain",
+                      borderRadius: "555px",
+                      backgroundColor: "rgba(255,255,255,0.92)",
+                      padding: "6px 16px",
+                    }}
                   />
                 </div>
                 <h3
@@ -473,10 +535,7 @@ export default function RacingPage() {
               style={{
                 fontSize: "24px",
                 letterSpacing: "1.2px",
-                color:
-                  activeTrack === "split"
-                    ? "rgb(255,255,255)"
-                    : "rgba(255,255,255,0.35)",
+                color: activeTrack === "split" ? "rgb(255,255,255)" : "rgba(255,255,255,0.35)",
                 transition: "color 0.3s",
               }}
             >
@@ -488,10 +547,7 @@ export default function RacingPage() {
               style={{
                 fontSize: "24px",
                 letterSpacing: "1.2px",
-                color:
-                  activeTrack === "mega"
-                    ? "rgb(255,255,255)"
-                    : "rgba(255,255,255,0.35)",
+                color: activeTrack === "mega" ? "rgb(255,255,255)" : "rgba(255,255,255,0.35)",
                 transition: "color 0.3s",
               }}
             >
@@ -621,8 +677,8 @@ export default function RacingPage() {
                     border: "1px solid rgba(255,193,7,0.3)",
                   }}
                 >
-                  &#9888;&#65039; Junior Notice: First-time Juniors cannot race
-                  the Mega Track. You must qualify on a split-track day first.
+                  &#9888;&#65039; Junior Notice: First-time Juniors cannot race the Mega Track. You
+                  must qualify on a split-track day first.
                 </p>
               </div>
 
@@ -783,7 +839,14 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: The Racer's Journey ── */}
-      <section id="racers-journey" className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)", scrollMarginTop: "100px" }}>
+      <section
+        id="racers-journey"
+        className="bg-[#000418]"
+        style={{
+          padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)",
+          scrollMarginTop: "100px",
+        }}
+      >
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"
@@ -804,7 +867,7 @@ export default function RacingPage() {
               {
                 num: "1",
                 title: "Arrive 30 Minutes Early",
-                desc: "Give yourself the \"Pre-Race Window.\" Arriving early gives you time for any unexpected lines at check-in so you\u2019re cleared for the pits without losing a second of track time.",
+                desc: 'Give yourself the "Pre-Race Window." Arriving early gives you time for any unexpected lines at check-in so you\u2019re cleared for the pits without losing a second of track time.',
                 borderColor: "rgb(228,28,29)",
               },
               {
@@ -874,10 +937,7 @@ export default function RacingPage() {
       </section>
 
       {/* ── Section: Bottom CTA with background image ── */}
-      <section
-        className="relative overflow-hidden"
-        style={{ minHeight: "656px" }}
-      >
+      <section className="relative overflow-hidden" style={{ minHeight: "656px" }}>
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/bottom-cta-bg.webp"
           alt="Racing"

@@ -23,7 +23,7 @@ export default function AutoplayVideo({ src, poster, className }: AutoplayVideoP
           video.pause();
         }
       },
-      { threshold: 0.3 }
+      { threshold: 0.3 },
     );
 
     observer.observe(video);

@@ -3,7 +3,11 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
-import type { BowlingReservation, BowlingReservationPlayer, ReservationLine } from "@/lib/bowling-db";
+import type {
+  BowlingReservation,
+  BowlingReservationPlayer,
+  ReservationLine,
+} from "@/lib/bowling-db";
 
 /**
  * Bowling check-in page — `/hp/book/bowling/checkin?neonId=X`
@@ -30,9 +34,63 @@ type ReservationWithLines = BowlingReservation & {
 
 // ── Shoe sizes ───────────────────────────────────────────────────────
 
-const TODDLER_SIZES = ["6","7","8","9","10","11","12","13"];
-const MALE_SIZES    = ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12","12.5","13","13.5","14","14.5","15"];
-const FEMALE_SIZES  = ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12"];
+const TODDLER_SIZES = ["6", "7", "8", "9", "10", "11", "12", "13"];
+const MALE_SIZES = [
+  "1",
+  "1.5",
+  "2",
+  "2.5",
+  "3",
+  "3.5",
+  "4",
+  "4.5",
+  "5",
+  "5.5",
+  "6",
+  "6.5",
+  "7",
+  "7.5",
+  "8",
+  "8.5",
+  "9",
+  "9.5",
+  "10",
+  "10.5",
+  "11",
+  "11.5",
+  "12",
+  "12.5",
+  "13",
+  "13.5",
+  "14",
+  "14.5",
+  "15",
+];
+const FEMALE_SIZES = [
+  "1",
+  "1.5",
+  "2",
+  "2.5",
+  "3",
+  "3.5",
+  "4",
+  "4.5",
+  "5",
+  "5.5",
+  "6",
+  "6.5",
+  "7",
+  "7.5",
+  "8",
+  "8.5",
+  "9",
+  "9.5",
+  "10",
+  "10.5",
+  "11",
+  "11.5",
+  "12",
+];
 
 type ShoeCategory = "Toddler" | "Male" | "Female";
 
@@ -45,7 +103,9 @@ function formatTime(iso: string): string {
       minute: "2-digit",
       timeZone: "America/New_York",
     });
-  } catch { return ""; }
+  } catch {
+    return "";
+  }
 }
 
 // ── Mobile-optimized bowler card ─────────────────────────────────────
@@ -64,21 +124,28 @@ function BowlerCard({
   onUpdate: (patch: Partial<BowlingReservationPlayer>) => void;
 }) {
   // Derive category from saved value
-  const savedCat: ShoeCategory | null = player.shoeSize?.startsWith("Toddler") || player.shoeSize?.startsWith("Kids")
-    ? "Toddler"
-    : player.shoeSize?.startsWith("Male") || player.shoeSize?.startsWith("Men") || player.shoeSize?.startsWith("Adult")
-    ? "Male"
-    : player.shoeSize?.startsWith("Female") || player.shoeSize?.startsWith("Women")
-    ? "Female"
-    : null;
+  const savedCat: ShoeCategory | null =
+    player.shoeSize?.startsWith("Toddler") || player.shoeSize?.startsWith("Kids")
+      ? "Toddler"
+      : player.shoeSize?.startsWith("Male") ||
+          player.shoeSize?.startsWith("Men") ||
+          player.shoeSize?.startsWith("Adult")
+        ? "Male"
+        : player.shoeSize?.startsWith("Female") || player.shoeSize?.startsWith("Women")
+          ? "Female"
+          : null;
 
   const [wantsShoes, setWantsShoes] = useState(!!savedCat);
   const [activeCat, setActiveCat] = useState<ShoeCategory | null>(savedCat);
 
-  const nums = activeCat === "Toddler" ? TODDLER_SIZES
-    : activeCat === "Male" ? MALE_SIZES
-    : activeCat === "Female" ? FEMALE_SIZES
-    : [];
+  const nums =
+    activeCat === "Toddler"
+      ? TODDLER_SIZES
+      : activeCat === "Male"
+        ? MALE_SIZES
+        : activeCat === "Female"
+          ? FEMALE_SIZES
+          : [];
   const currentNum = player.shoeSize?.split(" ")[1] ?? null;
   const canPickShoes = !!player.shoeSize || shoeSizesAssigned < shoePairsAllowed;
 
@@ -133,9 +200,8 @@ function BowlerCard({
               onClick={() => onUpdate({ bumpers: val })}
               className="px-5 py-2.5 text-sm font-body font-semibold transition-colors min-w-[60px]"
               style={{
-                backgroundColor: player.bumpers === val
-                  ? val ? CORAL : "rgba(255,255,255,0.15)"
-                  : "transparent",
+                backgroundColor:
+                  player.bumpers === val ? (val ? CORAL : "rgba(255,255,255,0.15)") : "transparent",
                 color: player.bumpers === val ? "white" : "rgba(255,255,255,0.35)",
               }}
             >
@@ -232,7 +298,16 @@ function BowlerCard({
 
 // ── Main content ─────────────────────────────────────────────────────
 
-type Stage = "loading" | "choice" | "guest-services" | "express" | "opening" | "success" | "error" | "not-ready" | "cancelled";
+type Stage =
+  | "loading"
+  | "choice"
+  | "guest-services"
+  | "express"
+  | "opening"
+  | "success"
+  | "error"
+  | "not-ready"
+  | "cancelled";
 
 function CheckinContent() {
   const sp = useSearchParams();
@@ -275,7 +350,7 @@ function CheckinContent() {
           return;
         }
 
-        const resData = await resRes.json() as ReservationWithLines;
+        const resData = (await resRes.json()) as ReservationWithLines;
         setReservation(resData);
 
         if (resData.status === "cancelled") {
@@ -284,7 +359,7 @@ function CheckinContent() {
         }
 
         if (playersRes.ok) {
-          const pData = await playersRes.json() as {
+          const pData = (await playersRes.json()) as {
             players: BowlingReservationPlayer[];
             shoePairsAllowed: number;
             laneNumbers: number[];
@@ -295,7 +370,7 @@ function CheckinContent() {
         }
 
         if (checkinRes.ok) {
-          const cData = await checkinRes.json() as {
+          const cData = (await checkinRes.json()) as {
             phase?: string;
             laneLabel?: string;
             laneNumbers?: number[];
@@ -326,8 +401,10 @@ function CheckinContent() {
         }
       }
     })();
-    return () => { alive = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [neonId]);
 
   // ── Poll for lane ready when not_ready ──────────────────────────
@@ -336,9 +413,11 @@ function CheckinContent() {
     let alive = true;
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, { cache: "no-store" });
+        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, {
+          cache: "no-store",
+        });
         if (!res.ok || !alive) return;
-        const data = await res.json() as { phase?: string; laneLabel?: string };
+        const data = (await res.json()) as { phase?: string; laneLabel?: string };
         if (!alive) return;
         const p = data.phase ?? "";
         if (p === "ready") {
@@ -349,9 +428,14 @@ function CheckinContent() {
           if (data.laneLabel) setLaneLabel(data.laneLabel);
           setStage("success");
         }
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
     }, 15_000);
-    return () => { alive = false; clearInterval(timer); };
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
   }, [stage, neonId]);
 
   // ── Poll for lane opened while user is mid-flow ────────────────
@@ -363,9 +447,15 @@ function CheckinContent() {
     let alive = true;
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, { cache: "no-store" });
+        const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, {
+          cache: "no-store",
+        });
         if (!res.ok || !alive) return;
-        const data = await res.json() as { phase?: string; laneLabel?: string; laneNumbers?: number[] };
+        const data = (await res.json()) as {
+          phase?: string;
+          laneLabel?: string;
+          laneNumbers?: number[];
+        };
         if (!alive) return;
         const p = data.phase ?? "";
         if (p === "running" || p === "completed") {
@@ -374,9 +464,14 @@ function CheckinContent() {
           setPhase(p);
           setStage("success");
         }
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
     }, 10_000);
-    return () => { alive = false; clearInterval(timer); };
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
   }, [stage, neonId]);
 
   // ── Player update ──────────────────────────────────────────────
@@ -390,9 +485,7 @@ function CheckinContent() {
     setStage("opening");
 
     // Validate: require name for bowlers with shoe sizes
-    const missing = players.find(
-      (p) => p.shoeSize && (!p.name || p.name.startsWith("Bowler ")),
-    );
+    const missing = players.find((p) => p.shoeSize && (!p.name || p.name.startsWith("Bowler ")));
     if (missing) {
       setSaveError(`Please enter a name for Bowler ${missing.slot}.`);
       setStage("express");
@@ -415,7 +508,7 @@ function CheckinContent() {
         }),
       });
       if (!saveRes.ok) {
-        const d = await saveRes.json().catch(() => ({})) as { error?: string };
+        const d = (await saveRes.json().catch(() => ({}))) as { error?: string };
         throw new Error(d.error ?? "Failed to save bowler info");
       }
 
@@ -423,7 +516,11 @@ function CheckinContent() {
       const openRes = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, {
         method: "POST",
       });
-      const openData = await openRes.json() as { ok?: boolean; laneLabel?: string; error?: string };
+      const openData = (await openRes.json()) as {
+        ok?: boolean;
+        laneLabel?: string;
+        error?: string;
+      };
       if (!openRes.ok) {
         throw new Error(openData.error ?? "Failed to open lane");
       }
@@ -433,9 +530,15 @@ function CheckinContent() {
     } catch (err) {
       // If lane was already opened externally, check status and show success
       try {
-        const checkRes = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, { cache: "no-store" });
+        const checkRes = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, {
+          cache: "no-store",
+        });
         if (checkRes.ok) {
-          const checkData = await checkRes.json() as { phase?: string; laneLabel?: string; laneNumbers?: number[] };
+          const checkData = (await checkRes.json()) as {
+            phase?: string;
+            laneLabel?: string;
+            laneNumbers?: number[];
+          };
           if (checkData.phase === "running" || checkData.phase === "completed") {
             if (checkData.laneLabel) setLaneLabel(checkData.laneLabel);
             if (checkData.laneNumbers?.length) setLaneNumbers(checkData.laneNumbers);
@@ -443,7 +546,9 @@ function CheckinContent() {
             return;
           }
         }
-      } catch { /* fall through to error */ }
+      } catch {
+        /* fall through to error */
+      }
       setSaveError(err instanceof Error ? err.message : "Something went wrong");
       setStage("express");
     }
@@ -456,11 +561,13 @@ function CheckinContent() {
   const hasAnyShoes = players.some((p) => p.shoeSize);
 
   // Build lane label from laneNumbers if not set from API
-  const displayLaneLabel = laneLabel || (
-    laneNumbers.length === 1 ? `Lane ${laneNumbers[0]}`
-    : laneNumbers.length > 1 ? `Lanes ${laneNumbers.join(", ")}`
-    : ""
-  );
+  const displayLaneLabel =
+    laneLabel ||
+    (laneNumbers.length === 1
+      ? `Lane ${laneNumbers[0]}`
+      : laneNumbers.length > 1
+        ? `Lanes ${laneNumbers.join(", ")}`
+        : "");
 
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
@@ -468,7 +575,6 @@ function CheckinContent() {
 
       <main className="pt-32 sm:pt-36 pb-32 px-4 sm:px-6">
         <div className="max-w-lg mx-auto">
-
           {/* ── Loading ── */}
           {stage === "loading" && (
             <div className="text-center py-20">
@@ -512,7 +618,8 @@ function CheckinContent() {
                   Lane Not Ready Yet
                 </p>
                 <p className="text-white/50 text-sm leading-relaxed max-w-xs mx-auto">
-                  We&apos;re setting up your lane. This page will update automatically when it&apos;s ready.
+                  We&apos;re setting up your lane. This page will update automatically when
+                  it&apos;s ready.
                 </p>
               </div>
               {reservation && (
@@ -528,7 +635,9 @@ function CheckinContent() {
                   {reservation.qamfReservationId && (
                     <div className="flex justify-between">
                       <span className="text-white/40">Ref</span>
-                      <span className="text-white font-mono text-xs">{reservation.qamfReservationId}</span>
+                      <span className="text-white font-mono text-xs">
+                        {reservation.qamfReservationId}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -553,8 +662,11 @@ function CheckinContent() {
                   Your Lane is Ready!
                 </h1>
                 <p className="text-white/50 text-sm">
-                  {centerName}{timeStr ? ` · ${timeStr}` : ""}
-                  {reservation?.playerCount ? ` · ${reservation.playerCount} bowler${reservation.playerCount !== 1 ? "s" : ""}` : ""}
+                  {centerName}
+                  {timeStr ? ` · ${timeStr}` : ""}
+                  {reservation?.playerCount
+                    ? ` · ${reservation.playerCount} bowler${reservation.playerCount !== 1 ? "s" : ""}`
+                    : ""}
                 </p>
               </div>
 
@@ -565,7 +677,8 @@ function CheckinContent() {
                 onClick={() => setStage("express")}
                 className="w-full rounded-2xl border p-6 text-left transition-all hover:scale-[1.01] active:scale-[0.99]"
                 style={{
-                  background: "linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(22,163,74,0.08) 100%)",
+                  background:
+                    "linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(22,163,74,0.08) 100%)",
                   borderColor: "rgba(34,197,94,0.35)",
                 }}
               >
@@ -691,7 +804,8 @@ function CheckinContent() {
               {/* Shoe pair counter */}
               {shoePairsAllowed > 0 && (
                 <p className="text-white/30 text-xs text-right">
-                  {players.filter((p) => p.shoeSize).length} of {shoePairsAllowed} shoe pair{shoePairsAllowed !== 1 ? "s" : ""} assigned
+                  {players.filter((p) => p.shoeSize).length} of {shoePairsAllowed} shoe pair
+                  {shoePairsAllowed !== 1 ? "s" : ""} assigned
                 </p>
               )}
 
@@ -723,25 +837,20 @@ function CheckinContent() {
                   Let&apos;s Bowl!
                 </h1>
                 {displayLaneLabel && (
-                  <p
-                    className="font-heading font-bold text-xl mt-3"
-                    style={{ color: "#4ade80" }}
-                  >
+                  <p className="font-heading font-bold text-xl mt-3" style={{ color: "#4ade80" }}>
                     {displayLaneLabel} is open
                   </p>
                 )}
               </div>
               {hasAnyShoes && (
-                <p className="text-white/60 text-sm">
-                  🥿 Shoes will be delivered to your lane.
-                </p>
+                <p className="text-white/60 text-sm">🥿 Shoes will be delivered to your lane.</p>
               )}
               <p className="text-white/35 text-xs">
-                {centerName}{guestFirst ? ` · ${guestFirst}` : ""}
+                {centerName}
+                {guestFirst ? ` · ${guestFirst}` : ""}
               </p>
             </div>
           )}
-
         </div>
       </main>
 
@@ -760,10 +869,12 @@ function CheckinContent() {
               disabled={stage === "opening" || !hasAnyName}
               className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white text-base transition-all hover:scale-[1.02] active:scale-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               style={{
-                background: stage === "opening"
-                  ? "rgba(34,197,94,0.3)"
-                  : "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
-                boxShadow: stage !== "opening" && hasAnyName ? "0 4px 24px rgba(34,197,94,0.4)" : "none",
+                background:
+                  stage === "opening"
+                    ? "rgba(34,197,94,0.3)"
+                    : "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                boxShadow:
+                  stage !== "opening" && hasAnyName ? "0 4px 24px rgba(34,197,94,0.4)" : "none",
               }}
             >
               {stage === "opening" ? (

@@ -2,7 +2,13 @@ import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
 import { voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
-import { canonicalizePhone, hasSmsConsent, pickPhone, pickContactWithGuardianFallback, type Participant } from "@/lib/participant-contact";
+import {
+  canonicalizePhone,
+  hasSmsConsent,
+  pickPhone,
+  pickContactWithGuardianFallback,
+  type Participant,
+} from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import type { VideoMatch } from "@/lib/video-match";
 import type { CameraHistoryEntry } from "@/lib/camera-assign";
@@ -98,15 +104,15 @@ function buildVideoEmailHtml(
   const headline = isGuardian
     ? `Race video ready for ${racerFirstName}!`
     : `Hey ${racerFirstName}!`;
-  const subheadOwner = isGuardian
-    ? `${racerFirstName}'s`
-    : `Your`;
+  const subheadOwner = isGuardian ? `${racerFirstName}'s` : `Your`;
   // Greeting line included only on guardian variant — addresses the
   // parent by name when we have it, falls back to a generic salutation
   // ("Hey there!") when Pandora gave us a guardian record without a
   // first name.
   const guardianSalute = isGuardian
-    ? (guardianFirstName ? `<p style="margin:0 0 10px 0;font-size:14px;color:#444;">Hey ${safe(guardianFirstName)},</p>` : "")
+    ? guardianFirstName
+      ? `<p style="margin:0 0 10px 0;font-size:14px;color:#444;">Hey ${safe(guardianFirstName)},</p>`
+      : ""
     : "";
 
   const thumb = thumbnailUrl
@@ -285,7 +291,13 @@ export interface NotifyResult {
      *  state. */
     providerMessageId?: string;
   };
-  email: { attempted: boolean; ok?: boolean; status?: number | null; error?: string; sentTo?: string };
+  email: {
+    attempted: boolean;
+    ok?: boolean;
+    status?: number | null;
+    error?: string;
+    sentTo?: string;
+  };
   /** Which recipient the picker chose for this notify event — present
    *  whenever notify was attempted. Caller writes this onto the saved
    *  match record so the videos admin can surface a "↻ guardian" chip. */
@@ -402,9 +414,9 @@ export async function notifyVideoReady(
           ? undefined
           : isQuotaQueued
             ? result.sms.error
-            // Tag guardian-recipient sends so admin can audit the
-            // fallback rate without a separate column.
-            : `${recipient === "guardian" ? "[guardian] " : ""}${(send.error || "").slice(0, 500)}`,
+            : // Tag guardian-recipient sends so admin can audit the
+              // fallback rate without a separate column.
+              `${recipient === "guardian" ? "[guardian] " : ""}${(send.error || "").slice(0, 500)}`,
         body,
         sessionIds: [match.sessionId],
         personIds: [match.personId],
@@ -460,14 +472,22 @@ export async function notifyVideoReady(
   const to = candidate.email || "";
   if (to) {
     result.email.attempted = true;
-    const subject = recipient === "guardian"
-      ? `Race video ready for ${entry.firstName || "your racer"}`
-      : `Your FastTrax race video is ready`;
-    const html = buildVideoEmailHtml(entry, customerUrlWithRef, match.thumbnailUrl, recipient, guardianFirstName);
+    const subject =
+      recipient === "guardian"
+        ? `Race video ready for ${entry.firstName || "your racer"}`
+        : `Your FastTrax race video is ready`;
+    const html = buildVideoEmailHtml(
+      entry,
+      customerUrlWithRef,
+      match.thumbnailUrl,
+      recipient,
+      guardianFirstName,
+    );
     // toName: who we're addressing — guardian when fallback, racer otherwise
-    const toName = recipient === "guardian"
-      ? `${guardianFirstName ?? ""} ${candidate.contactLastName ?? ""}`.trim() || undefined
-      : `${entry.firstName || ""} ${entry.lastName || ""}`.trim() || undefined;
+    const toName =
+      recipient === "guardian"
+        ? `${guardianFirstName ?? ""} ${candidate.contactLastName ?? ""}`.trim() || undefined
+        : `${entry.firstName || ""} ${entry.lastName || ""}`.trim() || undefined;
     try {
       const send = await sendGridEmail({
         to,

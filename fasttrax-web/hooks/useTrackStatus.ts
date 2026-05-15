@@ -40,10 +40,10 @@ export type TrackStatusData = {
 
 export type CurrentRace = {
   trackName: string;
-  raceType: string;      // "Pro", "Intermediate", "Starter"
+  raceType: string; // "Pro", "Intermediate", "Starter"
   heatNumber: number;
   scheduledStart: string; // ISO — the heat's scheduled start time (matches booked heatStart)
-  calledAt: string;       // ISO — when BMI fired the SessionAboutToStart notification
+  calledAt: string; // ISO — when BMI fired the SessionAboutToStart notification
   sessionId: number;
 };
 

@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  isKbfBookableDate,
-  isKbfBookableTime,
-  kbfBookableReason,
-} from "@/lib/kbf-schedule";
+import { isKbfBookableDate, isKbfBookableTime, kbfBookableReason } from "@/lib/kbf-schedule";
 
 /**
  * GET /api/kbf/offers?center={centerId}&date={ymd}&players={N}
@@ -94,12 +90,12 @@ interface QamfAlternative {
 interface QamfOfferItem {
   ItemId: number;
   Quantity: number;
-  QuantityType: string;     // "Games" | "Minutes"
-  Time: string;             // "17:00" — HH:MM ET local
-  Total: number;            // price in dollars
-  Remaining: number;        // open lanes; 0 means probe time was bad
+  QuantityType: string; // "Games" | "Minutes"
+  Time: string; // "17:00" — HH:MM ET local
+  Total: number; // price in dollars
+  Remaining: number; // open lanes; 0 means probe time was bad
   Lanes: number;
-  Reason?: string;          // e.g. "TimeTooEarly", "LanesNotAvailable"
+  Reason?: string; // e.g. "TimeTooEarly", "LanesNotAvailable"
   Alternatives?: QamfAlternative[] | null;
 }
 
@@ -173,10 +169,7 @@ export async function GET(req: NextRequest) {
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       console.error(`[kbf/offers] QAMF ${res.status}:`, txt);
-      return NextResponse.json(
-        { error: "Failed to load offers" },
-        { status: 502 },
-      );
+      return NextResponse.json({ error: "Failed to load offers" }, { status: 502 });
     }
     const raw = (await res.json()) as QamfOffer[] | unknown;
     const allOffers: QamfOffer[] = Array.isArray(raw) ? raw : [];

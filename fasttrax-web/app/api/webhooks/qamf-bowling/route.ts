@@ -71,12 +71,12 @@ const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 // QAMF reservation-level status → Neon status mapping.
 // See docs/qamf-lane-lifecycle.md for the full state machine.
 const QAMF_STATUS_MAP: Record<string, BowlingReservation["status"] | "cancel"> = {
-  Confirmed:  "confirmed",
-  Ready:      "arrived",     // reservation-level Ready = lanes assigned
-  Arrived:    "arrived",
-  Completed:  "completed",
-  Canceled:   "cancel",
-  Cancelled:  "cancel",
+  Confirmed: "confirmed",
+  Ready: "arrived", // reservation-level Ready = lanes assigned
+  Arrived: "arrived",
+  Completed: "completed",
+  Canceled: "cancel",
+  Cancelled: "cancel",
 };
 
 const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
@@ -94,7 +94,9 @@ const TRACKED_PREFIXES = ["X", "K", "C"];
 
 /** Multi-key support for HMAC rotation. */
 function loadSecrets(): string[] {
-  return SECRETS_RAW.split(",").map((s) => s.trim()).filter(Boolean);
+  return SECRETS_RAW.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /** Standard Webhooks signature format: `v1,<base64-sig>` */
@@ -117,17 +119,11 @@ function verifySignature(
     if (incomingBuf.length === 0) continue;
 
     for (const key of secrets) {
-      const keyVariants = [
-        Buffer.from(key, "base64"),
-        Buffer.from(key, "utf8"),
-      ];
+      const keyVariants = [Buffer.from(key, "base64"), Buffer.from(key, "utf8")];
       for (const keyBuf of keyVariants) {
         if (keyBuf.length === 0) continue;
         const expected = createHmac("sha256", keyBuf).update(signedPayload).digest();
-        if (
-          expected.length === incomingBuf.length &&
-          timingSafeEqual(expected, incomingBuf)
-        ) {
+        if (expected.length === incomingBuf.length && timingSafeEqual(expected, incomingBuf)) {
           return true;
         }
       }
@@ -184,13 +180,13 @@ async function handleCancellation(
       const idempotencyKey = `qamf-cancel-${webhookId}`;
       const result = await processSquareBowlingRefund({
         depositPaymentId: reservation.squareDepositPaymentId,
-        giftCardId:       reservation.squareGiftCardId,
-        dayofOrderId:     reservation.squareDayofOrderId,
-        locationId:       reservation.centerCode,
+        giftCardId: reservation.squareGiftCardId,
+        dayofOrderId: reservation.squareDayofOrderId,
+        locationId: reservation.centerCode,
         idempotencyKey,
       });
       squareRefundId = result.refundId;
-      refundCents    = result.refundedCents;
+      refundCents = result.refundedCents;
       refunded = true;
       console.log(
         `[qamf-bowling] neonId=${reservation.id} refunded ${refundCents}¢ refundId=${result.refundId}`,
@@ -285,7 +281,7 @@ async function handleWalkinCreated(
 
   console.log(
     `[qamf-bowling] walkin created neonId=${reservation.id} qamfId=${qamfId}` +
-    ` source=${bookingSource} guest=${guestName ?? "?"} phone=${guestPhone ? "yes" : "no"}`,
+      ` source=${bookingSource} guest=${guestName ?? "?"} phone=${guestPhone ? "yes" : "no"}`,
   );
 
   // Check if lanes are already Running (K Play Now → skip SMS)
@@ -358,7 +354,11 @@ async function processEvent(
   if (eventType === "reservation.deleted") {
     console.log(`[qamf-bowling] reservation.deleted qamfId=${qamfId} neonId=${reservation.id}`);
     const cr = await handleCancellation(reservation, webhookId);
-    return { kind: "cancelled", refunded: cr.refunded, error: cr.error ? "refund-failed" : undefined };
+    return {
+      kind: "cancelled",
+      refunded: cr.refunded,
+      error: cr.error ? "refund-failed" : undefined,
+    };
   }
 
   // ── reservation.updated → map status + lane-open trigger ──────────
@@ -432,21 +432,24 @@ async function processEvent(
     //     time to collect shoe sizes via check-in before sending to KDS)
     //  3. Lanes[].Status="Running"  (lane-level) — all prefixes
     const webhookLanes = Array.isArray(data?.Lanes)
-      ? (data!.Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: QamfWebhookPlayer[] }>)
+      ? (data!.Lanes as Array<{
+          LaneNumber?: number;
+          Status?: string;
+          Players?: QamfWebhookPlayer[];
+        }>)
       : [];
     const rezStatusReady = qamfStatus === "Ready";
     const hasReadyLane = webhookLanes.some((l) => l.Status === "Ready");
     const hasRunningLane = webhookLanes.some((l) => l.Status === "Running");
     const isKiosk = qamfId.startsWith("K");
-    const shouldTriggerLaneOpen =
-      rezStatusReady || hasRunningLane || (!isKiosk && hasReadyLane);
+    const shouldTriggerLaneOpen = rezStatusReady || hasRunningLane || (!isKiosk && hasReadyLane);
 
     if (shouldTriggerLaneOpen && !reservation.dayofOrderSentAt) {
       const tLaneOpen = Date.now();
       console.log(
         `[qamf-bowling] lane-open trigger neonId=${reservation.id} qamfId=${qamfId}` +
-        ` Data.Status="${qamfStatus}" rezReady=${rezStatusReady} laneReady=${hasReadyLane} laneRunning=${hasRunningLane} isKiosk=${isKiosk}` +
-        ` webhookId=${webhookId}`,
+          ` Data.Status="${qamfStatus}" rezReady=${rezStatusReady} laneReady=${hasReadyLane} laneRunning=${hasRunningLane} isKiosk=${isKiosk}` +
+          ` webhookId=${webhookId}`,
       );
 
       // Extract lane numbers from webhook payload (Ready or Running)
@@ -462,7 +465,9 @@ async function processEvent(
           try {
             const tQamf = Date.now();
             const qamfRes = await getReservation(qamfCenterId, qamfId);
-            console.log(`[qamf-bowling] getReservation fallback neonId=${reservation.id} ${Date.now() - tQamf}ms`);
+            console.log(
+              `[qamf-bowling] getReservation fallback neonId=${reservation.id} ${Date.now() - tQamf}ms`,
+            );
             laneNumbers = (qamfRes.Lanes ?? [])
               .map((l) => l.LaneNumber)
               .filter((n): n is number => typeof n === "number");
@@ -516,9 +521,9 @@ async function processEvent(
         laneOpenAction = "lane-open";
         console.log(
           `[qamf-bowling] lane-open neonId=${reservation.id} totalMs=${Date.now() - tLaneOpen}` +
-          ` lane="${laneResult.laneLabel}" kitchen=${laneResult.kitchenItemsUpdated}` +
-          ` paymentId=${laneResult.paymentId ?? "none"}` +
-          (laneResult.error ? ` error=${laneResult.error}` : ""),
+            ` lane="${laneResult.laneLabel}" kitchen=${laneResult.kitchenItemsUpdated}` +
+            ` paymentId=${laneResult.paymentId ?? "none"}` +
+            (laneResult.error ? ` error=${laneResult.error}` : ""),
         );
       } catch (err) {
         console.error(
@@ -533,7 +538,11 @@ async function processEvent(
       // K/C SMS disabled until we confirm self-service lane open works for kiosk/conqueror.
       // Gate: only notify when physical lanes are Closed (ready to start,
       // not Error or Open for someone else) AND within 30 min of booked time.
-      if (!reservation.laneReadySentAt && laneNumbers.length > 0 && reservation.bookingSource === "web") {
+      if (
+        !reservation.laneReadySentAt &&
+        laneNumbers.length > 0 &&
+        reservation.bookingSource === "web"
+      ) {
         const bookedAt = new Date(reservation.bookedAt).getTime();
         const minsUntilBooked = (bookedAt - Date.now()) / 60_000;
 
@@ -550,18 +559,19 @@ async function processEvent(
                 assignedPhysical.every((pl) => pl.Status === "Closed");
 
               if (allClosed) {
-                const ll = laneNumbers.length === 1
-                  ? `Lane ${laneNumbers[0]}`
-                  : `Lanes ${laneNumbers.join(", ")}`;
+                const ll =
+                  laneNumbers.length === 1
+                    ? `Lane ${laneNumbers[0]}`
+                    : `Lanes ${laneNumbers.join(", ")}`;
                 await sendLaneReadyNotification(reservation, ll);
                 console.log(
                   `[qamf-bowling] lane-ready SMS sent neonId=${reservation.id}` +
-                  ` lanes=${laneNumbers.join(",")} allClosed=true`,
+                    ` lanes=${laneNumbers.join(",")} allClosed=true`,
                 );
               } else {
                 console.log(
                   `[qamf-bowling] lane-ready SMS skipped neonId=${reservation.id}` +
-                  ` — physical lanes not all Closed: ${assignedPhysical.map((pl) => `${pl.LaneNumber}=${pl.Status}`).join(",")}`,
+                    ` — physical lanes not all Closed: ${assignedPhysical.map((pl) => `${pl.LaneNumber}=${pl.Status}`).join(",")}`,
                 );
               }
             }
@@ -587,10 +597,15 @@ async function processEvent(
     if (neonAction === "cancel") {
       console.log(
         `[qamf-bowling] reservation.updated status=${qamfStatus}` +
-        ` → cancellation qamfId=${qamfId} neonId=${reservation.id}`,
+          ` → cancellation qamfId=${qamfId} neonId=${reservation.id}`,
       );
       const cr = await handleCancellation(reservation, webhookId);
-      return { kind: "cancelled", refunded: cr.refunded, laneOpenAction, error: cr.error ? "refund-failed" : undefined };
+      return {
+        kind: "cancelled",
+        refunded: cr.refunded,
+        laneOpenAction,
+        error: cr.error ? "refund-failed" : undefined,
+      };
     }
 
     // Status transition — skip no-ops and downgrades
@@ -707,9 +722,7 @@ export async function POST(req: NextRequest) {
 
   // ── 8. Drop lanes.updated (physical lane noise) ────────────────────
   if (eventType === "lanes.updated") {
-    redis
-      .set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL)
-      .catch(() => void 0);
+    redis.set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL).catch(() => void 0);
     return NextResponse.json({ ok: true, kind: "skipped", eventType });
   }
 
@@ -747,9 +760,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Heartbeat
-  redis
-    .set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL)
-    .catch(() => void 0);
+  redis.set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL).catch(() => void 0);
 
   console.log(
     `[qamf-bowling] ${eventType} webhookId=${webhookId.slice(0, 8)}… → ${result.kind} (${Date.now() - started}ms)`,

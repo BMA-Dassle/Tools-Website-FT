@@ -26,8 +26,8 @@ async function main() {
 
   const codes = raw
     .split(/[\n\r]+/)
-    .map(c => c.trim())
-    .filter(c => /^[A-Z0-9]{8,12}$/.test(c));
+    .map((c) => c.trim())
+    .filter((c) => /^[A-Z0-9]{8,12}$/.test(c));
 
   console.log(`Found ${codes.length} valid codes`);
 
@@ -66,7 +66,9 @@ async function main() {
   // Get stats
   const statsRes = await fetch(`${API_URL}/api/pov-codes?action=stats`);
   const stats = await statsRes.json();
-  console.log(`Redis stats: ${stats.available} available, ${stats.used} used, ${stats.total} total`);
+  console.log(
+    `Redis stats: ${stats.available} available, ${stats.used} used, ${stats.total} total`,
+  );
 }
 
 main().catch(console.error);

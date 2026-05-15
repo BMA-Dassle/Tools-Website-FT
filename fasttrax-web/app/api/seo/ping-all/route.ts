@@ -133,9 +133,7 @@ export async function POST(req: NextRequest) {
   const [googleBundle, indexnowResults] = await Promise.all([
     (async () => {
       try {
-        const token = await getGoogleAccessToken([
-          "https://www.googleapis.com/auth/webmasters",
-        ]);
+        const token = await getGoogleAccessToken(["https://www.googleapis.com/auth/webmasters"]);
         const accessible = await listGscSites(token);
         const results = await Promise.all(
           DOMAINS.map(({ host, sitemap }) => submitToGoogle(token, accessible, host, sitemap)),
@@ -154,9 +152,7 @@ export async function POST(req: NextRequest) {
       }
     })(),
     Promise.all(
-      DOMAINS.map(({ host, sitemap }): Promise<IndexNowResult> =>
-        submitSitemapUrls(host, sitemap),
-      ),
+      DOMAINS.map(({ host, sitemap }): Promise<IndexNowResult> => submitSitemapUrls(host, sitemap)),
     ),
   ]);
 

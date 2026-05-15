@@ -161,12 +161,12 @@ export type PandoraEventType =
 
 export const FORM_EVENT_TO_PANDORA: Record<string, PandoraEventType> = {
   // Group-events form values
-  corporate:       "Company Event",
+  corporate: "Company Event",
   "team-building": "Company Event",
-  fundraiser:      "Other Event",
-  "school-group":  "Other Event",
+  fundraiser: "Other Event",
+  "school-group": "Other Event",
   // Birthday form values
-  "birthday-kid":   "Child Birthday",
+  "birthday-kid": "Child Birthday",
   "birthday-adult": "Adult Birthday",
   // Shared
   other: "Other Event",

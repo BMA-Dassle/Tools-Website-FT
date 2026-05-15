@@ -18,7 +18,9 @@ const API_KEY = process.env.BOOKING_API_KEY || "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBB
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -43,7 +45,10 @@ export async function GET(req: NextRequest) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "Invalid date — use YYYY-MM-DD" }, { status: 400 });
   }
-  const limit = Math.max(1, Math.min(2000, parseInt(searchParams.get("limit") || "500", 10) || 500));
+  const limit = Math.max(
+    1,
+    Math.min(2000, parseInt(searchParams.get("limit") || "500", 10) || 500),
+  );
   const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10) || 0);
 
   const cron = searchParams.get("cron");
@@ -63,7 +68,10 @@ export async function GET(req: NextRequest) {
     if (!byCron.has(e.cron)) byCron.set(e.cron, []);
     byCron.get(e.cron)!.push(e);
   }
-  const summary: Record<string, { fires: number; lastFiredAt: string | null; totalSent: number; autonomous: number }> = {};
+  const summary: Record<
+    string,
+    { fires: number; lastFiredAt: string | null; totalSent: number; autonomous: number }
+  > = {};
   for (const [k, list] of byCron) {
     // Vercel sends invoker="vercel-cron/1.0" (with version suffix), so match by prefix
     const autonomous = list.filter((e) => (e.invoker || "").startsWith("vercel-cron")).length;

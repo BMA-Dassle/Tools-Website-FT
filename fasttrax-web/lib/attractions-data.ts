@@ -5,7 +5,14 @@
 
 // ── Attraction Types ──────────────────────────────────────────────────────────
 
-export type AttractionSlug = "gel-blaster" | "laser-tag" | "duck-pin" | "shuffly" | "racing" | "bowling" | "kids-bowl-free";
+export type AttractionSlug =
+  | "gel-blaster"
+  | "laser-tag"
+  | "duck-pin"
+  | "shuffly"
+  | "racing"
+  | "bowling"
+  | "kids-bowl-free";
 export type BookingMode = "per-person" | "per-slot";
 export type LocationKey = "fasttrax" | "headpinz" | "naples";
 
@@ -87,14 +94,31 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     bookingMode: "per-person",
     maxGroupSize: 16,
     showWaiverPrompt: true,
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     color: "#00E2E5",
     description: "High-tech gel blaster battles in an immersive glowing arena",
     building: "HeadPinz",
     durationLabel: "15 min session",
     products: [
-      { productId: "8976680", name: "Gel Blaster Session", price: 12, location: "headpinz", durationMin: 15, isCombo: false, maxPerBooking: 16 },
-      { productId: "7565025", name: "Gel Blaster Session", price: 12, location: "naples", durationMin: 15, isCombo: false, maxPerBooking: 16 },
+      {
+        productId: "8976680",
+        name: "Gel Blaster Session",
+        price: 12,
+        location: "headpinz",
+        durationMin: 15,
+        isCombo: false,
+        maxPerBooking: 16,
+      },
+      {
+        productId: "7565025",
+        name: "Gel Blaster Session",
+        price: 12,
+        location: "naples",
+        durationMin: 15,
+        isCombo: false,
+        maxPerBooking: 16,
+      },
     ],
   },
   "laser-tag": {
@@ -107,14 +131,31 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     bookingMode: "per-person",
     maxGroupSize: 17,
     showWaiverPrompt: true,
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     color: "#8652FF",
     description: "Multi-level laser tag with haptic vests and immersive lighting",
     building: "HeadPinz",
     durationLabel: "15 min session",
     products: [
-      { productId: "8976685", name: "Laser Tag Session", price: 10, location: "headpinz", durationMin: 15, isCombo: false, maxPerBooking: 17 },
-      { productId: "7565567", name: "Laser Tag Session", price: 10, location: "naples", durationMin: 15, isCombo: false, maxPerBooking: 17 },
+      {
+        productId: "8976685",
+        name: "Laser Tag Session",
+        price: 10,
+        location: "headpinz",
+        durationMin: 15,
+        isCombo: false,
+        maxPerBooking: 17,
+      },
+      {
+        productId: "7565567",
+        name: "Laser Tag Session",
+        price: 10,
+        location: "naples",
+        durationMin: 15,
+        isCombo: false,
+        maxPerBooking: 17,
+      },
     ],
   },
   "duck-pin": {
@@ -126,14 +167,31 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     bookingMode: "per-slot",
     maxGroupSize: 6,
     showWaiverPrompt: false,
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
     color: "#F59E0B",
     description: "Modern duckpin bowling — smaller pins, lighter balls, nonstop fun",
     building: "FastTrax Fort Myers",
     durationLabel: "30 min or 1 hour",
     products: [
-      { productId: "24711034", name: "Duck Pin - 30 Minutes", price: 17.50, location: "fasttrax", durationMin: 30, isCombo: false, maxPerBooking: 6 },
-      { productId: "23345635", name: "Duck Pin - 1 Hour", price: 35, location: "fasttrax", durationMin: 60, isCombo: false, maxPerBooking: 6 },
+      {
+        productId: "24711034",
+        name: "Duck Pin - 30 Minutes",
+        price: 17.5,
+        location: "fasttrax",
+        durationMin: 30,
+        isCombo: false,
+        maxPerBooking: 6,
+      },
+      {
+        productId: "23345635",
+        name: "Duck Pin - 1 Hour",
+        price: 35,
+        location: "fasttrax",
+        durationMin: 60,
+        isCombo: false,
+        maxPerBooking: 6,
+      },
     ],
   },
   shuffly: {
@@ -145,20 +203,85 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     bookingMode: "per-slot",
     maxGroupSize: 10,
     showWaiverPrompt: false,
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
     color: "#10B981",
     description: "AR-powered shuffleboard with dynamic LED lighting and automatic scoring",
     building: "FastTrax & HeadPinz",
     durationLabel: "30 min or 1 hour",
     products: [
-      { productId: "24709515", name: "Shuffly - 30 Minutes", price: 17.50, location: "fasttrax", durationMin: 30, isCombo: false, maxPerBooking: 10 },
-      { productId: "23345625", name: "Shuffly - 1 Hour", price: 35, location: "fasttrax", durationMin: 60, isCombo: false, maxPerBooking: 10 },
-      { productId: "24731238", name: "Shuffly 1HR + Beer Bucket", price: 40, location: "fasttrax", durationMin: 60, isCombo: true, maxPerBooking: 10 },
-      { productId: "25769498", name: "Shuffly 1HR + Pizza", price: 40, location: "fasttrax", durationMin: 60, isCombo: true, maxPerBooking: 10 },
-      { productId: "24709632", name: "Shuffly - 30 Minutes", price: 17.50, location: "headpinz", durationMin: 30, isCombo: false, maxPerBooking: 10 },
-      { productId: "24408105", name: "Shuffly - 1 Hour", price: 35, location: "headpinz", durationMin: 60, isCombo: false, maxPerBooking: 10 },
-      { productId: "25609182", name: "Shuffly 1HR + Beer Bucket", price: 40, location: "headpinz", durationMin: 60, isCombo: true, maxPerBooking: 10 },
-      { productId: "25769534", name: "Shuffly 1HR + Pizza", price: 40, location: "headpinz", durationMin: 60, isCombo: true, maxPerBooking: 10 },
+      {
+        productId: "24709515",
+        name: "Shuffly - 30 Minutes",
+        price: 17.5,
+        location: "fasttrax",
+        durationMin: 30,
+        isCombo: false,
+        maxPerBooking: 10,
+      },
+      {
+        productId: "23345625",
+        name: "Shuffly - 1 Hour",
+        price: 35,
+        location: "fasttrax",
+        durationMin: 60,
+        isCombo: false,
+        maxPerBooking: 10,
+      },
+      {
+        productId: "24731238",
+        name: "Shuffly 1HR + Beer Bucket",
+        price: 40,
+        location: "fasttrax",
+        durationMin: 60,
+        isCombo: true,
+        maxPerBooking: 10,
+      },
+      {
+        productId: "25769498",
+        name: "Shuffly 1HR + Pizza",
+        price: 40,
+        location: "fasttrax",
+        durationMin: 60,
+        isCombo: true,
+        maxPerBooking: 10,
+      },
+      {
+        productId: "24709632",
+        name: "Shuffly - 30 Minutes",
+        price: 17.5,
+        location: "headpinz",
+        durationMin: 30,
+        isCombo: false,
+        maxPerBooking: 10,
+      },
+      {
+        productId: "24408105",
+        name: "Shuffly - 1 Hour",
+        price: 35,
+        location: "headpinz",
+        durationMin: 60,
+        isCombo: false,
+        maxPerBooking: 10,
+      },
+      {
+        productId: "25609182",
+        name: "Shuffly 1HR + Beer Bucket",
+        price: 40,
+        location: "headpinz",
+        durationMin: 60,
+        isCombo: true,
+        maxPerBooking: 10,
+      },
+      {
+        productId: "25769534",
+        name: "Shuffly 1HR + Pizza",
+        price: 40,
+        location: "headpinz",
+        durationMin: 60,
+        isCombo: true,
+        maxPerBooking: 10,
+      },
     ],
   },
   racing: {
@@ -170,7 +293,8 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     bookingMode: "per-person",
     maxGroupSize: 10,
     showWaiverPrompt: true,
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
     color: "#E41C1D",
     description: "Florida's largest indoor go-kart racing on 3 unique tracks",
     building: "FastTrax Fort Myers",
@@ -186,14 +310,31 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     bookingMode: "per-slot",
     maxGroupSize: 8,
     showWaiverPrompt: false,
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     color: "#fd5b56",
     description: "Classic & VIP bowling with NeoVerse and HyperBowling",
     building: "HeadPinz",
     durationLabel: "1-2 hours",
     products: [
-      { productId: "qamf-9172", name: "Bowling", price: 0, location: "headpinz", durationMin: 60, isCombo: false, maxPerBooking: 8 },
-      { productId: "qamf-3148", name: "Bowling", price: 0, location: "naples", durationMin: 60, isCombo: false, maxPerBooking: 8 },
+      {
+        productId: "qamf-9172",
+        name: "Bowling",
+        price: 0,
+        location: "headpinz",
+        durationMin: 60,
+        isCombo: false,
+        maxPerBooking: 8,
+      },
+      {
+        productId: "qamf-3148",
+        name: "Bowling",
+        price: 0,
+        location: "naples",
+        durationMin: 60,
+        isCombo: false,
+        maxPerBooking: 8,
+      },
     ],
   },
   "kids-bowl-free": {
@@ -211,7 +352,8 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     // Same hero image used at the top of /hp/fort-myers/birthdays —
     // the girl with the bowling ball reads as a kid-focused KBF
     // tile better than the generic gallery-bowling photo.
-    heroImage: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
     color: "#FFD700",
     description: "Free bowling for registered kids — Mon–Fri",
     building: "HeadPinz",
@@ -221,8 +363,24 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     // KBF tile visible on the Naples view. Pricing/booking happens
     // through /api/kbf/* — these rows are display-only.
     products: [
-      { productId: "kbf-headpinz", name: "Kids Bowl Free", price: 0, location: "headpinz", durationMin: 60, isCombo: false, maxPerBooking: 8 },
-      { productId: "kbf-naples", name: "Kids Bowl Free", price: 0, location: "naples", durationMin: 60, isCombo: false, maxPerBooking: 8 },
+      {
+        productId: "kbf-headpinz",
+        name: "Kids Bowl Free",
+        price: 0,
+        location: "headpinz",
+        durationMin: 60,
+        isCombo: false,
+        maxPerBooking: 8,
+      },
+      {
+        productId: "kbf-naples",
+        name: "Kids Bowl Free",
+        price: 0,
+        location: "naples",
+        durationMin: 60,
+        isCombo: false,
+        maxPerBooking: 8,
+      },
     ],
   },
 };
@@ -311,7 +469,10 @@ export interface AttractionProduct {
 }
 
 /** Known product IDs mapped to attractions */
-const PRODUCT_ATTRACTION_MAP: Record<number, { attraction: AttractionSlug; location: LocationKey }> = {
+const PRODUCT_ATTRACTION_MAP: Record<
+  number,
+  { attraction: AttractionSlug; location: LocationKey }
+> = {
   // Gel Blasters
   8976680: { attraction: "gel-blaster", location: "headpinz" },
   7565025: { attraction: "gel-blaster", location: "naples" },
@@ -334,7 +495,10 @@ const PRODUCT_ATTRACTION_MAP: Record<number, { attraction: AttractionSlug; locat
 };
 
 /** Classify products from BMI page response into attraction products */
-export function classifyAttractionProducts(pages: BmiPage[], attractionSlug?: AttractionSlug): AttractionProduct[] {
+export function classifyAttractionProducts(
+  pages: BmiPage[],
+  attractionSlug?: AttractionSlug,
+): AttractionProduct[] {
   const products: AttractionProduct[] = [];
 
   for (const page of pages) {
@@ -343,7 +507,7 @@ export function classifyAttractionProducts(pages: BmiPage[], attractionSlug?: At
       if (!mapping) continue;
       if (attractionSlug && mapping.attraction !== attractionSlug) continue;
 
-      const cashPrice = p.prices?.find(pr => pr.depositKind === 0);
+      const cashPrice = p.prices?.find((pr) => pr.depositKind === 0);
       products.push({
         productId: String(p.id),
         pageId: String(page.id),
@@ -354,7 +518,8 @@ export function classifyAttractionProducts(pages: BmiPage[], attractionSlug?: At
         bookingMode: p.bookingMode === 1 ? "per-slot" : "per-person",
         maxAmount: p.maxAmount === -1 ? 99 : p.maxAmount,
         durationMin: p.durationSec ? Math.round(p.durationSec / 60) : null,
-        isCombo: p.isCombo || p.name.toLowerCase().includes("combo") || p.name.toLowerCase().includes("+"),
+        isCombo:
+          p.isCombo || p.name.toLowerCase().includes("combo") || p.name.toLowerCase().includes("+"),
         raw: p,
       });
     }
@@ -366,16 +531,27 @@ export function classifyAttractionProducts(pages: BmiPage[], attractionSlug?: At
 // ── API Helpers (reuse from racing data layer) ────────────────────────────────
 
 const FL_TAX_RATE = 0.065;
-export function calculateTax(subtotal: number) { return Math.round(subtotal * FL_TAX_RATE * 100) / 100; }
-export function calculateTotal(subtotal: number) { return Math.round((subtotal + calculateTax(subtotal)) * 100) / 100; }
+export function calculateTax(subtotal: number) {
+  return Math.round(subtotal * FL_TAX_RATE * 100) / 100;
+}
+export function calculateTotal(subtotal: number) {
+  return Math.round((subtotal + calculateTax(subtotal)) * 100) / 100;
+}
 
 /** Get the BMI client key for a location */
-export function getClientKey(config: AttractionConfig | undefined, location: LocationKey | null): string | undefined {
+export function getClientKey(
+  config: AttractionConfig | undefined,
+  location: LocationKey | null,
+): string | undefined {
   if (!config?.clientKeys || !location) return undefined;
   return config.clientKeys[location];
 }
 
-export async function bmiGet(endpoint: string, params?: Record<string, string>, clientKey?: string) {
+export async function bmiGet(
+  endpoint: string,
+  params?: Record<string, string>,
+  clientKey?: string,
+) {
   const qs = new URLSearchParams({ endpoint, ...params, ...(clientKey ? { clientKey } : {}) });
   const res = await fetch(`/api/bmi?${qs.toString()}`);
   if (!res.ok) throw new Error(`BMI GET ${endpoint} failed: ${res.status}`);
@@ -407,7 +583,7 @@ export async function bookAttractionSlot(
     quantity,
     resourceId: Number(proposal.blocks[0]?.block.resourceId) || -1,
     proposal: {
-      blocks: proposal.blocks.map(pb => ({
+      blocks: proposal.blocks.map((pb) => ({
         productLineIds: pb.productLineIds || [],
         block: { ...pb.block, resourceId: Number(pb.block.resourceId) || -1 },
       })),

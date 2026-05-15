@@ -26,7 +26,6 @@ export default function GroupEvents() {
   return (
     <section className="bg-[#000418]" style={{ padding: "120px 0" }}>
       <div className="max-w-7xl mx-auto px-8 text-center">
-
         {/* Heading */}
         <h2
           className="font-heading font-black uppercase text-white leading-[0.9] mb-6"
@@ -46,18 +45,14 @@ export default function GroupEvents() {
             maxWidth: "700px",
           }}
         >
-          Whether it&apos;s racing, bowling, or a full-campus takeover, we have the largest entertainment
-          capacity in Southwest Florida. We handle the details; you take the trophy.
+          Whether it&apos;s racing, bowling, or a full-campus takeover, we have the largest
+          entertainment capacity in Southwest Florida. We handle the details; you take the trophy.
         </p>
 
         {/* Cards — 3 col */}
         <div className="flex flex-col sm:flex-row gap-6 justify-center mb-12">
           {events.map((e) => (
-            <div
-              key={e.title}
-              className="flex-1"
-              style={{ maxWidth: "445px" }}
-            >
+            <div key={e.title} className="flex-1" style={{ maxWidth: "445px" }}>
               <div
                 className="h-full"
                 style={{
@@ -73,7 +68,13 @@ export default function GroupEvents() {
                 >
                   {e.title}
                 </h3>
-                <p style={{ color: "rgba(245,236,238,0.698)", fontSize: "16px", fontFamily: "var(--font-body)" }}>
+                <p
+                  style={{
+                    color: "rgba(245,236,238,0.698)",
+                    fontSize: "16px",
+                    fontFamily: "var(--font-body)",
+                  }}
+                >
                   {e.desc}
                 </p>
               </div>
@@ -94,7 +95,6 @@ export default function GroupEvents() {
         >
           PLAN YOUR GROUP EVENT
         </Link>
-
       </div>
     </section>
   );

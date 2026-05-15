@@ -19,7 +19,12 @@ export async function GET(req: NextRequest) {
 
     // Get today's date in ET (Eastern Time — FastTrax is in Florida)
     const now = new Date();
-    const etFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+    const etFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
     const todayET = etFormatter.format(now); // YYYY-MM-DD
 
     // Get all booking records for today
@@ -78,7 +83,11 @@ export async function GET(req: NextRequest) {
         const scheduleLines = racers
           .filter((r: { heatStart?: string }) => r.heatStart)
           .map((r: { racerName?: string; heatName?: string; heatStart?: string }) => {
-            const time = new Date(r.heatStart!.replace(/Z$/, "")).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+            const time = new Date(r.heatStart!.replace(/Z$/, "")).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            });
             return `<strong>${r.racerName || "Racer"}</strong> — ${r.heatName || "Race"} at ${time}`;
           });
         const schedule = scheduleLines.join("<br/>");
@@ -90,7 +99,8 @@ export async function GET(req: NextRequest) {
         const expressLane = record.fastLane === true;
 
         // Determine waiver URL
-        const waiverUrl = record.waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe";
+        const waiverUrl =
+          record.waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe";
 
         // Send via the notification API
         const notifRes = await fetch(`${BASE_URL}/api/notifications/race-day-instructions`, {
@@ -110,7 +120,9 @@ export async function GET(req: NextRequest) {
         if (notifRes.ok) {
           const result = await notifRes.json();
           if (!result.duplicate) sent++;
-          console.log(`[race-day-cron] ${result.duplicate ? "SKIP (dup)" : "SENT"} ${billId} → ${email} (heat in ${Math.round(diffMin)}min, express=${expressLane})`);
+          console.log(
+            `[race-day-cron] ${result.duplicate ? "SKIP (dup)" : "SENT"} ${billId} → ${email} (heat in ${Math.round(diffMin)}min, express=${expressLane})`,
+          );
         } else {
           errors.push(`${billId}: HTTP ${notifRes.status}`);
         }
@@ -130,6 +142,9 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     redis.disconnect();
     console.error("[race-day-cron] error:", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed" },
+      { status: 500 },
+    );
   }
 }

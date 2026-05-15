@@ -23,10 +23,7 @@ import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
  * Params:
  *   id — bowling_reservations.id (integer)
  */
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await ctx.params;
   const id = parseInt(idStr, 10);
   if (isNaN(id) || id < 1) {
@@ -53,10 +50,7 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
 /** Cancellations must be requested at least this many ms before the booking. */
 const CANCEL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
-export async function DELETE(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await ctx.params;
   const id = parseInt(idStr, 10);
   if (isNaN(id) || id < 1) {
@@ -75,13 +69,16 @@ export async function DELETE(
   }
 
   // ── 1-hour cancellation window ──────────────────────────────────
-  const bookedAtMs  = new Date(reservation.bookedAt).getTime();
-  const nowMs       = Date.now();
+  const bookedAtMs = new Date(reservation.bookedAt).getTime();
+  const nowMs = Date.now();
   const msUntilGame = bookedAtMs - nowMs;
 
   if (msUntilGame < CANCEL_WINDOW_MS) {
     return NextResponse.json(
-      { error: "too_late", message: "Cancellations must be made at least 1 hour before your start time." },
+      {
+        error: "too_late",
+        message: "Cancellations must be made at least 1 hour before your start time.",
+      },
       { status: 409 },
     );
   }
@@ -106,13 +103,13 @@ export async function DELETE(
     try {
       const result = await processSquareBowlingRefund({
         depositPaymentId: reservation.squareDepositPaymentId,
-        giftCardId:       reservation.squareGiftCardId,
-        dayofOrderId:     reservation.squareDayofOrderId,
-        locationId:       reservation.centerCode,
-        idempotencyKey:   randomUUID(),
+        giftCardId: reservation.squareGiftCardId,
+        dayofOrderId: reservation.squareDayofOrderId,
+        locationId: reservation.centerCode,
+        idempotencyKey: randomUUID(),
       });
       squareRefundId = result.refundId;
-      refundCents    = result.refundedCents;
+      refundCents = result.refundedCents;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Refund request failed";
       return NextResponse.json({ error: msg }, { status: 502 });

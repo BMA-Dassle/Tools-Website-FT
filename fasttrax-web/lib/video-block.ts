@@ -82,16 +82,17 @@ export async function getBlockState(opts: {
   const { sessionId, personId, videoCode } = opts;
 
   // Fetch all three in parallel — same network round-trip.
-  const keys: string[] = [
-    personKey(sessionId, personId),
-    sessionKey(sessionId),
-  ];
+  const keys: string[] = [personKey(sessionId, personId), sessionKey(sessionId)];
   if (videoCode) keys.unshift(videoKey(videoCode));
 
   const raws = await redis.mget(...keys);
   const parsed: (StoredBlock | null)[] = raws.map((raw) => {
     if (!raw) return null;
-    try { return JSON.parse(raw) as StoredBlock; } catch { return null; }
+    try {
+      return JSON.parse(raw) as StoredBlock;
+    } catch {
+      return null;
+    }
   });
 
   // Unpack in the order we queued: [videoKey?, personKey, sessionKey]
@@ -164,12 +165,7 @@ export async function blockPerson(
     blockedBy: ctx?.blockedBy,
     state: "block",
   };
-  await redis.set(
-    personKey(sessionId, personId),
-    JSON.stringify(payload),
-    "EX",
-    TTL_SECONDS,
-  );
+  await redis.set(personKey(sessionId, personId), JSON.stringify(payload), "EX", TTL_SECONDS);
 }
 
 /**
@@ -188,12 +184,7 @@ export async function overrideUnblockPerson(
     blockedBy: ctx?.blockedBy,
     state: "unblock",
   };
-  await redis.set(
-    personKey(sessionId, personId),
-    JSON.stringify(payload),
-    "EX",
-    TTL_SECONDS,
-  );
+  await redis.set(personKey(sessionId, personId), JSON.stringify(payload), "EX", TTL_SECONDS);
 }
 
 /** Clear any per-person row (both block + unblock overrides). */
@@ -241,7 +232,11 @@ export async function getSessionBlockSnapshot(opts: {
   const raws = allKeys.length > 0 ? await redis.mget(...allKeys) : [];
   const parsed: (StoredBlock | null)[] = raws.map((raw) => {
     if (!raw) return null;
-    try { return JSON.parse(raw) as StoredBlock; } catch { return null; }
+    try {
+      return JSON.parse(raw) as StoredBlock;
+    } catch {
+      return null;
+    }
   });
 
   const sRaw = parsed[0];

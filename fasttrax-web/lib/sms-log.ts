@@ -98,7 +98,9 @@ function dayKey(iso: string): string {
   const d = new Date(iso);
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(d); // YYYY-MM-DD
   return `sms:log:${parts}`;
 }
@@ -133,7 +135,11 @@ export async function readSmsLog(
   const raw = await redis.lrange(`sms:log:${dateYmdEt}`, offset, offset + limit - 1);
   const out: SmsLogEntry[] = [];
   for (const s of raw) {
-    try { out.push(JSON.parse(s) as SmsLogEntry); } catch { /* skip corrupt entry */ }
+    try {
+      out.push(JSON.parse(s) as SmsLogEntry);
+    } catch {
+      /* skip corrupt entry */
+    }
   }
   return out;
 }
@@ -304,7 +310,11 @@ export async function readCronLog(
   const raw = await redis.lrange(`cron:log:${dateYmdEt}`, offset, offset + limit - 1);
   const out: CronRunEntry[] = [];
   for (const s of raw) {
-    try { out.push(JSON.parse(s) as CronRunEntry); } catch { /* skip */ }
+    try {
+      out.push(JSON.parse(s) as CronRunEntry);
+    } catch {
+      /* skip */
+    }
   }
   return out;
 }

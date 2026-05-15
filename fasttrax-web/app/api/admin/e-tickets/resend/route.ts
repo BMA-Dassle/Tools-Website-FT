@@ -88,7 +88,9 @@ export async function POST(req: NextRequest) {
   const phone = canonicalizePhone(rawPhone);
   if (!phone) {
     return NextResponse.json(
-      { error: `Invalid phone: ${rawPhone || "(none)"} — must be a US 10-digit or +1-prefixed number` },
+      {
+        error: `Invalid phone: ${rawPhone || "(none)"} — must be a US 10-digit or +1-prefixed number`,
+      },
       { status: 400 },
     );
   }
@@ -101,7 +103,7 @@ export async function POST(req: NextRequest) {
   const personIds: (string | number)[] = single
     ? [single.personId]
     : (group?.members || []).map((m) => m.personId);
-  const memberCount = single ? 1 : (group?.members?.length || 0);
+  const memberCount = single ? 1 : group?.members?.length || 0;
 
   const ts = new Date().toISOString();
 

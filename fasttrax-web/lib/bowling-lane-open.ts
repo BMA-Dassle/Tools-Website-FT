@@ -1,7 +1,4 @@
-import {
-  type BowlingReservation,
-  updateBowlingReservationLaneOpen,
-} from "@/lib/bowling-db";
+import { type BowlingReservation, updateBowlingReservationLaneOpen } from "@/lib/bowling-db";
 
 /**
  * Lane-open processor for bowling reservations.
@@ -26,7 +23,7 @@ import {
  * so Square calls and Neon updates are safe to call concurrently.
  */
 
-const SQUARE_BASE    = "https://connect.squareup.com/v2";
+const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2024-12-18";
 
 // Square catalog object IDs for items shown on the kitchen display system.
@@ -81,8 +78,8 @@ export interface LaneOpenResult {
 
 function sqHeaders(): Record<string, string> {
   return {
-    Authorization:    `Bearer ${process.env.SQUARE_ACCESS_TOKEN ?? ""}`,
-    "Content-Type":   "application/json",
+    Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN ?? ""}`,
+    "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
 }
@@ -132,19 +129,19 @@ export async function processLaneOpen(opts: {
   if (reservation.squareDayofOrderId) {
     // ── 1. Fetch day-of order ─────────────────────────────────────
     const tOrder = Date.now();
-    const orderRes = await fetch(
-      `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-      { headers: sqHeaders(), cache: "no-store" },
-    );
+    const orderRes = await fetch(`${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`, {
+      headers: sqHeaders(),
+      cache: "no-store",
+    });
     console.log(`[lane-open] neonId=${neonId} src=${srcTag} GET order ${Date.now() - tOrder}ms`);
     if (!orderRes.ok) {
-      const body = await orderRes.json().catch(() => ({})) as { errors?: { detail: string }[] };
+      const body = (await orderRes.json().catch(() => ({}))) as { errors?: { detail: string }[] };
       const msg = body.errors?.[0]?.detail ?? `Order fetch failed (${orderRes.status})`;
       console.error(`[lane-open] neonId=${neonId} order fetch failed: ${msg}`);
       await updateBowlingReservationLaneOpen(neonId, { laneNumbers, error: msg, source });
       return { ok: false, laneLabel, kitchenItemsUpdated: 0, error: msg };
     }
-    const orderJson = await orderRes.json() as { order?: SquareOrder };
+    const orderJson = (await orderRes.json()) as { order?: SquareOrder };
     const order = orderJson.order;
     if (!order) {
       const msg = "Day-of order missing in Square response";
@@ -163,44 +160,45 @@ export async function processLaneOpen(opts: {
       // existing ones — no fields_to_clear required.
       const kitchenItems = (order.line_items ?? []).filter(isKitchenItem);
       const updatedItems = kitchenItems.map((li) => ({
-        uid:  li.uid,
+        uid: li.uid,
         note: li.note ? `${laneLabel} | ${li.note}` : laneLabel,
       }));
       let updatedOrderVersion = order.version;
       try {
         const tNotes = Date.now();
-        const noteRes = await fetch(
-          `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-          {
-            method:  "PUT",
-            headers: sqHeaders(),
-            body:    JSON.stringify({
-              order: {
-                version:      order.version,
-                location_id:  reservation.centerCode,
-                // SHIPMENT fulfillment → KDS routing
-                fulfillments: [
-                  {
-                    type: "SHIPMENT",
-                    shipment_details: {
-                      recipient: { display_name: laneLabel },
-                    },
+        const noteRes = await fetch(`${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`, {
+          method: "PUT",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            order: {
+              version: order.version,
+              location_id: reservation.centerCode,
+              // SHIPMENT fulfillment → KDS routing
+              fulfillments: [
+                {
+                  type: "SHIPMENT",
+                  shipment_details: {
+                    recipient: { display_name: laneLabel },
                   },
-                ],
-                // Sparse note update — only present when there are kitchen items
-                ...(updatedItems.length > 0 ? { line_items: updatedItems } : {}),
-              },
-              idempotency_key: `${idempotencyBase}-notes`,
-            }),
-          },
+                },
+              ],
+              // Sparse note update — only present when there are kitchen items
+              ...(updatedItems.length > 0 ? { line_items: updatedItems } : {}),
+            },
+            idempotency_key: `${idempotencyBase}-notes`,
+          }),
+        });
+        console.log(
+          `[lane-open] neonId=${neonId} src=${srcTag} PUT notes ${Date.now() - tNotes}ms`,
         );
-        console.log(`[lane-open] neonId=${neonId} src=${srcTag} PUT notes ${Date.now() - tNotes}ms`);
         if (noteRes.ok) {
           kitchenItemsUpdated = kitchenItems.length;
-          const noteJson = await noteRes.json().catch(() => ({})) as { order?: { version: number } };
+          const noteJson = (await noteRes.json().catch(() => ({}))) as {
+            order?: { version: number };
+          };
           updatedOrderVersion = noteJson.order?.version ?? order.version + 1;
         } else {
-          const noteBody = await noteRes.json().catch(() => ({})) as {
+          const noteBody = (await noteRes.json().catch(() => ({}))) as {
             errors?: { detail: string }[];
           };
           console.warn(
@@ -219,13 +217,15 @@ export async function processLaneOpen(opts: {
         try {
           // Get authoritative gift card balance
           const tGc = Date.now();
-          const gcRes = await fetch(
-            `${SQUARE_BASE}/gift-cards/${reservation.squareGiftCardId}`,
-            { headers: sqHeaders(), cache: "no-store" },
+          const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${reservation.squareGiftCardId}`, {
+            headers: sqHeaders(),
+            cache: "no-store",
+          });
+          console.log(
+            `[lane-open] neonId=${neonId} src=${srcTag} GET gift-card ${Date.now() - tGc}ms`,
           );
-          console.log(`[lane-open] neonId=${neonId} src=${srcTag} GET gift-card ${Date.now() - tGc}ms`);
           if (!gcRes.ok) throw new Error(`Gift card fetch failed (${gcRes.status})`);
-          const gcJson = await gcRes.json() as {
+          const gcJson = (await gcRes.json()) as {
             gift_card?: { balance_money?: { amount?: number } };
           };
           const gcBalance = gcJson.gift_card?.balance_money?.amount ?? 0;
@@ -237,28 +237,30 @@ export async function processLaneOpen(opts: {
 
             const tPay = Date.now();
             const payRes = await fetch(`${SQUARE_BASE}/payments`, {
-              method:  "POST",
+              method: "POST",
               headers: sqHeaders(),
-              body:    JSON.stringify({
+              body: JSON.stringify({
                 idempotency_key: `${idempotencyBase}-pay`,
-                source_id:       reservation.squareGiftCardId,
-                amount_money:    { amount: amountToPay, currency: "USD" },
-                order_id:        reservation.squareDayofOrderId,
-                location_id:     reservation.centerCode,
-                autocomplete:    true,
-                note:            `Deposit applied — ${reservation.qamfReservationId ?? `#${reservation.id}`}${laneLabel ? ` — ${laneLabel}` : ""}`,
+                source_id: reservation.squareGiftCardId,
+                amount_money: { amount: amountToPay, currency: "USD" },
+                order_id: reservation.squareDayofOrderId,
+                location_id: reservation.centerCode,
+                autocomplete: true,
+                note: `Deposit applied — ${reservation.qamfReservationId ?? `#${reservation.id}`}${laneLabel ? ` — ${laneLabel}` : ""}`,
               }),
             });
-            console.log(`[lane-open] neonId=${neonId} src=${srcTag} POST payment ${Date.now() - tPay}ms`);
+            console.log(
+              `[lane-open] neonId=${neonId} src=${srcTag} POST payment ${Date.now() - tPay}ms`,
+            );
             if (payRes.ok) {
-              const payJson = await payRes.json() as {
+              const payJson = (await payRes.json()) as {
                 payment?: { id: string; amount_money?: { amount?: number } };
               };
-              paymentId    = payJson.payment?.id;
+              paymentId = payJson.payment?.id;
               paymentCents = payJson.payment?.amount_money?.amount;
               console.log(
                 `[lane-open] neonId=${neonId} gift card charged ${paymentCents}¢` +
-                ` paymentId=${paymentId} ${laneLabel}`,
+                  ` paymentId=${paymentId} ${laneLabel}`,
               );
 
               // NOTE: We intentionally do NOT complete the order here.
@@ -270,11 +272,10 @@ export async function processLaneOpen(opts: {
               // orders. Staff complete the order on the POS when the session ends,
               // which also dismisses it from KDS at the right time.
             } else {
-              const errBody = await payRes.json().catch(() => ({})) as {
+              const errBody = (await payRes.json().catch(() => ({}))) as {
                 errors?: { code: string; detail: string }[];
               };
-              const errMsg =
-                errBody.errors?.[0]?.detail ?? `Payment failed (${payRes.status})`;
+              const errMsg = errBody.errors?.[0]?.detail ?? `Payment failed (${payRes.status})`;
               console.error(`[lane-open] neonId=${neonId} gift card payment failed: ${errMsg}`);
               processingError = errMsg;
             }
@@ -310,7 +311,9 @@ export async function processLaneOpen(opts: {
                 autocomplete: true,
               }),
             });
-            console.log(`[lane-open] neonId=${neonId} $0 external payment added ${Date.now() - tClose}ms`);
+            console.log(
+              `[lane-open] neonId=${neonId} $0 external payment added ${Date.now() - tClose}ms`,
+            );
           } catch (err) {
             console.warn(`[lane-open] neonId=${neonId} $0 external payment threw:`, err);
           }
@@ -335,7 +338,7 @@ export async function processLaneOpen(opts: {
         body: JSON.stringify({ query: { customer_ids: [reservation.squareCustomerId] } }),
       });
       if (searchRes.ok) {
-        const searchData = await searchRes.json() as {
+        const searchData = (await searchRes.json()) as {
           loyalty_accounts?: { id: string }[];
         };
         const loyaltyAccountId = searchData.loyalty_accounts?.[0]?.id;
@@ -353,12 +356,13 @@ export async function processLaneOpen(opts: {
             },
           );
           if (accRes.ok) {
-            const accData = await accRes.json() as {
+            const accData = (await accRes.json()) as {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               events?: Array<{ accumulate_points?: { points?: number } }>;
             };
             const pts = (accData.events ?? []).reduce(
-              (s, e) => s + (e.accumulate_points?.points ?? 0), 0,
+              (s, e) => s + (e.accumulate_points?.points ?? 0),
+              0,
             );
             console.log(`[lane-open] neonId=${neonId} loyalty accrued ${pts} pts`);
           } else {
@@ -395,8 +399,8 @@ export async function processLaneOpen(opts: {
 
   console.log(
     `[lane-open] neonId=${neonId} src=${srcTag} done totalMs=${Date.now() - t0}` +
-    ` lane="${laneLabel}" kitchen=${kitchenItemsUpdated}` +
-    ` paymentId=${paymentId ?? "none"} error=${processingError ?? "none"}`,
+      ` lane="${laneLabel}" kitchen=${kitchenItemsUpdated}` +
+      ` paymentId=${paymentId ?? "none"} error=${processingError ?? "none"}`,
   );
 
   return {

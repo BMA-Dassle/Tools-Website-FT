@@ -11,7 +11,7 @@ const steps = [
     num: "1",
     title: "ARRIVE 30 MINUTES EARLY",
     subtitle: "",
-    desc: "Give yourself the \"Pre-Race Window.\" Arriving early gives you time for any unexpected lines at check-in so you're cleared for the pits without losing a second of track time.",
+    desc: 'Give yourself the "Pre-Race Window." Arriving early gives you time for any unexpected lines at check-in so you\'re cleared for the pits without losing a second of track time.',
     titleColor: "rgb(228,28,29)",
     badgeBg: "rgb(228,28,29)",
     borderColor: "rgb(228,28,29)",
@@ -46,7 +46,11 @@ export default function RacerJourney() {
   const currentRaces = result?.currentRaces ?? null;
 
   return (
-    <section id="racers-journey" className="relative overflow-hidden" style={{ backgroundColor: "#000418" }}>
+    <section
+      id="racers-journey"
+      className="relative overflow-hidden"
+      style={{ backgroundColor: "#000418" }}
+    >
       {/* Background image */}
       <Image
         src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/racer-journey-bg.webp"
@@ -63,7 +67,6 @@ export default function RacerJourney() {
         className="relative z-10 flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto"
         style={{ padding: "clamp(40px, 8vw, 80px) clamp(16px, 4vw, 32px)" }}
       >
-
         {/* LEFT COL: Heading + Track Status + CTAs */}
         <div className="flex-1 flex flex-col gap-6 justify-center">
           <h2
@@ -83,36 +86,79 @@ export default function RacerJourney() {
             </p>
             <div className="flex flex-col gap-2">
               {trackData?.tracks.map((t) => {
-                const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as "blue" | "red" | "mega";
+                const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as
+                  | "blue"
+                  | "red"
+                  | "mega";
                 const race = currentRaces?.[key] ?? null;
                 return (
                   <div
                     key={t.trackName}
                     className="px-4 py-3 rounded-xl"
-                    style={{ backgroundColor: "rgba(1,10,32,0.6)", border: `1px solid ${t.colors.trackIdentity}80` }}
+                    style={{
+                      backgroundColor: "rgba(1,10,32,0.6)",
+                      border: `1px solid ${t.colors.trackIdentity}80`,
+                    }}
                   >
                     <div className="flex items-center justify-between">
-                      <span style={{ color: t.colors.trackIdentity, fontSize: "18px", fontFamily: "var(--font-body)", fontWeight: 600 }}>{t.trackName}</span>
+                      <span
+                        style={{
+                          color: t.colors.trackIdentity,
+                          fontSize: "18px",
+                          fontFamily: "var(--font-body)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {t.trackName}
+                      </span>
                       <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
-                        <span style={{ color: "rgb(245,236,238)", fontSize: "16px", fontFamily: "var(--font-body)" }}>{t.delayFormatted}</span>
+                        <span
+                          className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`}
+                        />
+                        <span
+                          style={{
+                            color: "rgb(245,236,238)",
+                            fontSize: "16px",
+                            fontFamily: "var(--font-body)",
+                          }}
+                        >
+                          {t.delayFormatted}
+                        </span>
                       </div>
                     </div>
-                    {race && (() => {
-                      let time = "";
-                      try { time = race.scheduledStart ? new Date(race.scheduledStart).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) : ""; } catch { /* skip */ }
-                      return (
-                        <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
-                          Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
-                        </p>
-                      );
-                    })()}
+                    {race &&
+                      (() => {
+                        let time = "";
+                        try {
+                          time = race.scheduledStart
+                            ? new Date(race.scheduledStart).toLocaleTimeString("en-US", {
+                                hour: "numeric",
+                                minute: "2-digit",
+                                timeZone: "America/New_York",
+                              })
+                            : "";
+                        } catch {
+                          /* skip */
+                        }
+                        return (
+                          <p className="text-amber-400 text-xs font-bold mt-1 animate-pulse">
+                            Now Checking In: {race.raceType} Heat #{race.heatNumber}
+                            {time ? ` · ${time}` : ""}
+                          </p>
+                        );
+                      })()}
                   </div>
                 );
               })}
               {!trackData && (
                 <>
-                  <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ backgroundColor: "rgba(1,10,32,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div
+                    className="flex items-center justify-between px-4 py-3 rounded-xl"
+                    style={{
+                      backgroundColor: "rgba(1,10,32,0.6)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                    }}
+                  >
                     <span className="font-body text-white/30 text-sm">Loading status...</span>
                   </div>
                 </>
@@ -170,23 +216,40 @@ export default function RacerJourney() {
               <div>
                 <h3
                   className="font-heading uppercase"
-                  style={{ color: s.titleColor, fontSize: "24px", marginBottom: s.subtitle ? "4px" : "8px" }}
+                  style={{
+                    color: s.titleColor,
+                    fontSize: "24px",
+                    marginBottom: s.subtitle ? "4px" : "8px",
+                  }}
                 >
                   {s.title}
                 </h3>
                 {s.subtitle && (
-                  <p style={{ color: "rgba(245,236,238,0.5)", fontSize: "13px", fontFamily: "var(--font-body)", marginBottom: "8px" }}>
+                  <p
+                    style={{
+                      color: "rgba(245,236,238,0.5)",
+                      fontSize: "13px",
+                      fontFamily: "var(--font-body)",
+                      marginBottom: "8px",
+                    }}
+                  >
                     {s.subtitle}
                   </p>
                 )}
-                <p style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", fontFamily: "var(--font-body)", lineHeight: "1.5" }}>
+                <p
+                  style={{
+                    color: "rgba(245,236,238,0.8)",
+                    fontSize: "16px",
+                    fontFamily: "var(--font-body)",
+                    lineHeight: "1.5",
+                  }}
+                >
                   {s.desc}
                 </p>
               </div>
             </div>
           ))}
         </div>
-
       </div>
     </section>
   );

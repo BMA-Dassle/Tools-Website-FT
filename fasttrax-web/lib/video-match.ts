@@ -55,9 +55,7 @@ export interface NotifyReadinessSignals {
 }
 
 /** True when the public viewer can serve the sample preview. */
-export function isVideoReadyForNotify(
-  signals: NotifyReadinessSignals | undefined | null,
-): boolean {
+export function isVideoReadyForNotify(signals: NotifyReadinessSignals | undefined | null): boolean {
   if (!signals) return false;
   return !!signals.sampleUploadTime;
 }
@@ -76,12 +74,12 @@ export interface VideoMatch {
   cameraNumber?: number;
   videoId: number;
   videoCode: string;
-  customerUrl: string;          // https://vt3.io/?code={code}
-  shortUrl?: string;            // our /s/{code} redirect so clicks track
+  customerUrl: string; // https://vt3.io/?code={code}
+  shortUrl?: string; // our /s/{code} redirect so clicks track
   thumbnailUrl?: string;
-  capturedAt: string;           // video.created_at (ISO)
-  duration?: number;            // seconds
-  matchedAt: string;            // when the cron made the link (ISO)
+  capturedAt: string; // video.created_at (ISO)
+  duration?: number; // seconds
+  matchedAt: string; // when the cron made the link (ISO)
   sessionName?: string;
   scheduledStart?: string;
   track?: string;
@@ -91,7 +89,7 @@ export interface VideoMatch {
    *  camera-history entry so the admin-resend endpoint doesn't need
    *  to walk back to the history set. */
   email?: string;
-  phone?: string;                // canonical or raw — use canonicalizePhone
+  phone?: string; // canonical or raw — use canonicalizePhone
   mobilePhone?: string;
   homePhone?: string;
   acceptSmsCommercial?: boolean;
@@ -298,7 +296,11 @@ export async function listUnmatchedInRange(opts: {
   const out: UnmatchedVideo[] = [];
   for (const raw of raws) {
     if (!raw) continue;
-    try { out.push(JSON.parse(raw)); } catch { /* skip */ }
+    try {
+      out.push(JSON.parse(raw));
+    } catch {
+      /* skip */
+    }
   }
   return out;
 }
@@ -310,14 +312,21 @@ export async function listUnmatchedInRange(opts: {
  */
 export async function patchUnmatchedOverlay(
   videoCode: string,
-  patch: Partial<Pick<UnmatchedVideo,
-    "viewed" | "firstViewedAt" | "lastViewedAt" | "purchased" | "purchaseType" | "unlockedAt"
-  >>,
+  patch: Partial<
+    Pick<
+      UnmatchedVideo,
+      "viewed" | "firstViewedAt" | "lastViewedAt" | "purchased" | "purchaseType" | "unlockedAt"
+    >
+  >,
 ): Promise<void> {
   const raw = await redis.get(unmatchedKey(videoCode));
   if (!raw) return;
   let cur: UnmatchedVideo;
-  try { cur = JSON.parse(raw) as UnmatchedVideo; } catch { return; }
+  try {
+    cur = JSON.parse(raw) as UnmatchedVideo;
+  } catch {
+    return;
+  }
   const next = { ...cur, ...patch };
   await redis.set(unmatchedKey(videoCode), JSON.stringify(next), "EX", UNMATCHED_TTL_SECONDS);
 }
@@ -332,7 +341,13 @@ export async function patchUnmatchedOverlay(
  */
 export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
   const sentinel = seenVideoKey(m.videoCode);
-  const ok = await redis.set(sentinel, JSON.stringify({ sessionId: m.sessionId, personId: m.personId, matchedAt: m.matchedAt }), "EX", TTL_SECONDS, "NX");
+  const ok = await redis.set(
+    sentinel,
+    JSON.stringify({ sessionId: m.sessionId, personId: m.personId, matchedAt: m.matchedAt }),
+    "EX",
+    TTL_SECONDS,
+    "NX",
+  );
   if (!ok) return false; // someone else matched this video first
   await redis.set(matchKey(m.sessionId, m.personId), JSON.stringify(m), "EX", TTL_SECONDS);
   // Index into the time-ordered match log for the admin UI.
@@ -371,7 +386,11 @@ export async function getVideoForRacer(
 ): Promise<VideoMatch | null> {
   const raw = await redis.get(matchKey(sessionId, personId));
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -414,7 +433,11 @@ export async function listMatchesInRange(opts: {
   const out: VideoMatch[] = [];
   for (const raw of raws) {
     if (!raw) continue;
-    try { out.push(JSON.parse(raw)); } catch { /* skip */ }
+    try {
+      out.push(JSON.parse(raw));
+    } catch {
+      /* skip */
+    }
   }
   return out;
 }
@@ -426,7 +449,11 @@ export async function getMatch(
 ): Promise<VideoMatch | null> {
   const raw = await redis.get(matchKey(sessionId, personId));
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -440,7 +467,10 @@ export async function getMatchByVideoCode(videoCode: string): Promise<VideoMatch
   try {
     const sentinelRaw = await redis.get(seenVideoKey(videoCode));
     if (!sentinelRaw) return null;
-    const sentinel = JSON.parse(sentinelRaw) as { sessionId?: string | number; personId?: string | number };
+    const sentinel = JSON.parse(sentinelRaw) as {
+      sessionId?: string | number;
+      personId?: string | number;
+    };
     if (!sentinel.sessionId || !sentinel.personId) return null;
     return await getMatch(sentinel.sessionId, sentinel.personId);
   } catch {

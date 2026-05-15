@@ -32,8 +32,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "HeadPinz - Where Fun Comes Together",
-    description:
-      "Premier bowling, laser tag, gel blasters, arcade & dining. Fort Myers & Naples.",
+    description: "Premier bowling, laser tag, gel blasters, arcade & dining. Fort Myers & Naples.",
     images: [OG_IMAGE],
   },
   robots: {
@@ -50,11 +49,7 @@ export const metadata: Metadata = {
   verification: {},
 };
 
-export default function HeadPinzLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function HeadPinzLayout({ children }: { children: React.ReactNode }) {
   // Minimal layout — just fonts. Nav/Footer rendered by individual pages or nested layouts.
   return (
     <div>

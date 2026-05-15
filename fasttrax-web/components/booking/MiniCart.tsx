@@ -20,12 +20,20 @@ function formatTime(iso: string) {
   if (!timePart) return "";
   const [y, m, d] = datePart.split("-").map(Number);
   const [h, min] = timePart.split(":").map(Number);
-  return new Date(y, m - 1, d, h, min).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return new Date(y, m - 1, d, h, min).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 function formatDate(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /**
@@ -58,7 +66,9 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
         const parsed: StoredCartItem[] = stored ? JSON.parse(stored) : [];
         setItems(parsed);
         setHasActiveBill(!!sessionStorage.getItem("attractionOrderId"));
-      } catch { setItems([]); }
+      } catch {
+        setItems([]);
+      }
     }
     loadCart();
     const interval = setInterval(loadCart, 800);
@@ -82,7 +92,9 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
         method: "POST",
         headers: { "content-type": "application/json" },
         body: `{"orderId":${orderId},"orderItemId":${billLineId}}`,
-      }).catch(() => { /* non-fatal */ });
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
     const updated = items.filter((_, i) => i !== index);
     setItems(updated);
@@ -92,7 +104,11 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
       sessionStorage.removeItem("attractionOrderId");
     }
     // Notify other listeners (and any other open MiniCart instances)
-    try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch { /* SSR */ }
+    try {
+      window.dispatchEvent(new CustomEvent("cart:changed"));
+    } catch {
+      /* SSR */
+    }
   }
 
   if (items.length === 0 && !hasActiveBill) return null;
@@ -114,7 +130,9 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
               <div key={i} className="p-3 border-b border-white/5 last:border-0">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-white text-sm font-semibold">{item.attractionName}: {item.product.name}</p>
+                    <p className="text-white text-sm font-semibold">
+                      {item.attractionName}: {item.product.name}
+                    </p>
                     {item.date && item.time.block.start ? (
                       <p className="text-white/40 text-xs">
                         {formatDate(item.date)} · {formatTime(item.time.block.start)}
@@ -128,22 +146,38 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                           // eslint-disable-next-line @typescript-eslint/no-explicit-any
                           const schedCount = (item as any).packSchedules?.length;
                           if (schedCount) return `${schedCount} races`;
-                          const unit = item.product.bookingMode === "per-person" ? "person" : "table";
+                          const unit =
+                            item.product.bookingMode === "per-person" ? "person" : "table";
                           return `${item.quantity} ${unit}${item.quantity !== 1 ? "s" : ""}`;
                         })()}
                       </span>
-                      <span className="text-[#00E2E5] text-xs">${(item.product.price * item.quantity).toFixed(2)}</span>
+                      <span className="text-[#00E2E5] text-xs">
+                        ${(item.product.price * item.quantity).toFixed(2)}
+                      </span>
                     </div>
                   </div>
                   {!item.product.name.toLowerCase().includes("license") && (
                     <button
                       type="button"
                       aria-label="Remove item"
-                      onClick={(e) => { e.stopPropagation(); handleRemove(i); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemove(i);
+                      }}
                       className="text-red-400/50 hover:text-red-400 transition-colors p-1 shrink-0"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   )}
@@ -152,39 +186,46 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
             ))}
           </div>
           <div className="p-3 border-t border-white/10 space-y-2">
-            {items.length > 0 && (() => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const hasRacing = items.some((i: any) => i.attraction === "racing");
-              if (hasRacing) {
-                const onRacePage = pathname?.startsWith("/book/race");
-                return onRacePage ? (
-                  <button
-                    onClick={() => { window.dispatchEvent(new CustomEvent("miniCartCheckout")); setOpen(false); }}
-                    className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
-                  >
-                    Checkout →
-                  </button>
-                ) : (
+            {items.length > 0 &&
+              (() => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const hasRacing = items.some((i: any) => i.attraction === "racing");
+                if (hasRacing) {
+                  const onRacePage = pathname?.startsWith("/book/race");
+                  return onRacePage ? (
+                    <button
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent("miniCartCheckout"));
+                        setOpen(false);
+                      }}
+                      className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
+                    >
+                      Checkout →
+                    </button>
+                  ) : (
+                    <Link
+                      href="/book/race?step=contact"
+                      className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
+                    >
+                      Checkout →
+                    </Link>
+                  );
+                }
+                return (
                   <Link
-                    href="/book/race?step=contact"
+                    href="/book/checkout"
                     className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
                   >
                     Checkout →
                   </Link>
                 );
-              }
-              return (
-                <Link
-                  href="/book/checkout"
-                  className="block w-full py-2.5 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors text-center"
-                >
-                  Checkout →
-                </Link>
-              );
-            })()}
+              })()}
             {onStartOver && (
               <button
-                onClick={() => { onStartOver(); setOpen(false); }}
+                onClick={() => {
+                  onStartOver();
+                  setOpen(false);
+                }}
                 className="block w-full py-2 rounded-lg font-semibold text-xs text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 transition-colors text-center"
               >
                 Cancel &amp; Start Over
@@ -196,15 +237,20 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
                   const orderId = sessionStorage.getItem("attractionOrderId");
                   const ck = getBookingClientKey();
                   if (orderId) {
-                    const cancelQs = ck ? `endpoint=bill/${orderId}/cancel&clientKey=${ck}` : `endpoint=bill/${orderId}/cancel`;
+                    const cancelQs = ck
+                      ? `endpoint=bill/${orderId}/cancel&clientKey=${ck}`
+                      : `endpoint=bill/${orderId}/cancel`;
                     fetch(`/api/bmi?${cancelQs}`, { method: "DELETE" }).catch(() => {});
                   }
                   // Determine where to go based on cart contents.
                   // `attraction` is a sibling field added to stored items outside
                   // the StoredCartItem type — widen just this read.
                   const withAttraction = items as unknown as Array<{ attraction?: string }>;
-                  const hasRacing = withAttraction.some(i => i.attraction === "racing");
-                  const attractionSlug = !hasRacing && withAttraction.length > 0 ? withAttraction[0].attraction ?? null : null;
+                  const hasRacing = withAttraction.some((i) => i.attraction === "racing");
+                  const attractionSlug =
+                    !hasRacing && withAttraction.length > 0
+                      ? (withAttraction[0].attraction ?? null)
+                      : null;
                   sessionStorage.removeItem("attractionOrderId");
                   sessionStorage.removeItem("attractionCart");
                   clearBookingLocation();
@@ -233,8 +279,18 @@ export default function MiniCart({ onStartOver }: { onStartOver?: () => void } =
         onClick={() => setOpen(!open)}
         className="relative w-14 h-14 rounded-full bg-[#00E2E5] text-[#000418] shadow-lg shadow-[#00E2E5]/30 hover:bg-white transition-colors flex items-center justify-center"
       >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+        <svg
+          className="w-6 h-6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"
+          />
         </svg>
         <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
           {totalQty}

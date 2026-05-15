@@ -98,9 +98,7 @@ export async function GET(req: NextRequest) {
   const invoker = req.headers.get("x-vercel-cron") ? "vercel-cron" : "manual";
 
   const reservations = await getTodayReservationsNeedingLaneReady();
-  console.log(
-    `[lane-ready-cron] invoker=${invoker} candidates=${reservations.length}`,
-  );
+  console.log(`[lane-ready-cron] invoker=${invoker} candidates=${reservations.length}`);
 
   if (reservations.length === 0) {
     return NextResponse.json({ ok: true, invoker, sent: 0, checked: 0 });
@@ -117,12 +115,24 @@ export async function GET(req: NextRequest) {
   for (const r of reservations) {
     // Skip K/C reservations — SMS disabled until self-service lane open is validated
     if (r.bookingSource && r.bookingSource !== "web") {
-      results.push({ id: r.id, guest: r.guestName ?? "?", phase: "skipped-walkin", email: false, sms: false });
+      results.push({
+        id: r.id,
+        guest: r.guestName ?? "?",
+        phase: "skipped-walkin",
+        email: false,
+        sms: false,
+      });
       continue;
     }
 
     if (!r.qamfReservationId) {
-      results.push({ id: r.id, guest: r.guestName ?? "?", phase: "no_qamf_id", email: false, sms: false });
+      results.push({
+        id: r.id,
+        guest: r.guestName ?? "?",
+        phase: "no_qamf_id",
+        email: false,
+        sms: false,
+      });
       continue;
     }
 
@@ -138,7 +148,13 @@ export async function GET(req: NextRequest) {
         `[lane-ready-cron] QAMF poll failed neonId=${r.id}:`,
         err instanceof Error ? err.message : err,
       );
-      results.push({ id: r.id, guest: r.guestName ?? "?", phase: "error", email: false, sms: false });
+      results.push({
+        id: r.id,
+        guest: r.guestName ?? "?",
+        phase: "error",
+        email: false,
+        sms: false,
+      });
       continue;
     }
 

@@ -53,7 +53,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const action: string = body.action || "";
     let cleared = false;
-    let drainResult: { attempted: number; ok: number; abandoned: number; stoppedOnQuota: boolean; pendingAfter: number } | null = null;
+    let drainResult: {
+      attempted: number;
+      ok: number;
+      abandoned: number;
+      stoppedOnQuota: boolean;
+      pendingAfter: number;
+    } | null = null;
 
     if (action === "clear" || action === "clear-and-drain") {
       await clearQuotaFlag();
@@ -65,7 +71,9 @@ export async function POST(req: NextRequest) {
         const result = await voxSend(
           entry.phone,
           entry.body,
-          entry.from ? { fromOverride: entry.from, fallbackPrefix: entry.fallbackPrefix } : undefined,
+          entry.from
+            ? { fromOverride: entry.from, fallbackPrefix: entry.fallbackPrefix }
+            : undefined,
         );
         await logSms({
           ts: new Date().toISOString(),

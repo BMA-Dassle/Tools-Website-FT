@@ -81,24 +81,29 @@ export async function GET(req: NextRequest) {
 
   const summary = await summarizeFailures();
 
-  return NextResponse.json({
-    unresolved: unresolved.map(toClient),
-    resolved: resolved.map(toClient),
-    pendingSales: pendingSales.map((r) => ({
-      billId: r.bill_id ? String(r.bill_id) : null,
-      personId: r.deposit_person_id ? String(r.deposit_person_id) : null,
-      depositKindId: r.deposit_kind_id ? String(r.deposit_kind_id) : null,
-      amount: r.deposit_amount != null ? Number(r.deposit_amount) : null,
-      totalUsd: r.total_usd != null ? Number(r.total_usd) : null,
-      ts: String(r.ts),
-      brand: r.brand ? String(r.brand) : null,
-      location: r.location ? String(r.location) : null,
-      raceProductNames: Array.isArray(r.race_product_names) ? (r.race_product_names as string[]) : [],
-    })),
-    summary,
-  }, {
-    headers: { "Cache-Control": "no-store" },
-  });
+  return NextResponse.json(
+    {
+      unresolved: unresolved.map(toClient),
+      resolved: resolved.map(toClient),
+      pendingSales: pendingSales.map((r) => ({
+        billId: r.bill_id ? String(r.bill_id) : null,
+        personId: r.deposit_person_id ? String(r.deposit_person_id) : null,
+        depositKindId: r.deposit_kind_id ? String(r.deposit_kind_id) : null,
+        amount: r.deposit_amount != null ? Number(r.deposit_amount) : null,
+        totalUsd: r.total_usd != null ? Number(r.total_usd) : null,
+        ts: String(r.ts),
+        brand: r.brand ? String(r.brand) : null,
+        location: r.location ? String(r.location) : null,
+        raceProductNames: Array.isArray(r.race_product_names)
+          ? (r.race_product_names as string[])
+          : [],
+      })),
+      summary,
+    },
+    {
+      headers: { "Cache-Control": "no-store" },
+    },
+  );
 }
 
 function toClient(r: Record<string, unknown>): Record<string, unknown> {

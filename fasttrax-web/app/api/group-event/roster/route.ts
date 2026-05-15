@@ -58,7 +58,10 @@ export async function POST(req: NextRequest) {
   try {
     const { slug, track, heatStart, email, displayName } = await req.json();
     if (!slug || !track || !heatStart || !email || !displayName) {
-      return NextResponse.json({ error: "slug, track, heatStart, email, displayName required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "slug, track, heatStart, email, displayName required" },
+        { status: 400 },
+      );
     }
 
     const event = getGroupEvent(slug);
@@ -80,7 +83,10 @@ export async function DELETE(req: NextRequest) {
   try {
     const { slug, track, heatStart, email } = await req.json();
     if (!slug || !track || !heatStart || !email) {
-      return NextResponse.json({ error: "slug, track, heatStart, email required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "slug, track, heatStart, email required" },
+        { status: 400 },
+      );
     }
 
     const event = getGroupEvent(slug);

@@ -91,9 +91,7 @@ export async function POST(req: NextRequest) {
 
   // Heartbeat — useful for "is the kart bridge alive?" admin checks
   // and any future heartbeat-gated cron, mirroring the VT3 pattern.
-  redis
-    .set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL)
-    .catch(() => void 0);
+  redis.set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL).catch(() => void 0);
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });

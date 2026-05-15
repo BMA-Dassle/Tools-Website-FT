@@ -126,10 +126,7 @@ export async function POST(req: NextRequest) {
     const normalizedPhone = useEmail ? "" : normalizePhone(contactRaw);
 
     if (!useEmail && normalizedPhone.length !== 10) {
-      return NextResponse.json(
-        { error: "Phone must be a 10-digit US number" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Phone must be a 10-digit US number" }, { status: 400 });
     }
 
     // Look up the parent's pass(es)

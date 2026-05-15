@@ -37,7 +37,9 @@ export default function FullScreenTicket({
       <div className="text-center max-w-md w-full">
         <p className="text-gray-500 text-xs uppercase tracking-[0.3em] mb-3">
           FastTrax E-Ticket
-          {!isSingle && <span className="ml-2 normal-case tracking-normal">· {racers.length} racers</span>}
+          {!isSingle && (
+            <span className="ml-2 normal-case tracking-normal">· {racers.length} racers</span>
+          )}
         </p>
 
         {/* Racer names — biggest on single, slightly smaller in
@@ -48,9 +50,7 @@ export default function FullScreenTicket({
               key={i}
               className="text-black font-black uppercase leading-none"
               style={{
-                fontSize: isSingle
-                  ? "clamp(2.5rem, 9vw, 4.5rem)"
-                  : "clamp(1.5rem, 6vw, 2.5rem)",
+                fontSize: isSingle ? "clamp(2.5rem, 9vw, 4.5rem)" : "clamp(1.5rem, 6vw, 2.5rem)",
                 letterSpacing: "-0.02em",
               }}
             >
@@ -77,21 +77,14 @@ export default function FullScreenTicket({
 
         {/* Time + date */}
         <div className="mt-6">
-          <p
-            className="text-black font-bold"
-            style={{ fontSize: "clamp(1.75rem, 6vw, 2.75rem)" }}
-          >
+          <p className="text-black font-bold" style={{ fontSize: "clamp(1.75rem, 6vw, 2.75rem)" }}>
             {formatTime(heat.scheduledStart)}
           </p>
-          <p className="text-gray-500 text-base mt-1">
-            {formatDate(heat.scheduledStart)}
-          </p>
+          <p className="text-gray-500 text-base mt-1">{formatDate(heat.scheduledStart)}</p>
         </div>
 
         {heat.resNumber && (
-          <p className="text-gray-400 text-sm mt-6 font-mono">
-            Res #{heat.resNumber}
-          </p>
+          <p className="text-gray-400 text-sm mt-6 font-mono">Res #{heat.resNumber}</p>
         )}
 
         <p className="text-gray-400 text-xs mt-10">Tap anywhere to close</p>

@@ -44,7 +44,11 @@ function buildUrl(path: string[], searchParams: URLSearchParams): string {
   return `${QAMF_BASE}/${tail}${qs ? `?${qs}` : ""}`;
 }
 
-async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }, method: string) {
+async function proxy(
+  req: NextRequest,
+  ctx: { params: Promise<{ path: string[] }> },
+  method: string,
+) {
   let bodyText = "";
   if (method !== "GET" && method !== "HEAD") {
     bodyText = await req.text();

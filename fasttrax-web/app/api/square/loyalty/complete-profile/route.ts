@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
     const { customerId, loyaltyAccountId, firstName, lastName, email } = await req.json();
 
     if (!customerId || !loyaltyAccountId || !firstName || !lastName) {
-      return NextResponse.json({ error: "customerId, loyaltyAccountId, firstName, and lastName required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "customerId, loyaltyAccountId, firstName, and lastName required" },
+        { status: 400 },
+      );
     }
 
     // Step 1: Update customer with name + email

@@ -18,11 +18,19 @@ upstream protocol (WebSocket frames vs SSE).
   "Resource": "Karting",
   "BcFormat": "0",
   "NotificationGroups": [
-    "BROADCAST", "CLIENTACTIONS", "DEVICE", "MAINTENANCE",
-    "PERSON", "PROJECT", "SESSION", "SUBSCRIPTION",
-    "SYSTEM", "TESTING", "TIMING"
+    "BROADCAST",
+    "CLIENTACTIONS",
+    "DEVICE",
+    "MAINTENANCE",
+    "PERSON",
+    "PROJECT",
+    "SESSION",
+    "SUBSCRIPTION",
+    "SYSTEM",
+    "TESTING",
+    "TIMING",
   ],
-  "RaceStatsResendInterval": "00:00:01"
+  "RaceStatsResendInterval": "00:00:01",
 }
 ```
 
@@ -42,6 +50,7 @@ ws://68.171.192.138:10001 ──WebSocket──► kart-timing-bridge (Railway)
 ```
 
 Every inbound WebSocket message gets:
+
 - Logged to console (Railway logs)
 - POST'd to the Vercel webhook with the shared secret
 - Stored in a Redis list for inspection / future processing
@@ -89,15 +98,15 @@ secret keeps env config simple).
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `src/index.ts` | Single-file worker, Node 22+ built-in WebSocket. |
-| `package.json` | Zero runtime deps; `tsx` + `typescript` as dev deps. |
-| `tsconfig.json` | Strict TS, ESNext target. |
-| `Dockerfile` | Multi-stage build → ~50MB runtime image. |
-| `railway.json` | Railway deploy config. |
-| `fly.toml` | Fly.io alternate config. |
-| `.env.example` | Required env vars. |
+| File            | Purpose                                              |
+| --------------- | ---------------------------------------------------- |
+| `src/index.ts`  | Single-file worker, Node 22+ built-in WebSocket.     |
+| `package.json`  | Zero runtime deps; `tsx` + `typescript` as dev deps. |
+| `tsconfig.json` | Strict TS, ESNext target.                            |
+| `Dockerfile`    | Multi-stage build → ~50MB runtime image.             |
+| `railway.json`  | Railway deploy config.                               |
+| `fly.toml`      | Fly.io alternate config.                             |
+| `.env.example`  | Required env vars.                                   |
 
 ## Reconnect behavior
 
@@ -114,7 +123,7 @@ secret keeps env config simple).
    - `BcInfo` — admin notifications
    - `BcTiming` — lap data (we have `Timing: "false"` so probably
      not subscribed by default)
-   PROBE mode reveals the actual schema flowing through this server.
+     PROBE mode reveals the actual schema flowing through this server.
 
 2. **Reconnect drift.** Server may dedupe based on session id (like
    VT3) or replay missed events on subscribe. Worth checking with

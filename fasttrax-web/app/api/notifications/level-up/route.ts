@@ -13,25 +13,30 @@ const VOX_FROM_FASTTRAX = "+12394819666";
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 
 // Level config
-const LEVEL_CONFIG: Record<string, {
-  color1: string;
-  color2: string;
-  accent: string;
-  description: string;
-  prevLevel: string;
-}> = {
+const LEVEL_CONFIG: Record<
+  string,
+  {
+    color1: string;
+    color2: string;
+    accent: string;
+    description: string;
+    prevLevel: string;
+  }
+> = {
   Intermediate: {
     color1: "#7E57C2",
     color2: "#5E35B1",
     accent: "#5E35B1",
-    description: "The karts run at a significantly higher speed — plan for a bigger jump than you might expect.",
+    description:
+      "The karts run at a significantly higher speed — plan for a bigger jump than you might expect.",
     prevLevel: "Starter",
   },
   Pro: {
     color1: "#E53935",
     color2: "#C62828",
     accent: "#C62828",
-    description: "Pro karts are the fastest we offer — this is the top tier and demands precise, experienced driving.",
+    description:
+      "Pro karts are the fastest we offer — this is the top tier and demands precise, experienced driving.",
     prevLevel: "Intermediate",
   },
 };
@@ -53,7 +58,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${SENDGRID_API_KEY}`,
+        Authorization: `Bearer ${SENDGRID_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -76,7 +81,7 @@ async function sendSms(to: string, body: string): Promise<boolean> {
   try {
     const res = await fetch("https://smsapi.voxtelesys.net/api/v2/sms", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${VOX_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${VOX_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ to, from: VOX_FROM_FASTTRAX, body }),
     });
     return res.ok;
@@ -104,8 +109,8 @@ function renderEmail(data: {
   const starterBorder = "#00B8BA";
   const starterStatus = "Complete ✓";
 
-  const intermediateBg = (isIntermediate || isPro) ? "#F0EBF8" : "#F5F5F5";
-  const intermediateBorder = (isIntermediate || isPro) ? "#7E57C2" : "#CCCCCC";
+  const intermediateBg = isIntermediate || isPro ? "#F0EBF8" : "#F5F5F5";
+  const intermediateBorder = isIntermediate || isPro ? "#7E57C2" : "#CCCCCC";
   const intermediateStatus = isPro ? "Complete ✓" : isIntermediate ? "Just Unlocked! 🔓" : "Locked";
 
   const proBg = isPro ? "#FFEBEE" : "#F5F5F5";
@@ -204,7 +209,9 @@ export async function POST(req: NextRequest) {
           const shortData = await shortRes.json();
           if (shortData.shortUrl) shortUrl = shortData.shortUrl;
         }
-      } catch { /* use full URL as fallback */ }
+      } catch {
+        /* use full URL as fallback */
+      }
 
       // Send email
       let emailSent = false;
@@ -244,6 +251,9 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error("[level-up] error:", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed" },
+      { status: 500 },
+    );
   }
 }

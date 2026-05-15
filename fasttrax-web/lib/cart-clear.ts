@@ -24,11 +24,7 @@
 import { getBookingClientKey } from "./booking-location";
 
 /** sessionStorage keys that hold cart/order state across the site. */
-const CART_SESSION_KEYS = [
-  "attractionCart",
-  "attractionOrderId",
-  "qamf_session_token",
-] as const;
+const CART_SESSION_KEYS = ["attractionCart", "attractionOrderId", "qamf_session_token"] as const;
 
 /** Return true if there's any active cart state worth warning the user about. */
 export function hasActiveCart(): boolean {

@@ -55,7 +55,11 @@ async function scanAndCollect(pattern: string, cap = 20000): Promise<string[]> {
 
 export async function POST(req: NextRequest) {
   let body: { dryRun?: boolean } = {};
-  try { body = await req.json(); } catch { /* empty body is fine */ }
+  try {
+    body = await req.json();
+  } catch {
+    /* empty body is fine */
+  }
 
   const byPrefix: Record<string, number> = {};
   const allKeys: string[] = [];

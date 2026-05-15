@@ -20,7 +20,8 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     title: "Kids Bowl Free - HeadPinz & FastTrax",
-    description: "2 free games every weekday for kids 15 and under. Three locations in Southwest Florida.",
+    description:
+      "2 free games every weekday for kids 15 and under. Three locations in Southwest Florida.",
     type: "website",
     url: "https://headpinz.com/kids-bowl-free",
   },
@@ -65,7 +66,10 @@ export default function KidsBowlFreePage() {
           className="relative z-10 flex flex-col items-center justify-center text-center px-4"
           style={{ minHeight: "80vh" }}
         >
-          <div className="relative mb-6" style={{ width: "clamp(80px, 15vw, 120px)", height: "clamp(80px, 15vw, 120px)" }}>
+          <div
+            className="relative mb-6"
+            style={{ width: "clamp(80px, 15vw, 120px)", height: "clamp(80px, 15vw, 120px)" }}
+          >
             <Image
               src={`https://www.kidsbowlfree.com/img/kbf-logo-23.png`}
               alt="Kids Bowl Free"
@@ -90,7 +94,11 @@ export default function KidsBowlFreePage() {
           </h1>
           <p
             className="font-body text-white/80 max-w-xl mx-auto"
-            style={{ fontSize: "clamp(14px, 2.5vw, 20px)", lineHeight: "1.5", marginBottom: "12px" }}
+            style={{
+              fontSize: "clamp(14px, 2.5vw, 20px)",
+              lineHeight: "1.5",
+              marginBottom: "12px",
+            }}
           >
             2 free games every weekday for kids 15 &amp; under
           </p>
@@ -125,27 +133,57 @@ export default function KidsBowlFreePage() {
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(253,91,86,0.25)" }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: "0 0 30px rgba(253,91,86,0.25)",
+              }}
             >
               How It Works
             </h2>
-            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: "linear-gradient(90deg, #fd5b56, #FFD700)" }} />
+            <div
+              className="mx-auto h-1 w-24 rounded-full"
+              style={{ background: "linear-gradient(90deg, #fd5b56, #FFD700)" }}
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
-              { step: "1", title: "Register Your Kids", desc: "Sign up through the Kids Bowl Free portal. Each child must be registered individually. Ages 15 and under.", accent: "#fd5b56" },
-              { step: "2", title: "Get Weekly Passes", desc: "You'll receive weekly passes via email or in the Kids Bowl Free mobile app throughout the summer.", accent: "#FFD700" },
-              { step: "3", title: "Book & Bowl", desc: "Reserve a lane online up to 48 hours in advance. Show your pass at check-in and enjoy 2 free games!", accent: "#00E2E5" },
+              {
+                step: "1",
+                title: "Register Your Kids",
+                desc: "Sign up through the Kids Bowl Free portal. Each child must be registered individually. Ages 15 and under.",
+                accent: "#fd5b56",
+              },
+              {
+                step: "2",
+                title: "Get Weekly Passes",
+                desc: "You'll receive weekly passes via email or in the Kids Bowl Free mobile app throughout the summer.",
+                accent: "#FFD700",
+              },
+              {
+                step: "3",
+                title: "Book & Bowl",
+                desc: "Reserve a lane online up to 48 hours in advance. Show your pass at check-in and enjoy 2 free games!",
+                accent: "#00E2E5",
+              },
             ].map((s) => (
               <div
                 key={s.step}
                 className="rounded-lg p-6 text-center"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${s.accent}30` }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${s.accent}30`,
+                }}
               >
                 <span
                   className="inline-flex items-center justify-center w-12 h-12 rounded-full font-heading text-xl mb-4"
-                  style={{ backgroundColor: `${s.accent}20`, color: s.accent, border: `1.78px solid ${s.accent}40` }}
+                  style={{
+                    backgroundColor: `${s.accent}20`,
+                    color: s.accent,
+                    border: `1.78px solid ${s.accent}40`,
+                  }}
                 >
                   {s.step}
                 </span>
@@ -166,10 +204,20 @@ export default function KidsBowlFreePage() {
             <div
               key={f.title}
               className="rounded-lg overflow-hidden"
-              style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(253,91,86,0.2)" }}
+              style={{
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: "1.78px dashed rgba(253,91,86,0.2)",
+              }}
             >
               <div className="relative" style={{ height: "200px" }}>
-                <Image src={f.image} alt={f.title} fill className="object-cover" sizes="33vw" unoptimized />
+                <Image
+                  src={f.image}
+                  alt={f.title}
+                  fill
+                  className="object-cover"
+                  sizes="33vw"
+                  unoptimized
+                />
               </div>
               <div className="p-5">
                 <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-2">
@@ -188,7 +236,12 @@ export default function KidsBowlFreePage() {
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(255,215,0,0.25)" }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: "0 0 30px rgba(255,215,0,0.25)",
+              }}
             >
               When Can Kids Bowl Free?
             </h2>
@@ -196,7 +249,10 @@ export default function KidsBowlFreePage() {
 
           <div
             className="rounded-lg p-6"
-            style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
+            style={{
+              backgroundColor: "rgba(7,16,39,0.5)",
+              border: "1.78px dashed rgba(255,215,0,0.3)",
+            }}
           >
             <div className="space-y-3">
               {[
@@ -204,7 +260,10 @@ export default function KidsBowlFreePage() {
                 { day: "Friday", time: "Open to 5 PM", available: true },
                 { day: "Saturday \u2013 Sunday", time: "Not Available", available: false },
               ].map((row) => (
-                <div key={row.day} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                <div
+                  key={row.day}
+                  className="flex items-center justify-between py-2 border-b border-white/5 last:border-0"
+                >
                   <span className="font-body text-white font-bold text-sm">{row.day}</span>
                   <span
                     className="font-body text-sm font-bold"
@@ -225,7 +284,12 @@ export default function KidsBowlFreePage() {
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(0,226,229,0.25)" }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: "0 0 30px rgba(0,226,229,0.25)",
+              }}
             >
               Participating Locations
             </h2>
@@ -233,20 +297,44 @@ export default function KidsBowlFreePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {[
-              { name: "HeadPinz Fort Myers", address: "14513 Global Pkwy, Fort Myers, FL 33913", phone: "(239) 302-2155", phoneTel: "+12393022155" },
-              { name: "HeadPinz Naples", address: "8525 Radio Ln, Naples, FL 34104", phone: "(239) 455-3755", phoneTel: "+12394553755" },
-              { name: "FastTrax Fort Myers", address: "14501 Global Pkwy, Fort Myers, FL 33913", phone: "(239) 481-9666", phoneTel: "+12394819666" },
+              {
+                name: "HeadPinz Fort Myers",
+                address: "14513 Global Pkwy, Fort Myers, FL 33913",
+                phone: "(239) 302-2155",
+                phoneTel: "+12393022155",
+              },
+              {
+                name: "HeadPinz Naples",
+                address: "8525 Radio Ln, Naples, FL 34104",
+                phone: "(239) 455-3755",
+                phoneTel: "+12394553755",
+              },
+              {
+                name: "FastTrax Fort Myers",
+                address: "14501 Global Pkwy, Fort Myers, FL 33913",
+                phone: "(239) 481-9666",
+                phoneTel: "+12394819666",
+              },
             ].map((loc) => (
               <div
                 key={loc.name}
                 className="rounded-lg p-5 text-center"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(0,226,229,0.25)" }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: "1.78px dashed rgba(0,226,229,0.25)",
+                }}
               >
-                <h3 className="font-heading uppercase text-white text-sm tracking-wider mb-2" style={{ color: "#00E2E5" }}>
+                <h3
+                  className="font-heading uppercase text-white text-sm tracking-wider mb-2"
+                  style={{ color: "#00E2E5" }}
+                >
                   {loc.name}
                 </h3>
                 <p className="font-body text-white/50 text-xs mb-1">{loc.address}</p>
-                <a href={`tel:${loc.phoneTel}`} className="font-body text-white/70 text-sm hover:text-white transition-colors">
+                <a
+                  href={`tel:${loc.phoneTel}`}
+                  className="font-body text-white/70 text-sm hover:text-white transition-colors"
+                >
                   {loc.phone}
                 </a>
               </div>
@@ -256,7 +344,10 @@ export default function KidsBowlFreePage() {
       </section>
 
       {/* ====== CTA ====== */}
-      <section className="relative overflow-hidden" style={{ minHeight: "clamp(300px, 40vh, 400px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ minHeight: "clamp(300px, 40vh, 400px)" }}
+      >
         <Image
           src={`${BLOB}/images/headpinz/kbf-banner.png`}
           alt="Kids bowling"
@@ -268,10 +359,19 @@ export default function KidsBowlFreePage() {
         <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628] via-black/60 to-black/40" />
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#123075] via-white/60 to-[#fd5b56]" />
 
-        <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(300px, 40vh, 400px)" }}>
+        <div
+          className="relative z-10 flex flex-col items-center justify-center text-center px-4"
+          style={{ minHeight: "clamp(300px, 40vh, 400px)" }}
+        >
           <h2
             className="font-heading font-black uppercase text-white"
-            style={{ fontSize: "clamp(28px, 6vw, 52px)", lineHeight: "1.05", letterSpacing: "-1px", marginBottom: "16px", textShadow: "0 0 30px rgba(253,91,86,0.3)" }}
+            style={{
+              fontSize: "clamp(28px, 6vw, 52px)",
+              lineHeight: "1.05",
+              letterSpacing: "-1px",
+              marginBottom: "16px",
+              textShadow: "0 0 30px rgba(253,91,86,0.3)",
+            }}
           >
             Ready to Sign Up?
           </h2>

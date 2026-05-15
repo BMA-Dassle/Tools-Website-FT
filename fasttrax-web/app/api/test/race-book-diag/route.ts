@@ -48,7 +48,8 @@ async function depositSnapshot(base: string, personId: string) {
   const byKind: Record<string, number> = {};
   for (const d of arr) {
     const kind = d.depositKind || d.DepositKind || "unknown";
-    const bal = typeof d.balance === "number" ? d.balance : (typeof d.Balance === "number" ? d.Balance : 0);
+    const bal =
+      typeof d.balance === "number" ? d.balance : typeof d.Balance === "number" ? d.Balance : 0;
     byKind[kind] = (byKind[kind] || 0) + bal;
   }
   return { byKind, totalEntries: arr.length };
@@ -65,9 +66,8 @@ export async function GET(req: NextRequest) {
     const heatIndex = parseInt(searchParams.get("heatIndex") || "0", 10);
     const doConfirm = searchParams.get("doConfirm") !== "0";
     const confirmDepositKindRaw = searchParams.get("confirmDepositKind");
-    const confirmDepositKind = confirmDepositKindRaw !== null
-      ? parseInt(confirmDepositKindRaw, 10)
-      : 2;
+    const confirmDepositKind =
+      confirmDepositKindRaw !== null ? parseInt(confirmDepositKindRaw, 10) : 2;
     if (!Number.isFinite(confirmDepositKind)) {
       return NextResponse.json({ error: "confirmDepositKind must be an integer" }, { status: 400 });
     }
@@ -83,8 +83,14 @@ export async function GET(req: NextRequest) {
         ok: true,
         probe: true,
         inputShape: {
-          personId, productId, pageId, date, clientKey, heatIndex,
-          doConfirm, confirmDepositKind,
+          personId,
+          productId,
+          pageId,
+          date,
+          clientKey,
+          heatIndex,
+          doConfirm,
+          confirmDepositKind,
         },
         message: "Probe only — no BMI call. Drop probe=1 to actually run.",
       });
@@ -99,10 +105,16 @@ export async function GET(req: NextRequest) {
 
     // Log the fact we're about to create a real BMI bill so staff can
     // see in Vercel logs if something is spamming this endpoint.
-    console.log(`[race-book-diag] CREATING BILL for person ${personId} on ${date} (NO auto-cancel)`);
+    console.log(
+      `[race-book-diag] CREATING BILL for person ${personId} on ${date} (NO auto-cancel)`,
+    );
 
     const base = baseUrl(req);
-    const bmi = async (endpoint: string, init: RequestInit = {}, extraQuery?: Record<string, string>) => {
+    const bmi = async (
+      endpoint: string,
+      init: RequestInit = {},
+      extraQuery?: Record<string, string>,
+    ) => {
       const qs = new URLSearchParams({ endpoint, clientKey, ...(extraQuery || {}) });
       const url = `${base}/api/bmi?${qs.toString()}`;
       const res = await fetch(url, {
@@ -111,7 +123,11 @@ export async function GET(req: NextRequest) {
       });
       const text = await res.text();
       let parsed: unknown = text;
-      try { parsed = JSON.parse(text); } catch { /* keep raw */ }
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        /* keep raw */
+      }
       return { status: res.status, body: parsed, raw: text };
     };
 
@@ -137,11 +153,27 @@ export async function GET(req: NextRequest) {
       DynamicLines: [],
     });
     const avResp = await bmi("availability", { method: "POST", body: availBody }, { date });
-    trace.availability = { status: avResp.status, proposalCount: Array.isArray((avResp.body as { proposals?: unknown[] })?.proposals) ? (avResp.body as { proposals: unknown[] }).proposals.length : 0 };
+    trace.availability = {
+      status: avResp.status,
+      proposalCount: Array.isArray((avResp.body as { proposals?: unknown[] })?.proposals)
+        ? (avResp.body as { proposals: unknown[] }).proposals.length
+        : 0,
+    };
 
-    const proposals = (avResp.body as { proposals?: Array<{ blocks: Array<{ block: { resourceId: number; start: string } }>; productLineId?: unknown }> })?.proposals || [];
+    const proposals =
+      (
+        avResp.body as {
+          proposals?: Array<{
+            blocks: Array<{ block: { resourceId: number; start: string } }>;
+            productLineId?: unknown;
+          }>;
+        }
+      )?.proposals || [];
     if (proposals.length === 0) {
-      return NextResponse.json({ ok: false, stoppedAt: "availability-empty", trace }, { status: 200 });
+      return NextResponse.json(
+        { ok: false, stoppedAt: "availability-empty", trace },
+        { status: 200 },
+      );
     }
 
     const chosen = proposals[Math.min(heatIndex, proposals.length - 1)];
@@ -182,8 +214,13 @@ export async function GET(req: NextRequest) {
 
     // 4. Order overview — shows if credit was applied (depositKind=2 on totals)
     const ovResp = await bmi(`order/${orderId}/overview`, { method: "GET" });
-    trace.overview = { status: ovResp.status, totals: (ovResp.body as { total?: unknown })?.total, lines: (ovResp.body as { lines?: unknown[] })?.lines?.length };
-    const totals = ((ovResp.body as { total?: { amount?: number; depositKind?: number }[] })?.total) || [];
+    trace.overview = {
+      status: ovResp.status,
+      totals: (ovResp.body as { total?: unknown })?.total,
+      lines: (ovResp.body as { lines?: unknown[] })?.lines?.length,
+    };
+    const totals =
+      (ovResp.body as { total?: { amount?: number; depositKind?: number }[] })?.total || [];
     const creditTotal = totals.find((t) => t.depositKind === 2);
     const cashTotal = totals.find((t) => t.depositKind === 0);
     trace.creditApplied = creditTotal?.amount ?? 0;

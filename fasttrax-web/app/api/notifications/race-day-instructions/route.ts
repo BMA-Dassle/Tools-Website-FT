@@ -26,7 +26,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${SENDGRID_API_KEY}`,
+        Authorization: `Bearer ${SENDGRID_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -188,15 +188,8 @@ function buildWaiverStandard(waiverUrl: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const {
-      billId,
-      email,
-      firstName,
-      expressLane,
-      schedule,
-      waiverUrl,
-      confirmUrl,
-    } = await req.json();
+    const { billId, email, firstName, expressLane, schedule, waiverUrl, confirmUrl } =
+      await req.json();
 
     if (!email || !billId) {
       return NextResponse.json({ error: "email and billId required" }, { status: 400 });
@@ -218,10 +211,26 @@ export async function POST(req: NextRequest) {
       let html = getTemplate();
 
       // Replace dynamic sections
-      html = html.replace("^WhenYouArriveSection()$", isExpress ? buildWhenYouArriveExpress() : buildWhenYouArriveStandard());
-      html = html.replace("^WaiverSection()$", isExpress ? buildWaiverExpress() : buildWaiverStandard(waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe"));
-      html = html.replace("^ReservationSchedule()$", schedule || "See your confirmation for details.");
-      html = html.replace(/\^ConfirmationLink\(\)\$/g, confirmUrl || `https://fasttraxent.com/book/confirmation?billId=${billId}`);
+      html = html.replace(
+        "^WhenYouArriveSection()$",
+        isExpress ? buildWhenYouArriveExpress() : buildWhenYouArriveStandard(),
+      );
+      html = html.replace(
+        "^WaiverSection()$",
+        isExpress
+          ? buildWaiverExpress()
+          : buildWaiverStandard(
+              waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe",
+            ),
+      );
+      html = html.replace(
+        "^ReservationSchedule()$",
+        schedule || "See your confirmation for details.",
+      );
+      html = html.replace(
+        /\^ConfirmationLink\(\)\$/g,
+        confirmUrl || `https://fasttraxent.com/book/confirmation?billId=${billId}`,
+      );
       html = html.replace(/\^ActivityBoxLink\(\)\$/g, ACTIVITY_BOX_LINK);
 
       // Send
@@ -251,6 +260,9 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error("[race-day-instructions] error:", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed" },
+      { status: 500 },
+    );
   }
 }

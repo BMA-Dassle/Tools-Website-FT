@@ -55,8 +55,7 @@ export async function submitIndexNow(
   }
   // IndexNow limit: 10,000 URLs per submission.
   const batch = urls.slice(0, 10_000);
-  const keyLocation =
-    options?.keyLocation || `https://${host}/${key}.txt`;
+  const keyLocation = options?.keyLocation || `https://${host}/${key}.txt`;
 
   try {
     const resp = await fetch(INDEXNOW_API, {
@@ -98,11 +97,16 @@ export async function submitIndexNow(
 
 function interpretStatus(status: number): string {
   switch (status) {
-    case 400: return "Bad request — malformed JSON or missing fields";
-    case 403: return "Forbidden — key file not found at keyLocation (host the key at /{key}.txt)";
-    case 422: return "Unprocessable — URLs don't match host OR key invalid";
-    case 429: return "Rate limited — too many submissions";
-    default: return `HTTP ${status}`;
+    case 400:
+      return "Bad request — malformed JSON or missing fields";
+    case 403:
+      return "Forbidden — key file not found at keyLocation (host the key at /{key}.txt)";
+    case 422:
+      return "Unprocessable — URLs don't match host OR key invalid";
+    case 429:
+      return "Rate limited — too many submissions";
+    default:
+      return `HTTP ${status}`;
   }
 }
 

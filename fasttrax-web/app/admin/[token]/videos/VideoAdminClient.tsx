@@ -98,7 +98,9 @@ type ListResponse = {
 function todayYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -107,9 +109,13 @@ function formatEt(iso?: string): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
       timeZone: "America/New_York",
-      hour: "numeric", minute: "2-digit", hour12: true,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
     });
-  } catch { return iso; }
+  } catch {
+    return iso;
+  }
 }
 
 // Pill palette — matches the e-ticket admin so staff parse one
@@ -159,13 +165,20 @@ function smsPill(e: VideoRow): React.ReactNode {
     // hold (sweep cron will retry, but operator may want to drain
     // manually via the SMS quota tool).
     return (
-      <span className={`${PILL_BASE} ${PILL_RED}`} title="SMS hit a daily/rate limit and is queued. Sweep cron retries on quota reset.">
+      <span
+        className={`${PILL_BASE} ${PILL_RED}`}
+        title="SMS hit a daily/rate limit and is queued. Sweep cron retries on quota reset."
+      >
         sms quota ⏳
       </span>
     );
   }
   if (e.notifySmsError) {
-    return <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifySmsError}>sms rejected ✗</span>;
+    return (
+      <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifySmsError}>
+        sms rejected ✗
+      </span>
+    );
   }
   if (e.notifySmsOk !== true) {
     // No send yet (notify-deferred, never attempted, etc.) — render
@@ -175,14 +188,43 @@ function smsPill(e: VideoRow): React.ReactNode {
   // notifySmsOk=true → consult the carrier DLR if we have one
   switch (e.notifySmsDeliveryStatus) {
     case "delivered":
-      return <span className={`${PILL_BASE} ${PILL_OK}`} title={e.notifySmsSentTo ? `Delivered to ${e.notifySmsSentTo}` : "Carrier confirmed handset receipt"}>sms delivered ✓</span>;
+      return (
+        <span
+          className={`${PILL_BASE} ${PILL_OK}`}
+          title={
+            e.notifySmsSentTo
+              ? `Delivered to ${e.notifySmsSentTo}`
+              : "Carrier confirmed handset receipt"
+          }
+        >
+          sms delivered ✓
+        </span>
+      );
     case "undelivered":
     case "failed":
-      return <span className={`${PILL_BASE} ${PILL_RED}`} title="Carrier rejected the message after Vox accepted it">sms rejected ✗</span>;
+      return (
+        <span
+          className={`${PILL_BASE} ${PILL_RED}`}
+          title="Carrier rejected the message after Vox accepted it"
+        >
+          sms rejected ✗
+        </span>
+      );
     case "sent":
     case "queued":
     default:
-      return <span className={`${PILL_BASE} ${PILL_AMBER}`} title={e.notifySmsSentTo ? `Sent to ${e.notifySmsSentTo} — waiting for carrier delivery confirmation` : "Vox accepted — waiting for carrier delivery confirmation"}>sms sent</span>;
+      return (
+        <span
+          className={`${PILL_BASE} ${PILL_AMBER}`}
+          title={
+            e.notifySmsSentTo
+              ? `Sent to ${e.notifySmsSentTo} — waiting for carrier delivery confirmation`
+              : "Vox accepted — waiting for carrier delivery confirmation"
+          }
+        >
+          sms sent
+        </span>
+      );
   }
 }
 
@@ -190,10 +232,21 @@ function smsPill(e: VideoRow): React.ReactNode {
  *  Hides the passive "not sent" pill (returns null). */
 function emailPill(e: VideoRow): React.ReactNode {
   if (e.notifyEmailError) {
-    return <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifyEmailError}>email ✗</span>;
+    return (
+      <span className={`${PILL_BASE} ${PILL_RED}`} title={e.notifyEmailError}>
+        email ✗
+      </span>
+    );
   }
   if (e.notifyEmailOk === true) {
-    return <span className={`${PILL_BASE} ${PILL_OK}`} title={e.notifyEmailSentTo ? `Sent to ${e.notifyEmailSentTo}` : undefined}>email ✓</span>;
+    return (
+      <span
+        className={`${PILL_BASE} ${PILL_OK}`}
+        title={e.notifyEmailSentTo ? `Sent to ${e.notifyEmailSentTo}` : undefined}
+      >
+        email ✓
+      </span>
+    );
   }
   return null;
 }
@@ -297,41 +350,46 @@ export default function VideoAdminClient({ token }: { token: string }) {
    * notify, VT3 ready), the server fires the notify inline and we
    * show a success toast reflecting it.
    */
-  const toggleBlock = useCallback(async (row: VideoRow) => {
-    const nowBlocked = !row.blocked;
-    let reason: string | undefined;
-    if (nowBlocked) {
-      const r = prompt(`Block video ${row.videoCode}?\n\nOptional reason (shown in tooltip):`);
-      if (r === null) return; // cancelled
-      reason = r.trim() || undefined;
-    } else if (!confirm(`Unblock video ${row.videoCode}? If not yet notified, SMS + email will send now.`)) {
-      return;
-    }
-    setBlockBusy(row.videoCode);
-    try {
-      const res = await fetch(`/api/admin/videos/block`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify({ videoCode: row.videoCode, block: nowBlocked, reason }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `block failed (${res.status})`);
-      const bits: string[] = [];
-      if (nowBlocked) bits.push("blocked on VT3");
-      else {
-        if (data.stillBlocked) bits.push("still blocked (heat/person)");
-        else if (data.vt3Ok) bits.push("unblocked on VT3");
-        if (data.notified) bits.push("SMS + email sent");
+  const toggleBlock = useCallback(
+    async (row: VideoRow) => {
+      const nowBlocked = !row.blocked;
+      let reason: string | undefined;
+      if (nowBlocked) {
+        const r = prompt(`Block video ${row.videoCode}?\n\nOptional reason (shown in tooltip):`);
+        if (r === null) return; // cancelled
+        reason = r.trim() || undefined;
+      } else if (
+        !confirm(`Unblock video ${row.videoCode}? If not yet notified, SMS + email will send now.`)
+      ) {
+        return;
       }
-      setFlash({ key: rowKey(row), msg: bits.join(" · ") || "done" });
-      setTimeout(() => setFlash(null), 4000);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "block failed");
-    } finally {
-      setBlockBusy(null);
-    }
-  }, [token, load]);
+      setBlockBusy(row.videoCode);
+      try {
+        const res = await fetch(`/api/admin/videos/block`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-token": token },
+          body: JSON.stringify({ videoCode: row.videoCode, block: nowBlocked, reason }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `block failed (${res.status})`);
+        const bits: string[] = [];
+        if (nowBlocked) bits.push("blocked on VT3");
+        else {
+          if (data.stillBlocked) bits.push("still blocked (heat/person)");
+          else if (data.vt3Ok) bits.push("unblocked on VT3");
+          if (data.notified) bits.push("SMS + email sent");
+        }
+        setFlash({ key: rowKey(row), msg: bits.join(" · ") || "done" });
+        setTimeout(() => setFlash(null), 4000);
+        await load();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "block failed");
+      } finally {
+        setBlockBusy(null);
+      }
+    },
+    [token, load],
+  );
 
   return (
     <div className="min-h-screen bg-[#0a1128] text-white">
@@ -361,9 +419,15 @@ export default function VideoAdminClient({ token }: { token: string }) {
               onChange={(e) => setShow(e.target.value as typeof show)}
               className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
             >
-              <option value="all" style={{ backgroundColor: "#0a1128" }}>All videos</option>
-              <option value="matched" style={{ backgroundColor: "#0a1128" }}>Matched only</option>
-              <option value="unmatched" style={{ backgroundColor: "#0a1128" }}>Unmatched only</option>
+              <option value="all" style={{ backgroundColor: "#0a1128" }}>
+                All videos
+              </option>
+              <option value="matched" style={{ backgroundColor: "#0a1128" }}>
+                Matched only
+              </option>
+              <option value="unmatched" style={{ backgroundColor: "#0a1128" }}>
+                Unmatched only
+              </option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-white/60">
@@ -373,10 +437,18 @@ export default function VideoAdminClient({ token }: { token: string }) {
               onChange={(e) => setStatus(e.target.value as typeof status)}
               className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
             >
-              <option value="" style={{ backgroundColor: "#0a1128" }}>All</option>
-              <option value="notified" style={{ backgroundColor: "#0a1128" }}>notified</option>
-              <option value="unnotified" style={{ backgroundColor: "#0a1128" }}>unnotified</option>
-              <option value="failed" style={{ backgroundColor: "#0a1128" }}>had failures</option>
+              <option value="" style={{ backgroundColor: "#0a1128" }}>
+                All
+              </option>
+              <option value="notified" style={{ backgroundColor: "#0a1128" }}>
+                notified
+              </option>
+              <option value="unnotified" style={{ backgroundColor: "#0a1128" }}>
+                unnotified
+              </option>
+              <option value="failed" style={{ backgroundColor: "#0a1128" }}>
+                had failures
+              </option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-white/60">
@@ -450,7 +522,9 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       </span>
                     )}
                     {isUnmatched ? (
-                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
+                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                        unmatched
+                      </span>
                     ) : e.pendingNotify ? (
                       <span
                         className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
@@ -499,19 +573,28 @@ export default function VideoAdminClient({ token }: { token: string }) {
                   </div>
                 </div>
                 <div className="font-semibold text-white mb-1">
-                  {isUnmatched
-                    ? <span className="text-white/40 italic font-normal">(no racer — assign manually)</span>
-                    : <>{e.firstName} {e.lastName}</>}
+                  {isUnmatched ? (
+                    <span className="text-white/40 italic font-normal">
+                      (no racer — assign manually)
+                    </span>
+                  ) : (
+                    <>
+                      {e.firstName} {e.lastName}
+                    </>
+                  )}
                 </div>
                 {!isUnmatched && (e.track || e.heatNumber) && (
                   <div className="text-xs text-white/60 mb-1">
-                    {e.track && e.heatNumber ? `${e.track.replace(" Track", "")} · Heat ${e.heatNumber}` : ""}
+                    {e.track && e.heatNumber
+                      ? `${e.track.replace(" Track", "")} · Heat ${e.heatNumber}`
+                      : ""}
                     {e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-2 mt-2 text-xs">
                   <span className="text-white/70">
-                    System <span className="font-mono text-emerald-300">{e.systemNumber || "—"}</span>
+                    System{" "}
+                    <span className="font-mono text-emerald-300">{e.systemNumber || "—"}</span>
                     {e.cameraNumber != null && (
                       <>
                         <span className="text-white/30 mx-1">·</span>
@@ -519,7 +602,14 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       </>
                     )}
                     <span className="text-white/30 mx-1">·</span>
-                    <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono">{e.videoCode}</a>
+                    <a
+                      href={e.customerUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="text-[#00E2E5] hover:underline font-mono"
+                    >
+                      {e.videoCode}
+                    </a>
                   </span>
                 </div>
                 <div className="mt-3 flex gap-2">
@@ -564,19 +654,28 @@ export default function VideoAdminClient({ token }: { token: string }) {
                   <th className="text-left px-3 py-2">Matched</th>
                   <th className="text-left px-3 py-2">Racer</th>
                   <th className="text-left px-3 py-2">Race</th>
-                  <th className="text-left px-3 py-2" title="Kart the camera was mounted in (video.system.name)">System</th>
-                  <th className="text-left px-3 py-2" title="Camera hardware id (video.camera)">Camera</th>
+                  <th
+                    className="text-left px-3 py-2"
+                    title="Kart the camera was mounted in (video.system.name)"
+                  >
+                    System
+                  </th>
+                  <th className="text-left px-3 py-2" title="Camera hardware id (video.camera)">
+                    Camera
+                  </th>
                   <th className="text-left px-3 py-2">Video</th>
                   <th className="text-left px-3 py-2">Notified</th>
-                  <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
+                  <th className="px-3 py-2">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => {
                   const flashHere = flash?.key === rowKey(e);
                   // Treat "matched record with empty identifiers" as unmatched
-            // for UI purposes — same rationale as in ResendModal below.
-            const isUnmatched = !e.matched || !e.sessionId || !e.personId;
+                  // for UI purposes — same rationale as in ResendModal below.
+                  const isUnmatched = !e.matched || !e.sessionId || !e.personId;
                   return (
                     <tr
                       key={rowKey(e)}
@@ -585,23 +684,42 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       }`}
                     >
                       <td className="px-3 py-2 whitespace-nowrap text-white/70">
-                        {isUnmatched
-                          ? <span className="text-amber-300/70">{formatEt(e.capturedAt)}</span>
-                          : formatEt(e.matchedAt)}
+                        {isUnmatched ? (
+                          <span className="text-amber-300/70">{formatEt(e.capturedAt)}</span>
+                        ) : (
+                          formatEt(e.matchedAt)
+                        )}
                       </td>
                       <td className="px-3 py-2">
-                        {isUnmatched
-                          ? <span className="text-white/30 italic">(no racer)</span>
-                          : <>{e.firstName} {e.lastName}</>}
+                        {isUnmatched ? (
+                          <span className="text-white/30 italic">(no racer)</span>
+                        ) : (
+                          <>
+                            {e.firstName} {e.lastName}
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-white/70">
-                        {!isUnmatched && e.track && e.heatNumber ? `${e.track.replace(" Track", "")} · Heat ${e.heatNumber}` : ""}
-                        {!isUnmatched && e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
+                        {!isUnmatched && e.track && e.heatNumber
+                          ? `${e.track.replace(" Track", "")} · Heat ${e.heatNumber}`
+                          : ""}
+                        {!isUnmatched && e.raceType && (
+                          <span className="text-white/40 ml-1">· {e.raceType}</span>
+                        )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-emerald-300">{e.systemNumber || "—"}</td>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-amber-300">{e.cameraNumber ?? "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-emerald-300">
+                        {e.systemNumber || "—"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-amber-300">
+                        {e.cameraNumber ?? "—"}
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <a href={e.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono text-xs">
+                        <a
+                          href={e.customerUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="text-[#00E2E5] hover:underline font-mono text-xs"
+                        >
                           {e.videoCode}
                         </a>
                       </td>
@@ -620,7 +738,9 @@ export default function VideoAdminClient({ token }: { token: string }) {
                             </span>
                           )}
                           {isUnmatched ? (
-                            <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">unmatched</span>
+                            <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                              unmatched
+                            </span>
                           ) : e.pendingNotify ? (
                             <span
                               className="text-xs uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
@@ -694,7 +814,11 @@ export default function VideoAdminClient({ token }: { token: string }) {
                                 : "border-white/15 text-white/60 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
                             }`}
                           >
-                            {blockBusy === e.videoCode ? "Working…" : e.blocked ? "Unblock" : "Block"}
+                            {blockBusy === e.videoCode
+                              ? "Working…"
+                              : e.blocked
+                                ? "Unblock"
+                                : "Block"}
                           </button>
                         </div>
                       </td>
@@ -720,7 +844,6 @@ export default function VideoAdminClient({ token }: { token: string }) {
             }}
           />
         )}
-
       </div>
     </div>
   );
@@ -769,8 +892,8 @@ function ResendModal({
       alertBanner={
         isUnmatched ? (
           <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 mb-3 text-xs text-amber-200">
-            This video has no racer on file (no camera-assign scan, or the assignment
-            window expired). Type the racer&apos;s phone and/or email to send directly.
+            This video has no racer on file (no camera-assign scan, or the assignment window
+            expired). Type the racer&apos;s phone and/or email to send directly.
           </div>
         ) : undefined
       }
@@ -779,14 +902,26 @@ function ResendModal({
           <div className="text-xs text-white/50 mb-3 space-y-0.5">
             {!isUnmatched && (
               <>
-                <div>Racer: <span className="text-white/80">{entry.firstName} {entry.lastName}</span></div>
+                <div>
+                  Racer:{" "}
+                  <span className="text-white/80">
+                    {entry.firstName} {entry.lastName}
+                  </span>
+                </div>
                 {entry.track && entry.heatNumber && (
-                  <div>Race: <span className="text-white/80">{entry.track.replace(" Track", "")} · Heat {entry.heatNumber}{entry.raceType ? ` · ${entry.raceType}` : ""}</span></div>
+                  <div>
+                    Race:{" "}
+                    <span className="text-white/80">
+                      {entry.track.replace(" Track", "")} · Heat {entry.heatNumber}
+                      {entry.raceType ? ` · ${entry.raceType}` : ""}
+                    </span>
+                  </div>
                 )}
               </>
             )}
             <div>
-              System: <span className="text-white/80 font-mono">{entry.systemNumber || "(none)"}</span>
+              System:{" "}
+              <span className="text-white/80 font-mono">{entry.systemNumber || "(none)"}</span>
               {entry.cameraNumber != null && (
                 <>
                   {" · "}
@@ -794,27 +929,63 @@ function ResendModal({
                 </>
               )}
               {" · "}
-              Video: <a href={entry.customerUrl} target="_blank" rel="noreferrer noopener" className="text-[#00E2E5] hover:underline font-mono">{entry.videoCode}</a>
+              Video:{" "}
+              <a
+                href={entry.customerUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-[#00E2E5] hover:underline font-mono"
+              >
+                {entry.videoCode}
+              </a>
             </div>
             {isUnmatched && (
-              <div>Captured: <span className="text-white/80">{formatEt(entry.capturedAt)}</span></div>
+              <div>
+                Captured: <span className="text-white/80">{formatEt(entry.capturedAt)}</span>
+              </div>
             )}
             {!isUnmatched && entry.notifySmsSentAt && (
-              <div>Last SMS: <span className="text-white/80">{entry.notifySmsSentTo} · {formatEt(entry.notifySmsSentAt)}</span>{entry.notifySmsOk === false && <span className="text-red-400 ml-1">(failed)</span>}</div>
+              <div>
+                Last SMS:{" "}
+                <span className="text-white/80">
+                  {entry.notifySmsSentTo} · {formatEt(entry.notifySmsSentAt)}
+                </span>
+                {entry.notifySmsOk === false && <span className="text-red-400 ml-1">(failed)</span>}
+              </div>
             )}
             {!isUnmatched && entry.notifyEmailSentAt && (
-              <div>Last email: <span className="text-white/80">{entry.notifyEmailSentTo} · {formatEt(entry.notifyEmailSentAt)}</span>{entry.notifyEmailOk === false && <span className="text-red-400 ml-1">(failed)</span>}</div>
+              <div>
+                Last email:{" "}
+                <span className="text-white/80">
+                  {entry.notifyEmailSentTo} · {formatEt(entry.notifyEmailSentAt)}
+                </span>
+                {entry.notifyEmailOk === false && (
+                  <span className="text-red-400 ml-1">(failed)</span>
+                )}
+              </div>
             )}
           </div>
           {isUnmatched && (
             <div className="grid grid-cols-2 gap-2 mb-3">
               <label className="flex flex-col gap-1 text-xs text-white/60">
                 First name (optional)
-                <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Alice" className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white" />
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Alice"
+                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                />
               </label>
               <label className="flex flex-col gap-1 text-xs text-white/60">
                 Last name (optional)
-                <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Smith" className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white" />
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Smith"
+                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                />
               </label>
             </div>
           )}

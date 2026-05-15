@@ -132,7 +132,9 @@ export async function PATCH(req: NextRequest) {
 
     await writeExpressSessionIndex(updated, billId);
 
-    console.log(`[booking-record] updated billId=${billId} fields=${Object.keys(updates).join(",")}`);
+    console.log(
+      `[booking-record] updated billId=${billId} fields=${Object.keys(updates).join(",")}`,
+    );
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[booking-record] PATCH error:", err);
@@ -189,7 +191,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(records);
     }
 
-    return NextResponse.json({ error: "Provide billId, resNumber, personId, or date" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Provide billId, resNumber, personId, or date" },
+      { status: 400 },
+    );
   } catch (err) {
     console.error("[booking-record] GET error:", err);
     return NextResponse.json({ error: "Failed to retrieve" }, { status: 500 });

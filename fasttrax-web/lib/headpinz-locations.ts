@@ -51,7 +51,7 @@ export const HP_LOCATIONS: Record<string, HeadPinzLocation> = {
     bmiClientKey: "headpinznaples",
     bowlingUrl: "https://www.mybowlingpassport.com/2/3148/book",
     waiverUrl: "https://kiosk.bmileisure.com/headpinznaples",
-    laserTagPrice: 8.50,
+    laserTagPrice: 8.5,
     gelBlasterPrice: 12,
   },
 };

@@ -49,7 +49,15 @@ export async function createWalkinDayofOrder(opts: {
   /** Player data from QAMF — when present, each player gets a shoe line item. */
   players?: WalkinPlayer[];
 }): Promise<{ dayofOrderId: string }> {
-  const { locationId, guestName, playerCount, neonId, qamfReservationId, squareCustomerId, players } = opts;
+  const {
+    locationId,
+    guestName,
+    playerCount,
+    neonId,
+    qamfReservationId,
+    squareCustomerId,
+    players,
+  } = opts;
 
   const taxCatalogId = LOCATION_TAX[locationId];
   const orderTaxes = taxCatalogId
@@ -59,9 +67,11 @@ export async function createWalkinDayofOrder(opts: {
   // Build line items: one shoe line per player (using the KDS catalog item
   // so Square KDS recognises them), plus a summary line for the dashboard.
   const lineItems: Array<{
-    name: string; quantity: string;
+    name: string;
+    quantity: string;
     base_price_money: { amount: number; currency: string };
-    catalog_object_id?: string; note?: string;
+    catalog_object_id?: string;
+    note?: string;
   }> = [];
 
   const playersWithShoes = (players ?? []).filter((p) => p.shoeSize);

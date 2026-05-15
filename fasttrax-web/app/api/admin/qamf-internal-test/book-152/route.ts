@@ -33,9 +33,9 @@ import {
  * auth as the rest of the admin surface). No bespoke ?token= needed.
  */
 
-const CENTER_ID = 9172;       // HeadPinz Fort Myers (BMA Pandora id;
-                              // confirm with QAMF whether their internal
-                              // bowling-reservations centerId differs)
+const CENTER_ID = 9172; // HeadPinz Fort Myers (BMA Pandora id;
+// confirm with QAMF whether their internal
+// bowling-reservations centerId differs)
 const WEB_OFFER_ID = 152;
 
 interface StepResult {
@@ -161,6 +161,12 @@ export async function GET(req: NextRequest) {
     webOfferId: WEB_OFFER_ID,
     bookedAt,
     reservationId: reservationId ?? null,
-    steps: [availability, create, ...(customer ? [customer] : []), ...(confirm ? [confirm] : []), ...(read ? [read] : [])],
+    steps: [
+      availability,
+      create,
+      ...(customer ? [customer] : []),
+      ...(confirm ? [confirm] : []),
+      ...(read ? [read] : []),
+    ],
   });
 }

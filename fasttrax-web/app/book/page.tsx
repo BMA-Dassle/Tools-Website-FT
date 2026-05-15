@@ -10,21 +10,35 @@ import { getBookingLocation } from "@/lib/booking-location";
 
 // ── Attraction Card ─────────────────────────────────────────────────────────
 
-function AttractionCard({ attraction, bookingLoc }: { attraction: AttractionConfig; bookingLoc: string | null }) {
-  const href = attraction.slug === "racing" ? "/book/race"
-    : attraction.slug === "bowling" ? (bookingLoc === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling")
-    : `/book/${attraction.slug}`;
+function AttractionCard({
+  attraction,
+  bookingLoc,
+}: {
+  attraction: AttractionConfig;
+  bookingLoc: string | null;
+}) {
+  const href =
+    attraction.slug === "racing"
+      ? "/book/race"
+      : attraction.slug === "bowling"
+        ? bookingLoc === "naples"
+          ? "/hp/book/bowling?location=naples"
+          : "/hp/book/bowling"
+        : `/book/${attraction.slug}`;
   // Show specific building name
-  const isFmHeadPinzOnly = attraction.building === "HeadPinz" || (attraction.building.includes("HeadPinz") && !attraction.building.includes("FastTrax"));
-  const locationLabel = bookingLoc === "naples"
-    ? "HeadPinz Naples"
-    : isFmHeadPinzOnly
-      ? "HeadPinz Fort Myers"
-      : attraction.location === "both"
-        ? "FastTrax & HeadPinz"
-        : attraction.location === "fasttrax"
-          ? "FastTrax Fort Myers"
-        : "HeadPinz Fort Myers";
+  const isFmHeadPinzOnly =
+    attraction.building === "HeadPinz" ||
+    (attraction.building.includes("HeadPinz") && !attraction.building.includes("FastTrax"));
+  const locationLabel =
+    bookingLoc === "naples"
+      ? "HeadPinz Naples"
+      : isFmHeadPinzOnly
+        ? "HeadPinz Fort Myers"
+        : attraction.location === "both"
+          ? "FastTrax & HeadPinz"
+          : attraction.location === "fasttrax"
+            ? "FastTrax Fort Myers"
+            : "HeadPinz Fort Myers";
 
   return (
     <Link
@@ -46,9 +60,23 @@ function AttractionCard({ attraction, bookingLoc }: { attraction: AttractionConf
         {/* Location badge */}
         <div className="absolute top-3 left-3">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-sm text-xs font-medium text-white/70 border border-white/10">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            <svg
+              className="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+              />
             </svg>
             {locationLabel}
           </span>
@@ -58,7 +86,13 @@ function AttractionCard({ attraction, bookingLoc }: { attraction: AttractionConf
         {attraction.durationLabel && (
           <div className="absolute top-3 right-3">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-sm text-xs font-medium text-white/70 border border-white/10">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <circle cx="12" cy="12" r="10" />
                 <path strokeLinecap="round" d="M12 6v6l4 2" />
               </svg>
@@ -86,7 +120,13 @@ function AttractionCard({ attraction, bookingLoc }: { attraction: AttractionConf
           }}
         >
           Book Now
-          <svg className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg
+            className="w-4 h-4 group-hover:translate-x-0.5 transition-transform"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>
         </div>
@@ -105,9 +145,9 @@ export default function BookLandingPage() {
 
   // Filter attractions by current booking location
   // Fort Myers (headpinz + fasttrax) share all attractions — only Naples is filtered
-  const filtered = ATTRACTION_LIST.filter(a => {
+  const filtered = ATTRACTION_LIST.filter((a) => {
     if (!bookingLoc || bookingLoc === "headpinz" || bookingLoc === "fasttrax") return true;
-    return a.products.some(p => p.location === bookingLoc) || a.location === bookingLoc;
+    return a.products.some((p) => p.location === bookingLoc) || a.location === bookingLoc;
   });
 
   return (
@@ -121,8 +161,8 @@ export default function BookLandingPage() {
             Book an Experience
           </h1>
           <p className="text-white/50 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
-            High-speed racing, shuffleboard, duckpin bowling, laser tag, and more.
-            Pick your adventure and lock in your time.
+            High-speed racing, shuffleboard, duckpin bowling, laser tag, and more. Pick your
+            adventure and lock in your time.
           </p>
         </div>
       </section>

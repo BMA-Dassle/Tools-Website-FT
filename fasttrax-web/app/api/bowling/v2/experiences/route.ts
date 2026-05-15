@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getBowlingExperiences,
-  type BowlingExperienceKind,
-} from "@/lib/bowling-db";
+import { getBowlingExperiences, type BowlingExperienceKind } from "@/lib/bowling-db";
 
 const CENTER_ID_TO_CODE: Record<string, string> = {
   "9172": "TXBSQN0FEKQ11",
@@ -32,10 +29,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (!centerCode) {
-    return NextResponse.json(
-      { error: "centerCode or centerId is required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "centerCode or centerId is required" }, { status: 400 });
   }
 
   const kind = (searchParams.get("kind") ?? undefined) as BowlingExperienceKind | undefined;

@@ -17,13 +17,13 @@ so it's covered transitively. Google does **not** participate (use
 
 ## Already configured
 
-| What | Where |
-|---|---|
-| Key | `INDEXNOW_KEY` in `.env.local` |
+| What     | Where                                                                                                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Key      | `INDEXNOW_KEY` in `.env.local`                                                                                                                                                        |
 | Key file | `fasttrax-web/public/52e6d30db6e55d7d60784ed3b779cf45ddf8dc71.txt` — served at `https://fasttraxent.com/52e6d30db6e55d7d60784ed3b779cf45ddf8dc71.txt` AND `https://headpinz.com/…txt` |
-| Helper | `fasttrax-web/lib/indexnow.ts` — `submitIndexNow`, `submitSitemapUrls` |
-| Endpoint | `POST /api/seo/indexnow` — submits both domains' full sitemap URLs |
-| Combined | `POST /api/seo/ping-all` — fires IndexNow + Google in parallel |
+| Helper   | `fasttrax-web/lib/indexnow.ts` — `submitIndexNow`, `submitSitemapUrls`                                                                                                                |
+| Endpoint | `POST /api/seo/indexnow` — submits both domains' full sitemap URLs                                                                                                                    |
+| Combined | `POST /api/seo/ping-all` — fires IndexNow + Google in parallel                                                                                                                        |
 
 ## Usage
 
@@ -43,8 +43,8 @@ Expected response (on success):
 {
   "ok": true,
   "results": [
-    {"host":"fasttraxent.com","key":"…","urlCount":14,"ok":true,"status":202},
-    {"host":"headpinz.com",   "key":"…","urlCount":18,"ok":true,"status":202}
+    { "host": "fasttraxent.com", "key": "…", "urlCount": 14, "ok": true, "status": 202 },
+    { "host": "headpinz.com", "key": "…", "urlCount": 18, "ok": true, "status": 202 }
   ]
 }
 ```
@@ -95,12 +95,14 @@ var, otherwise any pings mid-deploy reference a missing key file.
 ## Bing Webmaster Tools (additional — optional)
 
 IndexNow is the main integration for Bing. If you also want:
+
 - Coverage reports
 - Crawl stats
 - Manual "Submit URL" triggers
 - Indexed site size
 
 …register at https://www.bing.com/webmasters. The verification options:
+
 - **Option 1 — CNAME:** add a DNS CNAME record. Works for both domains.
 - **Option 2 — XML file:** download `BingSiteAuth.xml`, drop in
   `fasttrax-web/public/`. Middleware allows root-level .xml through.
@@ -122,6 +124,7 @@ Already-indexed content shows up within 24–48 h of verification.
 ### IndexNow returns `403 Forbidden`
 
 Engine tried to verify the key and the file didn't match. Causes:
+
 - Key file content differs from env var (must be exact, no trailing
   newline issues — check `curl -s url | od -c | tail`)
 - Key file not accessible from public internet (firewall, auth wall)

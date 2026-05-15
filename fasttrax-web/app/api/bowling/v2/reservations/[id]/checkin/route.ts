@@ -27,10 +27,7 @@ function buildLaneLabel(nums: number[]): string {
   return `Lanes ${nums.join(", ")}`;
 }
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const neonId = parseInt(id, 10);
   if (!neonId || isNaN(neonId)) {
@@ -92,13 +89,13 @@ export async function GET(
           // All assigned lanes must be "Closed" (not Error, not Open for
           // someone else). If any lane is Error or already Open, don't
           // allow self-service — let staff handle it.
-          const allClosed = assignedPhysical.length > 0 &&
-            assignedPhysical.every((pl) => pl.Status === "Closed");
+          const allClosed =
+            assignedPhysical.length > 0 && assignedPhysical.every((pl) => pl.Status === "Closed");
           if (allClosed) {
             phase = "ready";
             console.log(
               `[checkin] neonId=${neonId} self-service gate: within ${Math.round(minsUntilBooked)}min,` +
-              ` lanes ${laneNumbers.join(",")} all Closed → phase=ready`,
+                ` lanes ${laneNumbers.join(",")} all Closed → phase=ready`,
             );
           }
         } catch (err) {
@@ -137,10 +134,7 @@ export async function GET(
  * See docs/qamf-lane-lifecycle.md for the full state machine.
  * Only call after GET confirms phase="ready".
  */
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const neonId = parseInt(id, 10);
   if (!neonId || isNaN(neonId)) {
@@ -177,7 +171,11 @@ export async function POST(
   } catch (err) {
     console.error(`[checkin] getReservation failed after Arrived:`, err);
     // Arrived was set — return partial success
-    return NextResponse.json({ ok: true, lanesOpened: 0, error: "Arrived set but could not fetch lanes" });
+    return NextResponse.json({
+      ok: true,
+      lanesOpened: 0,
+      error: "Arrived set but could not fetch lanes",
+    });
   }
 
   // Step 3: Lane Ready → Lane Running for each lane
@@ -194,7 +192,10 @@ export async function POST(
     }
   }
 
-  const laneNumbers = lanes.map((l) => l.LaneNumber).filter(Boolean).sort((a, b) => a - b);
+  const laneNumbers = lanes
+    .map((l) => l.LaneNumber)
+    .filter(Boolean)
+    .sort((a, b) => a - b);
   const laneLabel = buildLaneLabel(laneNumbers);
 
   // Record self-service check-in (non-fatal)

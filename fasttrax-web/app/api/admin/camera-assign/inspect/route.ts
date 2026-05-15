@@ -37,14 +37,20 @@ export async function GET(req: NextRequest) {
         cursor = next;
         for (const k of batch) {
           found.push(k);
-          if (found.length >= 2000) { cursor = "0"; break; }
+          if (found.length >= 2000) {
+            cursor = "0";
+            break;
+          }
         }
       } while (cursor !== "0");
       out.prefixScan = { pattern, count: found.length, keys: found.slice(0, 100) };
     }
 
     if (keysRaw) {
-      const ids = keysRaw.split(",").map((s) => s.trim()).filter(Boolean);
+      const ids = keysRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const perKey: Record<string, unknown> = {};
       for (const id of ids) {
         const watchKey = `system-watch:${id}`;
@@ -56,7 +62,11 @@ export async function GET(req: NextRequest) {
         for (let i = 0; i < history.length; i += 2) {
           const scoreNum = Number(history[i + 1]);
           let parsed: unknown = history[i];
-          try { parsed = JSON.parse(history[i]); } catch { /* leave as string */ }
+          try {
+            parsed = JSON.parse(history[i]);
+          } catch {
+            /* leave as string */
+          }
           historyParsed.push({ score: scoreNum, value: parsed });
         }
         perKey[id] = {
@@ -80,5 +90,9 @@ export async function GET(req: NextRequest) {
 }
 
 function safeParse(s: string): unknown {
-  try { return JSON.parse(s); } catch { return null; }
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
 }

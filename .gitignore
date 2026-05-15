@@ -42,3 +42,6 @@ npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Husky regenerates the _/ directory on every `npm install` via the prepare script.
+.husky/_/

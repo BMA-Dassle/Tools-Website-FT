@@ -40,7 +40,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${ft}/book/laser-tag`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     // SEO content hub + competitor-alternative landing pages.
     { url: `${ft}/careers`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${ft}/things-to-do-fort-myers`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    {
+      url: `${ft}/things-to-do-fort-myers`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
     { url: `${ft}/alternatives`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     ...listAlternatives("ft").map((a) => ({
       url: `${ft}/alternatives/${a.slug}`,
@@ -53,14 +58,44 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const headPinzUrls: MetadataRoute.Sitemap = [
     { url: hp, lastModified: now, changeFrequency: "weekly", priority: 1 },
     { url: `${hp}/fort-myers`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
-    { url: `${hp}/fort-myers/attractions`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
-    { url: `${hp}/fort-myers/birthdays`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${hp}/fort-myers/group-events`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${hp}/fort-myers/have-a-ball`, lastModified: now, changeFrequency: "weekly", priority: 0.75 },
+    {
+      url: `${hp}/fort-myers/attractions`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    {
+      url: `${hp}/fort-myers/birthdays`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
+    {
+      url: `${hp}/fort-myers/group-events`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
+    {
+      url: `${hp}/fort-myers/have-a-ball`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.75,
+    },
     { url: `${hp}/naples`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
-    { url: `${hp}/naples/attractions`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
+    {
+      url: `${hp}/naples/attractions`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
     { url: `${hp}/naples/birthdays`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${hp}/naples/group-events`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    {
+      url: `${hp}/naples/group-events`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
     { url: `${hp}/menu`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
     { url: `${hp}/pricing`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
     { url: `${hp}/rewards`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
@@ -72,8 +107,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${hp}/fwf`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${hp}/careers`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     // SEO content hubs + competitor-alternative landing pages.
-    { url: `${hp}/things-to-do-fort-myers`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${hp}/things-to-do-naples`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    {
+      url: `${hp}/things-to-do-fort-myers`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
+    {
+      url: `${hp}/things-to-do-naples`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
     { url: `${hp}/alternatives`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     ...listAlternatives("hp").map((a) => ({
       url: `${hp}/alternatives/${a.slug}`,

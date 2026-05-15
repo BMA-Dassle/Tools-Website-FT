@@ -90,8 +90,18 @@ export function violatesMinGapAfter(
   candStart: string | number | Date,
   minutes: number,
 ): boolean {
-  const prevMs = typeof prevStop === "string" ? Date.parse(prevStop) : prevStop instanceof Date ? prevStop.getTime() : prevStop;
-  const candMs = typeof candStart === "string" ? Date.parse(candStart) : candStart instanceof Date ? candStart.getTime() : candStart;
+  const prevMs =
+    typeof prevStop === "string"
+      ? Date.parse(prevStop)
+      : prevStop instanceof Date
+        ? prevStop.getTime()
+        : prevStop;
+  const candMs =
+    typeof candStart === "string"
+      ? Date.parse(candStart)
+      : candStart instanceof Date
+        ? candStart.getTime()
+        : candStart;
   if (!Number.isFinite(prevMs) || !Number.isFinite(candMs)) return false;
   return candMs < prevMs + minutes * 60_000;
 }

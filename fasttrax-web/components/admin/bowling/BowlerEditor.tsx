@@ -34,17 +34,23 @@ interface BowlerEditorProps {
 /* ------------------------------------------------------------------ */
 
 const RELATION_BADGE: Record<string, { label: string; bg: string; color: string }> = {
-  kid:    { label: "Kid",    bg: "#dcfce7", color: "#166534" },
+  kid: { label: "Kid", bg: "#dcfce7", color: "#166534" },
   family: { label: "Family", bg: "#dbeafe", color: "#1e40af" },
-  parent: { label: "Adult",  bg: "#dbeafe", color: "#1e40af" },
-  guest:  { label: "Guest",  bg: "#ffedd5", color: "#9a3412" },
+  parent: { label: "Adult", bg: "#dbeafe", color: "#1e40af" },
+  guest: { label: "Guest", bg: "#ffedd5", color: "#9a3412" },
 };
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function BowlerEditor({ bowler, onChange, editableName, onRemove, disabled }: BowlerEditorProps) {
+export default function BowlerEditor({
+  bowler,
+  onChange,
+  editableName,
+  onRemove,
+  disabled,
+}: BowlerEditorProps) {
   const badge = RELATION_BADGE[bowler.relation] ?? RELATION_BADGE.guest;
 
   return (
@@ -66,7 +72,13 @@ export default function BowlerEditor({ bowler, onChange, editableName, onRemove,
         checked={bowler.selected}
         disabled={disabled}
         onChange={(e) => onChange({ ...bowler, selected: e.target.checked })}
-        style={{ width: 16, height: 16, cursor: disabled ? "default" : "pointer", accentColor: "#004AAD", flexShrink: 0 }}
+        style={{
+          width: 16,
+          height: 16,
+          cursor: disabled ? "default" : "pointer",
+          accentColor: "#004AAD",
+          flexShrink: 0,
+        }}
       />
 
       {/* Name */}

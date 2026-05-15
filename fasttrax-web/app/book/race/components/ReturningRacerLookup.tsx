@@ -7,7 +7,7 @@ export interface PersonData {
   personId: string;
   fullName: string;
   email: string;
-  phone?: string;             // Carried from OTP-verified lookup
+  phone?: string; // Carried from OTP-verified lookup
   races: number;
   maxExpiry: string | null;
   tag: string;
@@ -44,7 +44,17 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState("");
-  const [phase, setPhase] = useState<"input" | "looking" | "not-found" | "sending" | "sent" | "sms-sent" | "phone-verified" | "verifying" | "verified">("input");
+  const [phase, setPhase] = useState<
+    | "input"
+    | "looking"
+    | "not-found"
+    | "sending"
+    | "sent"
+    | "sms-sent"
+    | "phone-verified"
+    | "verifying"
+    | "verified"
+  >("input");
   const [accounts, setAccounts] = useState<FoundAccount[]>([]);
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   const codeRef = useRef<HTMLInputElement>(null);
@@ -64,7 +74,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         handleCodeVerify(autoCode);
       }, 300);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoCode]);
 
   /** Shared search + fetch person details logic for both phone and email.
@@ -92,15 +102,17 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
    */
   function scoreSearchResult(desc: string): number {
     let s = 0;
-    if (/\(\d/.test(desc)) s += 100;             // birthdate paren — strong primary-record signal
-    if (desc.includes("Memberships:")) s += 50;   // memberships listed
-    if (desc.includes("zip:")) s += 25;           // address present
-    if (desc.includes("Last seen:")) s += 10;     // activity history
+    if (/\(\d/.test(desc)) s += 100; // birthdate paren — strong primary-record signal
+    if (desc.includes("Memberships:")) s += 50; // memberships listed
+    if (desc.includes("zip:")) s += 25; // address present
+    if (desc.includes("Last seen:")) s += 10; // activity history
     return s;
   }
 
   async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
-    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`);
+    const searchRes = await fetch(
+      `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
+    );
     const results = await searchRes.json();
     if (!Array.isArray(results) || results.length === 0) return [];
 
@@ -120,18 +132,22 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
         const p = await res.json();
         const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-          (b.lastSeen || "").localeCompare(a.lastSeen || "")
+          (b.lastSeen || "").localeCompare(a.lastSeen || ""),
         );
         const loginCode = tags[0]?.tag || "";
         const memberships = (p.memberships || [])
-          .filter((m: { stops: string; name: string }) =>
-            (!m.stops || new Date(m.stops) > new Date()) &&
-            isRelevantMembership(m.name)
+          .filter(
+            (m: { stops: string; name: string }) =>
+              (!m.stops || new Date(m.stops) > new Date()) && isRelevantMembership(m.name),
           )
           .map((m: { name: string }) => m.name)
           .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
         const lastSeen = p.lastLineUp
-          ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+          ? new Date(p.lastLineUp).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })
           : "";
         // Fetch credit balances
         let creditBalances: { kind: string; balance: number }[] = [];
@@ -140,15 +156,34 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
           if (depRes.ok) {
             const deposits: { depositKind: string; balance: number }[] = await depRes.json();
             creditBalances = deposits
-              .filter(d => d.balance > 0 && (d.depositKind.toLowerCase().includes("credit") || d.depositKind.toLowerCase().includes("pass")))
-              .map(d => ({ kind: d.depositKind, balance: d.balance }));
+              .filter(
+                (d) =>
+                  d.balance > 0 &&
+                  (d.depositKind.toLowerCase().includes("credit") ||
+                    d.depositKind.toLowerCase().includes("pass")),
+              )
+              .map((d) => ({ kind: d.depositKind, balance: d.balance }));
           }
         } catch {}
-        const acctEmail = (p.addresses?.[0]?.email) || "";
-        return { personId: String(p.id), fullName: `${p.firstName || ""} ${p.name || ""}`.trim(), email: acctEmail, loginCode, lastSeen, races: (p.tags || []).length, memberships, birthDate: p.birthDate || null, creditBalances } as FoundAccount;
-      } catch { return null; }
+        const acctEmail = p.addresses?.[0]?.email || "";
+        return {
+          personId: String(p.id),
+          fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
+          email: acctEmail,
+          loginCode,
+          lastSeen,
+          races: (p.tags || []).length,
+          memberships,
+          birthDate: p.birthDate || null,
+          creditBalances,
+        } as FoundAccount;
+      } catch {
+        return null;
+      }
     });
-    const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null && !!d.loginCode);
+    const allDetails = (await Promise.all(detailPromises)).filter(
+      (d): d is FoundAccount => d !== null && !!d.loginCode,
+    );
     allDetails.sort((a, b) => {
       if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
       if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
@@ -173,14 +208,24 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
           if (pubResult.person && pubResult.person.races > 0) {
             const p = pubResult.person;
             foundAccounts.push({
-              personId: p.personId, fullName: p.fullName, email: "", loginCode: pubResult.loginCode,
-              lastSeen: "", races: p.races, memberships: [],
+              personId: p.personId,
+              fullName: p.fullName,
+              email: "",
+              loginCode: pubResult.loginCode,
+              lastSeen: "",
+              races: p.races,
+              memberships: [],
             });
           }
-        } catch { /* fall through */ }
+        } catch {
+          /* fall through */
+        }
       }
 
-      if (foundAccounts.length === 0) { setPhase("not-found"); return; }
+      if (foundAccounts.length === 0) {
+        setPhase("not-found");
+        return;
+      }
 
       setAccounts(foundAccounts);
 
@@ -191,7 +236,11 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         body: JSON.stringify({ email: trimmed }),
       });
       const otpData = await otpRes.json();
-      if (!otpData.sent) { setSmsError(otpData.error || "Failed to send code"); setPhase("input"); return; }
+      if (!otpData.sent) {
+        setSmsError(otpData.error || "Failed to send code");
+        setPhase("input");
+        return;
+      }
 
       setPhase("sms-sent");
       setMode("email");
@@ -208,7 +257,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
     setPhase("verifying");
 
     // Check against known accounts first (if we did email lookup)
-    const match = accounts.find(a => a.loginCode.toLowerCase() === trimmed);
+    const match = accounts.find((a) => a.loginCode.toLowerCase() === trimmed);
     if (match) {
       // We already have the person data
       const person: PersonData = {
@@ -233,7 +282,9 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
     // The login code IS the tag, so we can't directly search by it on the public API
     // Instead, we need to search the office API by tag
     try {
-      const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}`);
+      const searchRes = await fetch(
+        `/api/bmi-office?action=search&q=${encodeURIComponent(trimmed)}`,
+      );
       const results = await searchRes.json();
 
       if (Array.isArray(results) && results.length > 0) {
@@ -241,7 +292,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         const detailRes = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
         const p = await detailRes.json();
         const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-          (b.lastSeen || "").localeCompare(a.lastSeen || "")
+          (b.lastSeen || "").localeCompare(a.lastSeen || ""),
         );
         const matchTag = tags.find((t: { tag: string }) => t.tag.toLowerCase() === trimmed);
 
@@ -249,16 +300,16 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
           const person: PersonData = {
             personId: String(p.id),
             fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
-            email: (p.addresses?.[0]?.email) || "",
+            email: p.addresses?.[0]?.email || "",
             races: tags.length,
             maxExpiry: null,
             tag: matchTag.tag,
             loginCode: matchTag.tag,
             personReference: "",
             memberships: (p.memberships || [])
-              .filter((m: { stops: string; name: string }) =>
-                (!m.stops || new Date(m.stops) > new Date()) &&
-                isRelevantMembership(m.name)
+              .filter(
+                (m: { stops: string; name: string }) =>
+                  (!m.stops || new Date(m.stops) > new Date()) && isRelevantMembership(m.name),
               )
               .map((m: { name: string }) => m.name)
               .filter((n: string, i: number, a: string[]) => a.indexOf(n) === i),
@@ -287,7 +338,10 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
     setSmsError("");
     try {
       const foundAccounts = await searchAndFetchAccounts(digits);
-      if (foundAccounts.length === 0) { setPhase("not-found"); return; }
+      if (foundAccounts.length === 0) {
+        setPhase("not-found");
+        return;
+      }
 
       setAccounts(foundAccounts);
 
@@ -298,7 +352,11 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         body: JSON.stringify({ phone: digits }),
       });
       const smsData = await smsRes.json();
-      if (!smsData.sent) { setSmsError(smsData.error || "Failed to send code"); setPhase("input"); return; }
+      if (!smsData.sent) {
+        setSmsError(smsData.error || "Failed to send code");
+        setPhase("input");
+        return;
+      }
 
       setPhase("sms-sent");
     } catch {
@@ -309,14 +367,18 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
 
   async function handleSmsVerify() {
     const trimmed = smsCode.trim();
-    if (!trimmed || trimmed.length !== 6) { setSmsError("Enter the 6-digit code"); return; }
+    if (!trimmed || trimmed.length !== 6) {
+      setSmsError("Enter the 6-digit code");
+      return;
+    }
 
     setSmsError("");
 
     // Determine if verifying phone or email
-    const verifyBody = mode === "phone"
-      ? { phone: phone.replace(/\D/g, "").replace(/^1/, ""), code: trimmed }
-      : { email: email.trim().toLowerCase(), code: trimmed };
+    const verifyBody =
+      mode === "phone"
+        ? { phone: phone.replace(/\D/g, "").replace(/^1/, ""), code: trimmed }
+        : { email: email.trim().toLowerCase(), code: trimmed };
 
     try {
       const res = await fetch("/api/sms-verify", {
@@ -343,7 +405,9 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
 
-  const isLicenseActive = verifiedPerson?.maxExpiry ? new Date(verifiedPerson.maxExpiry) > new Date() : false;
+  const isLicenseActive = verifiedPerson?.maxExpiry
+    ? new Date(verifiedPerson.maxExpiry) > new Date()
+    : false;
 
   return (
     <div className="space-y-6">
@@ -358,24 +422,39 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
       {mode === "choose" && (
         <div className="max-w-sm mx-auto space-y-3">
           <button
-            onClick={() => { setMode("phone"); setPhase("input"); setPhone(""); setSmsCode(""); setSmsError(""); }}
+            onClick={() => {
+              setMode("phone");
+              setPhase("input");
+              setPhone("");
+              setSmsCode("");
+              setSmsError("");
+            }}
             className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors"
           >
             Look Up by Phone
           </button>
           <button
-            onClick={() => { setMode("email"); setPhase("input"); }}
+            onClick={() => {
+              setMode("email");
+              setPhase("input");
+            }}
             className="w-full py-3.5 rounded-xl font-bold text-sm bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors border border-white/10"
           >
             Look Up by Email
           </button>
           <button
-            onClick={() => { setMode("code"); setPhase("input"); }}
+            onClick={() => {
+              setMode("code");
+              setPhase("input");
+            }}
             className="w-full py-3.5 rounded-xl font-bold text-sm bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors border border-white/10"
           >
             I Have My Login Code
           </button>
-          <button onClick={onSwitchToNew} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-2">
+          <button
+            onClick={onSwitchToNew}
+            className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-2"
+          >
             Actually, I&apos;m a new racer
           </button>
         </div>
@@ -402,19 +481,29 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                 <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
                 Looking up accounts...
               </span>
-            ) : "Send Verification Code"}
+            ) : (
+              "Send Verification Code"
+            )}
           </button>
           {smsError && <p className="text-red-400 text-xs text-center">{smsError}</p>}
           {phase === "not-found" && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 text-center">
               <p className="text-amber-400 text-sm font-semibold mb-1">No account found</p>
-              <p className="text-white/40 text-xs mb-3">We couldn&apos;t find a FastTrax account with that email.</p>
-              <button onClick={onSwitchToNew} className="text-[#00E2E5] text-xs font-semibold hover:underline">
+              <p className="text-white/40 text-xs mb-3">
+                We couldn&apos;t find a FastTrax account with that email.
+              </p>
+              <button
+                onClick={onSwitchToNew}
+                className="text-[#00E2E5] text-xs font-semibold hover:underline"
+              >
                 Continue as a New Racer instead
               </button>
             </div>
           )}
-          <button onClick={() => setMode("choose")} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-1">
+          <button
+            onClick={() => setMode("choose")}
+            className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-1"
+          >
             ← Back
           </button>
         </div>
@@ -442,18 +531,28 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                 <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
                 Looking up accounts...
               </span>
-            ) : "Send Verification Code"}
+            ) : (
+              "Send Verification Code"
+            )}
           </button>
           {phase === "not-found" && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 text-center">
               <p className="text-amber-400 text-sm font-semibold mb-1">No account found</p>
-              <p className="text-white/40 text-xs mb-3">We couldn&apos;t find a FastTrax account with that phone number.</p>
-              <button onClick={onSwitchToNew} className="text-[#00E2E5] text-xs font-semibold hover:underline">
+              <p className="text-white/40 text-xs mb-3">
+                We couldn&apos;t find a FastTrax account with that phone number.
+              </p>
+              <button
+                onClick={onSwitchToNew}
+                className="text-[#00E2E5] text-xs font-semibold hover:underline"
+              >
                 Continue as a New Racer instead
               </button>
             </div>
           )}
-          <button onClick={() => setMode("choose")} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-1">
+          <button
+            onClick={() => setMode("choose")}
+            className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-1"
+          >
             ← Back
           </button>
         </div>
@@ -465,7 +564,9 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
           <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-4 text-center">
             <p className="text-green-400 font-semibold text-sm">Code Sent!</p>
             <p className="text-white/40 text-xs mt-1">
-              {mode === "phone" ? `We texted a 6-digit code to ${phone}` : `We emailed a 6-digit code to ${email}`}
+              {mode === "phone"
+                ? `We texted a 6-digit code to ${phone}`
+                : `We emailed a 6-digit code to ${email}`}
             </p>
           </div>
           <input
@@ -473,7 +574,10 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             inputMode="numeric"
             maxLength={6}
             value={smsCode}
-            onChange={(e) => { setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setSmsError(""); }}
+            onChange={(e) => {
+              setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+              setSmsError("");
+            }}
             onKeyDown={(e) => e.key === "Enter" && handleSmsVerify()}
             placeholder="000000"
             className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-2xl tracking-[0.5em] font-mono placeholder:text-white/20 focus:border-[#00E2E5] focus:ring-1 focus:ring-[#00E2E5]/30 outline-none transition-colors"
@@ -487,10 +591,21 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             Verify Code
           </button>
           <div className="flex justify-between">
-            <button onClick={mode === "phone" ? handlePhoneLookup : handleEmailLookup} className="text-white/30 text-xs hover:text-white/50 transition-colors">
+            <button
+              onClick={mode === "phone" ? handlePhoneLookup : handleEmailLookup}
+              className="text-white/30 text-xs hover:text-white/50 transition-colors"
+            >
               Resend code
             </button>
-            <button onClick={() => { setMode("choose"); setPhase("input"); setSmsCode(""); setSmsError(""); }} className="text-white/30 text-xs hover:text-white/50 transition-colors">
+            <button
+              onClick={() => {
+                setMode("choose");
+                setPhase("input");
+                setSmsCode("");
+                setSmsError("");
+              }}
+              className="text-white/30 text-xs hover:text-white/50 transition-colors"
+            >
               ← Start over
             </button>
           </div>
@@ -504,7 +619,7 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             <p className="text-green-400 font-semibold text-sm">Phone Verified!</p>
             <p className="text-white/40 text-xs mt-1">Select your account below</p>
           </div>
-          {accounts.map(a => (
+          {accounts.map((a) => (
             <button
               key={a.personId}
               type="button"
@@ -536,7 +651,10 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                   <p className="text-white font-semibold text-sm">{a.fullName}</p>
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {a.memberships.slice(0, 3).map((m, i) => (
-                      <span key={i} className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 whitespace-nowrap">
+                      <span
+                        key={i}
+                        className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 whitespace-nowrap"
+                      >
                         {m.replace("Qualified ", "").replace("License Fee", "License")}
                       </span>
                     ))}
@@ -544,13 +662,18 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                   {a.creditBalances && a.creditBalances.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {a.creditBalances.map((cb, ci) => (
-                        <span key={ci} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90 whitespace-nowrap">
+                        <span
+                          key={ci}
+                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90 whitespace-nowrap"
+                        >
                           {cb.kind.replace("Credit - ", "")}: {cb.balance}
                         </span>
                       ))}
                     </div>
                   )}
-                  {a.lastSeen && <p className="text-white/30 text-[10px] mt-1.5">Last seen: {a.lastSeen}</p>}
+                  {a.lastSeen && (
+                    <p className="text-white/30 text-[10px] mt-1.5">Last seen: {a.lastSeen}</p>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-[#8652FF] font-bold text-lg leading-none">{a.races}</p>
@@ -559,7 +682,13 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
               </div>
             </button>
           ))}
-          <button onClick={() => { setMode("choose"); setPhase("input"); }} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-1">
+          <button
+            onClick={() => {
+              setMode("choose");
+              setPhase("input");
+            }}
+            className="w-full text-white/30 text-xs hover:text-white/50 transition-colors py-1"
+          >
             ← Start over
           </button>
         </div>
@@ -572,7 +701,10 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             ref={codeRef}
             type="text"
             value={code}
-            onChange={(e) => { setCode(e.target.value); setCodeError(""); }}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setCodeError("");
+            }}
             onKeyDown={(e) => e.key === "Enter" && handleCodeVerify()}
             placeholder="Enter your login code"
             className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-lg tracking-widest placeholder:text-white/30 placeholder:text-sm placeholder:tracking-normal focus:border-[#8652FF] focus:ring-1 focus:ring-[#8652FF]/30 outline-none transition-colors"
@@ -588,9 +720,19 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Verifying...
               </span>
-            ) : "Verify"}
+            ) : (
+              "Verify"
+            )}
           </button>
-          <button onClick={() => { setMode("choose"); setPhase("input"); setCode(""); setCodeError(""); }} className="w-full text-white/30 text-xs hover:text-white/50 transition-colors">
+          <button
+            onClick={() => {
+              setMode("choose");
+              setPhase("input");
+              setCode("");
+              setCodeError("");
+            }}
+            className="w-full text-white/30 text-xs hover:text-white/50 transition-colors"
+          >
             ← Start over
           </button>
         </div>
@@ -599,12 +741,16 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
       {/* Verified */}
       {phase === "verified" && verifiedPerson && (
         <div className="max-w-sm mx-auto space-y-4">
-          <div className="w-12 h-12 rounded-full bg-green-500/15 border border-green-500/40 flex items-center justify-center mx-auto text-xl">✓</div>
+          <div className="w-12 h-12 rounded-full bg-green-500/15 border border-green-500/40 flex items-center justify-center mx-auto text-xl">
+            ✓
+          </div>
           <div className="rounded-xl border border-[#8652FF]/30 bg-[#8652FF]/8 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-white font-bold text-lg">{verifiedPerson.fullName}</p>
-                {verifiedPerson.email && <p className="text-white/50 text-xs">{verifiedPerson.email}</p>}
+                {verifiedPerson.email && (
+                  <p className="text-white/50 text-xs">{verifiedPerson.email}</p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-[#8652FF] font-bold text-2xl">{verifiedPerson.races}</p>
@@ -613,7 +759,9 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
             </div>
             {verifiedPerson.maxExpiry && (
               <div className="mt-3">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isLicenseActive ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+                <span
+                  className={`text-xs font-bold px-2 py-0.5 rounded-full ${isLicenseActive ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}
+                >
                   License {isLicenseActive ? "Active" : "Expired"}
                 </span>
               </div>

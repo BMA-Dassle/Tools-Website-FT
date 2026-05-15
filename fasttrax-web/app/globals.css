@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --color-bg-deep:    #000418;
-  --color-bg-navy:    #010A20;
-  --color-bg-card:    #071027;
-  --color-cyan:       #00E2E5;
-  --color-magenta:    #F800C6;
-  --color-violet:     #8652FF;
-  --color-red:        #E53935;
-  --color-light:      #F5ECEE;
+  --color-bg-deep: #000418;
+  --color-bg-navy: #010a20;
+  --color-bg-card: #071027;
+  --color-cyan: #00e2e5;
+  --color-magenta: #f800c6;
+  --color-violet: #8652ff;
+  --color-red: #e53935;
+  --color-light: #f5ecee;
 }
 
 * {
@@ -30,8 +30,19 @@ body {
 
 /* Generous mobile text — match Topgolf/Main Event sizing */
 @media (max-width: 640px) {
-  body { font-size: 16px; }
-  p, span, li, td, th, label, input, select, textarea, button {
+  body {
+    font-size: 16px;
+  }
+  p,
+  span,
+  li,
+  td,
+  th,
+  label,
+  input,
+  select,
+  textarea,
+  button {
     font-size: inherit;
   }
 }
@@ -46,7 +57,12 @@ body {
   --font-body: var(--font-dmsans);
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-heading), sans-serif;
 }
 
@@ -65,10 +81,18 @@ h1, h2, h3, h4, h5, h6 {
 /* Camera-assign success flash. Keyed by the scan counter, so each
    successful scan remounts this element and the animation re-fires. */
 @keyframes scan-success-flash {
-  0%   { opacity: 0; }
-  20%  { opacity: 0.55; }
-  55%  { opacity: 0.45; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.55;
+  }
+  55% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 .scan-success-flash {
   animation: scan-success-flash 900ms ease-out forwards;
@@ -77,17 +101,30 @@ h1, h2, h3, h4, h5, h6 {
 /* Pulsing glow for the bowler-details CTA on the confirmation page.
    Draws attention without being obnoxious — one gentle ring of coral light. */
 @keyframes cta-pulse-glow {
-  0%   { box-shadow: 0 0 0 0 rgba(253,91,86,0.55); }
-  70%  { box-shadow: 0 0 0 12px rgba(253,91,86,0); }
-  100% { box-shadow: 0 0 0 0 rgba(253,91,86,0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(253, 91, 86, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(253, 91, 86, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(253, 91, 86, 0);
+  }
 }
 .cta-pulse-glow {
   animation: cta-pulse-glow 2s ease-out infinite;
 }
 
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: var(--color-bg-deep); }
-::-webkit-scrollbar-thumb { background: var(--color-cyan); border-radius: 2px; }
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-cyan);
+  border-radius: 2px;
+}
 
 /* Utility: hide horizontal scrollbars on overflow-x-auto containers where the
    scrollbar itself reads as a stray cyan bar (e.g. booking step indicators). */

@@ -25,7 +25,11 @@ export interface TwilioSendResult {
   sid?: string;
 }
 
-export async function twilioSend(to: string, body: string, fromOverride?: string): Promise<TwilioSendResult> {
+export async function twilioSend(
+  to: string,
+  body: string,
+  fromOverride?: string,
+): Promise<TwilioSendResult> {
   const sid = process.env.TWILIO_SID || "";
   const token = process.env.TWILIO_TOKEN || "";
   const from = fromOverride || process.env.TWILIO_PHONE_NUMBER || "";
@@ -60,10 +64,18 @@ export async function twilioSend(to: string, body: string, fromOverride?: string
       return { ok: false, status: res.status, error: text.slice(0, 500) };
     }
     let parsedSid: string | undefined;
-    try { parsedSid = (JSON.parse(text) as { sid?: string }).sid; } catch { /* non-JSON */ }
+    try {
+      parsedSid = (JSON.parse(text) as { sid?: string }).sid;
+    } catch {
+      /* non-JSON */
+    }
     return { ok: true, status: res.status, sid: parsedSid };
   } catch (err) {
-    return { ok: false, status: null, error: err instanceof Error ? err.message : "twilio network error" };
+    return {
+      ok: false,
+      status: null,
+      error: err instanceof Error ? err.message : "twilio network error",
+    };
   }
 }
 
@@ -82,8 +94,8 @@ export function isTwilioQuotaError(status: number | null, body: string): boolean
   if (lower.includes("too many requests")) return true;
   if (lower.includes("rate limit")) return true;
   if (lower.includes("daily")) return true;
-  if (lower.includes("\"code\":14107")) return true;
-  if (lower.includes("\"code\":20429")) return true;
-  if (lower.includes("\"code\":30001")) return true;
+  if (lower.includes('"code":14107')) return true;
+  if (lower.includes('"code":20429')) return true;
+  if (lower.includes('"code":30001')) return true;
   return false;
 }

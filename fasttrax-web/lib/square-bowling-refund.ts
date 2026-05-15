@@ -57,7 +57,7 @@ export async function processSquareBowlingRefund(opts: {
     headers: sqHeaders(),
   });
   if (!gcRes.ok) {
-    const errBody = await gcRes.json().catch(() => ({})) as { errors?: { detail: string }[] };
+    const errBody = (await gcRes.json().catch(() => ({}))) as { errors?: { detail: string }[] };
     throw new Error(errBody.errors?.[0]?.detail ?? `Gift card lookup failed (${gcRes.status})`);
   }
   const gcData = (await gcRes.json()) as {
@@ -86,10 +86,10 @@ export async function processSquareBowlingRefund(opts: {
   };
   if (!refundRes.ok) {
     const detail = refundData.errors?.[0]?.detail ?? "Refund failed";
-    const code   = refundData.errors?.[0]?.code   ?? "REFUND_FAILED";
+    const code = refundData.errors?.[0]?.code ?? "REFUND_FAILED";
     throw new Error(`${detail} [${code}]`);
   }
-  const refundId      = refundData.refund!.id;
+  const refundId = refundData.refund!.id;
   const refundedCents = refundData.refund!.amount_money?.amount ?? refundAmountCents;
 
   // ── 3. Cancel day-of order (non-fatal) ────────────────────────────────
@@ -102,7 +102,7 @@ export async function processSquareBowlingRefund(opts: {
       if (getRes.ok) {
         const getJson = (await getRes.json()) as { order?: { version?: number; state?: string } };
         const currentVersion = getJson.order?.version ?? 1;
-        const currentState   = getJson.order?.state;
+        const currentState = getJson.order?.state;
         if (currentState !== "CANCELED" && currentState !== "COMPLETED") {
           const cancelRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, {
             method: "PUT",

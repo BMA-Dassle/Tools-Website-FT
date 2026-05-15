@@ -10,10 +10,7 @@ import { getBowlingReservationByShortCode } from "@/lib/bowling-db";
  *
  * Returns the same shape as GET /api/bowling/v2/reservations/[id].
  */
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ code: string }> },
-) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: string }> }) {
   const { code } = await ctx.params;
   if (!code || code.length < 4 || code.length > 12) {
     return NextResponse.json({ error: "invalid code" }, { status: 400 });

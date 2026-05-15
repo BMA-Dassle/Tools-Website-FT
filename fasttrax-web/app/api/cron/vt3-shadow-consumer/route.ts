@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { getAssignmentAtTime, type CameraAssignment } from "@/lib/camera-assign";
-import {
-  getMatchByVideoCode,
-  isVideoReadyForNotify,
-  type VideoMatch,
-} from "@/lib/video-match";
+import { getMatchByVideoCode, isVideoReadyForNotify, type VideoMatch } from "@/lib/video-match";
 import { logShadowDecision, type ShadowDecision } from "@/lib/vt3-shadow-log";
 
 /**
@@ -133,7 +129,9 @@ export async function GET(req: NextRequest) {
     if (!dryRun) {
       try {
         await redis.del(LOCK_KEY);
-      } catch { /* lock will TTL out */ }
+      } catch {
+        /* lock will TTL out */
+      }
     }
   }
 
@@ -159,9 +157,7 @@ export async function GET(req: NextRequest) {
  * Run the production cron's decision tree against one event,
  * WITHOUT any side effects. Returns the shadow decision + context.
  */
-async function classifyEvent(
-  evt: QueuedEvent,
-): Promise<{
+async function classifyEvent(evt: QueuedEvent): Promise<{
   videoCode: string;
   innerEventType: string;
   status: string | null;

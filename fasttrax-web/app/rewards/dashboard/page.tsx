@@ -3,8 +3,7 @@ import RewardsPortal from "@/components/headpinz/RewardsPortal";
 
 export const metadata: Metadata = {
   title: "My Rewards Dashboard",
-  description:
-    "View your FastTrax Rewards balance, track your Pinz, and see available rewards.",
+  description: "View your FastTrax Rewards balance, track your Pinz, and see available rewards.",
   openGraph: {
     title: "My Rewards Dashboard - FastTrax",
     description: "View your Pinz balance and available rewards.",

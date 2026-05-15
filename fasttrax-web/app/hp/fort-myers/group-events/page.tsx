@@ -130,7 +130,8 @@ const classicBowling = {
 
 const vipBowling = {
   title: "VIP Bowling",
-  subtitle: "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included",
+  subtitle:
+    "Dedicated light & music show, VIP lounge & bar, HyperBowling, pool table, shoes & balls included",
   color: purple,
   rows: [
     { period: "Mon\u2013Thu", h15: "$120.00", h2: "$143.00", h3: "$188.00" },
@@ -143,7 +144,8 @@ const vipBowling = {
 // VIP table and we can recompute by hand: 8\u00d7 the matching VIP row.
 const vipPinzExclusive = {
   title: "VIP Pinz Exclusive",
-  subtitle: "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling \u2014 holds up to 80 people, 48 can bowl at once",
+  subtitle:
+    "8 white surface lanes, dedicated light show, private lounge & bar, pool table, HyperBowling \u2014 holds up to 80 people, 48 can bowl at once",
   color: blue,
   rows: [
     { period: "Mon\u2013Thu", h15: "$979", h2: "$1,174", h3: "$1,549" },
@@ -224,7 +226,11 @@ const extraFrames = [
   { name: "Spinach Artichoke Dip", price: "$60", note: "" },
   { name: "Chicken Teriyaki Potstickers", price: "$35", note: "30 pieces" },
   { name: "15 Mini Sliders", price: "$52", note: "Mini burgers, cubans, chicken, or mojo pork" },
-  { name: "Nemo\u2019s Famous Chicken Wings", price: "Market Price", note: "20/50/100 count, Ranch or Blue Cheese" },
+  {
+    name: "Nemo\u2019s Famous Chicken Wings",
+    price: "Market Price",
+    note: "20/50/100 count, Ranch or Blue Cheese",
+  },
   { name: 'Cheese Pizza (16")', price: "$18", note: "" },
   { name: 'Pepperoni Pizza (16")', price: "$20", note: "" },
   { name: 'Veggie Pizza (16")', price: "$22", note: "" },
@@ -259,22 +265,31 @@ const extraFrames = [
 /* -- Beverages -------------------------------------------- */
 
 const beverages = [
-  { category: "Non-Alcoholic", items: [
-    { name: "Soda Pitchers", price: "$7" },
-    { name: "Unlimited Soda, Coffee & Tea", price: "$4/guest" },
-  ]},
-  { category: "Beer", items: [
-    { name: "Domestic Pitcher", price: "$14.50" },
-    { name: "Craft Pitcher", price: "$23" },
-    { name: "Import Pitcher", price: "$23" },
-    { name: "Domestic Bucket (5 bottles)", price: "$18" },
-    { name: "Craft/Import Bucket (5 bottles)", price: "$24.50" },
-  ]},
-  { category: "Drink Tickets", items: [
-    { name: "Well Liquor / Domestic Beer / House Wine", price: "$5 each" },
-    { name: "Call Liquor / Import / Domestic Beer / Wine", price: "$7 each" },
-    { name: "Any Liquor / Craft / Import / Domestic / Wine", price: "$9 each" },
-  ]},
+  {
+    category: "Non-Alcoholic",
+    items: [
+      { name: "Soda Pitchers", price: "$7" },
+      { name: "Unlimited Soda, Coffee & Tea", price: "$4/guest" },
+    ],
+  },
+  {
+    category: "Beer",
+    items: [
+      { name: "Domestic Pitcher", price: "$14.50" },
+      { name: "Craft Pitcher", price: "$23" },
+      { name: "Import Pitcher", price: "$23" },
+      { name: "Domestic Bucket (5 bottles)", price: "$18" },
+      { name: "Craft/Import Bucket (5 bottles)", price: "$24.50" },
+    ],
+  },
+  {
+    category: "Drink Tickets",
+    items: [
+      { name: "Well Liquor / Domestic Beer / House Wine", price: "$5 each" },
+      { name: "Call Liquor / Import / Domestic Beer / Wine", price: "$7 each" },
+      { name: "Any Liquor / Craft / Import / Domestic / Wine", price: "$9 each" },
+    ],
+  },
 ];
 
 /* -- FAQs ------------------------------------------------- */
@@ -373,7 +388,11 @@ export default function HeadPinzGroupEventsPage() {
           </h1>
           <p
             className="font-body text-white/70 max-w-xl mx-auto"
-            style={{ fontSize: "clamp(14px, 2.5vw, 20px)", lineHeight: "1.5", marginBottom: "32px" }}
+            style={{
+              fontSize: "clamp(14px, 2.5vw, 20px)",
+              lineHeight: "1.5",
+              marginBottom: "32px",
+            }}
           >
             From team building to birthday bashes &mdash; make it unforgettable
           </p>
@@ -405,15 +424,20 @@ export default function HeadPinzGroupEventsPage() {
               className="font-body text-white/80 mb-8"
               style={{ fontSize: "clamp(15px, 2vw, 18px)", lineHeight: "1.6", maxWidth: "640px" }}
             >
-              Over 50,000 sq ft of entertainment. From intimate gatherings of 10 to full
-              facility buyouts for 500+, HeadPinz has the space, the activities, and the
-              catering to make your event legendary.
+              Over 50,000 sq ft of entertainment. From intimate gatherings of 10 to full facility
+              buyouts for 500+, HeadPinz has the space, the activities, and the catering to make
+              your event legendary.
             </p>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => openFormWith()}
                 className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer"
-                style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                style={{
+                  backgroundColor: coral,
+                  borderRadius: "555px",
+                  padding: "16px 24px",
+                  fontSize: "14px",
+                }}
               >
                 Request a Quote
               </button>
@@ -422,7 +446,12 @@ export default function HeadPinzGroupEventsPage() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-                style={{ backgroundColor: blue, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                style={{
+                  backgroundColor: blue,
+                  borderRadius: "555px",
+                  padding: "16px 24px",
+                  fontSize: "14px",
+                }}
               >
                 Download Sales Booklet
               </a>
@@ -438,7 +467,10 @@ export default function HeadPinzGroupEventsPage() {
               className="absolute inset-0 w-full h-full object-cover"
               poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp"
             >
-              <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4" type="video/mp4" />
+              <source
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4"
+                type="video/mp4"
+              />
             </video>
           </div>
         </div>
@@ -447,15 +479,27 @@ export default function HeadPinzGroupEventsPage() {
       {/* Party type selector — many guests land on /group-events
           specifically to plan a birthday. Surface adult + kids + corporate
           paths up front so they pick the right path on the same form. */}
-      <section style={{ backgroundColor: "rgba(7,16,39,0.6)", padding: "clamp(48px, 8vw, 96px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        style={{
+          backgroundColor: "rgba(7,16,39,0.6)",
+          padding: "clamp(48px, 8vw, 96px) clamp(16px, 4vw, 32px)",
+        }}
+      >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10">
-            <div className="uppercase font-bold mb-2" style={{ color: coral, fontSize: "12px", letterSpacing: "3px" }}>
+            <div
+              className="uppercase font-bold mb-2"
+              style={{ color: coral, fontSize: "12px", letterSpacing: "3px" }}
+            >
               What kind of event?
             </div>
             <h2
               className="font-heading font-black uppercase italic text-white"
-              style={{ fontSize: "clamp(24px, 5vw, 40px)", lineHeight: 1.1, letterSpacing: "-0.4px" }}
+              style={{
+                fontSize: "clamp(24px, 5vw, 40px)",
+                lineHeight: 1.1,
+                letterSpacing: "-0.4px",
+              }}
             >
               Pick your party type
             </h2>
@@ -467,15 +511,21 @@ export default function HeadPinzGroupEventsPage() {
               className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
               style={{ backgroundColor: "#0f1d36", border: `1.78px solid ${coral}40` }}
             >
-              <div className="uppercase font-bold mb-2" style={{ color: coral, fontSize: "10px", letterSpacing: "2.5px" }}>
+              <div
+                className="uppercase font-bold mb-2"
+                style={{ color: coral, fontSize: "10px", letterSpacing: "2.5px" }}
+              >
                 Adult Birthday
               </div>
-              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+              <h3
+                className="font-heading font-black uppercase text-white mb-2"
+                style={{ fontSize: "18px", letterSpacing: "-0.2px" }}
+              >
                 Adult Birthday Party
               </h3>
               <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
-                VIP lanes, full bar, private rooms, arcade and laser tag.
-                Built for 21+ friends and milestone celebrations.
+                VIP lanes, full bar, private rooms, arcade and laser tag. Built for 21+ friends and
+                milestone celebrations.
               </p>
             </button>
             <button
@@ -484,15 +534,21 @@ export default function HeadPinzGroupEventsPage() {
               className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
               style={{ backgroundColor: "#0f1d36", border: `1.78px solid #FFD70060` }}
             >
-              <div className="uppercase font-bold mb-2" style={{ color: "#FFD700", fontSize: "10px", letterSpacing: "2.5px" }}>
+              <div
+                className="uppercase font-bold mb-2"
+                style={{ color: "#FFD700", fontSize: "10px", letterSpacing: "2.5px" }}
+              >
                 Kids Birthday
               </div>
-              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+              <h3
+                className="font-heading font-black uppercase text-white mb-2"
+                style={{ fontSize: "18px", letterSpacing: "-0.2px" }}
+              >
                 Kids Birthday Party
               </h3>
               <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
-                Bronze, Silver &amp; VIP packages with lanes, arcade cards,
-                laser tag and food. For 10&ndash;60 guests.
+                Bronze, Silver &amp; VIP packages with lanes, arcade cards, laser tag and food. For
+                10&ndash;60 guests.
               </p>
             </button>
             <button
@@ -501,15 +557,21 @@ export default function HeadPinzGroupEventsPage() {
               className="text-left rounded-2xl p-6 transition-all hover:scale-[1.02] cursor-pointer"
               style={{ backgroundColor: "#0f1d36", border: `1.78px solid ${royalBlue}80` }}
             >
-              <div className="uppercase font-bold mb-2" style={{ color: blue, fontSize: "10px", letterSpacing: "2.5px" }}>
+              <div
+                className="uppercase font-bold mb-2"
+                style={{ color: blue, fontSize: "10px", letterSpacing: "2.5px" }}
+              >
                 Corporate / Group
               </div>
-              <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "18px", letterSpacing: "-0.2px" }}>
+              <h3
+                className="font-heading font-black uppercase text-white mb-2"
+                style={{ fontSize: "18px", letterSpacing: "-0.2px" }}
+              >
                 Corporate &amp; Team Events
               </h3>
               <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
-                Team building, company outings, fundraisers, schools and
-                full facility buyouts with private rooms and catering.
+                Team building, company outings, fundraisers, schools and full facility buyouts with
+                private rooms and catering.
               </p>
             </button>
           </div>
@@ -554,9 +616,7 @@ export default function HeadPinzGroupEventsPage() {
                 >
                   {s.title}
                 </h3>
-                <p className="font-body text-white/60 text-sm leading-relaxed">
-                  {s.desc}
-                </p>
+                <p className="font-body text-white/60 text-sm leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -564,7 +624,10 @@ export default function HeadPinzGroupEventsPage() {
       </section>
 
       {/* ====== 4. EVENT SPACES ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="bg-[#0a1628]"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <h2
             className="font-heading font-black uppercase text-white text-center"
@@ -586,7 +649,14 @@ export default function HeadPinzGroupEventsPage() {
               >
                 <div className="relative w-full aspect-[16/10] overflow-hidden">
                   {(s as { isVideo?: boolean }).isVideo ? (
-                    <video autoPlay muted loop playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">
+                    <video
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      preload="metadata"
+                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    >
                       <source src={s.img} type="video/mp4" />
                     </video>
                   ) : (
@@ -614,9 +684,7 @@ export default function HeadPinzGroupEventsPage() {
                   >
                     {s.title}
                   </h3>
-                  <p className="font-body text-white/60 text-sm leading-relaxed">
-                    {s.desc}
-                  </p>
+                  <p className="font-body text-white/60 text-sm leading-relaxed">{s.desc}</p>
                 </div>
               </div>
             ))}
@@ -673,9 +741,7 @@ export default function HeadPinzGroupEventsPage() {
                   >
                     {a.title}
                   </h3>
-                  <p className="font-body text-white/60 text-sm leading-relaxed">
-                    {a.desc}
-                  </p>
+                  <p className="font-body text-white/60 text-sm leading-relaxed">{a.desc}</p>
                 </div>
               </div>
             ))}
@@ -690,7 +756,10 @@ export default function HeadPinzGroupEventsPage() {
           above and below. The 80% dark overlay keeps the table text
           readable while still letting the purple/blue light bleed
           through at the edges. */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/group-events-bowling-bg.png"
           alt=""
@@ -722,7 +791,10 @@ export default function HeadPinzGroupEventsPage() {
 
           {/* Pinboyz Lanes -- flat rate, separate card */}
           <div className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] overflow-hidden mb-8">
-            <div className="px-5 py-4 border-b border-white/10" style={{ backgroundColor: `${coral}15` }}>
+            <div
+              className="px-5 py-4 border-b border-white/10"
+              style={{ backgroundColor: `${coral}15` }}
+            >
               <h3
                 className="font-heading font-black uppercase text-white"
                 style={{ fontSize: "clamp(18px, 3vw, 24px)", letterSpacing: "0.5px" }}
@@ -730,7 +802,8 @@ export default function HeadPinzGroupEventsPage() {
                 Pinboyz Lanes
               </h3>
               <p className="font-body text-white/50 text-xs mt-1">
-                4 vintage lanes, separate sound system, private lounge & bar with dedicated server, vintage 1908 pool table
+                4 vintage lanes, separate sound system, private lounge & bar with dedicated server,
+                vintage 1908 pool table
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5">
@@ -739,9 +812,16 @@ export default function HeadPinzGroupEventsPage() {
                 { duration: "3 Hours", price: "$1,200" },
                 { duration: "Additional Hour", price: "$400" },
               ].map((item) => (
-                <div key={item.duration} className="text-center rounded-xl bg-white/[0.03] border border-white/5 p-4">
-                  <p className="font-body text-white/60 text-xs uppercase tracking-wider mb-1">{item.duration}</p>
-                  <p className="font-heading font-black text-2xl" style={{ color: coral }}>{item.price}</p>
+                <div
+                  key={item.duration}
+                  className="text-center rounded-xl bg-white/[0.03] border border-white/5 p-4"
+                >
+                  <p className="font-body text-white/60 text-xs uppercase tracking-wider mb-1">
+                    {item.duration}
+                  </p>
+                  <p className="font-heading font-black text-2xl" style={{ color: coral }}>
+                    {item.price}
+                  </p>
                 </div>
               ))}
             </div>
@@ -780,7 +860,10 @@ export default function HeadPinzGroupEventsPage() {
                 key={a.name}
                 className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5 flex flex-col items-center text-center"
               >
-                <h3 className="font-heading font-black uppercase text-white mb-2" style={{ fontSize: "16px" }}>
+                <h3
+                  className="font-heading font-black uppercase text-white mb-2"
+                  style={{ fontSize: "16px" }}
+                >
                   {a.name}
                 </h3>
                 <p className="font-body font-bold text-lg" style={{ color: coral }}>
@@ -792,29 +875,54 @@ export default function HeadPinzGroupEventsPage() {
 
           {/* Game Zone Party + Meeting Room + Full Buyout */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="rounded-2xl border border-[#123075]/30 p-5 text-center" style={{ backgroundColor: `${purple}15` }}>
-              <h3 className="font-heading font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
+            <div
+              className="rounded-2xl border border-[#123075]/30 p-5 text-center"
+              style={{ backgroundColor: `${purple}15` }}
+            >
+              <h3
+                className="font-heading font-black uppercase text-white mb-1"
+                style={{ fontSize: "16px" }}
+              >
                 Game Zone Party
               </h3>
-              <p className="font-heading font-black text-2xl mb-2" style={{ color: purple }}>$22/person</p>
+              <p className="font-heading font-black text-2xl mb-2" style={{ color: purple }}>
+                $22/person
+              </p>
               <p className="font-body text-white/50 text-xs leading-relaxed">
-                1 round of Laser Tag + 1-hour unlimited Game Zone (not valid on photo, redemption, merchandise, or coin pushers)
+                1 round of Laser Tag + 1-hour unlimited Game Zone (not valid on photo, redemption,
+                merchandise, or coin pushers)
               </p>
             </div>
-            <div className="rounded-2xl border border-[#123075]/30 p-5 text-center" style={{ backgroundColor: `${blue}15` }}>
-              <h3 className="font-heading font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
+            <div
+              className="rounded-2xl border border-[#123075]/30 p-5 text-center"
+              style={{ backgroundColor: `${blue}15` }}
+            >
+              <h3
+                className="font-heading font-black uppercase text-white mb-1"
+                style={{ fontSize: "16px" }}
+              >
                 Corporate Meeting Room
               </h3>
-              <p className="font-heading font-black text-2xl mb-2" style={{ color: blue }}>$100/hour</p>
+              <p className="font-heading font-black text-2xl mb-2" style={{ color: blue }}>
+                $100/hour
+              </p>
               <p className="font-body text-white/50 text-xs leading-relaxed">
                 A/V equipment included. Perfect for presentations before team activities.
               </p>
             </div>
-            <div className="rounded-2xl border border-[#123075]/30 p-5 text-center" style={{ backgroundColor: `${coral}15` }}>
-              <h3 className="font-heading font-black uppercase text-white mb-1" style={{ fontSize: "16px" }}>
+            <div
+              className="rounded-2xl border border-[#123075]/30 p-5 text-center"
+              style={{ backgroundColor: `${coral}15` }}
+            >
+              <h3
+                className="font-heading font-black uppercase text-white mb-1"
+                style={{ fontSize: "16px" }}
+              >
                 Full Venue Buyout
               </h3>
-              <p className="font-heading font-black text-lg mb-2" style={{ color: coral }}>Contact Event Planner</p>
+              <p className="font-heading font-black text-lg mb-2" style={{ color: coral }}>
+                Contact Event Planner
+              </p>
               <p className="font-body text-white/50 text-xs leading-relaxed">
                 Call{" "}
                 <a href="tel:+12393022155" className="underline" style={{ color: coral }}>
@@ -827,7 +935,10 @@ export default function HeadPinzGroupEventsPage() {
       </section>
 
       {/* ====== 8. BUFFET PACKAGES ====== */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-wings.png"
           alt="Nemo's famous wings at HeadPinz"
@@ -866,16 +977,20 @@ export default function HeadPinzGroupEventsPage() {
                 className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5 flex flex-col"
               >
                 <div className="flex items-baseline justify-between mb-3">
-                  <h3 className="font-heading font-black uppercase text-white" style={{ fontSize: "16px" }}>
+                  <h3
+                    className="font-heading font-black uppercase text-white"
+                    style={{ fontSize: "16px" }}
+                  >
                     {pkg.name}
                   </h3>
-                  <span className="font-body font-bold text-sm ml-2 flex-shrink-0" style={{ color: coral }}>
+                  <span
+                    className="font-body font-bold text-sm ml-2 flex-shrink-0"
+                    style={{ color: coral }}
+                  >
                     {pkg.price}
                   </span>
                 </div>
-                <p className="font-body text-white/50 text-xs leading-relaxed flex-1">
-                  {pkg.desc}
-                </p>
+                <p className="font-body text-white/50 text-xs leading-relaxed flex-1">{pkg.desc}</p>
               </div>
             ))}
           </div>
@@ -890,7 +1005,10 @@ export default function HeadPinzGroupEventsPage() {
               className="w-full flex items-center justify-between px-5 py-4 cursor-pointer"
             >
               <div>
-                <h3 className="font-heading font-black uppercase text-white text-left" style={{ fontSize: "18px" }}>
+                <h3
+                  className="font-heading font-black uppercase text-white text-left"
+                  style={{ fontSize: "18px" }}
+                >
                   Extra Frames &mdash; A La Carte Items
                 </h3>
                 <p className="font-body text-white/40 text-xs mt-1 text-left">
@@ -922,19 +1040,30 @@ export default function HeadPinzGroupEventsPage() {
                 <table className="w-full text-left font-body text-sm" style={{ minWidth: "480px" }}>
                   <thead>
                     <tr style={{ backgroundColor: "rgba(18,48,117,0.5)" }}>
-                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Item</th>
-                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Price</th>
-                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Details</th>
+                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">
+                        Item
+                      </th>
+                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">
+                        Price
+                      </th>
+                      <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">
+                        Details
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {extraFrames.map((item, i) => (
                       <tr
                         key={item.name}
-                        style={{ backgroundColor: i % 2 === 0 ? "rgba(10,22,40,0.6)" : "rgba(10,22,40,0.3)" }}
+                        style={{
+                          backgroundColor:
+                            i % 2 === 0 ? "rgba(10,22,40,0.6)" : "rgba(10,22,40,0.3)",
+                        }}
                       >
                         <td className="px-4 py-2.5 text-white/80">{item.name}</td>
-                        <td className="px-4 py-2.5 font-semibold" style={{ color: purple }}>{item.price}</td>
+                        <td className="px-4 py-2.5 font-semibold" style={{ color: purple }}>
+                          {item.price}
+                        </td>
                         <td className="px-4 py-2.5 text-white/40 text-xs">{item.note}</td>
                       </tr>
                     ))}
@@ -953,7 +1082,10 @@ export default function HeadPinzGroupEventsPage() {
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
             {beverages.map((cat) => (
-              <div key={cat.category} className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5">
+              <div
+                key={cat.category}
+                className="rounded-2xl border border-[#123075]/30 bg-white/[0.03] p-5"
+              >
                 <h4
                   className="font-heading font-black uppercase text-white mb-4"
                   style={{ fontSize: "14px", letterSpacing: "1px" }}
@@ -963,8 +1095,13 @@ export default function HeadPinzGroupEventsPage() {
                 <div className="space-y-3">
                   {cat.items.map((item) => (
                     <div key={item.name} className="flex justify-between items-baseline gap-2">
-                      <span className="font-body text-white/60 text-xs leading-snug">{item.name}</span>
-                      <span className="font-body font-bold text-xs flex-shrink-0" style={{ color: coral }}>
+                      <span className="font-body text-white/60 text-xs leading-snug">
+                        {item.name}
+                      </span>
+                      <span
+                        className="font-body font-bold text-xs flex-shrink-0"
+                        style={{ color: coral }}
+                      >
                         {item.price}
                       </span>
                     </div>
@@ -980,7 +1117,10 @@ export default function HeadPinzGroupEventsPage() {
       </section>
 
       {/* ====== 9. FAQ ACCORDION ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="bg-[#0a1628]"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-3xl mx-auto px-6 lg:px-8">
           <h2
             className="font-heading font-black uppercase text-white text-center"
@@ -1004,9 +1144,7 @@ export default function HeadPinzGroupEventsPage() {
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
                   className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
                 >
-                  <span className="font-body font-bold text-white text-sm pr-4">
-                    {f.q}
-                  </span>
+                  <span className="font-body font-bold text-white text-sm pr-4">{f.q}</span>
                   <svg
                     className="w-5 h-5 flex-shrink-0 transition-transform"
                     style={{
@@ -1072,13 +1210,19 @@ export default function HeadPinzGroupEventsPage() {
             className="font-body text-white/70 mx-auto mb-10"
             style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
           >
-            Tell us about your event and our team will craft a custom package tailored to your group.
+            Tell us about your event and our team will craft a custom package tailored to your
+            group.
           </p>
           <div className="flex flex-wrap gap-3 justify-center">
             <button
               onClick={() => openFormWith()}
               className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer hover:shadow-[0_0_30px_rgba(253,91,86,0.4)]"
-              style={{ backgroundColor: coral, borderRadius: "555px", padding: "16px 28px", fontSize: "15px" }}
+              style={{
+                backgroundColor: coral,
+                borderRadius: "555px",
+                padding: "16px 28px",
+                fontSize: "15px",
+              }}
             >
               Request a Quote
             </button>
@@ -1087,14 +1231,23 @@ export default function HeadPinzGroupEventsPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-              style={{ backgroundColor: blue, borderRadius: "555px", padding: "16px 28px", fontSize: "15px" }}
+              style={{
+                backgroundColor: blue,
+                borderRadius: "555px",
+                padding: "16px 28px",
+                fontSize: "15px",
+              }}
             >
               Download Sales Booklet
             </a>
           </div>
           <p className="font-body mt-5 text-white/50 text-sm">
             Prefer to talk? Call us at{" "}
-            <a href="tel:+12393022155" className="hover:underline transition-colors" style={{ color: coral }}>
+            <a
+              href="tel:+12393022155"
+              className="hover:underline transition-colors"
+              style={{ color: coral }}
+            >
               (239) 302-2155
             </a>
           </p>

@@ -46,7 +46,13 @@ export function dayOfWeekET(ymd: string): DayOfWeek {
   });
   const short = fmt.format(utcNoon);
   const map: Record<string, DayOfWeek> = {
-    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
   };
   return map[short] ?? 0;
 }
@@ -136,10 +142,10 @@ export function isKbfBookableTime(isoLocal: string): boolean {
   const ymd = ymdMatch[1];
   const hour = parseInt(ymdMatch[2], 10);
   const dow = dayOfWeekET(ymd);
-  if (dow === 0 || dow === 6) return false;   // Sat/Sun
-  if (hour < 11) return false;                // Before 11 AM — all weekdays
-  if (dow === 5) return hour < 17;            // Friday — last bookable hour is 16:xx
-  return true;                                // Mon–Thu 11 AM+
+  if (dow === 0 || dow === 6) return false; // Sat/Sun
+  if (hour < 11) return false; // Before 11 AM — all weekdays
+  if (dow === 5) return hour < 17; // Friday — last bookable hour is 16:xx
+  return true; // Mon–Thu 11 AM+
 }
 
 /**

@@ -84,8 +84,8 @@ export default async function AccessibilityPage() {
             className="font-body text-white/80 mx-auto"
             style={{ fontSize: "clamp(16px, 2vw, 20px)", lineHeight: 1.55, maxWidth: "48ch" }}
           >
-            {brandName} is committed to making our website usable by everyone, including people
-            who rely on keyboards, screen readers, or other assistive technology.
+            {brandName} is committed to making our website usable by everyone, including people who
+            rely on keyboards, screen readers, or other assistive technology.
           </p>
         </div>
       </section>
@@ -105,11 +105,11 @@ export default async function AccessibilityPage() {
                 What we target
               </h2>
               <p className="font-body text-white/80" style={{ fontSize: "15px", lineHeight: 1.7 }}>
-                Our goal is <strong style={{ color: accent }}>WCAG 2.1 Level AA</strong> — the
-                Web Content Accessibility Guidelines standard used by most US businesses and
-                required by many state + federal entities. That covers color contrast, keyboard
-                navigation, screen-reader compatibility, form labeling, motion sensitivity,
-                focus indicators, and more.
+                Our goal is <strong style={{ color: accent }}>WCAG 2.1 Level AA</strong> — the Web
+                Content Accessibility Guidelines standard used by most US businesses and required by
+                many state + federal entities. That covers color contrast, keyboard navigation,
+                screen-reader compatibility, form labeling, motion sensitivity, focus indicators,
+                and more.
               </p>
             </section>
 
@@ -122,36 +122,41 @@ export default async function AccessibilityPage() {
               </h2>
               <ul
                 className="font-body text-white/80 space-y-2"
-                style={{ fontSize: "15px", lineHeight: 1.7, paddingLeft: "20px", listStyleType: "disc" }}
+                style={{
+                  fontSize: "15px",
+                  lineHeight: 1.7,
+                  paddingLeft: "20px",
+                  listStyleType: "disc",
+                }}
               >
                 <li>
                   <strong>Build-time lint gate</strong> — every deploy runs the full{" "}
                   <code className="bg-white/10 px-1 rounded text-xs">eslint-plugin-jsx-a11y</code>{" "}
-                  recommended ruleset. Any accessibility violation fails the build, so new
-                  issues can&apos;t ship.
+                  recommended ruleset. Any accessibility violation fails the build, so new issues
+                  can&apos;t ship.
                 </li>
                 <li>
                   <strong>Runtime auditing</strong> — we run{" "}
                   <code className="bg-white/10 px-1 rounded text-xs">@axe-core/react</code> in
                   development against every page. It surfaces WCAG violations the lint rules
-                  can&apos;t catch (color contrast, dynamic DOM, actual screen-reader announcements).
+                  can&apos;t catch (color contrast, dynamic DOM, actual screen-reader
+                  announcements).
                 </li>
                 <li>
                   <strong>Semantic HTML first</strong> — real{" "}
                   <code className="bg-white/10 px-1 rounded text-xs">&lt;button&gt;</code>,{" "}
                   <code className="bg-white/10 px-1 rounded text-xs">&lt;label&gt;</code>, and{" "}
-                  <code className="bg-white/10 px-1 rounded text-xs">&lt;details&gt;</code>{" "}
-                  elements wherever possible. Interactive divs get proper ARIA roles + keyboard
-                  handlers via shared helpers.
+                  <code className="bg-white/10 px-1 rounded text-xs">&lt;details&gt;</code> elements
+                  wherever possible. Interactive divs get proper ARIA roles + keyboard handlers via
+                  shared helpers.
                 </li>
                 <li>
-                  <strong>Structured data</strong> — Schema.org JSON-LD on key pages
-                  (LocalBusiness, BreadcrumbList, FAQPage) helps assistive tools understand
-                  content structure.
+                  <strong>Structured data</strong> — Schema.org JSON-LD on key pages (LocalBusiness,
+                  BreadcrumbList, FAQPage) helps assistive tools understand content structure.
                 </li>
                 <li>
-                  <strong>Keyboard-first modals</strong> — all dialogs close on Escape. Focus
-                  traps keep screen-reader users oriented.
+                  <strong>Keyboard-first modals</strong> — all dialogs close on Escape. Focus traps
+                  keep screen-reader users oriented.
                 </li>
                 <li>
                   <strong>Dark + light compatible</strong> — emails render on white backgrounds,
@@ -169,22 +174,27 @@ export default async function AccessibilityPage() {
               </h2>
               <ul
                 className="font-body text-white/80 space-y-2"
-                style={{ fontSize: "15px", lineHeight: 1.7, paddingLeft: "20px", listStyleType: "disc" }}
+                style={{
+                  fontSize: "15px",
+                  lineHeight: 1.7,
+                  paddingLeft: "20px",
+                  listStyleType: "disc",
+                }}
               >
                 <li>
-                  <strong>Third-party booking widgets</strong> — some booking flows use Square,
-                  BMI Leisure, or SMS-Timing embeds. We test end-to-end flows regularly but
-                  can&apos;t fix a11y issues inside those vendors&apos; code. Please contact us if you
-                  hit a blocker.
+                  <strong>Third-party booking widgets</strong> — some booking flows use Square, BMI
+                  Leisure, or SMS-Timing embeds. We test end-to-end flows regularly but can&apos;t
+                  fix a11y issues inside those vendors&apos; code. Please contact us if you hit a
+                  blocker.
                 </li>
                 <li>
-                  <strong>Marketing videos</strong> — hero and attraction videos are atmospheric
-                  and play without captions. Critical information is always available in the
-                  surrounding text.
+                  <strong>Marketing videos</strong> — hero and attraction videos are atmospheric and
+                  play without captions. Critical information is always available in the surrounding
+                  text.
                 </li>
                 <li>
-                  <strong>Legacy pages</strong> — some older pages may still have minor a11y
-                  gaps we&apos;re working through opportunistically. The build gate prevents new
+                  <strong>Legacy pages</strong> — some older pages may still have minor a11y gaps
+                  we&apos;re working through opportunistically. The build gate prevents new
                   regressions.
                 </li>
               </ul>
@@ -198,8 +208,8 @@ export default async function AccessibilityPage() {
                 Feedback
               </h2>
               <p className="font-body text-white/80" style={{ fontSize: "15px", lineHeight: 1.7 }}>
-                If you run into a page that&apos;s hard to use with a screen reader, keyboard,
-                or any assistive technology, we want to know. Email{" "}
+                If you run into a page that&apos;s hard to use with a screen reader, keyboard, or
+                any assistive technology, we want to know. Email{" "}
                 <a
                   href={`mailto:${contactEmail}?subject=Accessibility%20feedback`}
                   style={{ color: accent }}
@@ -207,8 +217,8 @@ export default async function AccessibilityPage() {
                 >
                   {contactEmail}
                 </a>{" "}
-                with the page URL and a brief description of what broke. We read every message
-                and reply within two business days.
+                with the page URL and a brief description of what broke. We read every message and
+                reply within two business days.
               </p>
             </section>
 
@@ -221,20 +231,43 @@ export default async function AccessibilityPage() {
               </h2>
               <ul
                 className="font-body text-white/80 space-y-2"
-                style={{ fontSize: "15px", lineHeight: 1.7, paddingLeft: "20px", listStyleType: "disc" }}
+                style={{
+                  fontSize: "15px",
+                  lineHeight: 1.7,
+                  paddingLeft: "20px",
+                  listStyleType: "disc",
+                }}
               >
                 <li>
-                  <a href="https://www.w3.org/TR/WCAG21/" style={{ color: accent }} className="underline hover:no-underline" target="_blank" rel="noopener noreferrer">
+                  <a
+                    href="https://www.w3.org/TR/WCAG21/"
+                    style={{ color: accent }}
+                    className="underline hover:no-underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     WCAG 2.1 — Web Content Accessibility Guidelines
                   </a>
                 </li>
                 <li>
-                  <a href="https://www.ada.gov/" style={{ color: accent }} className="underline hover:no-underline" target="_blank" rel="noopener noreferrer">
+                  <a
+                    href="https://www.ada.gov/"
+                    style={{ color: accent }}
+                    className="underline hover:no-underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     ADA.gov — Americans with Disabilities Act
                   </a>
                 </li>
                 <li>
-                  <a href="https://www.section508.gov/" style={{ color: accent }} className="underline hover:no-underline" target="_blank" rel="noopener noreferrer">
+                  <a
+                    href="https://www.section508.gov/"
+                    style={{ color: accent }}
+                    className="underline hover:no-underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     Section 508 — US federal accessibility requirements
                   </a>
                 </li>

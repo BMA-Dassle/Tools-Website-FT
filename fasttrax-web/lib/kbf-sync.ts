@@ -185,10 +185,7 @@ export async function downloadKbfCsv(): Promise<string> {
 
 /** One full login + report attempt. Throws on any non-clean path so
  *  the wrapper above can decide whether to retry. */
-async function downloadKbfCsvOnce(
-  password: string,
-  timeoutMs: number,
-): Promise<string> {
+async function downloadKbfCsvOnce(password: string, timeoutMs: number): Promise<string> {
   const ua = "FastTrax-KBF-Sync/1.0";
 
   const loginRes = await fetchWithTimeout(
@@ -198,8 +195,8 @@ async function downloadKbfCsvOnce(
       headers: {
         "User-Agent": ua,
         "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": KBF_BASE,
-        "Referer": `${KBF_BASE}${KBF_REPORT_PATH}?logout=1`,
+        Origin: KBF_BASE,
+        Referer: `${KBF_BASE}${KBF_REPORT_PATH}?logout=1`,
       },
       body: `form=login&password=${encodeURIComponent(password)}&login=Login`,
       redirect: "manual", // we don't need to follow; auth state is established server-side
@@ -218,9 +215,7 @@ async function downloadKbfCsvOnce(
   const setCookie = loginRes.headers.get("set-cookie") || "";
   const phpSessId = /PHPSESSID=([^;]+)/.exec(setCookie)?.[1] || "";
   if (!phpSessId) {
-    throw new Error(
-      "KBF login did not issue PHPSESSID cookie — re-check KBF_PASSWORD",
-    );
+    throw new Error("KBF login did not issue PHPSESSID cookie — re-check KBF_PASSWORD");
   }
 
   const reportRes = await fetchWithTimeout(
@@ -230,9 +225,9 @@ async function downloadKbfCsvOnce(
       headers: {
         "User-Agent": ua,
         "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": KBF_BASE,
-        "Referer": `${KBF_BASE}${KBF_REPORT_PATH}`,
-        "Cookie": `PHPSESSID=${phpSessId}`,
+        Origin: KBF_BASE,
+        Referer: `${KBF_BASE}${KBF_REPORT_PATH}`,
+        Cookie: `PHPSESSID=${phpSessId}`,
       },
       body: "form=report",
       cache: "no-store",
@@ -246,7 +241,9 @@ async function downloadKbfCsvOnce(
   if (!ct.includes("csv")) {
     // Auth lapsed → KBF returned the HTML login page instead of CSV.
     // Surface this loudly so the cron alert points at the right thing.
-    throw new Error(`KBF report unexpected content-type: ${ct} (auth likely lapsed — re-check KBF_PASSWORD)`);
+    throw new Error(
+      `KBF report unexpected content-type: ${ct} (auth likely lapsed — re-check KBF_PASSWORD)`,
+    );
   }
   const body = await reportRes.text();
   if (body.length === 0) {
@@ -274,20 +271,44 @@ function parseCsv(text: string): string[][] {
     const c = text[i];
     if (inQuotes) {
       if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-        inQuotes = false; i++; continue;
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i++;
+        continue;
       }
-      field += c; i++; continue;
+      field += c;
+      i++;
+      continue;
     }
-    if (c === '"') { inQuotes = true; i++; continue; }
-    if (c === ',') { row.push(field); field = ""; i++; continue; }
-    if (c === '\r') { i++; continue; }
-    if (c === '\n') {
-      row.push(field); field = "";
+    if (c === '"') {
+      inQuotes = true;
+      i++;
+      continue;
+    }
+    if (c === ",") {
+      row.push(field);
+      field = "";
+      i++;
+      continue;
+    }
+    if (c === "\r") {
+      i++;
+      continue;
+    }
+    if (c === "\n") {
+      row.push(field);
+      field = "";
       if (row.length > 1 || row[0] !== "") rows.push(row);
-      row = []; i++; continue;
+      row = [];
+      i++;
+      continue;
     }
-    field += c; i++;
+    field += c;
+    i++;
   }
   if (field !== "" || row.length > 0) {
     row.push(field);
@@ -326,7 +347,7 @@ function parseDateAdded(s: string): string | null {
 export function parseKbfCsv(csv: string): ParsedRow[] {
   const rows = parseCsv(csv);
   if (rows.length < 2) return [];
-  const header = rows[0].map(h => h.trim());
+  const header = rows[0].map((h) => h.trim());
   const colIdx = new Map<string, number>();
   header.forEach((h, i) => colIdx.set(h, i));
 
@@ -518,25 +539,31 @@ export async function syncKbfFromCsv(csv: string): Promise<SyncResult> {
   const centersPruned = await pruneExcludedCenters();
   const parsed = parseKbfCsv(csv);
   if (parsed.length === 0) {
-    return { rowsParsed: 0, passesUpserted: 0, membersInserted: 0, centersPruned, durationMs: Date.now() - t0 };
+    return {
+      rowsParsed: 0,
+      passesUpserted: 0,
+      membersInserted: 0,
+      centersPruned,
+      durationMs: Date.now() - t0,
+    };
   }
   const q = sql();
 
   // Flatten the pass column-vectors for UNNEST
-  const emails = parsed.map(p => p.pass.email);
-  const centers = parsed.map(p => p.pass.centerName);
-  const firstNames = parsed.map(p => p.pass.firstName);
-  const lastNames = parsed.map(p => p.pass.lastName);
-  const addresses = parsed.map(p => p.pass.address);
-  const cities = parsed.map(p => p.pass.city);
-  const states = parsed.map(p => p.pass.state);
-  const zips = parsed.map(p => p.pass.zip);
-  const dateAdded = parsed.map(p => p.pass.dateAdded);
-  const fpass = parsed.map(p => p.pass.fpass);
-  const birthdays = parsed.map(p => p.pass.birthday);
-  const birthYears = parsed.map(p => p.pass.birthYear);
-  const specialCodes = parsed.map(p => p.pass.specialCode);
-  const mailLinks = parsed.map(p => p.pass.mailLink);
+  const emails = parsed.map((p) => p.pass.email);
+  const centers = parsed.map((p) => p.pass.centerName);
+  const firstNames = parsed.map((p) => p.pass.firstName);
+  const lastNames = parsed.map((p) => p.pass.lastName);
+  const addresses = parsed.map((p) => p.pass.address);
+  const cities = parsed.map((p) => p.pass.city);
+  const states = parsed.map((p) => p.pass.state);
+  const zips = parsed.map((p) => p.pass.zip);
+  const dateAdded = parsed.map((p) => p.pass.dateAdded);
+  const fpass = parsed.map((p) => p.pass.fpass);
+  const birthdays = parsed.map((p) => p.pass.birthday);
+  const birthYears = parsed.map((p) => p.pass.birthYear);
+  const specialCodes = parsed.map((p) => p.pass.specialCode);
+  const mailLinks = parsed.map((p) => p.pass.mailLink);
 
   const upserted = (await q`
     INSERT INTO kbf_passes (
@@ -582,7 +609,7 @@ export async function syncKbfFromCsv(csv: string): Promise<SyncResult> {
   // Rebuild member rows. Delete-then-insert per-pass is bulletproof
   // against KBF reordering kids / a kid leaving the family. Volume
   // is small (~6k rows total) so a flat delete + bulk insert is fine.
-  const passIds = upserted.map(r => r.id);
+  const passIds = upserted.map((r) => r.id);
   if (passIds.length > 0) {
     await q`DELETE FROM kbf_pass_members WHERE pass_id = ANY(${passIds}::int[])`;
   }

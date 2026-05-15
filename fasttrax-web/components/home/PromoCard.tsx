@@ -68,7 +68,10 @@ export default function PromoCard() {
                 >
                   Book Your Race + Add-On
                 </Link>
-                <Link href="/pricing" className="bg-[#003580] hover:bg-[#004aaa] text-white font-heading font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors">
+                <Link
+                  href="/pricing"
+                  className="bg-[#003580] hover:bg-[#004aaa] text-white font-heading font-bold text-sm px-6 py-3 rounded-full uppercase tracking-wider transition-colors"
+                >
                   View All Combos
                 </Link>
               </div>

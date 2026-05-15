@@ -287,10 +287,14 @@ export async function deleteCameraAssignment(
             if (String(w.personId) === String(personId)) {
               await redis.del(watchKey(a.systemNumber));
             }
-          } catch { /* leave watch alone */ }
+          } catch {
+            /* leave watch alone */
+          }
         }
       }
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
   }
   await redis.del(primary);
   await redis.srem(sessionIndexKey(sessionId), String(personId));

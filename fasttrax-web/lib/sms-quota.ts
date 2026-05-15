@@ -83,10 +83,18 @@ export async function isQuotaExhausted(): Promise<boolean> {
 }
 
 /** Read the cooldown details (when hit, last status/error) — for admin / debug. */
-export async function readQuotaStatus(): Promise<{ hitAt: string; status: number | null; error: string } | null> {
+export async function readQuotaStatus(): Promise<{
+  hitAt: string;
+  status: number | null;
+  error: string;
+} | null> {
   const raw = await redis.get(QUOTA_KEY);
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 /** Mark quota exhausted. 1-hour TTL — drain retries hourly until success. */
@@ -125,7 +133,11 @@ export async function quotaPeek(max = 50): Promise<QueuedSend[]> {
   const raws = await redis.zrange(QUOTA_QUEUE, 0, max - 1);
   const out: QueuedSend[] = [];
   for (const r of raws) {
-    try { out.push(JSON.parse(r) as QueuedSend); } catch { /* skip corrupt */ }
+    try {
+      out.push(JSON.parse(r) as QueuedSend);
+    } catch {
+      /* skip corrupt */
+    }
   }
   return out;
 }
@@ -156,14 +168,27 @@ export function isQuotaError(status: number | null, body: string): boolean {
 export async function drainQuotaQueue(
   send: (e: QueuedSend) => Promise<{ ok: boolean; status: number | null; error?: string }>,
   opts?: { max?: number },
-): Promise<{ attempted: number; ok: number; abandoned: number; stoppedOnQuota: boolean; pendingAfter: number }> {
+): Promise<{
+  attempted: number;
+  ok: number;
+  abandoned: number;
+  stoppedOnQuota: boolean;
+  pendingAfter: number;
+}> {
   // Don't burn API quota probing for status during cooldown.
   if (await isQuotaExhausted()) {
-    return { attempted: 0, ok: 0, abandoned: 0, stoppedOnQuota: false, pendingAfter: await quotaQueueSize() };
+    return {
+      attempted: 0,
+      ok: 0,
+      abandoned: 0,
+      stoppedOnQuota: false,
+      pendingAfter: await quotaQueueSize(),
+    };
   }
   const max = opts?.max ?? 100;
   const raws = await redis.zrange(QUOTA_QUEUE, 0, max - 1);
-  let ok = 0, abandoned = 0;
+  let ok = 0,
+    abandoned = 0;
   let stoppedOnQuota = false;
   for (const raw of raws) {
     let entry: QueuedSend;
@@ -179,7 +204,11 @@ export async function drainQuotaQueue(
     try {
       result = await send(entry);
     } catch (err) {
-      result = { ok: false, status: null as number | null, error: err instanceof Error ? err.message : "send threw" };
+      result = {
+        ok: false,
+        status: null as number | null,
+        error: err instanceof Error ? err.message : "send threw",
+      };
     }
     if (result.ok) {
       await redis.zrem(QUOTA_QUEUE, raw);
@@ -198,5 +227,11 @@ export async function drainQuotaQueue(
     await redis.zrem(QUOTA_QUEUE, raw);
     abandoned++;
   }
-  return { attempted: raws.length, ok, abandoned, stoppedOnQuota, pendingAfter: await quotaQueueSize() };
+  return {
+    attempted: raws.length,
+    ok,
+    abandoned,
+    stoppedOnQuota,
+    pendingAfter: await quotaQueueSize(),
+  };
 }

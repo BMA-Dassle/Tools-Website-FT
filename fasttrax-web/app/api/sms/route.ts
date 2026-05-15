@@ -40,7 +40,7 @@ function smsHeaders(sessionId?: string, token?: string) {
     "x-fast-accesstoken": token || cachedSmsToken || "32ombpyioiipibppmll",
     "x-fast-version": SMS_VERSION,
     "x-session-id": sessionId || randomUUID(),
-    "accept": "application/json",
+    accept: "application/json",
     "content-type": "application/json",
   };
 }
@@ -53,7 +53,12 @@ async function smsGet(path: string, sessionId?: string, clientKey = DEFAULT_CLIE
   });
 }
 
-async function smsPost(path: string, body: unknown, sessionId?: string, clientKey = DEFAULT_CLIENT_KEY) {
+async function smsPost(
+  path: string,
+  body: unknown,
+  sessionId?: string,
+  clientKey = DEFAULT_CLIENT_KEY,
+) {
   const token = await getSmsToken();
   return fetch(`${SMS_BASE}/${path}/${clientKey}`, {
     method: "POST",
@@ -63,7 +68,12 @@ async function smsPost(path: string, body: unknown, sessionId?: string, clientKe
   });
 }
 
-async function smsPostQS(path: string, qs: string, sessionId?: string, clientKey = DEFAULT_CLIENT_KEY) {
+async function smsPostQS(
+  path: string,
+  qs: string,
+  sessionId?: string,
+  clientKey = DEFAULT_CLIENT_KEY,
+) {
   const token = await getSmsToken();
   return fetch(`${SMS_BASE}/${path}/${clientKey}?${qs}`, {
     method: "POST",
@@ -108,20 +118,22 @@ export async function POST(req: NextRequest) {
     const qs = new URLSearchParams();
     if (dateFrom) qs.set("dateFrom", dateFrom);
     if (dateUntil) qs.set("dateUntil", dateUntil);
-    const upstream = await fetch(
-      `${SMS_BASE}/${endpoint}/${clientKey}?${qs.toString()}`,
-      { method: "POST", headers: smsHeaders(sessionId, token), body: JSON.stringify(rest) }
-    );
+    const upstream = await fetch(`${SMS_BASE}/${endpoint}/${clientKey}?${qs.toString()}`, {
+      method: "POST",
+      headers: smsHeaders(sessionId, token),
+      body: JSON.stringify(rest),
+    });
     return NextResponse.json(await upstream.json());
   }
 
   if (endpoint === "dayplanner/dayplanner") {
     const { date, ...rest } = body;
     const qs = date ? `date=${encodeURIComponent(date)}` : "";
-    const upstream = await fetch(
-      `${SMS_BASE}/${endpoint}/${clientKey}?${qs}`,
-      { method: "POST", headers: smsHeaders(sessionId, token), body: JSON.stringify(rest) }
-    );
+    const upstream = await fetch(`${SMS_BASE}/${endpoint}/${clientKey}?${qs}`, {
+      method: "POST",
+      headers: smsHeaders(sessionId, token),
+      body: JSON.stringify(rest),
+    });
     return NextResponse.json(await upstream.json());
   }
 
@@ -141,10 +153,10 @@ export async function POST(req: NextRequest) {
   // ── BILL ─────────────────────────────────────────────────────────────────
   if (endpoint === "bill/overview") {
     const { billId } = body;
-    const upstream = await fetch(
-      `${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`,
-      { headers: smsHeaders(sessionId, token), cache: "no-store" }
-    );
+    const upstream = await fetch(`${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`, {
+      headers: smsHeaders(sessionId, token),
+      cache: "no-store",
+    });
     return NextResponse.json(await upstream.json());
   }
 
@@ -158,10 +170,10 @@ export async function POST(req: NextRequest) {
   // ── PAYMENT ───────────────────────────────────────────────────────────────
   if (endpoint === "payment/needtopay") {
     const { billId } = body;
-    const upstream = await fetch(
-      `${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`,
-      { headers: smsHeaders(sessionId, token), cache: "no-store" }
-    );
+    const upstream = await fetch(`${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`, {
+      headers: smsHeaders(sessionId, token),
+      cache: "no-store",
+    });
     return NextResponse.json(await upstream.json());
   }
 
@@ -194,22 +206,23 @@ export async function GET(req: NextRequest) {
   const clientKey = searchParams.get("clientKey") || DEFAULT_CLIENT_KEY;
   const billId = searchParams.get("billId");
   const sessionId = req.headers.get("x-booking-session") || randomUUID();
-  if (!ALLOWED_SMS_CLIENTS.has(clientKey)) return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+  if (!ALLOWED_SMS_CLIENTS.has(clientKey))
+    return NextResponse.json({ error: "Invalid client" }, { status: 403 });
   const token = await getSmsToken();
 
   if (endpoint === "bill/overview" && billId) {
-    const upstream = await fetch(
-      `${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`,
-      { headers: smsHeaders(sessionId, token), cache: "no-store" }
-    );
+    const upstream = await fetch(`${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`, {
+      headers: smsHeaders(sessionId, token),
+      cache: "no-store",
+    });
     return NextResponse.json(await upstream.json());
   }
 
   if (endpoint === "payment/needtopay" && billId) {
-    const upstream = await fetch(
-      `${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`,
-      { headers: smsHeaders(sessionId, token), cache: "no-store" }
-    );
+    const upstream = await fetch(`${SMS_BASE}/${endpoint}/${clientKey}?billId=${billId}`, {
+      headers: smsHeaders(sessionId, token),
+      cache: "no-store",
+    });
     return NextResponse.json(await upstream.json());
   }
 
@@ -218,7 +231,7 @@ export async function GET(req: NextRequest) {
   if (endpoint === "page" && date) {
     const upstream = await fetch(
       `${SMS_BASE}/${endpoint}/${clientKey}?date=${encodeURIComponent(date)}`,
-      { headers: smsHeaders(sessionId, token), cache: "no-store" }
+      { headers: smsHeaders(sessionId, token), cache: "no-store" },
     );
     return NextResponse.json(await upstream.json());
   }

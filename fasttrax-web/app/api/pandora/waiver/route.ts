@@ -58,7 +58,9 @@ export async function GET(req: NextRequest) {
       body: template.body || "",
     };
 
-    console.log(`[pandora-waiver] template "${normalized.name}" contentID=${normalized.contentID} bodyLen=${normalized.body.length}`);
+    console.log(
+      `[pandora-waiver] template "${normalized.name}" contentID=${normalized.contentID} bodyLen=${normalized.body.length}`,
+    );
     return NextResponse.json(normalized);
   } catch (err) {
     console.error("[pandora-waiver] search error:", err);
@@ -89,9 +91,11 @@ export async function POST(req: NextRequest) {
     const parts: Buffer[] = [];
 
     function addField(name: string, value: string) {
-      parts.push(Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
-      ));
+      parts.push(
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+        ),
+      );
     }
 
     addField("locationID", locationID);
@@ -101,9 +105,11 @@ export async function POST(req: NextRequest) {
     addField("invalidationDate", invalidationDate || "");
 
     // Signature file part
-    parts.push(Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="signature"; filename="signature.png"\r\nContent-Type: image/png\r\n\r\n`,
-    ));
+    parts.push(
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="signature"; filename="signature.png"\r\nContent-Type: image/png\r\n\r\n`,
+      ),
+    );
     parts.push(sigBuffer);
     parts.push(Buffer.from("\r\n"));
 
@@ -124,8 +130,14 @@ export async function POST(req: NextRequest) {
     const data = await res.json();
 
     if (!res.ok) {
-      console.error(`[pandora-waiver] sign failed ${res.status}:`, JSON.stringify(data).substring(0, 300));
-      return NextResponse.json({ error: data?.message || data?.data?.message || "Waiver signing failed" }, { status: res.status });
+      console.error(
+        `[pandora-waiver] sign failed ${res.status}:`,
+        JSON.stringify(data).substring(0, 300),
+      );
+      return NextResponse.json(
+        { error: data?.message || data?.data?.message || "Waiver signing failed" },
+        { status: res.status },
+      );
     }
 
     // Pandora wraps: { success, data: { waiverID } }

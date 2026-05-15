@@ -27,7 +27,8 @@ export const products: Record<string, RaceProduct> = {
     tier: "intermediate",
     age: "16+",
     height: '59" or taller',
-    qualification: "You must already be qualified in a Starter Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
+    qualification:
+      "You must already be qualified in a Starter Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
     arriveMinutes: 30,
     licenseFee: "$4.99",
   },
@@ -37,7 +38,8 @@ export const products: Record<string, RaceProduct> = {
     tier: "pro",
     age: "16+",
     height: '59" or taller',
-    qualification: "You must already be qualified in an Intermediate Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
+    qualification:
+      "You must already be qualified in an Intermediate Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
     arriveMinutes: 30,
     licenseFee: "$4.99",
   },
@@ -58,7 +60,8 @@ export const products: Record<string, RaceProduct> = {
     tier: "intermediate",
     age: "7–13",
     height: '49"–70"',
-    qualification: "You must already be qualified in a Junior Starter Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
+    qualification:
+      "You must already be qualified in a Junior Starter Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
     arriveMinutes: 30,
     licenseFee: "$4.99",
   },
@@ -68,7 +71,8 @@ export const products: Record<string, RaceProduct> = {
     tier: "pro",
     age: "7–13",
     height: '49"–70"',
-    qualification: "You must already be qualified in a Junior Intermediate Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
+    qualification:
+      "You must already be qualified in a Junior Intermediate Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
     arriveMinutes: 30,
     licenseFee: "$4.99",
   },

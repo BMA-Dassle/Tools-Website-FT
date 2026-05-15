@@ -31,7 +31,10 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const wantDead = searchParams.get("dead") === "1";
-  const limit = Math.max(1, Math.min(1000, parseInt(searchParams.get("limit") || "200", 10) || 200));
+  const limit = Math.max(
+    1,
+    Math.min(1000, parseInt(searchParams.get("limit") || "200", 10) || 200),
+  );
 
   const pending = await pendingCount();
   const entries = wantDead ? await listDead(limit) : await listPending(limit);

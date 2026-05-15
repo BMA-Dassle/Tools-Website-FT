@@ -151,14 +151,13 @@ interface ExtractedInvoke {
 function extractInvoke(activity: Record<string, unknown>): ExtractedInvoke {
   const value = activity.value as Record<string, unknown> | undefined;
   const action = (value?.action as Record<string, unknown>) || {};
-  const data = (action.data as Record<string, unknown>) || (value?.data as Record<string, unknown>) || {};
+  const data =
+    (action.data as Record<string, unknown>) || (value?.data as Record<string, unknown>) || {};
   const verb = (action.verb as string) || (data.action as string) || "";
 
   const rawProjectId = data.projectID ?? data.projectId;
   const projectID =
-    rawProjectId === undefined || rawProjectId === null
-      ? null
-      : String(rawProjectId);
+    rawProjectId === undefined || rawProjectId === null ? null : String(rawProjectId);
 
   const from = (activity.from as Record<string, unknown>) || {};
   const conversation = (activity.conversation as Record<string, unknown>) || {};
@@ -200,6 +199,6 @@ function invokeErrorResponse(message: string, statusCode = 500): NextResponse {
       },
     },
     { status: 200 }, // outer HTTP status stays 200 so the portal forwarder
-                    // passes our payload through unchanged
+    // passes our payload through unchanged
   );
 }

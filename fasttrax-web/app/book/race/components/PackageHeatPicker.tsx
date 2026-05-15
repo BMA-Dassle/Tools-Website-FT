@@ -65,12 +65,17 @@ function parseLocal(iso: string): Date {
 }
 
 function formatTime(iso: string): string {
-  return parseLocal(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return parseLocal(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 function spotsLabel(free: number, capacity: number): { text: string; label: string } {
   if (free === 0) return { text: "text-red-400", label: "Full" };
-  if (free / capacity <= 0.3) return { text: "text-amber-400", label: `${free} spot${free === 1 ? "" : "s"} left` };
+  if (free / capacity <= 0.3)
+    return { text: "text-amber-400", label: `${free} spot${free === 1 ? "" : "s"} left` };
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
@@ -93,8 +98,8 @@ const TIER_BADGE: Record<string, { bg: string; text: string }> = {
  *  Ultimate Qualifier grid feels visually consistent with mixed-track
  *  3-pack picking. */
 const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
-  Red:  { bg: "bg-red-500/20",    text: "text-red-300" },
-  Blue: { bg: "bg-blue-500/20",   text: "text-blue-300" },
+  Red: { bg: "bg-red-500/20", text: "text-red-300" },
+  Blue: { bg: "bg-blue-500/20", text: "text-blue-300" },
   Mega: { bg: "bg-purple-500/20", text: "text-purple-300" },
 };
 
@@ -110,25 +115,28 @@ const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
  *  active Red/Blue ones, making it hard to tell at a glance which
  *  heats were currently pickable. Neutral grey separates "available
  *  for this step" from "locked" cleanly regardless of track. */
-const TRACK_CARD: Record<string, {
-  base: string;       // unselected, interactive
-  baseHover: string;
-  selected: string;   // currently picked
-}> = {
+const TRACK_CARD: Record<
+  string,
+  {
+    base: string; // unselected, interactive
+    baseHover: string;
+    selected: string; // currently picked
+  }
+> = {
   Red: {
-    base:      "border-red-500/60 bg-red-500/[0.14]",
+    base: "border-red-500/60 bg-red-500/[0.14]",
     baseHover: "hover:border-red-400 hover:bg-red-500/20",
-    selected:  "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
+    selected: "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
   },
   Blue: {
-    base:      "border-blue-500/60 bg-blue-500/[0.14]",
+    base: "border-blue-500/60 bg-blue-500/[0.14]",
     baseHover: "hover:border-blue-400 hover:bg-blue-500/20",
-    selected:  "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
+    selected: "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
   },
   Mega: {
-    base:      "border-white/10 bg-white/5",
+    base: "border-white/10 bg-white/5",
     baseHover: "hover:border-white/25 hover:bg-white/10",
-    selected:  "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/50",
+    selected: "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/50",
   },
 };
 
@@ -142,7 +150,8 @@ const TRACK_CARD: Record<string, {
  *  border) so locked cards recede well behind the active Red/Blue
  *  ones — earlier the locked treatment was still readable enough
  *  that customers had trouble distinguishing the two states. */
-const DISABLED_CARD = "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
+const DISABLED_CARD =
+  "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
@@ -202,7 +211,10 @@ function SelectedHeats({
               key={c.ref}
               className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
             >
-              <span>🏎️ {c.label}{trackSuffix} · {formatTime(p.block.start)}</span>
+              <span>
+                🏎️ {c.label}
+                {trackSuffix} · {formatTime(p.block.start)}
+              </span>
               <button
                 type="button"
                 aria-label={`Clear ${c.label} selection`}
@@ -254,7 +266,10 @@ function HeatGrid({
         const component = components.find((c) => c.ref === proposal._componentRef);
         if (!component) return null;
         const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
-        const trackBadge = TRACK_BADGE[proposal._track] ?? { bg: "bg-white/10", text: "text-white/70" };
+        const trackBadge = TRACK_BADGE[proposal._track] ?? {
+          bg: "bg-white/10",
+          text: "text-white/70",
+        };
         // Multi-track components show the Red/Blue badge in addition
         // to the tier badge so the customer can tell which track each
         // heat is on at a glance. Single-track components (Mega-only
@@ -279,9 +294,14 @@ function HeatGrid({
         // Package gap rule against the referenced component's pick.
         const gapRule = component.minMinutesAfterEndOf;
         const refPick = gapRule ? picks[gapRule.ref] : null;
-        const gapAnchor = refPick && gapRule
-          ? { stop: refPick.block.stop, minutes: gapRule.minutes, refLabel: refPick.component.label }
-          : null;
+        const gapAnchor =
+          refPick && gapRule
+            ? {
+                stop: refPick.block.stop,
+                minutes: gapRule.minutes,
+                refLabel: refPick.component.label,
+              }
+            : null;
         const isGapViolation = gapAnchor
           ? violatesMinGapAfter(gapAnchor.stop, block.start, gapAnchor.minutes)
           : false;
@@ -300,7 +320,12 @@ function HeatGrid({
             heatsConflict(parseLocal(bh.start).getTime(), bh.track, blockStart, proposal._track),
           ) ||
           otherPicks.some((p) =>
-            heatsConflict(parseLocal(p.block.start).getTime(), p.trackOption.track, blockStart, proposal._track),
+            heatsConflict(
+              parseLocal(p.block.start).getTime(),
+              p.trackOption.track,
+              blockStart,
+              proposal._track,
+            ),
           );
 
         const isLowCap = block.freeSpots < quantity;
@@ -311,7 +336,7 @@ function HeatGrid({
         // selected cards too.
         const isFull = isSelected
           ? true
-          : (isOtherStep || isLowCap || isConflict || isGapViolation || tooSoon);
+          : isOtherStep || isLowCap || isConflict || isGapViolation || tooSoon;
 
         const statusLabel = isSelected
           ? "Selected"
@@ -370,24 +395,31 @@ function HeatGrid({
                 track badge (Red/Blue) only renders for multi-track
                 components so the customer can mix tracks freely. */}
             <div className="flex items-center gap-1 flex-wrap mb-1.5">
-              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}>
+              <span
+                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}
+              >
                 {component.tier}
               </span>
               {showTrackBadge && (
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}>
+                <span
+                  className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}
+                >
                   {proposal._track}
                 </span>
               )}
             </div>
             <div className="text-white font-bold text-base mb-2">{formatTime(block.start)}</div>
             <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
-            <div className={`text-[13px] font-medium ${statusClass}`}>
-              {statusLabel}
-            </div>
+            <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
             <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
               <div
-                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation || isOtherStep) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
-                style={{ width: (isConflict || isGapViolation || isOtherStep) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
+                className={`h-full rounded-full ${isLowCap ? "bg-red-500" : isConflict || isGapViolation || isOtherStep ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                style={{
+                  width:
+                    isConflict || isGapViolation || isOtherStep
+                      ? "100%"
+                      : `${(block.freeSpots / block.capacity) * 100}%`,
+                }}
               />
             </div>
           </button>
@@ -408,10 +440,7 @@ export default function PackageHeatPicker({
   onConfirm,
   onBack,
 }: PackageHeatPickerProps) {
-  const components = useMemo(
-    () => [...pkg.races].sort((a, b) => a.sequence - b.sequence),
-    [pkg],
-  );
+  const components = useMemo(() => [...pkg.races].sort((a, b) => a.sequence - b.sequence), [pkg]);
   const totalComponents = components.length;
   const ctaRef = useRef<HTMLDivElement>(null);
 
@@ -493,7 +522,9 @@ export default function PackageHeatPicker({
     }
   }, [components, date]);
 
-  useEffect(() => { fetchHeats(); }, [fetchHeats]);
+  useEffect(() => {
+    fetchHeats();
+  }, [fetchHeats]);
 
   // Auto-scroll the CTA when the user fills in the last pick.
   const pickedCount = components.filter((c) => picks[c.ref] != null).length;
@@ -544,12 +575,12 @@ export default function PackageHeatPicker({
   // The component the user is currently filling — first un-picked
   // by sequence. Null when every slot is filled.
   const currentComponent =
-    components
-      .filter((c) => !picks[c.ref])
-      .sort((a, b) => a.sequence - b.sequence)[0] ?? null;
+    components.filter((c) => !picks[c.ref]).sort((a, b) => a.sequence - b.sequence)[0] ?? null;
 
   const displayDate = parseLocal(date + "T12:00:00").toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
   });
 
   return (
@@ -577,7 +608,8 @@ export default function PackageHeatPicker({
       {currentComponent ? (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-4 py-2 text-center">
           <p className="text-amber-300 text-xs font-bold uppercase tracking-widest">
-            Step {currentComponent.sequence} of {totalComponents} · Pick your {currentComponent.label}
+            Step {currentComponent.sequence} of {totalComponents} · Pick your{" "}
+            {currentComponent.label}
           </p>
         </div>
       ) : (
@@ -606,7 +638,9 @@ export default function PackageHeatPicker({
       ) : error ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
           <p className="text-red-400 text-sm">{error}</p>
-          <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">Retry</button>
+          <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">
+            Retry
+          </button>
         </div>
       ) : proposals.length === 0 ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
@@ -628,9 +662,7 @@ export default function PackageHeatPicker({
           <div
             ref={ctaRef}
             className={`rounded-xl border p-5 transition-all duration-300 ${
-              allPicked
-                ? "border-amber-500/40 bg-amber-500/8"
-                : "border-white/10 bg-white/3"
+              allPicked ? "border-amber-500/40 bg-amber-500/8" : "border-white/10 bg-white/3"
             }`}
           >
             {allPicked ? (
@@ -638,11 +670,13 @@ export default function PackageHeatPicker({
                 <div>
                   <p className="text-white/50 text-xs mb-1">All {totalComponents} heats selected</p>
                   <p className="text-white/70 text-sm">
-                    {components.map((c) => {
-                      const pick = picks[c.ref]!;
-                      const trackSuffix = c.tracks.length > 1 ? ` ${pick.trackOption.track}` : "";
-                      return `${c.label}${trackSuffix} · ${formatTime(pick.block.start)}`;
-                    }).join(" → ")}
+                    {components
+                      .map((c) => {
+                        const pick = picks[c.ref]!;
+                        const trackSuffix = c.tracks.length > 1 ? ` ${pick.trackOption.track}` : "";
+                        return `${c.label}${trackSuffix} · ${formatTime(pick.block.start)}`;
+                      })
+                      .join(" → ")}
                   </p>
                 </div>
                 <button
@@ -661,14 +695,18 @@ export default function PackageHeatPicker({
               </div>
             ) : (
               <p className="text-center text-white/40 text-sm">
-                Selected <span className="text-white font-bold">{pickedCount}</span> of <span className="text-white font-bold">{totalComponents}</span> heats
+                Selected <span className="text-white font-bold">{pickedCount}</span> of{" "}
+                <span className="text-white font-bold">{totalComponents}</span> heats
               </p>
             )}
           </div>
         </>
       )}
 
-      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+      <button
+        onClick={onBack}
+        className="text-sm text-white/40 hover:text-white/70 transition-colors"
+      >
         ← Change package
       </button>
     </div>

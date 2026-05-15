@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSmsLog, type SmsLogEntry } from "@/lib/sms-log";
-import { getRaceTicket, getGroupTicket, type RaceTicket, type GroupTicket } from "@/lib/race-tickets";
+import {
+  getRaceTicket,
+  getGroupTicket,
+  type RaceTicket,
+  type GroupTicket,
+} from "@/lib/race-tickets";
 import redis from "@/lib/redis";
 
 /**
@@ -41,7 +46,9 @@ import redis from "@/lib/redis";
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -61,11 +68,14 @@ export type EnrichedLogEntry = SmsLogEntry & {
  * Fetch the click hash for a shortCode. Returns undefined if never clicked
  * (or if tracking was skipped — see /s/[code]/page.tsx).
  */
-async function getClickData(shortCode: string): Promise<{
-  count?: number;
-  first?: string;
-  last?: string;
-} | undefined> {
+async function getClickData(shortCode: string): Promise<
+  | {
+      count?: number;
+      first?: string;
+      last?: string;
+    }
+  | undefined
+> {
   try {
     const h = await redis.hgetall(`click:${shortCode}`);
     if (!h || Object.keys(h).length === 0) return undefined;
@@ -165,7 +175,10 @@ export async function GET(req: NextRequest) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: "Invalid date — use YYYY-MM-DD" }, { status: 400 });
     }
-    const limit = Math.max(1, Math.min(500, parseInt(searchParams.get("limit") || "100", 10) || 100));
+    const limit = Math.max(
+      1,
+      Math.min(500, parseInt(searchParams.get("limit") || "100", 10) || 100),
+    );
     const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10) || 0);
 
     const source = searchParams.get("source");
@@ -185,9 +198,9 @@ export async function GET(req: NextRequest) {
     // automatically — no need to update a blocklist every time we add
     // a new notification type.
     const ETICKET_SOURCES = new Set([
-      "pre-race-cron",   // e-ticket 2hrs before race
-      "checkin-cron",    // check-in live notification
-      "admin-resend",    // manual resend from this page
+      "pre-race-cron", // e-ticket 2hrs before race
+      "checkin-cron", // check-in live notification
+      "admin-resend", // manual resend from this page
     ]);
     const preFiltered = pool.filter((e) => {
       if (!source && !ETICKET_SOURCES.has(e.source)) return false;

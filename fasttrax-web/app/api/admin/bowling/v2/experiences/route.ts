@@ -132,8 +132,12 @@ export async function POST(req: NextRequest) {
       description: body.description ?? null,
       sortOrder: body.sortOrder ?? 0,
       isActive: body.isActive ?? true,
-      daysOfWeek: Array.isArray(body.daysOfWeek) ? (body.daysOfWeek as number[]) : [0, 1, 2, 3, 4, 5, 6],
-      squareModifierListIds: Array.isArray(body.squareModifierListIds) ? (body.squareModifierListIds as string[]) : [],
+      daysOfWeek: Array.isArray(body.daysOfWeek)
+        ? (body.daysOfWeek as number[])
+        : [0, 1, 2, 3, 4, 5, 6],
+      squareModifierListIds: Array.isArray(body.squareModifierListIds)
+        ? (body.squareModifierListIds as string[])
+        : [],
     });
 
     // 2. Upsert all per-center offer mappings

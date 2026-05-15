@@ -74,10 +74,7 @@ export async function POST(req: NextRequest) {
 
   const centerId = CENTER_CODE_TO_ID[res.centerCode];
   if (!centerId) {
-    return NextResponse.json(
-      { error: `Unknown centerCode: ${res.centerCode}` },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: `Unknown centerCode: ${res.centerCode}` }, { status: 400 });
   }
 
   let qamfReservationId = res.qamfReservationId;
@@ -90,7 +87,11 @@ export async function POST(req: NextRequest) {
   if (qamfReservationId) {
     try {
       const current = await getReservation(centerId, qamfReservationId);
-      if (current.Status === "Confirmed" || current.Status === "Arrived" || current.Status === "Completed") {
+      if (
+        current.Status === "Confirmed" ||
+        current.Status === "Arrived" ||
+        current.Status === "Completed"
+      ) {
         // Already confirmed on QAMF side — just update Neon
         await updateBowlingReservationStatus(neonId, "confirmed");
         return NextResponse.json({
@@ -104,7 +105,9 @@ export async function POST(req: NextRequest) {
       // Temporary (or other) — still alive, try to confirm
       qamfStillExists = current.Status === "Temporary";
       qamfAlreadyConfirmed = false;
-      console.log(`[force-confirm] neonId=${neonId} qamf=${qamfReservationId} status=${current.Status}`);
+      console.log(
+        `[force-confirm] neonId=${neonId} qamf=${qamfReservationId} status=${current.Status}`,
+      );
     } catch (err) {
       console.warn(
         `[force-confirm] neonId=${neonId} qamf=${qamfReservationId} GET failed (likely expired):`,
@@ -189,7 +192,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Cannot recreate QAMF reservation — cannot determine webOfferId. Create manually in QAMF dashboard.",
+          error:
+            "Cannot recreate QAMF reservation — cannot determine webOfferId. Create manually in QAMF dashboard.",
           neonId,
           bookedAt: res.bookedAt,
           guestName: res.guestName,
@@ -199,7 +203,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const qamfOptions: { Game?: { Id: number }[]; Time?: { Id: number }[]; Unlimited?: { Id: number }[] } = {};
+    const qamfOptions: {
+      Game?: { Id: number }[];
+      Time?: { Id: number }[];
+      Unlimited?: { Id: number }[];
+    } = {};
     if (optionId) {
       if (optionType === "Time") qamfOptions.Time = [{ Id: optionId }];
       else if (optionType === "Unlimited") qamfOptions.Unlimited = [{ Id: optionId }];
@@ -226,7 +234,9 @@ export async function POST(req: NextRequest) {
         TotalPlayers: res.playerCount ?? 1,
       });
       qamfReservationId = newReservation.Id;
-      console.log(`[force-confirm] neonId=${neonId}: fresh QAMF reservation created: ${qamfReservationId}`);
+      console.log(
+        `[force-confirm] neonId=${neonId}: fresh QAMF reservation created: ${qamfReservationId}`,
+      );
 
       await setReservationCustomer(centerId, qamfReservationId, {
         Guest: {

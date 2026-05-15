@@ -45,9 +45,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const contactRaw = (body?.contact ?? "").toString().trim();
     const code = (body?.code ?? "").toString().trim();
-    const savePhone = body?.savePhone?.phone
-      ? normalizePhone(String(body.savePhone.phone))
-      : "";
+    const savePhone = body?.savePhone?.phone ? normalizePhone(String(body.savePhone.phone)) : "";
 
     if (!contactRaw || !code) {
       return NextResponse.json({ error: "Contact and code required" }, { status: 400 });
@@ -86,12 +84,7 @@ export async function POST(req: NextRequest) {
     if (data.code !== code) {
       data.attempts += 1;
       const ttl = await redis.ttl(redisKey);
-      await redis.set(
-        redisKey,
-        JSON.stringify(data),
-        "EX",
-        ttl > 0 ? ttl : CODE_TTL_SEC,
-      );
+      await redis.set(redisKey, JSON.stringify(data), "EX", ttl > 0 ? ttl : CODE_TTL_SEC);
       return NextResponse.json({
         verified: false,
         error: "Incorrect code",

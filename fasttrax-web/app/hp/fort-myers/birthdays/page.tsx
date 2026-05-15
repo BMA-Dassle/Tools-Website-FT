@@ -24,10 +24,7 @@ const packages = [
     startingAt: "$349",
     laneLabel: "2 lanes",
     featured: false,
-    includes: [
-      "2 hours party time + 1 hour bowling",
-      "100-token game zone card per guest",
-    ],
+    includes: ["2 hours party time + 1 hour bowling", "100-token game zone card per guest"],
     pricing: [
       { lanes: "2 Lanes", price: "$349" },
       { lanes: "4 Lanes", price: "$698" },
@@ -81,8 +78,18 @@ const packages = [
 const valueProps = [
   {
     icon: (
-      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.745 3.745 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+      <svg
+        className="w-8 h-8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.745 3.745 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"
+        />
       </svg>
     ),
     title: "We Handle Everything",
@@ -91,8 +98,18 @@ const valueProps = [
   },
   {
     icon: (
-      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+      <svg
+        className="w-8 h-8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M15.59 14.37a6 6 0 0 1-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 0 0 6.16-12.12A14.98 14.98 0 0 0 9.631 8.41m5.96 5.96a14.926 14.926 0 0 1-5.841 2.58m-.119-8.54a6 6 0 0 0-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 0 0-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 0 1-2.448-2.448 14.9 14.9 0 0 1 .06-.312m-2.24 2.39a4.493 4.493 0 0 0-1.757 4.306 4.493 4.493 0 0 0 4.306-1.758M16.5 9a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z"
+        />
       </svg>
     ),
     title: "Activities They'll Love",
@@ -101,9 +118,23 @@ const valueProps = [
   },
   {
     icon: (
-      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+      <svg
+        className="w-8 h-8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z"
+        />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z"
+        />
       </svg>
     ),
     title: "Memories That Last",
@@ -117,8 +148,18 @@ const foodOptions = [
     name: "Pizza Party",
     desc: "Cheese or pepperoni pizza",
     icon: (
-      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 16.5m18-4.5-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 12" />
+      <svg
+        className="w-8 h-8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 16.5m18-4.5-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 12"
+        />
       </svg>
     ),
   },
@@ -126,8 +167,18 @@ const foodOptions = [
     name: "Hot Dogs & Fries",
     desc: "Classic hot dogs with crispy fries",
     icon: (
-      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.047 8.287 8.287 0 0 0 9 9.601a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48Z" />
+      <svg
+        className="w-8 h-8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.047 8.287 8.287 0 0 0 9 9.601a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48Z"
+        />
       </svg>
     ),
   },
@@ -135,8 +186,18 @@ const foodOptions = [
     name: "Chicken Tenders",
     desc: "Crispy tenders with fries",
     icon: (
-      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+      <svg
+        className="w-8 h-8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+        />
       </svg>
     ),
   },
@@ -147,8 +208,18 @@ const addOns = [
     name: "Extra Laser Tag",
     desc: "Additional session per guest",
     icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"
+        />
       </svg>
     ),
   },
@@ -156,8 +227,18 @@ const addOns = [
     name: "Arcade Boost",
     desc: "Extra 100 tokens per guest",
     icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+        />
       </svg>
     ),
   },
@@ -165,8 +246,18 @@ const addOns = [
     name: "Party Favor Bags",
     desc: "Take-home goody bags",
     icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"
+        />
       </svg>
     ),
   },
@@ -174,8 +265,18 @@ const addOns = [
     name: "Extra Time",
     desc: "Add 30 min to your party",
     icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+      <svg
+        className="w-6 h-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+        />
       </svg>
     ),
   },
@@ -191,20 +292,53 @@ const includedItems = [
 ];
 
 const galleryImages = [
-  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-family-bowling.jpg", alt: "Family bowling birthday party" },
-  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp", alt: "HeadPinz entertainment" },
-  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg", alt: "Birthday girl with bowling ball" },
-  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp", alt: "HeadPinz action" },
+  {
+    src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-family-bowling.jpg",
+    alt: "Family bowling birthday party",
+  },
+  {
+    src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp",
+    alt: "HeadPinz entertainment",
+  },
+  {
+    src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
+    alt: "Birthday girl with bowling ball",
+  },
+  {
+    src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp",
+    alt: "HeadPinz action",
+  },
 ];
 
 const faqs = [
-  { q: "What ages are birthday parties for?", a: "Our birthday party packages are designed for guests ages 17 and under." },
-  { q: "How many guests per lane?", a: "Each lane accommodates up to 6 guests. You can reserve 2, 4, or 6 lanes depending on your party size." },
-  { q: "Can adults attend?", a: "Absolutely! Adults are welcome to attend as guests. If you\u2019re looking for an adult birthday party, check out our group event packages." },
-  { q: "What food is included?", a: "Every package includes one food choice for all guests: cheese or pepperoni pizza + soda, hot dog + fries + soda, or chicken tenders + fries + soda." },
-  { q: "Can I add more activities?", a: "Yes! Ask our events team about add-ons like extra laser tag sessions, additional game zone tokens, party favor bags, and more." },
-  { q: "How far in advance should I book?", a: "We recommend booking at least 2 weeks in advance. Popular dates and weekends fill up quickly, so the earlier the better!" },
-  { q: "Can I bring my own cake?", a: "Yes! You\u2019re welcome to bring your own birthday cake or cupcakes. We\u2019ll provide the plates and utensils." },
+  {
+    q: "What ages are birthday parties for?",
+    a: "Our birthday party packages are designed for guests ages 17 and under.",
+  },
+  {
+    q: "How many guests per lane?",
+    a: "Each lane accommodates up to 6 guests. You can reserve 2, 4, or 6 lanes depending on your party size.",
+  },
+  {
+    q: "Can adults attend?",
+    a: "Absolutely! Adults are welcome to attend as guests. If you\u2019re looking for an adult birthday party, check out our group event packages.",
+  },
+  {
+    q: "What food is included?",
+    a: "Every package includes one food choice for all guests: cheese or pepperoni pizza + soda, hot dog + fries + soda, or chicken tenders + fries + soda.",
+  },
+  {
+    q: "Can I add more activities?",
+    a: "Yes! Ask our events team about add-ons like extra laser tag sessions, additional game zone tokens, party favor bags, and more.",
+  },
+  {
+    q: "How far in advance should I book?",
+    a: "We recommend booking at least 2 weeks in advance. Popular dates and weekends fill up quickly, so the earlier the better!",
+  },
+  {
+    q: "Can I bring my own cake?",
+    a: "Yes! You\u2019re welcome to bring your own birthday cake or cupcakes. We\u2019ll provide the plates and utensils.",
+  },
 ];
 
 /* -- Component -------------------------------------------- */
@@ -258,11 +392,17 @@ export default function HeadPinzBirthdaysPage() {
               textShadow: "0 0 40px rgba(253,91,86,0.35)",
             }}
           >
-            All the Fun.<br />None of the Stress.
+            All the Fun.
+            <br />
+            None of the Stress.
           </h1>
           <p
             className="font-body text-white/70 max-w-xl mx-auto"
-            style={{ fontSize: "clamp(14px, 2.5vw, 20px)", lineHeight: "1.5", marginBottom: "32px" }}
+            style={{
+              fontSize: "clamp(14px, 2.5vw, 20px)",
+              lineHeight: "1.5",
+              marginBottom: "32px",
+            }}
           >
             We handle everything &mdash; you enjoy the party
           </p>
@@ -282,7 +422,10 @@ export default function HeadPinzBirthdaysPage() {
       <section style={{ padding: "clamp(40px, 6vw, 60px) clamp(16px, 4vw, 32px)" }}>
         <div
           className="max-w-5xl mx-auto flex flex-wrap justify-center gap-x-8 gap-y-4 rounded-lg px-6 py-5"
-          style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(253,91,86,0.25)" }}
+          style={{
+            backgroundColor: "rgba(7,16,39,0.5)",
+            border: "1.78px dashed rgba(253,91,86,0.25)",
+          }}
         >
           {[
             { label: "24 Bowling Lanes", color: coral },
@@ -303,13 +446,20 @@ export default function HeadPinzBirthdaysPage() {
       </section>
 
       {/* ====== 3. VALUE PROPS ====== */}
-      <section style={{ padding: "clamp(20px, 4vw, 40px) clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>
+      <section
+        style={{
+          padding: "clamp(20px, 4vw, 40px) clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)",
+        }}
+      >
         <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
           {valueProps.map((vp) => (
             <div
               key={vp.title}
               className="rounded-lg p-6 text-center transition-all hover:scale-[1.01]"
-              style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${vp.accent}30` }}
+              style={{
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: `1.78px dashed ${vp.accent}30`,
+              }}
             >
               <div className="flex justify-center mb-4" style={{ color: vp.accent }}>
                 {vp.icon}
@@ -320,9 +470,7 @@ export default function HeadPinzBirthdaysPage() {
               >
                 {vp.title}
               </h3>
-              <p className="font-body text-white/60 text-sm leading-relaxed">
-                {vp.desc}
-              </p>
+              <p className="font-body text-white/60 text-sm leading-relaxed">{vp.desc}</p>
             </div>
           ))}
         </div>
@@ -339,7 +487,10 @@ export default function HeadPinzBirthdaysPage() {
           className="absolute inset-0 w-full h-full object-cover"
           poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
         >
-          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4" type="video/mp4" />
+          <source
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4"
+            type="video/mp4"
+          />
         </video>
         <div className="absolute inset-0 bg-[#0a1628]/92" />
         <div
@@ -358,7 +509,10 @@ export default function HeadPinzBirthdaysPage() {
             >
               Party Packages
             </h2>
-            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${coral}, ${gold})` }} />
+            <div
+              className="mx-auto h-1 w-24 rounded-full"
+              style={{ background: `linear-gradient(90deg, ${coral}, ${gold})` }}
+            />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
@@ -385,7 +539,10 @@ export default function HeadPinzBirthdaysPage() {
                 <div className="p-6 flex flex-col flex-1">
                   <h3
                     className="font-heading uppercase text-white tracking-wider mb-1"
-                    style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: `0 0 20px ${pkg.accent}30` }}
+                    style={{
+                      fontSize: "clamp(18px, 3vw, 24px)",
+                      textShadow: `0 0 20px ${pkg.accent}30`,
+                    }}
                   >
                     {pkg.name}
                   </h3>
@@ -397,8 +554,19 @@ export default function HeadPinzBirthdaysPage() {
                   <ul className="space-y-2.5 mb-6 flex-1">
                     {pkg.includes.map((item) => (
                       <li key={item} className="flex items-start gap-2.5">
-                        <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: pkg.accent }} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        <svg
+                          className="w-4 h-4 flex-shrink-0 mt-0.5"
+                          style={{ color: pkg.accent }}
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M4.5 12.75l6 6 9-13.5"
+                          />
                         </svg>
                         <span className="font-body text-white/70 text-sm leading-snug">{item}</span>
                       </li>
@@ -406,22 +574,34 @@ export default function HeadPinzBirthdaysPage() {
                   </ul>
 
                   {/* Pricing table */}
-                  <div className="rounded-lg overflow-hidden mb-5" style={{ border: `1px solid ${pkg.accent}20` }}>
+                  <div
+                    className="rounded-lg overflow-hidden mb-5"
+                    style={{ border: `1px solid ${pkg.accent}20` }}
+                  >
                     {pkg.pricing.map((row, i) => (
                       <div
                         key={row.lanes}
                         className="flex items-center justify-between px-4 py-2.5"
-                        style={{ backgroundColor: i % 2 === 0 ? "rgba(255,255,255,0.03)" : "transparent" }}
+                        style={{
+                          backgroundColor: i % 2 === 0 ? "rgba(255,255,255,0.03)" : "transparent",
+                        }}
                       >
                         <span className="font-body text-white/60 text-sm">{row.lanes}</span>
-                        <span className="font-heading text-lg" style={{ color: pkg.accent }}>{row.price}</span>
+                        <span className="font-heading text-lg" style={{ color: pkg.accent }}>
+                          {row.price}
+                        </span>
                       </div>
                     ))}
                   </div>
-                  <p className="font-body text-white/40 text-xs text-center mb-5">{pkg.guestsNote}</p>
+                  <p className="font-body text-white/40 text-xs text-center mb-5">
+                    {pkg.guestsNote}
+                  </p>
 
                   <button
-                    onClick={() => { setSelectedPkg(pkg.name); setShowForm(true); }}
+                    onClick={() => {
+                      setSelectedPkg(pkg.name);
+                      setShowForm(true);
+                    }}
                     className="w-full inline-flex items-center justify-center font-body font-bold uppercase tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full text-sm py-3.5"
                     style={{
                       backgroundColor: pkg.accent,
@@ -444,11 +624,19 @@ export default function HeadPinzBirthdaysPage() {
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: "0 0 30px rgba(0,226,229,0.25)" }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: "0 0 30px rgba(0,226,229,0.25)",
+              }}
             >
               Every Package Includes
             </h2>
-            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${cyan}, ${coral})` }} />
+            <div
+              className="mx-auto h-1 w-24 rounded-full"
+              style={{ background: `linear-gradient(90deg, ${cyan}, ${coral})` }}
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -456,9 +644,19 @@ export default function HeadPinzBirthdaysPage() {
               <div
                 key={item}
                 className="rounded-lg p-4 flex items-center gap-3"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(0,226,229,0.2)" }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: "1.78px dashed rgba(0,226,229,0.2)",
+                }}
               >
-                <svg className="w-5 h-5 flex-shrink-0" style={{ color: cyan }} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <svg
+                  className="w-5 h-5 flex-shrink-0"
+                  style={{ color: cyan }}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
                 <span className="font-body text-white/70 text-sm">{item}</span>
@@ -474,7 +672,12 @@ export default function HeadPinzBirthdaysPage() {
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${gold}25` }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: `0 0 30px ${gold}25`,
+              }}
             >
               Fuel the Fun
             </h2>
@@ -490,7 +693,9 @@ export default function HeadPinzBirthdaysPage() {
                 className="rounded-lg p-6 text-center transition-all hover:scale-[1.01]"
                 style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${gold}25` }}
               >
-                <div className="flex justify-center mb-3" style={{ color: gold }}>{food.icon}</div>
+                <div className="flex justify-center mb-3" style={{ color: gold }}>
+                  {food.icon}
+                </div>
                 <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                   {food.name}
                 </h3>
@@ -507,7 +712,12 @@ export default function HeadPinzBirthdaysPage() {
           <div className="text-center" style={{ marginBottom: "clamp(24px, 4vw, 40px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px rgba(155,81,224,0.25)` }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: `0 0 30px rgba(155,81,224,0.25)`,
+              }}
             >
               Make It Even Bigger
             </h2>
@@ -521,9 +731,14 @@ export default function HeadPinzBirthdaysPage() {
               <div
                 key={addon.name}
                 className="rounded-lg p-5 text-center transition-all hover:scale-[1.02]"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(155,81,224,0.2)" }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: "1.78px dashed rgba(155,81,224,0.2)",
+                }}
               >
-                <div className="flex justify-center mb-2" style={{ color: "#9b51e0" }}>{addon.icon}</div>
+                <div className="flex justify-center mb-2" style={{ color: "#9b51e0" }}>
+                  {addon.icon}
+                </div>
                 <h4 className="font-body text-white font-bold text-sm mb-1">{addon.name}</h4>
                 <p className="font-body text-white/40 text-xs">{addon.desc}</p>
               </div>
@@ -536,7 +751,11 @@ export default function HeadPinzBirthdaysPage() {
       <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(40px, 6vw, 60px)" }}>
         <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3">
           {galleryImages.map((img) => (
-            <div key={img.src} className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "4/3" }}>
+            <div
+              key={img.src}
+              className="relative overflow-hidden rounded-lg"
+              style={{ aspectRatio: "4/3" }}
+            >
               <Image
                 src={img.src}
                 alt={img.alt}
@@ -556,18 +775,38 @@ export default function HeadPinzBirthdaysPage() {
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${coral}25` }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: `0 0 30px ${coral}25`,
+              }}
             >
               How It Works
             </h2>
-            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${coral}, ${gold})` }} />
+            <div
+              className="mx-auto h-1 w-24 rounded-full"
+              style={{ background: `linear-gradient(90deg, ${coral}, ${gold})` }}
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
-              { step: "1", title: "Pick a Package", desc: "Choose Bronze, Silver, or VIP based on your group size and budget" },
-              { step: "2", title: "Choose Your Date", desc: "Fill out our quick form and our events team will confirm availability" },
-              { step: "3", title: "Show Up & Party!", desc: "We handle setup, food, activities, and cleanup. You just celebrate!" },
+              {
+                step: "1",
+                title: "Pick a Package",
+                desc: "Choose Bronze, Silver, or VIP based on your group size and budget",
+              },
+              {
+                step: "2",
+                title: "Choose Your Date",
+                desc: "Fill out our quick form and our events team will confirm availability",
+              },
+              {
+                step: "3",
+                title: "Show Up & Party!",
+                desc: "We handle setup, food, activities, and cleanup. You just celebrate!",
+              },
             ].map((s) => (
               <div
                 key={s.step}
@@ -576,7 +815,11 @@ export default function HeadPinzBirthdaysPage() {
               >
                 <span
                   className="inline-flex items-center justify-center w-12 h-12 rounded-full font-heading text-xl mb-4"
-                  style={{ backgroundColor: `${coral}20`, color: coral, border: `1.78px solid ${coral}40` }}
+                  style={{
+                    backgroundColor: `${coral}20`,
+                    color: coral,
+                    border: `1.78px solid ${coral}40`,
+                  }}
                 >
                   {s.step}
                 </span>
@@ -596,7 +839,12 @@ export default function HeadPinzBirthdaysPage() {
           <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 48px)" }}>
             <h2
               className="font-heading uppercase text-white"
-              style={{ fontSize: "clamp(28px, 6vw, 52px)", letterSpacing: "3px", marginBottom: "12px", textShadow: `0 0 30px ${coral}25` }}
+              style={{
+                fontSize: "clamp(28px, 6vw, 52px)",
+                letterSpacing: "3px",
+                marginBottom: "12px",
+                textShadow: `0 0 30px ${coral}25`,
+              }}
             >
               Questions?
             </h2>
@@ -606,7 +854,10 @@ export default function HeadPinzBirthdaysPage() {
               <div
                 key={i}
                 className="rounded-lg overflow-hidden"
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(253,91,86,0.2)" }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: "1.78px dashed rgba(253,91,86,0.2)",
+                }}
               >
                 <button
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
@@ -615,15 +866,24 @@ export default function HeadPinzBirthdaysPage() {
                   <span className="font-body font-bold text-white text-sm pr-4">{f.q}</span>
                   <svg
                     className="w-5 h-5 flex-shrink-0 transition-transform"
-                    style={{ color: coral, transform: openFaq === i ? "rotate(180deg)" : "rotate(0deg)" }}
-                    fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                    style={{
+                      color: coral,
+                      transform: openFaq === i ? "rotate(180deg)" : "rotate(0deg)",
+                    }}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 <div
                   className="overflow-hidden transition-all duration-300"
-                  style={{ maxHeight: openFaq === i ? "300px" : "0px", opacity: openFaq === i ? 1 : 0 }}
+                  style={{
+                    maxHeight: openFaq === i ? "300px" : "0px",
+                    opacity: openFaq === i ? 1 : 0,
+                  }}
                 >
                   <div className="px-5 pb-4">
                     <p className="font-body text-white/60 text-sm leading-relaxed">{f.a}</p>
@@ -674,14 +934,23 @@ export default function HeadPinzBirthdaysPage() {
             <button
               onClick={() => setShowForm(true)}
               className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 cursor-pointer rounded-full"
-              style={{ backgroundColor: coral, padding: "16px 28px", fontSize: "15px", boxShadow: `0 0 20px ${coral}40` }}
+              style={{
+                backgroundColor: coral,
+                padding: "16px 28px",
+                fontSize: "15px",
+                boxShadow: `0 0 20px ${coral}40`,
+              }}
             >
               Start Planning
             </button>
             <a
               href="tel:+12393022155"
               className="inline-flex items-center font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105 rounded-full border border-white/20 hover:border-white/40"
-              style={{ padding: "16px 28px", fontSize: "15px", backgroundColor: "rgba(255,255,255,0.1)" }}
+              style={{
+                padding: "16px 28px",
+                fontSize: "15px",
+                backgroundColor: "rgba(255,255,255,0.1)",
+              }}
             >
               Call (239) 302-2155
             </a>
@@ -712,7 +981,10 @@ export default function HeadPinzBirthdaysPage() {
               brand="hp"
               kind="birthday"
               packagePrefill={selectedPkg}
-              onClose={() => { setShowForm(false); setSelectedPkg(undefined); }}
+              onClose={() => {
+                setShowForm(false);
+                setSelectedPkg(undefined);
+              }}
             />
           </div>
         </div>

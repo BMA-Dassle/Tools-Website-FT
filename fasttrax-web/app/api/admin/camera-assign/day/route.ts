@@ -37,7 +37,9 @@ interface PandoraSession {
 function etYmdNow(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -59,7 +61,9 @@ function etDayWindow(ymd: string): { startDate: string; endDate: string } {
 function etYmdOf(iso: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(iso));
 }
 
@@ -113,8 +117,8 @@ export async function GET(req: NextRequest) {
     // Strict ET-day filter — the Pandora window is padded by a day on
     // each side to survive DST, so we clamp here.
     const sameDay = raw.filter((s) => etYmdOf(s.scheduledStart) === date);
-    sameDay.sort((a, b) =>
-      new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+    sameDay.sort(
+      (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
     );
 
     // Fetch assignment counts in parallel. Cap at ~60 concurrent

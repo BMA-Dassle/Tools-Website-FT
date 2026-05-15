@@ -15,7 +15,7 @@ const SQUARE_VERSION = "2024-12-18";
 
 function sqHeaders() {
   return {
-    "Authorization": `Bearer ${SQUARE_TOKEN}`,
+    Authorization: `Bearer ${SQUARE_TOKEN}`,
     "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
@@ -207,11 +207,14 @@ export async function POST(req: NextRequest) {
         CARD_DECLINED_VERIFICATION_REQUIRED: "Additional verification required. Please try again.",
       };
 
-      return NextResponse.json({
-        error: messages[code] || "Payment could not be processed. Please try again.",
-        code,
-        detail,
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: messages[code] || "Payment could not be processed. Please try again.",
+          code,
+          detail,
+        },
+        { status: 400 },
+      );
     }
 
     const payment = payData.payment;
@@ -258,8 +261,11 @@ export async function POST(req: NextRequest) {
       const salesLogBase = {
         ts: new Date().toISOString(),
         billId,
-        brand: locationId === "headpinz" || locationId === "naples" ? "headpinz" as const : "fasttrax" as const,
-        location: locationId === "naples" ? "naples" as const : "fortmyers" as const,
+        brand:
+          locationId === "headpinz" || locationId === "naples"
+            ? ("headpinz" as const)
+            : ("fasttrax" as const),
+        location: locationId === "naples" ? ("naples" as const) : ("fortmyers" as const),
         bookingType: "racing-pack" as const,
         participantCount: 1,
         isNewRacer: action.isNewRacer ?? false,
@@ -281,7 +287,9 @@ export async function POST(req: NextRequest) {
         });
         await logSale({ ...salesLogBase, depositId, depositCreditPending: false });
         depositResult = { depositId };
-        console.log(`[square/pay] deposit credited: billId=${billId} personId=${action.personId} kind=${action.depositKindId} amount=${action.amount} depositId=${depositId}`);
+        console.log(
+          `[square/pay] deposit credited: billId=${billId} personId=${action.personId} kind=${action.depositKindId} amount=${action.amount} depositId=${depositId}`,
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : "addDeposit failed";
         // Square already charged — write a pending row so admin can
@@ -306,7 +314,9 @@ export async function POST(req: NextRequest) {
           notes: `Pack: ${packLabel}. Square charge: $${amount}.`,
         });
         depositResult = { failed: true, error: msg };
-        console.error(`[square/pay] addDeposit FAILED after Square charge: billId=${billId} personId=${action.personId} kind=${action.depositKindId} amount=${action.amount} err=${msg}`);
+        console.error(
+          `[square/pay] addDeposit FAILED after Square charge: billId=${billId} personId=${action.personId} kind=${action.depositKindId} amount=${action.amount} err=${msg}`,
+        );
       }
     }
 

@@ -94,10 +94,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok || !data?.ReservationKey) {
       console.error("[kbf/reserve/hold] book-for-later failed", res.status, txt.slice(0, 300));
-      return NextResponse.json(
-        { error: "Couldn't reserve a slot" },
-        { status: 502 },
-      );
+      return NextResponse.json({ error: "Couldn't reserve a slot" }, { status: 502 });
     }
 
     return NextResponse.json({

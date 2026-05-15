@@ -5,29 +5,40 @@ import { useEffect, useState } from "react";
 import type { ClassifiedProduct, RacerType, RaceTier } from "../data";
 import { TIER_COLOR, TIER_LABELS, TIER_DESCRIPTIONS, groupByTrack } from "../data";
 import type { PackageDefinition, PackageRaceComponent } from "@/lib/packages";
-import { LICENSE_PRICE, POV_PRICE, POV_CHECKIN_PRICE, APPETIZER_RETAIL_VALUE, primaryTrack } from "@/lib/packages";
+import {
+  LICENSE_PRICE,
+  POV_PRICE,
+  POV_CHECKIN_PRICE,
+  APPETIZER_RETAIL_VALUE,
+  primaryTrack,
+} from "@/lib/packages";
 import { modalBackdropProps } from "@/lib/a11y";
 
 // ── Track info shown in the "Pick your track" modal ─────────────────────────
-const TRACK_INFO: Record<string, {
-  title: string;
-  stat: string;
-  tagline: string;
-  image: string;
-  accent: "red" | "blue";
-}> = {
+const TRACK_INFO: Record<
+  string,
+  {
+    title: string;
+    stat: string;
+    tagline: string;
+    image: string;
+    accent: "red" | "blue";
+  }
+> = {
   Red: {
     title: "Red Track",
     stat: "1,095 ft",
     tagline: "Technical & clockwise — more turns, more strategy.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
     accent: "red",
   },
   Blue: {
     title: "Blue Track",
     stat: "1,013 ft",
     tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
     accent: "blue",
   },
 };
@@ -66,7 +77,18 @@ interface ProductPickerProps {
   date?: string | null;
 }
 
-export default function ProductPicker({ products, racerType, adults, juniors, selected, onSelect, packages = [], racerCount = 1, onSelectPackage, date = null }: ProductPickerProps) {
+export default function ProductPicker({
+  products,
+  racerType,
+  adults,
+  juniors,
+  selected,
+  onSelect,
+  packages = [],
+  racerCount = 1,
+  onSelectPackage,
+  date = null,
+}: ProductPickerProps) {
   /** When a multi-track product is clicked, stash its items here and
    *  render the TrackPickerModal. Keeps single-track + pack + multi-
    *  track cards visually consistent in the grid. */
@@ -125,7 +147,7 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
         </div>
       )}
 
-      {hasPackages && (products.length > 0) && (
+      {hasPackages && products.length > 0 && (
         <div className="flex items-center gap-3 text-white/30 text-[11px] uppercase tracking-widest">
           <div className="flex-1 h-px bg-white/10" />
           <span>or pick a single race</span>
@@ -135,7 +157,9 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
 
       {products.length === 0 && (
         <div className="text-center py-8">
-          <p className="text-white/40 text-sm">No races available for this date and party. Try a different date.</p>
+          <p className="text-white/40 text-sm">
+            No races available for this date and party. Try a different date.
+          </p>
         </div>
       )}
 
@@ -179,7 +203,10 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
       {trackModalItems && (
         <TrackPickerModal
           items={trackModalItems}
-          onSelect={(p) => { onSelect(p); setTrackModalItems(null); }}
+          onSelect={(p) => {
+            onSelect(p);
+            setTrackModalItems(null);
+          }}
           onClose={() => setTrackModalItems(null)}
         />
       )}
@@ -187,23 +214,38 @@ export default function ProductPicker({ products, racerType, adults, juniors, se
   );
 }
 
-function Section({ title, subtitle, children }: { title?: string; subtitle?: string; children: React.ReactNode }) {
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title?: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-3">
       {(title || subtitle) && (
         <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-center">
-          {title && <p className="text-amber-400 text-xs font-bold uppercase tracking-widest">{title}</p>}
+          {title && (
+            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest">{title}</p>
+          )}
           {subtitle && <p className="text-white/50 text-xs mt-0.5">{subtitle}</p>}
         </div>
       )}
-      <div className="grid gap-3">
-        {children}
-      </div>
+      <div className="grid gap-3">{children}</div>
     </div>
   );
 }
 
-function ProductGroup({ items, selected, onSelect, onOpenTrackModal, racerType, racerCount }: {
+function ProductGroup({
+  items,
+  selected,
+  onSelect,
+  onOpenTrackModal,
+  racerType,
+  racerCount,
+}: {
   items: ClassifiedProduct[];
   selected: ClassifiedProduct | null;
   onSelect: (p: ClassifiedProduct) => void;
@@ -211,18 +253,29 @@ function ProductGroup({ items, selected, onSelect, onOpenTrackModal, racerType, 
   racerType: RacerType;
   racerCount: number;
 }) {
-  const hasMultipleTracks = items.length > 1 && items.some(i => i.track === "Red") && items.some(i => i.track === "Blue");
+  const hasMultipleTracks =
+    items.length > 1 &&
+    items.some((i) => i.track === "Red") &&
+    items.some((i) => i.track === "Blue");
 
   // Single product (Mega / single-track / 3-pack) → one ProductCard.
   if (!hasMultipleTracks) {
     const product = items[0];
     const isSelected = selected?.productId === product.productId;
-    return <ProductCard product={product} isSelected={isSelected} onSelect={onSelect} racerType={racerType} racerCount={racerCount} />;
+    return (
+      <ProductCard
+        product={product}
+        isSelected={isSelected}
+        onSelect={onSelect}
+        racerType={racerType}
+        racerCount={racerCount}
+      />
+    );
   }
 
   // Multi-track → render ONE merged card (same visual as all other
   // products) and hand track selection off to the modal.
-  const selectedTrackProduct = items.find(i => selected?.productId === i.productId);
+  const selectedTrackProduct = items.find((i) => selected?.productId === i.productId);
   const merged: ClassifiedProduct = {
     ...items[0],
     name: items[0].name.replace(/\s+(Red|Blue)$/i, "").trim(),
@@ -240,7 +293,11 @@ function ProductGroup({ items, selected, onSelect, onOpenTrackModal, racerType, 
 }
 
 // ── Track picker modal — shown after the guest clicks a multi-track product ──
-function TrackPickerModal({ items, onSelect, onClose }: {
+function TrackPickerModal({
+  items,
+  onSelect,
+  onClose,
+}: {
   items: ClassifiedProduct[];
   onSelect: (p: ClassifiedProduct) => void;
   onClose: () => void;
@@ -255,7 +312,9 @@ function TrackPickerModal({ items, onSelect, onClose }: {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, []);
 
   // Blue first — matches the /racing marketing copy order.
@@ -296,7 +355,9 @@ function TrackPickerModal({ items, onSelect, onClose }: {
         <div className="p-4 sm:p-7">
           <div className="mb-4 sm:mb-5 pr-10">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <h3 className="font-display text-white text-lg sm:text-xl uppercase tracking-wider">{baseName}</h3>
+              <h3 className="font-display text-white text-lg sm:text-xl uppercase tracking-wider">
+                {baseName}
+              </h3>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tierColor.badge}`}>
                 {tierLabel}
               </span>
@@ -307,14 +368,17 @@ function TrackPickerModal({ items, onSelect, onClose }: {
             </p>
           </div>
 
-          <p className="text-white/60 text-sm mb-3 uppercase tracking-wider font-semibold text-[11px]">Pick your track</p>
+          <p className="text-white/60 text-sm mb-3 uppercase tracking-wider font-semibold text-[11px]">
+            Pick your track
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {ordered.map(item => {
+            {ordered.map((item) => {
               const info = item.track ? TRACK_INFO[item.track] : null;
               if (!info) return null;
-              const ringClass = info.accent === "red"
-                ? "border-red-500/50 hover:border-red-500 hover:ring-red-500/30"
-                : "border-blue-500/50 hover:border-blue-500 hover:ring-blue-500/30";
+              const ringClass =
+                info.accent === "red"
+                  ? "border-red-500/50 hover:border-red-500 hover:ring-red-500/30"
+                  : "border-blue-500/50 hover:border-blue-500 hover:ring-blue-500/30";
               const titleClass = info.accent === "red" ? "text-red-300" : "text-blue-300";
               return (
                 <button
@@ -337,7 +401,9 @@ function TrackPickerModal({ items, onSelect, onClose }: {
                   </div>
                   <div className="p-3">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <h4 className={`font-display text-base uppercase tracking-wide ${titleClass}`}>
+                      <h4
+                        className={`font-display text-base uppercase tracking-wide ${titleClass}`}
+                      >
                         {info.title}
                       </h4>
                       <span className="text-white/50 text-xs font-mono">{info.stat}</span>
@@ -368,7 +434,10 @@ function TrackPickerModal({ items, onSelect, onClose }: {
  * BMI's catalog says today — no risk of registry hardcodes drifting
  * out of sync with the actual sell prices.
  */
-function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
+function usePackageLivePrices(
+  pkg: PackageDefinition,
+  date: string | null,
+): {
   prices: Record<string, number>;
   loading: boolean;
 } {
@@ -387,11 +456,17 @@ function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
       // Defer the state flip to the next microtask so we don't
       // trigger a cascading-render lint warning. Effect bodies that
       // synchronously setState are flagged by our ESLint config.
-      Promise.resolve().then(() => { if (!cancelled) setLoading(false); });
-      return () => { cancelled = true; };
+      Promise.resolve().then(() => {
+        if (!cancelled) setLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
     const dateOnly = date.split("T")[0];
-    Promise.resolve().then(() => { if (!cancelled) setLoading(true); });
+    Promise.resolve().then(() => {
+      if (!cancelled) setLoading(true);
+    });
 
     async function loadOne(component: PackageRaceComponent): Promise<[string, number] | null> {
       // Probe the FIRST track for live BMI price. For multi-track
@@ -422,7 +497,9 @@ function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
         const proposals = data?.proposals || [];
         for (const p of proposals) {
           for (const b of p.blocks || []) {
-            const cash = b.block?.prices?.find((pr: { amount: number; depositKind: number }) => pr.depositKind === 0);
+            const cash = b.block?.prices?.find(
+              (pr: { amount: number; depositKind: number }) => pr.depositKind === 0,
+            );
             if (cash?.amount) return [component.ref, cash.amount];
           }
         }
@@ -441,7 +518,9 @@ function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
       setLoading(false);
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [pkg, date]);
 
   return { prices, loading };
@@ -451,7 +530,12 @@ function usePackageLivePrices(pkg: PackageDefinition, date: string | null): {
  *  list, live BMI pricing, and a "you save" line. Each item shows
  *  per-racer × N math so the customer sees exactly what they're
  *  paying for. */
-function PackageCard({ pkg, racerCount, date, onSelect }: {
+function PackageCard({
+  pkg,
+  racerCount,
+  date,
+  onSelect,
+}: {
   pkg: PackageDefinition;
   racerCount: number;
   date: string | null;
@@ -463,10 +547,17 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
   // Build line items with live BMI prices. Each line is per-racer
   // × N (heats are shared across racers, but license + POV scale
   // per-racer; appetizer is one per group).
-  type Line = { key: string; label: string; perUnit: number | null; quantity: number; lineTotal: number; freeNote?: string };
+  type Line = {
+    key: string;
+    label: string;
+    perUnit: number | null;
+    quantity: number;
+    lineTotal: number;
+    freeNote?: string;
+  };
   const lines: Line[] = [];
   for (const r of pkg.races) {
-    const perUnit = livePrices[r.ref] ?? (primaryTrack(r)?.price ?? 0);
+    const perUnit = livePrices[r.ref] ?? primaryTrack(r)?.price ?? 0;
     lines.push({
       key: r.ref,
       label: r.label,
@@ -510,7 +601,7 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
   // retail (POV at check-in price, appetizer at menu retail).
   const retail = (() => {
     let r = 0;
-    for (const l of pkg.races) r += (livePrices[l.ref] ?? (primaryTrack(l)?.price ?? 0)) * racers;
+    for (const l of pkg.races) r += (livePrices[l.ref] ?? primaryTrack(l)?.price ?? 0) * racers;
     if (pkg.includesLicense) r += LICENSE_PRICE * racers;
     if (pkg.includesPov) r += POV_CHECKIN_PRICE * racers;
     if (pkg.appetizerCode) r += APPETIZER_RETAIL_VALUE;
@@ -541,17 +632,11 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-100 uppercase tracking-wider">
             {raceCountLabel}
           </span>
-          {racers > 1 && (
-            <span className="text-white/30 text-xs">{racers} racers</span>
-          )}
+          {racers > 1 && <span className="text-white/30 text-xs">{racers} racers</span>}
         </div>
         <div className="text-right shrink-0">
-          <p className="text-amber-300 font-bold text-2xl leading-none">
-            ${total.toFixed(2)}
-          </p>
-          {loading && (
-            <p className="text-white/30 text-[10px] mt-1">updating…</p>
-          )}
+          <p className="text-amber-300 font-bold text-2xl leading-none">${total.toFixed(2)}</p>
+          {loading && <p className="text-white/30 text-[10px] mt-1">updating…</p>}
         </div>
       </div>
 
@@ -589,7 +674,13 @@ function PackageCard({ pkg, racerCount, date, onSelect }: {
   );
 }
 
-function ProductCard({ product, isSelected, onSelect, racerType, racerCount = 1 }: {
+function ProductCard({
+  product,
+  isSelected,
+  onSelect,
+  racerType,
+  racerCount = 1,
+}: {
   product: ClassifiedProduct;
   isSelected: boolean;
   onSelect: (p: ClassifiedProduct) => void;
@@ -641,19 +732,19 @@ function ProductCard({ product, isSelected, onSelect, racerType, racerCount = 1 
             the GROUP total (race + license, × N). Pack and returning-
             racer cards keep the simple per-unit price. */}
         {showNewRacerBreakdown ? (
-          <span className={`${c.text} font-bold text-base shrink-0`}>
-            ${groupTotal.toFixed(2)}
-          </span>
+          <span className={`${c.text} font-bold text-base shrink-0`}>${groupTotal.toFixed(2)}</span>
         ) : product.price > 0 ? (
-          <span className={`${c.text} font-bold text-sm shrink-0`}>${product.price.toFixed(2)}</span>
+          <span className={`${c.text} font-bold text-sm shrink-0`}>
+            ${product.price.toFixed(2)}
+          </span>
         ) : null}
       </div>
 
-      <p className="text-white/40 text-xs mt-1 leading-relaxed">{TIER_DESCRIPTIONS[product.tier]}</p>
+      <p className="text-white/40 text-xs mt-1 leading-relaxed">
+        {TIER_DESCRIPTIONS[product.tier]}
+      </p>
 
-      {product.track && (
-        <p className="text-white/30 text-xs mt-1">{product.track} Track</p>
-      )}
+      {product.track && <p className="text-white/30 text-xs mt-1">{product.track} Track</p>}
 
       {/* Itemized breakdown — race + license (and racer-count
           multiplier when N > 1) shown line-by-line with a total
@@ -676,7 +767,9 @@ function ProductCard({ product, isSelected, onSelect, racerType, racerCount = 1 
             <span className="text-white/60">${(licensePerRacer * racers).toFixed(2)}</span>
           </div>
           <div className="flex items-baseline justify-between gap-2 pt-1.5 mt-1 border-t border-white/10">
-            <span className="text-white/80 font-bold uppercase tracking-wider text-[11px]">Total</span>
+            <span className="text-white/80 font-bold uppercase tracking-wider text-[11px]">
+              Total
+            </span>
             <span className={`${c.text} font-bold`}>${groupTotal.toFixed(2)}</span>
           </div>
         </div>

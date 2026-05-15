@@ -200,7 +200,14 @@ export type VideoContactCandidate = ContactCandidate;
 
 /** Internal: compute one candidate set from a contact-bearing record. */
 function evaluateContact(
-  c: { email?: string | null; mobilePhone?: string | null; homePhone?: string | null; phone?: string | null; acceptSmsCommercial?: boolean; acceptMailCommercial?: boolean },
+  c: {
+    email?: string | null;
+    mobilePhone?: string | null;
+    homePhone?: string | null;
+    phone?: string | null;
+    acceptSmsCommercial?: boolean;
+    acceptMailCommercial?: boolean;
+  },
   who: "racer" | "guardian",
   firstName?: string,
   lastName?: string,
@@ -234,11 +241,28 @@ function evaluateContact(
  * based on `recipient` and the racer's name.
  */
 export function pickContactWithGuardianFallback(
-  racer: Participant | { personId?: string | number; firstName?: string; lastName?: string; email?: string | null; mobilePhone?: string | null; homePhone?: string | null; phone?: string | null; acceptSmsCommercial?: boolean; acceptMailCommercial?: boolean; guardian?: GuardianContact | null },
+  racer:
+    | Participant
+    | {
+        personId?: string | number;
+        firstName?: string;
+        lastName?: string;
+        email?: string | null;
+        mobilePhone?: string | null;
+        homePhone?: string | null;
+        phone?: string | null;
+        acceptSmsCommercial?: boolean;
+        acceptMailCommercial?: boolean;
+        guardian?: GuardianContact | null;
+      },
 ): ContactCandidate | null {
   // Treat placeholder personIds (e.g. "DRIVER 1 PLACEHOLDER") as no-contact
   // — same gate as pickContactChannel for the regular cron paths.
-  if ("personId" in racer && racer.personId != null && PLACEHOLDER_PERSON_IDS.has(String(racer.personId))) {
+  if (
+    "personId" in racer &&
+    racer.personId != null &&
+    PLACEHOLDER_PERSON_IDS.has(String(racer.personId))
+  ) {
     return null;
   }
 

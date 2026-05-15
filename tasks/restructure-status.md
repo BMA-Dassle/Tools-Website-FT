@@ -1,8 +1,8 @@
 # Restructure Status
 
-**Last updated:** 2026-05-06 by Alex
+**Last updated:** 2026-05-14 by Alex
 **Current phase:** Phase 0 — Foundation
-**Next up:** PR2 (Prettier + Husky + Vitest + CI + .env.example + ADR scaffold)
+**Next up:** PR2.5 (Local dev runbook: middleware brand override + README setup)
 
 > Read [tasks/restructure-plan.md](restructure-plan.md) for the full plan, conventions, and migration backlog.
 
@@ -12,7 +12,15 @@
   - Verified locally: `pnpm install` 1m28s, `pnpm turbo run build` 2m08s (a11y clean, all 3 packages green), `next dev` Ready in 2.4s.
   - Vercel project root unchanged (still `fasttrax-web/`).
   - Files added: `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.nvmrc`, `.npmrc`, expanded `.gitignore`.
-- [ ] **PR2** — Tooling baselines (Prettier, Husky+lint-staged, Vitest, CI, `.env.example`, ADR scaffold). CLAUDE.md + restructure docs were landed as a separate docs commit immediately after PR1.
+- [x] **PR2** — Tooling baselines (Prettier, Husky+lint-staged, Vitest, CI, `.env.example`, ADR scaffold) — landed 2026-05-14.
+  - Prettier (`.prettierrc`, `.prettierignore`) + one-time format pass across 467 files (`npm run format:check` green).
+  - Husky 9 pre-commit hook runs lint-staged (prettier + eslint --fix on staged files).
+  - Vitest 2.1.9 with workspace config (`vitest.workspace.ts`) + per-app `vitest.config.ts`; `passWithNoTests` so test task is green until suites exist.
+  - GitHub Actions CI at `.github/workflows/ci.yml`: format:check, typecheck, lint, test, build via `npx turbo run`. Lint is `continue-on-error` because of ~105 pre-existing errors (mostly new React 19 `react-hooks/*` rules) — tighten in a dedicated lint-cleanup PR.
+  - Root `.env.example` enumerates every env var observed in the codebase (Square, BMI, Conq/QAMF, Pandora, KBF, VT3, Twilio/Vox, SendGrid, Teams bot, admin auth, Vercel KV, blob, SEO verification, feature flags).
+  - `docs/adr/` with README, 0000-template, 0001-npm-turbo (captures the 2026-05-06 pnpm → npm switch decision).
+  - Workspaces added `typecheck` script (tsc --noEmit); turbo gained `typecheck` and `test` tasks.
+- [ ] **PR2.5** — Local dev runbook (added during planning of booking rewrite — see [tasks/restructure-plan.md](restructure-plan.md) "Local development must work"). Adds middleware `?brand=` override gated by `NODE_ENV !== 'production'` + README setup section.
 - [ ] **PR3** — Move `fasttrax-web/` → `apps/web/` (coordinated Vercel root-dir change)
 
 ## Phase 1 — v2 Runway
@@ -56,7 +64,8 @@ Each migration that ships gets a one-line entry below.
 
 ## Lessons learned during restructure
 
-- (append entries here as they come up; significant ones also belong in `tasks/lessons.md`)
+- **PR2 (2026-05-14):** Next.js 16 generates `.next/dev/types/validator.ts` referencing route layouts that may no longer exist on disk. `tsc --noEmit` fails on stale typegen until `.next/` is cleaned (or a fresh `next build` regenerates it). CI is unaffected because it starts cold; local typecheck after refactoring routes needs `rm -rf fasttrax-web/.next` first.
+- **PR2 (2026-05-14):** Surfacing lint via CI exposed ~105 pre-existing errors (mostly new React 19 `react-hooks/set-state-in-effect`, `react-hooks/refs`, `react-hooks/exhaustive-deps`) and ~148 warnings. The CI lint step is `continue-on-error` until a dedicated cleanup PR lands. Don't ship new code that triggers these rules.
 
 ## Update protocol
 

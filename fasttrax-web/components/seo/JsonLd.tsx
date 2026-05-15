@@ -22,37 +22,67 @@ export function LocalBusinessJsonLd() {
       longitude: -81.7966,
     },
     openingHoursSpecification: [
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"], opens: "15:00", closes: "23:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: "Friday", opens: "15:00", closes: "00:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: "Saturday", opens: "11:00", closes: "00:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: "Sunday", opens: "11:00", closes: "23:00" },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"],
+        opens: "15:00",
+        closes: "23:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: "Friday",
+        opens: "15:00",
+        closes: "00:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: "Saturday",
+        opens: "11:00",
+        closes: "00:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: "Sunday",
+        opens: "11:00",
+        closes: "23:00",
+      },
     ],
     priceRange: "$$",
     currenciesAccepted: "USD",
     paymentAccepted: "Cash, Credit Card, Debit Card",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png",
-    sameAs: [
-      "https://www.facebook.com/FastTraxFM",
-    ],
+    sameAs: ["https://www.facebook.com/FastTraxFM"],
     hasOfferCatalog: {
       "@type": "OfferCatalog",
       name: "FastTrax Activities",
       itemListElement: [
         {
           "@type": "Offer",
-          itemOffered: { "@type": "Service", name: "Adult Go-Kart Racing", description: "High-performance electric kart racing for ages 13+" },
+          itemOffered: {
+            "@type": "Service",
+            name: "Adult Go-Kart Racing",
+            description: "High-performance electric kart racing for ages 13+",
+          },
           price: "20.99",
           priceCurrency: "USD",
         },
         {
           "@type": "Offer",
-          itemOffered: { "@type": "Service", name: "Junior Go-Kart Racing", description: "Speed-controlled electric kart racing for ages 7-13" },
+          itemOffered: {
+            "@type": "Service",
+            name: "Junior Go-Kart Racing",
+            description: "Speed-controlled electric kart racing for ages 7-13",
+          },
           price: "15.99",
           priceCurrency: "USD",
         },
         {
           "@type": "Offer",
-          itemOffered: { "@type": "Service", name: "Mini Kart Racing", description: "Electric kart racing for ages 3-6" },
+          itemOffered: {
+            "@type": "Service",
+            name: "Mini Kart Racing",
+            description: "Electric kart racing for ages 3-6",
+          },
           price: "9.99",
           priceCurrency: "USD",
         },
@@ -124,15 +154,36 @@ export function RestaurantJsonLd() {
       longitude: -81.7966,
     },
     openingHoursSpecification: [
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"], opens: "15:00", closes: "23:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: "Friday", opens: "15:00", closes: "00:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: "Saturday", opens: "11:00", closes: "00:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: "Sunday", opens: "11:00", closes: "23:00" },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"],
+        opens: "15:00",
+        closes: "23:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: "Friday",
+        opens: "15:00",
+        closes: "00:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: "Saturday",
+        opens: "11:00",
+        closes: "00:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: "Sunday",
+        opens: "11:00",
+        closes: "23:00",
+      },
     ],
     priceRange: "$$",
     menu: "https://fasttraxent.com/menu",
     acceptsReservations: "True",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06481.webp",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06481.webp",
     parentOrganization: {
       "@type": "Organization",
       name: "FastTrax Entertainment",
@@ -160,10 +211,7 @@ export function HeadPinzOrganizationJsonLd() {
     logo: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png",
     description:
       "Premier bowling, laser tag, gel blasters, arcade games and dining in Southwest Florida. Two locations — Fort Myers and Naples.",
-    sameAs: [
-      "https://www.facebook.com/headpinz",
-      "https://www.instagram.com/headpinz",
-    ],
+    sameAs: ["https://www.facebook.com/headpinz", "https://www.instagram.com/headpinz"],
     department: [
       { "@id": "https://headpinz.com/fort-myers/#localbusiness" },
       { "@id": "https://headpinz.com/naples/#localbusiness" },
@@ -204,13 +252,24 @@ export function HeadPinzFortMyersJsonLd() {
       longitude: -81.7951,
     },
     openingHoursSpecification: [
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"], opens: "11:00", closes: "00:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Friday", "Saturday"], opens: "11:00", closes: "02:00" },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
+        opens: "11:00",
+        closes: "00:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: ["Friday", "Saturday"],
+        opens: "11:00",
+        closes: "02:00",
+      },
     ],
     priceRange: "$$",
     currenciesAccepted: "USD",
     paymentAccepted: "Cash, Credit Card, Debit Card",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     parentOrganization: { "@id": "https://headpinz.com/#organization" },
     amenityFeature: [
       { "@type": "LocationFeatureSpecification", name: "Bowling Lanes", value: true },
@@ -262,13 +321,24 @@ export function HeadPinzNaplesJsonLd() {
       longitude: -81.7536,
     },
     openingHoursSpecification: [
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"], opens: "11:00", closes: "00:00" },
-      { "@type": "OpeningHoursSpecification", dayOfWeek: ["Friday", "Saturday"], opens: "11:00", closes: "02:00" },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
+        opens: "11:00",
+        closes: "00:00",
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        dayOfWeek: ["Friday", "Saturday"],
+        opens: "11:00",
+        closes: "02:00",
+      },
     ],
     priceRange: "$$",
     currenciesAccepted: "USD",
     paymentAccepted: "Cash, Credit Card, Debit Card",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     parentOrganization: { "@id": "https://headpinz.com/#organization" },
     amenityFeature: [
       { "@type": "LocationFeatureSpecification", name: "Bowling Lanes", value: true },

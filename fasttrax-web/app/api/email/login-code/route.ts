@@ -34,7 +34,9 @@ export async function POST(req: NextRequest) {
       const accounts: AccountInfo[] = body.accounts;
       subject = "Your FastTrax Account Verification";
 
-      const accountRows = accounts.map((a) => `
+      const accountRows = accounts
+        .map(
+          (a) => `
         <tr>
           <td style="padding: 12px 16px; border-bottom: 1px solid #ffffff10;">
             <div style="margin-bottom: 6px;">
@@ -52,7 +54,9 @@ export async function POST(req: NextRequest) {
             </div>
           </td>
         </tr>
-      `).join("");
+      `,
+        )
+        .join("");
 
       html = `
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #0a0e1a; color: #ffffff; padding: 32px; border-radius: 12px;">
@@ -88,10 +92,15 @@ export async function POST(req: NextRequest) {
         </div>
       `;
 
-      plainText = `FastTrax Account Verification\n\nWe found ${accounts.length} account(s) for this email:\n\n` +
-        accounts.map(a => `${a.fullName} — Code: ${a.loginCode} (${a.races} races${a.lastSeen ? `, last visit: ${a.lastSeen}` : ""})`).join("\n") +
+      plainText =
+        `FastTrax Account Verification\n\nWe found ${accounts.length} account(s) for this email:\n\n` +
+        accounts
+          .map(
+            (a) =>
+              `${a.fullName} — Code: ${a.loginCode} (${a.races} races${a.lastSeen ? `, last visit: ${a.lastSeen}` : ""})`,
+          )
+          .join("\n") +
         "\n\nEnter your code on the booking page to continue.";
-
     } else {
       // ── Legacy single-account email ──────────────────────────────────
       const { loginCode, fullName } = body;

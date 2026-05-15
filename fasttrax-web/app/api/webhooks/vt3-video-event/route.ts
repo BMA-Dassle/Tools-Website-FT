@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
-import {
-  processVideoEvent,
-  videoEventFromWebhookPayload,
-} from "@/lib/video-event-processor";
+import { processVideoEvent, videoEventFromWebhookPayload } from "@/lib/video-event-processor";
 
 /**
  * VT3 video event webhook — receives push events forwarded by the
@@ -95,8 +92,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, kind: "ignored", reason: "not-message" });
   }
   const payload = data as Record<string, unknown>;
-  const innerType =
-    typeof payload.eventType === "string" ? payload.eventType : "video-updated";
+  const innerType = typeof payload.eventType === "string" ? payload.eventType : "video-updated";
   const videoCode = typeof payload.code === "string" ? payload.code : "";
   const videoId = typeof payload.id === "number" ? payload.id : null;
   const status = typeof payload.status === "string" ? payload.status : null;
@@ -131,9 +127,7 @@ export async function POST(req: NextRequest) {
     innerType,
     status,
     sampleUrl:
-      innerType === "sample-uploaded" && typeof payload.url === "string"
-        ? payload.url
-        : undefined,
+      innerType === "sample-uploaded" && typeof payload.url === "string" ? payload.url : undefined,
     systemName: system?.name,
     createdAt: typeof payload.createdAt === "string" ? payload.createdAt : undefined,
     sampleUploadTime:
@@ -158,9 +152,7 @@ export async function POST(req: NextRequest) {
   // the cron exits early. If this key goes stale, cron kicks in as a
   // self-healing backstop. Best-effort — Redis hiccups don't block
   // the response.
-  redis
-    .set("vt3:bridge:last-event", new Date().toISOString(), "EX", 3600)
-    .catch(() => void 0);
+  redis.set("vt3:bridge:last-event", new Date().toISOString(), "EX", 3600).catch(() => void 0);
 
   // ── Live processing path ──
   // Run the per-video processor inline so this push event tries to
@@ -186,10 +178,7 @@ export async function POST(req: NextRequest) {
           : ""),
     );
   } catch (err) {
-    console.error(
-      `[vt3-webhook] processVideoEvent threw for code=${videoCode}:`,
-      err,
-    );
+    console.error(`[vt3-webhook] processVideoEvent threw for code=${videoCode}:`, err);
   }
 
   return NextResponse.json({

@@ -1,11 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type {
-  ClassifiedProduct,
-  BmiProposal,
-  PackSchedule,
-} from "../data";
+import type { ClassifiedProduct, BmiProposal, PackSchedule } from "../data";
 import { bookRaceHeat } from "../data";
 import type { PackBookingResult } from "./OrderSummary";
 import { heatsConflict, HEAT_CONFLICT_TOOLTIP } from "@/lib/heat-conflict";
@@ -62,7 +58,8 @@ function formatTime(iso: string) {
 
 function spotsLabel(free: number, capacity: number) {
   if (free === 0) return { text: "text-red-400", label: "Full" };
-  if (free / capacity <= 0.3) return { text: "text-amber-400", label: `${free} spot${free === 1 ? "" : "s"} left` };
+  if (free / capacity <= 0.3)
+    return { text: "text-amber-400", label: `${free} spot${free === 1 ? "" : "s"} left` };
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
@@ -72,9 +69,9 @@ function spotsLabel(free: number, capacity: number) {
 
 /** Track label color tokens — lines up with RaceTier colors elsewhere. */
 const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
-  Red:  { bg: "bg-red-500/20",     text: "text-red-300" },
-  Blue: { bg: "bg-blue-500/20",    text: "text-blue-300" },
-  Mega: { bg: "bg-purple-500/20",  text: "text-purple-300" },
+  Red: { bg: "bg-red-500/20", text: "text-red-300" },
+  Blue: { bg: "bg-blue-500/20", text: "text-blue-300" },
+  Mega: { bg: "bg-purple-500/20", text: "text-purple-300" },
 };
 
 /** Per-track theming for the WHOLE heat card — same scheme as
@@ -82,25 +79,28 @@ const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
  *  3-Pack spans Red + Blue) now color-code each card by its track so
  *  the customer can scan the grid by color instead of reading every
  *  badge. Mega packs fall back to the neutral cyan-accent palette. */
-const TRACK_CARD: Record<string, {
-  base: string;
-  baseHover: string;
-  selected: string;
-}> = {
+const TRACK_CARD: Record<
+  string,
+  {
+    base: string;
+    baseHover: string;
+    selected: string;
+  }
+> = {
   Red: {
-    base:      "border-red-500/60 bg-red-500/[0.14]",
+    base: "border-red-500/60 bg-red-500/[0.14]",
     baseHover: "hover:border-red-400 hover:bg-red-500/20",
-    selected:  "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
+    selected: "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
   },
   Blue: {
-    base:      "border-blue-500/60 bg-blue-500/[0.14]",
+    base: "border-blue-500/60 bg-blue-500/[0.14]",
     baseHover: "hover:border-blue-400 hover:bg-blue-500/20",
-    selected:  "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
+    selected: "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
   },
   Mega: {
-    base:      "border-white/10 bg-white/5",
+    base: "border-white/10 bg-white/5",
     baseHover: "hover:border-white/25 hover:bg-white/10",
-    selected:  "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50",
+    selected: "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50",
   },
 };
 
@@ -108,7 +108,8 @@ const TRACK_CARD: Record<string, {
  *  opacity, near-invisible border. Pairs with TRACK_CARD: track-tinted
  *  = pickable, grey = at-cap / conflict / low-capacity. Same tuning
  *  as PackageHeatPicker so the two pickers feel identical. */
-const DISABLED_CARD = "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
+const DISABLED_CARD =
+  "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
 
 function HeatGrid({
   proposals,
@@ -134,7 +135,7 @@ function HeatGrid({
 }) {
   const selectedSet = new Set(selectedIdxs);
   // Pre-compute each pick's epoch time + track for the conflict check.
-  const bookedTimed = bookedPicks.map(p => ({
+  const bookedTimed = bookedPicks.map((p) => ({
     t: new Date(p.start.replace(/Z$/, "")).getTime(),
     track: p.track,
   }));
@@ -149,9 +150,11 @@ function HeatGrid({
         const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
         // Shared rule — adjacent same-track heat blocked per track
         // cadence (Red 12, Blue 15, Mega 24); cross-track needs 30 min.
-        const isBackToBack = !isSelected && bookedTimed.some(pick =>
-          heatsConflict(pick.t, pick.track, blockStart, proposal._track),
-        );
+        const isBackToBack =
+          !isSelected &&
+          bookedTimed.some((pick) =>
+            heatsConflict(pick.t, pick.track, blockStart, proposal._track),
+          );
         const isLowCap = block.freeSpots < quantity;
         const isCapped = atCap && !isSelected;
         const isDisabled = isLowCap || isBackToBack || isCapped;
@@ -183,7 +186,9 @@ function HeatGrid({
             className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
           >
             {showTrackBadge && (
-              <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${badge.bg} ${badge.text}`}>
+              <div
+                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1.5 ${badge.bg} ${badge.text}`}
+              >
                 {proposal._track}
               </div>
             )}
@@ -209,10 +214,15 @@ function SelectedHeats({ schedules }: { schedules: PackSchedule[] }) {
   if (schedules.length === 0) return null;
   return (
     <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4">
-      <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-2">Heats Selected</p>
+      <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-2">
+        Heats Selected
+      </p>
       {schedules.map((s, i) => (
         <div key={i} className="flex justify-between text-sm text-white/70">
-          <span>Race {i + 1}{s.trackName ? ` — ${s.trackName} Track` : ""}</span>
+          <span>
+            Race {i + 1}
+            {s.trackName ? ` — ${s.trackName} Track` : ""}
+          </span>
           <span className="text-white/40">{formatTime(s.start)}</span>
         </div>
       ))}
@@ -227,7 +237,11 @@ function ProgressDots({ current, total }: { current: number; total: number }) {
         <div
           key={i}
           className={`w-2.5 h-2.5 rounded-full transition-colors ${
-            i < current ? "bg-green-400" : i === current ? "bg-[#00E2E5] ring-2 ring-[#00E2E5]/30" : "bg-white/15"
+            i < current
+              ? "bg-green-400"
+              : i === current
+                ? "bg-[#00E2E5] ring-2 ring-[#00E2E5]/30"
+                : "bg-white/15"
           }`}
         />
       ))}
@@ -237,9 +251,23 @@ function ProgressDots({ current, total }: { current: number; total: number }) {
 
 // ── Main Component ──────────────────────────────────────────────────────────
 
-export default function PackHeatPicker({ race, date, quantity, onComplete, onBack }: PackHeatPickerProps) {
+export default function PackHeatPicker({
+  race,
+  date,
+  quantity,
+  onComplete,
+  onBack,
+}: PackHeatPickerProps) {
   if (race.packType === "combo") {
-    return <ComboPackPicker race={race} date={date} quantity={quantity} onComplete={onComplete} onBack={onBack} />;
+    return (
+      <ComboPackPicker
+        race={race}
+        date={date}
+        quantity={quantity}
+        onComplete={onComplete}
+        onBack={onBack}
+      />
+    );
   }
   // Sell packs (Red/Blue weekday) are not yet supported via BMI API
   return <SellPackNotSupported race={race} onBack={onBack} />;
@@ -251,21 +279,33 @@ function SellPackNotSupported({ race, onBack }: { race: ClassifiedProduct; onBac
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Weekday Packs</h2>
+        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+          Weekday Packs
+        </h2>
         <p className="text-white/50 text-sm">{race.name}</p>
       </div>
 
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-6 text-center space-y-3">
         <p className="text-amber-400 font-semibold text-sm">Coming Soon</p>
         <p className="text-amber-300/70 text-sm leading-relaxed">
-          Online booking for weekday packs is not yet available. Please call us or visit the front desk to book a weekday pack.
+          Online booking for weekday packs is not yet available. Please call us or visit the front
+          desk to book a weekday pack.
         </p>
         <p className="text-white/40 text-xs">
-          Call <a href="tel:+18133403687" className="text-[#00E2E5] hover:underline">(813) 340-3687</a> for assistance.
+          Call{" "}
+          <a href="tel:+18133403687" className="text-[#00E2E5] hover:underline">
+            (813) 340-3687
+          </a>{" "}
+          for assistance.
         </p>
       </div>
 
-      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">&larr; Choose a different race</button>
+      <button
+        onClick={onBack}
+        className="text-sm text-white/40 hover:text-white/70 transition-colors"
+      >
+        &larr; Choose a different race
+      </button>
     </div>
   );
 }
@@ -311,15 +351,19 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       const dateOnly = date.split("T")[0];
       const [y, m, d] = dateOnly.split("-").map(Number);
       const dayOfWeek = new Date(y, m - 1, d).getDay();
-      const startHours = (dayOfWeek === 0 || dayOfWeek === 6)
-        ? [11, 13, 15, 17, 19, 20, 21, 22, 23]
-        : [15, 17, 18, 19, 20, 21, 22, 23];
+      const startHours =
+        dayOfWeek === 0 || dayOfWeek === 6
+          ? [11, 13, 15, 17, 19, 20, 21, 22, 23]
+          : [15, 17, 18, 19, 20, 21, 22, 23];
 
       // Build the fetch plan: one entry per track we need to probe.
-      const fetchPlan: Array<{ track: string; productId: string; pageId: string }> =
-        trackProducts
-          ? Object.entries(trackProducts).map(([track, p]) => ({ track, productId: p.productId, pageId: p.pageId }))
-          : [{ track: race.track ?? "Mega", productId: race.productId, pageId: race.pageId }];
+      const fetchPlan: Array<{ track: string; productId: string; pageId: string }> = trackProducts
+        ? Object.entries(trackProducts).map(([track, p]) => ({
+            track,
+            productId: p.productId,
+            pageId: p.pageId,
+          }))
+        : [{ track: race.track ?? "Mega", productId: race.productId, pageId: race.pageId }];
 
       const all: TrackedProposal[] = [];
       // De-dup by (track, start) — same-track same-start is a dupe from overlapping
@@ -341,7 +385,7 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
             }),
           });
           const data = await res.json();
-          for (const p of (data.proposals || [])) {
+          for (const p of data.proposals || []) {
             const start = p.blocks?.[0]?.block?.start;
             const key = start ? `${track}|${start}` : "";
             if (key && !seen.has(key)) {
@@ -353,7 +397,7 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       }
       // Sort by time; ties (same time, different tracks) keep fetch-plan order.
       all.sort((a, b) =>
-        (a.blocks?.[0]?.block?.start || "").localeCompare(b.blocks?.[0]?.block?.start || "")
+        (a.blocks?.[0]?.block?.start || "").localeCompare(b.blocks?.[0]?.block?.start || ""),
       );
       setProposals(all);
     } catch {
@@ -364,11 +408,13 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [race.productId, race.pageId, date, JSON.stringify(trackProducts ?? null)]);
 
-  useEffect(() => { fetchHeats(); }, [fetchHeats]);
+  useEffect(() => {
+    fetchHeats();
+  }, [fetchHeats]);
 
   function toggleSelect(idx: number) {
-    setSelectedIdxs(prev => {
-      if (prev.includes(idx)) return prev.filter(i => i !== idx);
+    setSelectedIdxs((prev) => {
+      if (prev.includes(idx)) return prev.filter((i) => i !== idx);
       if (prev.length >= totalRaces) return prev; // at cap — ignore new picks
       return [...prev, idx].sort((a, b) => a - b); // keep visual order by time
     });
@@ -393,11 +439,21 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
         // basis so BMI books each heat against the right track product.
         const trackCfg = trackProducts?.[proposal._track];
         const bookableProduct: ClassifiedProduct = trackCfg
-          ? { ...race, productId: trackCfg.productId, pageId: trackCfg.pageId, track: proposal._track }
+          ? {
+              ...race,
+              productId: trackCfg.productId,
+              pageId: trackCfg.pageId,
+              track: proposal._track,
+            }
           : race;
         const result = await bookRaceHeat(bookableProduct, quantity, proposal, rawOrderId);
         if (result.rawOrderId) rawOrderId = result.rawOrderId;
-        schedules.push({ start: block.start, stop: block.stop, name: block.name, trackName: proposal._track });
+        schedules.push({
+          start: block.start,
+          stop: block.stop,
+          name: block.name,
+          trackName: proposal._track,
+        });
       }
       if (!rawOrderId) throw new Error("No bill created");
       // Attach the no-split / no-refund policy memo to the bill. Awaited
@@ -409,8 +465,12 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       // Partial failure — cancel whatever was created so we don't leave orphaned bills.
       if (rawOrderId) {
         try {
-          await fetch(`/api/bmi?endpoint=${encodeURIComponent(`bill/${rawOrderId}/cancel`)}`, { method: "DELETE" });
-        } catch { /* best-effort */ }
+          await fetch(`/api/bmi?endpoint=${encodeURIComponent(`bill/${rawOrderId}/cancel`)}`, {
+            method: "DELETE",
+          });
+        } catch {
+          /* best-effort */
+        }
       }
       setError(err instanceof Error ? err.message : "Failed to book heats");
     } finally {
@@ -421,7 +481,7 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
   /** Picks that are "selected" in the UI — per-track so the same-track
    *  20-min-gap rule only fires when both heats are on the same track. */
   const pickedPicks = selectedIdxs
-    .map(i => {
+    .map((i) => {
       const p = proposals[i];
       const start = p?.blocks?.[0]?.block?.start;
       return start ? { start, track: p._track } : null;
@@ -429,22 +489,28 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
     .filter((x): x is { start: string; track: string } => !!x);
 
   /** Preview of what the user has picked so far (in time order). */
-  const previewSchedules: PackSchedule[] = selectedIdxs.map(i => {
-    const p = proposals[i];
-    const block = p?.blocks?.[0]?.block;
-    return block
-      ? { start: block.start, stop: block.stop, name: block.name, trackName: p._track }
-      : { start: "", stop: "", name: "" };
-  }).filter(s => s.start);
+  const previewSchedules: PackSchedule[] = selectedIdxs
+    .map((i) => {
+      const p = proposals[i];
+      const block = p?.blocks?.[0]?.block;
+      return block
+        ? { start: block.start, stop: block.stop, name: block.name, trackName: p._track }
+        : { start: "", stop: "", name: "" };
+    })
+    .filter((s) => s.start);
 
   const displayDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
   });
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Pick Your Heats</h2>
+        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+          Pick Your Heats
+        </h2>
         <p className="text-white/50 text-sm">
           <span className="text-white/80">{race.name}</span> · {displayDate}
         </p>
@@ -461,10 +527,9 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
           the same color-coded context above both heat grids. */}
       {isMixedTrack && (
         <TrackInfoBanner
-          tracks={
-            (Object.keys(trackProducts ?? {}) as Array<"Red" | "Blue" | "Mega">)
-              .filter((t) => t === "Red" || t === "Blue" || t === "Mega")
-          }
+          tracks={(Object.keys(trackProducts ?? {}) as Array<"Red" | "Blue" | "Mega">).filter(
+            (t) => t === "Red" || t === "Blue" || t === "Mega",
+          )}
         />
       )}
 
@@ -477,7 +542,9 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       ) : error ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
           <p className="text-red-400 text-sm">{error}</p>
-          <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">Retry</button>
+          <button onClick={fetchHeats} className="text-xs text-white/50 hover:text-white underline">
+            Retry
+          </button>
         </div>
       ) : proposals.length === 0 ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
@@ -495,7 +562,10 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
             showTrackBadge={isMixedTrack}
           />
 
-          <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdxs.length === totalRaces ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
+          <div
+            ref={ctaRef}
+            className={`rounded-xl border p-5 transition-all duration-300 ${selectedIdxs.length === totalRaces ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}
+          >
             {selectedIdxs.length === totalRaces ? (
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
@@ -521,7 +591,8 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
               </div>
             ) : (
               <p className="text-center text-white/40 text-sm">
-                Selected <span className="text-white font-bold">{selectedIdxs.length}</span> of <span className="text-white font-bold">{totalRaces}</span> heats
+                Selected <span className="text-white font-bold">{selectedIdxs.length}</span> of{" "}
+                <span className="text-white font-bold">{totalRaces}</span> heats
               </p>
             )}
           </div>
@@ -536,11 +607,21 @@ function ComboPackPicker({ race, date, quantity, onComplete, onBack }: PackHeatP
       )}
 
       <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
-        <p>· Arrive <strong className="text-white/60">30 minutes early</strong> for check-in.</p>
-        <p>· A <strong className="text-white/60">$4.99 license fee</strong> per driver applies at first check-in.</p>
+        <p>
+          · Arrive <strong className="text-white/60">30 minutes early</strong> for check-in.
+        </p>
+        <p>
+          · A <strong className="text-white/60">$4.99 license fee</strong> per driver applies at
+          first check-in.
+        </p>
       </div>
 
-      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">&larr; Change race</button>
+      <button
+        onClick={onBack}
+        className="text-sm text-white/40 hover:text-white/70 transition-colors"
+      >
+        &larr; Change race
+      </button>
     </div>
   );
 }

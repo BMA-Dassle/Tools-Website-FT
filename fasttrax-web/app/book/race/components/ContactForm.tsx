@@ -18,7 +18,14 @@ interface ContactFormProps {
   lockedFields?: ("phone" | "email")[];
 }
 
-function Field({ label, value, onChange, type = "text", placeholder, locked }: {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  locked,
+}: {
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -30,7 +37,11 @@ function Field({ label, value, onChange, type = "text", placeholder, locked }: {
     <div>
       <label className="block text-xs text-white/50 mb-1.5">
         {label}
-        {locked && <span className="ml-1.5 text-green-400/70 text-[10px] font-semibold uppercase">verified</span>}
+        {locked && (
+          <span className="ml-1.5 text-green-400/70 text-[10px] font-semibold uppercase">
+            verified
+          </span>
+        )}
       </label>
       <input
         type={type}
@@ -41,9 +52,10 @@ function Field({ label, value, onChange, type = "text", placeholder, locked }: {
         className={`
           w-full border rounded-xl px-4 py-3
           text-sm transition-all
-          ${locked
-            ? "bg-white/3 border-green-500/20 text-white/70 cursor-not-allowed"
-            : "bg-white/5 border-white/15 text-white placeholder-white/20 focus:outline-none focus:border-[#00E2E5]/60 focus:bg-white/8"
+          ${
+            locked
+              ? "bg-white/3 border-green-500/20 text-white/70 cursor-not-allowed"
+              : "bg-white/5 border-white/15 text-white placeholder-white/20 focus:outline-none focus:border-[#00E2E5]/60 focus:bg-white/8"
           }
         `}
       />
@@ -51,7 +63,12 @@ function Field({ label, value, onChange, type = "text", placeholder, locked }: {
   );
 }
 
-export default function ContactForm({ initial, onSubmit, onBack, lockedFields = [] }: ContactFormProps) {
+export default function ContactForm({
+  initial,
+  onSubmit,
+  onBack,
+  lockedFields = [],
+}: ContactFormProps) {
   const [firstName, setFirstName] = useState(initial?.firstName ?? "");
   const [lastName, setLastName] = useState(initial?.lastName ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
@@ -63,7 +80,8 @@ export default function ContactForm({ initial, onSubmit, onBack, lockedFields = 
     const e: typeof errors = {};
     if (!firstName.trim()) e.firstName = "Required";
     if (!lastName.trim()) e.lastName = "Required";
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Valid email required";
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      e.email = "Valid email required";
     if (!phone.trim() || phone.replace(/\D/g, "").length < 10) e.phone = "Valid phone required";
     return e;
   }
@@ -71,21 +89,31 @@ export default function ContactForm({ initial, onSubmit, onBack, lockedFields = 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const errs = validate();
-    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      return;
+    }
     onSubmit({ firstName, lastName, email, phone, smsOptIn });
   }
 
   return (
     <div className="space-y-6 max-w-md mx-auto">
       <div className="text-center">
-        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">Your Details</h2>
+        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
+          Your Details
+        </h2>
         <p className="text-white/50 text-sm">We&apos;ll send your confirmation and receipt here.</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Field label="First Name" value={firstName} onChange={setFirstName} placeholder="Jane" />
+            <Field
+              label="First Name"
+              value={firstName}
+              onChange={setFirstName}
+              placeholder="Jane"
+            />
             {errors.firstName && <p className="text-red-400 text-xs mt-1">{errors.firstName}</p>}
           </div>
           <div>
@@ -95,12 +123,26 @@ export default function ContactForm({ initial, onSubmit, onBack, lockedFields = 
         </div>
 
         <div>
-          <Field label="Email Address" value={email} onChange={setEmail} type="email" placeholder="jane@example.com" locked={lockedFields.includes("email")} />
+          <Field
+            label="Email Address"
+            value={email}
+            onChange={setEmail}
+            type="email"
+            placeholder="jane@example.com"
+            locked={lockedFields.includes("email")}
+          />
           {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email}</p>}
         </div>
 
         <div>
-          <Field label="Phone Number" value={phone} onChange={setPhone} type="tel" placeholder="(239) 555-0100" locked={lockedFields.includes("phone")} />
+          <Field
+            label="Phone Number"
+            value={phone}
+            onChange={setPhone}
+            type="tel"
+            placeholder="(239) 555-0100"
+            locked={lockedFields.includes("phone")}
+          />
           {errors.phone && <p className="text-red-400 text-xs mt-1">{errors.phone}</p>}
         </div>
 
@@ -122,7 +164,11 @@ export default function ContactForm({ initial, onSubmit, onBack, lockedFields = 
         </div>
 
         <div className="flex items-center justify-between gap-4 pt-2">
-          <button type="button" onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-sm text-white/40 hover:text-white/70 transition-colors"
+          >
             ← Back
           </button>
           <button

@@ -6,10 +6,7 @@ import {
   updateBowlingReservationStatus,
   MAX_QAMF_CONFIRM_ATTEMPTS,
 } from "@/lib/bowling-db";
-import {
-  setReservationCustomer,
-  setReservationStatus,
-} from "@/lib/qamf-bowling";
+import { setReservationCustomer, setReservationStatus } from "@/lib/qamf-bowling";
 
 /**
  * GET /api/cron/bowling-confirm-retry

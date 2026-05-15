@@ -59,13 +59,22 @@ export default function AttractionVideo({ videoUrl, accent }: AttractionVideoPro
               className="absolute -top-10 right-0 text-white/60 hover:text-white transition-colors text-sm font-body uppercase tracking-wider flex items-center gap-1"
             >
               Close
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
 
             {/* Video player */}
-            <div className="rounded-lg overflow-hidden" style={{ border: `1.78px solid ${accent}40` }}>
+            <div
+              className="rounded-lg overflow-hidden"
+              style={{ border: `1.78px solid ${accent}40` }}
+            >
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
               <video
                 ref={videoRef}

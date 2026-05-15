@@ -3,7 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "../data";
 import { bmiPost } from "../data";
-import { heatsConflict, HEAT_CONFLICT_TOOLTIP, violatesMinGapAfter, packageGapTooltip } from "@/lib/heat-conflict";
+import {
+  heatsConflict,
+  HEAT_CONFLICT_TOOLTIP,
+  violatesMinGapAfter,
+  packageGapTooltip,
+} from "@/lib/heat-conflict";
 import { getGroupEventForDate } from "@/lib/group-events";
 
 interface HeatPickerProps {
@@ -42,10 +47,10 @@ interface HeatPickerProps {
    *  get an amber warning badge. Used by group events (e.g. "Food Buffet
    *  at HeadPinz 11:30–12:30"). */
   mealWarning?: {
-    label: string;            // "Food Buffet"
-    eventDate: string;        // "2026-06-19"
-    startTime: string;        // "11:00" (24h) — warning window start
-    endTime: string;          // "12:30" (24h) — warning window end
+    label: string; // "Food Buffet"
+    eventDate: string; // "2026-06-19"
+    startTime: string; // "11:00" (24h) — warning window start
+    endTime: string; // "12:30" (24h) — warning window end
   };
   /** Optional event time window — only show heats whose start time falls
    *  within this range. Used by group events to hide heats outside the
@@ -63,16 +68,38 @@ function parseLocal(iso: string): Date {
 }
 
 function formatTime(iso: string) {
-  return parseLocal(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return parseLocal(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 function spotsLabel(free: number, capacity: number) {
   if (free === 0) return { text: "text-red-400", label: "Full" };
-  if (free / capacity <= 0.3) return { text: "text-amber-400", label: `${free} spot${free === 1 ? "" : "s"} left` };
+  if (free / capacity <= 0.3)
+    return { text: "text-amber-400", label: `${free} spot${free === 1 ? "" : "s"} left` };
   return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
 }
 
-export default function HeatPicker({ race, date, quantity, onQuantityChange, onConfirm, onAddAnother, onBack, confirmLabel, bookedHeats = [], immediateConfirm = false, minAdvanceMinutes = 0, minutesAfterEnd, packageMode = false, heatRosters, mealWarning, timeWindow }: HeatPickerProps) {
+export default function HeatPicker({
+  race,
+  date,
+  quantity,
+  onQuantityChange,
+  onConfirm,
+  onAddAnother,
+  onBack,
+  confirmLabel,
+  bookedHeats = [],
+  immediateConfirm = false,
+  minAdvanceMinutes = 0,
+  minutesAfterEnd,
+  packageMode = false,
+  heatRosters,
+  mealWarning,
+  timeWindow,
+}: HeatPickerProps) {
   const [proposals, setProposals] = useState<BmiProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,12 +157,13 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
 
       // Filter out heats that are too soon (new racers need 1hr 15min lead time)
       const cutoff = minAdvanceMinutes > 0 ? Date.now() + minAdvanceMinutes * 60_000 : 0;
-      let filtered = cutoff > 0
-        ? proposals.filter(p => {
-            const start = p.blocks?.[0]?.block?.start;
-            return start ? parseLocal(start).getTime() >= cutoff : true;
-          })
-        : proposals;
+      let filtered =
+        cutoff > 0
+          ? proposals.filter((p) => {
+              const start = p.blocks?.[0]?.block?.start;
+              return start ? parseLocal(start).getTime() >= cutoff : true;
+            })
+          : proposals;
 
       // Filter to event time window (group events — e.g. 09:00–13:00)
       if (timeWindow) {
@@ -143,7 +171,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
         const [twEh, twEm] = timeWindow.end.split(":").map(Number);
         const twStartMin = twSh * 60 + twSm;
         const twEndMin = twEh * 60 + twEm;
-        filtered = filtered.filter(p => {
+        filtered = filtered.filter((p) => {
           const start = p.blocks?.[0]?.block?.start;
           if (!start) return true;
           const d = parseLocal(start);
@@ -160,17 +188,21 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     }
   }, [race.productId, race.pageId, date, minAdvanceMinutes, timeWindow]);
 
-  useEffect(() => { fetchSlots(); }, [fetchSlots]);
+  useEffect(() => {
+    fetchSlots();
+  }, [fetchSlots]);
 
   const displayDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
   });
 
   const selectedProposal = selectedIdx !== null ? proposals[selectedIdx] : null;
   const selectedBlock = selectedProposal?.blocks?.[0]?.block ?? null;
   // Get real price from the proposal block (BMI returns prices on availability)
   // blockPrice is per-unit (dayplanner fetched with qty=1)
-  const blockPrice = selectedBlock?.prices?.find(p => p.depositKind === 0)?.amount ?? race.price;
+  const blockPrice = selectedBlock?.prices?.find((p) => p.depositKind === 0)?.amount ?? race.price;
   const perUnit = blockPrice;
   const total = selectedBlock ? (blockPrice * quantity).toFixed(2) : null;
 
@@ -181,19 +213,24 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
     return (
       <div className="space-y-6">
         <div className="text-center">
-          <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Private Event</h2>
+          <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+            Private Event
+          </h2>
           <p className="text-white/50 text-sm">{displayDate}</p>
         </div>
         <div className="max-w-sm mx-auto rounded-xl border border-amber-500/30 bg-amber-500/8 p-6 text-center space-y-3">
           <p className="text-amber-300 font-semibold text-sm">
             This date is reserved for a private event and is not available for public booking.
           </p>
-          <p className="text-white/40 text-xs">
-            Please choose a different date.
-          </p>
+          <p className="text-white/40 text-xs">Please choose a different date.</p>
         </div>
         <div className="text-center">
-          <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">&larr; Pick a different date</button>
+          <button
+            onClick={onBack}
+            className="text-sm text-white/40 hover:text-white/70 transition-colors"
+          >
+            &larr; Pick a different date
+          </button>
         </div>
       </div>
     );
@@ -202,7 +239,9 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Pick a Heat</h2>
+        <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+          Pick a Heat
+        </h2>
         <p className="text-white/50 text-sm">
           <span className="text-white/80">{race.name}</span> · {displayDate}
         </p>
@@ -210,7 +249,12 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
 
       {/* Racer count summary */}
       <div className="max-w-sm mx-auto rounded-xl border border-white/8 bg-white/3 p-3 text-center">
-        <p className="text-white/50 text-xs">Booking for <span className="text-white font-semibold">{quantity} racer{quantity !== 1 ? "s" : ""}</span></p>
+        <p className="text-white/50 text-xs">
+          Booking for{" "}
+          <span className="text-white font-semibold">
+            {quantity} racer{quantity !== 1 ? "s" : ""}
+          </span>
+        </p>
       </div>
 
       {loading ? (
@@ -220,12 +264,16 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
       ) : error ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
           <p className="text-red-400 text-sm">{error}</p>
-          <button onClick={fetchSlots} className="text-xs text-white/50 hover:text-white underline">Retry</button>
+          <button onClick={fetchSlots} className="text-xs text-white/50 hover:text-white underline">
+            Retry
+          </button>
         </div>
       ) : proposals.length === 0 ? (
         <div className="h-48 flex flex-col items-center justify-center gap-3">
           <p className="text-white/40 text-sm">No heats available for this date.</p>
-          <button onClick={onBack} className="text-xs text-white/50 hover:text-white underline">← Choose a different date</button>
+          <button onClick={onBack} className="text-xs text-white/50 hover:text-white underline">
+            ← Choose a different date
+          </button>
         </div>
       ) : (
         <>
@@ -240,7 +288,7 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
               // Red 12 min, Blue 15 min, Mega 24 min); different-track
               // needs 30 min to finish + walk + check in.
               const blockStart = new Date(block.start.replace(/Z$/, "")).getTime();
-              const isConflict = bookedHeats.some(bh => {
+              const isConflict = bookedHeats.some((bh) => {
                 const bhStart = new Date(bh.start.replace(/Z$/, "")).getTime();
                 return heatsConflict(bhStart, bh.track, blockStart, race.track);
               });
@@ -282,11 +330,12 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                   : isLowCap
                     ? `Need ${quantity}, only ${block.freeSpots} left`
                     : spotsLabel(block.freeSpots, block.capacity).label;
-              const statusClass = isGapViolation || isConflict
-                ? "text-amber-400"
-                : isLowCap
-                  ? "text-red-400"
-                  : spotsLabel(block.freeSpots, block.capacity).text;
+              const statusClass =
+                isGapViolation || isConflict
+                  ? "text-amber-400"
+                  : isLowCap
+                    ? "text-red-400"
+                    : spotsLabel(block.freeSpots, block.capacity).text;
               const cardTooltip = isGapViolation
                 ? packageGapTooltip(minutesAfterEnd!.minutes, minutesAfterEnd!.refLabel)
                 : isConflict
@@ -308,20 +357,21 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                   title={cardTooltip}
                   className={`
                     rounded-xl border p-3 text-left transition-all duration-150
-                    ${isSelected
-                      ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
-                      : isFull
-                        ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
-                        : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
+                    ${
+                      isSelected
+                        ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
+                        : isFull
+                          ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
+                          : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
                     }
                   `}
                 >
-                  <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
+                  <div className="text-white font-bold text-base mb-0.5">
+                    {formatTime(block.start)}
+                  </div>
                   <div className="text-white/40 text-xs mb-2">→ {formatTime(block.stop)}</div>
                   <div className="text-xs font-medium mb-1 text-white/60">{block.name}</div>
-                  <div className={`text-[13px] font-medium ${statusClass}`}>
-                    {statusLabel}
-                  </div>
+                  <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
                   {heatRosters?.[block.start]?.length ? (
                     <p className="text-[10px] text-white/40 mt-1 truncate">
                       {heatRosters[block.start].join(", ")}
@@ -329,16 +379,31 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                   ) : null}
                   {isMealOverlap && !isFull && (
                     <div className="flex items-center gap-1 mt-1.5 text-amber-400 text-[10px] font-medium">
-                      <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      <svg
+                        className="w-3 h-3 shrink-0"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
                       </svg>
                       Overlaps with {mealWarning!.label.toLowerCase()}
                     </div>
                   )}
                   <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${isLowCap ? "bg-red-500" : (isConflict || isGapViolation) ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
-                      style={{ width: (isConflict || isGapViolation) ? "100%" : `${(block.freeSpots / block.capacity) * 100}%` }}
+                      className={`h-full rounded-full ${isLowCap ? "bg-red-500" : isConflict || isGapViolation ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                      style={{
+                        width:
+                          isConflict || isGapViolation
+                            ? "100%"
+                            : `${(block.freeSpots / block.capacity) * 100}%`,
+                      }}
                     />
                   </div>
                 </button>
@@ -347,12 +412,17 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
           </div>
 
           {/* CTA */}
-          <div ref={ctaRef} className={`rounded-xl border p-5 transition-all duration-300 ${selectedBlock ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}>
+          <div
+            ref={ctaRef}
+            className={`rounded-xl border p-5 transition-all duration-300 ${selectedBlock ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"}`}
+          >
             {selectedBlock ? (
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                   <p className="text-white/50 text-xs mb-1">Selected</p>
-                  <p className="text-white font-bold">{selectedBlock.name} · {formatTime(selectedBlock.start)}</p>
+                  <p className="text-white font-bold">
+                    {selectedBlock.name} · {formatTime(selectedBlock.start)}
+                  </p>
                   {!packageMode && (
                     <p className="text-[#00E2E5] text-sm font-semibold mt-0.5">
                       ${perUnit.toFixed(2)} × {quantity} = <span className="text-lg">${total}</span>
@@ -361,14 +431,22 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
                   <button
-                    onClick={() => selectedProposal && selectedBlock && onConfirm(selectedProposal, selectedBlock)}
+                    onClick={() =>
+                      selectedProposal &&
+                      selectedBlock &&
+                      onConfirm(selectedProposal, selectedBlock)
+                    }
                     className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25"
                   >
                     {confirmLabel || "Continue to Checkout →"}
                   </button>
                   {onAddAnother && (
                     <button
-                      onClick={() => selectedProposal && selectedBlock && onAddAnother(selectedProposal, selectedBlock)}
+                      onClick={() =>
+                        selectedProposal &&
+                        selectedBlock &&
+                        onAddAnother(selectedProposal, selectedBlock)
+                      }
                       className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-xs border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
                     >
                       + Add Another Race
@@ -389,15 +467,25 @@ export default function HeatPicker({ race, date, quantity, onQuantityChange, onC
           )}
 
           <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
-            <p>· Arrive <strong className="text-white/60">30 minutes early</strong> for check-in.</p>
+            <p>
+              · Arrive <strong className="text-white/60">30 minutes early</strong> for check-in.
+            </p>
             {!packageMode && (
-              <p>· A <strong className="text-white/60">$4.99 license fee</strong> per driver applies at first check-in.</p>
+              <p>
+                · A <strong className="text-white/60">$4.99 license fee</strong> per driver applies
+                at first check-in.
+              </p>
             )}
           </div>
         </>
       )}
 
-      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">← Change date</button>
+      <button
+        onClick={onBack}
+        className="text-sm text-white/40 hover:text-white/70 transition-colors"
+      >
+        ← Change date
+      </button>
     </div>
   );
 }

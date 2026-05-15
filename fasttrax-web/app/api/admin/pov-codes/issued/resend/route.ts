@@ -82,7 +82,11 @@ async function findCodesForCustomer(opts: {
       const code = fields[i];
       const raw = fields[i + 1];
       let meta: PovUsedMeta = {};
-      try { meta = JSON.parse(raw); } catch { /* skip */ }
+      try {
+        meta = JSON.parse(raw);
+      } catch {
+        /* skip */
+      }
 
       const billMatch = opts.billId && meta.billId === opts.billId;
       const personMatch =
@@ -114,7 +118,10 @@ function buildEmailHtml(codes: string[], firstName?: string): string {
   const safe = (s: string) => s.replace(/[<>]/g, "");
   const greet = firstName ? safe(firstName) : "Racer";
   const codeRows = codes
-    .map((c) => `<tr><td style="padding:8px 12px;border:1px solid #E0E0E0;font-family:Courier,monospace;font-size:18px;letter-spacing:2px;font-weight:bold;text-align:center;color:#1A1A1A;background:#F8F8F8;">${safe(c)}</td></tr>`)
+    .map(
+      (c) =>
+        `<tr><td style="padding:8px 12px;border:1px solid #E0E0E0;font-family:Courier,monospace;font-size:18px;letter-spacing:2px;font-weight:bold;text-align:center;color:#1A1A1A;background:#F8F8F8;">${safe(c)}</td></tr>`,
+    )
     .join("");
   return `<!doctype html>
 <html><head><meta charset="utf-8"/><title>Your FastTrax POV codes</title></head>
@@ -148,8 +155,11 @@ function buildEmailHtml(codes: string[], firstName?: string): string {
 
 export async function POST(req: NextRequest) {
   let body: ResendBody;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
   const channel = body.channel;
   if (channel !== "sms" && channel !== "email" && channel !== "both") {
@@ -167,10 +177,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (codes.length === 0) {
-    return NextResponse.json(
-      { error: "no codes found for that billId/personId" },
-      { status: 404 },
-    );
+    return NextResponse.json({ error: "no codes found for that billId/personId" }, { status: 404 });
   }
 
   // Resolve recipient — override > stored on the booking record
@@ -188,7 +195,9 @@ export async function POST(req: NextRequest) {
         if (b.contact?.email && !storedEmail) storedEmail = b.contact.email;
         if (b.contact?.firstName) storedFirstName = b.contact.firstName;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   const smsBody = body.bodyOverride || buildSmsBody(codes);
@@ -205,7 +214,11 @@ export async function POST(req: NextRequest) {
     const rawPhone = (body.overridePhone || storedPhone || "").trim();
     const phone = canonicalizePhone(rawPhone);
     if (!phone) {
-      result.sms = { ok: false, status: null, error: `Invalid phone: ${rawPhone || "(none on file)"}` };
+      result.sms = {
+        ok: false,
+        status: null,
+        error: `Invalid phone: ${rawPhone || "(none on file)"}`,
+      };
     } else {
       try {
         const send = await voxSend(phone, smsBody);
@@ -216,24 +229,28 @@ export async function POST(req: NextRequest) {
           error: send.ok ? undefined : send.error,
         };
         await logSms({
-          ts, phone,
+          ts,
+          phone,
           // pov-resend (split from admin-resend) so the e-ticket admin's
           // default view doesn't pick up POV / unlock-code SMS.
           source: "pov-resend",
-          status: send.status, ok: send.ok,
+          status: send.status,
+          ok: send.ok,
           error: send.ok ? undefined : (send.error || "").slice(0, 500),
           body: smsBody,
           // pov-codes audit fields — stash billId/personId in the
           // shortCode slot so the SMS log entry is locatable later
-          shortCode: body.billId
-            ? `pov-bill-${body.billId}`
-            : `pov-person-${body.personId}`,
+          shortCode: body.billId ? `pov-bill-${body.billId}` : `pov-person-${body.personId}`,
           memberCount: 1,
           provider: send.provider,
           providerMessageId: send.voxId,
         });
       } catch (err) {
-        result.sms = { ok: false, status: null, error: err instanceof Error ? err.message : "send error" };
+        result.sms = {
+          ok: false,
+          status: null,
+          error: err instanceof Error ? err.message : "send error",
+        };
       }
     }
   }
@@ -258,7 +275,11 @@ export async function POST(req: NextRequest) {
           error: send.ok ? undefined : send.error,
         };
       } catch (err) {
-        result.email = { ok: false, status: null, error: err instanceof Error ? err.message : "email error" };
+        result.email = {
+          ok: false,
+          status: null,
+          error: err instanceof Error ? err.message : "email error",
+        };
       }
     }
   }

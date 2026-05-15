@@ -10,16 +10,19 @@
  * weekday/weekend AND the weekday Intermediate 3-pack picker.
  */
 
-const TRACK_DETAILS: Record<"Red" | "Blue" | "Mega", {
-  title: string;
-  stat: string;
-  tagline: string;
-  /** Tailwind color tokens — paired so the panel reads as the same
-   *  visual language as the heat cards below. */
-  border: string;
-  bg: string;
-  titleClass: string;
-}> = {
+const TRACK_DETAILS: Record<
+  "Red" | "Blue" | "Mega",
+  {
+    title: string;
+    stat: string;
+    tagline: string;
+    /** Tailwind color tokens — paired so the panel reads as the same
+     *  visual language as the heat cards below. */
+    border: string;
+    bg: string;
+    titleClass: string;
+  }
+> = {
   Red: {
     title: "Red Track",
     stat: "1,095 ft",
@@ -57,15 +60,14 @@ export default function TrackInfoBanner({ tracks }: { tracks: Array<"Red" | "Blu
     return 0;
   });
   return (
-    <div className={`grid gap-2 ${ordered.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+    <div
+      className={`grid gap-2 ${ordered.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}
+    >
       {ordered.map((track) => {
         const info = TRACK_DETAILS[track];
         if (!info) return null;
         return (
-          <div
-            key={track}
-            className={`rounded-lg border ${info.border} ${info.bg} px-4 py-2.5`}
-          >
+          <div key={track} className={`rounded-lg border ${info.border} ${info.bg} px-4 py-2.5`}>
             <div className="flex items-baseline justify-between gap-2 mb-0.5">
               <h4 className={`font-display text-sm uppercase tracking-wider ${info.titleClass}`}>
                 {info.title}

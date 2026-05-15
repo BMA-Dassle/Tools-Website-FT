@@ -187,8 +187,9 @@ export async function searchPasses(query: string): Promise<KbfPassRow[]> {
   const like = `%${trimmed}%`;
   const digits = trimmed.replace(/\D/g, "");
 
-  const rows = digits.length >= 4
-    ? ((await q`
+  const rows =
+    digits.length >= 4
+      ? ((await q`
         SELECT id, email, center_name, first_name, last_name, phone, preferred_2fa, is_test, fpass
         FROM kbf_passes
         WHERE lower(email) LIKE ${like}
@@ -199,7 +200,7 @@ export async function searchPasses(query: string): Promise<KbfPassRow[]> {
         ORDER BY id ASC
         LIMIT 25
       `) as PassQueryRow[])
-    : ((await q`
+      : ((await q`
         SELECT id, email, center_name, first_name, last_name, phone, preferred_2fa, is_test, fpass
         FROM kbf_passes
         WHERE lower(email) LIKE ${like}
@@ -416,10 +417,7 @@ export async function upsertMemberPref(input: UpsertPrefInput): Promise<void> {
  * instead of email. Idempotent — running with the same phone
  * twice is a no-op.
  */
-export async function optInPhoneSmsTwoFactor(
-  passIds: number[],
-  phone: string,
-): Promise<void> {
+export async function optInPhoneSmsTwoFactor(passIds: number[], phone: string): Promise<void> {
   if (!isDbConfigured()) return;
   if (passIds.length === 0) return;
   const digits = phone.replace(/\D/g, "").replace(/^1/, "");
@@ -441,10 +439,7 @@ export async function optInPhoneSmsTwoFactor(
  * Only touches rows that don't already have a phone — won't overwrite
  * an existing number.
  */
-export async function linkPhoneByEmail(
-  email: string,
-  phone: string,
-): Promise<void> {
+export async function linkPhoneByEmail(email: string, phone: string): Promise<void> {
   if (!isDbConfigured()) return;
   const digits = phone.replace(/\D/g, "").replace(/^1/, "");
   if (digits.length !== 10) return;

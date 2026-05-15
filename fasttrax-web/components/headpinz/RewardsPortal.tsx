@@ -90,7 +90,9 @@ export default function RewardsPortal() {
   useEffect(() => {
     fetch("/api/square/loyalty/program")
       .then((r) => r.json())
-      .then((d) => { if (!d.error) setProgram(d); })
+      .then((d) => {
+        if (!d.error) setProgram(d);
+      })
       .catch(() => {});
   }, []);
 
@@ -272,7 +274,10 @@ export default function RewardsPortal() {
       {step === "phone" && (
         <div
           className="rounded-lg p-8 text-center"
-          style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
+          style={{
+            backgroundColor: "rgba(7,16,39,0.5)",
+            border: "1.78px dashed rgba(255,215,0,0.3)",
+          }}
         >
           <h2
             className="font-heading uppercase text-white text-xl tracking-wider mb-2"
@@ -295,9 +300,7 @@ export default function RewardsPortal() {
             />
           </div>
 
-          {error && (
-            <p className="font-body text-[#fd5b56] text-sm mb-4">{error}</p>
-          )}
+          {error && <p className="font-body text-[#fd5b56] text-sm mb-4">{error}</p>}
 
           <button
             onClick={handleSendCode}
@@ -314,7 +317,10 @@ export default function RewardsPortal() {
       {step === "code" && (
         <div
           className="rounded-lg p-8 text-center"
-          style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
+          style={{
+            backgroundColor: "rgba(7,16,39,0.5)",
+            border: "1.78px dashed rgba(255,215,0,0.3)",
+          }}
         >
           <h2
             className="font-heading uppercase text-white text-xl tracking-wider mb-2"
@@ -322,16 +328,16 @@ export default function RewardsPortal() {
           >
             Enter Code
           </h2>
-          <p className="font-body text-white/50 text-sm mb-6">
-            We sent a 6-digit code to {phone}
-          </p>
+          <p className="font-body text-white/50 text-sm mb-6">We sent a 6-digit code to {phone}</p>
 
           {/* 6-digit code input */}
           <div className="flex justify-center gap-2 mb-4">
             {code.map((digit, i) => (
               <input
                 key={i}
-                ref={(el) => { codeRefs.current[i] = el; }}
+                ref={(el) => {
+                  codeRefs.current[i] = el;
+                }}
                 type="text"
                 inputMode="numeric"
                 maxLength={1}
@@ -344,17 +350,16 @@ export default function RewardsPortal() {
             ))}
           </div>
 
-          {error && (
-            <p className="font-body text-[#fd5b56] text-sm mb-4">{error}</p>
-          )}
+          {error && <p className="font-body text-[#fd5b56] text-sm mb-4">{error}</p>}
 
-          {loading && (
-            <p className="font-body text-[#FFD700] text-sm mb-4">Verifying...</p>
-          )}
+          {loading && <p className="font-body text-[#FFD700] text-sm mb-4">Verifying...</p>}
 
           <div className="flex items-center justify-between mt-6">
             <button
-              onClick={() => { setStep("phone"); setError(""); }}
+              onClick={() => {
+                setStep("phone");
+                setError("");
+              }}
               className="font-body text-white/40 hover:text-white text-sm transition-colors"
             >
               &larr; Change Number
@@ -375,7 +380,10 @@ export default function RewardsPortal() {
           {/* Welcome / Balance card */}
           <div
             className="rounded-lg p-8 text-center"
-            style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
+            style={{
+              backgroundColor: "rgba(7,16,39,0.5)",
+              border: "1.78px dashed rgba(255,215,0,0.3)",
+            }}
           >
             {isNewUser && !bonusAwarded && (
               <div className="bg-[#FFD700]/10 border border-[#FFD700]/30 rounded-lg px-4 py-3 mb-6">
@@ -402,7 +410,10 @@ export default function RewardsPortal() {
             <div className="mb-2">
               <span
                 className="font-heading text-[#FFD700]"
-                style={{ fontSize: "clamp(48px, 10vw, 72px)", textShadow: "0 0 30px rgba(255,215,0,0.35)" }}
+                style={{
+                  fontSize: "clamp(48px, 10vw, 72px)",
+                  textShadow: "0 0 30px rgba(255,215,0,0.35)",
+                }}
               >
                 {account.balance.toLocaleString()}
               </span>
@@ -419,7 +430,10 @@ export default function RewardsPortal() {
           {showProfileForm && !customer?.profileComplete && (
             <div
               className="rounded-lg p-6"
-              style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(253,91,86,0.3)" }}
+              style={{
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: "1.78px dashed rgba(253,91,86,0.3)",
+              }}
             >
               <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                 Complete Your Profile
@@ -452,9 +466,7 @@ export default function RewardsPortal() {
                 />
               </div>
 
-              {error && (
-                <p className="font-body text-[#fd5b56] text-sm mb-3">{error}</p>
-              )}
+              {error && <p className="font-body text-[#fd5b56] text-sm mb-3">{error}</p>}
 
               <button
                 onClick={handleCompleteProfile}
@@ -471,7 +483,10 @@ export default function RewardsPortal() {
           {program && program.rewardTiers.length > 0 && (
             <div
               className="rounded-lg p-6"
-              style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.2)" }}
+              style={{
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: "1.78px dashed rgba(255,215,0,0.2)",
+              }}
             >
               <h3 className="font-heading uppercase text-white text-base tracking-wider mb-4">
                 Rewards
@@ -487,9 +502,7 @@ export default function RewardsPortal() {
                     return (
                       <div key={tier.id}>
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-body text-white text-sm">
-                            {tier.name}
-                          </span>
+                          <span className="font-body text-white text-sm">{tier.name}</span>
                           <span
                             className="font-body text-xs font-bold"
                             style={{ color: canRedeem ? "#FFD700" : "rgba(255,255,255,0.4)" }}
@@ -509,9 +522,7 @@ export default function RewardsPortal() {
                           />
                         </div>
                         {canRedeem && (
-                          <p className="font-body text-[#FFD700] text-xs mt-1">
-                            Ready to redeem!
-                          </p>
+                          <p className="font-body text-[#FFD700] text-xs mt-1">Ready to redeem!</p>
                         )}
                       </div>
                     );
@@ -524,7 +535,10 @@ export default function RewardsPortal() {
           {program && program.accrualRules.length > 0 && (
             <div
               className="rounded-lg p-6"
-              style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.15)" }}
+              style={{
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: "1.78px dashed rgba(255,215,0,0.15)",
+              }}
             >
               <h3 className="font-heading uppercase text-white text-base tracking-wider mb-3">
                 How to Earn
@@ -539,8 +553,8 @@ export default function RewardsPortal() {
                       {rule.type === "SPEND"
                         ? `per $${((rule.spendAmountCents || 100) / 100).toFixed(0)} spent`
                         : rule.type === "VISIT"
-                        ? "per visit"
-                        : rule.type.toLowerCase().replace(/_/g, " ")}
+                          ? "per visit"
+                          : rule.type.toLowerCase().replace(/_/g, " ")}
                     </span>
                   </div>
                 ))}

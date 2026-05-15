@@ -173,12 +173,7 @@ export async function GET(req: NextRequest) {
         const existing: { code: string; usedAt: string }[] = [];
         let cursor = "0";
         do {
-          const [next, fields] = await redis.hscan(
-            REDIS_USED_KEY,
-            cursor,
-            "COUNT",
-            500,
-          );
+          const [next, fields] = await redis.hscan(REDIS_USED_KEY, cursor, "COUNT", 500);
           cursor = next;
           for (let i = 0; i < fields.length; i += 2) {
             try {
@@ -186,7 +181,9 @@ export async function GET(req: NextRequest) {
               if (v && v.billId === billId) {
                 existing.push({ code: fields[i], usedAt: v.usedAt || "" });
               }
-            } catch { /* skip malformed entries */ }
+            } catch {
+              /* skip malformed entries */
+            }
           }
         } while (cursor !== "0");
         if (existing.length > 0) {
@@ -204,11 +201,15 @@ export async function GET(req: NextRequest) {
       for (let i = 0; i < qty; i++) {
         const code = await redis.spop(REDIS_KEY);
         if (!code) break;
-        await redis.hset(REDIS_USED_KEY, code, JSON.stringify({
-          usedAt: new Date().toISOString(),
-          billId,
-          email,
-        }));
+        await redis.hset(
+          REDIS_USED_KEY,
+          code,
+          JSON.stringify({
+            usedAt: new Date().toISOString(),
+            billId,
+            email,
+          }),
+        );
         codes.push(code);
       }
 
@@ -296,13 +297,7 @@ export async function GET(req: NextRequest) {
         depositKindId: VIEWPOINT_DEPOSIT_KIND_ID,
         depositDeducted: false,
       };
-      const won = await redis.set(
-        key,
-        JSON.stringify(placeholder),
-        "EX",
-        CLAIM_TTL_SECONDS,
-        "NX",
-      );
+      const won = await redis.set(key, JSON.stringify(placeholder), "EX", CLAIM_TTL_SECONDS, "NX");
       if (won !== "OK") {
         // Lost the race. Re-read the record the winner wrote.
         const winnerRaw = await redis.get(key);
@@ -317,7 +312,9 @@ export async function GET(req: NextRequest) {
                 depositDeducted: rec.depositDeducted,
               });
             }
-          } catch { /* fall through to error */ }
+          } catch {
+            /* fall through to error */
+          }
         }
         // The winner is mid-flight (placeholder still has empty
         // codes). Tell the caller to retry shortly.
@@ -409,9 +406,18 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: "Use ?action=stats, ?action=check&code=X, ?action=claim&qty=1&billId=X&email=X, or ?action=claim-from-credit&personId=X&locationId=X&sessionId=X" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          "Use ?action=stats, ?action=check&code=X, ?action=claim&qty=1&billId=X&email=X, or ?action=claim-from-credit&personId=X&locationId=X&sessionId=X",
+      },
+      { status: 400 },
+    );
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Redis error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Redis error" },
+      { status: 500 },
+    );
   } finally {
     redis.disconnect();
   }
@@ -461,9 +467,16 @@ export async function POST(req: NextRequest) {
       }
 
       const total = await redis.scard(REDIS_KEY);
-      return NextResponse.json({ imported: newCodes.length, skipped: codes.length - newCodes.length, totalAvailable: total });
+      return NextResponse.json({
+        imported: newCodes.length,
+        skipped: codes.length - newCodes.length,
+        totalAvailable: total,
+      });
     } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "Redis error" }, { status: 500 });
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Redis error" },
+        { status: 500 },
+      );
     } finally {
       redis.disconnect();
     }
@@ -473,20 +486,28 @@ export async function POST(req: NextRequest) {
   if (action === "use") {
     const body = await req.json();
     const { code, billId, email } = body;
-    if (!code) return NextResponse.json({ error: "Provide {code, billId, email}" }, { status: 400 });
+    if (!code)
+      return NextResponse.json({ error: "Provide {code, billId, email}" }, { status: 400 });
 
     const redis = getRedis();
     try {
       await redis.connect();
       const removed = await redis.srem(REDIS_KEY, code);
-      await redis.hset(REDIS_USED_KEY, code, JSON.stringify({
-        usedAt: new Date().toISOString(),
-        billId: billId || "",
-        email: email || "",
-      }));
+      await redis.hset(
+        REDIS_USED_KEY,
+        code,
+        JSON.stringify({
+          usedAt: new Date().toISOString(),
+          billId: billId || "",
+          email: email || "",
+        }),
+      );
       return NextResponse.json({ success: true, wasAvailable: removed === 1 });
     } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "Redis error" }, { status: 500 });
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Redis error" },
+        { status: 500 },
+      );
     } finally {
       redis.disconnect();
     }

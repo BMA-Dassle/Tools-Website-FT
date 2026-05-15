@@ -1,13 +1,17 @@
 "use client";
 
-const ENROLL_URL = "https://squareup.com/customer-programs/enroll/b372FWGjmHLH?utm_medium=copied-link&utm_source=online";
+const ENROLL_URL =
+  "https://squareup.com/customer-programs/enroll/b372FWGjmHLH?utm_medium=copied-link&utm_source=online";
 
 export default function RewardsSignIn() {
   return (
     <div className="max-w-lg mx-auto text-center">
       <div
         className="rounded-lg p-8"
-        style={{ backgroundColor: "rgba(7,16,39,0.5)", border: "1.78px dashed rgba(255,215,0,0.3)" }}
+        style={{
+          backgroundColor: "rgba(7,16,39,0.5)",
+          border: "1.78px dashed rgba(255,215,0,0.3)",
+        }}
       >
         <h2
           className="font-heading uppercase text-white text-xl tracking-wider mb-2"

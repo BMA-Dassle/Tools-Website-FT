@@ -57,7 +57,9 @@ export function formatNoteLine(params: AppendNoteParams): string {
  * Pushes to `salescard:{projectID}:notes` as a Redis list (newest last via
  * RPUSH so a human reading the log sees chronological order).
  */
-export async function appendPrivateNote(params: AppendNoteParams): Promise<{ ok: boolean; line?: string; error?: string }> {
+export async function appendPrivateNote(
+  params: AppendNoteParams,
+): Promise<{ ok: boolean; line?: string; error?: string }> {
   try {
     const line = formatNoteLine(params);
     const key = notesKey(params.projectId);

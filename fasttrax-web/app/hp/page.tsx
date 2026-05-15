@@ -46,10 +46,7 @@ const jsonLdSchemas = [
     logo: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/logo-white.png",
     description:
       "Premier bowling, laser tag, gel blasters, arcade games and dining in Fort Myers and Naples, Florida.",
-    sameAs: [
-      "https://www.facebook.com/headpinz",
-      "https://www.instagram.com/headpinz",
-    ],
+    sameAs: ["https://www.facebook.com/headpinz", "https://www.instagram.com/headpinz"],
   },
   {
     "@context": "https://schema.org",
@@ -108,14 +105,16 @@ const locations = [
     address: "14513 Global Parkway",
     hours: "Sun-Thu 11AM-12AM • Fri-Sat 11AM-2AM",
     href: "/hp/fort-myers",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/location-fm.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/location-fm.jpg",
   },
   {
     name: "Naples",
     address: "8525 Radio Lane",
     hours: "Sun-Thu 11AM-12AM • Fri-Sat 11AM-2AM",
     href: "/hp/naples",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/location-naples.jpeg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/location-naples.jpeg",
   },
 ];
 
@@ -141,14 +140,20 @@ export default function HeadPinzHome() {
         className="absolute inset-0 w-full h-full object-cover"
         poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
       >
-        <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4" type="video/mp4" />
+        <source
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4"
+          type="video/mp4"
+        />
       </video>
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-[#0a1628]" />
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center text-center px-4 py-20 w-full max-w-4xl mx-auto">
         {/* Logo */}
-        <div className="relative mb-6" style={{ width: "clamp(160px, 30vw, 280px)", height: "clamp(50px, 9vw, 90px)" }}>
+        <div
+          className="relative mb-6"
+          style={{ width: "clamp(160px, 30vw, 280px)", height: "clamp(50px, 9vw, 90px)" }}
+        >
           <Image
             src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
             alt="HeadPinz"
@@ -172,11 +177,19 @@ export default function HeadPinzHome() {
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mb-10">
           {activities.map((act, i) => (
             <span key={act} className="flex items-center">
-              <span className="font-body text-white/60 uppercase tracking-widest" style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}>
+              <span
+                className="font-body text-white/60 uppercase tracking-widest"
+                style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}
+              >
                 {act}
               </span>
               {i < activities.length - 1 && (
-                <span className="text-[#fd5b56] ml-3" style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}>&bull;</span>
+                <span
+                  className="text-[#fd5b56] ml-3"
+                  style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}
+                >
+                  &bull;
+                </span>
               )}
             </span>
           ))}
@@ -206,7 +219,13 @@ export default function HeadPinzHome() {
                 <p className="text-white/40 text-[13px] font-body">{loc.address}</p>
               </div>
               <div className="w-9 h-9 rounded-full bg-[#fd5b56] flex items-center justify-center shrink-0 group-hover:bg-[#ff7a77] group-hover:shadow-[0_0_16px_rgba(253,91,86,0.4)] transition-all">
-                <svg className="w-4 h-4 text-white transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <svg
+                  className="w-4 h-4 text-white transition-transform group-hover:translate-x-0.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
               </div>
@@ -226,7 +245,9 @@ export default function HeadPinzHome() {
               unoptimized
             />
           </div>
-          <span className="font-body text-white text-xs tracking-widest uppercase">Celebrating 10 Years</span>
+          <span className="font-body text-white text-xs tracking-widest uppercase">
+            Celebrating 10 Years
+          </span>
         </div>
       </div>
     </div>

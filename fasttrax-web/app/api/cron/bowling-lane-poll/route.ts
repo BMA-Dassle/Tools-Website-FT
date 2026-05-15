@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listLanes } from "@/lib/qamf-bowling";
-import { getBowlingReservationByQamfId, insertBowlingReservation, updateSquareDayofOrderId, updateWalkinGuestData } from "@/lib/bowling-db";
+import {
+  getBowlingReservationByQamfId,
+  insertBowlingReservation,
+  updateSquareDayofOrderId,
+  updateWalkinGuestData,
+} from "@/lib/bowling-db";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { getReservation } from "@/lib/qamf-bowling";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
@@ -44,11 +49,11 @@ export async function GET(req: NextRequest) {
   await Promise.all(
     CENTERS.map(async ({ centerId, centerCode }) => {
       const result: PollResult = {
-        center:    centerCode,
+        center: centerCode,
         openLanes: 0,
         processed: 0,
-        skipped:   0,
-        errors:    0,
+        skipped: 0,
+        errors: 0,
       };
       allResults.push(result);
 
@@ -87,25 +92,41 @@ export async function GET(req: NextRequest) {
         // Backfill K/C if no Neon row exists yet
         if (!reservation && (qamfId.startsWith("K") || qamfId.startsWith("C"))) {
           try {
-            const QAMF_ID_TO_CODE: Record<number, string> = { 9172: "TXBSQN0FEKQ11", 3148: "PPTR5G2N0QXF7" };
+            const QAMF_ID_TO_CODE: Record<number, string> = {
+              9172: "TXBSQN0FEKQ11",
+              3148: "PPTR5G2N0QXF7",
+            };
             const cc = QAMF_ID_TO_CODE[centerId];
             if (cc) {
               const qamfRes = await getReservation(centerId, qamfId);
               const guest = qamfRes.Customer?.Guest;
-              await insertBowlingReservation({
-                centerCode: cc, productKind: "open", qamfReservationId: qamfId,
-                depositCents: 0, totalCents: 0, status: "confirmed",
-                bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
-                playerCount: qamfRes.TotalPlayers ?? undefined,
-                guestName: guest?.Name ?? undefined, guestEmail: guest?.Email ?? undefined,
-                guestPhone: guest?.PhoneNumber ?? undefined,
-                bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
-              }, []);
+              await insertBowlingReservation(
+                {
+                  centerCode: cc,
+                  productKind: "open",
+                  qamfReservationId: qamfId,
+                  depositCents: 0,
+                  totalCents: 0,
+                  status: "confirmed",
+                  bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
+                  playerCount: qamfRes.TotalPlayers ?? undefined,
+                  guestName: guest?.Name ?? undefined,
+                  guestEmail: guest?.Email ?? undefined,
+                  guestPhone: guest?.PhoneNumber ?? undefined,
+                  bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
+                },
+                [],
+              );
               reservation = await getBowlingReservationByQamfId(qamfId);
-              console.log(`[bowling-lane-poll] backfill qamfId=${qamfId} neonId=${reservation?.id}`);
+              console.log(
+                `[bowling-lane-poll] backfill qamfId=${qamfId} neonId=${reservation?.id}`,
+              );
             }
           } catch (err) {
-            console.warn(`[bowling-lane-poll] backfill failed qamfId=${qamfId}:`, err instanceof Error ? err.message : err);
+            console.warn(
+              `[bowling-lane-poll] backfill failed qamfId=${qamfId}:`,
+              err instanceof Error ? err.message : err,
+            );
           }
         }
 
@@ -184,9 +205,9 @@ export async function GET(req: NextRequest) {
             result.processed++;
             console.log(
               `[bowling-lane-poll] processed neonId=${reservation.id}` +
-              ` qamfId=${qamfId} lane="${laneResult.laneLabel}"` +
-              ` kitchen=${laneResult.kitchenItemsUpdated}` +
-              ` paymentId=${laneResult.paymentId ?? "none"}`,
+                ` qamfId=${qamfId} lane="${laneResult.laneLabel}"` +
+                ` kitchen=${laneResult.kitchenItemsUpdated}` +
+                ` paymentId=${laneResult.paymentId ?? "none"}`,
             );
           }
         } catch (err) {
@@ -201,8 +222,8 @@ export async function GET(req: NextRequest) {
   );
 
   return NextResponse.json({
-    ok:        true,
+    ok: true,
     elapsedMs: Date.now() - started,
-    centers:   allResults,
+    centers: allResults,
   });
 }

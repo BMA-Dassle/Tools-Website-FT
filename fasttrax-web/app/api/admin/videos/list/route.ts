@@ -60,7 +60,9 @@ function etYmdToRangeMs(ymd: string): { startMs: number; endMs: number } {
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -69,31 +71,33 @@ function todayETYmd(): string {
  * VideoMatch records; matched:false rows are raw vt3 fields with no
  * racer/session info yet.
  */
-type ListEntry = (VideoMatch & { matched: true }) | {
-  matched: false;
-  videoId: number;
-  videoCode: string;
-  systemNumber: string;      // base / video.system.name
-  cameraNumber?: number;     // vt3 hardware camera (video.camera)
-  customerUrl: string;
-  thumbnailUrl?: string;
-  capturedAt: string;
-  duration?: number;
-  matchedAt: string; // reuse so the UI sort + display logic stays uniform (= capturedAt for unmatched)
-  firstName: string; // "(unknown)" placeholder so render code can stay dumb
-  lastName: string;
-  sessionId: "";
-  personId: "";
-  // VT3 impression / purchase overlay — same shape the cron writes onto
-  // matched rows, so the UI's `👁 viewed` / `💰 purchased` chips work
-  // uniformly regardless of match state.
-  viewed?: boolean;
-  firstViewedAt?: string;
-  lastViewedAt?: string;
-  purchased?: boolean;
-  purchaseType?: string;
-  unlockedAt?: string;
-};
+type ListEntry =
+  | (VideoMatch & { matched: true })
+  | {
+      matched: false;
+      videoId: number;
+      videoCode: string;
+      systemNumber: string; // base / video.system.name
+      cameraNumber?: number; // vt3 hardware camera (video.camera)
+      customerUrl: string;
+      thumbnailUrl?: string;
+      capturedAt: string;
+      duration?: number;
+      matchedAt: string; // reuse so the UI sort + display logic stays uniform (= capturedAt for unmatched)
+      firstName: string; // "(unknown)" placeholder so render code can stay dumb
+      lastName: string;
+      sessionId: "";
+      personId: "";
+      // VT3 impression / purchase overlay — same shape the cron writes onto
+      // matched rows, so the UI's `👁 viewed` / `💰 purchased` chips work
+      // uniformly regardless of match state.
+      viewed?: boolean;
+      firstViewedAt?: string;
+      lastViewedAt?: string;
+      purchased?: boolean;
+      purchaseType?: string;
+      unlockedAt?: string;
+    };
 
 export async function GET(req: NextRequest) {
   try {
@@ -105,7 +109,10 @@ export async function GET(req: NextRequest) {
     const q = (searchParams.get("q") || "").trim().toLowerCase();
     const statusFilter = searchParams.get("status") || "";
     const show = (searchParams.get("show") || "all").toLowerCase();
-    const limit = Math.max(1, Math.min(500, parseInt(searchParams.get("limit") || "200", 10) || 200));
+    const limit = Math.max(
+      1,
+      Math.min(500, parseInt(searchParams.get("limit") || "200", 10) || 200),
+    );
 
     const { startMs, endMs } = etYmdToRangeMs(date);
 
@@ -113,8 +120,9 @@ export async function GET(req: NextRequest) {
     const matches: ListEntry[] =
       show === "unmatched"
         ? []
-        : (await listMatchesInRange({ startMs, endMs, limit: Math.min(1000, limit * 3) }))
-            .map((m) => ({ ...m, matched: true as const }));
+        : (await listMatchesInRange({ startMs, endMs, limit: Math.min(1000, limit * 3) })).map(
+            (m) => ({ ...m, matched: true as const }),
+          );
 
     // 2. Unmatched — read from the Redis-backed unmatched registry.
     //    The webhook writes a record for every capture event whose
@@ -173,7 +181,8 @@ export async function GET(req: NextRequest) {
                 viewed:
                   !!v.hasVideoPageImpression ||
                   !!v.hasMediaCentreImpression ||
-                  !!v.firstImpressionAt || undefined,
+                  !!v.firstImpressionAt ||
+                  undefined,
                 firstViewedAt: v.firstImpressionAt || undefined,
                 lastViewedAt: v.lastImpressionAt || undefined,
                 purchased: v.purchaseType === "PAID" || undefined,
@@ -224,8 +233,16 @@ export async function GET(req: NextRequest) {
       }
       if (q) {
         const hay = e.matched
-          ? [`${e.firstName} ${e.lastName}`, e.systemNumber, String(e.cameraNumber ?? ""), e.videoCode, String(e.sessionId), String(e.personId)]
-              .join(" ").toLowerCase()
+          ? [
+              `${e.firstName} ${e.lastName}`,
+              e.systemNumber,
+              String(e.cameraNumber ?? ""),
+              e.videoCode,
+              String(e.sessionId),
+              String(e.personId),
+            ]
+              .join(" ")
+              .toLowerCase()
           : [e.systemNumber, String(e.cameraNumber ?? ""), e.videoCode].join(" ").toLowerCase();
         if (!hay.includes(q)) return false;
       }

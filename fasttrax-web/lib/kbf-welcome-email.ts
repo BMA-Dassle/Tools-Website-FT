@@ -23,20 +23,14 @@ import type { KbfPassWithMembers, KbfMemberRow } from "@/lib/kbf-prefs";
 let templateCache: string | null = null;
 function loadTemplate(): string {
   if (!templateCache) {
-    templateCache = readFileSync(
-      join(process.cwd(), "emails", "kbf-welcome.html"),
-      "utf-8",
-    );
+    templateCache = readFileSync(join(process.cwd(), "emails", "kbf-welcome.html"), "utf-8");
   }
   return templateCache;
 }
 
 // ── Center metadata ────────────────────────────────────────────────────────
 
-const CENTER_META: Record<
-  string,
-  { shortName: string; locationSlug: string; phone: string }
-> = {
+const CENTER_META: Record<string, { shortName: string; locationSlug: string; phone: string }> = {
   "HeadPinz Fort Myers": {
     shortName: "Fort Myers",
     locationSlug: "fortmyers",
@@ -219,31 +213,16 @@ export function renderWelcomeEmail(pass: KbfPassWithMembers): string {
 
   // Replace all placeholders
   let html = tpl;
-  html = html.replace(
-    /\^\[ParentFirstName\]\$/g,
-    escapeHtml(pass.firstName || "there"),
-  );
-  html = html.replace(
-    /\^\[CenterName\]\$/g,
-    escapeHtml(center.shortName),
-  );
+  html = html.replace(/\^\[ParentFirstName\]\$/g, escapeHtml(pass.firstName || "there"));
+  html = html.replace(/\^\[CenterName\]\$/g, escapeHtml(center.shortName));
   html = html.replace(/\^\[ProgramName\]\$/g, escapeHtml(programName));
-  html = html.replace(
-    /\^\[ProgramDescription\]\$/g,
-    escapeHtml(programDescription),
-  );
+  html = html.replace(/\^\[ProgramDescription\]\$/g, escapeHtml(programDescription));
   html = html.replace(/\^\[ProgramBorderColor\]\$/g, programBorderColor);
   html = html.replace(/\^\[ProgramBgColor\]\$/g, programBgColor);
   html = html.replace(/\^\[ProgramIconBg\]\$/g, programIconBg);
   html = html.replace(/\^\[MemberRows\]\$/g, memberRowsHtml);
-  html = html.replace(
-    /\^\[AdultPricingNote\]\$/g,
-    escapeHtml(adultPricingNote),
-  );
-  html = html.replace(
-    /\^\[AdultPricingDetail\]\$/g,
-    escapeHtml(adultPricingDetail),
-  );
+  html = html.replace(/\^\[AdultPricingNote\]\$/g, escapeHtml(adultPricingNote));
+  html = html.replace(/\^\[AdultPricingDetail\]\$/g, escapeHtml(adultPricingDetail));
   html = html.replace(/\^\[CenterPhone\]\$/g, center.phone);
   html = html.replace(/\^\[BookingLink\]\$/g, bookingLink);
 
@@ -252,10 +231,7 @@ export function renderWelcomeEmail(pass: KbfPassWithMembers): string {
 
 // ── Member row HTML ────────────────────────────────────────────────────────
 
-function renderMemberRows(
-  members: KbfMemberRow[],
-  isFbf: boolean,
-): string {
+function renderMemberRows(members: KbfMemberRow[], isFbf: boolean): string {
   if (members.length === 0) {
     return `<tr><td style="padding: 14px 16px; font-family: Arial, sans-serif; font-size: 13px; color: #999; text-align: center;">No bowlers registered yet.</td></tr>`;
   }

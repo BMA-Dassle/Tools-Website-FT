@@ -23,7 +23,9 @@ const API_KEY = process.env.BOOKING_API_KEY || "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBB
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -48,7 +50,10 @@ export async function GET(req: NextRequest) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "Invalid date — use YYYY-MM-DD" }, { status: 400 });
   }
-  const limit = Math.max(1, Math.min(2000, parseInt(searchParams.get("limit") || "200", 10) || 200));
+  const limit = Math.max(
+    1,
+    Math.min(2000, parseInt(searchParams.get("limit") || "200", 10) || 200),
+  );
   const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10) || 0);
 
   const phone = searchParams.get("phone");

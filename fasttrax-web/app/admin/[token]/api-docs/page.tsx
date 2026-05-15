@@ -39,7 +39,8 @@ export default function AdminApiDocsPage() {
             </span>
           </h1>
           <p className="text-white/45 text-xs mt-0.5">
-            Sales reporting · Videos pipeline · E-Tickets log. Auth via <code className="text-cyan-400">x-api-key</code> header.
+            Sales reporting · Videos pipeline · E-Tickets log. Auth via{" "}
+            <code className="text-cyan-400">x-api-key</code> header.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -55,12 +56,14 @@ export default function AdminApiDocsPage() {
       <SwaggerUI
         url="/api/admin/sales/openapi.json"
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        requestInterceptor={((req: any) => {
-          if (apiKey.trim()) {
-            req.headers["x-api-key"] = apiKey.trim();
-          }
-          return req;
-        }) as unknown as never}
+        requestInterceptor={
+          ((req: any) => {
+            if (apiKey.trim()) {
+              req.headers["x-api-key"] = apiKey.trim();
+            }
+            return req;
+          }) as unknown as never
+        }
         tryItOutEnabled
         deepLinking
       />

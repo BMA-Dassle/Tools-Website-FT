@@ -7,7 +7,14 @@ interface PartySizePickerProps {
   onJuniorsChange: (n: number) => void;
 }
 
-function Counter({ label, description, value, onChange, min = 0, max = 10 }: {
+function Counter({
+  label,
+  description,
+  value,
+  onChange,
+  min = 0,
+  max = 10,
+}: {
   label: string;
   description: string;
   value: number;
@@ -42,7 +49,12 @@ function Counter({ label, description, value, onChange, min = 0, max = 10 }: {
   );
 }
 
-export default function PartySizePicker({ adults, juniors, onAdultsChange, onJuniorsChange }: PartySizePickerProps) {
+export default function PartySizePicker({
+  adults,
+  juniors,
+  onAdultsChange,
+  onJuniorsChange,
+}: PartySizePickerProps) {
   const total = adults + juniors;
 
   return (
@@ -78,7 +90,9 @@ export default function PartySizePicker({ adults, juniors, onAdultsChange, onJun
       {total > 0 && (
         <div className="max-w-md mx-auto rounded-xl border border-white/8 bg-white/3 p-3 text-xs text-white/40 text-center">
           {total} racer{total !== 1 ? "s" : ""} total
-          {adults > 0 && juniors > 0 && ` (${adults} adult${adults !== 1 ? "s" : ""}, ${juniors} junior${juniors !== 1 ? "s" : ""})`}
+          {adults > 0 &&
+            juniors > 0 &&
+            ` (${adults} adult${adults !== 1 ? "s" : ""}, ${juniors} junior${juniors !== 1 ? "s" : ""})`}
         </div>
       )}
     </div>

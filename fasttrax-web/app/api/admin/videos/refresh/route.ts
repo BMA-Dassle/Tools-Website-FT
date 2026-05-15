@@ -35,7 +35,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "videoCode required" }, { status: 400 });
     }
     const [vt3Record, ourMatch] = await Promise.all([
-      findInVt3(code).catch((e) => ({ error: e instanceof Error ? e.message : "vt3 fetch failed" })),
+      findInVt3(code).catch((e) => ({
+        error: e instanceof Error ? e.message : "vt3 fetch failed",
+      })),
       getMatchByVideoCode(code).catch(() => null),
     ]);
     return NextResponse.json({
@@ -60,7 +62,10 @@ export async function POST(req: NextRequest) {
     }
     const vt3Record = await findInVt3(code);
     if (!vt3Record) {
-      return NextResponse.json({ error: `videoCode ${code} not found in VT3 latest 500` }, { status: 404 });
+      return NextResponse.json(
+        { error: `videoCode ${code} not found in VT3 latest 500` },
+        { status: 404 },
+      );
     }
     const existing = await getMatchByVideoCode(code);
     if (!existing) {

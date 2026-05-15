@@ -38,9 +38,7 @@ export async function POST(req: Request): Promise<NextResponse<SeededRow | { err
     await ensureKbfSchema();
 
     const url = new URL(req.url);
-    const email = (url.searchParams.get("email") || "kbftest@headpinz.com")
-      .trim()
-      .toLowerCase();
+    const email = (url.searchParams.get("email") || "kbftest@headpinz.com").trim().toLowerCase();
     const center = url.searchParams.get("center") || "HeadPinz Fort Myers";
     const phone = (url.searchParams.get("phone") || "2390000000").replace(/\D/g, "");
 
@@ -103,9 +101,9 @@ export async function POST(req: Request): Promise<NextResponse<SeededRow | { err
       bday: string;
     }
     const members: MemberSeed[] = [
-      { relation: "kid",    slot: 1, first: "Ava",    last: "Test", bday: "06/14/2018" },
-      { relation: "kid",    slot: 2, first: "Mason",  last: "Test", bday: "03/22/2016" },
-      { relation: "kid",    slot: 3, first: "Lila",   last: "Test", bday: "11/02/2020" },
+      { relation: "kid", slot: 1, first: "Ava", last: "Test", bday: "06/14/2018" },
+      { relation: "kid", slot: 2, first: "Mason", last: "Test", bday: "03/22/2016" },
+      { relation: "kid", slot: 3, first: "Lila", last: "Test", bday: "11/02/2020" },
       // Family-pass adult — only renders when kbf_passes.fpass = TRUE.
       { relation: "family", slot: 1, first: "Jordan", last: "Test", bday: "" },
     ];

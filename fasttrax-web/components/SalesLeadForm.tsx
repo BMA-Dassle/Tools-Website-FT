@@ -75,9 +75,21 @@ type CenterKey = SalesLeadFormProps["centerKey"];
 
 /** User-facing location picker options. Order matters — shown as cards. */
 const CENTERS: Array<{ key: CenterKey; label: string; subtitle: string }> = [
-  { key: "headpinz-ft-myers", label: "HeadPinz Fort Myers", subtitle: "Bowling · Laser tag · Gel blasters · Arcade" },
-  { key: "headpinz-naples", label: "HeadPinz Naples", subtitle: "Bowling · Laser tag · Gel blasters · Arcade" },
-  { key: "fasttrax-ft-myers", label: "FastTrax Fort Myers", subtitle: "Electric karting · Duckpin · Shuffly" },
+  {
+    key: "headpinz-ft-myers",
+    label: "HeadPinz Fort Myers",
+    subtitle: "Bowling · Laser tag · Gel blasters · Arcade",
+  },
+  {
+    key: "headpinz-naples",
+    label: "HeadPinz Naples",
+    subtitle: "Bowling · Laser tag · Gel blasters · Arcade",
+  },
+  {
+    key: "fasttrax-ft-myers",
+    label: "FastTrax Fort Myers",
+    subtitle: "Electric karting · Duckpin · Shuffly",
+  },
 ];
 
 const ACTIVITIES = [
@@ -126,16 +138,25 @@ const TIME_SLOTS: Array<{ value: string; label: string }> = (() => {
   return out;
 })();
 
-export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill, initialEventType }: SalesLeadFormProps) {
+export function SalesLeadForm({
+  centerKey,
+  brand,
+  kind,
+  onClose,
+  packagePrefill,
+  initialEventType,
+}: SalesLeadFormProps) {
   // Brand palette — coral for HeadPinz, cyan for FastTrax (matches site).
   const accent = brand === "hp" ? "#fd5b56" : "#00E2E5";
   const accentText = brand === "hp" ? "#ffffff" : "#000418";
   const bg = brand === "hp" ? "#0a1628" : "#000418";
 
   const eventTypes =
-    kind === "birthday" ? EVENT_TYPES_BIRTHDAY
-    : kind === "all" ? EVENT_TYPES_ALL
-    : EVENT_TYPES_GROUP;
+    kind === "birthday"
+      ? EVENT_TYPES_BIRTHDAY
+      : kind === "all"
+        ? EVENT_TYPES_ALL
+        : EVENT_TYPES_GROUP;
   // If caller hinted at a pre-selected type, honor it when present in the list.
   const defaultEventType =
     initialEventType && eventTypes.some((e) => e.value === initialEventType)
@@ -204,8 +225,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
   const isKidsBirthday = eventType === "birthday-kid";
   const kartingPicked = activityInterest.includes("racing");
   const fastTraxCenter = selectedCenter === "fasttrax-ft-myers";
-  const kidsKartingConflict =
-    isKidsBirthday && (fastTraxCenter || kartingPicked);
+  const kidsKartingConflict = isKidsBirthday && (fastTraxCenter || kartingPicked);
 
   useEffect(() => {
     if (kidsKartingConflict && !kidsKartingAck) {
@@ -366,8 +386,8 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
           <p className="text-white/80 mb-2" style={{ fontSize: "16px", lineHeight: 1.6 }}>
             {success.isIndividual ? (
               <>
-                <strong style={{ color: accent }}>{success.plannerName}</strong> will be your
-                event planner and will reach out shortly.
+                <strong style={{ color: accent }}>{success.plannerName}</strong> will be your event
+                planner and will reach out shortly.
               </>
             ) : (
               <>Our Guest Services team will follow up shortly.</>
@@ -406,7 +426,8 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
           style={{ color: accent, fontSize: "11px", letterSpacing: "3px" }}
           className="uppercase font-bold mb-2"
         >
-          {kind === "birthday" ? "Birthday Party" : kind === "all" ? "Event" : "Group Event"} Inquiry
+          {kind === "birthday" ? "Birthday Party" : kind === "all" ? "Event" : "Group Event"}{" "}
+          Inquiry
         </div>
         <h2
           className="font-heading font-black uppercase italic text-white"
@@ -417,7 +438,11 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
             marginBottom: "12px",
           }}
         >
-          {step === 1 ? "Let's start with the basics" : step === 2 ? "When & what" : "How do we reach you?"}
+          {step === 1
+            ? "Let's start with the basics"
+            : step === 2
+              ? "When & what"
+              : "How do we reach you?"}
         </h2>
 
         {/* Step progress bar — three pips labelled Basics / When / Contact. */}
@@ -440,7 +465,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                 >
                   {done ? "✓" : n}
                 </div>
-                <span className="uppercase font-bold text-white/70" style={{ fontSize: "10px", letterSpacing: "2px" }}>
+                <span
+                  className="uppercase font-bold text-white/70"
+                  style={{ fontSize: "10px", letterSpacing: "2px" }}
+                >
                   {n === 1 ? "Basics" : n === 2 ? "When" : "Contact"}
                 </span>
                 {n < 3 && <div className="flex-1 h-px bg-white/10" />}
@@ -459,7 +487,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
               border: `1px solid ${accent}60`,
             }}
           >
-            <span style={{ color: accent, fontSize: "10px", letterSpacing: "2px" }} className="uppercase font-bold">
+            <span
+              style={{ color: accent, fontSize: "10px", letterSpacing: "2px" }}
+              className="uppercase font-bold"
+            >
               Package
             </span>
             <span className="text-white text-sm font-medium">{packagePrefill}</span>
@@ -481,17 +512,27 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                         onClick={() => setSelectedCenter(c.key)}
                         className="text-left p-3 rounded-lg transition-colors cursor-pointer"
                         style={{
-                          border: active ? `1.78px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                          border: active
+                            ? `1.78px solid ${accent}`
+                            : "1px solid rgba(255,255,255,0.15)",
                           backgroundColor: active ? `${accent}18` : "rgba(255,255,255,0.03)",
                         }}
                       >
                         <div
                           className="font-bold"
-                          style={{ color: active ? accent : "#ffffff", fontSize: "13px", lineHeight: 1.25 }}
+                          style={{
+                            color: active ? accent : "#ffffff",
+                            fontSize: "13px",
+                            lineHeight: 1.25,
+                          }}
                         >
-                          {active ? "✓ " : ""}{c.label}
+                          {active ? "✓ " : ""}
+                          {c.label}
                         </div>
-                        <div className="text-white/55" style={{ fontSize: "11px", marginTop: "2px", lineHeight: 1.35 }}>
+                        <div
+                          className="text-white/55"
+                          style={{ fontSize: "11px", marginTop: "2px", lineHeight: 1.35 }}
+                        >
                           {c.subtitle}
                         </div>
                       </button>
@@ -570,7 +611,9 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                         onClick={() => toggleActivity(a.value)}
                         className="min-h-11 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center leading-tight"
                         style={{
-                          border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                          border: selected
+                            ? `1px solid ${accent}`
+                            : "1px solid rgba(255,255,255,0.15)",
                           backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
                           color: selected ? accent : "#ffffffc0",
                         }}
@@ -654,7 +697,9 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                           onClick={() => setPreferredContactMethod(m.value)}
                           className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
                           style={{
-                            border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                            border: selected
+                              ? `1px solid ${accent}`
+                              : "1px solid rgba(255,255,255,0.15)",
                             backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
                             color: selected ? accent : "#ffffffc0",
                           }}
@@ -676,7 +721,9 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                           onClick={() => setBestTimeToCall(t.value)}
                           className="h-11 px-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-center"
                           style={{
-                            border: selected ? `1px solid ${accent}` : "1px solid rgba(255,255,255,0.15)",
+                            border: selected
+                              ? `1px solid ${accent}`
+                              : "1px solid rgba(255,255,255,0.15)",
                             backgroundColor: selected ? `${accent}20` : "rgba(255,255,255,0.03)",
                             color: selected ? accent : "#ffffffc0",
                           }}
@@ -728,7 +775,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
             {step < 3 ? (
               <button
                 type="button"
-                onClick={() => setStep((s) => ((s + 1) as 1 | 2 | 3))}
+                onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3)}
                 disabled={step === 1 ? !canAdvanceFromStep1 : !canAdvanceFromStep2}
                 className="flex-[2] px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 style={{ backgroundColor: accent, color: accentText }}
@@ -772,7 +819,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
           >
             <button
               type="button"
-              onClick={() => { setKidsKartingAck(true); setShowKidsKartingWarning(false); }}
+              onClick={() => {
+                setKidsKartingAck(true);
+                setShowKidsKartingWarning(false);
+              }}
               aria-label="Close dialog"
               className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
               style={{ fontSize: "20px", lineHeight: 1 }}
@@ -788,21 +838,27 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
               </div>
               <h3
                 className="font-heading font-black uppercase italic text-white mb-4"
-                style={{ fontSize: "clamp(22px, 4vw, 30px)", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+                style={{
+                  fontSize: "clamp(22px, 4vw, 30px)",
+                  lineHeight: 1.15,
+                  letterSpacing: "-0.3px",
+                }}
               >
                 {fastTraxCenter ? "Kids Birthday at FastTrax" : "Kids Birthday + Karting"}
               </h3>
-              <div className="space-y-3 font-body text-white/80" style={{ fontSize: "14px", lineHeight: 1.6 }}>
+              <div
+                className="space-y-3 font-body text-white/80"
+                style={{ fontSize: "14px", lineHeight: 1.6 }}
+              >
                 <p>
                   {fastTraxCenter
                     ? "FastTrax does not offer organized kids birthday party packages. Our karting-centered experience has strict driver requirements — age 13+ and minimum 59\" tall — which doesn't fit the mixed-age groups that typically come with a kids party."
                     : "Karting has strict driver requirements — age 13+ and minimum 59\" tall — that don't fit the mixed-age groups that typically come with a kids party. Adding karting to an organized kids birthday usually means splitting the group across Junior vs. Adult race types."}
                 </p>
                 <p>
-                  In group settings this can create situations where
-                  participants do not qualify for the same kart class,
-                  resulting in groups being split across Junior vs. Adult
-                  race types.
+                  In group settings this can create situations where participants do not qualify for
+                  the same kart class, resulting in groups being split across Junior vs. Adult race
+                  types.
                 </p>
                 <p>
                   Please review our race requirements at{" "}
@@ -813,8 +869,7 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                   >
                     fasttraxent.com/racing
                   </a>
-                  . If you&apos;d like to handle karting on your own, you can
-                  self-book anytime at{" "}
+                  . If you&apos;d like to handle karting on your own, you can self-book anytime at{" "}
                   <a
                     href="https://fasttraxent.com/book"
                     className="underline hover:text-white"
@@ -826,7 +881,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                 </p>
                 <div
                   className="mt-4 p-4 rounded-lg"
-                  style={{ backgroundColor: "rgba(253,91,86,0.08)", border: "1px solid rgba(253,91,86,0.3)" }}
+                  style={{
+                    backgroundColor: "rgba(253,91,86,0.08)",
+                    border: "1px solid rgba(253,91,86,0.3)",
+                  }}
                 >
                   <div
                     className="uppercase font-bold mb-1"
@@ -835,10 +893,9 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                     Looking for an organized kids party?
                   </div>
                   <p className="text-white/85" style={{ fontSize: "14px", lineHeight: 1.55 }}>
-                    HeadPinz Fort Myers runs organized kids birthday packages
-                    (bowling, laser tag, arcade). Use the button below to
-                    switch this request to HeadPinz, or open the HeadPinz
-                    birthday packages page.
+                    HeadPinz Fort Myers runs organized kids birthday packages (bowling, laser tag,
+                    arcade). Use the button below to switch this request to HeadPinz, or open the
+                    HeadPinz birthday packages page.
                   </p>
                 </div>
               </div>
@@ -872,7 +929,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                 </a>
                 <button
                   type="button"
-                  onClick={() => { setKidsKartingAck(true); setShowKidsKartingWarning(false); }}
+                  onClick={() => {
+                    setKidsKartingAck(true);
+                    setShowKidsKartingWarning(false);
+                  }}
                   className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors text-center leading-tight"
                 >
                   Keep my choices
@@ -901,7 +961,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
           >
             <button
               type="button"
-              onClick={() => { setShortNoticeAck(true); setShowShortNoticeWarning(false); }}
+              onClick={() => {
+                setShortNoticeAck(true);
+                setShowShortNoticeWarning(false);
+              }}
               aria-label="Close dialog"
               className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
               style={{ fontSize: "20px", lineHeight: 1 }}
@@ -917,20 +980,25 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
               </div>
               <h3
                 className="font-heading font-black uppercase italic text-white mb-4"
-                style={{ fontSize: "clamp(22px, 4vw, 30px)", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+                style={{
+                  fontSize: "clamp(22px, 4vw, 30px)",
+                  lineHeight: 1.15,
+                  letterSpacing: "-0.3px",
+                }}
               >
                 Booking within 3 days
               </h3>
-              <div className="space-y-3 font-body text-white/80" style={{ fontSize: "14px", lineHeight: 1.6 }}>
+              <div
+                className="space-y-3 font-body text-white/80"
+                style={{ fontSize: "14px", lineHeight: 1.6 }}
+              >
                 <p>
-                  We may not be able to accommodate your request on such
-                  short notice. Our VIP events require planning to make
-                  your experience the best one.
+                  We may not be able to accommodate your request on such short notice. Our VIP
+                  events require planning to make your experience the best one.
                 </p>
                 <p>
-                  If you need something today, our online booking is
-                  available same-day for self-serve lanes, karts, and
-                  attractions.
+                  If you need something today, our online booking is available same-day for
+                  self-serve lanes, karts, and attractions.
                 </p>
               </div>
 
@@ -944,7 +1012,10 @@ export function SalesLeadForm({ centerKey, brand, kind, onClose, packagePrefill,
                 </a>
                 <button
                   type="button"
-                  onClick={() => { setShortNoticeAck(true); setShowShortNoticeWarning(false); }}
+                  onClick={() => {
+                    setShortNoticeAck(true);
+                    setShowShortNoticeWarning(false);
+                  }}
                   className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors text-center leading-tight"
                 >
                   Keep my date

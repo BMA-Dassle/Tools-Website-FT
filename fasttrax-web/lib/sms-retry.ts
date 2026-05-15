@@ -35,7 +35,7 @@ export interface SmsRetryAudit {
 export interface RetryEntry {
   id: string;
   cron: SmsRetryCron;
-  phone: string;       // canonical +1...
+  phone: string; // canonical +1...
   body: string;
   audit: SmsRetryAudit;
   attempts: number;
@@ -99,14 +99,19 @@ export async function queueRetry(params: {
  * Returns them with the raw Redis member string so the caller can remove
  * them on success.
  */
-export async function dueRetries(cron: SmsRetryCron, now = Date.now()): Promise<{ raw: string; entry: RetryEntry }[]> {
+export async function dueRetries(
+  cron: SmsRetryCron,
+  now = Date.now(),
+): Promise<{ raw: string; entry: RetryEntry }[]> {
   const raws = await redis.zrangebyscore(PENDING, 0, now);
   const out: { raw: string; entry: RetryEntry }[] = [];
   for (const r of raws) {
     try {
       const entry = JSON.parse(r) as RetryEntry;
       if (entry.cron === cron) out.push({ raw: r, entry });
-    } catch { /* skip corrupt */ }
+    } catch {
+      /* skip corrupt */
+    }
   }
   return out;
 }
@@ -158,7 +163,11 @@ export async function listPending(max = 200): Promise<RetryEntry[]> {
   const raws = await redis.zrange(PENDING, 0, max - 1);
   const out: RetryEntry[] = [];
   for (const r of raws) {
-    try { out.push(JSON.parse(r) as RetryEntry); } catch { /* skip */ }
+    try {
+      out.push(JSON.parse(r) as RetryEntry);
+    } catch {
+      /* skip */
+    }
   }
   return out;
 }
@@ -167,7 +176,11 @@ export async function listDead(max = 200): Promise<RetryEntry[]> {
   const raws = await redis.lrange(DEAD, 0, max - 1);
   const out: RetryEntry[] = [];
   for (const r of raws) {
-    try { out.push(JSON.parse(r) as RetryEntry); } catch { /* skip */ }
+    try {
+      out.push(JSON.parse(r) as RetryEntry);
+    } catch {
+      /* skip */
+    }
   }
   return out;
 }
@@ -258,7 +271,9 @@ async function voxSendOnce(
     try {
       const json = (await res.clone().json()) as { id?: string };
       if (typeof json?.id === "string") voxId = json.id;
-    } catch { /* ignore — older API or non-JSON */ }
+    } catch {
+      /* ignore — older API or non-JSON */
+    }
     return { ok: true, status: res.status, voxId };
   } catch (err) {
     return { ok: false, status: null, error: err instanceof Error ? err.message : "network error" };
@@ -327,11 +342,7 @@ export async function voxSend(
   // If we tried with an override and Voxtelesys rejected it (likely DID not owned),
   // degrade to default VOX_FROM and prepend a "From {planner}" prefix so the
   // customer still knows who's texting.
-  if (
-    !result.ok &&
-    opts?.fromOverride &&
-    (result.status === 400 || result.status === 403)
-  ) {
+  if (!result.ok && opts?.fromOverride && (result.status === 400 || result.status === 403)) {
     const prefix = opts.fallbackPrefix || `(From ${opts.fromOverride}) `;
     const fallbackBody = prefix + body;
     result = await voxSendOnce(toFormatted, fallbackBody, VOX_FROM);
@@ -382,20 +393,33 @@ export async function drainRetries(
 
   const { quotaEnqueue } = await import("@/lib/sms-quota");
   const due = await dueRetries(cron);
-  let ok = 0, requeued = 0, dead = 0, quotaQueued = 0;
+  let ok = 0,
+    requeued = 0,
+    dead = 0,
+    quotaQueued = 0;
   for (const { raw, entry } of due) {
     const toFormatted = canonicalizePhone(entry.phone);
-    if (!toFormatted) { await removeRetry(raw); continue; }
+    if (!toFormatted) {
+      await removeRetry(raw);
+      continue;
+    }
     const ts = new Date().toISOString();
     const result = await voxSend(toFormatted, entry.body);
     if (result.ok) {
       await removeRetry(raw);
       await logSms({
-        ts, phone: toFormatted, source: cron,
-        status: result.status, ok: true, body: entry.body,
-        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds,
-        memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode,
-        provider: result.provider, failedOver: result.failedOver,
+        ts,
+        phone: toFormatted,
+        source: cron,
+        status: result.status,
+        ok: true,
+        body: entry.body,
+        sessionIds: entry.audit.sessionIds,
+        personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount,
+        shortCode: entry.audit.shortCode,
+        provider: result.provider,
+        failedOver: result.failedOver,
       });
       for (const sid of entry.audit.sessionIds) {
         for (const pid of entry.audit.personIds) {
@@ -422,24 +446,36 @@ export async function drainRetries(
         },
       });
       await logSms({
-        ts, phone: toFormatted, source: cron,
-        status: result.status, ok: false,
+        ts,
+        phone: toFormatted,
+        source: cron,
+        status: result.status,
+        ok: false,
         error: `[quota] queued for next reset window (${result.error || "429"})`,
         body: entry.body,
-        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds,
-        memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode,
+        sessionIds: entry.audit.sessionIds,
+        personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount,
+        shortCode: entry.audit.shortCode,
       });
       quotaQueued++;
     } else {
       await logSms({
-        ts, phone: toFormatted, source: cron,
-        status: result.status, ok: false,
-        error: `[retry attempt ${entry.attempts + 1}] ${result.error}`, body: entry.body,
-        sessionIds: entry.audit.sessionIds, personIds: entry.audit.personIds,
-        memberCount: entry.audit.memberCount, shortCode: entry.audit.shortCode,
+        ts,
+        phone: toFormatted,
+        source: cron,
+        status: result.status,
+        ok: false,
+        error: `[retry attempt ${entry.attempts + 1}] ${result.error}`,
+        body: entry.body,
+        sessionIds: entry.audit.sessionIds,
+        personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount,
+        shortCode: entry.audit.shortCode,
       });
       const movedToDead = await reQueueOrDead(raw, entry, result.status, result.error || "");
-      if (movedToDead) dead++; else requeued++;
+      if (movedToDead) dead++;
+      else requeued++;
     }
   }
   return { attempted: due.length, ok, requeued, dead, quotaQueued };

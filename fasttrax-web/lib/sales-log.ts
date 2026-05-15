@@ -44,10 +44,10 @@ import { sql, isDbConfigured } from "@/lib/db";
  */
 
 export type BookingType =
-  | "racing"      // pure racing booking
+  | "racing" // pure racing booking
   | "racing-pack" // race-pack purchase
   | "attractions" // attraction-only (bowling, gel blaster, etc.)
-  | "mixed"       // racing + attractions in one bill
+  | "mixed" // racing + attractions in one bill
   | "other";
 
 export interface SaleEntry {

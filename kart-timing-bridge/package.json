@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "probe": "PROBE=1 tsx src/index.ts"
+    "probe": "PROBE=1 tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {},
   "devDependencies": {

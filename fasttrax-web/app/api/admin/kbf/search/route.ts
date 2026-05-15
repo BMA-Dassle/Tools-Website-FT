@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  searchPasses,
-  loadPassesWithMembers,
-} from "@/lib/kbf-prefs";
+import { searchPasses, loadPassesWithMembers } from "@/lib/kbf-prefs";
 import { getKbfRedeemedMembers, getKbfFutureReservationsByPass } from "@/lib/bowling-db";
 
 /**
@@ -34,16 +31,15 @@ export async function POST(req: NextRequest) {
   const todayET = new Date().toLocaleDateString("en-CA", {
     timeZone: "America/New_York",
   });
-  const allPairs = full.flatMap((p) =>
-    p.members.map((m) => ({ passId: p.id, slot: m.slot })),
-  );
-  const redeemed =
-    allPairs.length > 0
-      ? await getKbfRedeemedMembers(todayET, allPairs)
-      : [];
+  const allPairs = full.flatMap((p) => p.members.map((m) => ({ passId: p.id, slot: m.slot })));
+  const redeemed = allPairs.length > 0 ? await getKbfRedeemedMembers(todayET, allPairs) : [];
 
   // Check for future KBF reservations — blocks Book Lane for passes that already have one
   const futureRez = await getKbfFutureReservationsByPass(passIds);
 
-  return NextResponse.json({ passes: full, redeemedToday: redeemed, futureReservations: futureRez });
+  return NextResponse.json({
+    passes: full,
+    redeemedToday: redeemed,
+    futureReservations: futureRez,
+  });
 }

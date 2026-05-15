@@ -8,8 +8,7 @@ import SeoFaq from "@/components/headpinz/SeoFaq";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
-  title:
-    "All Attractions - Bowling, Laser Tag, Gel Blasters, VIP, Arcade | HeadPinz Fort Myers",
+  title: "All Attractions - Bowling, Laser Tag, Gel Blasters, VIP, Arcade | HeadPinz Fort Myers",
   description:
     "Explore everything at HeadPinz Fort Myers: 24-lane premier bowling, NEXUS laser tag, gel blasters, NeoVerse, HyperBowling, and 40+ arcade games. Six attractions under one roof.",
   keywords: [
@@ -107,7 +106,8 @@ const attractions = [
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
     borderColor: "rgba(255,215,0,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-neoverse-v2.mp4",
+    videoUrl:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-neoverse-v2.mp4",
   },
   {
     name: "HyperBowling",
@@ -124,7 +124,8 @@ const attractions = [
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
     borderColor: "rgba(255,215,0,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling-v2.mp4",
+    videoUrl:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling-v2.mp4",
   },
   {
     name: "Shuffly Shuffleboard",
@@ -157,7 +158,8 @@ const attractions = [
     badge: null,
     accent: "#00E2E5",
     borderColor: "rgba(0,226,229,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4",
+    videoUrl:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4",
   },
 ];
 
@@ -246,13 +248,12 @@ export default function AttractionsPage() {
                 className={`relative rounded-lg overflow-hidden ${
                   isEven ? "md:flex-row-reverse" : ""
                 }`}
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${a.borderColor}` }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${a.borderColor}`,
+                }}
               >
-                <div
-                  className={`flex flex-col md:flex-row ${
-                    isEven ? "md:flex-row-reverse" : ""
-                  }`}
-                >
+                <div className={`flex flex-col md:flex-row ${isEven ? "md:flex-row-reverse" : ""}`}>
                   {/* Image/Video side */}
                   <div className="relative md:w-[60%] flex-shrink-0" style={{ minHeight: "400px" }}>
                     {a.videoUrl ? (
@@ -327,9 +328,7 @@ export default function AttractionsPage() {
                     </p>
 
                     {/* Details */}
-                    <p className="font-body text-white/40 text-sm mb-2">
-                      {a.details}
-                    </p>
+                    <p className="font-body text-white/40 text-sm mb-2">{a.details}</p>
 
                     {/* Pricing */}
                     <p
@@ -364,9 +363,7 @@ export default function AttractionsPage() {
                           {a.cta}
                         </Link>
                       )}
-                      {a.videoUrl && (
-                        <AttractionVideo videoUrl={a.videoUrl} accent={a.accent} />
-                      )}
+                      {a.videoUrl && <AttractionVideo videoUrl={a.videoUrl} accent={a.accent} />}
                     </div>
                   </div>
                 </div>
@@ -392,11 +389,10 @@ export default function AttractionsPage() {
             className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto mb-10"
             style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
           >
-            One of the largest arcades in Fort Myers — 40+ premier arcade games, VR
-            simulators, and The Winner&apos;s Circle redemption prize center. Everything
-            runs off a single Game Card you can load at any kiosk, so there&apos;s no waiting
-            in line for tokens. Located at 14513 Global Parkway, one minute from I-75 at
-            Gateway Boulevard.
+            One of the largest arcades in Fort Myers — 40+ premier arcade games, VR simulators, and
+            The Winner&apos;s Circle redemption prize center. Everything runs off a single Game Card
+            you can load at any kiosk, so there&apos;s no waiting in line for tokens. Located at
+            14513 Global Parkway, one minute from I-75 at Gateway Boulevard.
           </p>
 
           <h2
@@ -409,10 +405,10 @@ export default function AttractionsPage() {
             className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto"
             style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
           >
-            HeadPinz Fort Myers hosts adult bowling leagues year-round plus seasonal
-            youth bowling leagues for ages 5–17. Youth leagues run in 10-week sessions
-            (fall, winter, spring) with USBC-certified coaches. Ask us about
-            league signup, open play nights, and Kids Bowl Free summer passes.
+            HeadPinz Fort Myers hosts adult bowling leagues year-round plus seasonal youth bowling
+            leagues for ages 5–17. Youth leagues run in 10-week sessions (fall, winter, spring) with
+            USBC-certified coaches. Ask us about league signup, open play nights, and Kids Bowl Free
+            summer passes.
           </p>
         </div>
       </section>

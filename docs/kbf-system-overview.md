@@ -15,12 +15,12 @@ Parents register at [KidsBowlFree.com](https://kidsbowlfree.com), selecting our 
 
 ## Program Dates & Hours
 
-| | Detail |
-|---|---|
-| **Season** | May 14 – August 28, 2026 |
-| **Days** | Monday through Friday only (no weekends) |
-| **Hours** | 11:00 AM – close (Mon–Thu), 11:00 AM – 5:00 PM (Friday) |
-| **Games** | 2 free games per registered bowler per day |
+|            | Detail                                                  |
+| ---------- | ------------------------------------------------------- |
+| **Season** | May 14 – August 28, 2026                                |
+| **Days**   | Monday through Friday only (no weekends)                |
+| **Hours**  | 11:00 AM – close (Mon–Thu), 11:00 AM – 5:00 PM (Friday) |
+| **Games**  | 2 free games per registered bowler per day              |
 
 The date picker in the booking flow shows available weekdays across the full season — no artificial booking window.
 
@@ -28,12 +28,12 @@ The date picker in the booking flow shows available weekdays across the full sea
 
 ## Two Programs: Kids Bowl Free vs. Families Bowl Free
 
-| | Kids Bowl Free (KBF) | Families Bowl Free (FBF) |
-|---|---|---|
-| **Who's free** | Registered kids only | Everyone — kids AND adults |
-| **Adult pricing** | $5/game Mon–Thu, $6/game Fri (2 games = $10 or $12) | Free |
-| **How to tell** | `fpass = false` on the pass | `fpass = true` on the pass |
-| **Registration** | Free at KidsBowlFree.com | Paid upgrade ($34.95/family on KBF site) |
+|                   | Kids Bowl Free (KBF)                                | Families Bowl Free (FBF)                 |
+| ----------------- | --------------------------------------------------- | ---------------------------------------- |
+| **Who's free**    | Registered kids only                                | Everyone — kids AND adults               |
+| **Adult pricing** | $5/game Mon–Thu, $6/game Fri (2 games = $10 or $12) | Free                                     |
+| **How to tell**   | `fpass = false` on the pass                         | `fpass = true` on the pass               |
+| **Registration**  | Free at KidsBowlFree.com                            | Paid upgrade ($34.95/family on KBF site) |
 
 The booking wizard detects which program the family is on and adjusts automatically:
 
@@ -49,6 +49,7 @@ The booking wizard detects which program the family is on and adjusts automatica
 A Vercel cron job runs **every 15 minutes** (`/api/cron/kbf-sync`).
 
 **What it does:**
+
 1. Logs into KidsBowlFree.com's center admin portal using our center credentials
 2. Downloads the full registration CSV (every family registered at our centers)
 3. Parses the CSV — each row has up to 6 kid slots and 4 family adult slots
@@ -56,6 +57,7 @@ A Vercel cron job runs **every 15 minutes** (`/api/cron/kbf-sync`).
 5. Only syncs HeadPinz Fort Myers and HeadPinz Naples (ignores Lehigh Lanes)
 
 **Current numbers** (as of today):
+
 - Fort Myers: ~1,500 registered passes
 - Naples: ~843 registered passes
 - ~6,959 total individual members
@@ -101,7 +103,7 @@ When a parent signs in, the system checks for any existing future KBF reservatio
 Each registered bowler (kid or FBF adult) gets **one free session per day**. The system enforces this:
 
 - When booking, the system checks if any of the selected free bowlers already have a non-cancelled KBF reservation on that date
-- If they do, the booking is **blocked** with a message naming the specific bowlers: *"Ada already used their free games for May 15."*
+- If they do, the booking is **blocked** with a message naming the specific bowlers: _"Ada already used their free games for May 15."_
 - **Paid adults are not subject to this limit** — only the free game allotment is capped
 - A bowler who already used their free games CAN still be added as a **paid adult** for the same day
 
@@ -115,10 +117,10 @@ When rescheduling to a new date, the system checks the new date's redemptions bu
 
 When KBF adults are added to a booking, the charges use these Square catalog items:
 
-| Product | Price | When |
-|---|---|---|
+| Product             | Price      | When              |
+| ------------------- | ---------- | ----------------- |
 | Adult Game Mon-Thur | $5.00/game | Monday – Thursday |
-| Adult Game Fri-Sun | $6.00/game | Friday |
+| Adult Game Fri-Sun  | $6.00/game | Friday            |
 
 Each adult plays 2 games per session, so the total per adult is **$10 Mon–Thu** or **$12 on Fridays**.
 
@@ -130,14 +132,15 @@ The server determines pricing from the booking date — it never trusts what the
 
 Parents can choose between **Regular** and **VIP** lanes during the booking flow.
 
-| | Regular | VIP |
-|---|---|---|
-| **Lane type** | Standard HeadPinz lanes | VIP suite with NeoVerse video walls |
-| **Upcharge** | None | **$1.00 per person per game** |
-| **Per bowler** | $0 | $2.00 (2 games × $1) |
-| **Applies to** | — | **Everyone** — kids, FBF adults, and paid adults alike |
+|                | Regular                 | VIP                                                    |
+| -------------- | ----------------------- | ------------------------------------------------------ |
+| **Lane type**  | Standard HeadPinz lanes | VIP suite with NeoVerse video walls                    |
+| **Upcharge**   | None                    | **$1.00 per person per game**                          |
+| **Per bowler** | $0                      | $2.00 (2 games × $1)                                   |
+| **Applies to** | —                       | **Everyone** — kids, FBF adults, and paid adults alike |
 
 Example: A family of 4 (2 kids + 2 paid adults) on a VIP Wednesday KBF booking:
+
 - Kids: 2 × $2 VIP = **$4**
 - Adults: 2 × ($10 adult games + $2 VIP) = **$24**
 - **Total: $28** (plus booking fee + tax)
@@ -156,17 +159,17 @@ The VIP flag is determined server-side from the QAMF web offer ID — the client
 
 ## Key System Components
 
-| Component | What it does |
-|---|---|
-| `/api/cron/kbf-sync` | Hourly import from KidsBowlFree.com → Neon DB |
-| `/api/kbf/lookup` + `/api/kbf/verify` | OTP sign-in (email or phone) |
-| `/api/kbf/offers` | Fetches available time slots from QAMF, applies schedule rules, returns adult pricing metadata |
-| `/api/bowling/v2/reserve` | Creates reservation (QAMF + Square + Neon), enforces redemption cap |
-| `/api/bowling/v2/reservations/[id]/reschedule` | Moves reservation to new date/time |
-| `/api/bowling/v2/my-reservations` | Checks for existing active reservation |
-| `BowlingWizard.tsx` | The booking UI (shared with regular bowling, KBF mode) |
-| `kbf-schedule.ts` | Schedule rules (dates, times, program season) |
-| `bowling-db.ts` | Database queries including redemption check |
+| Component                                      | What it does                                                                                   |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `/api/cron/kbf-sync`                           | Hourly import from KidsBowlFree.com → Neon DB                                                  |
+| `/api/kbf/lookup` + `/api/kbf/verify`          | OTP sign-in (email or phone)                                                                   |
+| `/api/kbf/offers`                              | Fetches available time slots from QAMF, applies schedule rules, returns adult pricing metadata |
+| `/api/bowling/v2/reserve`                      | Creates reservation (QAMF + Square + Neon), enforces redemption cap                            |
+| `/api/bowling/v2/reservations/[id]/reschedule` | Moves reservation to new date/time                                                             |
+| `/api/bowling/v2/my-reservations`              | Checks for existing active reservation                                                         |
+| `BowlingWizard.tsx`                            | The booking UI (shared with regular bowling, KBF mode)                                         |
+| `kbf-schedule.ts`                              | Schedule rules (dates, times, program season)                                                  |
+| `bowling-db.ts`                                | Database queries including redemption check                                                    |
 
 ---
 

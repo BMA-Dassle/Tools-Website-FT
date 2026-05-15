@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     "dining Fort Myers",
     "Nemos Trackside",
     "trackside dining",
-    
+
     "best pizza Fort Myers",
     "family restaurant Fort Myers",
     "bar and grill Fort Myers",
@@ -54,34 +54,60 @@ export default function MenuPage() {
           <div className="flex-1">
             <h2
               className="font-heading font-black uppercase text-white"
-              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+              style={{
+                fontSize: "clamp(32px, 8vw, 72px)",
+                lineHeight: "1",
+                letterSpacing: "3px",
+                marginBottom: "16px",
+                textShadow: glowShadow,
+              }}
             >
               Artisan Pizza. Italian Tradition. Front-Row Seats
             </h2>
             <p
               className="font-body mb-8"
-              style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
+              style={{
+                color: "rgba(255,255,255,0.898)",
+                fontSize: "18px",
+                lineHeight: "1.6",
+                maxWidth: "700px",
+              }}
             >
-              Experience high-speed excitement paired with authentic Italian flair. Whether you&apos;re cooling down from a Pro-speed heat or fueling up for the Game Zone, Nemo&apos;s is the social heart of the Global Parkway destination.
+              Experience high-speed excitement paired with authentic Italian flair. Whether
+              you&apos;re cooling down from a Pro-speed heat or fueling up for the Game Zone,
+              Nemo&apos;s is the social heart of the Global Parkway destination.
             </p>
             <div className="flex flex-wrap gap-3">
               <a
                 href="tel:+12394819666"
                 className="inline-block font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-                style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
+                style={{
+                  backgroundColor: "rgb(228,28,29)",
+                  borderRadius: "555px",
+                  padding: "16px 48px",
+                  fontSize: "14px",
+                }}
               >
                 CALL TO ORDER
               </a>
               <a
                 href="#events"
                 className="inline-block font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-                style={{ backgroundColor: "rgb(0,74,173)", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
+                style={{
+                  backgroundColor: "rgb(0,74,173)",
+                  borderRadius: "555px",
+                  padding: "16px 48px",
+                  fontSize: "14px",
+                }}
               >
                 VIEW UPCOMING EVENTS
               </a>
             </div>
           </div>
-          <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "clamp(250px, 50vw, 400px)" }}>
+          <div
+            className="flex-1 relative rounded-2xl overflow-hidden"
+            style={{ minHeight: "clamp(250px, 50vw, 400px)" }}
+          >
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-interior.webp"
               alt="Nemo's Trackside"
@@ -103,16 +129,31 @@ export default function MenuPage() {
           sizes="100vw"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/95 via-[#000418]/85 to-[#000418]/60" />
-        <div className="relative z-10 max-w-7xl mx-auto px-8 flex items-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+        <div
+          className="relative z-10 max-w-7xl mx-auto px-8 flex items-center"
+          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+        >
           <div style={{ maxWidth: "600px" }}>
             <h2
               className="font-heading font-black uppercase text-white"
-              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "32px", textShadow: glowShadow }}
+              style={{
+                fontSize: "clamp(32px, 8vw, 72px)",
+                lineHeight: "1",
+                letterSpacing: "3px",
+                marginBottom: "32px",
+                textShadow: glowShadow,
+              }}
             >
               The Star of the Show: Brick Oven Mastery
             </h2>
-            <p className="font-body" style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6" }}>
-              At the center sits the authentic Brick Oven. Fired at 800&deg;, it delivers the perfect charred, artisan crust that defines true Italian pizza. We use premium ingredients and traditional techniques to bring an elevated dining experience to the trackside lounge.
+            <p
+              className="font-body"
+              style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6" }}
+            >
+              At the center sits the authentic Brick Oven. Fired at 800&deg;, it delivers the
+              perfect charred, artisan crust that defines true Italian pizza. We use premium
+              ingredients and traditional techniques to bring an elevated dining experience to the
+              trackside lounge.
             </p>
           </div>
         </div>
@@ -123,14 +164,23 @@ export default function MenuPage() {
         <div className="max-w-7xl mx-auto px-8">
           <h2
             className="font-heading font-black uppercase text-white text-center"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: "rgba(255,30,0,0.4) 0px 0px 30px" }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "48px",
+              textShadow: "rgba(255,30,0,0.4) 0px 0px 30px",
+            }}
           >
             Trackside Dining Experience
           </h2>
 
           <div className="flex flex-col lg:flex-row gap-8 items-stretch">
             {/* Left side: Image */}
-            <div className="flex-1 relative rounded-2xl overflow-hidden" style={{ minHeight: "clamp(250px, 50vw, 400px)" }}>
+            <div
+              className="flex-1 relative rounded-2xl overflow-hidden"
+              style={{ minHeight: "clamp(250px, 50vw, 400px)" }}
+            >
               <Image
                 src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/nemos-entertainment.webp"
                 alt="Friday & Saturday Night Entertainment"
@@ -152,11 +202,19 @@ export default function MenuPage() {
                   flex: 1,
                 }}
               >
-                <h3 className="font-heading uppercase mb-3" style={{ color: "rgb(228,28,29)", fontSize: "30px", letterSpacing: "1.5px" }}>
+                <h3
+                  className="font-heading uppercase mb-3"
+                  style={{ color: "rgb(228,28,29)", fontSize: "30px", letterSpacing: "1.5px" }}
+                >
                   The Experience
                 </h3>
-                <p className="font-body" style={{ color: "rgb(245,236,238)", fontSize: "18px", lineHeight: "1.5" }}>
-                  Nemo&apos;s Trackside is your pit stop for incredible food and an unbeatable view. Watch the racing action from our trackside dining area while enjoying handcrafted brick oven pizza and fresh cocktails.
+                <p
+                  className="font-body"
+                  style={{ color: "rgb(245,236,238)", fontSize: "18px", lineHeight: "1.5" }}
+                >
+                  Nemo&apos;s Trackside is your pit stop for incredible food and an unbeatable view.
+                  Watch the racing action from our trackside dining area while enjoying handcrafted
+                  brick oven pizza and fresh cocktails.
                 </p>
               </div>
 
@@ -170,11 +228,19 @@ export default function MenuPage() {
                   flex: 1,
                 }}
               >
-                <h3 className="font-heading uppercase mb-3" style={{ color: "rgb(0,74,173)", fontSize: "30px", letterSpacing: "1.5px" }}>
+                <h3
+                  className="font-heading uppercase mb-3"
+                  style={{ color: "rgb(0,74,173)", fontSize: "30px", letterSpacing: "1.5px" }}
+                >
                   VIP Viewing
                 </h3>
-                <p className="font-body" style={{ color: "rgb(245,236,238)", fontSize: "18px", lineHeight: "1.5" }}>
-                  Enjoy your meal from our exclusive viewing areas. It&apos;s the best seat in the house to watch karts navigate the technical &apos;Surgical Slow-down&apos; hairpins while you enjoy the music.
+                <p
+                  className="font-body"
+                  style={{ color: "rgb(245,236,238)", fontSize: "18px", lineHeight: "1.5" }}
+                >
+                  Enjoy your meal from our exclusive viewing areas. It&apos;s the best seat in the
+                  house to watch karts navigate the technical &apos;Surgical Slow-down&apos;
+                  hairpins while you enjoy the music.
                 </p>
               </div>
             </div>
@@ -185,17 +251,32 @@ export default function MenuPage() {
       {/* Mobile ordering section removed — no app exists */}
 
       {/* ── Section: Upcoming Events & Watch Parties ── */}
-      <section id="events" className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        id="events"
+        className="bg-[#000418]"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "16px",
+              textShadow: glowShadow,
+            }}
           >
             Upcoming Events &amp; Watch Parties
           </h2>
           <p
             className="text-center mx-auto mb-10 font-body"
-            style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
+            style={{
+              color: "rgba(255,255,255,0.898)",
+              fontSize: "18px",
+              lineHeight: "1.6",
+              maxWidth: "700px",
+            }}
           >
             Check out what&apos;s happening at Nemo&apos;s Trackside.
           </p>
@@ -251,10 +332,16 @@ export default function MenuPage() {
                   {evt.num}
                 </div>
                 <div>
-                  <h3 className="font-heading uppercase mb-1" style={{ color: evt.titleColor, fontSize: "24px", letterSpacing: "1.2px" }}>
+                  <h3
+                    className="font-heading uppercase mb-1"
+                    style={{ color: evt.titleColor, fontSize: "24px", letterSpacing: "1.2px" }}
+                  >
                     {evt.title}
                   </h3>
-                  <p className="font-body" style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}>
+                  <p
+                    className="font-body"
+                    style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}
+                  >
                     {evt.desc}
                   </p>
                 </div>
@@ -268,7 +355,12 @@ export default function MenuPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-              style={{ backgroundColor: "rgb(134,82,255)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+              style={{
+                backgroundColor: "rgb(134,82,255)",
+                borderRadius: "555px",
+                padding: "16px 24px",
+                fontSize: "14px",
+              }}
             >
               VIEW FULL EVENT CALENDAR
             </a>
@@ -286,10 +378,19 @@ export default function MenuPage() {
           sizes="100vw"
         />
         <div className="absolute inset-0 bg-[#000418]/80" />
-        <div className="relative z-10 max-w-3xl mx-auto text-center" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+        <div
+          className="relative z-10 max-w-3xl mx-auto text-center"
+          style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+        >
           <h2
             className="font-heading font-black uppercase text-white"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "24px", textShadow: glowShadow }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "24px",
+              textShadow: glowShadow,
+            }}
           >
             Planning a visit with 10+ guests?
           </h2>
@@ -297,12 +398,18 @@ export default function MenuPage() {
             className="font-body mb-8"
             style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6" }}
           >
-            Ensure your artisan pizzas hit the table the moment your group finishes their race. Contact us to arrange pre-orders for your trackside table or VIP viewing area.
+            Ensure your artisan pizzas hit the table the moment your group finishes their race.
+            Contact us to arrange pre-orders for your trackside table or VIP viewing area.
           </p>
           <a
             href="/group-events"
             className="inline-block font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-            style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 48px", fontSize: "14px" }}
+            style={{
+              backgroundColor: "rgb(228,28,29)",
+              borderRadius: "555px",
+              padding: "16px 48px",
+              fontSize: "14px",
+            }}
           >
             REQUEST AN EVENT QUOTE
           </a>

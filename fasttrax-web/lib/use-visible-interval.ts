@@ -67,7 +67,9 @@ export function useVisibleInterval(
       activeController = ctrl;
       try {
         await latest.current(ctrl.signal);
-      } catch { /* swallow — caller's problem */ }
+      } catch {
+        /* swallow — caller's problem */
+      }
       activeController = null;
       if (cancelled || document.hidden) return;
       // Schedule next tick AFTER the current cycle settled — no overlap.

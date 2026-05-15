@@ -16,8 +16,16 @@ export async function generateMetadata({ params }: PageProps) {
     return {
       title: "E-Ticket — FastTrax",
       description: "Your FastTrax e-ticket",
-      openGraph: { title: "E-Ticket — FastTrax", description: "Your FastTrax e-ticket", siteName: "FastTrax E-Ticket" },
-      twitter: { card: "summary" as const, title: "E-Ticket — FastTrax", description: "Your FastTrax e-ticket" },
+      openGraph: {
+        title: "E-Ticket — FastTrax",
+        description: "Your FastTrax e-ticket",
+        siteName: "FastTrax E-Ticket",
+      },
+      twitter: {
+        card: "summary" as const,
+        title: "E-Ticket — FastTrax",
+        description: "Your FastTrax e-ticket",
+      },
     };
   }
   const count = group.members.length;

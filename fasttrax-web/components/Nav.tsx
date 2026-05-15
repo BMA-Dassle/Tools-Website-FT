@@ -16,8 +16,19 @@ const schedule: Record<number, { day: string; open: string; close: string }> = {
 };
 
 function getTodayHours() {
-  const estDay = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "America/New_York" }).format(new Date());
-  const dayIndex = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].indexOf(estDay);
+  const estDay = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    timeZone: "America/New_York",
+  }).format(new Date());
+  const dayIndex = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ].indexOf(estDay);
   const entry = schedule[dayIndex];
   return `${entry.day} ${entry.open} – ${entry.close}`;
 }
@@ -52,15 +63,27 @@ export default function Nav() {
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
       {/* Top bar */}
-      <div className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#010A20]" : "bg-transparent"}`}>
+      <div
+        className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#010A20]" : "bg-transparent"}`}
+      >
         <div className="flex items-center gap-4">
-          <a href="https://www.facebook.com/FastTraxFM" target="_blank" rel="noopener noreferrer" className="hover:text-[#00E2E5] transition-colors" aria-label="Facebook">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
+          <a
+            href="https://www.facebook.com/FastTraxFM"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-[#00E2E5] transition-colors"
+            aria-label="Facebook"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z" />
+            </svg>
           </a>
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-          <span className="font-body font-semibold text-white tracking-wider text-xs">{todayHours}</span>
+          <span className="font-body font-semibold text-white tracking-wider text-xs">
+            {todayHours}
+          </span>
         </div>
       </div>
 
@@ -117,7 +140,7 @@ export default function Nav() {
                 >
                   {l.label}
                 </Link>
-              )
+              ),
             )}
           </div>
 
@@ -138,15 +161,23 @@ export default function Nav() {
               className="lg:hidden flex flex-col gap-1.5 p-2"
               aria-label="Toggle menu"
             >
-              <span className={`block w-6 h-0.5 bg-white transition-all duration-300 ${open ? "rotate-45 translate-y-2" : ""}`} />
-              <span className={`block w-6 h-0.5 bg-white transition-all duration-300 ${open ? "opacity-0" : ""}`} />
-              <span className={`block w-6 h-0.5 bg-white transition-all duration-300 ${open ? "-rotate-45 -translate-y-2" : ""}`} />
+              <span
+                className={`block w-6 h-0.5 bg-white transition-all duration-300 ${open ? "rotate-45 translate-y-2" : ""}`}
+              />
+              <span
+                className={`block w-6 h-0.5 bg-white transition-all duration-300 ${open ? "opacity-0" : ""}`}
+              />
+              <span
+                className={`block w-6 h-0.5 bg-white transition-all duration-300 ${open ? "-rotate-45 -translate-y-2" : ""}`}
+              />
             </button>
           </div>
         </div>
 
         {/* Mobile menu */}
-        <div className={`lg:hidden overflow-hidden transition-all duration-300 ${open ? "max-h-screen" : "max-h-0"}`}>
+        <div
+          className={`lg:hidden overflow-hidden transition-all duration-300 ${open ? "max-h-screen" : "max-h-0"}`}
+        >
           <div className="bg-[#010A20] px-4 pb-6 pt-2 flex flex-col gap-4">
             {links.map((l) =>
               l.href.startsWith("http") ? (
@@ -167,11 +198,13 @@ export default function Nav() {
                   href={l.href}
                   onClick={() => setOpen(false)}
                   className="font-body font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
-                  style={{ color: pathname === l.href ? "rgb(228,28,29)" : "rgba(255,255,255,0.8)" }}
+                  style={{
+                    color: pathname === l.href ? "rgb(228,28,29)" : "rgba(255,255,255,0.8)",
+                  }}
                 >
                   {l.label}
                 </Link>
-              )
+              ),
             )}
             {!pathname?.startsWith("/event/") && (
               <Link

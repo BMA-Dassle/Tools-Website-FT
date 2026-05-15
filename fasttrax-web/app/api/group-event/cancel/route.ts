@@ -25,7 +25,10 @@ const STATE_CANCELLED = "-4";
 
 // ── HTTPS helpers (same pattern as bmi-office/route.ts) ────────────────────
 
-function httpsGet(path: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+function httpsGet(
+  path: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.get({ hostname: OFFICE_HOST, path, headers }, (res) => {
       let data = "";
@@ -33,14 +36,27 @@ function httpsGet(path: string, headers: Record<string, string>): Promise<{ stat
       res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
     });
     req.on("error", reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(15000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
   });
 }
 
-function httpsRequest(method: string, path: string, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+function httpsRequest(
+  method: string,
+  path: string,
+  body: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
-      { hostname: OFFICE_HOST, path, method, headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) } },
+      {
+        hostname: OFFICE_HOST,
+        path,
+        method,
+        headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) },
+      },
       (res) => {
         let data = "";
         res.on("data", (c) => (data += c));
@@ -48,7 +64,10 @@ function httpsRequest(method: string, path: string, body: string, headers: Recor
       },
     );
     req.on("error", reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(15000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
     req.write(body);
     req.end();
   });
@@ -131,10 +150,17 @@ export async function POST(req: NextRequest) {
 
     // 3. PUT back with stateId → Cancelled
     project.stateId = STATE_CANCELLED;
-    const putRes = await httpsRequest("PUT", `/api/${CLIENT_KEY}/project`, JSON.stringify(project), headers);
+    const putRes = await httpsRequest(
+      "PUT",
+      `/api/${CLIENT_KEY}/project`,
+      JSON.stringify(project),
+      headers,
+    );
 
     if (putRes.status !== 200) {
-      console.error(`[group-cancel] PUT project ${billId} failed: ${putRes.status} ${putRes.body.substring(0, 200)}`);
+      console.error(
+        `[group-cancel] PUT project ${billId} failed: ${putRes.status} ${putRes.body.substring(0, 200)}`,
+      );
       return NextResponse.json({ error: "Failed to cancel" }, { status: 500 });
     }
 

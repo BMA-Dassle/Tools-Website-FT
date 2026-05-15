@@ -73,33 +73,39 @@ interface IssuedEntry {
   personId: string | null;
   sessionId: string | null;
   locationId: string | null;
-  issuedAt: string;             // earliest usedAt across the codes in this group
+  issuedAt: string; // earliest usedAt across the codes in this group
   codes: string[];
   codeCount: number;
   email: string | null;
   phone: string | null;
   racerName: string | null;
-  raceDate: string | null;       // YYYY-MM-DD ET, from booking record
+  raceDate: string | null; // YYYY-MM-DD ET, from booking record
   reservationNumber: string | null;
 }
 
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 function daysAgoETYmd(n: number): string {
   const ms = Date.now() - n * 24 * 60 * 60 * 1000;
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(ms));
 }
 function isoToETYmd(iso: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(iso));
 }
 
@@ -114,8 +120,11 @@ async function readAllIssued(): Promise<Map<string, PovUsedMeta>> {
     for (let i = 0; i < fields.length; i += 2) {
       const code = fields[i];
       const raw = fields[i + 1];
-      try { out.set(code, JSON.parse(raw) as PovUsedMeta); }
-      catch { out.set(code, {}); }
+      try {
+        out.set(code, JSON.parse(raw) as PovUsedMeta);
+      } catch {
+        out.set(code, {});
+      }
     }
     if (scanCount > 200) break;
   } while (cursor !== "0");
@@ -132,9 +141,15 @@ async function readBookingRecords(billIds: string[]): Promise<Map<string, Bookin
     const vals = await redis.mget(...keys);
     for (let j = 0; j < chunk.length; j++) {
       const raw = vals[j];
-      if (!raw) { out.set(chunk[j], null); continue; }
-      try { out.set(chunk[j], JSON.parse(raw) as BookingRecord); }
-      catch { out.set(chunk[j], null); }
+      if (!raw) {
+        out.set(chunk[j], null);
+        continue;
+      }
+      try {
+        out.set(chunk[j], JSON.parse(raw) as BookingRecord);
+      } catch {
+        out.set(chunk[j], null);
+      }
     }
   }
   return out;
@@ -148,7 +163,10 @@ export async function GET(req: NextRequest) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
       return NextResponse.json({ error: "Invalid date — use YYYY-MM-DD" }, { status: 400 });
     }
-    const limit = Math.max(1, Math.min(2000, parseInt(searchParams.get("limit") || "500", 10) || 500));
+    const limit = Math.max(
+      1,
+      Math.min(2000, parseInt(searchParams.get("limit") || "500", 10) || 500),
+    );
     const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10) || 0);
     const q = (searchParams.get("q") || "").trim().toLowerCase();
     const billIdFilter = (searchParams.get("billId") || "").trim();
@@ -237,10 +255,10 @@ export async function GET(req: NextRequest) {
     if (sourceFilter) merged = merged.filter((e) => e.source === sourceFilter);
     if (q) {
       merged = merged.filter((e) => {
-        const hay = [
-          e.email, e.racerName, e.billId, e.personId, e.reservationNumber,
-          ...e.codes,
-        ].filter(Boolean).join(" ").toLowerCase();
+        const hay = [e.email, e.racerName, e.billId, e.personId, e.reservationNumber, ...e.codes]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
         return hay.includes(q);
       });
     }
@@ -258,16 +276,13 @@ export async function GET(req: NextRequest) {
 
     // Source-of-truth counts for diagnostic header
     const totalCodes = merged.reduce((s, e) => s + e.codeCount, 0);
-    const bySource = merged.reduce<Record<string, { events: number; codes: number }>>(
-      (acc, e) => {
-        const k = e.source;
-        if (!acc[k]) acc[k] = { events: 0, codes: 0 };
-        acc[k].events++;
-        acc[k].codes += e.codeCount;
-        return acc;
-      },
-      {},
-    );
+    const bySource = merged.reduce<Record<string, { events: number; codes: number }>>((acc, e) => {
+      const k = e.source;
+      if (!acc[k]) acc[k] = { events: 0, codes: 0 };
+      acc[k].events++;
+      acc[k].codes += e.codeCount;
+      return acc;
+    }, {});
 
     return NextResponse.json(
       {

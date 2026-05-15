@@ -24,7 +24,7 @@ const ADDON_ATTRACTIONS: { slug: AttractionSlug; config: AttractionConfig }[] = 
 // Square catalog variation IDs for attraction line items on the day-of order.
 // Shared across HeadPinz Fort Myers and Naples (enabled at both locations).
 const ATTRACTION_CATALOG_IDS: Record<string, string> = {
-  "laser-tag":   "TXNWQI43HNMX2EHP72ZPUVXU",
+  "laser-tag": "TXNWQI43HNMX2EHP72ZPUVXU",
   "gel-blaster": "IPAKRTMOYX37ATF7UBJCXQSP",
 };
 
@@ -33,18 +33,18 @@ const ATTRACTION_CATALOG_IDS: Record<string, string> = {
 export interface AttractionAddon {
   slug: AttractionSlug;
   name: string;
-  productId: string;          // BMI product ID (string — NEVER Number())
+  productId: string; // BMI product ID (string — NEVER Number())
   pageId: string;
   quantity: number;
   proposal: BmiProposal;
   block: BmiBlock;
-  bmiOrderId: string | null;  // raw BMI order ID (string for precision)
+  bmiOrderId: string | null; // raw BMI order ID (string for precision)
   bmiBillLineId: string | null;
   squareCatalogObjectId: string | null; // Square catalog variation ID for day-of order line item
-  pricePerPerson: number;     // dollars
-  totalPrice: number;         // dollars
+  pricePerPerson: number; // dollars
+  totalPrice: number; // dollars
   color: string;
-  timeLabel: string;          // formatted time for display
+  timeLabel: string; // formatted time for display
 }
 
 interface Props {
@@ -152,10 +152,7 @@ export default function BowlingAttractionsStep({
   // Auto-scroll to CTA when a time slot is selected
   useEffect(() => {
     if (selectedIdx !== null) {
-      setTimeout(
-        () => ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }),
-        50,
-      );
+      setTimeout(() => ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     }
   }, [selectedIdx]);
 
@@ -192,9 +189,7 @@ export default function BowlingAttractionsStep({
         const [y, m, d] = dateOnly.split("-").map(Number);
         const dayOfWeek = new Date(y, m - 1, d).getDay();
         const startHours =
-          dayOfWeek === 0 || dayOfWeek === 6
-            ? [10, 12, 14, 16, 18, 20, 22]
-            : [14, 16, 18, 20, 22];
+          dayOfWeek === 0 || dayOfWeek === 6 ? [10, 12, 14, 16, 18, 20, 22] : [14, 16, 18, 20, 22];
 
         const smsBase = bmiClientKey
           ? `/api/sms?endpoint=dayplanner%2Fdayplanner&clientKey=${bmiClientKey}`
@@ -288,16 +283,10 @@ export default function BowlingAttractionsStep({
       );
 
       // Dayplanner returns total price for the requested quantity
-      const blockTotalPrice =
-        block.prices?.find((p) => p.depositKind === 0)?.amount;
+      const blockTotalPrice = block.prices?.find((p) => p.depositKind === 0)?.amount;
       const perPersonPrice =
-        blockTotalPrice != null && pickingQty > 0
-          ? blockTotalPrice / pickingQty
-          : product.price;
-      const totalPrice =
-        blockTotalPrice != null
-          ? blockTotalPrice
-          : product.price * pickingQty;
+        blockTotalPrice != null && pickingQty > 0 ? blockTotalPrice / pickingQty : product.price;
+      const totalPrice = blockTotalPrice != null ? blockTotalPrice : product.price * pickingQty;
 
       const config = ATTRACTIONS[pickingSlug];
 
@@ -327,9 +316,7 @@ export default function BowlingAttractionsStep({
       setSubStep("browse");
       setPickingSlug(null);
     } catch (err) {
-      setSlotsError(
-        err instanceof Error ? err.message : "Booking failed — try a different time.",
-      );
+      setSlotsError(err instanceof Error ? err.message : "Booking failed — try a different time.");
     } finally {
       setBooking(false);
     }
@@ -359,16 +346,13 @@ export default function BowlingAttractionsStep({
   const selectedBlock = selectedProposal?.blocks?.[0]?.block ?? null;
 
   // Price for the selected time slot
-  const blockTotalPrice =
-    selectedBlock?.prices?.find((p) => p.depositKind === 0)?.amount;
+  const blockTotalPrice = selectedBlock?.prices?.find((p) => p.depositKind === 0)?.amount;
   const perPersonPrice =
     blockTotalPrice != null && pickingQty > 0
       ? blockTotalPrice / pickingQty
-      : pickingProduct?.price ?? 0;
+      : (pickingProduct?.price ?? 0);
   const lineTotal =
-    blockTotalPrice != null
-      ? blockTotalPrice
-      : (pickingProduct?.price ?? 0) * pickingQty;
+    blockTotalPrice != null ? blockTotalPrice : (pickingProduct?.price ?? 0) * pickingQty;
 
   // Total for all booked addons
   const addonsTotal = addons.reduce((s, a) => s + a.totalPrice, 0);
@@ -384,8 +368,7 @@ export default function BowlingAttractionsStep({
             Pick a Time
           </h2>
           <p className="text-white/50 text-sm">
-            <span className="text-white/80">{pickingConfig.shortName}</span> ·{" "}
-            {formatDate(date)}
+            <span className="text-white/80">{pickingConfig.shortName}</span> · {formatDate(date)}
           </p>
         </div>
 
@@ -406,9 +389,7 @@ export default function BowlingAttractionsStep({
               >
                 −
               </button>
-              <span className="w-6 text-center text-white font-bold text-base">
-                {pickingQty}
-              </span>
+              <span className="w-6 text-center text-white font-bold text-base">{pickingQty}</span>
               <button
                 type="button"
                 onClick={() => {
@@ -464,7 +445,11 @@ export default function BowlingAttractionsStep({
                 const block = proposal.blocks?.[0]?.block;
                 if (!block) return null;
 
-                const bowlingBlocked = isBlockedByBowling(block.start, bowlingStartIso, bowlDurationMin);
+                const bowlingBlocked = isBlockedByBowling(
+                  block.start,
+                  bowlingStartIso,
+                  bowlDurationMin,
+                );
                 const isFull = block.freeSpots < pickingQty;
                 const isDisabled = isFull || bowlingBlocked;
                 const isSelected = selectedIdx === idx;
@@ -504,16 +489,16 @@ export default function BowlingAttractionsStep({
                     </div>
                     {bowlingBlocked ? (
                       <>
-                        <div className="text-[13px] font-medium text-[#fd5b56]/70">
-                          🎳 Bowling
-                        </div>
+                        <div className="text-[13px] font-medium text-[#fd5b56]/70">🎳 Bowling</div>
                         <div className="mt-2 h-1 rounded-full bg-[#fd5b56]/30 overflow-hidden">
                           <div className="h-full w-full rounded-full bg-[#fd5b56]/50" />
                         </div>
                       </>
                     ) : (
                       <>
-                        <div className={`text-[13px] font-medium ${isFull ? "text-red-400" : spots.text}`}>
+                        <div
+                          className={`text-[13px] font-medium ${isFull ? "text-red-400" : spots.text}`}
+                        >
                           {isFull ? "Full" : spots.label}
                         </div>
                         <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
@@ -541,9 +526,7 @@ export default function BowlingAttractionsStep({
             <div
               ref={ctaRef}
               className={`rounded-xl border p-4 transition-all duration-300 ${
-                selectedBlock
-                  ? "border-white/20 bg-white/8"
-                  : "border-white/10 bg-white/3"
+                selectedBlock ? "border-white/20 bg-white/8" : "border-white/10 bg-white/3"
               }`}
               style={
                 selectedBlock
@@ -590,9 +573,7 @@ export default function BowlingAttractionsStep({
                   </button>
                 </div>
               ) : (
-                <p className="text-white/30 text-sm text-center">
-                  Select a time slot above
-                </p>
+                <p className="text-white/30 text-sm text-center">Select a time slot above</p>
               )}
             </div>
           </>
@@ -631,9 +612,7 @@ export default function BowlingAttractionsStep({
             key={slug}
             className="rounded-xl overflow-hidden transition-all"
             style={{
-              backgroundColor: existing
-                ? `${config.color}10`
-                : "rgba(255,255,255,0.04)",
+              backgroundColor: existing ? `${config.color}10` : "rgba(255,255,255,0.04)",
               border: `1.78px ${existing ? "solid" : "dashed"} ${
                 existing ? `${config.color}40` : "rgba(255,255,255,0.10)"
               }`,
@@ -648,13 +627,9 @@ export default function BowlingAttractionsStep({
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-body font-bold text-white text-sm">
-                    {config.shortName}
-                  </span>
+                  <span className="font-body font-bold text-white text-sm">{config.shortName}</span>
                   {config.durationLabel && (
-                    <span className="text-white/30 text-xs">
-                      {config.durationLabel}
-                    </span>
+                    <span className="text-white/30 text-xs">{config.durationLabel}</span>
                   )}
                 </div>
                 <div className="font-body text-white/40 text-xs">
@@ -687,11 +662,7 @@ export default function BowlingAttractionsStep({
                       stroke="currentColor"
                       strokeWidth={2}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M6 18L18 6M6 6l12 12"
-                      />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
@@ -715,7 +686,10 @@ export default function BowlingAttractionsStep({
             {existing && (
               <div
                 className="px-4 py-2 flex items-center gap-2"
-                style={{ backgroundColor: `${config.color}08`, borderTop: `1px solid ${config.color}15` }}
+                style={{
+                  backgroundColor: `${config.color}08`,
+                  borderTop: `1px solid ${config.color}15`,
+                }}
               >
                 <svg
                   className="w-4 h-4 flex-shrink-0"
@@ -725,11 +699,7 @@ export default function BowlingAttractionsStep({
                   stroke="currentColor"
                   strokeWidth={2.5}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 13l4 4L19 7"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 <span className="text-xs text-white/50">
                   Booked for {existing.quantity} at {existing.timeLabel}
@@ -742,16 +712,13 @@ export default function BowlingAttractionsStep({
 
       {/* Addons total */}
       {addonsTotal > 0 && (
-        <div className="rounded-xl p-3 text-center" style={{ backgroundColor: "rgba(255,255,255,0.04)" }}>
-          <span className="font-body text-white/50 text-xs">
-            Activities total:{" "}
-          </span>
-          <span className="font-body font-bold text-white text-sm">
-            ${addonsTotal.toFixed(2)}
-          </span>
-          <span className="font-body text-white/30 text-xs ml-1">
-            (paid at center)
-          </span>
+        <div
+          className="rounded-xl p-3 text-center"
+          style={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+        >
+          <span className="font-body text-white/50 text-xs">Activities total: </span>
+          <span className="font-body font-bold text-white text-sm">${addonsTotal.toFixed(2)}</span>
+          <span className="font-body text-white/30 text-xs ml-1">(paid at center)</span>
         </div>
       )}
 

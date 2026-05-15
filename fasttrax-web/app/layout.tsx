@@ -100,7 +100,8 @@ export async function generateMetadata(): Promise<Metadata> {
     return {
       metadataBase: new URL("https://headpinz.com"),
       title: {
-        default: "HeadPinz — Bowling, Laser Tag, Gel Blasters, Arcade & Dining | Fort Myers & Naples",
+        default:
+          "HeadPinz — Bowling, Laser Tag, Gel Blasters, Arcade & Dining | Fort Myers & Naples",
         template: "%s | HeadPinz",
       },
       description:
@@ -206,9 +207,7 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function RootLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const hdrs = await headers();
   const isHeadPinz = hdrs.get("x-brand") === "headpinz";
   // Admin routes (/admin/*, /api/admin/*) are a bare staff tool — no nav,
@@ -223,11 +222,16 @@ export default async function RootLayout({
   const showMobileBar = showChrome && !noMobileBar;
 
   return (
-    <html lang="en" className={`${exo2.variable} ${barlow.variable} ${outfit.variable} ${dmSans.variable}`}>
+    <html
+      lang="en"
+      className={`${exo2.variable} ${barlow.variable} ${outfit.variable} ${dmSans.variable}`}
+    >
       <head>
         {!isAdmin && (isHeadPinz ? <HeadPinzOrganizationJsonLd /> : <LocalBusinessJsonLd />)}
       </head>
-      <body className={`${isHeadPinz ? "brand-headpinz bg-[#0a1628]" : "brand-fasttrax bg-[#000418]"} text-white font-body antialiased`}>
+      <body
+        className={`${isHeadPinz ? "brand-headpinz bg-[#0a1628]" : "brand-fasttrax bg-[#000418]"} text-white font-body antialiased`}
+      >
         {showChrome && <Nav />}
         {!isAdmin && <MiniCart />}
         <main>{children}</main>
@@ -241,7 +245,8 @@ export default async function RootLayout({
           <>
             <div
               dangerouslySetInnerHTML={{
-                __html: '<call-us-selector phonesystem-url="https://bma.3cx.us" party="LiveChat728061" enable-poweredby="false"></call-us-selector>',
+                __html:
+                  '<call-us-selector phonesystem-url="https://bma.3cx.us" party="LiveChat728061" enable-poweredby="false"></call-us-selector>',
               }}
             />
             <Script

@@ -23,7 +23,11 @@ interface ClickwrapCheckboxProps {
  * The checkbox state lives in the parent so it can gate the Pay/Confirm
  * button and be passed into the acceptance log.
  */
-export default function ClickwrapCheckbox({ checked, onChange, cancellationHours = 2 }: ClickwrapCheckboxProps) {
+export default function ClickwrapCheckbox({
+  checked,
+  onChange,
+  cancellationHours = 2,
+}: ClickwrapCheckboxProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [isHeadPinz, setIsHeadPinz] = useState(false);
 
@@ -63,11 +67,7 @@ export default function ClickwrapCheckbox({ checked, onChange, cancellationHours
                 strokeWidth="3"
                 viewBox="0 0 24 24"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 13l4 4L19 7"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             )}
           </div>
@@ -125,7 +125,13 @@ export default function ClickwrapCheckbox({ checked, onChange, cancellationHours
                   className="text-white/40 hover:text-white transition-colors p-1"
                   aria-label="Close policy"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -134,21 +140,26 @@ export default function ClickwrapCheckbox({ checked, onChange, cancellationHours
               {/* Policy body */}
               <div className="text-xs text-white/60 space-y-4 leading-relaxed">
                 <p className="text-white/80">
-                  Reservations are confirmed immediately upon payment.
-                  All sales are final.
+                  Reservations are confirmed immediately upon payment. All sales are final.
                 </p>
 
                 <div>
-                  <p className="text-white/80 font-semibold mb-1">Cancellations &amp; Reschedules</p>
+                  <p className="text-white/80 font-semibold mb-1">
+                    Cancellations &amp; Reschedules
+                  </p>
                   <ul className="space-y-1 ml-3">
                     <li>
                       &middot; Cancellations must be made{" "}
-                      <strong className="text-white/80">more than {cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}</strong>{" "}
+                      <strong className="text-white/80">
+                        more than {cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}
+                      </strong>{" "}
                       before your reservation to be eligible for a refund or credit.
                     </li>
                     <li>
                       &middot; Cancellations within{" "}
-                      <strong className="text-white/80">{cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}</strong>{" "}
+                      <strong className="text-white/80">
+                        {cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}
+                      </strong>{" "}
                       of your reservation are{" "}
                       <strong className="text-white/80">non-refundable</strong>, no exceptions.
                     </li>
@@ -172,19 +183,19 @@ export default function ClickwrapCheckbox({ checked, onChange, cancellationHours
                       <a href={`tel:${brandPhoneTel}`} className="text-[#00E2E5] hover:underline">
                         {brandPhone}
                       </a>{" "}
-                      before contacting your bank. We can typically resolve issues within
-                      one business day.
+                      before contacting your bank. We can typically resolve issues within one
+                      business day.
                     </li>
                     <li>
-                      &middot; Initiating a chargeback without first contacting {brandName}{" "}
-                      may result in suspension of booking privileges.
+                      &middot; Initiating a chargeback without first contacting {brandName} may
+                      result in suspension of booking privileges.
                     </li>
                   </ul>
                 </div>
 
                 <p className="text-white/40 pt-2 border-t border-white/[0.06]">
-                  By checking the box and completing payment, you acknowledge that you
-                  have read, understood, and agreed to this policy.
+                  By checking the box and completing payment, you acknowledge that you have read,
+                  understood, and agreed to this policy.
                 </p>
               </div>
 

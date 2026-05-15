@@ -29,22 +29,48 @@ export async function GET(req: NextRequest) {
 
   // Planner pick — keep in sync with PLANNER_REGISTRY in lib/sales-lead-config.ts (once that lands).
   const plannerKey = (searchParams.get("planner") || "stephanie").toLowerCase();
-  const plannerMock: Record<string, Pick<SalesLeadCopyContext, "plannerName" | "plannerPhone" | "plannerEmail" | "isIndividualPlanner">> = {
-    stephanie:     { plannerName: "Stephanie",      plannerPhone: "+12392148357", plannerEmail: "stephanie@headpinz.com",   isIndividualPlanner: true },
-    lori:          { plannerName: "Lori",           plannerPhone: "+12392042328", plannerEmail: "lori@headpinz.com",        isIndividualPlanner: true },
-    kelsea:        { plannerName: "Kelsea",         plannerPhone: "+12392058142", plannerEmail: "kelsea@headpinz.com",      isIndividualPlanner: true },
-    guestservices: { plannerName: "Guest Services", plannerPhone: "+12394553755", plannerEmail: "guestservices@headpinz.com", isIndividualPlanner: false },
+  const plannerMock: Record<
+    string,
+    Pick<
+      SalesLeadCopyContext,
+      "plannerName" | "plannerPhone" | "plannerEmail" | "isIndividualPlanner"
+    >
+  > = {
+    stephanie: {
+      plannerName: "Stephanie",
+      plannerPhone: "+12392148357",
+      plannerEmail: "stephanie@headpinz.com",
+      isIndividualPlanner: true,
+    },
+    lori: {
+      plannerName: "Lori",
+      plannerPhone: "+12392042328",
+      plannerEmail: "lori@headpinz.com",
+      isIndividualPlanner: true,
+    },
+    kelsea: {
+      plannerName: "Kelsea",
+      plannerPhone: "+12392058142",
+      plannerEmail: "kelsea@headpinz.com",
+      isIndividualPlanner: true,
+    },
+    guestservices: {
+      plannerName: "Guest Services",
+      plannerPhone: "+12394553755",
+      plannerEmail: "guestservices@headpinz.com",
+      isIndividualPlanner: false,
+    },
   };
   const planner = plannerMock[plannerKey] || plannerMock.stephanie;
 
   const ctx: SalesLeadCopyContext = {
-    firstName:       searchParams.get("firstName")       || "Alex",
-    projectNumber:   searchParams.get("projectNumber")   || "H0421",
-    plannerName:     planner.plannerName,
-    plannerPhone:    planner.plannerPhone,
-    plannerEmail:    planner.plannerEmail,
-    preferredDate:   searchParams.get("preferredDate")   || "2026-06-14",
-    centerName:      searchParams.get("centerName")      || "HeadPinz Naples",
+    firstName: searchParams.get("firstName") || "Alex",
+    projectNumber: searchParams.get("projectNumber") || "H0421",
+    plannerName: planner.plannerName,
+    plannerPhone: planner.plannerPhone,
+    plannerEmail: planner.plannerEmail,
+    preferredDate: searchParams.get("preferredDate") || "2026-06-14",
+    centerName: searchParams.get("centerName") || "HeadPinz Naples",
     isIndividualPlanner: planner.isIndividualPlanner,
   };
 

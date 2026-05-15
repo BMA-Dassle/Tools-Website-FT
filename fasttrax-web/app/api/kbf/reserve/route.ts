@@ -240,12 +240,14 @@ export async function POST(req: NextRequest) {
     const shoeQty = body.bowlers.filter((b) => b.wantShoes === true).length;
     const shoesItems =
       shoeQty > 0 && body.shoePriceKeyId && body.shoeUnitPrice
-        ? [{
-            PriceKeyId: body.shoePriceKeyId,
-            Quantity: shoeQty,
-            UnitPrice: body.shoeUnitPrice,
-            Note: "",
-          }]
+        ? [
+            {
+              PriceKeyId: body.shoePriceKeyId,
+              Quantity: shoeQty,
+              UnitPrice: body.shoeUnitPrice,
+              Note: "",
+            },
+          ]
         : [];
     const extras = (body.extras ?? []).filter((e) => e.quantity > 0);
     const extraItems = extras.map((e) => ({
@@ -255,27 +257,24 @@ export async function POST(req: NextRequest) {
       Note: "",
     }));
 
-    const summarized = await qamf<QamfCartSummary>(
-      `centers/${body.centerId}/Cart/CreateSummary`,
-      {
-        method: "POST",
-        sessionToken: sessionToken || undefined,
-        body: JSON.stringify({
-          Time: dateTime,
-          Items: {
-            Extra: extraItems,
-            FoodAndBeverage: [],
-            ShoesSocks: shoesItems,
-            WebOffer: {
-              Id: body.offerId,
-              UnitPrice: body.tariffPrice,
-              WebOfferTariffId: body.tariffId,
-            },
+    const summarized = await qamf<QamfCartSummary>(`centers/${body.centerId}/Cart/CreateSummary`, {
+      method: "POST",
+      sessionToken: sessionToken || undefined,
+      body: JSON.stringify({
+        Time: dateTime,
+        Items: {
+          Extra: extraItems,
+          FoodAndBeverage: [],
+          ShoesSocks: shoesItems,
+          WebOffer: {
+            Id: body.offerId,
+            UnitPrice: body.tariffPrice,
+            WebOfferTariffId: body.tariffId,
           },
-          Players: [{ TypeId: 1, Number: playerCount }],
-        }),
-      },
-    );
+        },
+        Players: [{ TypeId: 1, Number: playerCount }],
+      }),
+    });
     if (summarized.sessionToken) sessionToken = summarized.sessionToken;
     if (summarized.status >= 400) {
       console.error("[kbf/reserve] summary failed", summarized);

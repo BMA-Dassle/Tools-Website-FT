@@ -17,8 +17,8 @@ export interface RaceTicket {
   email?: string;
   phone?: string;
   scheduledStart: string; // ISO
-  track: string;          // "Blue" | "Red" | "Mega"
-  raceType: string;       // "Starter" | "Intermediate" | "Pro"
+  track: string; // "Blue" | "Red" | "Mega"
+  raceType: string; // "Starter" | "Intermediate" | "Pro"
   heatNumber: number;
   /** Optional — filled in if we can correlate to a Square reservation */
   resNumber?: string;
@@ -88,17 +88,17 @@ export interface GroupTicketMember {
   firstName: string;
   lastName: string;
   scheduledStart: string;
-  track: string;        // "Blue" | "Red" | "Mega"
+  track: string; // "Blue" | "Red" | "Mega"
   raceType: string;
   heatNumber: number;
 }
 
 export interface GroupTicket {
   id: string;
-  phone: string;        // canonical +1... (the destination phone — guardian's when `recipient === "guardian"`)
+  phone: string; // canonical +1... (the destination phone — guardian's when `recipient === "guardian"`)
   locationId: string;
   members: GroupTicketMember[];
-  createdAt: string;    // ISO
+  createdAt: string; // ISO
   /** Who this group ticket is addressed to. Defaults to "racer"
    *  when absent (back-compat for tickets minted before guardian
    *  fallback). When "guardian" the /g/{id} page swaps its heading

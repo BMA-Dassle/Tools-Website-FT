@@ -28,8 +28,7 @@ export default async function Page({ params }: Props) {
   const cameraToken = process.env.ADMIN_CAMERA_TOKEN || "";
   const legacyToken = process.env.ADMIN_ETICKETS_TOKEN || "";
   const tokenOk =
-    (!!cameraToken && token === cameraToken) ||
-    (!!legacyToken && token === legacyToken);
+    (!!cameraToken && token === cameraToken) || (!!legacyToken && token === legacyToken);
   if (!tokenOk) notFound();
 
   return <EticketAdminClient token={token} />;

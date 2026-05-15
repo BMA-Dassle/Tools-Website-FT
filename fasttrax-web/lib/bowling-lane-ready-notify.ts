@@ -183,7 +183,7 @@ export async function sendLaneReadyNotification(
   if (ageSec > 0 && ageSec < 30) {
     console.log(
       `[lane-ready] neonId=${reservation.id} recent booking (${Math.round(ageSec)}s ago)` +
-      ` — delaying 5s for confirmation to arrive first`,
+        ` — delaying 5s for confirmation to arrive first`,
     );
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }

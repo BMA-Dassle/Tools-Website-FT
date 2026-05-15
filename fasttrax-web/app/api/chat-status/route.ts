@@ -52,9 +52,12 @@ export async function GET() {
     const agents = (queue.Agents || []) as Array<{ Number: string }>;
 
     if (agents.length === 0) {
-      return NextResponse.json({ available: false }, {
-        headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
-      });
+      return NextResponse.json(
+        { available: false },
+        {
+          headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
+        },
+      );
     }
 
     // 2. Check those agents' status
@@ -74,9 +77,12 @@ export async function GET() {
         u.IsRegistered && u.CurrentProfileName === "Available",
     );
 
-    return NextResponse.json({ available }, {
-      headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
-    });
+    return NextResponse.json(
+      { available },
+      {
+        headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
+      },
+    );
   } catch {
     // On any error, default to not showing the button
     return NextResponse.json({ available: false }, { status: 200 });

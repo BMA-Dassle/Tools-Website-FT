@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  createReservation,
-  deleteReservation,
-  type NewReservationInput,
-} from "@/lib/qamf-bowling";
-import {
-  getBowlingExperiences,
-  getKbfRedeemedMembers,
-} from "@/lib/bowling-db";
+import { createReservation, deleteReservation, type NewReservationInput } from "@/lib/qamf-bowling";
+import { getBowlingExperiences, getKbfRedeemedMembers } from "@/lib/bowling-db";
 
 /**
  * POST /api/admin/kbf/hold
@@ -63,16 +56,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid centerCode" }, { status: 400 });
   }
   if (!bowlers?.length) {
-    return NextResponse.json(
-      { error: "Missing required fields" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
   if (mode === "book-lane" && !rawBookedAt) {
-    return NextResponse.json(
-      { error: "bookedAt required for book-lane" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "bookedAt required for book-lane" }, { status: 400 });
   }
 
   try {
@@ -94,10 +81,7 @@ export async function POST(req: NextRequest) {
       if (redeemed.length > 0) {
         const names = bowlers
           .filter((b) =>
-            redeemed.some(
-              (r) =>
-                r.passId === b.kbfPassId && r.slot === b.kbfMemberSlot,
-            ),
+            redeemed.some((r) => r.passId === b.kbfPassId && r.slot === b.kbfMemberSlot),
           )
           .map((b) => b.name);
         const msg =
@@ -188,10 +172,7 @@ export async function DELETE(req: NextRequest) {
 
   const centerId = CENTER_CODE_TO_QAMF[centerCode];
   if (!centerId || !qamfId) {
-    return NextResponse.json(
-      { error: "centerCode and qamfId required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "centerCode and qamfId required" }, { status: 400 });
   }
 
   try {

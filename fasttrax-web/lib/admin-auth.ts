@@ -70,7 +70,7 @@ export function isIpAllowed(ip: string | null): boolean {
 /** Validate the provided token against the env var. Constant-time. */
 export function isTokenValid(token: string | null | undefined): boolean {
   const expected = process.env.ADMIN_ETICKETS_TOKEN || "";
-  if (!expected) return false;        // fail closed if env is unset
+  if (!expected) return false; // fail closed if env is unset
   if (!token) return false;
   return timingSafeEqual(token, expected);
 }
@@ -83,10 +83,7 @@ export function isTokenValid(token: string | null | undefined): boolean {
  * For middleware use, prefer extracting the token from the path segment
  * directly — see middleware.ts.
  */
-export function isAdminRequest(
-  req: NextRequest,
-  opts?: { token?: string },
-): boolean {
+export function isAdminRequest(req: NextRequest, opts?: { token?: string }): boolean {
   // Token from arg > header > query
   const fromArg = opts?.token;
   const fromHeader = req.headers.get("x-admin-token");

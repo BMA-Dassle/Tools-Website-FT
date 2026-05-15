@@ -26,7 +26,15 @@ const BASE_BTN: React.CSSProperties = {
 
 export default function CenterPicker({ value, onChange }: CenterPickerProps) {
   return (
-    <div style={{ display: "inline-flex", gap: 4, background: "#e5e7eb", borderRadius: 18, padding: 2 }}>
+    <div
+      style={{
+        display: "inline-flex",
+        gap: 4,
+        background: "#e5e7eb",
+        borderRadius: 18,
+        padding: 2,
+      }}
+    >
       {CENTERS.map((c) => {
         const active = value === c.code;
         return (

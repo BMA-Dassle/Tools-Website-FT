@@ -31,8 +31,9 @@ export default function ExperiencePicker({ selected, onSelect }: ExperiencePicke
         >
           <p className="text-lg font-bold text-white mb-2">New Racer</p>
           <p className="text-white/50 text-xs leading-relaxed">
-            I have <strong className="text-white/70">never raced at FastTrax Fort Myers</strong> before.
-            Racing at other facilities does not count — all drivers start at Starter level here.
+            I have <strong className="text-white/70">never raced at FastTrax Fort Myers</strong>{" "}
+            before. Racing at other facilities does not count — all drivers start at Starter level
+            here.
           </p>
         </button>
 
@@ -47,8 +48,8 @@ export default function ExperiencePicker({ selected, onSelect }: ExperiencePicke
         >
           <p className="text-lg font-bold text-white mb-2">Returning Racer</p>
           <p className="text-white/50 text-xs leading-relaxed">
-            I have <strong className="text-white/70">already raced at FastTrax Fort Myers</strong> and
-            have qualifying lap times for Intermediate or Pro races.
+            I have <strong className="text-white/70">already raced at FastTrax Fort Myers</strong>{" "}
+            and have qualifying lap times for Intermediate or Pro races.
           </p>
         </button>
       </div>
@@ -56,7 +57,11 @@ export default function ExperiencePicker({ selected, onSelect }: ExperiencePicke
       {selected === "new" && (
         <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 max-w-xl mx-auto text-xs text-white/50 space-y-1">
           <p className="font-semibold text-[#00E2E5]/80 mb-1">What to expect</p>
-          <p>All first-time FastTrax racers start with a <strong className="text-white/70">Starter Race</strong> — no exceptions, regardless of experience elsewhere.</p>
+          <p>
+            All first-time FastTrax racers start with a{" "}
+            <strong className="text-white/70">Starter Race</strong> — no exceptions, regardless of
+            experience elsewhere.
+          </p>
           <p>Once you post a qualifying lap time, you&apos;ll unlock Intermediate and Pro tiers.</p>
         </div>
       )}

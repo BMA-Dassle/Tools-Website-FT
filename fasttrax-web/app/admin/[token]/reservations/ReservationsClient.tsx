@@ -43,8 +43,11 @@ interface Reservation {
   loyaltyAction?: string;
   squareCustomerId?: string;
   attractionBookings?: Array<{
-    slug: string; name: string; quantity: number;
-    totalPriceDollars: number; timeLabel: string;
+    slug: string;
+    name: string;
+    quantity: number;
+    totalPriceDollars: number;
+    timeLabel: string;
   }>;
   insertedAt: string;
   lines: ReservationLine[];
@@ -109,11 +112,69 @@ const SOURCE_COLORS: Record<string, string> = {
 
 type ShoeCategory = "Toddler" | "Male" | "Female";
 const SHOE_SIZES: Record<ShoeCategory, string[]> = {
-  Toddler: ["6","7","8","9","10","11","12","13"],
-  Male: ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12","12.5","13","13.5","14","14.5","15"],
-  Female: ["1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10","10.5","11","11.5","12"],
+  Toddler: ["6", "7", "8", "9", "10", "11", "12", "13"],
+  Male: [
+    "1",
+    "1.5",
+    "2",
+    "2.5",
+    "3",
+    "3.5",
+    "4",
+    "4.5",
+    "5",
+    "5.5",
+    "6",
+    "6.5",
+    "7",
+    "7.5",
+    "8",
+    "8.5",
+    "9",
+    "9.5",
+    "10",
+    "10.5",
+    "11",
+    "11.5",
+    "12",
+    "12.5",
+    "13",
+    "13.5",
+    "14",
+    "14.5",
+    "15",
+  ],
+  Female: [
+    "1",
+    "1.5",
+    "2",
+    "2.5",
+    "3",
+    "3.5",
+    "4",
+    "4.5",
+    "5",
+    "5.5",
+    "6",
+    "6.5",
+    "7",
+    "7.5",
+    "8",
+    "8.5",
+    "9",
+    "9.5",
+    "10",
+    "10.5",
+    "11",
+    "11.5",
+    "12",
+  ],
 };
-const SHOE_CATEGORY_LABELS: Record<ShoeCategory, string> = { Toddler: "Toddler", Male: "Men", Female: "Women" };
+const SHOE_CATEGORY_LABELS: Record<ShoeCategory, string> = {
+  Toddler: "Toddler",
+  Male: "Men",
+  Female: "Women",
+};
 
 /** Food items that should be displayed on the admin board */
 const FOOD_RE = /pizza\s+bowl\s+pizza|pizza\s+bowl\s+soda|chips.+salsa/i;
@@ -201,17 +262,10 @@ function BowlingResendModal({
       contextSection={
         <div className="text-xs text-white/50 mb-3 space-y-0.5">
           <div>
-            Guest:{" "}
-            <span className="text-white/80">
-              {reservation.guestName || "Guest"}
-            </span>
+            Guest: <span className="text-white/80">{reservation.guestName || "Guest"}</span>
           </div>
-          {reservation.guestPhone && (
-            <div>{reservation.guestPhone}</div>
-          )}
-          {reservation.guestEmail && (
-            <div>{reservation.guestEmail}</div>
-          )}
+          {reservation.guestPhone && <div>{reservation.guestPhone}</div>}
+          {reservation.guestEmail && <div>{reservation.guestEmail}</div>}
           <div>
             {reservation.productKind === "kbf" ? "KBF" : "Open"} &middot;{" "}
             {fmtTime(reservation.bookedAt)} &middot;{" "}
@@ -321,14 +375,27 @@ function CancelModal({
         }}
       >
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "1rem",
+          }}
+        >
           <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#ef4444", margin: 0 }}>
             Cancel Reservation
           </h3>
           <button
             type="button"
             onClick={onClose}
-            style={{ background: "none", border: "none", color: "var(--ba-muted)", cursor: "pointer", fontSize: "1.2rem" }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--ba-muted)",
+              cursor: "pointer",
+              fontSize: "1.2rem",
+            }}
           >
             &times;
           </button>
@@ -346,13 +413,16 @@ function CancelModal({
             lineHeight: 1.7,
           }}
         >
-          <div><strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong></div>
-          <div style={{ color: "var(--ba-muted)" }}>
-            {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          <div>
+            <strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong>
           </div>
           <div style={{ color: "var(--ba-muted)" }}>
-            {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""} &middot;{" "}
-            {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
+            {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot;{" "}
+            {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          </div>
+          <div style={{ color: "var(--ba-muted)" }}>
+            {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""}{" "}
+            &middot; {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
           {hasDeposit && (
             <div style={{ color: "#22c55e", fontWeight: 600, marginTop: 2 }}>
@@ -486,10 +556,9 @@ function RescheduleModal({
           neonId: String(reservation.id),
           token,
         });
-        const res = await fetch(
-          `/api/admin/bowling/reservations/reschedule/info?${qs}`,
-          { cache: "no-store" },
-        );
+        const res = await fetch(`/api/admin/bowling/reservations/reschedule/info?${qs}`, {
+          cache: "no-store",
+        });
         const data = await res.json();
         if (!cancelled) {
           if (!res.ok) {
@@ -506,7 +575,9 @@ function RescheduleModal({
         if (!cancelled) setLoadingInfo(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [reservation.id, token]);
 
   // Fetch availability when date or info changes
@@ -524,14 +595,13 @@ function RescheduleModal({
           startDate: selectedDate,
           webOfferId: String(info.webOfferId),
         });
-        const res = await fetch(
-          `/api/bowling/v2/availability?${qs}`,
-          { cache: "no-store" },
-        );
+        const res = await fetch(`/api/bowling/v2/availability?${qs}`, { cache: "no-store" });
         const data = await res.json();
         if (!cancelled && data.Availabilities) {
           // Filter to matching web offer (QAMF may return others)
-          const matching = (data.Availabilities as Array<{ BookedAt: string; WebOffer: { Id: number } }>)
+          const matching = (
+            data.Availabilities as Array<{ BookedAt: string; WebOffer: { Id: number } }>
+          )
             .filter((a) => a.WebOffer.Id === info.webOfferId)
             .map((a) => ({ bookedAt: a.BookedAt, webOfferId: a.WebOffer.Id }));
           setSlots(matching);
@@ -542,7 +612,9 @@ function RescheduleModal({
         if (!cancelled) setLoadingSlots(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [info, selectedDate]);
 
   async function handleReschedule() {
@@ -608,14 +680,36 @@ function RescheduleModal({
         }}
       >
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#00E2E5", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "1rem",
+          }}
+        >
+          <h3
+            style={{
+              fontSize: "1rem",
+              fontWeight: 700,
+              color: "#00E2E5",
+              margin: 0,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
             Change Time
           </h3>
           <button
             type="button"
             onClick={onClose}
-            style={{ background: "none", border: "none", color: "var(--ba-muted)", cursor: "pointer", fontSize: "1.2rem" }}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--ba-muted)",
+              cursor: "pointer",
+              fontSize: "1.2rem",
+            }}
           >
             &times;
           </button>
@@ -633,13 +727,16 @@ function RescheduleModal({
             lineHeight: 1.7,
           }}
         >
-          <div><strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong></div>
-          <div style={{ color: "var(--ba-muted)" }}>
-            Current: {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          <div>
+            <strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong>
           </div>
           <div style={{ color: "var(--ba-muted)" }}>
-            {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""} &middot;{" "}
-            {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
+            Current: {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)}{" "}
+            &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          </div>
+          <div style={{ color: "var(--ba-muted)" }}>
+            {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""}{" "}
+            &middot; {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
         </div>
 
@@ -655,7 +752,8 @@ function RescheduleModal({
             marginBottom: "1rem",
           }}
         >
-          Only times within the same experience/web offer are shown. Price and deposit stay the same.
+          Only times within the same experience/web offer are shown. Price and deposit stay the
+          same.
         </div>
 
         {/* Loading info */}
@@ -687,7 +785,14 @@ function RescheduleModal({
         {info && !infoError && (
           <>
             <label style={{ display: "block", marginBottom: "0.75rem" }}>
-              <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", display: "block", marginBottom: 4 }}>
+              <span
+                style={{
+                  fontSize: "0.7rem",
+                  color: "var(--ba-muted)",
+                  display: "block",
+                  marginBottom: 4,
+                }}
+              >
                 New date
               </span>
               <input
@@ -703,16 +808,37 @@ function RescheduleModal({
 
             {/* Time slots */}
             <div style={{ marginBottom: "1rem" }}>
-              <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", display: "block", marginBottom: 6 }}>
+              <span
+                style={{
+                  fontSize: "0.7rem",
+                  color: "var(--ba-muted)",
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
                 Available times
               </span>
 
               {loadingSlots ? (
-                <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--ba-muted)", fontSize: "0.8rem" }}>
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "1.5rem",
+                    color: "var(--ba-muted)",
+                    fontSize: "0.8rem",
+                  }}
+                >
                   Checking availability...
                 </div>
               ) : slots.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--ba-muted)", fontSize: "0.8rem" }}>
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "1.5rem",
+                    color: "var(--ba-muted)",
+                    fontSize: "0.8rem",
+                  }}
+                >
                   No available times for this date. Try another date.
                 </div>
               ) : (
@@ -741,9 +867,7 @@ function RescheduleModal({
                           fontSize: "0.75rem",
                           fontWeight: 600,
                           cursor: isCurrent ? "not-allowed" : "pointer",
-                          border: isSelected
-                            ? "1.5px solid #00E2E5"
-                            : "1px solid var(--ba-border)",
+                          border: isSelected ? "1.5px solid #00E2E5" : "1px solid var(--ba-border)",
                           backgroundColor: isSelected
                             ? "rgba(0,226,229,0.15)"
                             : isCurrent
@@ -758,7 +882,14 @@ function RescheduleModal({
                       >
                         {fmtTime(slot.bookedAt)}
                         {isCurrent && (
-                          <span style={{ display: "block", fontSize: "0.55rem", color: "var(--ba-muted)", marginTop: 1 }}>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "0.55rem",
+                              color: "var(--ba-muted)",
+                              marginTop: 1,
+                            }}
+                          >
                             current
                           </span>
                         )}
@@ -791,11 +922,7 @@ function RescheduleModal({
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{ ...NAV_BTN, fontSize: "0.8rem" }}
-          >
+          <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
             Cancel
           </button>
           <button
@@ -844,12 +971,15 @@ function CheckInModal({
   // Shoe sizes + optional names: one entry per player slot
   const playerCount = reservation.playerCount ?? 1;
   const [shoes, setShoes] = useState<Array<{ category: ShoeCategory | null; size: string | null }>>(
-    () => Array.from({ length: playerCount }, () => ({ category: null, size: null }))
+    () => Array.from({ length: playerCount }, () => ({ category: null, size: null })),
   );
   const [names, setNames] = useState<string[]>(() => Array.from({ length: playerCount }, () => ""));
 
   // Parse existing shoe size string like "Female 8" into category + size
-  function parseShoeSize(raw: string | null): { category: ShoeCategory | null; size: string | null } {
+  function parseShoeSize(raw: string | null): {
+    category: ShoeCategory | null;
+    size: string | null;
+  } {
     if (!raw) return { category: null, size: null };
     const space = raw.indexOf(" ");
     if (space === -1) return { category: null, size: null };
@@ -880,24 +1010,34 @@ function CheckInModal({
         }
         if (playersRes.ok) {
           const plData = await playersRes.json();
-          const existing = (plData.players || []) as Array<{ slot: number; name?: string | null; shoeSize?: string | null }>;
+          const existing = (plData.players || []) as Array<{
+            slot: number;
+            name?: string | null;
+            shoeSize?: string | null;
+          }>;
           if (existing.length > 0) {
-            setShoes(prev => prev.map((_, i) => {
-              const player = existing.find(p => p.slot === i + 1);
-              return parseShoeSize(player?.shoeSize ?? null);
-            }));
-            setNames(prev => prev.map((_, i) => {
-              const player = existing.find(p => p.slot === i + 1);
-              const n = player?.name ?? "";
-              return n.startsWith("Bowler ") ? "" : n;
-            }));
+            setShoes((prev) =>
+              prev.map((_, i) => {
+                const player = existing.find((p) => p.slot === i + 1);
+                return parseShoeSize(player?.shoeSize ?? null);
+              }),
+            );
+            setNames((prev) =>
+              prev.map((_, i) => {
+                const player = existing.find((p) => p.slot === i + 1);
+                const n = player?.name ?? "";
+                return n.startsWith("Bowler ") ? "" : n;
+              }),
+            );
           }
         }
       } catch {
         if (!cancelled) setPhase("error");
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [reservation.id]);
 
   // Poll phase every 10s while not_ready
@@ -905,13 +1045,17 @@ function CheckInModal({
     if (phase !== "not_ready") return;
     const id = setInterval(async () => {
       try {
-        const res = await fetch(`/api/bowling/v2/reservations/${reservation.id}/checkin`, { cache: "no-store" });
+        const res = await fetch(`/api/bowling/v2/reservations/${reservation.id}/checkin`, {
+          cache: "no-store",
+        });
         if (res.ok) {
           const pd = await res.json();
           setPhase(pd.phase || "not_ready");
           setLaneLabel(pd.laneLabel || "");
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }, 10_000);
     return () => clearInterval(id);
   }, [phase, reservation.id]);
@@ -982,58 +1126,206 @@ function CheckInModal({
 
   // Phase banner colors
   const bannerStyle: Record<string, { bg: string; border: string; color: string; text: string }> = {
-    loading:   { bg: "var(--ba-bg2)", border: "var(--ba-border)", color: "var(--ba-muted)", text: "Loading lane status…" },
-    not_ready: { bg: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.25)", color: "#f59e0b", text: "Lanes not yet assigned — polling for updates…" },
-    ready:     { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.25)", color: "#22c55e", text: `${laneLabel || "Lane"} ready` },
-    running:   { bg: "rgba(20,184,166,0.1)", border: "rgba(20,184,166,0.25)", color: "#14b8a6", text: `Already open — ${laneLabel || "lanes running"}` },
-    completed: { bg: "var(--ba-bg2)", border: "var(--ba-border)", color: "var(--ba-muted)", text: "Session completed" },
-    cancelled: { bg: "var(--ba-bg2)", border: "var(--ba-border)", color: "var(--ba-muted)", text: "Reservation cancelled" },
-    error:     { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.25)", color: "#ef4444", text: "Failed to load lane status" },
+    loading: {
+      bg: "var(--ba-bg2)",
+      border: "var(--ba-border)",
+      color: "var(--ba-muted)",
+      text: "Loading lane status…",
+    },
+    not_ready: {
+      bg: "rgba(245,158,11,0.1)",
+      border: "rgba(245,158,11,0.25)",
+      color: "#f59e0b",
+      text: "Lanes not yet assigned — polling for updates…",
+    },
+    ready: {
+      bg: "rgba(34,197,94,0.1)",
+      border: "rgba(34,197,94,0.25)",
+      color: "#22c55e",
+      text: `${laneLabel || "Lane"} ready`,
+    },
+    running: {
+      bg: "rgba(20,184,166,0.1)",
+      border: "rgba(20,184,166,0.25)",
+      color: "#14b8a6",
+      text: `Already open — ${laneLabel || "lanes running"}`,
+    },
+    completed: {
+      bg: "var(--ba-bg2)",
+      border: "var(--ba-border)",
+      color: "var(--ba-muted)",
+      text: "Session completed",
+    },
+    cancelled: {
+      bg: "var(--ba-bg2)",
+      border: "var(--ba-border)",
+      color: "var(--ba-muted)",
+      text: "Reservation cancelled",
+    },
+    error: {
+      bg: "rgba(239,68,68,0.1)",
+      border: "rgba(239,68,68,0.25)",
+      color: "#ef4444",
+      text: "Failed to load lane status",
+    },
   };
   const banner = bannerStyle[phase] || bannerStyle.error;
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backgroundColor: "var(--ba-overlay)", backdropFilter: "blur(4px)" }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+        backgroundColor: "var(--ba-overlay)",
+        backdropFilter: "blur(4px)",
+      }}
       {...modalBackdropProps(onClose)}
     >
-      <div style={{ width: "100%", maxWidth: 500, backgroundColor: "var(--ba-modal-bg)", border: "1px solid var(--ba-modal-border)", borderRadius: 16, padding: "1.5rem", maxHeight: "calc(100dvh - 2rem)", overflowY: "auto" }}>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 500,
+          backgroundColor: "var(--ba-modal-bg)",
+          border: "1px solid var(--ba-modal-border)",
+          borderRadius: 16,
+          padding: "1.5rem",
+          maxHeight: "calc(100dvh - 2rem)",
+          overflowY: "auto",
+        }}
+      >
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#22c55e", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>Check In</h3>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--ba-muted)", cursor: "pointer", fontSize: "1.2rem" }}>&times;</button>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "1rem",
+          }}
+        >
+          <h3
+            style={{
+              fontSize: "1rem",
+              fontWeight: 700,
+              color: "#22c55e",
+              margin: 0,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            Check In
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--ba-muted)",
+              cursor: "pointer",
+              fontSize: "1.2rem",
+            }}
+          >
+            &times;
+          </button>
         </div>
 
         {/* Reservation info */}
-        <div style={{ padding: "0.75rem", borderRadius: 10, backgroundColor: "var(--ba-bg2)", border: "1px solid var(--ba-border)", marginBottom: "1rem", fontSize: "0.8rem", lineHeight: 1.7 }}>
-          <div><strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong></div>
-          <div style={{ color: "var(--ba-muted)" }}>
-            {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot; {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+        <div
+          style={{
+            padding: "0.75rem",
+            borderRadius: 10,
+            backgroundColor: "var(--ba-bg2)",
+            border: "1px solid var(--ba-border)",
+            marginBottom: "1rem",
+            fontSize: "0.8rem",
+            lineHeight: 1.7,
+          }}
+        >
+          <div>
+            <strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong>
           </div>
           <div style={{ color: "var(--ba-muted)" }}>
-            {playerCount} bowler{playerCount > 1 ? "s" : ""} &middot; {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
+            {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot;{" "}
+            {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+          </div>
+          <div style={{ color: "var(--ba-muted)" }}>
+            {playerCount} bowler{playerCount > 1 ? "s" : ""} &middot;{" "}
+            {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
         </div>
 
         {/* Phase banner */}
-        <div style={{ padding: "0.6rem 0.75rem", borderRadius: 8, backgroundColor: banner.bg, border: `1px solid ${banner.border}`, fontSize: "0.75rem", fontWeight: 600, color: banner.color, marginBottom: "1rem" }}>
+        <div
+          style={{
+            padding: "0.6rem 0.75rem",
+            borderRadius: 8,
+            backgroundColor: banner.bg,
+            border: `1px solid ${banner.border}`,
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            color: banner.color,
+            marginBottom: "1rem",
+          }}
+        >
           {banner.text}
         </div>
 
         {/* Shoe size picker */}
         {phase !== "loading" && phase !== "completed" && phase !== "cancelled" && (
           <div style={{ marginBottom: "1rem" }}>
-            <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", display: "block", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Shoe Sizes</span>
+            <span
+              style={{
+                fontSize: "0.7rem",
+                color: "var(--ba-muted)",
+                display: "block",
+                marginBottom: 8,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                fontWeight: 600,
+              }}
+            >
+              Shoe Sizes
+            </span>
             {shoes.map((shoe, idx) => (
-              <div key={idx} style={{ marginBottom: 10, padding: "0.5rem", borderRadius: 8, backgroundColor: "var(--ba-bg2)", border: "1px solid var(--ba-border)" }}>
+              <div
+                key={idx}
+                style={{
+                  marginBottom: 10,
+                  padding: "0.5rem",
+                  borderRadius: 8,
+                  backgroundColor: "var(--ba-bg2)",
+                  border: "1px solid var(--ba-border)",
+                }}
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                  <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ba-muted)", whiteSpace: "nowrap" }}>Bowler {idx + 1}</span>
+                  <span
+                    style={{
+                      fontSize: "0.7rem",
+                      fontWeight: 600,
+                      color: "var(--ba-muted)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Bowler {idx + 1}
+                  </span>
                   <input
                     type="text"
                     placeholder="Name (optional)"
                     value={names[idx] ?? ""}
-                    onChange={(e) => setNames(prev => prev.map((n, i) => i === idx ? e.target.value : n))}
-                    style={{ ...INPUT_STYLE, padding: "0.2rem 0.5rem", fontSize: "0.68rem", flex: 1 }}
+                    onChange={(e) =>
+                      setNames((prev) => prev.map((n, i) => (i === idx ? e.target.value : n)))
+                    }
+                    style={{
+                      ...INPUT_STYLE,
+                      padding: "0.2rem 0.5rem",
+                      fontSize: "0.68rem",
+                      flex: 1,
+                    }}
                   />
                 </div>
                 {/* Category buttons */}
@@ -1042,11 +1334,24 @@ function CheckInModal({
                     <button
                       key={cat}
                       type="button"
-                      onClick={() => setShoes(prev => prev.map((s, i) => i === idx ? { category: s.category === cat ? null : cat, size: null } : s))}
+                      onClick={() =>
+                        setShoes((prev) =>
+                          prev.map((s, i) =>
+                            i === idx
+                              ? { category: s.category === cat ? null : cat, size: null }
+                              : s,
+                          ),
+                        )
+                      }
                       style={{
-                        padding: "0.25rem 0.6rem", borderRadius: 6, fontSize: "0.65rem", fontWeight: 600, cursor: "pointer",
+                        padding: "0.25rem 0.6rem",
+                        borderRadius: 6,
+                        fontSize: "0.65rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
                         border: `1px solid ${shoe.category === cat ? "rgba(0,226,229,0.4)" : "var(--ba-border)"}`,
-                        backgroundColor: shoe.category === cat ? "rgba(0,226,229,0.15)" : "var(--ba-input-bg)",
+                        backgroundColor:
+                          shoe.category === cat ? "rgba(0,226,229,0.15)" : "var(--ba-input-bg)",
                         color: shoe.category === cat ? "#00E2E5" : "var(--ba-muted)",
                       }}
                     >
@@ -1054,7 +1359,14 @@ function CheckInModal({
                     </button>
                   ))}
                   {shoe.category && shoe.size && (
-                    <span style={{ marginLeft: "auto", fontSize: "0.65rem", fontWeight: 600, color: "#00E2E5" }}>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: "0.65rem",
+                        fontWeight: 600,
+                        color: "#00E2E5",
+                      }}
+                    >
                       {SHOE_CATEGORY_LABELS[shoe.category]} {shoe.size}
                     </span>
                   )}
@@ -1066,11 +1378,22 @@ function CheckInModal({
                       <button
                         key={sz}
                         type="button"
-                        onClick={() => setShoes(prev => prev.map((s, i) => i === idx ? { ...s, size: sz } : s))}
+                        onClick={() =>
+                          setShoes((prev) =>
+                            prev.map((s, i) => (i === idx ? { ...s, size: sz } : s)),
+                          )
+                        }
                         style={{
-                          padding: "0.2rem 0.4rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, cursor: "pointer", minWidth: 28, textAlign: "center",
+                          padding: "0.2rem 0.4rem",
+                          borderRadius: 5,
+                          fontSize: "0.6rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          minWidth: 28,
+                          textAlign: "center",
                           border: `1px solid ${shoe.size === sz ? "#22c55e" : "var(--ba-border)"}`,
-                          backgroundColor: shoe.size === sz ? "rgba(34,197,94,0.15)" : "var(--ba-input-bg)",
+                          backgroundColor:
+                            shoe.size === sz ? "rgba(34,197,94,0.15)" : "var(--ba-input-bg)",
                           color: shoe.size === sz ? "#22c55e" : "var(--ba-fg)",
                         }}
                       >
@@ -1086,22 +1409,39 @@ function CheckInModal({
 
         {/* Error */}
         {error && (
-          <div style={{ padding: "0.5rem 0.75rem", borderRadius: 8, fontSize: "0.8rem", fontWeight: 600, marginBottom: "1rem", backgroundColor: "rgba(239,68,68,0.15)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }}>
+          <div
+            style={{
+              padding: "0.5rem 0.75rem",
+              borderRadius: 8,
+              fontSize: "0.8rem",
+              fontWeight: 600,
+              marginBottom: "1rem",
+              backgroundColor: "rgba(239,68,68,0.15)",
+              color: "#ef4444",
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}
+          >
             {error}
           </div>
         )}
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>Close</button>
+          <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
+            Close
+          </button>
           {(phase === "not_ready" || phase === "running" || phase === "error") && (
             <button
               type="button"
               onClick={handleSaveShoesOnly}
               disabled={savingShoes}
               style={{
-                padding: "0.5rem 1.25rem", borderRadius: 8, fontSize: "0.8rem", fontWeight: 700,
-                cursor: savingShoes ? "not-allowed" : "pointer", border: "none",
+                padding: "0.5rem 1.25rem",
+                borderRadius: 8,
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                cursor: savingShoes ? "not-allowed" : "pointer",
+                border: "none",
                 backgroundColor: savingShoes ? "rgba(0,226,229,0.2)" : "rgba(0,226,229,0.9)",
                 color: savingShoes ? "rgba(0,226,229,0.5)" : "#000418",
                 opacity: savingShoes ? 0.6 : 1,
@@ -1116,10 +1456,15 @@ function CheckInModal({
               onClick={handleCheckin}
               disabled={submitting}
               style={{
-                padding: "0.5rem 1.25rem", borderRadius: 8, fontSize: "0.8rem", fontWeight: 700,
-                cursor: submitting ? "not-allowed" : "pointer", border: "none",
+                padding: "0.5rem 1.25rem",
+                borderRadius: 8,
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                cursor: submitting ? "not-allowed" : "pointer",
+                border: "none",
                 backgroundColor: submitting ? "rgba(34,197,94,0.3)" : "#22c55e",
-                color: "#fff", opacity: submitting ? 0.6 : 1,
+                color: "#fff",
+                opacity: submitting ? 0.6 : 1,
               }}
             >
               {submitting ? "Checking in…" : "Check In & Open Lanes"}
@@ -1147,7 +1492,10 @@ export default function ReservationsClient({ token }: { token: string }) {
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.origin !== "https://portal.headpinz.com") return;
-      if (e.data?.type === "portal.theme" && (e.data.value === "dark" || e.data.value === "light")) {
+      if (
+        e.data?.type === "portal.theme" &&
+        (e.data.value === "dark" || e.data.value === "light")
+      ) {
         setTheme(e.data.value);
       }
     }
@@ -1177,7 +1525,13 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [orderTarget, setOrderTarget] = useState<Reservation | null>(null);
   const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
-  const [orderMeta, setOrderMeta] = useState<{ state: string; totalCents: number; taxCents: number; discountCents: number; remainingCents: number } | null>(null);
+  const [orderMeta, setOrderMeta] = useState<{
+    state: string;
+    totalCents: number;
+    taxCents: number;
+    discountCents: number;
+    remainingCents: number;
+  } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   async function setCheckinMethod(neonId: number, method: "self" | "desk" | null) {
@@ -1191,42 +1545,48 @@ export default function ReservationsClient({ token }: { token: string }) {
         },
       );
       if (!res.ok) throw new Error("Failed");
-      setReservations(prev =>
-        prev.map(r => r.id === neonId ? { ...r, checkinMethod: method ?? undefined } : r),
+      setReservations((prev) =>
+        prev.map((r) => (r.id === neonId ? { ...r, checkinMethod: method ?? undefined } : r)),
       );
     } catch {
       setToast("Check-in update failed");
     }
   }
 
-  const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = opts?.silent ?? false;
-    if (!silent) { setLoading(true); setError(null); }
-    try {
-      const params = new URLSearchParams({
-        token,
-        date,
-        ...(center ? { center } : {}),
-      });
-      const res = await fetch(`/api/admin/bowling/reservations?${params}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setReservations(data.reservations ?? []);
-      setError(null);
-    } catch (err) {
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
       if (!silent) {
-        setError(err instanceof Error ? err.message : "Failed to load");
-        setReservations([]);
+        setLoading(true);
+        setError(null);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [token, date, center]);
+      try {
+        const params = new URLSearchParams({
+          token,
+          date,
+          ...(center ? { center } : {}),
+        });
+        const res = await fetch(`/api/admin/bowling/reservations?${params}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setReservations(data.reservations ?? []);
+        setError(null);
+      } catch (err) {
+        if (!silent) {
+          setError(err instanceof Error ? err.message : "Failed to load");
+          setReservations([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token, date, center],
+  );
 
   useEffect(() => {
     void load();
@@ -1234,7 +1594,9 @@ export default function ReservationsClient({ token }: { token: string }) {
 
   // Auto-refresh every 10s — silent so cards update inline without flash
   useEffect(() => {
-    const id = setInterval(() => { void load({ silent: true }); }, 10_000);
+    const id = setInterval(() => {
+      void load({ silent: true });
+    }, 10_000);
     return () => clearInterval(id);
   }, [load]);
 
@@ -1248,9 +1610,18 @@ export default function ReservationsClient({ token }: { token: string }) {
     fetch(`/api/admin/bowling/square-order?${params}`, { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (data.error) { setOrderItems([]); return; }
+        if (data.error) {
+          setOrderItems([]);
+          return;
+        }
         setOrderItems(data.lineItems ?? []);
-        setOrderMeta({ state: data.state, totalCents: data.totalCents, taxCents: data.taxCents ?? 0, discountCents: data.discountCents ?? 0, remainingCents: data.remainingCents });
+        setOrderMeta({
+          state: data.state,
+          totalCents: data.totalCents,
+          taxCents: data.taxCents ?? 0,
+          discountCents: data.discountCents ?? 0,
+          remainingCents: data.remainingCents,
+        });
       })
       .catch(() => setOrderItems([]))
       .finally(() => setOrderLoading(false));
@@ -1287,7 +1658,9 @@ export default function ReservationsClient({ token }: { token: string }) {
   const active = filtered.filter((r) => r.status !== "cancelled" && r.status !== "completed");
   const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
   const totalCompletedAll = reservations.filter((r) => r.status === "completed").length;
-  const totalWalkins = reservations.filter((r) => r.bookingSource && r.bookingSource !== "web").length;
+  const totalWalkins = reservations.filter(
+    (r) => r.bookingSource && r.bookingSource !== "web",
+  ).length;
   const totalHidden = totalCancelledAll + totalCompletedAll;
   const totalDeposit = active.reduce((s, r) => s + r.depositCents, 0);
   const totalRevenue = active.reduce((s, r) => s + r.totalCents, 0);
@@ -1312,9 +1685,12 @@ export default function ReservationsClient({ token }: { token: string }) {
   // The <style> block sets variables on [data-theme], and key surface colors
   // reference them. Accent colors (status badges, pills) stay hardcoded
   // since they work on both backgrounds.
-  const themeStyle = theme === "light" ? `
+  const themeStyle =
+    theme === "light"
+      ? `
     [data-ba-theme="light"] { --ba-bg: #f8f9fb; --ba-fg: #1a1a2e; --ba-bg2: #ffffff; --ba-border: rgba(0,0,0,0.1); --ba-muted: rgba(0,0,0,0.45); --ba-muted2: rgba(0,0,0,0.08); --ba-hover: rgba(0,0,0,0.04); --ba-input-bg: #ffffff; --ba-input-border: rgba(0,0,0,0.15); --ba-shadow: rgba(0,0,0,0.08); --ba-modal-bg: #ffffff; --ba-modal-border: rgba(0,0,0,0.12); --ba-overlay: rgba(0,0,0,0.4); }
-  ` : `
+  `
+      : `
     [data-ba-theme="dark"] { --ba-bg: #0a1628; --ba-fg: #fff; --ba-bg2: rgba(255,255,255,0.03); --ba-border: rgba(255,255,255,0.06); --ba-muted: rgba(255,255,255,0.35); --ba-muted2: rgba(255,255,255,0.06); --ba-hover: rgba(255,255,255,0.04); --ba-input-bg: rgba(255,255,255,0.05); --ba-input-border: rgba(255,255,255,0.1); --ba-shadow: rgba(0,0,0,0.5); --ba-modal-bg: #111827; --ba-modal-border: rgba(255,255,255,0.08); --ba-overlay: rgba(0,0,0,0.7); }
   `;
 
@@ -1404,124 +1780,290 @@ export default function ReservationsClient({ token }: { token: string }) {
       {/* Square order details modal */}
       {orderTarget && (
         <div
-          {...modalBackdropProps(() => { setOrderTarget(null); setOrderItems(null); setOrderMeta(null); })}
+          {...modalBackdropProps(() => {
+            setOrderTarget(null);
+            setOrderItems(null);
+            setOrderMeta(null);
+          })}
           style={{
-            position: "fixed", inset: 0, zIndex: 50,
-            background: "var(--ba-overlay)", display: "flex",
-            alignItems: "center", justifyContent: "center", padding: 16,
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "var(--ba-overlay)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
           }}
         >
           <div
             style={{
-              background: "var(--ba-modal-bg)", borderRadius: 12, padding: 24,
-              border: "1px solid var(--ba-modal-border)", maxWidth: 500, width: "100%",
-              maxHeight: "80vh", overflow: "auto",
+              background: "var(--ba-modal-bg)",
+              borderRadius: 12,
+              padding: 24,
+              border: "1px solid var(--ba-modal-border)",
+              maxWidth: 500,
+              width: "100%",
+              maxHeight: "80vh",
+              overflow: "auto",
             }}
           >
             <h3 style={{ margin: "0 0 4px", fontSize: "0.95rem", fontWeight: 700 }}>
               Square Order — {orderTarget.guestName}
             </h3>
-            <p style={{ margin: "0 0 16px", color: "var(--ba-muted)", fontSize: "0.68rem", fontFamily: "monospace" }}>
+            <p
+              style={{
+                margin: "0 0 16px",
+                color: "var(--ba-muted)",
+                fontSize: "0.68rem",
+                fontFamily: "monospace",
+              }}
+            >
               {orderTarget.squareDayofOrderId}
             </p>
 
-            {orderLoading && <p style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>Loading…</p>}
+            {orderLoading && (
+              <p style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>Loading…</p>
+            )}
 
             {orderMeta && (
               <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-                <span style={{
-                  padding: "2px 8px", borderRadius: 5, fontSize: "0.65rem", fontWeight: 600,
-                  background: orderMeta.state === "OPEN" ? "rgba(59,130,246,0.15)" : orderMeta.state === "COMPLETED" ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-                  color: orderMeta.state === "OPEN" ? "#3b82f6" : orderMeta.state === "COMPLETED" ? "#22c55e" : "#ef4444",
-                  border: `1px solid ${orderMeta.state === "OPEN" ? "rgba(59,130,246,0.3)" : orderMeta.state === "COMPLETED" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
-                }}>
+                <span
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 5,
+                    fontSize: "0.65rem",
+                    fontWeight: 600,
+                    background:
+                      orderMeta.state === "OPEN"
+                        ? "rgba(59,130,246,0.15)"
+                        : orderMeta.state === "COMPLETED"
+                          ? "rgba(34,197,94,0.15)"
+                          : "rgba(239,68,68,0.15)",
+                    color:
+                      orderMeta.state === "OPEN"
+                        ? "#3b82f6"
+                        : orderMeta.state === "COMPLETED"
+                          ? "#22c55e"
+                          : "#ef4444",
+                    border: `1px solid ${orderMeta.state === "OPEN" ? "rgba(59,130,246,0.3)" : orderMeta.state === "COMPLETED" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                  }}
+                >
                   {orderMeta.state}
                 </span>
                 {orderMeta.remainingCents > 0 && (
                   <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
-                    Due: <strong style={{ color: "#f59e0b" }}>${(orderMeta.remainingCents / 100).toFixed(2)}</strong>
+                    Due:{" "}
+                    <strong style={{ color: "#f59e0b" }}>
+                      ${(orderMeta.remainingCents / 100).toFixed(2)}
+                    </strong>
                   </span>
                 )}
               </div>
             )}
 
             {orderTarget.rewardDiscountCents > 0 && (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
-                padding: "6px 10px", borderRadius: 6,
-                background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.2)",
-              }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 12,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: "rgba(255,215,0,0.08)",
+                  border: "1px solid rgba(255,215,0,0.2)",
+                }}
+              >
                 <span style={{ fontSize: "0.85rem" }}>⭐</span>
                 <span style={{ color: "#FFD700", fontSize: "0.75rem", fontWeight: 600 }}>
                   HeadPinz Reward −${(orderTarget.rewardDiscountCents / 100).toFixed(2)}
                 </span>
                 {orderTarget.squareLoyaltyRewardId && (
-                  <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", fontFamily: "monospace" }}>
+                  <span
+                    style={{
+                      color: "var(--ba-muted)",
+                      fontSize: "0.6rem",
+                      fontFamily: "monospace",
+                    }}
+                  >
                     {orderTarget.squareLoyaltyRewardId.slice(0, 8)}…
                   </span>
                 )}
               </div>
             )}
 
-            {orderItems && orderItems.length > 0 && (() => {
-              const subtotalCents = orderItems.reduce((s, li) => s + li.grossCents, 0);
-              const taxCents = orderMeta?.taxCents ?? orderItems.reduce((s, li) => s + li.taxCents, 0);
-              const discountCents = orderMeta?.discountCents ?? orderItems.reduce((s, li) => s + li.discountCents, 0);
-              const totalCents = orderMeta?.totalCents ?? (subtotalCents + taxCents - discountCents);
-              return (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--ba-border)" }}>
-                      {["Item", "Qty", "Price"].map((h) => (
-                        <th key={h} style={{
-                          padding: "6px 8px", textAlign: h === "Item" ? "left" : "right",
-                          color: "var(--ba-muted)", fontSize: "0.65rem",
-                          textTransform: "uppercase", fontWeight: 600,
-                        }}>{h}</th>
+            {orderItems &&
+              orderItems.length > 0 &&
+              (() => {
+                const subtotalCents = orderItems.reduce((s, li) => s + li.grossCents, 0);
+                const taxCents =
+                  orderMeta?.taxCents ?? orderItems.reduce((s, li) => s + li.taxCents, 0);
+                const discountCents =
+                  orderMeta?.discountCents ?? orderItems.reduce((s, li) => s + li.discountCents, 0);
+                const totalCents =
+                  orderMeta?.totalCents ?? subtotalCents + taxCents - discountCents;
+                return (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--ba-border)" }}>
+                        {["Item", "Qty", "Price"].map((h) => (
+                          <th
+                            key={h}
+                            style={{
+                              padding: "6px 8px",
+                              textAlign: h === "Item" ? "left" : "right",
+                              color: "var(--ba-muted)",
+                              fontSize: "0.65rem",
+                              textTransform: "uppercase",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderItems.map((li) => (
+                        <tr key={li.uid} style={{ borderBottom: "1px solid var(--ba-border)" }}>
+                          <td style={{ padding: "6px 8px" }}>
+                            <div style={{ fontWeight: 600 }}>{li.name}</div>
+                            {li.note && (
+                              <div
+                                style={{
+                                  color: "var(--ba-muted)",
+                                  fontSize: "0.68rem",
+                                  fontStyle: "italic",
+                                }}
+                              >
+                                {li.note}
+                              </div>
+                            )}
+                          </td>
+                          <td
+                            style={{
+                              padding: "6px 8px",
+                              textAlign: "right",
+                              color: "var(--ba-muted)",
+                            }}
+                          >
+                            {li.quantity}
+                          </td>
+                          <td
+                            style={{
+                              padding: "6px 8px",
+                              textAlign: "right",
+                              fontWeight: 600,
+                              color: li.grossCents === 0 ? "var(--ba-muted)" : "var(--ba-fg)",
+                            }}
+                          >
+                            {li.grossCents === 0 ? "$0" : `$${(li.grossCents / 100).toFixed(2)}`}
+                          </td>
+                        </tr>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orderItems.map((li) => (
-                      <tr key={li.uid} style={{ borderBottom: "1px solid var(--ba-border)" }}>
-                        <td style={{ padding: "6px 8px" }}>
-                          <div style={{ fontWeight: 600 }}>{li.name}</div>
-                          {li.note && (
-                            <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem", fontStyle: "italic" }}>{li.note}</div>
-                          )}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: "1px solid var(--ba-border)" }}>
+                        <td
+                          colSpan={2}
+                          style={{
+                            padding: "5px 8px",
+                            textAlign: "right",
+                            color: "var(--ba-muted)",
+                            fontSize: "0.72rem",
+                          }}
+                        >
+                          Subtotal
                         </td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--ba-muted)" }}>{li.quantity}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: li.grossCents === 0 ? "var(--ba-muted)" : "var(--ba-fg)" }}>
-                          {li.grossCents === 0 ? "$0" : `$${(li.grossCents / 100).toFixed(2)}`}
+                        <td
+                          style={{
+                            padding: "5px 8px",
+                            textAlign: "right",
+                            color: "var(--ba-fg)",
+                            fontSize: "0.72rem",
+                          }}
+                        >
+                          ${(subtotalCents / 100).toFixed(2)}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ borderTop: "1px solid var(--ba-border)" }}>
-                      <td colSpan={2} style={{ padding: "5px 8px", textAlign: "right", color: "var(--ba-muted)", fontSize: "0.72rem" }}>Subtotal</td>
-                      <td style={{ padding: "5px 8px", textAlign: "right", color: "var(--ba-fg)", fontSize: "0.72rem" }}>${(subtotalCents / 100).toFixed(2)}</td>
-                    </tr>
-                    {taxCents > 0 && (
-                      <tr>
-                        <td colSpan={2} style={{ padding: "2px 8px", textAlign: "right", color: "var(--ba-muted)", fontSize: "0.72rem" }}>Tax</td>
-                        <td style={{ padding: "2px 8px", textAlign: "right", color: "var(--ba-muted)", fontSize: "0.72rem" }}>${(taxCents / 100).toFixed(2)}</td>
+                      {taxCents > 0 && (
+                        <tr>
+                          <td
+                            colSpan={2}
+                            style={{
+                              padding: "2px 8px",
+                              textAlign: "right",
+                              color: "var(--ba-muted)",
+                              fontSize: "0.72rem",
+                            }}
+                          >
+                            Tax
+                          </td>
+                          <td
+                            style={{
+                              padding: "2px 8px",
+                              textAlign: "right",
+                              color: "var(--ba-muted)",
+                              fontSize: "0.72rem",
+                            }}
+                          >
+                            ${(taxCents / 100).toFixed(2)}
+                          </td>
+                        </tr>
+                      )}
+                      {discountCents > 0 && (
+                        <tr>
+                          <td
+                            colSpan={2}
+                            style={{
+                              padding: "2px 8px",
+                              textAlign: "right",
+                              color: "#f59e0b",
+                              fontSize: "0.72rem",
+                            }}
+                          >
+                            Discount
+                          </td>
+                          <td
+                            style={{
+                              padding: "2px 8px",
+                              textAlign: "right",
+                              color: "#f59e0b",
+                              fontSize: "0.72rem",
+                            }}
+                          >
+                            −${(discountCents / 100).toFixed(2)}
+                          </td>
+                        </tr>
+                      )}
+                      <tr style={{ borderTop: "1px solid var(--ba-border)" }}>
+                        <td
+                          colSpan={2}
+                          style={{
+                            padding: "5px 8px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: "0.78rem",
+                          }}
+                        >
+                          Total
+                        </td>
+                        <td
+                          style={{
+                            padding: "5px 8px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: "0.78rem",
+                          }}
+                        >
+                          ${(totalCents / 100).toFixed(2)}
+                        </td>
                       </tr>
-                    )}
-                    {discountCents > 0 && (
-                      <tr>
-                        <td colSpan={2} style={{ padding: "2px 8px", textAlign: "right", color: "#f59e0b", fontSize: "0.72rem" }}>Discount</td>
-                        <td style={{ padding: "2px 8px", textAlign: "right", color: "#f59e0b", fontSize: "0.72rem" }}>−${(discountCents / 100).toFixed(2)}</td>
-                      </tr>
-                    )}
-                    <tr style={{ borderTop: "1px solid var(--ba-border)" }}>
-                      <td colSpan={2} style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, fontSize: "0.78rem" }}>Total</td>
-                      <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, fontSize: "0.78rem" }}>${(totalCents / 100).toFixed(2)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              );
-            })()}
+                    </tfoot>
+                  </table>
+                );
+              })()}
 
             {orderItems && orderItems.length === 0 && (
               <p style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>No line items</p>
@@ -1530,11 +2072,20 @@ export default function ReservationsClient({ token }: { token: string }) {
             <div style={{ marginTop: 16, textAlign: "right" }}>
               <button
                 type="button"
-                onClick={() => { setOrderTarget(null); setOrderItems(null); setOrderMeta(null); }}
+                onClick={() => {
+                  setOrderTarget(null);
+                  setOrderItems(null);
+                  setOrderMeta(null);
+                }}
                 style={{
-                  padding: "6px 16px", borderRadius: 6, fontSize: "0.75rem",
-                  background: "var(--ba-input-bg)", border: "1px solid var(--ba-input-border)",
-                  color: "var(--ba-fg)", cursor: "pointer", fontWeight: 600,
+                  padding: "6px 16px",
+                  borderRadius: 6,
+                  fontSize: "0.75rem",
+                  background: "var(--ba-input-bg)",
+                  border: "1px solid var(--ba-input-border)",
+                  color: "var(--ba-fg)",
+                  cursor: "pointer",
+                  fontWeight: 600,
                 }}
               >
                 Close
@@ -1578,7 +2129,13 @@ export default function ReservationsClient({ token }: { token: string }) {
           <button
             type="button"
             onClick={() => setDate(todayET())}
-            style={{ ...NAV_BTN, fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}
+            style={{
+              ...NAV_BTN,
+              fontSize: "0.75rem",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              fontWeight: 600,
+            }}
           >
             Today
           </button>
@@ -1640,21 +2197,23 @@ export default function ReservationsClient({ token }: { token: string }) {
               <strong style={{ color: "var(--ba-fg)" }}>{active.length}</strong> active
               {hideCancelled && totalHidden > 0 && (
                 <span style={{ color: "var(--ba-muted)" }}>
-                  {" "}+ {totalHidden} hidden
+                  {" "}
+                  + {totalHidden} hidden
                   {totalCancelledAll > 0 && totalCompletedAll > 0
                     ? ` (${totalCancelledAll} cancelled, ${totalCompletedAll} completed)`
-                    : totalCancelledAll > 0 ? " (cancelled)" : " (completed)"}
+                    : totalCancelledAll > 0
+                      ? " (cancelled)"
+                      : " (completed)"}
                 </span>
               )}
               {!hideCancelled && totalCancelledAll > 0 && (
                 <span style={{ color: "rgba(239,68,68,0.7)" }}>
-                  {" "}· {totalCancelledAll} cancelled
+                  {" "}
+                  · {totalCancelledAll} cancelled
                 </span>
               )}
               {hideWalkins && totalWalkins > 0 && (
-                <span style={{ color: "var(--ba-muted)" }}>
-                  {" "}· {totalWalkins} walk-in
-                </span>
+                <span style={{ color: "var(--ba-muted)" }}> · {totalWalkins} walk-in</span>
               )}
             </span>
             <span>
@@ -1695,222 +2254,503 @@ export default function ReservationsClient({ token }: { token: string }) {
           </div>
         ) : (
           <>
-          {/* ── Mobile card list (<md) ────────────────────────── */}
-          <div className="md:hidden flex flex-col gap-1.5">
-            {filtered.map((r) => {
-              const isCancelled = r.status === "cancelled";
-              const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
-              const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
-              const cPath = confirmPath(r);
-              return (
-                <div
-                  key={r.id}
-                  style={{
-                    borderRadius: 8,
-                    border: "1px solid var(--ba-border)",
-                    backgroundColor: "var(--ba-bg2)",
-                    opacity: isCancelled ? 0.45 : 1,
-                    padding: "8px 10px",
-                  }}
-                >
-                  {/* Row 1: time · name · center ——— badges */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
-                      <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--ba-fg)", whiteSpace: "nowrap" }}>
-                        {fmtTime(r.bookedAt)}
-                      </span>
-                      <span style={{ fontWeight: 700, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {r.guestName || (
-                          r.bookingSource && r.bookingSource !== "web"
-                            ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)" }}>
+            {/* ── Mobile card list (<md) ────────────────────────── */}
+            <div className="md:hidden flex flex-col gap-1.5">
+              {filtered.map((r) => {
+                const isCancelled = r.status === "cancelled";
+                const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
+                const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
+                const cPath = confirmPath(r);
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      borderRadius: 8,
+                      border: "1px solid var(--ba-border)",
+                      backgroundColor: "var(--ba-bg2)",
+                      opacity: isCancelled ? 0.45 : 1,
+                      padding: "8px 10px",
+                    }}
+                  >
+                    {/* Row 1: time · name · center ——— badges */}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          minWidth: 0,
+                          flex: 1,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: 600,
+                            color: "var(--ba-fg)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {fmtTime(r.bookedAt)}
+                        </span>
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            fontSize: "0.8rem",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {r.guestName ||
+                            (r.bookingSource && r.bookingSource !== "web" ? (
+                              <span
+                                style={{
+                                  color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)",
+                                }}
+                              >
                                 {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
                               </span>
-                            : "—"
-                        )}
-                      </span>
-                      <span style={{ fontSize: "0.55rem", color: "var(--ba-muted)", fontWeight: 500, whiteSpace: "nowrap" }}>
-                        {centerShort}
-                      </span>
+                            ) : (
+                              "—"
+                            ))}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "0.55rem",
+                            color: "var(--ba-muted)",
+                            fontWeight: 500,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {centerShort}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 3,
+                          alignItems: "center",
+                          flexShrink: 0,
+                          marginLeft: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            padding: "1px 5px",
+                            borderRadius: 4,
+                            fontSize: "0.6rem",
+                            fontWeight: 600,
+                            backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
+                            color: STATUS_COLORS[r.status] ?? "#6b7280",
+                            border: `1px solid ${STATUS_COLORS[r.status] ?? "#6b7280"}40`,
+                          }}
+                        >
+                          {STATUS_LABELS[r.status] ?? r.status}
+                        </span>
+                        {r.checkinMethod === "self" ? (
+                          <span
+                            style={{
+                              padding: "1px 4px",
+                              borderRadius: 4,
+                              fontSize: "0.55rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(168,85,247,0.15)",
+                              color: "#a855f7",
+                              border: "1px solid rgba(168,85,247,0.3)",
+                            }}
+                          >
+                            Self
+                          </span>
+                        ) : r.checkinMethod === "desk" ? (
+                          <span
+                            style={{
+                              padding: "1px 4px",
+                              borderRadius: 4,
+                              fontSize: "0.55rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(20,184,166,0.15)",
+                              color: "#14b8a6",
+                              border: "1px solid rgba(20,184,166,0.3)",
+                            }}
+                          >
+                            Admin
+                          </span>
+                        ) : r.checkinMethod ? (
+                          <span
+                            style={{
+                              padding: "1px 4px",
+                              borderRadius: 4,
+                              fontSize: "0.55rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(107,114,128,0.15)",
+                              color: "#9ca3af",
+                              border: "1px solid rgba(107,114,128,0.3)",
+                            }}
+                          >
+                            {r.checkinMethod}
+                          </span>
+                        ) : r.preArrivalSentAt ? (
+                          <span
+                            style={{
+                              padding: "1px 4px",
+                              borderRadius: 4,
+                              fontSize: "0.55rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(59,130,246,0.15)",
+                              color: "#60a5fa",
+                              border: "1px solid rgba(59,130,246,0.3)",
+                            }}
+                          >
+                            SMS
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                    <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0, marginLeft: 6 }}>
-                      <span style={{
-                        padding: "1px 5px", borderRadius: 4, fontSize: "0.6rem", fontWeight: 600,
-                        backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
-                        color: STATUS_COLORS[r.status] ?? "#6b7280",
-                        border: `1px solid ${STATUS_COLORS[r.status] ?? "#6b7280"}40`,
-                      }}>
-                        {STATUS_LABELS[r.status] ?? r.status}
-                      </span>
-                      {r.checkinMethod === "self" ? (
-                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(168,85,247,0.15)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>Self</span>
-                      ) : r.checkinMethod === "desk" ? (
-                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(20,184,166,0.15)", color: "#14b8a6", border: "1px solid rgba(20,184,166,0.3)" }}>Admin</span>
-                      ) : r.checkinMethod ? (
-                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(107,114,128,0.15)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.3)" }}>{r.checkinMethod}</span>
-                      ) : r.preArrivalSentAt ? (
-                        <span style={{ padding: "1px 4px", borderRadius: 4, fontSize: "0.55rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>SMS</span>
-                      ) : null}
-                    </div>
-                  </div>
 
-                  {/* Row 2: phone · type · players · source · lane · payment */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap", fontSize: "0.68rem" }}>
-                    {r.guestPhone && (
-                      <span style={{ color: "var(--ba-muted)" }}>{r.guestPhone}</span>
-                    )}
-                    <span style={{
-                      padding: "0px 4px", borderRadius: 3, fontSize: "0.6rem", fontWeight: 600,
-                      textTransform: "uppercase", letterSpacing: "0.02em",
-                      backgroundColor: r.productKind === "kbf" ? "rgba(168,85,247,0.15)" : "rgba(59,130,246,0.15)",
-                      color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
-                      border: `1px solid ${r.productKind === "kbf" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
-                    }}>
-                      {r.productKind === "kbf" ? "KBF" : "Open"}
-                    </span>
-                    <span style={{ color: "var(--ba-muted)", fontSize: "0.65rem" }}>{r.playerCount ?? "—"}p</span>
-                    {r.bookingSource && r.bookingSource !== "web" && (
-                      <span style={{
-                        padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600,
-                        textTransform: "uppercase",
-                        backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
-                        color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
-                        border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
-                      }}>
-                        {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
-                      </span>
-                    )}
-                    {r.dayofOrderLane && (
-                      <span style={{ color: "#22c55e", fontWeight: 700, fontSize: "0.7rem" }}>L{r.dayofOrderLane}</span>
-                    )}
-                    <span style={{ marginLeft: "auto" }}>
-                      {r.depositCents > 0 ? (
-                        <>
-                          <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.7rem" }}>{dollars(r.depositCents)}</span>
-                          <span style={{ color: "var(--ba-muted)", margin: "0 1px", fontSize: "0.6rem" }}>/</span>
-                          <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>{dollars(r.totalCents)}</span>
-                        </>
-                      ) : r.bookingSource && r.bookingSource !== "web" ? (
-                        <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>Walk-in</span>
-                      ) : (
-                        <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>Free</span>
+                    {/* Row 2: phone · type · players · source · lane · payment */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        marginTop: 4,
+                        flexWrap: "wrap",
+                        fontSize: "0.68rem",
+                      }}
+                    >
+                      {r.guestPhone && (
+                        <span style={{ color: "var(--ba-muted)" }}>{r.guestPhone}</span>
                       )}
-                      {r.refundCents > 0 && (
-                        <span style={{ color: "#ef4444", fontSize: "0.6rem", fontWeight: 600, marginLeft: 4 }}>
-                          -{dollars(r.refundCents)}
+                      <span
+                        style={{
+                          padding: "0px 4px",
+                          borderRadius: 3,
+                          fontSize: "0.6rem",
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.02em",
+                          backgroundColor:
+                            r.productKind === "kbf"
+                              ? "rgba(168,85,247,0.15)"
+                              : "rgba(59,130,246,0.15)",
+                          color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
+                          border: `1px solid ${r.productKind === "kbf" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
+                        }}
+                      >
+                        {r.productKind === "kbf" ? "KBF" : "Open"}
+                      </span>
+                      <span style={{ color: "var(--ba-muted)", fontSize: "0.65rem" }}>
+                        {r.playerCount ?? "—"}p
+                      </span>
+                      {r.bookingSource && r.bookingSource !== "web" && (
+                        <span
+                          style={{
+                            padding: "0px 3px",
+                            borderRadius: 3,
+                            fontSize: "0.5rem",
+                            fontWeight: 600,
+                            textTransform: "uppercase",
+                            backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                            color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                            border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                          }}
+                        >
+                          {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
                         </span>
                       )}
-                    </span>
-                  </div>
-
-                  {/* Row 3 (optional): rewards + square */}
-                  {(r.loyaltyAction || r.rewardDiscountCents > 0 || r.squareDayofOrderId) && (
-                    <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
-                      {r.loyaltyAction === "signup" && (
-                        <span style={{ padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600, backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)" }}>New</span>
+                      {r.dayofOrderLane && (
+                        <span style={{ color: "#22c55e", fontWeight: 700, fontSize: "0.7rem" }}>
+                          L{r.dayofOrderLane}
+                        </span>
                       )}
-                      {r.loyaltyAction === "existing" && (
-                        <span style={{ padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>Member</span>
-                      )}
-                      {r.rewardDiscountCents > 0 && (
-                        <span style={{ padding: "0px 3px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600, backgroundColor: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>−${(r.rewardDiscountCents / 100).toFixed(0)}</span>
-                      )}
-                      {r.squareDayofOrderId && (
-                        <button type="button" onClick={() => setOrderTarget(r)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: "auto" }}>
-                          <span style={{
-                            padding: "0px 4px", borderRadius: 3, fontSize: "0.5rem", fontWeight: 600,
-                            backgroundColor: r.dayofOrderError ? "rgba(239,68,68,0.15)" : r.dayofOrderSentAt ? "rgba(34,197,94,0.15)" : "rgba(107,114,128,0.1)",
-                            color: r.dayofOrderError ? "#ef4444" : r.dayofOrderSentAt ? "#22c55e" : "var(--ba-muted)",
-                            border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : r.dayofOrderSentAt ? "rgba(34,197,94,0.3)" : "var(--ba-border)"}`,
-                          }}>
-                            {r.dayofOrderError ? "SQ ERR" : r.dayofOrderSentAt ? "SQ Sent" : "SQ Pending"}
+                      <span style={{ marginLeft: "auto" }}>
+                        {r.depositCents > 0 ? (
+                          <>
+                            <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.7rem" }}>
+                              {dollars(r.depositCents)}
+                            </span>
+                            <span
+                              style={{
+                                color: "var(--ba-muted)",
+                                margin: "0 1px",
+                                fontSize: "0.6rem",
+                              }}
+                            >
+                              /
+                            </span>
+                            <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>
+                              {dollars(r.totalCents)}
+                            </span>
+                          </>
+                        ) : r.bookingSource && r.bookingSource !== "web" ? (
+                          <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>
+                            Walk-in
                           </span>
-                        </button>
-                      )}
+                        ) : (
+                          <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>Free</span>
+                        )}
+                        {r.refundCents > 0 && (
+                          <span
+                            style={{
+                              color: "#ef4444",
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              marginLeft: 4,
+                            }}
+                          >
+                            -{dollars(r.refundCents)}
+                          </span>
+                        )}
+                      </span>
                     </div>
-                  )}
 
-                  {/* Row 4: action buttons */}
-                  {!isCancelled && r.status !== "completed" && (
-                    <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-                      {r.status !== "arrived" && !r.checkinMethod && (
-                        <button type="button" onClick={() => setCheckinTarget(r)} style={{
-                          flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
-                          border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
-                          color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
-                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
-                          textTransform: "uppercase", letterSpacing: "0.02em",
-                        }}>
-                          Check In
-                        </button>
-                      )}
-                      {r.status !== "arrived" && r.qamfReservationId && (
-                        <button type="button" onClick={hasAttr ? undefined : () => setRescheduleTarget(r)} disabled={hasAttr} style={{
-                          flex: 1, background: "none", borderRadius: 4,
-                          border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
-                          color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
-                          cursor: hasAttr ? "not-allowed" : "pointer",
-                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
-                          textTransform: "uppercase", letterSpacing: "0.02em",
-                        }}>
-                          Resched
-                        </button>
-                      )}
-                      {cPath && (
-                        <a href={cPath} target="_blank" rel="noopener noreferrer" style={{
-                          flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                          background: "none", borderRadius: 4,
-                          border: "1px solid rgba(96,165,250,0.3)", color: "#60a5fa",
-                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
-                          textTransform: "uppercase", letterSpacing: "0.02em", textDecoration: "none",
-                        }}>
-                          View
-                        </a>
-                      )}
-                      {r.status !== "arrived" && (r.guestEmail || r.guestPhone) && (
-                        <button type="button" onClick={() => setResendTarget(r)} style={{
-                          flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
-                          border: "1px solid rgba(96,165,250,0.3)", color: "#60a5fa",
-                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
-                          textTransform: "uppercase", letterSpacing: "0.02em",
-                        }}>
-                          Resend
-                        </button>
-                      )}
-                      {r.status !== "arrived" && (
-                        <button type="button" onClick={() => setCancelTarget(r)} style={{
-                          flex: 1, background: "none", borderRadius: 4, cursor: "pointer",
-                          border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444",
-                          fontSize: "0.6rem", fontWeight: 600, padding: "3px 0",
-                          textTransform: "uppercase", letterSpacing: "0.02em",
-                        }}>
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                    {/* Row 3 (optional): rewards + square */}
+                    {(r.loyaltyAction || r.rewardDiscountCents > 0 || r.squareDayofOrderId) && (
+                      <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
+                        {r.loyaltyAction === "signup" && (
+                          <span
+                            style={{
+                              padding: "0px 3px",
+                              borderRadius: 3,
+                              fontSize: "0.5rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(34,197,94,0.15)",
+                              color: "#22c55e",
+                              border: "1px solid rgba(34,197,94,0.3)",
+                            }}
+                          >
+                            New
+                          </span>
+                        )}
+                        {r.loyaltyAction === "existing" && (
+                          <span
+                            style={{
+                              padding: "0px 3px",
+                              borderRadius: 3,
+                              fontSize: "0.5rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(59,130,246,0.15)",
+                              color: "#60a5fa",
+                              border: "1px solid rgba(59,130,246,0.3)",
+                            }}
+                          >
+                            Member
+                          </span>
+                        )}
+                        {r.rewardDiscountCents > 0 && (
+                          <span
+                            style={{
+                              padding: "0px 3px",
+                              borderRadius: 3,
+                              fontSize: "0.5rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(245,158,11,0.15)",
+                              color: "#f59e0b",
+                              border: "1px solid rgba(245,158,11,0.3)",
+                            }}
+                          >
+                            −${(r.rewardDiscountCents / 100).toFixed(0)}
+                          </span>
+                        )}
+                        {r.squareDayofOrderId && (
+                          <button
+                            type="button"
+                            onClick={() => setOrderTarget(r)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              padding: 0,
+                              marginLeft: "auto",
+                            }}
+                          >
+                            <span
+                              style={{
+                                padding: "0px 4px",
+                                borderRadius: 3,
+                                fontSize: "0.5rem",
+                                fontWeight: 600,
+                                backgroundColor: r.dayofOrderError
+                                  ? "rgba(239,68,68,0.15)"
+                                  : r.dayofOrderSentAt
+                                    ? "rgba(34,197,94,0.15)"
+                                    : "rgba(107,114,128,0.1)",
+                                color: r.dayofOrderError
+                                  ? "#ef4444"
+                                  : r.dayofOrderSentAt
+                                    ? "#22c55e"
+                                    : "var(--ba-muted)",
+                                border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : r.dayofOrderSentAt ? "rgba(34,197,94,0.3)" : "var(--ba-border)"}`,
+                              }}
+                            >
+                              {r.dayofOrderError
+                                ? "SQ ERR"
+                                : r.dayofOrderSentAt
+                                  ? "SQ Sent"
+                                  : "SQ Pending"}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    )}
 
-          {/* ── Desktop table (md+) ───────────────────────────── */}
-          <div className="hidden md:block" style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "0.78rem",
-              }}
-            >
-              <thead>
-                <tr
-                  style={{
-                    borderBottom: "1px solid var(--ba-border)",
-                    textAlign: "left",
-                  }}
-                >
-                  {["Time", "Guest", "Type", "Status", "Check-in", "Rewards", "Lane", "Order", "Square", "Payment", "Ref", "Actions"].map(
-                    (h) => (
+                    {/* Row 4: action buttons */}
+                    {!isCancelled && r.status !== "completed" && (
+                      <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                        {r.status !== "arrived" && !r.checkinMethod && (
+                          <button
+                            type="button"
+                            onClick={() => setCheckinTarget(r)}
+                            style={{
+                              flex: 1,
+                              background: "none",
+                              borderRadius: 4,
+                              cursor: "pointer",
+                              border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
+                              color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              padding: "3px 0",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.02em",
+                            }}
+                          >
+                            Check In
+                          </button>
+                        )}
+                        {r.status !== "arrived" && r.qamfReservationId && (
+                          <button
+                            type="button"
+                            onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
+                            disabled={hasAttr}
+                            style={{
+                              flex: 1,
+                              background: "none",
+                              borderRadius: 4,
+                              border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
+                              color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
+                              cursor: hasAttr ? "not-allowed" : "pointer",
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              padding: "3px 0",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.02em",
+                            }}
+                          >
+                            Resched
+                          </button>
+                        )}
+                        {cPath && (
+                          <a
+                            href={cPath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              flex: 1,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              background: "none",
+                              borderRadius: 4,
+                              border: "1px solid rgba(96,165,250,0.3)",
+                              color: "#60a5fa",
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              padding: "3px 0",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.02em",
+                              textDecoration: "none",
+                            }}
+                          >
+                            View
+                          </a>
+                        )}
+                        {r.status !== "arrived" && (r.guestEmail || r.guestPhone) && (
+                          <button
+                            type="button"
+                            onClick={() => setResendTarget(r)}
+                            style={{
+                              flex: 1,
+                              background: "none",
+                              borderRadius: 4,
+                              cursor: "pointer",
+                              border: "1px solid rgba(96,165,250,0.3)",
+                              color: "#60a5fa",
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              padding: "3px 0",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.02em",
+                            }}
+                          >
+                            Resend
+                          </button>
+                        )}
+                        {r.status !== "arrived" && (
+                          <button
+                            type="button"
+                            onClick={() => setCancelTarget(r)}
+                            style={{
+                              flex: 1,
+                              background: "none",
+                              borderRadius: 4,
+                              cursor: "pointer",
+                              border: "1px solid rgba(239,68,68,0.3)",
+                              color: "#ef4444",
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              padding: "3px 0",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.02em",
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ── Desktop table (md+) ───────────────────────────── */}
+            <div className="hidden md:block" style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "0.78rem",
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      borderBottom: "1px solid var(--ba-border)",
+                      textAlign: "left",
+                    }}
+                  >
+                    {[
+                      "Time",
+                      "Guest",
+                      "Type",
+                      "Status",
+                      "Check-in",
+                      "Rewards",
+                      "Lane",
+                      "Order",
+                      "Square",
+                      "Payment",
+                      "Ref",
+                      "Actions",
+                    ].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -1925,426 +2765,593 @@ export default function ReservationsClient({ token }: { token: string }) {
                       >
                         {h}
                       </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => {
-                  const isCancelled = r.status === "cancelled";
-                  const rowOpacity = isCancelled ? 0.45 : 1;
-                  const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
-                  return (
-                    <tr
-                      key={r.id}
-                      style={{
-                        borderBottom: "1px solid var(--ba-border)",
-                        opacity: rowOpacity,
-                      }}
-                    >
-                      {/* Time */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {fmtTime(r.bookedAt)}
-                      </td>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r) => {
+                    const isCancelled = r.status === "cancelled";
+                    const rowOpacity = isCancelled ? 0.45 : 1;
+                    const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
+                    return (
+                      <tr
+                        key={r.id}
+                        style={{
+                          borderBottom: "1px solid var(--ba-border)",
+                          opacity: rowOpacity,
+                        }}
+                      >
+                        {/* Time */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                          {fmtTime(r.bookedAt)}
+                        </td>
 
-                      {/* Guest — name, phone, center tag */}
-                      <td style={{ padding: "0.5rem 0.4rem" }}>
-                        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                          {r.guestName || (
-                            r.bookingSource && r.bookingSource !== "web"
-                              ? <span style={{ color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)" }}>
+                        {/* Guest — name, phone, center tag */}
+                        <td style={{ padding: "0.5rem 0.4rem" }}>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            {r.guestName ||
+                              (r.bookingSource && r.bookingSource !== "web" ? (
+                                <span
+                                  style={{
+                                    color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)",
+                                  }}
+                                >
                                   {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
                                 </span>
-                              : "—"
-                          )}
-                          <span style={{ fontSize: "0.6rem", color: "var(--ba-muted)", fontWeight: 500 }}>
-                            {centerShort}
-                          </span>
-                        </div>
-                        {r.guestPhone && (
-                          <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>
-                            {r.guestPhone}
+                              ) : (
+                                "—"
+                              ))}
+                            <span
+                              style={{
+                                fontSize: "0.6rem",
+                                color: "var(--ba-muted)",
+                                fontWeight: 500,
+                              }}
+                            >
+                              {centerShort}
+                            </span>
                           </div>
-                        )}
-                      </td>
+                          {r.guestPhone && (
+                            <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>
+                              {r.guestPhone}
+                            </div>
+                          )}
+                        </td>
 
-                      {/* Type — badge + player count + source */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "0.1rem 0.4rem",
-                            borderRadius: 5,
-                            fontSize: "0.65rem",
-                            fontWeight: 600,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.03em",
-                            backgroundColor:
-                              r.productKind === "kbf"
-                                ? "rgba(168,85,247,0.15)"
-                                : "rgba(59,130,246,0.15)",
-                            color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
-                            border: `1px solid ${
-                              r.productKind === "kbf"
-                                ? "rgba(168,85,247,0.3)"
-                                : "rgba(59,130,246,0.3)"
-                            }`,
-                          }}
-                        >
-                          {r.productKind === "kbf" ? "KBF" : "Open"}
-                        </span>
-                        <span style={{ marginLeft: 5, color: "var(--ba-muted)", fontSize: "0.68rem" }}>
-                          {r.playerCount ?? "—"}p
-                        </span>
-                        {r.bookingSource && r.bookingSource !== "web" && (
+                        {/* Type — badge + player count + source */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                           <span
                             style={{
                               display: "inline-block",
-                              marginLeft: 5,
-                              padding: "0.05rem 0.3rem",
-                              borderRadius: 4,
-                              fontSize: "0.55rem",
+                              padding: "0.1rem 0.4rem",
+                              borderRadius: 5,
+                              fontSize: "0.65rem",
                               fontWeight: 600,
                               textTransform: "uppercase",
                               letterSpacing: "0.03em",
-                              backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
-                              color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
-                              border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                              backgroundColor:
+                                r.productKind === "kbf"
+                                  ? "rgba(168,85,247,0.15)"
+                                  : "rgba(59,130,246,0.15)",
+                              color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
+                              border: `1px solid ${
+                                r.productKind === "kbf"
+                                  ? "rgba(168,85,247,0.3)"
+                                  : "rgba(59,130,246,0.3)"
+                              }`,
                             }}
                           >
-                            {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                            {r.productKind === "kbf" ? "KBF" : "Open"}
                           </span>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "0.1rem 0.4rem",
-                            borderRadius: 5,
-                            fontSize: "0.65rem",
-                            fontWeight: 600,
-                            backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
-                            color: STATUS_COLORS[r.status] ?? "#6b7280",
-                            border: `1px solid ${STATUS_COLORS[r.status] ?? "#6b7280"}40`,
-                          }}
-                        >
-                          {STATUS_LABELS[r.status] ?? r.status}
-                        </span>
-                      </td>
-
-                      {/* Check-in */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {r.checkinMethod === "self" ? (
-                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(168,85,247,0.15)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>Self</span>
-                        ) : r.checkinMethod === "desk" ? (
-                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(20,184,166,0.15)", color: "#14b8a6", border: "1px solid rgba(20,184,166,0.3)" }}>Admin</span>
-                        ) : r.checkinMethod ? (
-                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(107,114,128,0.15)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.3)" }}>{r.checkinMethod}</span>
-                        ) : r.preArrivalSentAt ? (
-                          <span style={{ display: "inline-block", padding: "0.1rem 0.35rem", borderRadius: 5, fontSize: "0.6rem", fontWeight: 600, backgroundColor: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}>SMS Sent</span>
-                        ) : (
-                          <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
-                        )}
-                      </td>
-
-                      {/* Rewards */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          {r.loyaltyAction === "signup" && (
+                          <span
+                            style={{ marginLeft: 5, color: "var(--ba-muted)", fontSize: "0.68rem" }}
+                          >
+                            {r.playerCount ?? "—"}p
+                          </span>
+                          {r.bookingSource && r.bookingSource !== "web" && (
                             <span
                               style={{
                                 display: "inline-block",
-                                padding: "0.1rem 0.3rem",
+                                marginLeft: 5,
+                                padding: "0.05rem 0.3rem",
                                 borderRadius: 4,
                                 fontSize: "0.55rem",
                                 fontWeight: 600,
-                                backgroundColor: "rgba(34,197,94,0.15)",
-                                color: "#22c55e",
-                                border: "1px solid rgba(34,197,94,0.3)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.03em",
+                                backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                                color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                                border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
                               }}
                             >
-                              New
+                              {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
                             </span>
                           )}
-                          {r.loyaltyAction === "existing" && (
+                        </td>
+
+                        {/* Status */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "0.1rem 0.4rem",
+                              borderRadius: 5,
+                              fontSize: "0.65rem",
+                              fontWeight: 600,
+                              backgroundColor: `${STATUS_COLORS[r.status] ?? "#6b7280"}20`,
+                              color: STATUS_COLORS[r.status] ?? "#6b7280",
+                              border: `1px solid ${STATUS_COLORS[r.status] ?? "#6b7280"}40`,
+                            }}
+                          >
+                            {STATUS_LABELS[r.status] ?? r.status}
+                          </span>
+                        </td>
+
+                        {/* Check-in */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                          {r.checkinMethod === "self" ? (
                             <span
                               style={{
                                 display: "inline-block",
-                                padding: "0.1rem 0.3rem",
-                                borderRadius: 4,
-                                fontSize: "0.55rem",
+                                padding: "0.1rem 0.35rem",
+                                borderRadius: 5,
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                backgroundColor: "rgba(168,85,247,0.15)",
+                                color: "#a855f7",
+                                border: "1px solid rgba(168,85,247,0.3)",
+                              }}
+                            >
+                              Self
+                            </span>
+                          ) : r.checkinMethod === "desk" ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.35rem",
+                                borderRadius: 5,
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                backgroundColor: "rgba(20,184,166,0.15)",
+                                color: "#14b8a6",
+                                border: "1px solid rgba(20,184,166,0.3)",
+                              }}
+                            >
+                              Admin
+                            </span>
+                          ) : r.checkinMethod ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.35rem",
+                                borderRadius: 5,
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                backgroundColor: "rgba(107,114,128,0.15)",
+                                color: "#9ca3af",
+                                border: "1px solid rgba(107,114,128,0.3)",
+                              }}
+                            >
+                              {r.checkinMethod}
+                            </span>
+                          ) : r.preArrivalSentAt ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.35rem",
+                                borderRadius: 5,
+                                fontSize: "0.6rem",
                                 fontWeight: 600,
                                 backgroundColor: "rgba(59,130,246,0.15)",
                                 color: "#60a5fa",
                                 border: "1px solid rgba(59,130,246,0.3)",
                               }}
                             >
-                              Member
+                              SMS Sent
                             </span>
-                          )}
-                          {r.rewardDiscountCents > 0 && (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "0.1rem 0.3rem",
-                                borderRadius: 4,
-                                fontSize: "0.55rem",
-                                fontWeight: 600,
-                                backgroundColor: "rgba(245,158,11,0.15)",
-                                color: "#f59e0b",
-                                border: "1px solid rgba(245,158,11,0.3)",
-                              }}
-                            >
-                              −${(r.rewardDiscountCents / 100).toFixed(0)}
-                            </span>
-                          )}
-                          {!r.loyaltyAction && r.rewardDiscountCents === 0 && (
+                          ) : (
                             <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
                           )}
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Lane */}
-                      <td
-                        style={{
-                          padding: "0.5rem 0.4rem",
-                          textAlign: "center",
-                          fontWeight: r.dayofOrderLane ? 700 : 400,
-                          color: r.dayofOrderLane ? "#22c55e" : "var(--ba-muted2)",
-                          fontSize: "0.75rem",
-                        }}
-                      >
-                        {r.dayofOrderLane ?? "—"}
-                      </td>
+                        {/* Rewards */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                            {r.loyaltyAction === "signup" && (
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  padding: "0.1rem 0.3rem",
+                                  borderRadius: 4,
+                                  fontSize: "0.55rem",
+                                  fontWeight: 600,
+                                  backgroundColor: "rgba(34,197,94,0.15)",
+                                  color: "#22c55e",
+                                  border: "1px solid rgba(34,197,94,0.3)",
+                                }}
+                              >
+                                New
+                              </span>
+                            )}
+                            {r.loyaltyAction === "existing" && (
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  padding: "0.1rem 0.3rem",
+                                  borderRadius: 4,
+                                  fontSize: "0.55rem",
+                                  fontWeight: 600,
+                                  backgroundColor: "rgba(59,130,246,0.15)",
+                                  color: "#60a5fa",
+                                  border: "1px solid rgba(59,130,246,0.3)",
+                                }}
+                              >
+                                Member
+                              </span>
+                            )}
+                            {r.rewardDiscountCents > 0 && (
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  padding: "0.1rem 0.3rem",
+                                  borderRadius: 4,
+                                  fontSize: "0.55rem",
+                                  fontWeight: 600,
+                                  backgroundColor: "rgba(245,158,11,0.15)",
+                                  color: "#f59e0b",
+                                  border: "1px solid rgba(245,158,11,0.3)",
+                                }}
+                              >
+                                −${(r.rewardDiscountCents / 100).toFixed(0)}
+                              </span>
+                            )}
+                            {!r.loyaltyAction && r.rewardDiscountCents === 0 && (
+                              <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>
+                                —
+                              </span>
+                            )}
+                          </div>
+                        </td>
 
-                      {/* Order — food items from lines */}
-                      <td style={{ padding: "0.5rem 0.4rem" }}>
-                        {(() => {
-                          const food = r.lines.filter((l) => FOOD_RE.test(l.label));
-                          if (!food.length) return <span style={{ color: "var(--ba-muted2)" }}>—</span>;
-                          return food.map((f, i) => {
-                            const short = f.label
-                              .replace(/^VIP\s+/i, "")
-                              .replace(/Pizza Bowl /i, "PB ")
-                              .replace(/Soda Pitcher/i, "Soda")
-                              .replace(/Chips & Salsa/i, "C&S");
-                            return (
-                              <div key={i} style={{ fontSize: "0.62rem", color: "var(--ba-muted)", whiteSpace: "nowrap" }}>
-                                {short}{f.quantity > 1 ? ` ×${f.quantity}` : ""}
-                              </div>
-                            );
-                          });
-                        })()}
-                      </td>
+                        {/* Lane */}
+                        <td
+                          style={{
+                            padding: "0.5rem 0.4rem",
+                            textAlign: "center",
+                            fontWeight: r.dayofOrderLane ? 700 : 400,
+                            color: r.dayofOrderLane ? "#22c55e" : "var(--ba-muted2)",
+                            fontSize: "0.75rem",
+                          }}
+                        >
+                          {r.dayofOrderLane ?? "—"}
+                        </td>
 
-                      {/* Square — order sent status (clickable to view line items) */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {r.squareDayofOrderId ? (
-                          <button
-                            type="button"
-                            onClick={() => setOrderTarget(r)}
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}
-                            title="View Square order items"
-                          >
-                            {r.dayofOrderSentAt ? (
-                              <div>
-                                <span
+                        {/* Order — food items from lines */}
+                        <td style={{ padding: "0.5rem 0.4rem" }}>
+                          {(() => {
+                            const food = r.lines.filter((l) => FOOD_RE.test(l.label));
+                            if (!food.length)
+                              return <span style={{ color: "var(--ba-muted2)" }}>—</span>;
+                            return food.map((f, i) => {
+                              const short = f.label
+                                .replace(/^VIP\s+/i, "")
+                                .replace(/Pizza Bowl /i, "PB ")
+                                .replace(/Soda Pitcher/i, "Soda")
+                                .replace(/Chips & Salsa/i, "C&S");
+                              return (
+                                <div
+                                  key={i}
                                   style={{
-                                    display: "inline-block",
-                                    padding: "0.1rem 0.35rem",
-                                    borderRadius: 5,
-                                    fontSize: "0.6rem",
-                                    fontWeight: 600,
-                                    backgroundColor: r.dayofOrderError
-                                      ? "rgba(239,68,68,0.15)"
-                                      : "rgba(34,197,94,0.15)",
-                                    color: r.dayofOrderError ? "#ef4444" : "#22c55e",
-                                    border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+                                    fontSize: "0.62rem",
+                                    color: "var(--ba-muted)",
+                                    whiteSpace: "nowrap",
                                   }}
                                 >
-                                  {r.dayofOrderError ? "ERR" : "Sent"}
-                                </span>
-                                {r.dayofOrderSource && (
+                                  {short}
+                                  {f.quantity > 1 ? ` ×${f.quantity}` : ""}
+                                </div>
+                              );
+                            });
+                          })()}
+                        </td>
+
+                        {/* Square — order sent status (clickable to view line items) */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                          {r.squareDayofOrderId ? (
+                            <button
+                              type="button"
+                              onClick={() => setOrderTarget(r)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                padding: 0,
+                                textAlign: "left",
+                              }}
+                              title="View Square order items"
+                            >
+                              {r.dayofOrderSentAt ? (
+                                <div>
                                   <span
                                     style={{
                                       display: "inline-block",
-                                      marginLeft: 3,
-                                      padding: "0.05rem 0.25rem",
-                                      borderRadius: 3,
-                                      fontSize: "0.5rem",
-                                      fontWeight: 500,
-                                      backgroundColor: r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.15)" : "var(--ba-input-bg)",
-                                      color: r.dayofOrderSource === "webhook" ? "#818cf8" : "var(--ba-muted)",
-                                      border: `1px solid ${r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.3)" : "var(--ba-border)"}`,
-                                      textTransform: "uppercase",
-                                      letterSpacing: "0.5px",
+                                      padding: "0.1rem 0.35rem",
+                                      borderRadius: 5,
+                                      fontSize: "0.6rem",
+                                      fontWeight: 600,
+                                      backgroundColor: r.dayofOrderError
+                                        ? "rgba(239,68,68,0.15)"
+                                        : "rgba(34,197,94,0.15)",
+                                      color: r.dayofOrderError ? "#ef4444" : "#22c55e",
+                                      border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
                                     }}
                                   >
-                                    {r.dayofOrderSource}
+                                    {r.dayofOrderError ? "ERR" : "Sent"}
                                   </span>
-                                )}
-                                {r.dayofPaymentId && (
-                                  <div style={{ fontSize: "0.55rem", color: "var(--ba-muted)", marginTop: 1 }}>
-                                    {r.dayofPaymentId.slice(-8)}
-                                  </div>
-                                )}
-                                {r.dayofOrderError && (
-                                  <div style={{ fontSize: "0.55rem", color: "#ef4444", marginTop: 1, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" }}
-                                    title={r.dayofOrderError}
-                                  >
-                                    {r.dayofOrderError}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem", textDecoration: "underline", textDecorationColor: "var(--ba-border)" }}>
-                                Pending
-                              </span>
-                            )}
-                          </button>
-                        ) : (
-                          <span style={{ color: "var(--ba-muted2)" }}>—</span>
-                        )}
-                      </td>
+                                  {r.dayofOrderSource && (
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        marginLeft: 3,
+                                        padding: "0.05rem 0.25rem",
+                                        borderRadius: 3,
+                                        fontSize: "0.5rem",
+                                        fontWeight: 500,
+                                        backgroundColor:
+                                          r.dayofOrderSource === "webhook"
+                                            ? "rgba(99,102,241,0.15)"
+                                            : "var(--ba-input-bg)",
+                                        color:
+                                          r.dayofOrderSource === "webhook"
+                                            ? "#818cf8"
+                                            : "var(--ba-muted)",
+                                        border: `1px solid ${r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.3)" : "var(--ba-border)"}`,
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.5px",
+                                      }}
+                                    >
+                                      {r.dayofOrderSource}
+                                    </span>
+                                  )}
+                                  {r.dayofPaymentId && (
+                                    <div
+                                      style={{
+                                        fontSize: "0.55rem",
+                                        color: "var(--ba-muted)",
+                                        marginTop: 1,
+                                      }}
+                                    >
+                                      {r.dayofPaymentId.slice(-8)}
+                                    </div>
+                                  )}
+                                  {r.dayofOrderError && (
+                                    <div
+                                      style={{
+                                        fontSize: "0.55rem",
+                                        color: "#ef4444",
+                                        marginTop: 1,
+                                        maxWidth: 90,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                      }}
+                                      title={r.dayofOrderError}
+                                    >
+                                      {r.dayofOrderError}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span
+                                  style={{
+                                    color: "var(--ba-muted)",
+                                    fontSize: "0.6rem",
+                                    textDecoration: "underline",
+                                    textDecorationColor: "var(--ba-border)",
+                                  }}
+                                >
+                                  Pending
+                                </span>
+                              )}
+                            </button>
+                          ) : (
+                            <span style={{ color: "var(--ba-muted2)" }}>—</span>
+                          )}
+                        </td>
 
-                      {/* Payment — deposit / total merged */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        {r.depositCents > 0 ? (
-                          <>
-                            <span style={{ color: "#22c55e", fontWeight: 600 }}>{dollars(r.depositCents)}</span>
-                            <span style={{ color: "var(--ba-muted)", margin: "0 2px" }}>/</span>
-                            <span style={{ color: "var(--ba-muted)" }}>{dollars(r.totalCents)}</span>
-                          </>
-                        ) : r.bookingSource && r.bookingSource !== "web" ? (
+                        {/* Payment — deposit / total merged */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                          {r.depositCents > 0 ? (
+                            <>
+                              <span style={{ color: "#22c55e", fontWeight: 600 }}>
+                                {dollars(r.depositCents)}
+                              </span>
+                              <span style={{ color: "var(--ba-muted)", margin: "0 2px" }}>/</span>
+                              <span style={{ color: "var(--ba-muted)" }}>
+                                {dollars(r.totalCents)}
+                              </span>
+                            </>
+                          ) : r.bookingSource && r.bookingSource !== "web" ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.1rem 0.35rem",
+                                borderRadius: 5,
+                                fontSize: "0.6rem",
+                                fontWeight: 600,
+                                backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
+                                color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
+                                border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                              }}
+                            >
+                              {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--ba-muted)" }}>Free</span>
+                          )}
+                          {r.refundCents > 0 && (
+                            <div style={{ color: "#ef4444", fontSize: "0.6rem" }}>
+                              -{dollars(r.refundCents)}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Ref — QAMF ID */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                           <span
                             style={{
-                              display: "inline-block",
-                              padding: "0.1rem 0.35rem",
-                              borderRadius: 5,
-                              fontSize: "0.6rem",
-                              fontWeight: 600,
-                              backgroundColor: `${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}20`,
-                              color: SOURCE_COLORS[r.bookingSource] ?? "#6b7280",
-                              border: `1px solid ${SOURCE_COLORS[r.bookingSource] ?? "#6b7280"}40`,
+                              fontFamily: "monospace",
+                              fontSize: "0.65rem",
+                              color: "var(--ba-muted)",
                             }}
                           >
-                            {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                            {r.qamfReservationId ?? `#${r.id}`}
                           </span>
-                        ) : (
-                          <span style={{ color: "var(--ba-muted)" }}>Free</span>
-                        )}
-                        {r.refundCents > 0 && (
-                          <div style={{ color: "#ef4444", fontSize: "0.6rem" }}>
-                            -{dollars(r.refundCents)}
-                          </div>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* Ref — QAMF ID */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "var(--ba-muted)" }}>
-                          {r.qamfReservationId ?? `#${r.id}`}
-                        </span>
-                      </td>
-
-                      {/* Actions — check-in, resched, view, resend, cancel */}
-                      <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          {/* Check In — hidden once arrived or already checked in */}
-                          {!isCancelled && r.status !== "completed" && r.status !== "arrived" && !r.checkinMethod && (
-                            <button
-                              type="button"
-                              onClick={() => setCheckinTarget(r)}
-                              style={{
-                                background: "none",
-                                border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
-                                borderRadius: 5,
-                                color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
-                                cursor: "pointer", fontSize: "0.6rem", fontWeight: 600, padding: "2px 6px",
-                                textTransform: "uppercase", letterSpacing: "0.03em",
-                              }}
-                            >
-                              Check In
-                            </button>
-                          )}
-                          {/* Reschedule (was "Time") */}
-                          {!isCancelled && r.status !== "completed" && r.status !== "arrived" && r.qamfReservationId && (() => {
-                            const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
-                            return (
-                              <button
-                                type="button"
-                                onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
-                                disabled={hasAttr}
-                                title={hasAttr ? "Rescheduling not available for bookings with attractions" : "Reschedule bowling time"}
+                        {/* Actions — check-in, resched, view, resend, cancel */}
+                        <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            {/* Check In — hidden once arrived or already checked in */}
+                            {!isCancelled &&
+                              r.status !== "completed" &&
+                              r.status !== "arrived" &&
+                              !r.checkinMethod && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCheckinTarget(r)}
+                                  style={{
+                                    background: "none",
+                                    border: `1px solid ${r.dayofOrderLane ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
+                                    borderRadius: 5,
+                                    color: r.dayofOrderLane ? "#22c55e" : "#f59e0b",
+                                    cursor: "pointer",
+                                    fontSize: "0.6rem",
+                                    fontWeight: 600,
+                                    padding: "2px 6px",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.03em",
+                                  }}
+                                >
+                                  Check In
+                                </button>
+                              )}
+                            {/* Reschedule (was "Time") */}
+                            {!isCancelled &&
+                              r.status !== "completed" &&
+                              r.status !== "arrived" &&
+                              r.qamfReservationId &&
+                              (() => {
+                                const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
+                                    disabled={hasAttr}
+                                    title={
+                                      hasAttr
+                                        ? "Rescheduling not available for bookings with attractions"
+                                        : "Reschedule bowling time"
+                                    }
+                                    style={{
+                                      background: "none",
+                                      border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
+                                      borderRadius: 5,
+                                      color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
+                                      cursor: hasAttr ? "not-allowed" : "pointer",
+                                      fontSize: "0.6rem",
+                                      fontWeight: 600,
+                                      padding: "2px 6px",
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.03em",
+                                    }}
+                                  >
+                                    Resched
+                                  </button>
+                                );
+                              })()}
+                            {/* View — opens confirmation page */}
+                            {confirmPath(r) && (
+                              <a
+                                href={confirmPath(r)!}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 style={{
+                                  display: "inline-block",
                                   background: "none",
-                                  border: `1px solid ${hasAttr ? "var(--ba-border)" : "rgba(0,226,229,0.3)"}`,
+                                  border: "1px solid rgba(96,165,250,0.3)",
                                   borderRadius: 5,
-                                  color: hasAttr ? "var(--ba-muted)" : "#00E2E5",
-                                  cursor: hasAttr ? "not-allowed" : "pointer",
-                                  fontSize: "0.6rem", fontWeight: 600, padding: "2px 6px",
-                                  textTransform: "uppercase", letterSpacing: "0.03em",
+                                  color: "#60a5fa",
+                                  fontSize: "0.6rem",
+                                  fontWeight: 600,
+                                  padding: "2px 6px",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.03em",
+                                  textDecoration: "none",
                                 }}
                               >
-                                Resched
+                                View
+                              </a>
+                            )}
+                            {/* Resend */}
+                            {!isCancelled &&
+                              r.status !== "arrived" &&
+                              r.status !== "completed" &&
+                              (r.guestEmail || r.guestPhone) && (
+                                <button
+                                  type="button"
+                                  onClick={() => setResendTarget(r)}
+                                  style={{
+                                    background: "none",
+                                    border: "1px solid rgba(96,165,250,0.3)",
+                                    borderRadius: 5,
+                                    color: "#60a5fa",
+                                    cursor: "pointer",
+                                    fontSize: "0.6rem",
+                                    fontWeight: 600,
+                                    padding: "2px 6px",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.03em",
+                                  }}
+                                >
+                                  Resend
+                                </button>
+                              )}
+                            {/* Cancel */}
+                            {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (
+                              <button
+                                type="button"
+                                onClick={() => setCancelTarget(r)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid rgba(239,68,68,0.3)",
+                                  borderRadius: 5,
+                                  color: "#ef4444",
+                                  cursor: "pointer",
+                                  fontSize: "0.6rem",
+                                  fontWeight: 600,
+                                  padding: "2px 6px",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.03em",
+                                }}
+                              >
+                                Cancel
                               </button>
-                            );
-                          })()}
-                          {/* View — opens confirmation page */}
-                          {confirmPath(r) && (
-                            <a
-                              href={confirmPath(r)!}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                display: "inline-block", background: "none",
-                                border: "1px solid rgba(96,165,250,0.3)", borderRadius: 5,
-                                color: "#60a5fa", fontSize: "0.6rem", fontWeight: 600, padding: "2px 6px",
-                                textTransform: "uppercase", letterSpacing: "0.03em", textDecoration: "none",
-                              }}
-                            >
-                              View
-                            </a>
-                          )}
-                          {/* Resend */}
-                          {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (r.guestEmail || r.guestPhone) && (
-                            <button
-                              type="button"
-                              onClick={() => setResendTarget(r)}
-                              style={{
-                                background: "none", border: "1px solid rgba(96,165,250,0.3)", borderRadius: 5,
-                                color: "#60a5fa", cursor: "pointer", fontSize: "0.6rem", fontWeight: 600,
-                                padding: "2px 6px", textTransform: "uppercase", letterSpacing: "0.03em",
-                              }}
-                            >
-                              Resend
-                            </button>
-                          )}
-                          {/* Cancel */}
-                          {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (
-                            <button
-                              type="button"
-                              onClick={() => setCancelTarget(r)}
-                              style={{
-                                background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5,
-                                color: "#ef4444", cursor: "pointer", fontSize: "0.6rem", fontWeight: 600,
-                                padding: "2px 6px", textTransform: "uppercase", letterSpacing: "0.03em",
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </div>

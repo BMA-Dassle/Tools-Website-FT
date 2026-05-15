@@ -64,9 +64,7 @@ export async function POST(req: NextRequest) {
   const locationId = typeof body.locationId === "string" ? body.locationId : "";
   const personId = typeof body.personId === "string" ? body.personId : String(body.personId ?? "");
   const depositKindId =
-    typeof body.depositKindId === "string"
-      ? body.depositKindId
-      : String(body.depositKindId ?? "");
+    typeof body.depositKindId === "string" ? body.depositKindId : String(body.depositKindId ?? "");
   const amount = typeof body.amount === "number" ? body.amount : Number(body.amount);
   const activates = typeof body.activates === "string" ? body.activates : undefined;
   const expires = typeof body.expires === "string" ? body.expires : undefined;
@@ -148,7 +146,11 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     clearTimeout(timeoutId);
     const isTimeout = err instanceof Error && err.name === "AbortError";
-    const msg = isTimeout ? "upstream timeout" : err instanceof Error ? err.message : "fetch failed";
+    const msg = isTimeout
+      ? "upstream timeout"
+      : err instanceof Error
+        ? err.message
+        : "fetch failed";
     console.error(`[pandora/deposit] ${msg}`);
     return NextResponse.json({ error: msg }, { status: 502 });
   }

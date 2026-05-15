@@ -20,15 +20,15 @@ const JWT_CACHE_TTL = 60 * 60 * 24 * 6; // 6 days (token exp is 7d)
 
 export interface Vt3Video {
   id: number;
-  code: string;            // 10-char share code → customer URL
-  status: string;          // PENDING_ACTIVATION, READY, …
+  code: string; // 10-char share code → customer URL
+  status: string; // PENDING_ACTIVATION, READY, …
   camera: number;
   locked: boolean;
   disabled: boolean;
   size: string;
-  duration: number;        // seconds
+  duration: number; // seconds
   purchaseType: string | null;
-  created_at: string;      // ISO UTC — when the on-kart capture happened
+  created_at: string; // ISO UTC — when the on-kart capture happened
   updated_at: string;
   site: { id: number; name: string; uid: string };
   system: { id: number; username: string; name: string }; // `name` is the kart/camera number, e.g. "913"
@@ -60,7 +60,8 @@ async function login(): Promise<string> {
     body: JSON.stringify({ identifier: user, password: pass }),
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`vt3 login failed: ${res.status} ${await res.text().catch(() => "")}`);
+  if (!res.ok)
+    throw new Error(`vt3 login failed: ${res.status} ${await res.text().catch(() => "")}`);
   const json = await res.json();
   const jwt = json?.jwt;
   if (!jwt || typeof jwt !== "string") throw new Error("vt3 login returned no jwt");
@@ -234,13 +235,13 @@ export async function linkCustomerEmail(code: string, email: string): Promise<bo
 export interface Vt3UnlockCode {
   uid: string;
   batchId: string;
-  code: string;            // full plaintext (server-side returns unmasked)
+  code: string; // full plaintext (server-side returns unmasked)
   createdAt: string;
   status: "ACTIVE" | "USED" | string;
   createdBy?: { id: number; email?: string; name?: string };
   system: { id: number; name: string } | null;
   printedAt: string | null;
-  video: string | null;    // 10-char videoCode when status === "USED"
+  video: string | null; // 10-char videoCode when status === "USED"
   revokedAt: string | null;
   revokedBy: { id: number; email?: string; name?: string } | null;
   revokedReason: string | null;
@@ -350,7 +351,7 @@ export async function listAllUnlockCodes(opts: {
  */
 export interface Vt3VideoReportPoint {
   siteId: number | null;
-  from: string;            // ISO local-time (no timezone — interpret in report.timezone)
+  from: string; // ISO local-time (no timezone — interpret in report.timezone)
   to: string;
   videoCount: number;
   videoImpressionCount: number;
@@ -398,12 +399,12 @@ export interface Vt3VideoReport {
  * just FastTrax (site 992).
  */
 export async function getVideoReport(opts: {
-  from: string;            // ISO with timezone offset, e.g. "2026-05-01T00:00:00-04:00"
-  to: string;              // exclusive upper bound — same format
+  from: string; // ISO with timezone offset, e.g. "2026-05-01T00:00:00-04:00"
+  to: string; // exclusive upper bound — same format
   interval?: "hours" | "days" | "weeks" | "months";
-  timezone?: string;       // IANA tz, default America/New_York
+  timezone?: string; // IANA tz, default America/New_York
   minDuration?: number | null;
-  sites?: number[];        // [] = all accessible
+  sites?: number[]; // [] = all accessible
 }): Promise<Vt3VideoReport> {
   const {
     from,

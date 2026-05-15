@@ -82,9 +82,9 @@ function isOperatingHoursET(): boolean {
     case "Thu":
       return hm >= 15 || hm < 0.5; // 3 PM – 12:30 AM
     case "Fri":
-      return hm >= 15 || hm < 2.5;  // 3 PM – 2:30 AM
+      return hm >= 15 || hm < 2.5; // 3 PM – 2:30 AM
     case "Sat":
-      return hm >= 11 || hm < 2.5;  // 11 AM – 2:30 AM
+      return hm >= 11 || hm < 2.5; // 11 AM – 2:30 AM
     case "Sun":
       return hm >= 11 && hm < 23.5; // 11 AM – 11:30 PM
     default:
@@ -183,8 +183,7 @@ export async function GET(req: NextRequest) {
       });
     }
     const fromRedis = await loadAllFromRedis();
-    const hasAny =
-      fromRedis.blue !== null || fromRedis.red !== null || fromRedis.mega !== null;
+    const hasAny = fromRedis.blue !== null || fromRedis.red !== null || fromRedis.mega !== null;
     if (hasAny) {
       // Redis has at least one track warm — return what we've got.
       // Memory-cache it so subsequent same-Lambda hits are even faster.
@@ -217,14 +216,11 @@ export async function GET(req: NextRequest) {
   const timeoutId = setTimeout(() => controller.abort(), 5_000);
 
   try {
-    const res = await fetch(
-      `${PANDORA_URL}/bmi/races/current/${FASTTRAX_LOCATION_ID}`,
-      {
-        headers: { Authorization: `Bearer ${API_KEY}`, Accept: "application/json" },
-        cache: "no-store",
-        signal: controller.signal,
-      },
-    );
+    const res = await fetch(`${PANDORA_URL}/bmi/races/current/${FASTTRAX_LOCATION_ID}`, {
+      headers: { Authorization: `Bearer ${API_KEY}`, Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
     clearTimeout(timeoutId);
 
     const pandora: CurrentRaces = res.ok
@@ -257,10 +253,7 @@ export async function GET(req: NextRequest) {
     // so we can tell from the dashboard whether the timeout is
     // firing too aggressively.
     const isTimeout = err instanceof Error && err.name === "AbortError";
-    console.error(
-      `[races-current] ${isTimeout ? "TIMEOUT (>5s)" : "fetch error"}:`,
-      err,
-    );
+    console.error(`[races-current] ${isTimeout ? "TIMEOUT (>5s)" : "fetch error"}:`, err);
 
     // Fall back through layers: in-memory cache → Redis last-known
     // state per track (during operating hours) → empty.
@@ -274,7 +267,10 @@ export async function GET(req: NextRequest) {
       const merged: CurrentRaces = { blue: null, red: null, mega: null };
       for (const t of tracks) merged[t] = await loadRace(t);
       return NextResponse.json(merged, {
-        headers: { "X-Cache": isTimeout ? "TIMEOUT-REDIS" : "ERROR-REDIS", "Cache-Control": "no-store" },
+        headers: {
+          "X-Cache": isTimeout ? "TIMEOUT-REDIS" : "ERROR-REDIS",
+          "Cache-Control": "no-store",
+        },
       });
     }
     return NextResponse.json(

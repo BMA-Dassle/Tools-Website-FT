@@ -24,7 +24,11 @@ import redis from "@/lib/redis";
 
 export async function POST(req: NextRequest) {
   let body: { confirm?: boolean; clearMatches?: boolean } = {};
-  try { body = await req.json(); } catch { /* empty body is fine for the 400 below */ }
+  try {
+    body = await req.json();
+  } catch {
+    /* empty body is fine for the 400 below */
+  }
   if (!body.confirm) {
     return NextResponse.json(
       { error: "Refusing without { confirm: true } in the body." },

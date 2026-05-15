@@ -21,10 +21,15 @@ try {
     const val = trimmed.slice(eq + 1).trim();
     if (!(key in process.env)) process.env[key] = val;
   }
-} catch { /* rely on env */ }
+} catch {
+  /* rely on env */
+}
 
 const REDIS_URL = process.env.REDIS_URL ?? process.env.KV_URL;
-if (!REDIS_URL) { console.error("REDIS_URL / KV_URL not set"); process.exit(1); }
+if (!REDIS_URL) {
+  console.error("REDIS_URL / KV_URL not set");
+  process.exit(1);
+}
 
 // Use ioredis or the upstash REST API depending on what's available.
 // We'll use the @upstash/redis REST SDK if the URL looks like upstash.
@@ -35,7 +40,7 @@ async function flush() {
     const scanRes = await fetch(`${REDIS_URL}/scan/0/match/bowling:avail:*`, {
       headers: { authorization: `Bearer ${token}` },
     });
-    const scanData = await scanRes.json() as { result: [string, string[]] };
+    const scanData = (await scanRes.json()) as { result: [string, string[]] };
     const keys: string[] = scanData.result?.[1] ?? [];
     if (keys.length === 0) {
       console.log("No bowling:avail:* keys found in cache.");
@@ -66,4 +71,7 @@ async function flush() {
   }
 }
 
-flush().catch((err) => { console.error(err); process.exit(1); });
+flush().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -89,8 +89,11 @@ interface BulkBody {
 
 export async function POST(req: NextRequest) {
   let body: BulkBody;
-  try { body = await req.json().catch(() => ({})); }
-  catch { body = {}; }
+  try {
+    body = await req.json().catch(() => ({}));
+  } catch {
+    body = {};
+  }
 
   const minutes = Math.max(1, Math.min(1440, Number(body.minutes) || 60));
   const dryRun = !!body.dryRun;
@@ -136,10 +139,13 @@ export async function POST(req: NextRequest) {
         heatNumber: m.heatNumber,
         priorSms: m.notifySmsOk,
       })),
-      skipReasons: skipped.reduce((acc, s) => {
-        acc[s.reason] = (acc[s.reason] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
+      skipReasons: skipped.reduce(
+        (acc, s) => {
+          acc[s.reason] = (acc[s.reason] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      ),
     });
   }
 
@@ -161,14 +167,19 @@ export async function POST(req: NextRequest) {
     const recipient = candidate.recipient;
 
     const shortUrl = await shortenForSms(
-      match.customerUrl.includes("?") ? `${match.customerUrl}&referrer=receipt` : `${match.customerUrl}?referrer=receipt`
+      match.customerUrl.includes("?")
+        ? `${match.customerUrl}&referrer=receipt`
+        : `${match.customerUrl}?referrer=receipt`,
     );
-    const smsBody = buildSmsBody({
-      firstName: match.firstName,
-      track: match.track,
-      heatNumber: match.heatNumber,
-      shortUrl,
-    }, recipient);
+    const smsBody = buildSmsBody(
+      {
+        firstName: match.firstName,
+        track: match.track,
+        heatNumber: match.heatNumber,
+        shortUrl,
+      },
+      recipient,
+    );
     const ts = new Date().toISOString();
     const send = await voxSend(phone, smsBody);
 
@@ -181,9 +192,11 @@ export async function POST(req: NextRequest) {
       match.viaGuardian = recipient === "guardian" || undefined;
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
-        ts, phone,
+        ts,
+        phone,
         source: "video-resend",
-        status: send.status, ok: true,
+        status: send.status,
+        ok: true,
         body: smsBody,
         viaGuardian: recipient === "guardian",
         sessionIds: [match.sessionId],
@@ -218,9 +231,11 @@ export async function POST(req: NextRequest) {
       match.viaGuardian = recipient === "guardian" || undefined;
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
-        ts, phone,
+        ts,
+        phone,
         source: "video-resend",
-        status: send.status, ok: false,
+        status: send.status,
+        ok: false,
         error: match.notifySmsError,
         body: smsBody,
         sessionIds: [match.sessionId],
@@ -235,14 +250,25 @@ export async function POST(req: NextRequest) {
       const rest = candidates.slice(candidates.indexOf(match) + 1);
       for (const m of rest) {
         const c = pickContactWithGuardianFallback(matchAsParticipant(m));
-        if (!c || !c.phone) { failed++; continue; }
+        if (!c || !c.phone) {
+          failed++;
+          continue;
+        }
         const sUrl = await shortenForSms(
-          m.customerUrl.includes("?") ? `${m.customerUrl}&referrer=receipt` : `${m.customerUrl}?referrer=receipt`
+          m.customerUrl.includes("?")
+            ? `${m.customerUrl}&referrer=receipt`
+            : `${m.customerUrl}?referrer=receipt`,
         );
-        const sBody = buildSmsBody({ firstName: m.firstName, track: m.track, heatNumber: m.heatNumber, shortUrl: sUrl }, c.recipient);
+        const sBody = buildSmsBody(
+          { firstName: m.firstName, track: m.track, heatNumber: m.heatNumber, shortUrl: sUrl },
+          c.recipient,
+        );
         const tts = new Date().toISOString();
         await quotaEnqueue({
-          phone: c.phone, body: sBody, source: "video-resend", queuedAt: tts,
+          phone: c.phone,
+          body: sBody,
+          source: "video-resend",
+          queuedAt: tts,
           shortCode: m.videoCode,
           audit: { sessionIds: [m.sessionId], personIds: [m.personId], memberCount: 1 },
         });
@@ -264,9 +290,11 @@ export async function POST(req: NextRequest) {
       match.viaGuardian = recipient === "guardian" || undefined;
       await updateVideoMatch(match).catch(() => void 0);
       await logSms({
-        ts, phone,
+        ts,
+        phone,
         source: "video-resend",
-        status: send.status, ok: false,
+        status: send.status,
+        ok: false,
         error: match.notifySmsError,
         body: smsBody,
         sessionIds: [match.sessionId],
@@ -288,9 +316,12 @@ export async function POST(req: NextRequest) {
     failed,
     stoppedOnQuota,
     skipped: skipped.length,
-    skipReasons: skipped.reduce((acc, s) => {
-      acc[s.reason] = (acc[s.reason] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>),
+    skipReasons: skipped.reduce(
+      (acc, s) => {
+        acc[s.reason] = (acc[s.reason] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    ),
   });
 }

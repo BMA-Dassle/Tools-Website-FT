@@ -42,10 +42,10 @@ interface CalledSession {
   sessionId: string | number;
   name: string;
   scheduledStart: string;
-  track: string;       // "Blue Track" / "Red Track" / "Mega Track"
+  track: string; // "Blue Track" / "Red Track" / "Mega Track"
   heatNumber: number;
   type: string;
-  calledAt: string;    // ISO — when the checkin-cron SMS went out
+  calledAt: string; // ISO — when the checkin-cron SMS went out
 }
 
 function trackSlugToResource(slug: string | null): (typeof TRACK_RESOURCES)[number] | null {
@@ -60,7 +60,9 @@ function trackSlugToResource(slug: string | null): (typeof TRACK_RESOURCES)[numb
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -69,7 +71,9 @@ function todayETYmd(): string {
  * across all 3 tracks) so we can enrich called sessionIds with
  * track/type/heat info.
  */
-async function fetchTodaySessions(resources: readonly string[]): Promise<Map<string, PandoraSession & { resourceName: string }>> {
+async function fetchTodaySessions(
+  resources: readonly string[],
+): Promise<Map<string, PandoraSession & { resourceName: string }>> {
   const nowMs = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
   // Wide window: 1 day back to 1 day forward captures any session that
@@ -105,7 +109,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const trackParam = searchParams.get("track");
     const requestedResource = trackSlugToResource(trackParam);
-    const resources = requestedResource ? [requestedResource] : (TRACK_RESOURCES as readonly string[]);
+    const resources = requestedResource
+      ? [requestedResource]
+      : (TRACK_RESOURCES as readonly string[]);
     const limit = Math.max(1, Math.min(10, parseInt(searchParams.get("limit") || "3", 10) || 3));
 
     // 1. Read today's SMS log, filter to checkin-cron.

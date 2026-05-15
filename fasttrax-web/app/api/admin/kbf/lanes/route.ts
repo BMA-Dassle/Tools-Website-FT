@@ -19,8 +19,7 @@ export async function GET(req: NextRequest) {
     const lanes = await listLanes(centerId);
     return NextResponse.json({ lanes });
   } catch (err) {
-    const msg =
-      err instanceof Error ? err.message : "Failed to fetch lanes";
+    const msg = err instanceof Error ? err.message : "Failed to fetch lanes";
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }

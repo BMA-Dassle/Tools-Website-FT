@@ -62,7 +62,22 @@
       "Bash(git merge *)",
       "Bash(corepack enable *)",
       "Bash(pnpm turbo *)",
-      "Bash(pnpm --filter fasttrax-web dev)"
+      "Bash(pnpm --filter fasttrax-web dev)",
+      "Bash(Get-ChildItem -Path \"c:\\\\git\\\\Tools-Website-FT\\\\fasttrax-web\" -Directory)",
+      "Bash(Select-Object -First 20)",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\lib\" -type f -name \"*schedule*\" -o -name \"*store*\" -o -name \"*location*\" -o -name \"*package*\")",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\" -path \"*/app/api/kbf*\" -type f)",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\" -path \"*types*\" -name \"*bowl*\" -o -path \"*types*\" -name \"*kbf*\" -o -path \"*types*\" -name \"*party*\")",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\" -name \"*.ts\" -path \"*lib*\")",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\components\" -name \"*bowling*\" -o -name \"*BowlingWizard*\" -o -name \"*Bowling*\")",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\" -path \"*/tasks/*\" -name \"*.md\")",
+      "Bash(grep -i \"bowling\\\\|kbf\\\\|party\\\\|pandora\" \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\tasks\\\\\\\\lessons.md\")",
+      "Bash(xargs wc -l)",
+      "Bash(grep -i \"bowling\\\\|kbf\\\\|party\\\\|conq\" \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\tasks\\\\\\\\todo.md\")",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\app\\\\\\\\api\" -name \"*bowling*\" -type f)",
+      "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\app\\\\\\\\api\" -type f -name \"*.ts\")",
+      "Bash(xargs grep -l \"bowling\\\\|conq\\\\|qamf\")",
+      "Bash(xargs grep -l \"bowling\\\\|BowlingExperience\\\\|Reservation\")"
     ]
   }
 }

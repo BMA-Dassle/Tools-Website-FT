@@ -56,14 +56,18 @@ export async function GET() {
                 catalogObjectIds: (t.definition.catalog_object_ids ?? []) as string[],
               }
             : null,
-        })
+        }),
       ),
       accrualRules: (program.accrual_rules || []).map(
-        (r: { accrual_type: string; points: number; spend_data?: { amount_money?: { amount: number } } }) => ({
+        (r: {
+          accrual_type: string;
+          points: number;
+          spend_data?: { amount_money?: { amount: number } };
+        }) => ({
           type: r.accrual_type,
           points: r.points,
           spendAmountCents: r.spend_data?.amount_money?.amount,
-        })
+        }),
       ),
     });
   } catch (err) {

@@ -17,9 +17,11 @@ export async function generateStaticParams() {
   return listAlternatives("ft").map((a) => ({ slug: a.slug }));
 }
 
-export async function generateMetadata(
-  { params }: { params: Promise<{ slug: string }> },
-): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
   const { slug } = await params;
   const data = FT_ALTERNATIVES[slug];
   if (!data) return { title: "Not found" };
@@ -55,9 +57,11 @@ export async function generateMetadata(
   };
 }
 
-export default async function FtAlternativeSlugPage(
-  { params }: { params: Promise<{ slug: string }> },
-) {
+export default async function FtAlternativeSlugPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = await params;
   const data = FT_ALTERNATIVES[slug];
   if (!data) notFound();

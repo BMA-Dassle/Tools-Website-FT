@@ -20,7 +20,12 @@ interface AdminBowlerListProps {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function AdminBowlerList({ bowlers, onChange, showAddGuest = false, disabled = false }: AdminBowlerListProps) {
+export default function AdminBowlerList({
+  bowlers,
+  onChange,
+  showAddGuest = false,
+  disabled = false,
+}: AdminBowlerListProps) {
   function updateBowler(idx: number, updated: AdminBowlerSelection) {
     const next = [...bowlers];
     next[idx] = updated;

@@ -88,7 +88,14 @@ type ListResponse = {
     pending: number;
     purchaseRate: number;
     smsDeliveryRate: number;
-    byTrack: { track: string; total: number; purchased: number; viewed: number; smsSent: number; purchaseRate: number }[];
+    byTrack: {
+      track: string;
+      total: number;
+      purchased: number;
+      viewed: number;
+      smsSent: number;
+      purchaseRate: number;
+    }[];
     byRaceType: { raceType: string; total: number; purchased: number; purchaseRate: number }[];
   };
   byDay: { ymd: string; reservations: number; racers: number }[];
@@ -126,7 +133,9 @@ type ListResponse = {
 function todayET(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -136,7 +145,9 @@ function shiftDays(ymd: string, n: number): string {
   d.setUTCDate(d.getUTCDate() + n);
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(d);
 }
 
@@ -182,7 +193,11 @@ const PRESET_BUTTONS: { k: PresetKind; l: string }[] = [
   { k: "custom", l: "Custom" },
 ];
 
-function presetRange(kind: PresetKind, currentFrom: string, currentTo: string): { from: string; to: string } {
+function presetRange(
+  kind: PresetKind,
+  currentFrom: string,
+  currentTo: string,
+): { from: string; to: string } {
   const today = todayET();
   if (kind === "today") return { from: today, to: today };
   if (kind === "yesterday") {
@@ -201,19 +216,27 @@ function formatDate(ymd: string): string {
     const [y, m, d] = ymd.split("-").map(Number);
     return new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
-      month: "short", day: "numeric",
+      month: "short",
+      day: "numeric",
     }).format(new Date(Date.UTC(y, m - 1, d, 12)));
-  } catch { return ymd; }
+  } catch {
+    return ymd;
+  }
 }
 
 function formatTs(iso: string): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
       timeZone: "America/New_York",
-      month: "short", day: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true,
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
     });
-  } catch { return iso; }
+  } catch {
+    return iso;
+  }
 }
 
 function bookingTypeLabel(t: SaleEntry["bookingType"]): string {
@@ -248,9 +271,7 @@ function bookingTypeColor(t: SaleEntry["bookingType"]): string {
  */
 function packageFamilyId(packageId: string): string {
   // Stripped suffixes come from lib/packages.ts:41 — `PackageId` union.
-  return packageId
-    .replace(/-(weekday|weekend|mega)(-junior)?$/, "")
-    .replace(/-junior$/, "");
+  return packageId.replace(/-(weekday|weekend|mega)(-junior)?$/, "").replace(/-junior$/, "");
 }
 
 function packageFamilyLabel(familyId: string): string {
@@ -286,10 +307,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      "sales_combine_families",
-      combineFamilies ? "1" : "0",
-    );
+    window.localStorage.setItem("sales_combine_families", combineFamilies ? "1" : "0");
   }, [combineFamilies]);
 
   const load = useCallback(async () => {
@@ -334,7 +352,8 @@ export default function SalesAdminClient({ token }: { token: string }) {
     <div
       className="min-h-screen text-white"
       style={{
-        background: "radial-gradient(ellipse at top, rgba(0,226,229,0.06) 0%, transparent 50%), #050b1d",
+        background:
+          "radial-gradient(ellipse at top, rgba(0,226,229,0.06) 0%, transparent 50%), #050b1d",
       }}
     >
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
@@ -429,13 +448,15 @@ export default function SalesAdminClient({ token }: { token: string }) {
 
         {/* Status line */}
         <div className="mb-4 text-xs text-white/50">
-          {loading
-            ? "Loading…"
-            : error
-              ? <span className="text-red-400">{error}</span>
-              : data
-                ? `${data.totals.reservations} reservation${data.totals.reservations === 1 ? "" : "s"} · ${data.range.days} day${data.range.days === 1 ? "" : "s"}`
-                : ""}
+          {loading ? (
+            "Loading…"
+          ) : error ? (
+            <span className="text-red-400">{error}</span>
+          ) : data ? (
+            `${data.totals.reservations} reservation${data.totals.reservations === 1 ? "" : "s"} · ${data.range.days} day${data.range.days === 1 ? "" : "s"}`
+          ) : (
+            ""
+          )}
         </div>
 
         {data && data.totals.reservations === 0 && !loading && (
@@ -448,12 +469,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
           <>
             {/* ── Top-line cards ── */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <Card
-                label="Reservations"
-                value={data.totals.reservations}
-                accent="cyan"
-                icon="📋"
-              />
+              <Card label="Reservations" value={data.totals.reservations} accent="cyan" icon="📋" />
               <Card
                 label="Racers"
                 value={data.totals.racers}
@@ -484,107 +500,110 @@ export default function SalesAdminClient({ token }: { token: string }) {
                   <MiniStat label="New racers" value={data.racing.newRacers} />
                   <MiniStat label="Returning" value={data.racing.returningRacers} />
                   <MiniStat label="Express Lane" value={data.racing.expressLane} />
-                  <MiniStat label="Avg racers / booking" value={data.racing.reservations > 0 ? (data.totals.racers / data.racing.reservations).toFixed(1) : "--"} />
+                  <MiniStat
+                    label="Avg racers / booking"
+                    value={
+                      data.racing.reservations > 0
+                        ? (data.totals.racers / data.racing.reservations).toFixed(1)
+                        : "--"
+                    }
+                  />
                 </div>
 
                 {/* Packages */}
-                {data.racing.packages.byType.length > 0 && (() => {
-                  // When the toggle is on, fold every variant into its
-                  // family bucket — Ultimate Qualifier (mega/weekday/
-                  // weekend/junior) all roll up to "Ultimate Qualifier".
-                  const tiles = combineFamilies
-                    ? (() => {
-                        const byFamily = new Map<
-                          string,
-                          { count: number; variants: string[] }
-                        >();
-                        for (const pkg of data.racing.packages.byType) {
-                          const fam = packageFamilyId(pkg.id);
-                          const slot = byFamily.get(fam) ?? {
-                            count: 0,
-                            variants: [],
-                          };
-                          slot.count += pkg.count;
-                          slot.variants.push(pkg.id);
-                          byFamily.set(fam, slot);
-                        }
-                        return Array.from(byFamily.entries())
-                          .map(([fam, { count, variants }]) => ({
-                            id: fam,
-                            label: packageFamilyLabel(fam),
-                            count,
-                            variantCount: variants.length,
-                            pctOfRacing:
-                              data.racing.reservations > 0
-                                ? Math.round(
-                                    (count / data.racing.reservations) * 100,
-                                  )
-                                : 0,
-                          }))
-                          .sort((a, b) => b.count - a.count);
-                      })()
-                    : data.racing.packages.byType.map((pkg) => ({
-                        id: pkg.id,
-                        label: pkg.label,
-                        count: pkg.count,
-                        variantCount: 1,
-                        pctOfRacing: pkg.pctOfRacing,
-                      }));
-                  return (
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
-                        <div className="text-xs uppercase tracking-wider text-white/55">
-                          Packages{" "}
-                          <span className="text-white/30 font-normal normal-case tracking-normal ml-1">
-                            ({data.racing.packages.total} sold)
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setCombineFamilies((v) => !v)}
-                          className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${
-                            combineFamilies
-                              ? "bg-cyan-500/20 text-cyan-200 border-cyan-400/40 hover:bg-cyan-500/30"
-                              : "bg-white/5 text-white/55 border-white/15 hover:bg-white/10"
-                          }`}
-                          aria-pressed={combineFamilies}
-                          title={
-                            combineFamilies
-                              ? "Click to show every variant separately"
-                              : "Click to roll variants up to one tile per family"
+                {data.racing.packages.byType.length > 0 &&
+                  (() => {
+                    // When the toggle is on, fold every variant into its
+                    // family bucket — Ultimate Qualifier (mega/weekday/
+                    // weekend/junior) all roll up to "Ultimate Qualifier".
+                    const tiles = combineFamilies
+                      ? (() => {
+                          const byFamily = new Map<string, { count: number; variants: string[] }>();
+                          for (const pkg of data.racing.packages.byType) {
+                            const fam = packageFamilyId(pkg.id);
+                            const slot = byFamily.get(fam) ?? {
+                              count: 0,
+                              variants: [],
+                            };
+                            slot.count += pkg.count;
+                            slot.variants.push(pkg.id);
+                            byFamily.set(fam, slot);
                           }
-                        >
-                          {combineFamilies ? "Combined ✓" : "Show variants"}
-                        </button>
+                          return Array.from(byFamily.entries())
+                            .map(([fam, { count, variants }]) => ({
+                              id: fam,
+                              label: packageFamilyLabel(fam),
+                              count,
+                              variantCount: variants.length,
+                              pctOfRacing:
+                                data.racing.reservations > 0
+                                  ? Math.round((count / data.racing.reservations) * 100)
+                                  : 0,
+                            }))
+                            .sort((a, b) => b.count - a.count);
+                        })()
+                      : data.racing.packages.byType.map((pkg) => ({
+                          id: pkg.id,
+                          label: pkg.label,
+                          count: pkg.count,
+                          variantCount: 1,
+                          pctOfRacing: pkg.pctOfRacing,
+                        }));
+                    return (
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                          <div className="text-xs uppercase tracking-wider text-white/55">
+                            Packages{" "}
+                            <span className="text-white/30 font-normal normal-case tracking-normal ml-1">
+                              ({data.racing.packages.total} sold)
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCombineFamilies((v) => !v)}
+                            className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${
+                              combineFamilies
+                                ? "bg-cyan-500/20 text-cyan-200 border-cyan-400/40 hover:bg-cyan-500/30"
+                                : "bg-white/5 text-white/55 border-white/15 hover:bg-white/10"
+                            }`}
+                            aria-pressed={combineFamilies}
+                            title={
+                              combineFamilies
+                                ? "Click to show every variant separately"
+                                : "Click to roll variants up to one tile per family"
+                            }
+                          >
+                            {combineFamilies ? "Combined ✓" : "Show variants"}
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                          {tiles.map((pkg) => (
+                            <Tile
+                              key={pkg.id}
+                              title={pkg.label}
+                              primary={`${pkg.count}`}
+                              primarySubtle={`/ ${data.racing.reservations} racing`}
+                              accent="amber"
+                              rows={[
+                                {
+                                  label: "% of racing bookings",
+                                  value: `${pkg.pctOfRacing}%`,
+                                },
+                                ...(combineFamilies && pkg.variantCount > 1
+                                  ? [
+                                      {
+                                        label: "Variants",
+                                        value: `${pkg.variantCount}`,
+                                      },
+                                    ]
+                                  : []),
+                              ]}
+                            />
+                          ))}
+                        </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                        {tiles.map((pkg) => (
-                          <Tile
-                            key={pkg.id}
-                            title={pkg.label}
-                            primary={`${pkg.count}`}
-                            primarySubtle={`/ ${data.racing.reservations} racing`}
-                            accent="amber"
-                            rows={[
-                              {
-                                label: "% of racing bookings",
-                                value: `${pkg.pctOfRacing}%`,
-                              },
-                              ...(combineFamilies && pkg.variantCount > 1
-                                ? [
-                                    {
-                                      label: "Variants",
-                                      value: `${pkg.variantCount}`,
-                                    },
-                                  ]
-                                : []),
-                            ]}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
+                    );
+                  })()}
 
                 {/* POV */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
@@ -595,8 +614,14 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     accent="purple"
                     rows={[
                       { label: "Attach rate (overall)", value: `${data.racing.pov.attachRate}%` },
-                      { label: "  · new racers", value: `${data.racing.pov.byNewRacer} (${data.racing.pov.attachRateNewRacer}%)` },
-                      { label: "  · returning", value: `${data.racing.pov.byReturning} (${data.racing.pov.attachRateReturning}%)` },
+                      {
+                        label: "  · new racers",
+                        value: `${data.racing.pov.byNewRacer} (${data.racing.pov.attachRateNewRacer}%)`,
+                      },
+                      {
+                        label: "  · returning",
+                        value: `${data.racing.pov.byReturning} (${data.racing.pov.attachRateReturning}%)`,
+                      },
                       ...(data.racing.pov.byTier ?? []).map((t) => ({
                         label: `  · ${t.tier}`,
                         value: `${t.povCount} / ${t.racingCount} (${t.attachRate}%)`,
@@ -609,7 +634,13 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     primarySubtle="total package sales"
                     accent="amber"
                     rows={[
-                      { label: "% of racing bookings", value: data.racing.reservations > 0 ? `${Math.round((data.racing.packages.total / data.racing.reservations) * 100)}%` : "—" },
+                      {
+                        label: "% of racing bookings",
+                        value:
+                          data.racing.reservations > 0
+                            ? `${Math.round((data.racing.packages.total / data.racing.reservations) * 100)}%`
+                            : "—",
+                      },
                     ]}
                   />
                 </div>
@@ -627,9 +658,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     primary={`${data.racing.addOnAttachCount}`}
                     primarySubtle={`/${data.racing.reservations} racing bookings`}
                     accent="emerald"
-                    rows={[
-                      { label: "Attach rate", value: `${data.racing.addOnAttachRate}%` },
-                    ]}
+                    rows={[{ label: "Attach rate", value: `${data.racing.addOnAttachRate}%` }]}
                   />
                 </div>
 
@@ -643,7 +672,8 @@ export default function SalesAdminClient({ token }: { token: string }) {
             {data.attractions.reservations > 0 && (
               <Section title="Attractions" icon="🎯">
                 <div className="mb-3 text-xs text-white/60">
-                  {data.attractions.reservations} reservation{data.attractions.reservations === 1 ? "" : "s"} included an attraction.
+                  {data.attractions.reservations} reservation
+                  {data.attractions.reservations === 1 ? "" : "s"} included an attraction.
                 </div>
                 {data.attractions.topAddOns.length > 0 && (
                   <CountList title="Top attractions / add-ons" rows={data.attractions.topAddOns} />
@@ -657,16 +687,24 @@ export default function SalesAdminClient({ token }: { token: string }) {
                 {/* Top-line counts */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
                   <MiniStat label="Matched" value={data.videos.total} />
-                  <MiniStat label="Purchased" value={`${data.videos.purchased} (${data.videos.purchaseRate}%)`} />
+                  <MiniStat
+                    label="Purchased"
+                    value={`${data.videos.purchased} (${data.videos.purchaseRate}%)`}
+                  />
                   <MiniStat label="Viewed" value={data.videos.viewed} />
-                  <MiniStat label="SMS sent" value={`${data.videos.smsSent} (${data.videos.smsDeliveryRate}%)`} />
+                  <MiniStat
+                    label="SMS sent"
+                    value={`${data.videos.smsSent} (${data.videos.smsDeliveryRate}%)`}
+                  />
                   <MiniStat label="Pending notify" value={data.videos.pending} />
                 </div>
 
                 {/* By track */}
                 {data.videos.byTrack.length > 0 && (
                   <div className="mb-4">
-                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2">By track</div>
+                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2">
+                      By track
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                       {data.videos.byTrack.map((t) => (
                         <Tile
@@ -688,7 +726,9 @@ export default function SalesAdminClient({ token }: { token: string }) {
                 {/* By race type */}
                 {data.videos.byRaceType.length > 0 && (
                   <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
-                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2.5">By race type</div>
+                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2.5">
+                      By race type
+                    </div>
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-white/40 uppercase tracking-wider">
@@ -703,8 +743,12 @@ export default function SalesAdminClient({ token }: { token: string }) {
                           <tr key={r.raceType}>
                             <td className="py-1.5 text-white/80">{r.raceType}</td>
                             <td className="py-1.5 text-right font-mono text-white/60">{r.total}</td>
-                            <td className="py-1.5 text-right font-mono text-white/80">{r.purchased}</td>
-                            <td className="py-1.5 text-right font-mono text-[#00E2E5]">{r.purchaseRate}%</td>
+                            <td className="py-1.5 text-right font-mono text-white/80">
+                              {r.purchased}
+                            </td>
+                            <td className="py-1.5 text-right font-mono text-[#00E2E5]">
+                              {r.purchaseRate}%
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -718,7 +762,10 @@ export default function SalesAdminClient({ token }: { token: string }) {
             {data.byDay.length > 1 && (
               <Section title="Daily volume" icon="📈">
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-                  <div className="flex items-end gap-2 overflow-x-auto pb-1" style={{ minHeight: 130 }}>
+                  <div
+                    className="flex items-end gap-2 overflow-x-auto pb-1"
+                    style={{ minHeight: 130 }}
+                  >
                     {data.byDay.map((d) => {
                       const h = Math.max(6, Math.round((d.reservations / maxDay) * 110));
                       return (
@@ -749,116 +796,137 @@ export default function SalesAdminClient({ token }: { token: string }) {
             )}
 
             {/* ── SMS volume by day + source ── */}
-            {data.sms && data.sms.totals.attempts > 0 && (() => {
-              // Color tokens for the four SMS source buckets — used for
-              // both the per-source KPI tiles AND the stacked-bar chart
-              // below so the legend reads consistently.
-              const SMS_SOURCES = [
-                { key: "bookingConfirm" as const, label: "Booking confirmations", icon: "📋", accent: "cyan"    as AccentKey },
-                { key: "eTicket"        as const, label: "E-tickets",             icon: "🎟",  accent: "coral"   as AccentKey },
-                { key: "checkIn"        as const, label: "Check-ins",             icon: "📣", accent: "amber"   as AccentKey },
-                { key: "video"          as const, label: "Videos",                icon: "🎥", accent: "purple"  as AccentKey },
-              ];
-              const maxDailyAttempts = Math.max(
-                1,
-                ...data.sms!.byDay.map((d) => d.attempts),
-              );
-              return (
-                <Section title="SMS volume" icon="💬">
-                  {/* Per-source headline tiles — color-coded so eye can
+            {data.sms &&
+              data.sms.totals.attempts > 0 &&
+              (() => {
+                // Color tokens for the four SMS source buckets — used for
+                // both the per-source KPI tiles AND the stacked-bar chart
+                // below so the legend reads consistently.
+                const SMS_SOURCES = [
+                  {
+                    key: "bookingConfirm" as const,
+                    label: "Booking confirmations",
+                    icon: "📋",
+                    accent: "cyan" as AccentKey,
+                  },
+                  {
+                    key: "eTicket" as const,
+                    label: "E-tickets",
+                    icon: "🎟",
+                    accent: "coral" as AccentKey,
+                  },
+                  {
+                    key: "checkIn" as const,
+                    label: "Check-ins",
+                    icon: "📣",
+                    accent: "amber" as AccentKey,
+                  },
+                  {
+                    key: "video" as const,
+                    label: "Videos",
+                    icon: "🎥",
+                    accent: "purple" as AccentKey,
+                  },
+                ];
+                const maxDailyAttempts = Math.max(1, ...data.sms!.byDay.map((d) => d.attempts));
+                return (
+                  <Section title="SMS volume" icon="💬">
+                    {/* Per-source headline tiles — color-coded so eye can
                       jump straight to the bucket it cares about. */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                    {SMS_SOURCES.map((src) => (
-                      <Card
-                        key={src.key}
-                        label={src.label}
-                        value={data.sms!.totals[src.key]}
-                        accent={src.accent}
-                        icon={src.icon}
-                      />
-                    ))}
-                  </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                      {SMS_SOURCES.map((src) => (
+                        <Card
+                          key={src.key}
+                          label={src.label}
+                          value={data.sms!.totals[src.key]}
+                          accent={src.accent}
+                          icon={src.icon}
+                        />
+                      ))}
+                    </div>
 
-                  {/* Total attempts / provider OK / delivered — gives a
+                    {/* Total attempts / provider OK / delivered — gives a
                       health pulse on the entire send pipeline at a glance. */}
-                  <div className="grid grid-cols-3 gap-2 mb-4">
-                    <MiniStat
-                      label="Total attempts"
-                      value={data.sms.totals.attempts}
-                    />
-                    <MiniStat
-                      label="Provider OK"
-                      value={`${data.sms.totals.ok} (${pctText(data.sms.totals.ok, data.sms.totals.attempts)})`}
-                    />
-                    <MiniStat
-                      label="Carrier delivered"
-                      value={`${data.sms.totals.delivered} (${pctText(data.sms.totals.delivered, data.sms.totals.attempts)})`}
-                    />
-                  </div>
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                      <MiniStat label="Total attempts" value={data.sms.totals.attempts} />
+                      <MiniStat
+                        label="Provider OK"
+                        value={`${data.sms.totals.ok} (${pctText(data.sms.totals.ok, data.sms.totals.attempts)})`}
+                      />
+                      <MiniStat
+                        label="Carrier delivered"
+                        value={`${data.sms.totals.delivered} (${pctText(data.sms.totals.delivered, data.sms.totals.attempts)})`}
+                      />
+                    </div>
 
-                  {/* Stacked-bar per day — replaces the wall-of-numbers
+                    {/* Stacked-bar per day — replaces the wall-of-numbers
                       table. Each bar is normalized to the busiest day so
                       a quiet Sunday doesn't disappear next to a peak
                       Saturday. Hovering a bar shows the breakdown. */}
-                  {data.sms.byDay.length > 0 && (
-                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
-                          Daily breakdown
-                        </div>
-                        <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider">
-                          {SMS_SOURCES.map((src) => (
-                            <span key={src.key} className="flex items-center gap-1.5 text-white/55">
+                    {data.sms.byDay.length > 0 && (
+                      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
+                            Daily breakdown
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider">
+                            {SMS_SOURCES.map((src) => (
                               <span
-                                className="w-2 h-2 rounded-full inline-block"
-                                style={{ backgroundColor: ACCENTS[src.accent].fg }}
-                              />
-                              {src.label.split(" ")[0]}
-                            </span>
-                          ))}
+                                key={src.key}
+                                className="flex items-center gap-1.5 text-white/55"
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full inline-block"
+                                  style={{ backgroundColor: ACCENTS[src.accent].fg }}
+                                />
+                                {src.label.split(" ")[0]}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          {[...data.sms.byDay].reverse().map((d) => {
+                            const segments = SMS_SOURCES.map((src) => ({
+                              value: d.bySource[src.key],
+                              color: ACCENTS[src.accent].fg,
+                            }));
+                            const breakdown = SMS_SOURCES.map(
+                              (src) => `${src.label.split(" ")[0]}: ${d.bySource[src.key]}`,
+                            ).join(" · ");
+                            return (
+                              <div
+                                key={d.date}
+                                className="grid items-center gap-3 text-xs"
+                                style={{ gridTemplateColumns: "70px 1fr 80px" }}
+                                title={breakdown}
+                              >
+                                <div className="text-white/55 font-mono whitespace-nowrap">
+                                  {formatDate(d.date)}
+                                </div>
+                                <StackedBar segments={segments} max={maxDailyAttempts} />
+                                <div className="text-right">
+                                  <span className="font-mono font-semibold text-white">
+                                    {d.attempts}
+                                  </span>
+                                  {d.delivered > 0 && d.delivered < d.attempts && (
+                                    <span
+                                      className="ml-1.5 text-[10px] font-mono"
+                                      style={{ color: ACCENTS.emerald.fg }}
+                                      title={`${d.delivered} carrier-delivered`}
+                                    >
+                                      ✓{d.delivered}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
-                      <div className="space-y-1.5">
-                        {[...data.sms.byDay].reverse().map((d) => {
-                          const segments = SMS_SOURCES.map((src) => ({
-                            value: d.bySource[src.key],
-                            color: ACCENTS[src.accent].fg,
-                          }));
-                          const breakdown = SMS_SOURCES
-                            .map((src) => `${src.label.split(" ")[0]}: ${d.bySource[src.key]}`)
-                            .join(" · ");
-                          return (
-                            <div
-                              key={d.date}
-                              className="grid items-center gap-3 text-xs"
-                              style={{ gridTemplateColumns: "70px 1fr 80px" }}
-                              title={breakdown}
-                            >
-                              <div className="text-white/55 font-mono whitespace-nowrap">
-                                {formatDate(d.date)}
-                              </div>
-                              <StackedBar segments={segments} max={maxDailyAttempts} />
-                              <div className="text-right">
-                                <span className="font-mono font-semibold text-white">{d.attempts}</span>
-                                {d.delivered > 0 && d.delivered < d.attempts && (
-                                  <span
-                                    className="ml-1.5 text-[10px] font-mono"
-                                    style={{ color: ACCENTS.emerald.fg }}
-                                    title={`${d.delivered} carrier-delivered`}
-                                  >
-                                    ✓{d.delivered}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </Section>
-              );
-            })()}
+                    )}
+                  </Section>
+                );
+              })()}
 
             {/* ── Raw entries ── */}
             {/* Two layouts depending on viewport:
@@ -888,19 +956,27 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     <tbody>
                       {data.entries.map((e, i) => (
                         <tr key={`${e.billId ?? i}-${e.ts}`} className="border-t border-white/5">
-                          <td className="px-3 py-2 whitespace-nowrap text-white/80">{formatTs(e.ts)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-white/80">
+                            {formatTs(e.ts)}
+                          </td>
                           <td className="px-3 py-2 whitespace-nowrap">
-                            <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${bookingTypeColor(e.bookingType)}`}>
+                            <span
+                              className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${bookingTypeColor(e.bookingType)}`}
+                            >
                               {bookingTypeLabel(e.bookingType)}
                             </span>
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap text-white/70">{e.participantCount ?? "—"}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-white/70">
+                            {e.participantCount ?? "—"}
+                          </td>
                           <td className="px-3 py-2 whitespace-nowrap">
-                            {e.isNewRacer === true
-                              ? <span className="text-emerald-300 text-xs">new</span>
-                              : e.isNewRacer === false
-                                ? <span className="text-white/40 text-xs">returning</span>
-                                : <span className="text-white/30 text-xs">—</span>}
+                            {e.isNewRacer === true ? (
+                              <span className="text-emerald-300 text-xs">new</span>
+                            ) : e.isNewRacer === false ? (
+                              <span className="text-white/40 text-xs">returning</span>
+                            ) : (
+                              <span className="text-white/30 text-xs">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs">
                             {e.packageId && (
@@ -912,9 +988,15 @@ export default function SalesAdminClient({ token }: { token: string }) {
                                     : e.packageId.toUpperCase().slice(0, 8)}
                               </span>
                             )}
-                            {e.povPurchased && <span className="text-purple-300 mr-1">POV{e.povQty ? `×${e.povQty}` : ""}</span>}
+                            {e.povPurchased && (
+                              <span className="text-purple-300 mr-1">
+                                POV{e.povQty ? `×${e.povQty}` : ""}
+                              </span>
+                            )}
                             {e.licensePurchased && <span className="text-blue-300">LIC</span>}
-                            {!e.packageId && !e.povPurchased && !e.licensePurchased && <span className="text-white/30">—</span>}
+                            {!e.packageId && !e.povPurchased && !e.licensePurchased && (
+                              <span className="text-white/30">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-white/70 text-xs">
                             {e.raceProductNames?.length ? e.raceProductNames.join(", ") : "—"}
@@ -922,7 +1004,9 @@ export default function SalesAdminClient({ token }: { token: string }) {
                           <td className="px-3 py-2 text-white/70 text-xs">
                             {e.addOnNames?.length ? e.addOnNames.join(", ") : "—"}
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-white/40">{e.reservationNumber || e.billId?.slice(-8) || "—"}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-white/40">
+                            {e.reservationNumber || e.billId?.slice(-8) || "—"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -971,10 +1055,14 @@ export default function SalesAdminClient({ token }: { token: string }) {
                           </span>
                         </span>
                         {e.isNewRacer === true && (
-                          <span className="text-emerald-300 text-[10px] uppercase tracking-wider">· new</span>
+                          <span className="text-emerald-300 text-[10px] uppercase tracking-wider">
+                            · new
+                          </span>
                         )}
                         {e.isNewRacer === false && (
-                          <span className="text-white/40 text-[10px] uppercase tracking-wider">· returning</span>
+                          <span className="text-white/40 text-[10px] uppercase tracking-wider">
+                            · returning
+                          </span>
                         )}
                       </div>
 
@@ -1000,7 +1088,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
                       )}
 
                       {/* Products + add-ons (only show when present) */}
-                      {(e.raceProductNames?.length || e.addOnNames?.length) ? (
+                      {e.raceProductNames?.length || e.addOnNames?.length ? (
                         <div className="space-y-0.5 text-[11px] text-white/65">
                           {e.raceProductNames?.length ? (
                             <div className="flex gap-1.5">
@@ -1040,14 +1128,18 @@ function pctText(num: number, denom: number): string {
 // amber = packages, emerald = ok / delivered, purple = POV / video,
 // blue = informational, red = issues.
 const ACCENTS = {
-  cyan:    { fg: "#00E2E5", glow: "rgba(0,226,229,0.18)", border: "rgba(0,226,229,0.35)" },
-  coral:   { fg: "#fd5b56", glow: "rgba(253,91,86,0.18)", border: "rgba(253,91,86,0.35)" },
-  amber:   { fg: "#fbbf24", glow: "rgba(251,191,36,0.18)", border: "rgba(251,191,36,0.35)" },
+  cyan: { fg: "#00E2E5", glow: "rgba(0,226,229,0.18)", border: "rgba(0,226,229,0.35)" },
+  coral: { fg: "#fd5b56", glow: "rgba(253,91,86,0.18)", border: "rgba(253,91,86,0.35)" },
+  amber: { fg: "#fbbf24", glow: "rgba(251,191,36,0.18)", border: "rgba(251,191,36,0.35)" },
   emerald: { fg: "#34d399", glow: "rgba(52,211,153,0.18)", border: "rgba(52,211,153,0.35)" },
-  purple:  { fg: "#c084fc", glow: "rgba(192,132,252,0.18)", border: "rgba(192,132,252,0.35)" },
-  blue:    { fg: "#60a5fa", glow: "rgba(96,165,250,0.18)", border: "rgba(96,165,250,0.35)" },
-  rose:    { fg: "#fb7185", glow: "rgba(251,113,133,0.18)", border: "rgba(251,113,133,0.35)" },
-  slate:   { fg: "rgba(255,255,255,0.85)", glow: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.12)" },
+  purple: { fg: "#c084fc", glow: "rgba(192,132,252,0.18)", border: "rgba(192,132,252,0.35)" },
+  blue: { fg: "#60a5fa", glow: "rgba(96,165,250,0.18)", border: "rgba(96,165,250,0.35)" },
+  rose: { fg: "#fb7185", glow: "rgba(251,113,133,0.18)", border: "rgba(251,113,133,0.35)" },
+  slate: {
+    fg: "rgba(255,255,255,0.85)",
+    glow: "rgba(255,255,255,0.05)",
+    border: "rgba(255,255,255,0.12)",
+  },
 } as const;
 type AccentKey = keyof typeof ACCENTS;
 
@@ -1074,10 +1166,14 @@ function Card({
       }}
     >
       <div className="flex items-start justify-between mb-1.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-white/55">{label}</div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-white/55">
+          {label}
+        </div>
         {icon && <div className="text-base leading-none opacity-70">{icon}</div>}
       </div>
-      <div className="text-3xl font-extrabold text-white tracking-tight" style={{ color: c.fg }}>{value}</div>
+      <div className="text-3xl font-extrabold text-white tracking-tight" style={{ color: c.fg }}>
+        {value}
+      </div>
       {subtle && <div className="text-[11px] text-white/45 mt-1">{subtle}</div>}
     </div>
   );
@@ -1114,10 +1210,14 @@ function Tile({
         border: `1px solid ${c.border}`,
       }}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-1.5">{title}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-1.5">
+        {title}
+      </div>
       <div className="text-3xl font-extrabold tracking-tight" style={{ color: c.fg }}>
         {primary}
-        {primarySubtle && <span className="text-sm font-normal text-white/40 ml-1.5">{primarySubtle}</span>}
+        {primarySubtle && (
+          <span className="text-sm font-normal text-white/40 ml-1.5">{primarySubtle}</span>
+        )}
       </div>
       {rows && rows.length > 0 && (
         <div className="mt-3 space-y-1 text-xs">
@@ -1138,7 +1238,9 @@ function CountList({ title, rows }: { title: string; rows: { name: string; count
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-3">{title}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-3">
+        {title}
+      </div>
       <div className="space-y-2">
         {rows.map((r) => {
           const w = Math.round((r.count / max) * 100);
@@ -1148,7 +1250,10 @@ function CountList({ title, rows }: { title: string; rows: { name: string; count
               <div className="w-32 h-2 rounded-full bg-white/5 overflow-hidden">
                 <div
                   className="h-full transition-all"
-                  style={{ width: `${w}%`, background: `linear-gradient(90deg, ${ACCENTS.cyan.fg}AA 0%, ${ACCENTS.cyan.fg} 100%)` }}
+                  style={{
+                    width: `${w}%`,
+                    background: `linear-gradient(90deg, ${ACCENTS.cyan.fg}AA 0%, ${ACCENTS.cyan.fg} 100%)`,
+                  }}
                 />
               </div>
               <div className="w-10 text-right font-mono font-semibold text-white/85">{r.count}</div>
@@ -1193,7 +1298,10 @@ function StackedBar({
   const total = segments.reduce((s, x) => s + x.value, 0);
   const widthPct = max > 0 ? (total / max) * 100 : 0;
   return (
-    <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden flex" style={{ width: `${widthPct}%`, minWidth: total > 0 ? "2px" : 0 }}>
+    <div
+      className="w-full h-2 rounded-full bg-white/5 overflow-hidden flex"
+      style={{ width: `${widthPct}%`, minWidth: total > 0 ? "2px" : 0 }}
+    >
       {segments.map((s, i) => {
         if (s.value === 0) return null;
         const segPct = (s.value / total) * 100;

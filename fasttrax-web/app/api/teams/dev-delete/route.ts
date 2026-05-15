@@ -28,10 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   if (!body.conversationId || !body.activityId) {
-    return NextResponse.json(
-      { error: "conversationId + activityId required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "conversationId + activityId required" }, { status: 400 });
   }
 
   const result = await deleteActivity(body.conversationId, body.activityId);

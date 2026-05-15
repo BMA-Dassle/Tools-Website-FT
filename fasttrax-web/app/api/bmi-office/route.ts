@@ -14,7 +14,10 @@ const SMS_VERSION = "6251006 202511051229";
 
 // ── HTTPS helpers (Node fetch/undici doesn't work with this API) ────────────
 
-function httpsGet(path: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+function httpsGet(
+  path: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.get({ hostname: OFFICE_HOST, path, headers }, (res) => {
       let data = "";
@@ -22,14 +25,26 @@ function httpsGet(path: string, headers: Record<string, string>): Promise<{ stat
       res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
     });
     req.on("error", reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(10000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
   });
 }
 
-function httpsPost(path: string, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
+function httpsPost(
+  path: string,
+  body: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
-      { hostname: OFFICE_HOST, path, method: "POST", headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) } },
+      {
+        hostname: OFFICE_HOST,
+        path,
+        method: "POST",
+        headers: { ...headers, "Content-Length": String(Buffer.byteLength(body)) },
+      },
       (res) => {
         let data = "";
         res.on("data", (c) => (data += c));
@@ -37,7 +52,10 @@ function httpsPost(path: string, body: string, headers: Record<string, string>):
       },
     );
     req.on("error", reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(10000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
     req.write(body);
     req.end();
   });
@@ -57,7 +75,7 @@ async function getOfficeToken(): Promise<string> {
   console.log(`[BMI Office auth] user=${OFFICE_USER}`);
   const res = await httpsPost("/auth/token", body, {
     "Content-Type": "application/x-www-form-urlencoded",
-    "clientkey": CLIENT_KEY,
+    clientkey: CLIENT_KEY,
     "x-fast-version": SMS_VERSION,
   });
 
@@ -76,10 +94,10 @@ async function getOfficeToken(): Promise<string> {
 
 function apiHeaders(token: string): Record<string, string> {
   return {
-    "Authorization": `Bearer ${token}`,
+    Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
     "x-session-id": randomUUID(),
-    "clientkey": CLIENT_KEY,
+    clientkey: CLIENT_KEY,
   };
 }
 
@@ -110,7 +128,9 @@ export async function GET(req: NextRequest) {
         tokenExpiry = 0;
         const newToken = await getOfficeToken();
         const retry = await httpsGet(path, apiHeaders(newToken));
-        return NextResponse.json(JSON.parse(retry.body), { status: retry.status >= 400 ? 500 : 200 });
+        return NextResponse.json(JSON.parse(retry.body), {
+          status: retry.status >= 400 ? 500 : 200,
+        });
       }
 
       return NextResponse.json(JSON.parse(res.body));
@@ -143,7 +163,9 @@ export async function GET(req: NextRequest) {
         tokenExpiry = 0;
         const newToken = await getOfficeToken();
         const retry = await httpsGet(path, apiHeaders(newToken));
-        return NextResponse.json(JSON.parse(retry.body), { status: retry.status >= 400 ? 500 : 200 });
+        return NextResponse.json(JSON.parse(retry.body), {
+          status: retry.status >= 400 ? 500 : 200,
+        });
       }
       return NextResponse.json(JSON.parse(res.body));
     }
@@ -156,7 +178,9 @@ export async function GET(req: NextRequest) {
       }
       // Default: look back 2 years
       const now = new Date();
-      const from = searchParams.get("from") || new Date(now.getFullYear() - 2, now.getMonth(), now.getDate()).toISOString().split(".")[0];
+      const from =
+        searchParams.get("from") ||
+        new Date(now.getFullYear() - 2, now.getMonth(), now.getDate()).toISOString().split(".")[0];
       const until = searchParams.get("until") || now.toISOString().split(".")[0];
 
       const path = `/api/${CLIENT_KEY}/deposit/history?personId=${personId}&from=${encodeURIComponent(from)}&until=${encodeURIComponent(until)}`;
@@ -166,7 +190,9 @@ export async function GET(req: NextRequest) {
         tokenExpiry = 0;
         const newToken = await getOfficeToken();
         const retry = await httpsGet(path, apiHeaders(newToken));
-        return NextResponse.json(JSON.parse(retry.body), { status: retry.status >= 400 ? 500 : 200 });
+        return NextResponse.json(JSON.parse(retry.body), {
+          status: retry.status >= 400 ? 500 : 200,
+        });
       }
       return NextResponse.json(JSON.parse(res.body));
     }

@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
-import { getGroupEvent, getReservationAttractions, getFreeflowAttractions } from "@/lib/group-events";
+import {
+  getGroupEvent,
+  getReservationAttractions,
+  getFreeflowAttractions,
+} from "@/lib/group-events";
 import type { GroupEventAttraction, GroupEventMealWindow } from "@/lib/group-events";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "@/app/book/race/data";
 import { bookRaceHeat, bmiPost } from "@/app/book/race/data";
@@ -13,46 +17,59 @@ import WaiverSigning from "@/components/pandora/WaiverSigning";
 
 // ── Track info (mirrors ProductPicker's TRACK_INFO) ──────────────────────────
 
-const TRACK_INFO: Record<string, {
-  title: string;
-  stat: string;
-  tagline: string;
-  image: string;
-  accent: string;
-}> = {
+const TRACK_INFO: Record<
+  string,
+  {
+    title: string;
+    stat: string;
+    tagline: string;
+    image: string;
+    accent: string;
+  }
+> = {
   Red: {
     title: "Red Track",
     stat: "1,095 ft",
     tagline: "Technical & clockwise — more turns, more strategy.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
     accent: "red",
   },
   Blue: {
     title: "Blue Track",
     stat: "1,013 ft",
     tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
     accent: "blue",
   },
 };
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Step = "gate" | "name" | "waiver" | "dashboard" | "racing-track" | "racing-heat" | "attraction-slots" | "confirmation";
+type Step =
+  | "gate"
+  | "name"
+  | "waiver"
+  | "dashboard"
+  | "racing-track"
+  | "racing-heat"
+  | "attraction-slots"
+  | "confirmation";
 
 interface GuestInfo {
   email: string;
   firstName: string;
   lastName: string;
   displayName: string; // "Eric O."
-  birthdate?: string;  // "YYYY-MM-DD" — needed for waiver template
+  birthdate?: string; // "YYYY-MM-DD" — needed for waiver template
 }
 
 /** An item in the cart — selected but not yet booked in BMI */
 interface CartItem {
   attractionSlug: string;
   label: string;
-  track?: string;          // racing only
+  track?: string; // racing only
   proposal: BmiProposal;
   block: BmiBlock;
   /** product ID for booking/book */
@@ -137,7 +154,9 @@ export default function GroupEventPage() {
   const [freeflowSaved, setFreeflowSaved] = useState(false);
 
   // Already-confirmed reservations (from previous visit)
-  const [existingReservations, setExistingReservations] = useState<{ type: string; track?: string; time?: string; billId?: string }[]>([]);
+  const [existingReservations, setExistingReservations] = useState<
+    { type: string; track?: string; time?: string; billId?: string }[]
+  >([]);
 
   const cartRef = useRef<HTMLDivElement>(null);
 
@@ -157,7 +176,13 @@ export default function GroupEventPage() {
       const storedPersonId = sessionStorage.getItem(sessionKey(slug, "personId"));
       const storedBirthdate = sessionStorage.getItem(sessionKey(slug, "birthdate"));
       if (email && firstName && lastName) {
-        setGuest({ email, firstName, lastName, displayName: makeDisplayName(firstName, lastName), birthdate: storedBirthdate || undefined });
+        setGuest({
+          email,
+          firstName,
+          lastName,
+          displayName: makeDisplayName(firstName, lastName),
+          birthdate: storedBirthdate || undefined,
+        });
         if (storedPersonId) {
           setPersonId(storedPersonId);
           setWaiverValid(true); // They already signed if they have a personId in session
@@ -165,7 +190,9 @@ export default function GroupEventPage() {
         setStep("dashboard");
         fetchExistingRsvp(slug, email);
       }
-    } catch { /* sessionStorage unavailable */ }
+    } catch {
+      /* sessionStorage unavailable */
+    }
   }, [slug, event]);
 
   // ── Fetch rosters ────────────────────────────────────────────────────────
@@ -198,7 +225,9 @@ export default function GroupEventPage() {
 
   async function fetchExistingRsvp(eventSlug: string, email: string) {
     try {
-      const res = await fetch(`/api/group-event/rsvp?slug=${eventSlug}&email=${encodeURIComponent(email)}`);
+      const res = await fetch(
+        `/api/group-event/rsvp?slug=${eventSlug}&email=${encodeURIComponent(email)}`,
+      );
       const data = await res.json();
       if (data?.freeflow) setSelectedFreeflow(data.freeflow);
       // Restore personId from RSVP (survives cancel + rebook)
@@ -210,7 +239,9 @@ export default function GroupEventPage() {
         setExistingReservations(data.reservations);
         setStep("confirmation");
       }
-    } catch { /* first visit */ }
+    } catch {
+      /* first visit */
+    }
   }
 
   // ── Not found ────────────────────────────────────────────────────────────
@@ -219,7 +250,9 @@ export default function GroupEventPage() {
     return (
       <div className="min-h-screen bg-[#000418] flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-3xl font-display text-white uppercase tracking-widest mb-4">Event Not Found</h1>
+          <h1 className="text-3xl font-display text-white uppercase tracking-widest mb-4">
+            Event Not Found
+          </h1>
           <p className="text-white/50">This event link may be expired or invalid.</p>
         </div>
       </div>
@@ -234,13 +267,17 @@ export default function GroupEventPage() {
     const email = (form.get("email") as string).trim().toLowerCase();
     const domain = email.split("@")[1];
     if (!domain || !event!.allowedDomains.includes(domain)) {
-      const allowed = event!.allowedDomains.filter(d => d !== "headpinz.com" && d !== "fasttraxent.com");
+      const allowed = event!.allowedDomains.filter(
+        (d) => d !== "headpinz.com" && d !== "fasttraxent.com",
+      );
       setGateError(`This event is for @${allowed[0]} employees`);
       return;
     }
     setGateError("");
     sessionStorage.setItem(sessionKey(slug, "email"), email);
-    setGuest((prev) => prev ? { ...prev, email } : { email, firstName: "", lastName: "", displayName: "" });
+    setGuest((prev) =>
+      prev ? { ...prev, email } : { email, firstName: "", lastName: "", displayName: "" },
+    );
     setStep("name");
   }
 
@@ -325,7 +362,7 @@ export default function GroupEventPage() {
       }
 
       // Remove cancelled reservation from RSVP
-      const remaining = existingReservations.filter(r => r.billId !== billId);
+      const remaining = existingReservations.filter((r) => r.billId !== billId);
       setExistingReservations(remaining);
 
       // Update RSVP record in Redis
@@ -365,8 +402,8 @@ export default function GroupEventPage() {
 
   function addToCart(item: CartItem) {
     // Replace if same attraction already in cart
-    setCart(prev => {
-      const filtered = prev.filter(c => c.attractionSlug !== item.attractionSlug);
+    setCart((prev) => {
+      const filtered = prev.filter((c) => c.attractionSlug !== item.attractionSlug);
       return [...filtered, item];
     });
     setStep("dashboard");
@@ -377,7 +414,7 @@ export default function GroupEventPage() {
   }
 
   async function removeFromCart(attractionSlug: string) {
-    const item = cart.find(c => c.attractionSlug === attractionSlug);
+    const item = cart.find((c) => c.attractionSlug === attractionSlug);
 
     // If this item had a temp hold (racing), cancel the BMI order
     if (item?.heldOrderId && guest) {
@@ -399,28 +436,28 @@ export default function GroupEventPage() {
       }
     }
 
-    setCart(prev => prev.filter(c => c.attractionSlug !== attractionSlug));
+    setCart((prev) => prev.filter((c) => c.attractionSlug !== attractionSlug));
   }
 
   /** Check if an attraction is already selected (in cart) or already confirmed */
   function isAttractionSelected(attrSlug: string): boolean {
-    return cart.some(c => c.attractionSlug === attrSlug);
+    return cart.some((c) => c.attractionSlug === attrSlug);
   }
 
   function isAttractionConfirmed(attrSlug: string): boolean {
     if (attrSlug === "racing") {
-      return existingReservations.some(r => r.type === "racing");
+      return existingReservations.some((r) => r.type === "racing");
     }
-    return existingReservations.some(r => r.type === attrSlug);
+    return existingReservations.some((r) => r.type === attrSlug);
   }
 
   function getExistingBooking(attrSlug: string) {
-    if (attrSlug === "racing") return existingReservations.find(r => r.type === "racing");
-    return existingReservations.find(r => r.type === attrSlug);
+    if (attrSlug === "racing") return existingReservations.find((r) => r.type === "racing");
+    return existingReservations.find((r) => r.type === attrSlug);
   }
 
   function getCartItem(attrSlug: string) {
-    return cart.find(c => c.attractionSlug === attrSlug);
+    return cart.find((c) => c.attractionSlug === attrSlug);
   }
 
   // ── Racing heat → book immediately (creates temp hold like normal flow) ──
@@ -428,8 +465,8 @@ export default function GroupEventPage() {
   async function handleRaceHeatSelect(proposal: BmiProposal, block: BmiBlock) {
     if (!selectedTrack || !event || !guest) return;
     const trackConfig = event.attractions
-      .find(a => a.slug === "racing")
-      ?.bmiTracks?.find(t => t.track === selectedTrack);
+      .find((a) => a.slug === "racing")
+      ?.bmiTracks?.find((t) => t.track === selectedTrack);
     if (!trackConfig) return;
 
     setBookingInProgress(true);
@@ -481,13 +518,19 @@ export default function GroupEventPage() {
             lastName: guest.lastName,
             email: guest.email,
           });
-          const contactJson = `{"personId":${personId},"orderId":${rawOrderId},` + contactBody.slice(1);
-          await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: contactJson,
-          });
-        } catch { /* non-fatal */ }
+          const contactJson =
+            `{"personId":${personId},"orderId":${rawOrderId},` + contactBody.slice(1);
+          await fetch(
+            "/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }),
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: contactJson,
+            },
+          );
+        } catch {
+          /* non-fatal */
+        }
       }
 
       // Record on roster immediately so other guests see the name
@@ -515,7 +558,9 @@ export default function GroupEventPage() {
       });
     } catch (err) {
       console.error("[group-event] Race hold failed:", err);
-      setBookingError(err instanceof Error ? err.message : "Failed to reserve heat. Please try again.");
+      setBookingError(
+        err instanceof Error ? err.message : "Failed to reserve heat. Please try again.",
+      );
       // Stay on heat picker so they can retry
     } finally {
       setBookingInProgress(false);
@@ -524,7 +569,11 @@ export default function GroupEventPage() {
 
   // ── Attraction slot → add to cart (no immediate BMI call) ───────────────
 
-  function handleAttractionSlotSelect(attraction: GroupEventAttraction, proposal: BmiProposal, block: BmiBlock) {
+  function handleAttractionSlotSelect(
+    attraction: GroupEventAttraction,
+    proposal: BmiProposal,
+    block: BmiBlock,
+  ) {
     addToCart({
       attractionSlug: attraction.slug,
       label: attraction.label,
@@ -543,7 +592,7 @@ export default function GroupEventPage() {
 
     try {
       // Racing is already booked (temp held) — reuse its orderId
-      const racingItem = cart.find(c => c.heldOrderId);
+      const racingItem = cart.find((c) => c.heldOrderId);
       let orderId: string | null = racingItem?.heldOrderId || null;
       const bookedItems: { type: string; track?: string; time: string; billId: string }[] = [];
 
@@ -567,7 +616,7 @@ export default function GroupEventPage() {
             quantity: 1,
             resourceId: Number(item.proposal.blocks[0]?.block.resourceId) || -1,
             proposal: {
-              blocks: item.proposal.blocks.map(pb => ({
+              blocks: item.proposal.blocks.map((pb) => ({
                 productLineIds: pb.productLineIds || [],
                 block: { ...pb.block, resourceId: Number(pb.block.resourceId) || -1 },
               })),
@@ -581,11 +630,14 @@ export default function GroupEventPage() {
             bodyJson = `{"orderId":${orderId},` + bodyJson.slice(1);
           }
 
-          const bookRes = await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "booking/book" }), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: bodyJson,
-          });
+          const bookRes = await fetch(
+            "/api/bmi?" + new URLSearchParams({ endpoint: "booking/book" }),
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: bodyJson,
+            },
+          );
           const rawText = await bookRes.text();
           const orderIdMatch = rawText.match(/"orderId"\s*:\s*(\d+)/);
           if (!orderIdMatch) {
@@ -606,25 +658,34 @@ export default function GroupEventPage() {
             lastName: guest.lastName,
             email: guest.email,
           });
-          const contactJson = `{"personId":${personId},"orderId":${orderId},` + contactBody.slice(1);
-          await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: contactJson,
-          });
+          const contactJson =
+            `{"personId":${personId},"orderId":${orderId},` + contactBody.slice(1);
+          await fetch(
+            "/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }),
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: contactJson,
+            },
+          );
           console.log("[group-event] registered contact person", personId, "on bill", orderId);
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
       }
 
       // Close the combined bill at $0 — use raw string injection to avoid
       // Number() precision loss on large BMI orderIds (see CLAUDE.md)
       if (orderId) {
         const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${orderId},"depositKind":2}`;
-        const confirmRes = await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "payment/confirm" }), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: confirmBody,
-        });
+        const confirmRes = await fetch(
+          "/api/bmi?" + new URLSearchParams({ endpoint: "payment/confirm" }),
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: confirmBody,
+          },
+        );
         if (!confirmRes.ok) {
           console.error("[group-event] payment/confirm failed:", await confirmRes.text());
         }
@@ -635,17 +696,26 @@ export default function GroupEventPage() {
         try {
           const regBody = JSON.stringify({ firstName: guest.firstName, lastName: guest.lastName });
           const rawJson = `{"personId":${personId},"orderId":${orderId},` + regBody.slice(1);
-          await fetch("/api/bmi?" + new URLSearchParams({ endpoint: "person/registerProjectPerson" }), {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: rawJson,
-          });
+          await fetch(
+            "/api/bmi?" + new URLSearchParams({ endpoint: "person/registerProjectPerson" }),
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: rawJson,
+            },
+          );
           console.log("[group-event] registered person", personId, "on bill", orderId);
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
       }
 
       // Save all reservations to RSVP record
-      const existing = await fetch(`/api/group-event/rsvp?slug=${slug}&email=${encodeURIComponent(guest.email)}`).then(r => r.json()).catch(() => null);
+      const existing = await fetch(
+        `/api/group-event/rsvp?slug=${slug}&email=${encodeURIComponent(guest.email)}`,
+      )
+        .then((r) => r.json())
+        .catch(() => null);
       const prevReservations = existing?.reservations || [];
       await fetch("/api/group-event/rsvp", {
         method: "POST",
@@ -661,7 +731,7 @@ export default function GroupEventPage() {
       });
 
       setConfirmedBillId(orderId);
-      setExistingReservations(prev => [...prev, ...bookedItems]);
+      setExistingReservations((prev) => [...prev, ...bookedItems]);
       setCart([]);
       setStep("confirmation");
       fetchRosters();
@@ -679,14 +749,18 @@ export default function GroupEventPage() {
     if (!attraction.bmiProductId || !attraction.bmiPageId) return;
     setAttractionLoading(true);
     try {
-      const data = await bmiPost("availability", {
-        ProductId: Number(attraction.bmiProductId),
-        PageId: Number(attraction.bmiPageId),
-        Quantity: 1,
-        OrderId: null,
-        PersonId: null,
-        DynamicLines: [],
-      }, { date: event!.eventDate });
+      const data = await bmiPost(
+        "availability",
+        {
+          ProductId: Number(attraction.bmiProductId),
+          PageId: Number(attraction.bmiPageId),
+          Quantity: 1,
+          OrderId: null,
+          PersonId: null,
+          DynamicLines: [],
+        },
+        { date: event!.eventDate },
+      );
       let proposals: BmiProposal[] = data.proposals || [];
       proposals.sort((a, b) => {
         const aS = a.blocks?.[0]?.block?.start || "";
@@ -700,7 +774,7 @@ export default function GroupEventPage() {
         const [eh, em] = event.endTime.split(":").map(Number);
         const winStart = sh * 60 + sm;
         const winEnd = eh * 60 + em;
-        proposals = proposals.filter(p => {
+        proposals = proposals.filter((p) => {
           const start = p.blocks?.[0]?.block?.start;
           if (!start) return true;
           const clean = start.replace(/Z$/, "");
@@ -751,7 +825,11 @@ export default function GroupEventPage() {
     if (!timePart) return clean;
     const [y, m, d] = datePart.split("-").map(Number);
     const [h, min] = timePart.split(":").map(Number);
-    return new Date(y, m - 1, d, h, min).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    return new Date(y, m - 1, d, h, min).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -759,7 +837,10 @@ export default function GroupEventPage() {
   const reservationAttractions = getReservationAttractions(event);
   const freeflowAttractions = getFreeflowAttractions(event);
   const eventDateDisplay = new Date(event.eventDate + "T12:00:00").toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
   });
 
   return (
@@ -785,15 +866,20 @@ export default function GroupEventPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-
         {/* ═══ STEP: Email Gate ═══ */}
         {step === "gate" && (
           <div className="max-w-md mx-auto">
             <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
               {event.heroImage && (
-                <img src={event.heroImage} alt={event.companyName} className="h-10 mx-auto mb-4 object-contain" />
+                <img
+                  src={event.heroImage}
+                  alt={event.companyName}
+                  className="h-10 mx-auto mb-4 object-contain"
+                />
               )}
-              <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">Welcome</h2>
+              <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">
+                Welcome
+              </h2>
               <p className="text-white/50 text-sm mb-6">
                 Enter your company email to access the event.
               </p>
@@ -821,7 +907,9 @@ export default function GroupEventPage() {
         {step === "name" && (
           <div className="max-w-md mx-auto">
             <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
-              <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">Your Details</h2>
+              <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">
+                Your Details
+              </h2>
               <p className="text-white/50 text-sm mb-6">
                 Used for heat rosters and your activity waiver.
               </p>
@@ -843,7 +931,12 @@ export default function GroupEventPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ge-birth-year" className="block text-left text-white/40 text-xs mb-1.5 ml-1">Date of Birth</label>
+                  <label
+                    htmlFor="ge-birth-year"
+                    className="block text-left text-white/40 text-xs mb-1.5 ml-1"
+                  >
+                    Date of Birth
+                  </label>
                   <div className="grid grid-cols-3 gap-2">
                     <select
                       id="ge-birth-year"
@@ -852,10 +945,16 @@ export default function GroupEventPage() {
                       defaultValue=""
                       className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
                     >
-                      <option value="" disabled>Year</option>
-                      {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
+                      <option value="" disabled>
+                        Year
+                      </option>
+                      {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(
+                        (y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ),
+                      )}
                     </select>
                     <select
                       name="birth-month"
@@ -863,9 +962,26 @@ export default function GroupEventPage() {
                       defaultValue=""
                       className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
                     >
-                      <option value="" disabled>Month</option>
-                      {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((m, i) => (
-                        <option key={i + 1} value={i + 1}>{m}</option>
+                      <option value="" disabled>
+                        Month
+                      </option>
+                      {[
+                        "Jan",
+                        "Feb",
+                        "Mar",
+                        "Apr",
+                        "May",
+                        "Jun",
+                        "Jul",
+                        "Aug",
+                        "Sep",
+                        "Oct",
+                        "Nov",
+                        "Dec",
+                      ].map((m, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {m}
+                        </option>
                       ))}
                     </select>
                     <select
@@ -874,9 +990,13 @@ export default function GroupEventPage() {
                       defaultValue=""
                       className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
                     >
-                      <option value="" disabled>Day</option>
-                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                        <option key={d} value={d}>{d}</option>
+                      <option value="" disabled>
+                        Day
+                      </option>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -921,7 +1041,9 @@ export default function GroupEventPage() {
         {step === "dashboard" && guest && (
           <div className="space-y-8">
             <div className="text-center">
-              <p className="text-white/50 text-sm">Welcome, <span className="text-white font-semibold">{guest.firstName}</span>!</p>
+              <p className="text-white/50 text-sm">
+                Welcome, <span className="text-white font-semibold">{guest.firstName}</span>!
+              </p>
               <p className="text-white/30 text-xs mt-1">Choose your activities below</p>
               <button
                 onClick={() => {
@@ -944,20 +1066,28 @@ export default function GroupEventPage() {
             <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 space-y-2 text-sm text-white/70 leading-relaxed">
               <p>
                 <strong className="text-white">Go-Kart Racing, Laser Tag, and Gel Blaster</strong>{" "}
-                all require a signed waiver and a pre-booked time slot. You can only book for yourself,
-                but your name will appear on the booking so your coworkers can see who&rsquo;s in each session.
+                all require a signed waiver and a pre-booked time slot. You can only book for
+                yourself, but your name will appear on the booking so your coworkers can see
+                who&rsquo;s in each session.
               </p>
               <p>
-                All other activities are <strong className="text-white">free-flow</strong> and available at your leisure throughout the event.
+                All other activities are <strong className="text-white">free-flow</strong> and
+                available at your leisure throughout the event.
               </p>
               {event.mealWindow && (
                 <p className="text-amber-300/90">
-                  <strong className="text-amber-300">{event.mealWindow.label}</strong> is served
-                  at {event.mealWindow.location} from{" "}
+                  <strong className="text-amber-300">{event.mealWindow.label}</strong> is served at{" "}
+                  {event.mealWindow.location} from{" "}
                   <strong className="text-amber-300">
-                    {new Date(`2000-01-01T${event.mealWindow.startTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
-                    {" "}&ndash;{" "}
-                    {new Date(`2000-01-01T${event.mealWindow.endTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                    {new Date(`2000-01-01T${event.mealWindow.startTime}`).toLocaleTimeString(
+                      "en-US",
+                      { hour: "numeric", minute: "2-digit", hour12: true },
+                    )}{" "}
+                    &ndash;{" "}
+                    {new Date(`2000-01-01T${event.mealWindow.endTime}`).toLocaleTimeString(
+                      "en-US",
+                      { hour: "numeric", minute: "2-digit", hour12: true },
+                    )}
                   </strong>
                   &mdash; plan your reservations around it!
                 </p>
@@ -997,11 +1127,12 @@ export default function GroupEventPage() {
                       disabled={confirmed}
                       className={`
                         w-full rounded-xl border overflow-hidden text-left transition-all
-                        ${confirmed
-                          ? "border-emerald-500/30"
-                          : inCart
-                            ? "border-[#00E2E5]/40 ring-1 ring-[#00E2E5]/20"
-                            : "border-white/10 hover:border-white/25 cursor-pointer"
+                        ${
+                          confirmed
+                            ? "border-emerald-500/30"
+                            : inCart
+                              ? "border-[#00E2E5]/40 ring-1 ring-[#00E2E5]/20"
+                              : "border-white/10 hover:border-white/25 cursor-pointer"
                         }
                       `}
                     >
@@ -1021,10 +1152,14 @@ export default function GroupEventPage() {
                           <div className="flex items-center gap-2">
                             <span className="text-white font-bold text-base">{attr.label}</span>
                             {confirmed && (
-                              <span className="text-emerald-400 text-xs font-semibold bg-emerald-500/15 px-2 py-0.5 rounded-full">&#10003; Confirmed</span>
+                              <span className="text-emerald-400 text-xs font-semibold bg-emerald-500/15 px-2 py-0.5 rounded-full">
+                                &#10003; Confirmed
+                              </span>
                             )}
                             {inCart && !confirmed && (
-                              <span className="text-[#00E2E5] text-xs font-semibold bg-[#00E2E5]/15 px-2 py-0.5 rounded-full">Selected</span>
+                              <span className="text-[#00E2E5] text-xs font-semibold bg-[#00E2E5]/15 px-2 py-0.5 rounded-full">
+                                Selected
+                              </span>
                             )}
                           </div>
                           <p className="text-white/50 text-xs mt-0.5">{attr.description}</p>
@@ -1032,18 +1167,20 @@ export default function GroupEventPage() {
                             <p className="text-emerald-400/70 text-xs mt-1 font-medium">
                               {existingBooking.track
                                 ? `${existingBooking.track} Track · ${formatTime(existingBooking.time!)}`
-                                : formatTime(existingBooking.time!)
-                              }
+                                : formatTime(existingBooking.time!)}
                             </p>
                           )}
                           {inCart && cartItem && (
                             <p className="text-[#00E2E5]/70 text-xs mt-1 font-medium">
-                              {cartItem.track ? `${cartItem.track} Track · ` : ""}{formatTime(cartItem.block.start)}
+                              {cartItem.track ? `${cartItem.track} Track · ` : ""}
+                              {formatTime(cartItem.block.start)}
                               <span className="text-white/30 ml-2">(tap to change)</span>
                             </p>
                           )}
                           {!isDone && (
-                            <p className="text-[#00E2E5] text-xs font-semibold mt-1">Tap to reserve &rsaquo;</p>
+                            <p className="text-[#00E2E5] text-xs font-semibold mt-1">
+                              Tap to reserve &rsaquo;
+                            </p>
                           )}
                         </div>
                       </div>
@@ -1071,17 +1208,23 @@ export default function GroupEventPage() {
                         checked={checked}
                         onChange={() => {
                           const next = checked
-                            ? selectedFreeflow.filter(s => s !== attr.slug)
+                            ? selectedFreeflow.filter((s) => s !== attr.slug)
                             : [...selectedFreeflow, attr.slug];
                           saveFreeflow(next);
                         }}
                         className="w-4 h-4 shrink-0 rounded border-white/20 bg-white/5 text-[#00E2E5] focus:ring-[#00E2E5]/30 accent-[#00E2E5]"
                       />
                       {attr.image && (
-                        <img src={attr.image} alt={attr.label} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                        <img
+                          src={attr.image}
+                          alt={attr.label}
+                          className="w-10 h-10 rounded-lg object-cover shrink-0"
+                        />
                       )}
                       <div className="min-w-0">
-                        <span className="text-white text-sm font-medium group-hover:text-white/90">{attr.label}</span>
+                        <span className="text-white text-sm font-medium group-hover:text-white/90">
+                          {attr.label}
+                        </span>
                         <p className="text-white/30 text-xs truncate">{attr.description}</p>
                       </div>
                     </label>
@@ -1097,18 +1240,27 @@ export default function GroupEventPage() {
             <div ref={cartRef}>
               {cart.length > 0 && (
                 <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-5 space-y-4">
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Your Reservations</h3>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    Your Reservations
+                  </h3>
                   <div className="space-y-2">
                     {cart.map((item) => (
-                      <div key={item.attractionSlug} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+                      <div
+                        key={item.attractionSlug}
+                        className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2"
+                      >
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="text-white text-sm font-medium">{item.label}</p>
                             {item.heldOrderId && (
-                              <span className="text-emerald-400 text-[10px] font-semibold bg-emerald-500/15 px-1.5 py-0.5 rounded">Held</span>
+                              <span className="text-emerald-400 text-[10px] font-semibold bg-emerald-500/15 px-1.5 py-0.5 rounded">
+                                Held
+                              </span>
                             )}
                           </div>
-                          <p className="text-[#00E2E5]/70 text-xs">{formatTime(item.block.start)} &rarr; {formatTime(item.block.stop)}</p>
+                          <p className="text-[#00E2E5]/70 text-xs">
+                            {formatTime(item.block.start)} &rarr; {formatTime(item.block.stop)}
+                          </p>
                         </div>
                         <button
                           onClick={() => removeFromCart(item.attractionSlug)}
@@ -1149,18 +1301,29 @@ export default function GroupEventPage() {
 
               {cart.length === 0 && !existingReservations.length && (
                 <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-center">
-                  <p className="text-white/30 text-sm">Select your activities above, then confirm them all at once here.</p>
+                  <p className="text-white/30 text-sm">
+                    Select your activities above, then confirm them all at once here.
+                  </p>
                 </div>
               )}
             </div>
 
             {/* Info footer */}
             <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
-              <p>&middot; All activities are <strong className="text-white/60">complimentary</strong> for {event.companyName} team members.</p>
+              <p>
+                &middot; All activities are <strong className="text-white/60">complimentary</strong>{" "}
+                for {event.companyName} team members.
+              </p>
               {event.includesLicense && (
-                <p>&middot; Racing license fee is <strong className="text-white/60">included</strong> &mdash; no charge at check-in.</p>
+                <p>
+                  &middot; Racing license fee is <strong className="text-white/60">included</strong>{" "}
+                  &mdash; no charge at check-in.
+                </p>
               )}
-              <p>&middot; Please arrive <strong className="text-white/60">15 minutes early</strong> for racing check-in.</p>
+              <p>
+                &middot; Please arrive <strong className="text-white/60">15 minutes early</strong>{" "}
+                for racing check-in.
+              </p>
             </div>
           </div>
         )}
@@ -1169,19 +1332,22 @@ export default function GroupEventPage() {
         {step === "racing-track" && (
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">Pick Your Track</h2>
+              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+                Pick Your Track
+              </h2>
               <p className="text-white/50 text-sm">Two indoor tracks — choose your style</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {(["Blue", "Red"] as const).map((trackName) => {
                 const info = TRACK_INFO[trackName];
                 const trackConfig = event.attractions
-                  .find(a => a.slug === "racing")
-                  ?.bmiTracks?.find(t => t.track === trackName);
+                  .find((a) => a.slug === "racing")
+                  ?.bmiTracks?.find((t) => t.track === trackName);
                 if (!info || !trackConfig) return null;
-                const ringClass = info.accent === "red"
-                  ? "border-red-500/40 hover:border-red-500 hover:ring-red-500/30"
-                  : "border-blue-500/40 hover:border-blue-500 hover:ring-blue-500/30";
+                const ringClass =
+                  info.accent === "red"
+                    ? "border-red-500/40 hover:border-red-500 hover:ring-red-500/30"
+                    : "border-blue-500/40 hover:border-blue-500 hover:ring-blue-500/30";
                 const titleClass = info.accent === "red" ? "text-red-300" : "text-blue-300";
                 return (
                   <button
@@ -1202,7 +1368,9 @@ export default function GroupEventPage() {
                     </div>
                     <div className="p-3">
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <h4 className={`font-display text-base uppercase tracking-wide ${titleClass}`}>
+                        <h4
+                          className={`font-display text-base uppercase tracking-wide ${titleClass}`}
+                        >
                           {info.title}
                         </h4>
                         <span className="text-white/50 text-xs font-mono">{info.stat}</span>
@@ -1227,8 +1395,12 @@ export default function GroupEventPage() {
           <div className="space-y-6">
             <HeatPicker
               race={{
-                productId: event.attractions.find(a => a.slug === "racing")!.bmiTracks!.find(t => t.track === selectedTrack)!.productId,
-                pageId: event.attractions.find(a => a.slug === "racing")!.bmiTracks!.find(t => t.track === selectedTrack)!.pageId,
+                productId: event.attractions
+                  .find((a) => a.slug === "racing")!
+                  .bmiTracks!.find((t) => t.track === selectedTrack)!.productId,
+                pageId: event.attractions
+                  .find((a) => a.slug === "racing")!
+                  .bmiTracks!.find((t) => t.track === selectedTrack)!.pageId,
                 name: `Starter Race ${selectedTrack}`,
                 tier: "starter",
                 category: "adult",
@@ -1268,12 +1440,16 @@ export default function GroupEventPage() {
               packageMode={true}
               immediateConfirm={false}
               heatRosters={heatRosters}
-              mealWarning={event.mealWindow ? {
-                label: event.mealWindow.label,
-                eventDate: event.eventDate,
-                startTime: event.mealWindow.startTime,
-                endTime: event.mealWindow.endTime,
-              } : undefined}
+              mealWarning={
+                event.mealWindow
+                  ? {
+                      label: event.mealWindow.label,
+                      eventDate: event.eventDate,
+                      startTime: event.mealWindow.startTime,
+                      endTime: event.mealWindow.endTime,
+                    }
+                  : undefined
+              }
               timeWindow={{ start: event.startTime, end: event.endTime }}
             />
           </div>
@@ -1283,7 +1459,9 @@ export default function GroupEventPage() {
         {step === "attraction-slots" && activeAttraction && (
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">{activeAttraction.label}</h2>
+              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+                {activeAttraction.label}
+              </h2>
               <p className="text-white/50 text-sm">Pick a session time</p>
             </div>
 
@@ -1314,23 +1492,42 @@ export default function GroupEventPage() {
                       disabled={isFull}
                       className={`
                         rounded-xl border p-3 text-left transition-all duration-150
-                        ${isFull
-                          ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
-                          : mealOverlap
-                            ? "border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50 hover:bg-amber-500/10 cursor-pointer"
-                            : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
+                        ${
+                          isFull
+                            ? "border-white/5 bg-white/3 opacity-40 cursor-not-allowed"
+                            : mealOverlap
+                              ? "border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50 hover:bg-amber-500/10 cursor-pointer"
+                              : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
                         }
                       `}
                     >
-                      <div className="text-white font-bold text-base mb-0.5">{formatTime(block.start)}</div>
-                      <div className="text-white/40 text-xs mb-1">&rarr; {formatTime(block.stop)}</div>
-                      <div className={`text-xs font-medium ${isFull ? "text-red-400" : "text-emerald-400"}`}>
-                        {isFull ? "Full" : `${block.freeSpots} spot${block.freeSpots === 1 ? "" : "s"} open`}
+                      <div className="text-white font-bold text-base mb-0.5">
+                        {formatTime(block.start)}
+                      </div>
+                      <div className="text-white/40 text-xs mb-1">
+                        &rarr; {formatTime(block.stop)}
+                      </div>
+                      <div
+                        className={`text-xs font-medium ${isFull ? "text-red-400" : "text-emerald-400"}`}
+                      >
+                        {isFull
+                          ? "Full"
+                          : `${block.freeSpots} spot${block.freeSpots === 1 ? "" : "s"} open`}
                       </div>
                       {mealOverlap && !isFull && (
                         <div className="flex items-center gap-1 mt-1.5 text-amber-400 text-[10px] font-medium">
-                          <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <svg
+                            className="w-3 h-3 shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
                           </svg>
                           Overlaps with food buffet
                         </div>
@@ -1342,7 +1539,10 @@ export default function GroupEventPage() {
             )}
 
             <button
-              onClick={() => { setActiveAttraction(null); setStep("dashboard"); }}
+              onClick={() => {
+                setActiveAttraction(null);
+                setStep("dashboard");
+              }}
               className="text-sm text-white/40 hover:text-white/70 transition-colors"
             >
               &larr; Back to activities
@@ -1355,28 +1555,60 @@ export default function GroupEventPage() {
           <div className="max-w-md mx-auto space-y-6">
             <div className="text-center">
               <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg
+                  className="w-8 h-8 text-emerald-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">You&rsquo;re All Set!</h2>
-              <p className="text-white/50 text-sm">Your reservations are confirmed, {guest.firstName}.</p>
+              <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
+                You&rsquo;re All Set!
+              </h2>
+              <p className="text-white/50 text-sm">
+                Your reservations are confirmed, {guest.firstName}.
+              </p>
             </div>
 
             {/* Waiver status badge */}
-            <div className={`rounded-xl p-4 text-center ${waiverValid ? "border border-emerald-500/30 bg-emerald-500/8" : "border-2 border-amber-500/40 bg-amber-500/8"}`}>
+            <div
+              className={`rounded-xl p-4 text-center ${waiverValid ? "border border-emerald-500/30 bg-emerald-500/8" : "border-2 border-amber-500/40 bg-amber-500/8"}`}
+            >
               <div className="flex items-center justify-center gap-2">
                 {waiverValid ? (
                   <>
-                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    <svg
+                      className="w-5 h-5 text-emerald-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                      />
                     </svg>
                     <span className="text-emerald-400 font-bold text-sm">Waiver Signed</span>
                   </>
                 ) : (
                   <>
-                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <svg
+                      className="w-5 h-5 text-amber-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
                     </svg>
                     <span className="text-amber-400 font-bold text-sm">Waiver Pending</span>
                   </>
@@ -1387,15 +1619,25 @@ export default function GroupEventPage() {
             {/* Reserved activities */}
             {existingReservations.length > 0 && (
               <div>
-                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">Reserved Activities</h3>
+                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">
+                  Reserved Activities
+                </h3>
                 <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
                   {existingReservations.map((r, i) => (
                     <div key={i} className="flex items-center justify-between">
                       <div>
                         <p className="text-white text-sm font-medium">
-                          {r.type === "racing" ? `Go-Kart Racing · ${r.track} Track` : r.type === "gel-blaster" ? "Nexus Gel Blaster" : r.type === "laser-tag" ? "Nexus Laser Tag" : r.type}
+                          {r.type === "racing"
+                            ? `Go-Kart Racing · ${r.track} Track`
+                            : r.type === "gel-blaster"
+                              ? "Nexus Gel Blaster"
+                              : r.type === "laser-tag"
+                                ? "Nexus Laser Tag"
+                                : r.type}
                         </p>
-                        {r.time && <p className="text-emerald-400/70 text-xs">{formatTime(r.time)}</p>}
+                        {r.time && (
+                          <p className="text-emerald-400/70 text-xs">{formatTime(r.time)}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-emerald-400 text-xs font-semibold">&#10003;</span>
@@ -1423,10 +1665,12 @@ export default function GroupEventPage() {
             {/* Free-flow activities */}
             {selectedFreeflow.length > 0 && (
               <div>
-                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">Free-Flow Activities</h3>
+                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">
+                  Free-Flow Activities
+                </h3>
                 <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-2">
                   {selectedFreeflow.map((slug) => {
-                    const attr = freeflowAttractions.find(a => a.slug === slug);
+                    const attr = freeflowAttractions.find((a) => a.slug === slug);
                     return (
                       <div key={slug} className="flex items-center gap-3">
                         <span className="text-[#00E2E5] text-xs">&#10003;</span>
@@ -1445,9 +1689,15 @@ export default function GroupEventPage() {
             )}
 
             <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
-              <p>&middot; Please arrive <strong className="text-white/60">15 minutes early</strong> for check-in.</p>
+              <p>
+                &middot; Please arrive <strong className="text-white/60">15 minutes early</strong>{" "}
+                for check-in.
+              </p>
               {event.includesLicense && (
-                <p>&middot; Racing license fee is <strong className="text-white/60">included</strong> &mdash; no charge.</p>
+                <p>
+                  &middot; Racing license fee is <strong className="text-white/60">included</strong>{" "}
+                  &mdash; no charge.
+                </p>
               )}
             </div>
 

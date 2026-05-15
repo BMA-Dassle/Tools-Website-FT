@@ -39,14 +39,18 @@ const VT3_SITE_ID = parseInt(process.env.VT3_SITE_ID || "992", 10);
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 function daysAgoETYmd(n: number): string {
   const ms = Date.now() - n * 24 * 60 * 60 * 1000;
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(ms));
 }
 
@@ -94,7 +98,10 @@ export async function GET(req: NextRequest) {
     }
     const intervalParam = (searchParams.get("interval") || "days").toLowerCase();
     if (!["hours", "days", "weeks", "months"].includes(intervalParam)) {
-      return NextResponse.json({ error: "interval must be hours|days|weeks|months" }, { status: 400 });
+      return NextResponse.json(
+        { error: "interval must be hours|days|weeks|months" },
+        { status: 400 },
+      );
     }
     const interval = intervalParam as "hours" | "days" | "weeks" | "months";
 
@@ -103,9 +110,7 @@ export async function GET(req: NextRequest) {
     // confirms this pattern — when the UI is set to "May 3" it sends
     // to=2026-05-04T00:00:00 and VT3 returns the May-3 bucket.
     const fromIso = etYmdToISO(from);
-    const toNextYmd = new Date(Date.parse(`${to}T00:00:00Z`) + 86400000)
-      .toISOString()
-      .slice(0, 10);
+    const toNextYmd = new Date(Date.parse(`${to}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
     const toIso = etYmdToISO(toNextYmd);
 
     const report = await getVideoReport({
@@ -146,20 +151,31 @@ export async function GET(req: NextRequest) {
         return acc;
       },
       {
-        videoCount: 0, videoImpressionCount: 0, videoPageImpressionCount: 0,
-        mediaCentreImpressionCount: 0, unlockedVideoCount: 0, videoSalesCount: 0,
-        stripeVideoCount: 0, stripeTerminalVideoCount: 0, venueVideoCount: 0,
-        unlockCodeVideoCount: 0, preUnlockedVideoCount: 0, postUnlockedVideoCount: 0,
-        uploadedVideoCount: 0, manualUnlockVideoCount: 0, apiUnlockVideoCount: 0,
+        videoCount: 0,
+        videoImpressionCount: 0,
+        videoPageImpressionCount: 0,
+        mediaCentreImpressionCount: 0,
+        unlockedVideoCount: 0,
+        videoSalesCount: 0,
+        stripeVideoCount: 0,
+        stripeTerminalVideoCount: 0,
+        venueVideoCount: 0,
+        unlockCodeVideoCount: 0,
+        preUnlockedVideoCount: 0,
+        postUnlockedVideoCount: 0,
+        uploadedVideoCount: 0,
+        manualUnlockVideoCount: 0,
+        apiUnlockVideoCount: 0,
         totalDataUp: 0,
       },
     );
 
     const enriched = {
       ...totals,
-      averageVideoSize: totals.uploadedVideoCount > 0
-        ? Math.round(totals.totalDataUp / totals.uploadedVideoCount)
-        : 0,
+      averageVideoSize:
+        totals.uploadedVideoCount > 0
+          ? Math.round(totals.totalDataUp / totals.uploadedVideoCount)
+          : 0,
       // Conversion ratios anchored on the rolled-up totals
       salesPerCaptured: ratio(totals.videoSalesCount, totals.videoCount),
       unlockPerCaptured: ratio(totals.unlockedVideoCount, totals.videoCount),
@@ -169,7 +185,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         range: {
-          from, to,
+          from,
+          to,
           days: Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1,
           timezone: report.timezone,
           interval: report.interval,

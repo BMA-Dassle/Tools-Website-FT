@@ -21,6 +21,9 @@ export async function POST(req: NextRequest) {
     const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
     return NextResponse.json({ code, shortUrl: `${base}/s/${code}` });
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed" },
+      { status: 500 },
+    );
   }
 }

@@ -83,11 +83,16 @@ interface Participant {
 function etYmd(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(d);
 }
 
-function rangeETForDays(backDays: number, forwardDays: number): { startDate: string; endDate: string } {
+function rangeETForDays(
+  backDays: number,
+  forwardDays: number,
+): { startDate: string; endDate: string } {
   // Use a simple UTC day-boundary math — Pandora accepts ISO UTC timestamps
   // and we want to include the full day across the ET window; going
   // UTC ± the whole day captures DST transitions safely without having to
@@ -164,7 +169,9 @@ async function fetchSessionsInWindow(
   endDate: string,
   mode: SessionsFetchMode,
 ) {
-  const per = await Promise.all(resources.map((r) => fetchSessionsForResource(r, startDate, endDate, mode)));
+  const per = await Promise.all(
+    resources.map((r) => fetchSessionsForResource(r, startDate, endDate, mode)),
+  );
   return per.flat();
 }
 
@@ -199,17 +206,14 @@ async function fetchParticipants(
   if (forceFresh) params.set("fresh", "1");
   else params.set("cacheOnly", "1");
 
-  const res = await fetch(
-    `${BASE}/api/pandora/session-participants?${params.toString()}`,
-    {
-      cache: "no-store",
-      // Server-only admin call — internal trust header gets full
-      // PII back (firstName/lastName for staff display). Public
-      // e-ticket browser calls don't include this header and get
-      // a redacted personId-only response.
-      headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
-    },
-  );
+  const res = await fetch(`${BASE}/api/pandora/session-participants?${params.toString()}`, {
+    cache: "no-store",
+    // Server-only admin call — internal trust header gets full
+    // PII back (firstName/lastName for staff display). Public
+    // e-ticket browser calls don't include this header and get
+    // a redacted personId-only response.
+    headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
+  });
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data?.data) ? (data.data as Participant[]) : [];
@@ -268,7 +272,9 @@ export async function GET(req: NextRequest) {
       const all = await fetchSessionsInWindow(resources, startDate, endDate, "preferCache");
       const past = all
         .filter((s) => new Date(s.scheduledStart).getTime() <= now)
-        .sort((a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime());
+        .sort(
+          (a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime(),
+        );
       return NextResponse.json(
         {
           sessions: past.map((s) => ({
@@ -323,8 +329,12 @@ export async function GET(req: NextRequest) {
     // participants (forceFresh on that call below).
     const sessionsMode: SessionsFetchMode = refresh ? "preferCache" : "cacheOnly";
     const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate, sessionsMode);
-    const earlyParticipantsPromise = sessionIdParam ? fetchParticipants(sessionIdParam, refresh) : null;
-    const earlyAssignmentsPromise = sessionIdParam ? listAssignmentsForSession(sessionIdParam) : null;
+    const earlyParticipantsPromise = sessionIdParam
+      ? fetchParticipants(sessionIdParam, refresh)
+      : null;
+    const earlyAssignmentsPromise = sessionIdParam
+      ? listAssignmentsForSession(sessionIdParam)
+      : null;
 
     const allSessions = await sessionsPromise;
 
@@ -350,7 +360,9 @@ export async function GET(req: NextRequest) {
     } else {
       const upcoming = allSessions
         .filter((s) => new Date(s.scheduledStart).getTime() > now)
-        .sort((a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime());
+        .sort(
+          (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+        );
       picked = upcoming[0];
     }
 
@@ -474,7 +486,10 @@ export async function GET(req: NextRequest) {
     // error — the block UI is an enhancement, not load-critical.
     let blockSnapshot: {
       sessionBlock: { blocked: boolean; reason?: string; blockedAt?: string };
-      personBlocks: Record<string, { blocked: boolean; level?: string; reason?: string; blockedAt?: string }>;
+      personBlocks: Record<
+        string,
+        { blocked: boolean; level?: string; reason?: string; blockedAt?: string }
+      >;
     } = { sessionBlock: { blocked: false }, personBlocks: {} };
     try {
       blockSnapshot = await getSessionBlockSnapshot({

@@ -111,9 +111,10 @@ export async function POST(req: NextRequest) {
         }
       }
     } else if (!res.ok) {
-      upstreamError = typeof parsed === "object" && parsed && "error" in parsed
-        ? String((parsed as Record<string, unknown>).error)
-        : `HTTP ${res.status}`;
+      upstreamError =
+        typeof parsed === "object" && parsed && "error" in parsed
+          ? String((parsed as Record<string, unknown>).error)
+          : `HTTP ${res.status}`;
     }
   } catch (err) {
     upstreamError = err instanceof Error ? err.message : "fetch failed";

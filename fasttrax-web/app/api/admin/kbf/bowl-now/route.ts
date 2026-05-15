@@ -49,32 +49,21 @@ interface BowlerInput {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const {
-    centerCode,
-    qamfId,
-    laneNumber,
-    bowlers,
-    guestName,
-    guestEmail,
-    guestPhone,
-    linkPhone,
-  } = body as {
-    centerCode: string;
-    qamfId: string;
-    laneNumber: number;
-    bowlers: BowlerInput[];
-    guestName: string;
-    guestEmail: string;
-    guestPhone?: string;
-    linkPhone?: string;
-  };
+  const { centerCode, qamfId, laneNumber, bowlers, guestName, guestEmail, guestPhone, linkPhone } =
+    body as {
+      centerCode: string;
+      qamfId: string;
+      laneNumber: number;
+      bowlers: BowlerInput[];
+      guestName: string;
+      guestEmail: string;
+      guestPhone?: string;
+      linkPhone?: string;
+    };
 
   const centerId = CENTER_CODE_TO_QAMF[centerCode];
   if (!centerId || !qamfId || !laneNumber || !bowlers?.length) {
-    return NextResponse.json(
-      { error: "Missing required fields" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
   // QAMF requires minutes as multiples of 5, seconds=0, ms=0
@@ -112,7 +101,10 @@ export async function POST(req: NextRequest) {
         });
         await setLanePlayers(centerId, qamfId, lane.Id, qamfPlayers);
       } catch (e) {
-        console.error(`[admin/kbf/bowl-now] setLanePlayers failed:`, e instanceof Error ? e.message : e);
+        console.error(
+          `[admin/kbf/bowl-now] setLanePlayers failed:`,
+          e instanceof Error ? e.message : e,
+        );
       }
     }
     steps.push("qamf_confirmed");
@@ -227,8 +219,7 @@ export async function POST(req: NextRequest) {
           relation: b.kbfRelation,
           wantBumpers: b.bumpers ?? null,
           shoeSizeLabel: b.shoeSize || null,
-          lastUsedCenter:
-            centerCode === "TXBSQN0FEKQ11" ? "fortmyers" : "naples",
+          lastUsedCenter: centerCode === "TXBSQN0FEKQ11" ? "fortmyers" : "naples",
         }).catch(() => void 0);
       }
     }
@@ -247,10 +238,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Bowl Now failed";
-    console.error(
-      `[admin/kbf/bowl-now] failed at step ${steps.length}:`,
-      msg,
-    );
+    console.error(`[admin/kbf/bowl-now] failed at step ${steps.length}:`, msg);
     return NextResponse.json(
       {
         ok: false,

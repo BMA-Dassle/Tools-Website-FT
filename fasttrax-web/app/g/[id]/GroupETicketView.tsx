@@ -71,7 +71,9 @@ export default function GroupETicketView({ group, initial }: Props) {
    *  fetched independently — one block per member who had credit
    *  on file. Members without credit get an empty entry which
    *  hides their block (PovVoucherBlock returns null for empty). */
-  const [povByPerson, setPovByPerson] = useState<Record<string, { codes: string[]; cached: boolean }>>({});
+  const [povByPerson, setPovByPerson] = useState<
+    Record<string, { codes: string[]; cached: boolean }>
+  >({});
   const povClaimAttempted = useRef(false);
 
   // Sort: active heats first (soonest start), past heats last.
@@ -92,7 +94,10 @@ export default function GroupETicketView({ group, initial }: Props) {
   async function poll(signal: AbortSignal) {
     try {
       const stateFetches = distinctSessions.map((sid) =>
-        fetch(`/api/race-session-state?sessionId=${encodeURIComponent(sid)}`, { cache: "no-store", signal }),
+        fetch(`/api/race-session-state?sessionId=${encodeURIComponent(sid)}`, {
+          cache: "no-store",
+          signal,
+        }),
       );
       const [currentRes, ...rest] = await Promise.all([
         fetch("/api/pandora/races-current", { cache: "no-store", signal }),
@@ -108,7 +113,11 @@ export default function GroupETicketView({ group, initial }: Props) {
       const partResponses = rest.slice(0, distinctSessions.length);
       const stateResponses = rest.slice(distinctSessions.length);
 
-      let current: { blue?: { sessionId?: number | string } | null; red?: { sessionId?: number | string } | null; mega?: { sessionId?: number | string } | null } = {};
+      let current: {
+        blue?: { sessionId?: number | string } | null;
+        red?: { sessionId?: number | string } | null;
+        mega?: { sessionId?: number | string } | null;
+      } = {};
       if (currentRes.ok) current = await currentRes.json();
 
       const rosterBySession = new Map<string, Set<string>>();
@@ -119,7 +128,10 @@ export default function GroupETicketView({ group, initial }: Props) {
         const data = await res.json();
         const list = Array.isArray(data?.data) ? data.data : [];
         if (list.length === 0) continue; // trust prior state on empty
-        rosterBySession.set(sid, new Set(list.map((p: { personId: string | number }) => String(p.personId))));
+        rosterBySession.set(
+          sid,
+          new Set(list.map((p: { personId: string | number }) => String(p.personId))),
+        );
       }
 
       const calledBySession = new Map<string, boolean>();
@@ -130,7 +142,9 @@ export default function GroupETicketView({ group, initial }: Props) {
         try {
           const d = await res.json();
           if (d?.wasCalled) calledBySession.set(sid, true);
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
 
       setState((prev) => {
@@ -138,7 +152,8 @@ export default function GroupETicketView({ group, initial }: Props) {
         for (const m of group.members) {
           const key = memberKey(m);
           const trackKey = m.track.toLowerCase() as "blue" | "red" | "mega";
-          const checkingIn = String(current?.[trackKey]?.sessionId ?? "") === String(m.sessionId ?? "");
+          const checkingIn =
+            String(current?.[trackKey]?.sessionId ?? "") === String(m.sessionId ?? "");
           const roster = rosterBySession.get(String(m.sessionId));
           let onSession = prev[key]?.onSession ?? true;
           if (roster) {
@@ -235,7 +250,12 @@ export default function GroupETicketView({ group, initial }: Props) {
   const earliestDate = new Date(earliest);
   const dateLabel = isNaN(earliestDate.getTime())
     ? ""
-    : earliestDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/New_York" });
+    : earliestDate.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        timeZone: "America/New_York",
+      });
 
   return (
     <div className="min-h-screen bg-[#010A20] flex items-start justify-center px-4 pt-28 sm:pt-32 pb-8">
@@ -243,19 +263,27 @@ export default function GroupETicketView({ group, initial }: Props) {
 
       <div className="w-full max-w-lg">
         <div className="text-center mb-6">
-          <p className="text-white/30 text-xs uppercase tracking-[0.3em] mb-1">FastTrax Entertainment</p>
+          <p className="text-white/30 text-xs uppercase tracking-[0.3em] mb-1">
+            FastTrax Entertainment
+          </p>
           <p className="text-white/60 text-sm font-semibold">
             {group.recipient === "guardian" ? "Your Racers' E-Tickets" : "E-Tickets"}
           </p>
           <p className="text-white/40 text-xs mt-0.5">
-            {racerCount} Racer{racerCount === 1 ? "" : "s"} · {distinctHeats} Heat{distinctHeats === 1 ? "" : "s"}
+            {racerCount} Racer{racerCount === 1 ? "" : "s"} · {distinctHeats} Heat
+            {distinctHeats === 1 ? "" : "s"}
           </p>
           {dateLabel && <p className="text-white/30 text-xs mt-1">{dateLabel}</p>}
           {group.recipient === "guardian" && (
             <p className="text-amber-300/80 text-[11px] mt-2 inline-block px-2 py-0.5 rounded-full border border-amber-300/30 bg-amber-500/10">
-              {group.guardianFirstName
-                ? <>Sent to <strong className="text-amber-200">{group.guardianFirstName}</strong> (parent)</>
-                : <>Sent to your guardian</>}
+              {group.guardianFirstName ? (
+                <>
+                  Sent to <strong className="text-amber-200">{group.guardianFirstName}</strong>{" "}
+                  (parent)
+                </>
+              ) : (
+                <>Sent to your guardian</>
+              )}
             </p>
           )}
         </div>
@@ -298,7 +326,11 @@ export default function GroupETicketView({ group, initial }: Props) {
                 <div key={sid} className="space-y-2">
                   {members.map((m) => {
                     const key = memberKey(m);
-                    const s = state[key] ?? { checkingIn: false, onSession: true, wasCalled: false };
+                    const s = state[key] ?? {
+                      checkingIn: false,
+                      onSession: true,
+                      wasCalled: false,
+                    };
                     const memberPov = povByPerson[String(m.personId)];
                     return (
                       <div key={key}>
@@ -325,9 +357,10 @@ export default function GroupETicketView({ group, initial }: Props) {
                               caption={
                                 <>
                                   About 5–10 minutes after{" "}
-                                  <strong className="text-white/80">{m.firstName}&apos;s</strong> race, you&apos;ll
-                                  get an <strong className="text-white/80">email and text</strong> letting you know
-                                  the video is ready. Use the codes below to redeem it.
+                                  <strong className="text-white/80">{m.firstName}&apos;s</strong>{" "}
+                                  race, you&apos;ll get an{" "}
+                                  <strong className="text-white/80">email and text</strong> letting
+                                  you know the video is ready. Use the codes below to redeem it.
                                 </>
                               }
                             />
@@ -351,7 +384,10 @@ export default function GroupETicketView({ group, initial }: Props) {
                   {/* Full-screen overlay for this heat. */}
                   {fullScreenKey === sid && (
                     <FullScreenTicket
-                      racers={members.map((m) => ({ firstName: m.firstName, lastName: m.lastName }))}
+                      racers={members.map((m) => ({
+                        firstName: m.firstName,
+                        lastName: m.lastName,
+                      }))}
                       heat={{
                         scheduledStart: first.scheduledStart,
                         track: first.track,
@@ -373,7 +409,9 @@ export default function GroupETicketView({ group, initial }: Props) {
 
         <div className="mt-6 text-center">
           <p className="text-white/30 text-xs">14501 Global Parkway, Fort Myers, FL 33913</p>
-          <p className="text-white/20 text-[11px] mt-1">Show this screen at check-in · No paper ticket needed</p>
+          <p className="text-white/20 text-[11px] mt-1">
+            Show this screen at check-in · No paper ticket needed
+          </p>
         </div>
       </div>
     </div>

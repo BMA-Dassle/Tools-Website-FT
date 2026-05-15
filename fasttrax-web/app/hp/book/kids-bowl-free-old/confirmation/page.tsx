@@ -114,18 +114,16 @@ export default function KbfConfirmationPage() {
               You&apos;re booked!
             </h1>
             <p className="text-white/80 text-sm">
-              Show this confirmation (or your Kids Bowl Free coupon email) at
-              the front desk. Your lane is held until 5 minutes after start
-              time.
+              Show this confirmation (or your Kids Bowl Free coupon email) at the front desk. Your
+              lane is held until 5 minutes after start time.
             </p>
           </div>
 
           {loadFailed && (
             <div className="rounded-xl border border-yellow-400/40 bg-yellow-400/10 p-4 text-sm text-yellow-100">
-              We couldn&apos;t fetch the reservation details right now — but
-              your lane is held. Bring your KBF coupon to{" "}
-              {CENTER_NAME[centerId] ?? "the center"} and the front desk will
-              find it.
+              We couldn&apos;t fetch the reservation details right now — but your lane is held.
+              Bring your KBF coupon to {CENTER_NAME[centerId] ?? "the center"} and the front desk
+              will find it.
             </div>
           )}
 
@@ -137,9 +135,7 @@ export default function KbfConfirmationPage() {
               {data.WebOfferName && <Row label="Tariff" value={data.WebOfferName} />}
               {data.Players && data.Players.length > 0 && (
                 <div>
-                  <div className="text-white/50 text-xs uppercase tracking-wider mb-1">
-                    Bowlers
-                  </div>
+                  <div className="text-white/50 text-xs uppercase tracking-wider mb-1">Bowlers</div>
                   <ul className="text-sm text-white/85 space-y-0.5">
                     {data.Players.map((p, i) => (
                       <li key={i}>
@@ -152,7 +148,10 @@ export default function KbfConfirmationPage() {
                 </div>
               )}
               {typeof data.Total === "number" && (
-                <Row label="Total" value={data.Total === 0 ? "Free" : `$${data.Total.toFixed(2)}`} />
+                <Row
+                  label="Total"
+                  value={data.Total === 0 ? "Free" : `$${data.Total.toFixed(2)}`}
+                />
               )}
             </div>
           )}

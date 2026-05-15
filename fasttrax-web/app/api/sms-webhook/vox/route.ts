@@ -83,14 +83,18 @@ export async function POST(req: NextRequest) {
   try {
     const today = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/New_York",
-      year: "numeric", month: "2-digit", day: "2-digit",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
     }).format(new Date());
     const tx = redis.multi();
     tx.incr(`sms-webhook:vox:hits:${today}`);
     tx.expire(`sms-webhook:vox:hits:${today}`, 60 * 60 * 24 * 30);
     tx.set(`sms-webhook:vox:lastHit`, new Date().toISOString(), "EX", 60 * 60 * 24 * 30);
     await tx.exec();
-  } catch { /* ignore — counter is best-effort */ }
+  } catch {
+    /* ignore — counter is best-effort */
+  }
 
   let payload: VoxStatusPayload;
   let rawBody = "";
@@ -102,8 +106,15 @@ export async function POST(req: NextRequest) {
     // Stash the most recent malformed payload for debugging without
     // needing Vercel function logs. Trim to 1KB to be safe.
     try {
-      await redis.set("sms-webhook:vox:lastBadPayload", rawBody.slice(0, 1024), "EX", 60 * 60 * 24 * 7);
-    } catch { /* ignore */ }
+      await redis.set(
+        "sms-webhook:vox:lastBadPayload",
+        rawBody.slice(0, 1024),
+        "EX",
+        60 * 60 * 24 * 7,
+      );
+    } catch {
+      /* ignore */
+    }
     // 200 anyway — we don't want Vox retrying a permanently-bad shape.
     return NextResponse.json({ ok: false, error: "invalid json" });
   }
@@ -111,7 +122,9 @@ export async function POST(req: NextRequest) {
   // the actual shape Vox sends without Vercel logs.
   try {
     await redis.set("sms-webhook:vox:lastPayload", rawBody.slice(0, 1024), "EX", 60 * 60 * 24 * 7);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Vox API 2025-02-01 sends `message_id`; older shapes used `id`.
   // Accept both — message_id takes precedence since that's the
@@ -120,7 +133,10 @@ export async function POST(req: NextRequest) {
   const voxId = payload?.message_id || payload?.id;
   const status = payload?.status;
   if (!voxId || !status) {
-    console.warn("[sms-webhook/vox] missing message_id/status:", JSON.stringify(payload).slice(0, 300));
+    console.warn(
+      "[sms-webhook/vox] missing message_id/status:",
+      JSON.stringify(payload).slice(0, 300),
+    );
     return NextResponse.json({ ok: false, error: "missing message_id or status" });
   }
 
@@ -129,7 +145,9 @@ export async function POST(req: NextRequest) {
   // scan every day's log to find the matching providerMessageId.
   const dayKey = await redis.get(indexKey(voxId));
   if (!dayKey) {
-    console.warn(`[sms-webhook/vox] no log entry for vox id ${voxId} (status=${status}) — older than 90d or never indexed`);
+    console.warn(
+      `[sms-webhook/vox] no log entry for vox id ${voxId} (status=${status}) — older than 90d or never indexed`,
+    );
     return NextResponse.json({ ok: true, indexed: false });
   }
 
@@ -175,7 +193,9 @@ export async function POST(req: NextRequest) {
       tx.expire(dayKey, 60 * 60 * 24 * 90);
       await tx.exec();
     } else {
-      console.warn(`[sms-webhook/vox] index pointed to ${dayKey} but no matching entry for ${voxId}`);
+      console.warn(
+        `[sms-webhook/vox] index pointed to ${dayKey} but no matching entry for ${voxId}`,
+      );
     }
   } catch (err) {
     console.error("[sms-webhook/vox] log update failed:", err);
@@ -201,16 +221,16 @@ export async function POST(req: NextRequest) {
  *  Note: this scans `video-match:*:*` keys via the videoCode-keyed
  *  sentinel — each sentinel stores `{sessionId, personId}` so we can
  *  reconstruct the primary record key without an extra lookup. */
-async function updateVideoRecordIfPresent(
-  voxId: string,
-  payload: VoxStatusPayload,
-): Promise<void> {
+async function updateVideoRecordIfPresent(voxId: string, payload: VoxStatusPayload): Promise<void> {
   try {
     const videoCode = await redis.get(`video:msgid:${voxId}`);
     if (!videoCode) return;
     const sentinelRaw = await redis.get(`video-match:by-code:${videoCode}`);
     if (!sentinelRaw) return;
-    const sentinel = JSON.parse(sentinelRaw) as { sessionId?: string | number; personId?: string | number };
+    const sentinel = JSON.parse(sentinelRaw) as {
+      sessionId?: string | number;
+      personId?: string | number;
+    };
     if (!sentinel.sessionId || !sentinel.personId) return;
     const recordKey = `video-match:${sentinel.sessionId}:${sentinel.personId}`;
     const recordRaw = await redis.get(recordKey);
@@ -242,7 +262,9 @@ export async function GET(req: NextRequest) {
   }
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
   try {
     const [hitsToday, lastHit, lastPayload, lastBad] = await Promise.all([
@@ -259,10 +281,17 @@ export async function GET(req: NextRequest) {
       lastBadPayloadSample: lastBad || null,
     });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "stats read failed" });
+    return NextResponse.json({
+      ok: false,
+      error: err instanceof Error ? err.message : "stats read failed",
+    });
   }
 }
 
 function safeJsonOrString(s: string): unknown {
-  try { return JSON.parse(s); } catch { return s; }
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
 }

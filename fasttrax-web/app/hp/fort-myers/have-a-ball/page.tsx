@@ -38,7 +38,11 @@ export default function HaveABallPage() {
         >
           <p
             className="font-body text-white uppercase tracking-[0.3em] mb-3 px-4 py-1.5 rounded-full"
-            style={{ backgroundColor: "rgba(253,91,86,0.2)", border: `1px solid ${coral}60`, fontSize: "12px" }}
+            style={{
+              backgroundColor: "rgba(253,91,86,0.2)",
+              border: `1px solid ${coral}60`,
+              fontSize: "12px",
+            }}
           >
             HeadPinz Fort Myers · New League
           </p>
@@ -56,8 +60,12 @@ export default function HaveABallPage() {
             <br />
             League
           </h1>
-          <p className="font-body text-white/80 max-w-xl" style={{ fontSize: "clamp(16px, 2.5vw, 20px)" }}>
-            12 weeks of bowling. And yes — <span style={{ color: gold }}>you take home a new ball</span>.
+          <p
+            className="font-body text-white/80 max-w-xl"
+            style={{ fontSize: "clamp(16px, 2.5vw, 20px)" }}
+          >
+            12 weeks of bowling. And yes —{" "}
+            <span style={{ color: gold }}>you take home a new ball</span>.
           </p>
           <div className="mt-8 flex flex-wrap gap-3 justify-center">
             <button
@@ -79,7 +87,10 @@ export default function HaveABallPage() {
       </section>
 
       {/* KEY FACTS STRIP */}
-      <section className="border-y border-white/10" style={{ backgroundColor: "rgba(255,255,255,0.02)" }}>
+      <section
+        className="border-y border-white/10"
+        style={{ backgroundColor: "rgba(255,255,255,0.02)" }}
+      >
         <div className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
           {[
             { label: "Starts", value: "May 26" },
@@ -89,7 +100,10 @@ export default function HaveABallPage() {
           ].map((f) => (
             <div key={f.label}>
               <p className="text-white/40 text-xs uppercase tracking-widest mb-1">{f.label}</p>
-              <p className="font-heading font-black text-white uppercase" style={{ fontSize: "clamp(20px, 3vw, 28px)" }}>
+              <p
+                className="font-heading font-black text-white uppercase"
+                style={{ fontSize: "clamp(20px, 3vw, 28px)" }}
+              >
                 {f.value}
               </p>
             </div>
@@ -101,7 +115,9 @@ export default function HaveABallPage() {
       <section id="details" className="px-4 py-16 md:py-24">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
-            <p className="text-[#fd5b56] text-xs font-bold uppercase tracking-widest mb-2">How It Works</p>
+            <p className="text-[#fd5b56] text-xs font-bold uppercase tracking-widest mb-2">
+              How It Works
+            </p>
             <h2
               className="font-heading font-black uppercase text-white"
               style={{ fontSize: "clamp(32px, 6vw, 56px)", letterSpacing: "-0.5px" }}
@@ -114,13 +130,16 @@ export default function HaveABallPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <Card title="Pick Your Team" num="1" accent={coral}>
-              Register solo and enter a team name or who you&apos;re bowling with — we&apos;ll group you. Doubles or trios (trios preferred).
+              Register solo and enter a team name or who you&apos;re bowling with — we&apos;ll group
+              you. Doubles or trios (trios preferred).
             </Card>
             <Card title="Bowl 12 Weeks" num="2" accent={gold}>
-              Show up every Tuesday at 6:30 PM. Weekly fee is $20, auto-billed to your card. $14.50 lineage, $5.50 toward your ball.
+              Show up every Tuesday at 6:30 PM. Weekly fee is $20, auto-billed to your card. $14.50
+              lineage, $5.50 toward your ball.
             </Card>
             <Card title="Take the Ball" num="3" accent="#00E2E5">
-              At the end of the season, pick your new bowling ball — Brunswick T-Zone or Columbia White Dot, four colors.
+              At the end of the season, pick your new bowling ball — Brunswick T-Zone or Columbia
+              White Dot, four colors.
             </Card>
           </div>
           <div className="text-center mt-10">
@@ -132,8 +151,13 @@ export default function HaveABallPage() {
       {/* FEE BREAKDOWN */}
       <section className="px-4 py-12" style={{ backgroundColor: "#071027" }}>
         <div className="max-w-3xl mx-auto">
-          <p className="text-[#fd5b56] text-xs font-bold uppercase tracking-widest mb-2 text-center">Fee Breakdown</p>
-          <h2 className="font-heading font-black uppercase text-white text-center mb-6" style={{ fontSize: "clamp(24px, 4vw, 36px)" }}>
+          <p className="text-[#fd5b56] text-xs font-bold uppercase tracking-widest mb-2 text-center">
+            Fee Breakdown
+          </p>
+          <h2
+            className="font-heading font-black uppercase text-white text-center mb-6"
+            style={{ fontSize: "clamp(24px, 4vw, 36px)" }}
+          >
             $20 · Per Person · Per Week
           </h2>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
@@ -161,14 +185,20 @@ export default function HaveABallPage() {
       <section className="px-4 py-16">
         <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
           <div>
-            <p className="text-[#FFD700] text-xs font-bold uppercase tracking-widest mb-2">The Best Part</p>
-            <h2 className="font-heading font-black uppercase text-white mb-4" style={{ fontSize: "clamp(30px, 5vw, 48px)", letterSpacing: "-0.5px" }}>
+            <p className="text-[#FFD700] text-xs font-bold uppercase tracking-widest mb-2">
+              The Best Part
+            </p>
+            <h2
+              className="font-heading font-black uppercase text-white mb-4"
+              style={{ fontSize: "clamp(30px, 5vw, 48px)", letterSpacing: "-0.5px" }}
+            >
               A Brand New Ball, Yours to Keep
             </h2>
             <p className="text-white/70 leading-relaxed mb-4">
-              Choose between the <strong className="text-white">Brunswick T-Zone</strong> or <strong className="text-white">Columbia White Dot</strong> — two
-              of the most popular recreational balls on the planet. Four color choices each. Ball selection opens after the league starts — we&apos;ll email
-              you the picker.
+              Choose between the <strong className="text-white">Brunswick T-Zone</strong> or{" "}
+              <strong className="text-white">Columbia White Dot</strong> — two of the most popular
+              recreational balls on the planet. Four color choices each. Ball selection opens after
+              the league starts — we&apos;ll email you the picker.
             </p>
             <ul className="text-white/60 text-sm space-y-1 mb-6">
               <li>· Brunswick T-Zone — classic polyester, smooth roll</li>
@@ -204,12 +234,28 @@ export default function HaveABallPage() {
       <section className="px-4 pb-16">
         <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp", alt: "HeadPinz lanes during cosmic bowling" },
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-family-bowling.jpg", alt: "Group bowling together at HeadPinz" },
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg", alt: "HeadPinz HyperBowling LED pins" },
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/headpinz-bowling-l7MEjKld7FsVtVvOASAbzaoBvXhBhi.jpg", alt: "Bowling ball on HeadPinz lane" },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+              alt: "HeadPinz lanes during cosmic bowling",
+            },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-family-bowling.jpg",
+              alt: "Group bowling together at HeadPinz",
+            },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
+              alt: "HeadPinz HyperBowling LED pins",
+            },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/headpinz-bowling-l7MEjKld7FsVtVvOASAbzaoBvXhBhi.jpg",
+              alt: "Bowling ball on HeadPinz lane",
+            },
           ].map((img) => (
-            <div key={img.src} className="relative rounded-xl overflow-hidden border border-white/10" style={{ aspectRatio: "4/3" }}>
+            <div
+              key={img.src}
+              className="relative rounded-xl overflow-hidden border border-white/10"
+              style={{ aspectRatio: "4/3" }}
+            >
               <Image
                 src={img.src}
                 alt={img.alt}
@@ -230,13 +276,34 @@ export default function HaveABallPage() {
       <SeoFaq
         title="Have-A-Ball · FAQ"
         items={[
-          { q: "When does the league start?", a: "Tuesday, May 26, 2026 at 6:30 PM. The season runs 12 consecutive weeks." },
-          { q: "How much does it cost?", a: "$20 per person per week for 12 weeks ($240 total). $14.50 goes to lineage (lanes + shoes), $5.50 goes toward your end-of-season ball. Your card is auto-charged each week — no big upfront payment." },
-          { q: "Do I really get to keep the ball?", a: "Yes! Every bowler takes home a new Brunswick T-Zone or Columbia White Dot at the end of the season. Four colors to choose from when the league starts." },
-          { q: "Can I join with a friend or as a team?", a: "Yes. Everyone signs up individually, but enter a team name or who you're bowling with so we can group you. Format is doubles or trios — trios preferred." },
-          { q: "I'm a beginner — is this league for me?", a: "Absolutely. Have-A-Ball is built for bowlers at every skill level, including first-timers. It's more about fun than scores." },
-          { q: "When will my card be charged?", a: "The first $20 charge runs on the league start date, May 26, 2026. Then $20 every week for 11 more weeks." },
-          { q: "How do I cancel?", a: "Call or stop by HeadPinz Fort Myers. We'll handle it — just keep in mind the league is a team commitment, so cancellations mid-season may affect your teammates." },
+          {
+            q: "When does the league start?",
+            a: "Tuesday, May 26, 2026 at 6:30 PM. The season runs 12 consecutive weeks.",
+          },
+          {
+            q: "How much does it cost?",
+            a: "$20 per person per week for 12 weeks ($240 total). $14.50 goes to lineage (lanes + shoes), $5.50 goes toward your end-of-season ball. Your card is auto-charged each week — no big upfront payment.",
+          },
+          {
+            q: "Do I really get to keep the ball?",
+            a: "Yes! Every bowler takes home a new Brunswick T-Zone or Columbia White Dot at the end of the season. Four colors to choose from when the league starts.",
+          },
+          {
+            q: "Can I join with a friend or as a team?",
+            a: "Yes. Everyone signs up individually, but enter a team name or who you're bowling with so we can group you. Format is doubles or trios — trios preferred.",
+          },
+          {
+            q: "I'm a beginner — is this league for me?",
+            a: "Absolutely. Have-A-Ball is built for bowlers at every skill level, including first-timers. It's more about fun than scores.",
+          },
+          {
+            q: "When will my card be charged?",
+            a: "The first $20 charge runs on the league start date, May 26, 2026. Then $20 every week for 11 more weeks.",
+          },
+          {
+            q: "How do I cancel?",
+            a: "Call or stop by HeadPinz Fort Myers. We'll handle it — just keep in mind the league is a team commitment, so cancellations mid-season may affect your teammates.",
+          },
         ]}
       />
 
@@ -250,9 +317,18 @@ export default function HaveABallPage() {
           sizes="100vw"
           unoptimized
         />
-        <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,22,40,0.85), rgba(7,16,39,0.92))" }} />
-        <div className="relative z-10 px-4 py-16 text-center flex flex-col items-center justify-center" style={{ minHeight: "360px" }}>
-          <h2 className="font-heading font-black uppercase text-white mb-4" style={{ fontSize: "clamp(32px, 6vw, 54px)", letterSpacing: "-0.5px" }}>
+        <div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(180deg, rgba(10,22,40,0.85), rgba(7,16,39,0.92))" }}
+        />
+        <div
+          className="relative z-10 px-4 py-16 text-center flex flex-col items-center justify-center"
+          style={{ minHeight: "360px" }}
+        >
+          <h2
+            className="font-heading font-black uppercase text-white mb-4"
+            style={{ fontSize: "clamp(32px, 6vw, 54px)", letterSpacing: "-0.5px" }}
+          >
             Lanes Fill Fast.
           </h2>
           <p className="text-white/70 max-w-lg mx-auto mb-8">
@@ -273,7 +349,17 @@ export default function HaveABallPage() {
   );
 }
 
-function Card({ num, title, children, accent }: { num: string; title: string; children: React.ReactNode; accent: string }) {
+function Card({
+  num,
+  title,
+  children,
+  accent,
+}: {
+  num: string;
+  title: string;
+  children: React.ReactNode;
+  accent: string;
+}) {
   return (
     <div
       className="rounded-xl p-6"
@@ -305,7 +391,11 @@ function CtaButton({ onClick, children }: { onClick: () => void; children: React
     <button
       onClick={onClick}
       className="inline-flex items-center font-body font-bold uppercase tracking-widest text-white px-8 py-4 rounded-full transition-all hover:scale-105"
-      style={{ backgroundColor: "#fd5b56", boxShadow: "0 0 24px rgba(253,91,86,0.45)", fontSize: "14px" }}
+      style={{
+        backgroundColor: "#fd5b56",
+        boxShadow: "0 0 24px rgba(253,91,86,0.45)",
+        fontSize: "14px",
+      }}
     >
       {children}
     </button>

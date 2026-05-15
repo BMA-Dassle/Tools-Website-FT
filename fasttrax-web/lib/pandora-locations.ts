@@ -9,7 +9,7 @@
 export const PANDORA_LOCATION_MAP: Record<string, string> = {
   fasttrax: "LAB52GY480CJF",
   headpinz: "TXBSQN0FEKQ11", // HeadPinz Fort Myers
-  naples:   "PPTR5G2N0QXF7", // HeadPinz Naples
+  naples: "PPTR5G2N0QXF7", // HeadPinz Naples
 };
 
 export const PANDORA_DEFAULT_LOCATION_ID = "TXBSQN0FEKQ11";
@@ -26,5 +26,5 @@ export function resolvePandoraLocation(key: string | null | undefined): string {
 export const PANDORA_CENTER_NAMES: Record<string, string> = {
   fasttrax: "FastTrax Fort Myers",
   headpinz: "HeadPinz Fort Myers",
-  naples:   "HeadPinz Naples",
+  naples: "HeadPinz Naples",
 };

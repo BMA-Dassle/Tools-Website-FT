@@ -170,7 +170,9 @@ export function buildSalesLeadEmailText(ctx: SalesLeadCopyContext): string {
   const phone = formatPhoneDisplay(ctx.plannerPhone);
   const dateLine = formatDate(ctx.preferredDate);
   const b = detectBrand(ctx.centerName);
-  const guideLine = b.eventGuideUrl ? `\n\nWhile you wait, grab our Event Guide:\n${b.eventGuideUrl}` : "";
+  const guideLine = b.eventGuideUrl
+    ? `\n\nWhile you wait, grab our Event Guide:\n${b.eventGuideUrl}`
+    : "";
 
   // Bottom-of-email disclaimer — covers any pricing the customer pulls
   // from the linked PDF. Shown on every email regardless of brand.

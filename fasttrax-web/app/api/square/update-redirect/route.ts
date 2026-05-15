@@ -31,14 +31,12 @@ export async function POST(req: NextRequest) {
     // Find the payment link by listing recent links and matching the URL
     const listRes = await fetch(`${SQUARE_BASE}/online-checkout/payment-links`, {
       headers: {
-        "Authorization": `Bearer ${SQUARE_TOKEN}`,
+        Authorization: `Bearer ${SQUARE_TOKEN}`,
         "Square-Version": "2024-12-18",
       },
     });
     const listData = await listRes.json();
-    const link = listData.payment_links?.find(
-      (l: { url?: string }) => l.url === squareUrl,
-    );
+    const link = listData.payment_links?.find((l: { url?: string }) => l.url === squareUrl);
 
     if (!link) {
       return NextResponse.json({ error: "Payment link not found" }, { status: 404 });
@@ -56,7 +54,9 @@ export async function POST(req: NextRequest) {
       const providerKind = existingUrl.searchParams.get("providerKind");
       const data = existingUrl.searchParams.get("data");
 
-      const base = confirmationBaseUrl || `${existingUrl.protocol}//${existingUrl.host}/book/race/confirmation`;
+      const base =
+        confirmationBaseUrl ||
+        `${existingUrl.protocol}//${existingUrl.host}/book/race/confirmation`;
       const params = new URLSearchParams({ billId });
       if (providerKind) params.set("providerKind", providerKind);
       if (data) params.set("data", data);
@@ -71,7 +71,9 @@ export async function POST(req: NextRequest) {
     if (buyer) {
       paymentLinkUpdate.pre_populated_data = {
         buyer_email: buyer.email || undefined,
-        buyer_phone_number: buyer.phone ? `+1${buyer.phone.replace(/\D/g, "").replace(/^1/, "")}` : undefined,
+        buyer_phone_number: buyer.phone
+          ? `+1${buyer.phone.replace(/\D/g, "").replace(/^1/, "")}`
+          : undefined,
         buyer_address: {
           first_name: buyer.firstName || undefined,
           last_name: buyer.lastName || undefined,
@@ -83,7 +85,7 @@ export async function POST(req: NextRequest) {
     const updateRes = await fetch(`${SQUARE_BASE}/online-checkout/payment-links/${link.id}`, {
       method: "PUT",
       headers: {
-        "Authorization": `Bearer ${SQUARE_TOKEN}`,
+        Authorization: `Bearer ${SQUARE_TOKEN}`,
         "Content-Type": "application/json",
         "Square-Version": "2024-12-18",
       },

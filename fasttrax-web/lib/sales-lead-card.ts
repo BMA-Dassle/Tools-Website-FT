@@ -194,7 +194,11 @@ function notesBlock(state: SalesLeadState): Record<string, unknown> | null {
 }
 
 /** Compact one-line status banner (no bleed, no big container padding). */
-function statusBanner(actor: SalesLeadActor, label: string, color: "good" | "warning"): Record<string, unknown> {
+function statusBanner(
+  actor: SalesLeadActor,
+  label: string,
+  color: "good" | "warning",
+): Record<string, unknown> {
   return {
     type: "TextBlock",
     text: `✓ ${label} by ${actor.name} · ${formatTimeET(actor.at)}`,
@@ -206,7 +210,10 @@ function statusBanner(actor: SalesLeadActor, label: string, color: "good" | "war
   };
 }
 
-function actionSet(verbs: Array<{ verb: string; title: string; style?: "default" | "positive" | "destructive" }>, projectID: string): Record<string, unknown> {
+function actionSet(
+  verbs: Array<{ verb: string; title: string; style?: "default" | "positive" | "destructive" }>,
+  projectID: string,
+): Record<string, unknown> {
   return {
     type: "ActionSet",
     actions: verbs.map((v) => ({
@@ -232,10 +239,7 @@ function baseCard(body: Array<Record<string, unknown>>): Record<string, unknown>
 
 /** Initial card — both Acknowledged + Contacted buttons active. */
 export function buildSalesLeadCard(state: SalesLeadState): Record<string, unknown> {
-  const body: Array<Record<string, unknown>> = [
-    headerContainer(state),
-    leadFactsSet(state),
-  ];
+  const body: Array<Record<string, unknown>> = [headerContainer(state), leadFactsSet(state)];
   const notes = notesBlock(state);
   if (notes) body.push(notes);
   body.push(

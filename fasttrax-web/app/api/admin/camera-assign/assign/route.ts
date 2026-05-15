@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
 
   if (!sessionId) return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
   if (!personId) return NextResponse.json({ error: "personId is required" }, { status: 400 });
-  if (!systemNumber) return NextResponse.json({ error: "systemNumber is required" }, { status: 400 });
+  if (!systemNumber)
+    return NextResponse.json({ error: "systemNumber is required" }, { status: 400 });
 
   const record: CameraAssignment = {
     sessionId,

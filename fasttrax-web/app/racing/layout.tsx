@@ -53,7 +53,7 @@ const racingFaqs = [
   {
     question: "What age do you have to be to race at FastTrax?",
     answer:
-      "FastTrax has karts for racers as young as 4 years old. Mini Karts are for ages 4-6. Junior Karts are for ages 7-13 (49\" to 70\" tall). Adult Karts are for ages 13+ (must be at least 59\" tall).",
+      'FastTrax has karts for racers as young as 4 years old. Mini Karts are for ages 4-6. Junior Karts are for ages 7-13 (49" to 70" tall). Adult Karts are for ages 13+ (must be at least 59" tall).',
   },
   {
     question: "How fast do the go-karts go at FastTrax?",

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const res = await fetch(
       `${PANDORA_URL}/bmi/person/${locationId}/${personId}?picture=false&allRelated=true`,
       {
-        headers: { "Authorization": `Bearer ${API_KEY}` },
+        headers: { Authorization: `Bearer ${API_KEY}` },
         cache: "no-store",
       },
     );
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch(`${PANDORA_URL}/bmi/person`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${API_KEY}`,
+        Authorization: `Bearer ${API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
@@ -87,11 +87,17 @@ export async function POST(req: NextRequest) {
 
     const data = await res.json();
     if (!res.ok || !data.success) {
-      return NextResponse.json({ error: data.message || "Failed to create person" }, { status: res.status || 500 });
+      return NextResponse.json(
+        { error: data.message || "Failed to create person" },
+        { status: res.status || 500 },
+      );
     }
 
     return NextResponse.json({ personId: data.data.personID });
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Pandora API error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Pandora API error" },
+      { status: 500 },
+    );
   }
 }

@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  listBowlingReservations,
-  updateBowlingReservationShortCode,
-} from "@/lib/bowling-db";
+import { listBowlingReservations, updateBowlingReservationShortCode } from "@/lib/bowling-db";
 import { shortenUrl } from "@/lib/short-url";
 
 /**
@@ -25,10 +22,7 @@ export async function GET(req: NextRequest) {
 
   const date = searchParams.get("date");
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json(
-      { error: "date param required (YYYY-MM-DD)" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "date param required (YYYY-MM-DD)" }, { status: 400 });
   }
 
   const center = searchParams.get("center") || undefined;
@@ -64,9 +58,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ reservations: withCodes });
   } catch (err) {
     console.error("[admin/bowling/reservations]", err);
-    return NextResponse.json(
-      { error: "Failed to load reservations" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to load reservations" }, { status: 500 });
   }
 }

@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import {
-  getBowlingReservation,
-  updateBowlingReservationCancelled,
-} from "@/lib/bowling-db";
+import { getBowlingReservation, updateBowlingReservationCancelled } from "@/lib/bowling-db";
 import { deleteReservation } from "@/lib/qamf-bowling";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
@@ -27,10 +24,7 @@ const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
   PPTR5G2N0QXF7: 3148,
 };
 
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const neonId = parseInt(id, 10);
   if (!neonId || isNaN(neonId)) {
@@ -53,10 +47,7 @@ export async function POST(
   // "please call" message rather than a generic error.
   const msUntilStart = new Date(reservation.bookedAt).getTime() - Date.now();
   if (msUntilStart < 60 * 60 * 1000) {
-    return NextResponse.json(
-      { error: "within_1_hour" },
-      { status: 409 },
-    );
+    return NextResponse.json({ error: "within_1_hour" }, { status: 409 });
   }
 
   // ── 1. Cancel in QAMF (best-effort) ──────────────────────────────
@@ -66,7 +57,7 @@ export async function POST(
       await deleteReservation(qamfCenterId, reservation.qamfReservationId);
       console.log(
         `[bowling/cancel] QAMF delete ok neonId=${neonId}` +
-        ` qamfId=${reservation.qamfReservationId}`,
+          ` qamfId=${reservation.qamfReservationId}`,
       );
     } catch (err) {
       // Non-fatal — reservation may already be gone; Neon + Square still proceed
@@ -85,16 +76,16 @@ export async function POST(
     try {
       const result = await processSquareBowlingRefund({
         depositPaymentId: reservation.squareDepositPaymentId,
-        giftCardId:       reservation.squareGiftCardId,
-        dayofOrderId:     reservation.squareDayofOrderId,
-        locationId:       reservation.centerCode,
-        idempotencyKey:   `cancel-${neonId}-${randomUUID()}`,
+        giftCardId: reservation.squareGiftCardId,
+        dayofOrderId: reservation.squareDayofOrderId,
+        locationId: reservation.centerCode,
+        idempotencyKey: `cancel-${neonId}-${randomUUID()}`,
       });
       squareRefundId = result.refundId;
-      refundCents    = result.refundedCents;
+      refundCents = result.refundedCents;
       console.log(
         `[bowling/cancel] refunded ${refundCents}¢ neonId=${neonId}` +
-        ` refundId=${squareRefundId}`,
+          ` refundId=${squareRefundId}`,
       );
     } catch (err) {
       console.error(
@@ -115,18 +106,21 @@ export async function POST(
     try {
       const SQUARE_BASE = "https://connect.squareup.com/v2";
       const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
-      const delRes = await fetch(`${SQUARE_BASE}/loyalty/rewards/${reservation.squareLoyaltyRewardId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${SQUARE_TOKEN}`,
-          "Square-Version": "2024-12-18",
-          "Content-Type": "application/json",
+      const delRes = await fetch(
+        `${SQUARE_BASE}/loyalty/rewards/${reservation.squareLoyaltyRewardId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${SQUARE_TOKEN}`,
+            "Square-Version": "2024-12-18",
+            "Content-Type": "application/json",
+          },
         },
-      });
+      );
       if (delRes.ok) {
         console.log(
           `[bowling/cancel] loyalty reward deleted neonId=${neonId}` +
-          ` rewardId=${reservation.squareLoyaltyRewardId} (points returned)`,
+            ` rewardId=${reservation.squareLoyaltyRewardId} (points returned)`,
         );
       } else {
         // REDEEMED rewards can't be deleted — points are already used. Non-fatal.
@@ -177,9 +171,13 @@ export async function POST(
             }),
           });
           if (updateRes.ok) {
-            console.log(`[bowling/cancel] Square day-of order cancelled neonId=${neonId} orderId=${reservation.squareDayofOrderId}`);
+            console.log(
+              `[bowling/cancel] Square day-of order cancelled neonId=${neonId} orderId=${reservation.squareDayofOrderId}`,
+            );
           } else {
-            console.warn(`[bowling/cancel] Square order cancel failed neonId=${neonId}: ${updateRes.status}`);
+            console.warn(
+              `[bowling/cancel] Square order cancel failed neonId=${neonId}: ${updateRes.status}`,
+            );
           }
         } else {
           console.log(`[bowling/cancel] Square order not OPEN (${order?.state}) — skipping cancel`);

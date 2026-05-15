@@ -54,12 +54,8 @@ export default function AdminResendModal({
   const hasOriginalPhone = !!originalPhone && !forceNew;
   const hasOriginalEmail = !!originalEmail && !forceNew;
 
-  const [phoneMode, setPhoneMode] = useState<"same" | "new">(
-    hasOriginalPhone ? "same" : "new",
-  );
-  const [emailMode, setEmailMode] = useState<"same" | "new">(
-    hasOriginalEmail ? "same" : "new",
-  );
+  const [phoneMode, setPhoneMode] = useState<"same" | "new">(hasOriginalPhone ? "same" : "new");
+  const [emailMode, setEmailMode] = useState<"same" | "new">(hasOriginalEmail ? "same" : "new");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
@@ -77,7 +73,7 @@ export default function AdminResendModal({
       // the user typed or what was stored on file.
       let destPhone: string | null = null;
       if (showPhone) {
-        const raw = phoneMode === "same" ? (originalPhone || "") : phone.trim();
+        const raw = phoneMode === "same" ? originalPhone || "" : phone.trim();
         if (!raw) {
           throw new Error(
             phoneMode === "same"
@@ -100,7 +96,8 @@ export default function AdminResendModal({
       if (showEmail) {
         if (emailMode === "same") {
           destEmail = originalEmail || null;
-          if (!destEmail) throw new Error("No email on file. Switch to 'Different email' and enter one.");
+          if (!destEmail)
+            throw new Error("No email on file. Switch to 'Different email' and enter one.");
         } else {
           destEmail = email.trim();
           if (!destEmail) throw new Error("Enter an email address.");
@@ -119,17 +116,19 @@ export default function AdminResendModal({
   }
 
   // Disable Send when the required destination is empty
-  const sendDisabled = sending || (() => {
-    if (showPhone) {
-      if (phoneMode === "same" && !originalPhone) return true;
-      if (phoneMode === "new" && !phone.trim()) return true;
-    }
-    if (showEmail) {
-      if (emailMode === "same" && !originalEmail) return true;
-      if (emailMode === "new" && !email.trim()) return true;
-    }
-    return false;
-  })();
+  const sendDisabled =
+    sending ||
+    (() => {
+      if (showPhone) {
+        if (phoneMode === "same" && !originalPhone) return true;
+        if (phoneMode === "new" && !phone.trim()) return true;
+      }
+      if (showEmail) {
+        if (emailMode === "same" && !originalEmail) return true;
+        if (emailMode === "new" && !email.trim()) return true;
+      }
+      return false;
+    })();
 
   return (
     <div
@@ -159,9 +158,7 @@ export default function AdminResendModal({
 
         <div className="p-5 sm:p-6">
           {/* Title */}
-          <h3 className="text-lg font-bold uppercase tracking-wide mb-3 pr-10">
-            {title}
-          </h3>
+          <h3 className="text-lg font-bold uppercase tracking-wide mb-3 pr-10">{title}</h3>
 
           {/* Alert banner (e.g. consent script) */}
           {alertBanner}
@@ -210,10 +207,7 @@ export default function AdminResendModal({
                       className="accent-[#00E2E5]"
                     />
                     <span>
-                      Same number{" "}
-                      <span className="font-mono text-white/60">
-                        {originalPhone}
-                      </span>
+                      Same number <span className="font-mono text-white/60">{originalPhone}</span>
                     </span>
                   </label>
                 )}
@@ -267,8 +261,7 @@ export default function AdminResendModal({
                       className="accent-[#00E2E5]"
                     />
                     <span>
-                      Same email{" "}
-                      <span className="text-white/60">{originalEmail}</span>
+                      Same email <span className="text-white/60">{originalEmail}</span>
                     </span>
                   </label>
                 )}

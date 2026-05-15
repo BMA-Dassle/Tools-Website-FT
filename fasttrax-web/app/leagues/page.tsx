@@ -139,7 +139,6 @@ function formatDateHeader(dateKey: string): string {
   }
 }
 
-
 const rankColors: Record<number, string> = {
   1: "#FFD700",
   2: "#C0C0C0",
@@ -286,7 +285,9 @@ function DriverRow({
             day: "2-digit",
           }).format(d);
         }
-      } catch { /* fall through to "unknown" bucket */ }
+      } catch {
+        /* fall through to "unknown" bucket */
+      }
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key)!.push(s);
     }
@@ -340,20 +341,14 @@ function DriverRow({
 
         {/* Total Points */}
         <td className="px-2 py-3 sm:px-4 text-center">
-          <span
-            className="font-body font-semibold"
-            style={{ fontSize: "15px", color: "#00E2E5" }}
-          >
+          <span className="font-body font-semibold" style={{ fontSize: "15px", color: "#00E2E5" }}>
             {driver.totalPoints}
           </span>
         </td>
 
         {/* Races */}
         <td className="px-2 py-3 sm:px-4 text-center hidden sm:table-cell">
-          <span
-            className="font-body"
-            style={{ fontSize: "14px", color: "rgba(245,236,238,0.6)" }}
-          >
+          <span className="font-body" style={{ fontSize: "14px", color: "rgba(245,236,238,0.6)" }}>
             {raceCount}
           </span>
         </td>
@@ -451,81 +446,90 @@ function DriverRow({
                           </td>
                         </tr>
                         {sessions.map((s) => {
-                      // Visual emphasis: any session that scored
-                      // points OR is named like a grandprix gets the
-                      // bold + cyan treatment. Points display follows
-                      // s.points strictly so Red League "Scored"
-                      // sessions show their actual value.
-                      const hasPoints = s.points > 0;
-                      const emphasized = hasPoints || isGrandPrix(s.sessionName);
-                      return (
-                        <tr
-                          key={s.sessionId}
-                          onClick={() => onHeatClick?.(s)}
-                          style={{
-                            borderBottom: "1px solid rgba(255,255,255,0.04)",
-                            cursor: onHeatClick ? "pointer" : "default",
-                          }}
-                          className={onHeatClick ? "hover:bg-white/[0.03] transition-colors" : ""}
-                          title={onHeatClick ? "Click to view this heat's full standings" : undefined}
-                        >
-                          <td className="px-4 py-2">
-                            <span
-                              className="font-body"
+                          // Visual emphasis: any session that scored
+                          // points OR is named like a grandprix gets the
+                          // bold + cyan treatment. Points display follows
+                          // s.points strictly so Red League "Scored"
+                          // sessions show their actual value.
+                          const hasPoints = s.points > 0;
+                          const emphasized = hasPoints || isGrandPrix(s.sessionName);
+                          return (
+                            <tr
+                              key={s.sessionId}
+                              onClick={() => onHeatClick?.(s)}
                               style={{
-                                fontSize: "13px",
-                                fontWeight: emphasized ? 600 : 400,
-                                color: emphasized ? "rgba(245,236,238,0.9)" : "rgba(245,236,238,0.5)",
+                                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                cursor: onHeatClick ? "pointer" : "default",
                               }}
+                              className={
+                                onHeatClick ? "hover:bg-white/[0.03] transition-colors" : ""
+                              }
+                              title={
+                                onHeatClick ? "Click to view this heat's full standings" : undefined
+                              }
                             >
-                              {labelForHeat(s)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2">
-                            <span
-                              className="font-body font-medium"
-                              style={{
-                                fontSize: "13px",
-                                color:
-                                  s.position === 1
-                                    ? "#FFD700"
-                                    : s.position === 2
-                                      ? "#C0C0C0"
-                                      : s.position === 3
-                                        ? "#CD7F32"
-                                        : "rgba(245,236,238,0.6)",
-                              }}
-                            >
-                              P{s.position}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2">
-                            <span
-                              className="font-body font-semibold"
-                              style={{ fontSize: "13px", color: hasPoints ? "#00E2E5" : "rgba(255,255,255,0.3)" }}
-                            >
-                              {hasPoints ? s.points : "—"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2">
-                            <span
-                              className="font-body"
-                              style={{ fontSize: "13px", color: "rgba(245,236,238,0.6)" }}
-                            >
-                              {s.bestLap > 0 ? formatLapTime(s.bestLap) : "--"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2">
-                            <span
-                              className="font-body"
-                              style={{ fontSize: "13px", color: "rgba(245,236,238,0.45)" }}
-                            >
-                              {s.laps}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                              <td className="px-4 py-2">
+                                <span
+                                  className="font-body"
+                                  style={{
+                                    fontSize: "13px",
+                                    fontWeight: emphasized ? 600 : 400,
+                                    color: emphasized
+                                      ? "rgba(245,236,238,0.9)"
+                                      : "rgba(245,236,238,0.5)",
+                                  }}
+                                >
+                                  {labelForHeat(s)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2">
+                                <span
+                                  className="font-body font-medium"
+                                  style={{
+                                    fontSize: "13px",
+                                    color:
+                                      s.position === 1
+                                        ? "#FFD700"
+                                        : s.position === 2
+                                          ? "#C0C0C0"
+                                          : s.position === 3
+                                            ? "#CD7F32"
+                                            : "rgba(245,236,238,0.6)",
+                                  }}
+                                >
+                                  P{s.position}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2">
+                                <span
+                                  className="font-body font-semibold"
+                                  style={{
+                                    fontSize: "13px",
+                                    color: hasPoints ? "#00E2E5" : "rgba(255,255,255,0.3)",
+                                  }}
+                                >
+                                  {hasPoints ? s.points : "—"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2">
+                                <span
+                                  className="font-body"
+                                  style={{ fontSize: "13px", color: "rgba(245,236,238,0.6)" }}
+                                >
+                                  {s.bestLap > 0 ? formatLapTime(s.bestLap) : "--"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2">
+                                <span
+                                  className="font-body"
+                                  style={{ fontSize: "13px", color: "rgba(245,236,238,0.45)" }}
+                                >
+                                  {s.laps}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </Fragment>
                     ))}
                   </tbody>
@@ -589,10 +593,7 @@ export default function LeagueStandingsPage() {
      * the per-(track, scoreGroup) summary endpoint and merge by
      * persId.
      */
-    async function fetchOneLeague(
-      cfg: LeagueLeg,
-      excl: "true" | "false",
-    ): Promise<Driver[]> {
+    async function fetchOneLeague(cfg: LeagueLeg, excl: "true" | "false"): Promise<Driver[]> {
       const tryFetch = async (sg: string) => {
         const params = new URLSearchParams({
           action: "summary",
@@ -664,9 +665,7 @@ export default function LeagueStandingsPage() {
         // aren't shown anywhere on this page, so a single fetch per
         // league covers both the standings table and the per-driver
         // expand panel.
-        const results = await Promise.all(
-          LEAGUE.leagues.map((cfg) => fetchOneLeague(cfg, "true")),
-        );
+        const results = await Promise.all(LEAGUE.leagues.map((cfg) => fetchOneLeague(cfg, "true")));
         const merged = mergeDrivers(...results);
         if (merged.length === 0) {
           throw new Error("No standings returned");
@@ -742,7 +741,9 @@ export default function LeagueStandingsPage() {
             day: "2-digit",
           }).format(d);
         }
-      } catch { /* "unknown" bucket */ }
+      } catch {
+        /* "unknown" bucket */
+      }
       if (!byDate.has(key)) byDate.set(key, []);
       byDate.get(key)!.push(s);
     }
@@ -792,7 +793,9 @@ export default function LeagueStandingsPage() {
             day: "2-digit",
           }).format(d);
         }
-      } catch { /* "unknown" bucket */ }
+      } catch {
+        /* "unknown" bucket */
+      }
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key)!.push(s);
     }
@@ -815,7 +818,10 @@ export default function LeagueStandingsPage() {
       />
 
       {/* ── Main Content ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(48px, 8vw, 100px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="bg-[#000418]"
+        style={{ padding: "clamp(48px, 8vw, 100px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-5xl mx-auto">
           {/* League badge */}
           <div className="flex justify-center mb-4">
@@ -846,10 +852,12 @@ export default function LeagueStandingsPage() {
                 border: "1px solid rgba(255,255,255,0.08)",
               }}
             >
-              {([
-                { key: "standings", label: "Standings" },
-                { key: "heats", label: "Heat Standings" },
-              ] as const).map((t) => {
+              {(
+                [
+                  { key: "standings", label: "Standings" },
+                  { key: "heats", label: "Heat Standings" },
+                ] as const
+              ).map((t) => {
                 const isActive = view === t.key;
                 return (
                   <button
@@ -915,7 +923,10 @@ export default function LeagueStandingsPage() {
             <>
               {heatsByDate.length === 0 ? (
                 <div className="text-center py-20">
-                  <p className="font-body" style={{ color: "rgba(245,236,238,0.5)", fontSize: "16px" }}>
+                  <p
+                    className="font-body"
+                    style={{ color: "rgba(245,236,238,0.5)", fontSize: "16px" }}
+                  >
                     No heats have run yet.
                   </p>
                 </div>
@@ -958,7 +969,9 @@ export default function LeagueStandingsPage() {
                             <span style={{ fontSize: "14px", fontWeight: 600 }}>
                               {labelForHeat(s)}
                             </span>
-                            <span style={{ color: "rgba(0,226,229,0.5)", fontSize: "14px" }}>&rsaquo;</span>
+                            <span style={{ color: "rgba(0,226,229,0.5)", fontSize: "14px" }}>
+                              &rsaquo;
+                            </span>
                           </button>
                         ))}
                       </div>
@@ -978,10 +991,17 @@ export default function LeagueStandingsPage() {
               {/* Stats Cards */}
               <div className="grid grid-cols-3 gap-3 mb-10">
                 <StatCard label="Total Drivers" value={String(totalDrivers)} />
-                <StatCard label="League Leader" value={leader ? properName(leader.name).split(" ")[0] : "--"} accent="#FFD700" />
-                <StatCard label="Fastest Lap" value={fastestLap ? formatLapTime(fastestLap) : "--"} accent="#E41C1D" />
+                <StatCard
+                  label="League Leader"
+                  value={leader ? properName(leader.name).split(" ")[0] : "--"}
+                  accent="#FFD700"
+                />
+                <StatCard
+                  label="Fastest Lap"
+                  value={fastestLap ? formatLapTime(fastestLap) : "--"}
+                  accent="#E41C1D"
+                />
               </div>
-
 
               {/* Standings Table */}
               <div
@@ -999,9 +1019,21 @@ export default function LeagueStandingsPage() {
                         { label: "#", className: "px-3 sm:px-4", hideOn: "" },
                         { label: "Driver", className: "px-2 sm:px-4", hideOn: "" },
                         { label: "Points", className: "px-2 sm:px-4 text-center", hideOn: "" },
-                        { label: "Races", className: "px-2 sm:px-4 text-center hidden sm:table-cell", hideOn: "sm" },
-                        { label: "Best Lap", className: "px-2 sm:px-4 text-center hidden md:table-cell", hideOn: "md" },
-                        { label: "Gap", className: "px-2 sm:px-4 text-right hidden sm:table-cell", hideOn: "sm" },
+                        {
+                          label: "Races",
+                          className: "px-2 sm:px-4 text-center hidden sm:table-cell",
+                          hideOn: "sm",
+                        },
+                        {
+                          label: "Best Lap",
+                          className: "px-2 sm:px-4 text-center hidden md:table-cell",
+                          hideOn: "md",
+                        },
+                        {
+                          label: "Gap",
+                          className: "px-2 sm:px-4 text-right hidden sm:table-cell",
+                          hideOn: "sm",
+                        },
                         { label: "", className: "px-2 sm:px-3", hideOn: "" },
                       ].map((col, i) => (
                         <th
@@ -1028,7 +1060,9 @@ export default function LeagueStandingsPage() {
                         driver={driver}
                         rank={i + 1}
                         leaderPoints={leader.totalPoints}
-                        leaderBestLap={sortField === "bestLap" ? driverBestLap(sorted[0]) : leaderBestLap}
+                        leaderBestLap={
+                          sortField === "bestLap" ? driverBestLap(sorted[0]) : leaderBestLap
+                        }
                         sortField={sortField}
                         onHeatClick={setHeatTarget}
                         labelForHeat={labelForHeat}
@@ -1043,7 +1077,8 @@ export default function LeagueStandingsPage() {
                 className="font-body text-center mt-6"
                 style={{ fontSize: "13px", color: "rgba(245,236,238,0.35)" }}
               >
-                Tap any driver to view session breakdown. Tap a session to see that heat&apos;s standings.
+                Tap any driver to view session breakdown. Tap a session to see that heat&apos;s
+                standings.
               </p>
             </>
           )}
@@ -1127,7 +1162,9 @@ function HeatStandingsModal({
       }
     }
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [heat.sessionId]);
 
   function rowName(r: HeatRow): string {
@@ -1161,7 +1198,9 @@ function HeatStandingsModal({
           &times;
         </button>
         <div className="p-5 sm:p-6">
-          <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest mb-1">Heat Standings</p>
+          <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest mb-1">
+            Heat Standings
+          </p>
           <h3 className="font-display text-white text-xl uppercase tracking-wide pr-10 mb-1">
             {label}
           </h3>
@@ -1177,7 +1216,9 @@ function HeatStandingsModal({
                   hour: "numeric",
                   minute: "2-digit",
                 }).format(new Date(heat.scheduledStart));
-              } catch { return ""; }
+              } catch {
+                return "";
+              }
             })()}
           </p>
 
@@ -1211,25 +1252,50 @@ function HeatStandingsModal({
               <tbody>
                 {rows.map((r, i) => {
                   const pos = r.position && r.position > 0 ? r.position : i + 1;
-                  const podium = pos === 1 ? "#FFD700" : pos === 2 ? "#C0C0C0" : pos === 3 ? "#CD7F32" : "rgba(245,236,238,0.6)";
+                  const podium =
+                    pos === 1
+                      ? "#FFD700"
+                      : pos === 2
+                        ? "#C0C0C0"
+                        : pos === 3
+                          ? "#CD7F32"
+                          : "rgba(245,236,238,0.6)";
                   return (
                     <tr
                       key={r.persId ?? i}
                       style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
                     >
-                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: podium, fontWeight: 600 }}>
+                      <td
+                        className="px-3 py-2 font-body"
+                        style={{ fontSize: "13px", color: podium, fontWeight: 600 }}
+                      >
                         P{pos}
                       </td>
-                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: "rgba(245,236,238,0.9)" }}>
+                      <td
+                        className="px-3 py-2 font-body"
+                        style={{ fontSize: "13px", color: "rgba(245,236,238,0.9)" }}
+                      >
                         {rowName(r)}
                       </td>
-                      <td className="px-3 py-2 font-body font-semibold" style={{ fontSize: "13px", color: r.points && r.points > 0 ? "#00E2E5" : "rgba(255,255,255,0.3)" }}>
+                      <td
+                        className="px-3 py-2 font-body font-semibold"
+                        style={{
+                          fontSize: "13px",
+                          color: r.points && r.points > 0 ? "#00E2E5" : "rgba(255,255,255,0.3)",
+                        }}
+                      >
                         {r.points && r.points > 0 ? r.points : "—"}
                       </td>
-                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: "rgba(245,236,238,0.6)" }}>
+                      <td
+                        className="px-3 py-2 font-body"
+                        style={{ fontSize: "13px", color: "rgba(245,236,238,0.6)" }}
+                      >
                         {r.bestLap && r.bestLap > 0 ? formatLapTime(r.bestLap) : "--"}
                       </td>
-                      <td className="px-3 py-2 font-body" style={{ fontSize: "13px", color: "rgba(245,236,238,0.45)" }}>
+                      <td
+                        className="px-3 py-2 font-body"
+                        style={{ fontSize: "13px", color: "rgba(245,236,238,0.45)" }}
+                      >
                         {r.laps ?? "—"}
                       </td>
                     </tr>

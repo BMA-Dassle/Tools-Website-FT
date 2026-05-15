@@ -14,7 +14,8 @@ for (const line of raw.split(/\r?\n/)) {
   if (eq === -1) continue;
   const k = t.slice(0, eq).trim();
   let v = t.slice(eq + 1).trim();
-  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
+    v = v.slice(1, -1);
   if (!process.env[k]) process.env[k] = v;
 }
 
@@ -23,12 +24,15 @@ const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
 function makeJwt() {
   const now = Math.floor(Date.now() / 1000);
   const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
-    iss: key.client_email,
-    scope: "https://www.googleapis.com/auth/indexing",
-    aud: "https://oauth2.googleapis.com/token",
-    exp: now + 3600, iat: now,
-  })).toString("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({
+      iss: key.client_email,
+      scope: "https://www.googleapis.com/auth/indexing",
+      aud: "https://oauth2.googleapis.com/token",
+      exp: now + 3600,
+      iat: now,
+    }),
+  ).toString("base64url");
   const sign = createSign("RSA-SHA256");
   sign.update(`${header}.${payload}`);
   return `${header}.${payload}.${sign.sign(key.private_key, "base64url")}`;
@@ -38,7 +42,10 @@ async function getToken() {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: makeJwt() }),
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: makeJwt(),
+    }),
   });
   const d = await res.json();
   if (!d.access_token) throw new Error(JSON.stringify(d));

@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch(`${PANDORA_URL}/bmi/schedule/${LOCATION_ID}/${resNumber}`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${API_KEY}`,
+        Authorization: `Bearer ${API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ racers }),
@@ -31,13 +31,19 @@ export async function POST(req: NextRequest) {
     const data = await res.json();
     if (!res.ok || !data.success) {
       console.error("[pandora/schedule] error:", res.status, data);
-      return NextResponse.json({ error: data.message || "Failed to link racers" }, { status: res.status || 500 });
+      return NextResponse.json(
+        { error: data.message || "Failed to link racers" },
+        { status: res.status || 500 },
+      );
     }
 
     console.log(`[pandora/schedule] ${resNumber}: linked ${data.data?.inserted || 0} racers`);
     return NextResponse.json({ ok: true, inserted: data.data?.inserted || 0 });
   } catch (err) {
     console.error("[pandora/schedule] error:", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Schedule API error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Schedule API error" },
+      { status: 500 },
+    );
   }
 }

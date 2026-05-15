@@ -34,7 +34,8 @@ function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "").replace(/^1/, "");
 }
 
-const HMAC_SECRET = process.env.BOOKING_HMAC_SECRET || process.env.SENDGRID_API_KEY || "fasttrax-booking-secret";
+const HMAC_SECRET =
+  process.env.BOOKING_HMAC_SECRET || process.env.SENDGRID_API_KEY || "fasttrax-booking-secret";
 
 /** Create a signed confirmation URL so billId can't be guessed/tampered.
  *  Points at the shared /book/confirmation page. (Older
@@ -63,7 +64,12 @@ async function shortenUrl(url: string): Promise<string> {
   return `${base}/s/${code}`;
 }
 
-async function sendEmail(to: string, subject: string, html: string, fromName?: string): Promise<boolean> {
+async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  fromName?: string,
+): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
     console.error("[booking-confirmation] No SENDGRID_API_KEY");
     return false;
@@ -71,7 +77,7 @@ async function sendEmail(to: string, subject: string, html: string, fromName?: s
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${SENDGRID_API_KEY}`,
+      Authorization: `Bearer ${SENDGRID_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -155,7 +161,11 @@ async function sendSms(to: string, body: string, fromNumber?: string): Promise<b
       body,
       provider: result.provider,
     }).catch(() => void 0);
-    console.warn("[booking-confirmation] queued SMS for next quota reset:", toFormatted, result.error);
+    console.warn(
+      "[booking-confirmation] queued SMS for next quota reset:",
+      toFormatted,
+      result.error,
+    );
     // Treat as "we'll get it sent eventually" — not a customer-facing
     // failure, since email already delivered.
     return true;
@@ -254,11 +264,22 @@ export async function POST(req: NextRequest) {
       const { logSale } = await import("@/lib/sales-log");
       const allNames = [...products, ...scheduled.map((s) => s.name)];
       const lower = (n: string) => (n || "").toLowerCase();
-      const hasRacing = allNames.some((n) => lower(n).includes("race") || lower(n).includes("kart") || /(blue|red|mega).*track/i.test(n));
+      const hasRacing = allNames.some(
+        (n) =>
+          lower(n).includes("race") ||
+          lower(n).includes("kart") ||
+          /(blue|red|mega).*track/i.test(n),
+      );
       const hasRacePack = allNames.some((n) => /race\s*pack|pack/i.test(n));
       const hasAttraction = allNames.some((n) => {
         const x = lower(n);
-        return x.includes("gel") || x.includes("laser") || x.includes("shuffly") || x.includes("bowl") || x.includes("duck pin");
+        return (
+          x.includes("gel") ||
+          x.includes("laser") ||
+          x.includes("shuffly") ||
+          x.includes("bowl") ||
+          x.includes("duck pin")
+        );
       });
       let bookingType: "racing" | "racing-pack" | "attractions" | "mixed" | "other" = "other";
       if (hasRacing && hasAttraction) bookingType = "mixed";
@@ -268,11 +289,22 @@ export async function POST(req: NextRequest) {
 
       const raceNames = allNames.filter((n) => {
         const x = lower(n);
-        return x.includes("race") || x.includes("kart") || /(blue|red|mega).*track/i.test(n) || /pack/i.test(n);
+        return (
+          x.includes("race") ||
+          x.includes("kart") ||
+          /(blue|red|mega).*track/i.test(n) ||
+          /pack/i.test(n)
+        );
       });
       const addOnNames = allNames.filter((n) => {
         const x = lower(n);
-        return x.includes("gel") || x.includes("laser") || x.includes("shuffly") || x.includes("bowl") || x.includes("duck pin");
+        return (
+          x.includes("gel") ||
+          x.includes("laser") ||
+          x.includes("shuffly") ||
+          x.includes("bowl") ||
+          x.includes("duck pin")
+        );
       });
       const hasLicense = allNames.some((n) => lower(n).includes("license"));
       const hasPov = allNames.some((n) => /pov/i.test(n)) || codes.length > 0;
@@ -349,7 +381,11 @@ export async function POST(req: NextRequest) {
       return "fasttrax";
     }
     const firstItem = scheduled[0]?.name || products[0] || "";
-    const allVenues = new Set((scheduled.length > 0 ? scheduled.map((s: { name: string }) => getVenue(s.name)) : products.map(getVenue)));
+    const allVenues = new Set(
+      scheduled.length > 0
+        ? scheduled.map((s: { name: string }) => getVenue(s.name))
+        : products.map(getVenue),
+    );
     const hasBoth = allVenues.has("headpinz") && allVenues.has("fasttrax");
     const firstVenue = getVenue(firstItem);
 
@@ -360,9 +396,7 @@ export async function POST(req: NextRequest) {
     // back to "14513 Global Parkway, Fort Myers" because the route
     // only had a product-name signal.
     const isNaples = location === "naples";
-    const HP_ADDRESS = isNaples
-      ? "8525 Radio Lane, Naples"
-      : "14513 Global Parkway, Fort Myers";
+    const HP_ADDRESS = isNaples ? "8525 Radio Lane, Naples" : "14513 Global Parkway, Fort Myers";
     const HP_VENUE_NAME = isNaples ? "HeadPinz Naples" : "HeadPinz";
     const FT_ADDRESS = "14501 Global Parkway, Fort Myers";
 
@@ -400,9 +434,15 @@ export async function POST(req: NextRequest) {
       let qrHtml = "";
       if (reservationCode) {
         try {
-          const qrDataUrl = await QRCode.toDataURL(String(reservationCode), { width: 160, margin: 1, color: { dark: "#000000", light: "#ffffff" } });
+          const qrDataUrl = await QRCode.toDataURL(String(reservationCode), {
+            width: 160,
+            margin: 1,
+            color: { dark: "#000000", light: "#ffffff" },
+          });
           qrHtml = `<img src="${qrDataUrl}" width="140" height="140" alt="QR Code" style="display:block;margin:0 auto;" />`;
-        } catch { /* skip QR if generation fails */ }
+        } catch {
+          /* skip QR if generation fails */
+        }
       }
 
       let checkInHtml = `<tr><td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
@@ -414,7 +454,9 @@ export async function POST(req: NextRequest) {
         try {
           const rawUrl = signedConfirmationUrl(billId);
           emailConfirmUrl = await shortenUrl(rawUrl);
-        } catch { /* fall back */ }
+        } catch {
+          /* fall back */
+        }
       }
 
       if (isExpressLane) {
@@ -462,9 +504,13 @@ export async function POST(req: NextRequest) {
         // doesn't have a FastTrax — so HP_ADDRESS resolves correctly
         // for the FortMyers case here.
         const firstLabel = isHeadPinz ? HP_VENUE_NAME : "FastTrax";
-        const firstAddr = isHeadPinz ? HP_ADDRESS : `${FT_ADDRESS} &mdash; Guest Services, 2nd Floor`;
+        const firstAddr = isHeadPinz
+          ? HP_ADDRESS
+          : `${FT_ADDRESS} &mdash; Guest Services, 2nd Floor`;
         const secondLabel = isHeadPinz ? "FastTrax" : HP_VENUE_NAME;
-        const secondAddr = isHeadPinz ? `${FT_ADDRESS} &mdash; Guest Services, 2nd Floor` : HP_ADDRESS;
+        const secondAddr = isHeadPinz
+          ? `${FT_ADDRESS} &mdash; Guest Services, 2nd Floor`
+          : HP_ADDRESS;
         checkInHtml += `
           <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 0 0 14px 0; text-align: center;">
             Your first attraction is at <strong style="color:#1A1A1A;">${firstLabel}</strong>. Please arrive 30 minutes early.
@@ -498,8 +544,11 @@ export async function POST(req: NextRequest) {
       }
 
       // Waiver section — only for new racers
-      const waiverLink = isNewRacer ? (waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe") : "";
-      const waiverSectionHtml = isNewRacer ? `
+      const waiverLink = isNewRacer
+        ? waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe"
+        : "";
+      const waiverSectionHtml = isNewRacer
+        ? `
 <tr>
 <td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
 <table width="100%" cellpadding="16" cellspacing="0" border="0"
@@ -513,14 +562,18 @@ export async function POST(req: NextRequest) {
 <tr><td align="center" style="font-size: 11px; color: #999; word-break: break-all;">${waiverLink}</td></tr>
 </table>
 </td>
-</tr>` : "";
+</tr>`
+        : "";
 
       // Function-style ^PlaceholderName()$ replacements
       html = html
         .replace(/\^WaiverSection\(\)\$/g, waiverSectionHtml)
         .replace(/\^ReservationLink\(\)\$/g, waiverLink || "#")
         .replace(/\^BookingConfirmationQr\(\)\$/g, qrHtml)
-        .replace(/\^QrSection\(\)\$/g, qrHtml ? `
+        .replace(
+          /\^QrSection\(\)\$/g,
+          qrHtml
+            ? `
 <tr>
 <td align="center" style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
 <table width="100%" cellpadding="16" cellspacing="0" border="0" style="border: 2px solid #004AAD; border-radius: 6px;">
@@ -529,15 +582,20 @@ export async function POST(req: NextRequest) {
 <tr><td align="center">${qrHtml}</td></tr>
 </table>
 </td>
-</tr>` : "")
-        .replace(/\^SoldVouchersList\(\)\$/g, codes.length > 0
-          ? `<p style="font-weight:bold; color:#1A1A1A; margin:0 0 8px 0;">Your ViewPoint POV Camera Codes:</p>
+</tr>`
+            : "",
+        )
+        .replace(
+          /\^SoldVouchersList\(\)\$/g,
+          codes.length > 0
+            ? `<p style="font-weight:bold; color:#1A1A1A; margin:0 0 8px 0;">Your ViewPoint POV Camera Codes:</p>
              ${codes.map((c, i) => `<p style="font-family:monospace; font-size:18px; font-weight:bold; color:#6B21A8; margin:4px 0;">Code ${i + 1}: ${c}</p>`).join("")}
              <p style="color:#D71C1C; font-size:13px; line-height:1.6; margin:12px 0 0 0; font-weight:bold;">
                After your race, be sure to collect your POV camera slip. Without this slip, you will not be able to get your video.
                Scan the QR code on the slip and enter the codes above to redeem your video. Videos take 15-30 minutes to upload.
              </p>`
-          : "")
+            : "",
+        )
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
 
       // Rookie Pack — append a small free-appetizer call-out before
@@ -604,7 +662,9 @@ export async function POST(req: NextRequest) {
           let shortConfirm = rawConfirmLink;
           try {
             if (rawConfirmLink) shortConfirm = await shortenUrl(rawConfirmLink);
-          } catch { /* fall back to the full URL */ }
+          } catch {
+            /* fall back to the full URL */
+          }
 
           // Compose date/time as a short ASCII string. `reservationDate`
           // arrives like "Saturday, May 4, 2026" — collapse to "Sat May 4"
@@ -639,14 +699,17 @@ export async function POST(req: NextRequest) {
           // so the prefix line is unmistakable at a glance — staff and
           // racers asked for this so the SMS preview tells them they
           // bypass Guest Services without needing to open the link.
-          const brandPrefix = isExpressLane
-            ? `${brandName} Express Lane`
-            : brandName;
+          const brandPrefix = isExpressLane ? `${brandName} Express Lane` : brandName;
           const smsBody = shortConfirm
             ? `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm}`
             : `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}.`;
 
-          const smsFrom = location === "naples" ? VOX_FROM_NAPLES : isHeadPinzBrand ? VOX_FROM_HEADPINZ : VOX_FROM_FASTTRAX;
+          const smsFrom =
+            location === "naples"
+              ? VOX_FROM_NAPLES
+              : isHeadPinzBrand
+                ? VOX_FROM_HEADPINZ
+                : VOX_FROM_FASTTRAX;
           results.sms = await sendSms(normalized, smsBody, smsFrom);
 
           // POV codes are now displayed on the confirmation page only —
@@ -680,7 +743,9 @@ export async function POST(req: NextRequest) {
         await redis.rpush(`notif:history:${billId}`, JSON.stringify(log));
         await redis.expire(`notif:history:${billId}`, 90 * 24 * 60 * 60);
       }
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
 
     return NextResponse.json({ success: true, ...results });
   } catch (err) {

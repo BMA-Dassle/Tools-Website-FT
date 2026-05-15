@@ -46,20 +46,26 @@ interface SaleRow {
 function todayETYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 function daysAgoETYmd(n: number): string {
   const ms = Date.now() - n * 24 * 60 * 60 * 1000;
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(ms));
 }
 function isoToETYmd(iso: string | Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(typeof iso === "string" ? new Date(iso) : iso);
 }
 function etYmdToISO(ymd: string): string {
@@ -83,9 +89,15 @@ async function readBookingRecords(billIds: string[]): Promise<Map<string, Bookin
     const vals = await redis.mget(...keys);
     for (let j = 0; j < chunk.length; j++) {
       const raw = vals[j];
-      if (!raw) { out.set(chunk[j], null); continue; }
-      try { out.set(chunk[j], JSON.parse(raw) as BookingRecord); }
-      catch { out.set(chunk[j], null); }
+      if (!raw) {
+        out.set(chunk[j], null);
+        continue;
+      }
+      try {
+        out.set(chunk[j], JSON.parse(raw) as BookingRecord);
+      } catch {
+        out.set(chunk[j], null);
+      }
     }
   }
   return out;
@@ -115,15 +127,17 @@ export async function GET(req: NextRequest) {
     // VT3 video-report — single round-trip. Bump `to` by 24h so VT3
     // includes the `to` date in the result (their `to` is exclusive).
     const fromIso = etYmdToISO(from);
-    const toNextYmd = new Date(Date.parse(`${to}T00:00:00Z`) + 86400000)
-      .toISOString().slice(0, 10);
+    const toNextYmd = new Date(Date.parse(`${to}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
     const toIso = etYmdToISO(toNextYmd);
 
     const [bookingByBillId, vt3Report] = await Promise.all([
       readBookingRecords(rows.map((r) => r.bill_id)),
       getVideoReport({
-        from: fromIso, to: toIso,
-        interval: "days", timezone: "America/New_York", sites: [],
+        from: fromIso,
+        to: toIso,
+        interval: "days",
+        timezone: "America/New_York",
+        sites: [],
       }).catch((err) => {
         console.warn("[admin/pov-codes/breakage] VT3 report failed:", err);
         return null;
@@ -153,17 +167,20 @@ export async function GET(req: NextRequest) {
 
     // Roll Neon sales into per-race-date buckets. No per-bill output —
     // we only emit aggregate counts.
-    const byDayMap = new Map<string, {
-      ymd: string;
-      povSold: number;
-      salesRows: number;
-      vt3Sold: number;
-      vt3Unlocked: number;
-      vt3UnlockCode: number;
-      vt3Manual: number;
-      breakage: number;
-      redemptionPct: number;
-    }>();
+    const byDayMap = new Map<
+      string,
+      {
+        ymd: string;
+        povSold: number;
+        salesRows: number;
+        vt3Sold: number;
+        vt3Unlocked: number;
+        vt3UnlockCode: number;
+        vt3Manual: number;
+        breakage: number;
+        redemptionPct: number;
+      }
+    >();
 
     let totalPovSold = 0;
     let outOfRange = 0;
@@ -173,16 +190,25 @@ export async function GET(req: NextRequest) {
       const raceDate = booking?.date || null;
       const fallbackDate = isoToETYmd(sale.ts);
       const filterDate = raceDate || fallbackDate;
-      if (!filterDate) { noDate++; continue; }
-      if (filterDate < from || filterDate > to) { outOfRange++; continue; }
+      if (!filterDate) {
+        noDate++;
+        continue;
+      }
+      if (filterDate < from || filterDate > to) {
+        outOfRange++;
+        continue;
+      }
 
       const cur = byDayMap.get(filterDate) ?? {
-        ymd: filterDate, povSold: 0, salesRows: 0,
+        ymd: filterDate,
+        povSold: 0,
+        salesRows: 0,
         vt3Sold: vt3SoldByYmd.get(filterDate) ?? 0,
         vt3Unlocked: vt3UnlockedByYmd.get(filterDate) ?? 0,
         vt3UnlockCode: vt3UnlockCodeByYmd.get(filterDate) ?? 0,
         vt3Manual: vt3ManualByYmd.get(filterDate) ?? 0,
-        breakage: 0, redemptionPct: 0,
+        breakage: 0,
+        redemptionPct: 0,
       };
       cur.povSold += sale.pov_qty;
       cur.salesRows++;
@@ -197,12 +223,15 @@ export async function GET(req: NextRequest) {
       if (ymd < from || ymd > to) continue;
       if (!byDayMap.has(ymd)) {
         byDayMap.set(ymd, {
-          ymd, povSold: 0, salesRows: 0,
+          ymd,
+          povSold: 0,
+          salesRows: 0,
           vt3Sold: vt3SoldByYmd.get(ymd) ?? 0,
           vt3Unlocked: vt3UnlockedByYmd.get(ymd) ?? 0,
           vt3UnlockCode: vt3UnlockCodeByYmd.get(ymd) ?? 0,
           vt3Manual: vt3ManualByYmd.get(ymd) ?? 0,
-          breakage: 0, redemptionPct: 0,
+          breakage: 0,
+          redemptionPct: 0,
         });
       }
     }

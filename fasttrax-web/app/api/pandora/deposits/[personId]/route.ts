@@ -31,10 +31,7 @@ const ALLOWED_LOCATIONS = new Set([
 ]);
 const DEFAULT_LOCATION = "LAB52GY480CJF";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ personId: string }> },
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ personId: string }> }) {
   const { personId } = await params;
   const { searchParams } = new URL(req.url);
   const locationId = searchParams.get("locationId") || DEFAULT_LOCATION;
@@ -48,10 +45,7 @@ export async function GET(
 
   try {
     const data = await getDepositOverview(personId, locationId);
-    return NextResponse.json(
-      { data },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ data }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "deposits fetch failed";
     console.error(`[deposits] personId=${personId} loc=${locationId}: ${msg}`);

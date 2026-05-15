@@ -27,7 +27,8 @@ export const dynamic = "force-dynamic";
  */
 
 const CLICK_TTL = 60 * 60 * 24 * 90; // 90 days
-const BOT_UA_RE = /bot\b|crawler|spider|preview|facebookexternalhit|whatsapp|telegrambot|slackbot|linkedinbot|discordbot|googlebot|bingbot|applebot|pinterestbot|curl\/|wget\/|python-requests|httpx/i;
+const BOT_UA_RE =
+  /bot\b|crawler|spider|preview|facebookexternalhit|whatsapp|telegrambot|slackbot|linkedinbot|discordbot|googlebot|bingbot|applebot|pinterestbot|curl\/|wget\/|python-requests|httpx/i;
 
 async function trackClick(code: string): Promise<void> {
   try {

@@ -6,7 +6,7 @@ const SQUARE_VERSION = "2024-12-18";
 
 function sqHeaders() {
   return {
-    "Authorization": `Bearer ${SQUARE_TOKEN}`,
+    Authorization: `Bearer ${SQUARE_TOKEN}`,
     "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
@@ -102,7 +102,10 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[square/customer] error:", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Customer API error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Customer API error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -119,7 +122,10 @@ export async function GET(req: NextRequest) {
     const cards = await fetchSavedCards(customerId);
     return NextResponse.json({ cards });
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Cards API error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Cards API error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -133,16 +139,24 @@ async function fetchSavedCards(customerId: string) {
 
   return data.cards
     .filter((c: { enabled: boolean }) => c.enabled)
-    .map((c: { id: string; card_brand: string; last_4: string; exp_month: number; exp_year: number }) => {
-      const now = new Date();
-      const expDate = new Date(c.exp_year, c.exp_month); // Month after expiry
-      return {
-        id: c.id,
-        brand: c.card_brand,
-        last4: c.last_4,
-        expMonth: c.exp_month,
-        expYear: c.exp_year,
-        expired: expDate < now,
-      };
-    });
+    .map(
+      (c: {
+        id: string;
+        card_brand: string;
+        last_4: string;
+        exp_month: number;
+        exp_year: number;
+      }) => {
+        const now = new Date();
+        const expDate = new Date(c.exp_year, c.exp_month); // Month after expiry
+        return {
+          id: c.id,
+          brand: c.card_brand,
+          last4: c.last_4,
+          expMonth: c.exp_month,
+          expYear: c.exp_year,
+          expired: expDate < now,
+        };
+      },
+    );
 }

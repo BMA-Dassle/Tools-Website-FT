@@ -7,18 +7,19 @@ Tools and rules for monitoring and maintaining search visibility for
 
 ## Coverage
 
-| Search engine | How we notify it | Script / endpoint |
-|---|---|---|
-| **Google** | Search Console Sitemaps API (PUT) | `gsc_submit_sitemap.py` OR `POST /api/seo/submit-sitemaps` |
-| **Bing** | IndexNow | `POST /api/seo/indexnow` |
-| **Yandex** | IndexNow | `POST /api/seo/indexnow` |
-| **Seznam** (Czech) | IndexNow | `POST /api/seo/indexnow` |
-| **Naver** (Korean) | IndexNow | `POST /api/seo/indexnow` |
-| **Yep** (Brave) | IndexNow | `POST /api/seo/indexnow` |
-| **DuckDuckGo** | (uses Bing index — covered transitively via IndexNow) | — |
-| All at once | Combined fan-out | `POST /api/seo/ping-all` |
+| Search engine      | How we notify it                                      | Script / endpoint                                          |
+| ------------------ | ----------------------------------------------------- | ---------------------------------------------------------- |
+| **Google**         | Search Console Sitemaps API (PUT)                     | `gsc_submit_sitemap.py` OR `POST /api/seo/submit-sitemaps` |
+| **Bing**           | IndexNow                                              | `POST /api/seo/indexnow`                                   |
+| **Yandex**         | IndexNow                                              | `POST /api/seo/indexnow`                                   |
+| **Seznam** (Czech) | IndexNow                                              | `POST /api/seo/indexnow`                                   |
+| **Naver** (Korean) | IndexNow                                              | `POST /api/seo/indexnow`                                   |
+| **Yep** (Brave)    | IndexNow                                              | `POST /api/seo/indexnow`                                   |
+| **DuckDuckGo**     | (uses Bing index — covered transitively via IndexNow) | —                                                          |
+| All at once        | Combined fan-out                                      | `POST /api/seo/ping-all`                                   |
 
 Not covered:
+
 - **Baidu** (China) — requires their private submission portal; low ROI for SWFL business
 - **Apple Spotlight** — no ping protocol (handled via Apple Business Connect instead)
 
@@ -28,9 +29,9 @@ Full IndexNow participant list: https://www.indexnow.org/searchengines.json
 
 ## Properties
 
-| Property | GSC URL | Sitemap |
-|---|---|---|
-| `sc-domain:headpinz.com` | https://search.google.com/search-console?resource_id=sc-domain:headpinz.com | https://headpinz.com/sitemap.xml |
+| Property                    | GSC URL                                                                        | Sitemap                             |
+| --------------------------- | ------------------------------------------------------------------------------ | ----------------------------------- |
+| `sc-domain:headpinz.com`    | https://search.google.com/search-console?resource_id=sc-domain:headpinz.com    | https://headpinz.com/sitemap.xml    |
 | `sc-domain:fasttraxent.com` | https://search.google.com/search-console?resource_id=sc-domain:fasttraxent.com | https://fasttraxent.com/sitemap.xml |
 
 Both are **Domain properties** (verified via DNS TXT), not URL-prefix — so
@@ -64,11 +65,13 @@ curl -X POST https://fasttraxent.com/api/seo/ping-all \
 ```
 
 **Env vars** (set in fasttrax-web Vercel project, Production + Preview):
+
 - `GOOGLE_SERVICE_ACCOUNT_KEY` — full JSON blob (see `fasttrax-web/docs/seo-gsc-setup.md`)
 - `INDEXNOW_KEY` — 40-hex key; also hosted at `fasttrax-web/public/{key}.txt`
 - `PORTAL_FORWARD_SECRET` — shared secret used as the `x-dev-secret` auth
 
 **Source:**
+
 - `fasttrax-web/app/api/seo/submit-sitemaps/route.ts`
 - `fasttrax-web/app/api/seo/indexnow/route.ts`
 - `fasttrax-web/app/api/seo/ping-all/route.ts`
@@ -152,13 +155,13 @@ regular content. Save it for launches or critical fixes.
 
 ## Monitoring cadence
 
-| Cadence | Task | Where |
-|---|---|---|
-| Weekly | Pull declining query report, review | `python seo/scripts/gsc_decline.py` |
-| Weekly | Ping all engines | `POST /api/seo/ping-all` |
-| After launch | Inspect key URLs to confirm indexed | `python seo/scripts/gsc_inspect_urls.py URL` |
-| Monthly | Review coverage errors in GSC UI + Bing Webmaster | (manual) |
-| Quarterly | Audit `<h1>`, canonicals, internal links, broken redirects | (manual) |
+| Cadence      | Task                                                       | Where                                        |
+| ------------ | ---------------------------------------------------------- | -------------------------------------------- |
+| Weekly       | Pull declining query report, review                        | `python seo/scripts/gsc_decline.py`          |
+| Weekly       | Ping all engines                                           | `POST /api/seo/ping-all`                     |
+| After launch | Inspect key URLs to confirm indexed                        | `python seo/scripts/gsc_inspect_urls.py URL` |
+| Monthly      | Review coverage errors in GSC UI + Bing Webmaster          | (manual)                                     |
+| Quarterly    | Audit `<h1>`, canonicals, internal links, broken redirects | (manual)                                     |
 
 ---
 

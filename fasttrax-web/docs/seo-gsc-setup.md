@@ -96,17 +96,19 @@ curl -X POST https://fasttraxent.com/api/seo/submit-sitemaps \
 ```
 
 Expected response (both domains accepted):
+
 ```json
 {
   "ok": true,
   "results": [
-    {"siteUrl":"https://fasttraxent.com/","sitemap":"…","ok":true,"status":200},
-    {"siteUrl":"https://headpinz.com/","sitemap":"…","ok":true,"status":200}
+    { "siteUrl": "https://fasttraxent.com/", "sitemap": "…", "ok": true, "status": 200 },
+    { "siteUrl": "https://headpinz.com/", "sitemap": "…", "ok": true, "status": 200 }
   ]
 }
 ```
 
 If you see `"ok": false` with a `403` or `404` status, it usually means:
+
 - The service account isn't an Owner on that property (re-check step 5)
 - The property isn't verified in Search Console yet
 - The Sitemaps API isn't enabled for that project
@@ -117,9 +119,7 @@ Optional — add to `vercel.json`:
 
 ```json
 {
-  "crons": [
-    { "path": "/api/seo/submit-sitemaps?scheduled=1", "schedule": "0 9 * * 1" }
-  ]
+  "crons": [{ "path": "/api/seo/submit-sitemaps?scheduled=1", "schedule": "0 9 * * 1" }]
 }
 ```
 

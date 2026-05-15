@@ -52,16 +52,21 @@ const ALLOWED_LOCATIONS = new Set([
 const ALLOWED_RESOURCES = new Set(["Blue Track", "Red Track", "Mega", "Mega Track"]);
 
 export interface PandoraSession {
-  sessionId: string;         // string per Pandora schema
-  name: string;              // e.g. "19 - Blue Junior Starter"
-  scheduledStart: string;    // ISO 8601 UTC
-  type: string;              // "Starter" | "Junior Starter" | "Intermediate" | "Pro" | "Intermediate (2)" etc.
+  sessionId: string; // string per Pandora schema
+  name: string; // e.g. "19 - Blue Junior Starter"
+  scheduledStart: string; // ISO 8601 UTC
+  type: string; // "Starter" | "Junior Starter" | "Intermediate" | "Pro" | "Intermediate (2)" etc.
   heatNumber: number;
 }
 
 const memoryCache: Map<string, { data: PandoraSession[]; expiry: number }> = new Map();
 
-function cacheKey(locationId: string, resourceName: string, startDate: string, endDate: string): string {
+function cacheKey(
+  locationId: string,
+  resourceName: string,
+  startDate: string,
+  endDate: string,
+): string {
   return `pandora:sessions:${locationId}:${resourceName}:${startDate}:${endDate}`;
 }
 
@@ -87,7 +92,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "startDate and endDate required" }, { status: 400 });
   }
   if (!resourceName || !ALLOWED_RESOURCES.has(resourceName)) {
-    return NextResponse.json({ error: "Invalid resourceName (Blue Track / Red Track / Mega Track)" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid resourceName (Blue Track / Red Track / Mega Track)" },
+      { status: 400 },
+    );
   }
 
   const memKey = cacheKey(locationId, resourceName, startDate, endDate);
@@ -153,7 +161,9 @@ export async function GET(req: NextRequest) {
   //   - default → 6s; background calls fail-fast
   const timeoutMs = isWarmCall || forceFresh ? 45_000 : 6_000;
 
-  async function fetchOnce(): Promise<{ ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }> {
+  async function fetchOnce(): Promise<
+    { ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }
+  > {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -184,7 +194,11 @@ export async function GET(req: NextRequest) {
       return {
         ok: false,
         status: null,
-        body: isTimeout ? `timeout (>${timeoutMs / 1000}s, warm=${isWarmCall})` : (err instanceof Error ? err.message : "fetch threw"),
+        body: isTimeout
+          ? `timeout (>${timeoutMs / 1000}s, warm=${isWarmCall})`
+          : err instanceof Error
+            ? err.message
+            : "fetch threw",
       };
     }
   }
@@ -212,7 +226,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  console.error(`[sessions] Pandora ${attempt.status ?? "ERR"} for ${resourceName}: ${attempt.body}`);
+  console.error(
+    `[sessions] Pandora ${attempt.status ?? "ERR"} for ${resourceName}: ${attempt.body}`,
+  );
 
   // Fall back through cache layers: Redis first (survives instance
   // churn), then in-memory, then empty. Both are stale-but-real and
@@ -233,7 +249,13 @@ export async function GET(req: NextRequest) {
       upstreamBody: attempt.body.slice(0, 200),
       stale: memStale.length > 0,
     },
-    { status: 200, headers: { "X-Cache": memStale.length > 0 ? "MEM-STALE" : "ERROR", "Cache-Control": "no-store" } },
+    {
+      status: 200,
+      headers: {
+        "X-Cache": memStale.length > 0 ? "MEM-STALE" : "ERROR",
+        "Cache-Control": "no-store",
+      },
+    },
   );
 }
 

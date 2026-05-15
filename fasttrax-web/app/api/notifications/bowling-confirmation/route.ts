@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import redis from "@/lib/redis";
-import {
-  getBowlingReservation,
-  type BowlingReservation,
-} from "@/lib/bowling-db";
+import { getBowlingReservation, type BowlingReservation } from "@/lib/bowling-db";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -84,11 +81,7 @@ function formatDate(iso: string): { dateFull: string; timeFull: string; dateComp
   return { dateFull, timeFull, dateCompact };
 }
 
-async function sendEmail(
-  to: string,
-  subject: string,
-  html: string,
-): Promise<boolean> {
+async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
     console.error("[bowling-confirmation] No SENDGRID_API_KEY");
     return false;
@@ -100,9 +93,7 @@ async function sendEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      personalizations: [
-        { to: [{ email: to }], bcc: [{ email: "vendorcases@dassle.us" }] },
-      ],
+      personalizations: [{ to: [{ email: to }], bcc: [{ email: "vendorcases@dassle.us" }] }],
       from: { email: FROM_EMAIL, name: "HeadPinz Entertainment" },
       subject,
       content: [{ type: "text/html", value: html }],
@@ -116,11 +107,7 @@ async function sendEmail(
   return true;
 }
 
-async function sendSms(
-  to: string,
-  body: string,
-  fromNumber: string,
-): Promise<boolean> {
+async function sendSms(to: string, body: string, fromNumber: string): Promise<boolean> {
   if (!VOX_API_KEY) {
     console.error("[bowling-confirmation] Missing VOX_API_KEY");
     return false;
@@ -228,10 +215,7 @@ export async function POST(req: NextRequest) {
     };
 
     if (!neonId) {
-      return NextResponse.json(
-        { error: "neonId required" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "neonId required" }, { status: 400 });
     }
 
     // ── Dedup (skipped for admin resends) ────────────────────────
@@ -246,10 +230,7 @@ export async function POST(req: NextRequest) {
     // ── Load reservation from Neon ─────────────────────────────────
     const reservation = await getBowlingReservation(neonId);
     if (!reservation) {
-      return NextResponse.json(
-        { error: "Reservation not found" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Reservation not found" }, { status: 404 });
     }
 
     const r = reservation as BowlingReservation & {
@@ -268,9 +249,7 @@ export async function POST(req: NextRequest) {
     const experienceLabel = (() => {
       if (r.productKind === "kbf") return "Kids Bowl Free";
       // Use the first non-shoe line item's label if available
-      const mainLine = r.lines?.find(
-        (l) => !/shoe/i.test(l.label),
-      );
+      const mainLine = r.lines?.find((l) => !/shoe/i.test(l.label));
       return mainLine?.label ?? "Open Bowling";
     })();
 
@@ -281,15 +260,13 @@ export async function POST(req: NextRequest) {
     // /hp prefix and landed on the wrong (FastTrax attractions)
     // confirmation page — stuck on "Confirming your booking…" forever.
     const siteUrl = "https://headpinz.com";
-    const confirmLink = r.shortCode
-      ? `${siteUrl}/s/${r.shortCode}`
-      : undefined;
+    const confirmLink = r.shortCode ? `${siteUrl}/s/${r.shortCode}` : undefined;
 
     // ── Resolve contacts (override or reservation) ──────────────
     const emailTo = overrideEmail || r.guestEmail;
     const phoneTo = overridePhone || r.guestPhone;
     const sendEmail_ = (channel === "email" || channel === "both") && !!emailTo;
-    const sendSms_ = (channel === "sms" || channel === "both") && (smsOptIn !== false) && !!phoneTo;
+    const sendSms_ = (channel === "sms" || channel === "both") && smsOptIn !== false && !!phoneTo;
 
     // ── Send email ─────────────────────────────────────────────────
     if (sendEmail_ && emailTo) {
@@ -298,9 +275,7 @@ export async function POST(req: NextRequest) {
 
         // Headline / subtitle
         const isKbf = r.productKind === "kbf";
-        const headline = isKbf
-          ? "You're Bowling Free!"
-          : "Your Lane Is Reserved!";
+        const headline = isKbf ? "You're Bowling Free!" : "Your Lane Is Reserved!";
         const subtitle = isKbf
           ? `Thank you for booking Kids Bowl Free at ${center.name}! Your lane is reserved — show this confirmation when you arrive.`
           : `Thank you for booking at ${center.name}! Your deposit has been charged and your lane is reserved.`;

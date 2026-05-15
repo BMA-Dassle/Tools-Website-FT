@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({})) as {
+      const body = (await res.json().catch(() => ({}))) as {
         errors?: Array<{ detail?: string }>;
       };
       return NextResponse.json(
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
       const qty = parseInt(li.quantity, 10);
       const baseCents = li.base_price_money?.amount ?? 0;
       // gross_sales = base * qty (pre-tax, pre-discount). Fallback: compute it.
-      const grossCents = li.gross_sales_money?.amount ?? (baseCents * qty);
+      const grossCents = li.gross_sales_money?.amount ?? baseCents * qty;
       return {
         uid: li.uid,
         name: li.name ?? "—",
@@ -106,9 +106,6 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error("[admin/square-order]", err);
-    return NextResponse.json(
-      { error: "Failed to fetch order" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to fetch order" }, { status: 500 });
   }
 }

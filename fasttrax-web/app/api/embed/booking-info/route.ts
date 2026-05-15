@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { products } from "@/app/embed/booking-info/products";
 
 function escHtml(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 export async function GET(req: NextRequest) {

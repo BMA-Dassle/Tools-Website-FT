@@ -1,0 +1,36 @@
+# Dependency dirs
+node_modules/
+.pnpm-store/
+
+# Build outputs
+.next/
+dist/
+build/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Lockfiles — let the package manager own these
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Generated / vendored
+fasttrax-web/public/
+**/coverage/
+
+# Markdown that is intentionally hand-formatted (tables, ASCII art)
+tasks/
+
+# Skip docs subtrees where line breaks matter
+docs/future/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Env
+.env
+.env.local
+.env.*.local

@@ -3,9 +3,11 @@ import BookingLink from "@/components/BookingLink";
 import TuesdayAlert from "@/components/home/TuesdayAlert";
 
 export default function Hero() {
-
   return (
-    <section className="relative overflow-hidden bg-[#000418]" style={{ minHeight: "min(813px, 100vh)" }}>
+    <section
+      className="relative overflow-hidden bg-[#000418]"
+      style={{ minHeight: "min(813px, 100vh)" }}
+    >
       {/* Video background */}
       <video
         autoPlay
@@ -15,7 +17,10 @@ export default function Hero() {
         className="absolute inset-0 w-full h-full object-cover"
         poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp"
       >
-        <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-video.mp4" type="video/mp4" />
+        <source
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-video.mp4"
+          type="video/mp4"
+        />
       </video>
 
       {/* Dark overlay */}
@@ -23,11 +28,16 @@ export default function Hero() {
 
       {/* Content */}
       <div className="relative z-10 flex flex-col lg:flex-row items-center gap-6 max-w-7xl mx-auto px-8 pt-36 pb-16 min-h-[813px]">
-
         {/* LEFT COL — label + headline + description + hours */}
         <div className="flex-1 flex flex-col gap-5">
           {/* Label */}
-          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "16px", fontFamily: "var(--font-body)" }}>
+          <p
+            style={{
+              color: "rgba(255,255,255,0.898)",
+              fontSize: "16px",
+              fontFamily: "var(--font-body)",
+            }}
+          >
             Florida&apos;s Largest Indoor Racing Destination
           </p>
 
@@ -35,22 +45,40 @@ export default function Hero() {
           <div>
             <h1
               className="font-heading font-black uppercase text-white"
-              style={{ fontSize: "clamp(2.5rem, 7vw, 5.5rem)", lineHeight: "1.05", letterSpacing: "-1px" }}
+              style={{
+                fontSize: "clamp(2.5rem, 7vw, 5.5rem)",
+                lineHeight: "1.05",
+                letterSpacing: "-1px",
+              }}
             >
               LIVE LIFE IN THE
             </h1>
             <h1
               className="font-heading font-black uppercase"
-              style={{ fontSize: "clamp(2.5rem, 7vw, 5.5rem)", lineHeight: "1.05", letterSpacing: "-1px", color: "rgb(228,28,29)", textShadow: "0 0 40px rgba(228,28,29,0.5)" }}
+              style={{
+                fontSize: "clamp(2.5rem, 7vw, 5.5rem)",
+                lineHeight: "1.05",
+                letterSpacing: "-1px",
+                color: "rgb(228,28,29)",
+                textShadow: "0 0 40px rgba(228,28,29,0.5)",
+              }}
             >
               FASTTRAX
             </h1>
           </div>
 
           {/* Description */}
-          <p style={{ color: "rgba(255,255,255,0.898)", fontSize: "clamp(16px, 4vw, 20px)", fontFamily: "var(--font-body)", maxWidth: "520px", lineHeight: "1.6" }}>
-            63,000 sq. ft. of high-powered electric karting, elite gaming, and
-            trackside dining. Don&apos;t just watch the action—be the action.
+          <p
+            style={{
+              color: "rgba(255,255,255,0.898)",
+              fontSize: "clamp(16px, 4vw, 20px)",
+              fontFamily: "var(--font-body)",
+              maxWidth: "520px",
+              lineHeight: "1.6",
+            }}
+          >
+            63,000 sq. ft. of high-powered electric karting, elite gaming, and trackside dining.
+            Don&apos;t just watch the action—be the action.
           </p>
 
           {/* Tuesday Mega Track alert (only renders on Tuesdays ET) */}
@@ -61,7 +89,10 @@ export default function Hero() {
             <BookingLink
               href="/book/race"
               className="font-body font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm transition-all hover:scale-105"
-              style={{ backgroundColor: "rgb(228,28,29)", boxShadow: "0 0 20px rgba(228,28,29,0.4)" }}
+              style={{
+                backgroundColor: "rgb(228,28,29)",
+                boxShadow: "0 0 20px rgba(228,28,29,0.4)",
+              }}
             >
               Book Your Race Now
             </BookingLink>
@@ -74,8 +105,6 @@ export default function Hero() {
             </Link>
           </div>
         </div>
-
-
       </div>
 
       {/* Bottom accent line */}

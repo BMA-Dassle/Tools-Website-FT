@@ -63,10 +63,7 @@ export async function POST(req: NextRequest) {
     const { locationId, lineItems, depositPct = 100, squareCustomerId } = body;
 
     if (!locationId || !lineItems?.length) {
-      return NextResponse.json(
-        { error: "locationId and lineItems required" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "locationId and lineItems required" }, { status: 400 });
     }
 
     const taxCatalogId = LOCATION_TAX[locationId];
@@ -77,13 +74,21 @@ export async function POST(req: NextRequest) {
     // Mirror the same line-item building logic as bowling-orders:
     // catalog items → catalog_object_id only; ad-hoc → name + base_price_money
     const dayofLineItems = lineItems.map((li) => {
-      const modifiers =
-        li.modifiers?.length
-          ? { applied_modifiers: li.modifiers.map((m) => ({ catalog_object_id: m.catalog_object_id })) }
-          : {};
+      const modifiers = li.modifiers?.length
+        ? {
+            applied_modifiers: li.modifiers.map((m) => ({
+              catalog_object_id: m.catalog_object_id,
+            })),
+          }
+        : {};
       const noteField = li.note ? { note: li.note } : {};
       if (li.catalogObjectId) {
-        return { catalog_object_id: li.catalogObjectId, quantity: li.quantity, ...modifiers, ...noteField };
+        return {
+          catalog_object_id: li.catalogObjectId,
+          quantity: li.quantity,
+          ...modifiers,
+          ...noteField,
+        };
       }
       return {
         name: li.name,

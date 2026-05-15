@@ -53,7 +53,9 @@ export function AlternativePage({ data, canonicalUrl }: AlternativePageProps) {
       {/* Hero */}
       <section
         className="relative overflow-hidden"
-        style={{ padding: "clamp(80px, 14vw, 160px) clamp(16px, 4vw, 32px) clamp(40px, 8vw, 80px)" }}
+        style={{
+          padding: "clamp(80px, 14vw, 160px) clamp(16px, 4vw, 32px) clamp(40px, 8vw, 80px)",
+        }}
       >
         <div
           className="absolute inset-0 pointer-events-none"
@@ -78,7 +80,8 @@ export function AlternativePage({ data, canonicalUrl }: AlternativePageProps) {
               maxWidth: "22ch",
             }}
           >
-            Looking for a {data.competitor} alternative in {isHeadPinz ? "Southwest Florida" : "Fort Myers"}?
+            Looking for a {data.competitor} alternative in{" "}
+            {isHeadPinz ? "Southwest Florida" : "Fort Myers"}?
           </h1>
           <p
             className="font-body text-white/80 mx-auto"
@@ -156,7 +159,10 @@ export function AlternativePage({ data, canonicalUrl }: AlternativePageProps) {
               {/* Header row */}
               <div
                 className="p-3 sm:p-4 font-bold uppercase text-xs tracking-wider"
-                style={{ color: "rgba(255,255,255,0.5)", backgroundColor: "rgba(255,255,255,0.03)" }}
+                style={{
+                  color: "rgba(255,255,255,0.5)",
+                  backgroundColor: "rgba(255,255,255,0.03)",
+                }}
               >
                 Feature
               </div>
@@ -168,7 +174,10 @@ export function AlternativePage({ data, canonicalUrl }: AlternativePageProps) {
               </div>
               <div
                 className="p-3 sm:p-4 font-bold uppercase text-xs tracking-wider text-center"
-                style={{ color: "rgba(255,255,255,0.7)", backgroundColor: "rgba(255,255,255,0.03)" }}
+                style={{
+                  color: "rgba(255,255,255,0.7)",
+                  backgroundColor: "rgba(255,255,255,0.03)",
+                }}
               >
                 {data.competitor}
               </div>
@@ -317,7 +326,8 @@ export function AlternativePage({ data, canonicalUrl }: AlternativePageProps) {
             className="font-body text-white/70 mx-auto"
             style={{ fontSize: "16px", lineHeight: 1.6, marginBottom: "32px", maxWidth: "42ch" }}
           >
-            Easiest way to compare is to come spend a couple of hours with us. Book a heat, a lane, or a group event.
+            Easiest way to compare is to come spend a couple of hours with us. Book a heat, a lane,
+            or a group event.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <Link

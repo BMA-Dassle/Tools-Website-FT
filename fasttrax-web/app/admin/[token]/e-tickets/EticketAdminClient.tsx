@@ -25,7 +25,9 @@ type ListResponse = {
 function todayYmd(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -33,7 +35,9 @@ function formatEt(iso: string): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
       timeZone: "America/New_York",
-      hour: "numeric", minute: "2-digit", hour12: true,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
     });
   } catch {
     return iso;
@@ -123,7 +127,13 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
   if (!e.ok) {
     if (noConsent) {
       pills.push(
-        <span key="ds" className={`${PILL_BASE} ${PILL_RED}`} title="Customer hasn't given verbal SMS consent — staff must collect it before resend">needs verbal ok</span>,
+        <span
+          key="ds"
+          className={`${PILL_BASE} ${PILL_RED}`}
+          title="Customer hasn't given verbal SMS consent — staff must collect it before resend"
+        >
+          needs verbal ok
+        </span>,
       );
     }
     // Quota-queued + transient failures render no pill — staff will
@@ -133,14 +143,30 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
     switch (e.deliveryStatus) {
       case "delivered":
         pills.push(
-          <span key="ds" className={`${PILL_BASE} ${PILL_OK}`} title={e.deliveryUpdatedAt ? `Carrier confirmed handset receipt at ${formatEt(e.deliveryUpdatedAt)}` : "Carrier confirmed handset receipt"}>delivered ✓</span>,
+          <span
+            key="ds"
+            className={`${PILL_BASE} ${PILL_OK}`}
+            title={
+              e.deliveryUpdatedAt
+                ? `Carrier confirmed handset receipt at ${formatEt(e.deliveryUpdatedAt)}`
+                : "Carrier confirmed handset receipt"
+            }
+          >
+            delivered ✓
+          </span>,
         );
         break;
       case "undelivered":
       case "failed": {
         const code = e.deliveryErrorCode ? ` ${e.deliveryErrorCode}` : "";
         pills.push(
-          <span key="ds" className={`${PILL_BASE} ${PILL_RED}`} title={e.error || `Carrier rejected — status ${e.deliveryStatus}${code}`}>rejected{code} ✗</span>,
+          <span
+            key="ds"
+            className={`${PILL_BASE} ${PILL_RED}`}
+            title={e.error || `Carrier rejected — status ${e.deliveryStatus}${code}`}
+          >
+            rejected{code} ✗
+          </span>,
         );
         break;
       }
@@ -150,7 +176,13 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
         // Vox accepted; carrier DLR not in yet (or webhook never
         // wired for this entry). Yellow = "sent, awaiting confirm".
         pills.push(
-          <span key="ds" className={`${PILL_BASE} ${PILL_AMBER}`} title="Vox accepted the send — waiting for carrier delivery confirmation">sent</span>,
+          <span
+            key="ds"
+            className={`${PILL_BASE} ${PILL_AMBER}`}
+            title="Vox accepted the send — waiting for carrier delivery confirmation"
+          >
+            sent
+          </span>,
         );
         break;
     }
@@ -178,12 +210,24 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
   // 3. Routing flags — orthogonal to delivery + opened state.
   if (e.failedOver) {
     pills.push(
-      <span key="tw" className={`${PILL_BASE} ${PILL_AMBER}`} title="Vox quota hit — delivered via Twilio failover">↻ twilio</span>,
+      <span
+        key="tw"
+        className={`${PILL_BASE} ${PILL_AMBER}`}
+        title="Vox quota hit — delivered via Twilio failover"
+      >
+        ↻ twilio
+      </span>,
     );
   }
   if (e.viaGuardian) {
     pills.push(
-      <span key="gd" className={`${PILL_BASE} ${PILL_PURPLE}`} title="Sent to guardian — minor racer with no usable own contact">↻ guardian</span>,
+      <span
+        key="gd"
+        className={`${PILL_BASE} ${PILL_PURPLE}`}
+        title="Sent to guardian — minor racer with no usable own contact"
+      >
+        ↻ guardian
+      </span>,
     );
   }
 
@@ -244,15 +288,19 @@ function dedupeLatestPerSms(entries: EnrichedLogEntry[]): EnrichedLogEntry[] {
     }
     const key = `${e.shortCode}|${e.phone}|${e.source}`;
     const prior = seen.get(key);
-    if (!prior) { seen.set(key, e); continue; }
+    if (!prior) {
+      seen.set(key, e);
+      continue;
+    }
     // Prefer ok=true over queued/failed (drain success outranks the
     // earlier queued attempt for the same SMS), then prefer the newer
     // timestamp.
     const priorTs = new Date(prior.ts).getTime();
     const curTs = new Date(e.ts).getTime();
     if (e.ok && !prior.ok) seen.set(key, e);
-    else if (!e.ok && prior.ok) { /* keep prior */ }
-    else if (curTs > priorTs) seen.set(key, e);
+    else if (!e.ok && prior.ok) {
+      /* keep prior */
+    } else if (curTs > priorTs) seen.set(key, e);
   }
   return [...seen.values(), ...passthrough].sort(
     (a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime(),
@@ -287,7 +335,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
       if (!res.ok) return;
       const data = (await res.json()) as QuotaStatus;
       setQuota(data);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }, [token]);
 
   /** Clear cooldown and drain queue. Wired to "Vox is back — push pending" button. */
@@ -312,7 +362,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
     } finally {
       setQuotaBusy(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, loadQuota]);
 
   const load = useCallback(async () => {
@@ -380,31 +430,44 @@ export default function EticketAdminClient({ token }: { token: string }) {
             operator can act on (queue non-empty OR cooldown flag set).
             Provides the one-click "Vox is back, push pending" button. */}
         {quota && (quota.queueSize > 0 || quota.exhausted) && (
-          <div className={`mb-3 sm:mb-4 rounded-xl border p-3 sm:p-4 ${
-            quota.exhausted
-              ? "border-amber-500/40 bg-amber-500/10"
-              : "border-emerald-500/30 bg-emerald-500/5"
-          }`}>
+          <div
+            className={`mb-3 sm:mb-4 rounded-xl border p-3 sm:p-4 ${
+              quota.exhausted
+                ? "border-amber-500/40 bg-amber-500/10"
+                : "border-emerald-500/30 bg-emerald-500/5"
+            }`}
+          >
             <div className="flex items-start gap-3 flex-wrap">
               <div className="text-2xl shrink-0" aria-hidden="true">
                 {quota.exhausted ? "⏸" : "▶"}
               </div>
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-bold uppercase tracking-wider ${
-                  quota.exhausted ? "text-amber-300" : "text-emerald-300"
-                }`}>
+                <p
+                  className={`text-sm font-bold uppercase tracking-wider ${
+                    quota.exhausted ? "text-amber-300" : "text-emerald-300"
+                  }`}
+                >
                   {quota.exhausted ? "Vox cooldown active" : "Vox cooldown cleared"}
                 </p>
                 <p className="text-white/70 text-xs sm:text-sm mt-1 leading-relaxed">
                   <strong className="text-white">{quota.queueSize}</strong> SMS queued for delivery.
                   {quota.exhausted ? (
                     <>
-                      {" "}Cooldown set <strong>{formatEt(quota.status?.hitAt || "")}</strong>
-                      {quota.status?.status ? <> · status <code className="text-white/60">{quota.status.status}</code></> : null}.
-                      Sweep cron will retry on its own once the 1-hour TTL elapses.
+                      {" "}
+                      Cooldown set <strong>{formatEt(quota.status?.hitAt || "")}</strong>
+                      {quota.status?.status ? (
+                        <>
+                          {" "}
+                          · status <code className="text-white/60">{quota.status.status}</code>
+                        </>
+                      ) : null}
+                      . Sweep cron will retry on its own once the 1-hour TTL elapses.
                     </>
                   ) : (
-                    <> Cooldown is clear — the next minute&apos;s sweep cron will drain the queue.</>
+                    <>
+                      {" "}
+                      Cooldown is clear — the next minute&apos;s sweep cron will drain the queue.
+                    </>
                   )}
                 </p>
                 {quotaMsg && (
@@ -445,10 +508,18 @@ export default function EticketAdminClient({ token }: { token: string }) {
               onChange={(e) => setSource(e.target.value as typeof source)}
               className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
             >
-              <option value="" style={{ backgroundColor: "#0a1128" }}>All e-tickets</option>
-              <option value="pre-race-cron" style={{ backgroundColor: "#0a1128" }}>eTicket (2hr ahead)</option>
-              <option value="checkin-cron" style={{ backgroundColor: "#0a1128" }}>check-in (live)</option>
-              <option value="admin-resend" style={{ backgroundColor: "#0a1128" }}>admin resends</option>
+              <option value="" style={{ backgroundColor: "#0a1128" }}>
+                All e-tickets
+              </option>
+              <option value="pre-race-cron" style={{ backgroundColor: "#0a1128" }}>
+                eTicket (2hr ahead)
+              </option>
+              <option value="checkin-cron" style={{ backgroundColor: "#0a1128" }}>
+                check-in (live)
+              </option>
+              <option value="admin-resend" style={{ backgroundColor: "#0a1128" }}>
+                admin resends
+              </option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-white/60 col-span-2">
@@ -469,11 +540,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
             {loading ? "Loading…" : `${total} match${total === 1 ? "" : "es"}`}
             {error && <span className="ml-2 text-red-400">· {error}</span>}
           </span>
-          <button
-            type="button"
-            onClick={load}
-            className="text-[#00E2E5] hover:underline"
-          >
+          <button type="button" onClick={load} className="text-[#00E2E5] hover:underline">
             Refresh
           </button>
         </div>
@@ -514,22 +581,30 @@ export default function EticketAdminClient({ token }: { token: string }) {
                     every status indicator follows the same legend. */}
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-white/50 text-xs">{formatEt(e.ts)}</span>
-                  <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${
-                    noConsent ? "bg-red-500/25 text-red-200"
-                    : e.source === "pre-race-cron" ? "bg-blue-500/20 text-blue-300"
-                    : e.source === "checkin-cron" ? "bg-emerald-500/20 text-emerald-300"
-                    : e.source === "admin-resend" ? "bg-amber-500/20 text-amber-300"
-                    : "bg-white/10 text-white/60"
-                  }`}>
+                  <span
+                    className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${
+                      noConsent
+                        ? "bg-red-500/25 text-red-200"
+                        : e.source === "pre-race-cron"
+                          ? "bg-blue-500/20 text-blue-300"
+                          : e.source === "checkin-cron"
+                            ? "bg-emerald-500/20 text-emerald-300"
+                            : e.source === "admin-resend"
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-white/10 text-white/60"
+                    }`}
+                  >
                     {noConsent ? "no consent" : sourceLabel(e.source)}
                   </span>
                 </div>
 
                 {/* Racer name — big, the thing staff are scanning for */}
                 <div className="font-semibold text-white mb-1">
-                  {e.racerNames.length > 0
-                    ? e.racerNames.join(", ")
-                    : <span className="text-white/40 italic font-normal">(no ticket)</span>}
+                  {e.racerNames.length > 0 ? (
+                    e.racerNames.join(", ")
+                  ) : (
+                    <span className="text-white/40 italic font-normal">(no ticket)</span>
+                  )}
                 </div>
 
                 {/* Race line */}
@@ -549,9 +624,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
                   {renderStatusPills(e, noConsent)}
                 </div>
 
-                {flashHere && (
-                  <div className="text-emerald-400 text-xs mt-1">· {flash!.msg}</div>
-                )}
+                {flashHere && <div className="text-emerald-400 text-xs mt-1">· {flash!.msg}</div>}
 
                 {/* Resend button — full width, big tap target */}
                 <button
@@ -579,7 +652,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
                   <th className="text-left px-3 py-2">Phone</th>
                   <th className="text-left px-3 py-2">Race</th>
                   <th className="text-left px-3 py-2">Status</th>
-                  <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
+                  <th className="px-3 py-2">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -591,22 +666,32 @@ export default function EticketAdminClient({ token }: { token: string }) {
                       key={`${e.ts}-${e.phone}-${e.shortCode ?? ""}`}
                       className={`border-t border-white/5 ${flashHere ? "bg-emerald-500/10" : noConsent ? "bg-red-500/5" : ""}`}
                     >
-                      <td className="px-3 py-2 whitespace-nowrap text-white/70">{formatEt(e.ts)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-white/70">
+                        {formatEt(e.ts)}
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <span className={`text-xs uppercase px-1.5 py-0.5 rounded ${
-                          noConsent ? "bg-red-500/25 text-red-200"
-                          : e.source === "pre-race-cron" ? "bg-blue-500/20 text-blue-300"
-                          : e.source === "checkin-cron" ? "bg-emerald-500/20 text-emerald-300"
-                          : e.source === "admin-resend" ? "bg-amber-500/20 text-amber-300"
-                          : "bg-white/10 text-white/60"
-                        }`}>
+                        <span
+                          className={`text-xs uppercase px-1.5 py-0.5 rounded ${
+                            noConsent
+                              ? "bg-red-500/25 text-red-200"
+                              : e.source === "pre-race-cron"
+                                ? "bg-blue-500/20 text-blue-300"
+                                : e.source === "checkin-cron"
+                                  ? "bg-emerald-500/20 text-emerald-300"
+                                  : e.source === "admin-resend"
+                                    ? "bg-amber-500/20 text-amber-300"
+                                    : "bg-white/10 text-white/60"
+                          }`}
+                        >
                           {noConsent ? "no consent" : sourceLabel(e.source)}
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        {e.racerNames.length > 0
-                          ? e.racerNames.join(", ")
-                          : <span className="text-white/30 italic">(no ticket)</span>}
+                        {e.racerNames.length > 0 ? (
+                          e.racerNames.join(", ")
+                        ) : (
+                          <span className="text-white/30 italic">(no ticket)</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{e.phone}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-white/70">
@@ -618,7 +703,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
                             the mobile card view. Color semantics
                             keyed by the StatusLegend above. */}
                         {renderStatusPills(e, noConsent)}
-                        {flashHere && <span className="text-emerald-400 text-xs ml-2">· {flash!.msg}</span>}
+                        {flashHere && (
+                          <span className="text-emerald-400 text-xs ml-2">· {flash!.msg}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <button
@@ -674,10 +761,7 @@ function EticketResendModal({
   const noConsent = isConsentSkip(entry);
 
   const alertBanner = noConsent ? (
-    <div
-      className="mb-4 rounded-lg border-2 border-red-500 bg-red-500/10 p-4"
-      role="alert"
-    >
+    <div className="mb-4 rounded-lg border-2 border-red-500 bg-red-500/10 p-4" role="alert">
       <div className="text-red-200 font-bold text-base leading-snug mb-2">
         Guest Services — ask the racer verbally, word-for-word:
       </div>
@@ -685,16 +769,22 @@ function EticketResendModal({
         &ldquo;Do I have permission to send eTickets to you? These contain no marketing.&rdquo;
       </div>
       <div className="text-red-100 text-sm leading-snug space-y-1">
-        <div>✅ If YES: click <b>Send</b> below, then update BMI:</div>
+        <div>
+          ✅ If YES: click <b>Send</b> below, then update BMI:
+        </div>
         <ol className="list-decimal list-inside pl-2 text-red-100/90 text-sm">
           <li>Open the member in BMI</li>
-          <li>Go to the <b>Permissions</b> tab</li>
-          <li>Check <b>BOTH</b> SMS fields (commercial + scores)</li>
+          <li>
+            Go to the <b>Permissions</b> tab
+          </li>
+          <li>
+            Check <b>BOTH</b> SMS fields (commercial + scores)
+          </li>
           <li>Save</li>
         </ol>
         <div className="pt-1">
-          You can send the text first — the BMI update keeps future cron
-          e-tickets flowing automatically, no more manual resend needed.
+          You can send the text first — the BMI update keeps future cron e-tickets flowing
+          automatically, no more manual resend needed.
         </div>
         <div className="pt-1">❌ If NO: close this dialog. Do not send.</div>
       </div>
@@ -703,14 +793,28 @@ function EticketResendModal({
 
   const contextSection = (
     <div className="text-xs text-white/50 mb-3 space-y-0.5">
-      <div>Racer: <span className="text-white/80">{entry.racerNames.join(", ") || "(no ticket)"}</span></div>
+      <div>
+        Racer: <span className="text-white/80">{entry.racerNames.join(", ") || "(no ticket)"}</span>
+      </div>
       {entry.track && entry.heatNumber && (
-        <div>Race: <span className="text-white/80">{entry.track} · Heat {entry.heatNumber}{entry.raceType ? ` · ${entry.raceType}` : ""}</span></div>
+        <div>
+          Race:{" "}
+          <span className="text-white/80">
+            {entry.track} · Heat {entry.heatNumber}
+            {entry.raceType ? ` · ${entry.raceType}` : ""}
+          </span>
+        </div>
       )}
-      <div>{noConsent ? "eTicket for:" : "Originally sent:"} <span className="text-white/80">{formatEt(entry.ts)} · {entry.phone}</span></div>
+      <div>
+        {noConsent ? "eTicket for:" : "Originally sent:"}{" "}
+        <span className="text-white/80">
+          {formatEt(entry.ts)} · {entry.phone}
+        </span>
+      </div>
       {entry.clickCount && entry.clickCount > 0 ? (
         <div className="text-emerald-400">
-          Ticket opened {entry.clickCount > 1 ? `${entry.clickCount}× · last` : "at"} {entry.clickLast ? formatEt(entry.clickLast) : ""}
+          Ticket opened {entry.clickCount > 1 ? `${entry.clickCount}× · last` : "at"}{" "}
+          {entry.clickLast ? formatEt(entry.clickLast) : ""}
         </div>
       ) : entry.shortCode && entry.ok ? (
         <div className="text-white/40">Ticket not opened yet</div>

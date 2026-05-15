@@ -13,7 +13,11 @@ export default function CheckoutConfirmation() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const billId = params.get("billId");
-    if (!billId) { setError("No booking ID found."); setLoading(false); return; }
+    if (!billId) {
+      setError("No booking ID found.");
+      setLoading(false);
+      return;
+    }
 
     async function confirm() {
       if (confirmStarted.current) return;
@@ -28,7 +32,9 @@ export default function CheckoutConfirmation() {
             const details = await storeRes.json();
             amount = parseFloat(details.amount || "0");
           }
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
 
         // Confirm payment
         const depositKind = amount === 0 ? 2 : 0;
@@ -51,11 +57,16 @@ export default function CheckoutConfirmation() {
                 fetch("/api/pandora/schedule", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ resNumber: result.reservationNumber, racers: record.racers }),
+                  body: JSON.stringify({
+                    resNumber: result.reservationNumber,
+                    racers: record.racers,
+                  }),
                 }).catch(() => {});
               }
             }
-          } catch { /* non-fatal */ }
+          } catch {
+            /* non-fatal */
+          }
         }
 
         // Clean up
@@ -89,14 +100,22 @@ export default function CheckoutConfirmation() {
         {!loading && error && (
           <div className="text-center space-y-4 py-16">
             <p className="text-red-400">{error}</p>
-            <Link href="/book" className="text-[#00E2E5] underline text-sm">Back to experiences</Link>
+            <Link href="/book" className="text-[#00E2E5] underline text-sm">
+              Back to experiences
+            </Link>
           </div>
         )}
 
         {!loading && !error && (
           <div className="space-y-6 text-center">
             <div className="w-20 h-20 rounded-full bg-green-500/20 border-2 border-green-500/50 flex items-center justify-center mx-auto">
-              <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+              <svg
+                className="w-10 h-10 text-green-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                viewBox="0 0 24 24"
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
@@ -113,10 +132,16 @@ export default function CheckoutConfirmation() {
             )}
 
             <div className="flex flex-col gap-3 pt-4">
-              <Link href="/book" className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors text-center shadow-lg shadow-[#00E2E5]/25">
+              <Link
+                href="/book"
+                className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors text-center shadow-lg shadow-[#00E2E5]/25"
+              >
                 Book More Activities
               </Link>
-              <Link href="/" className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center">
+              <Link
+                href="/"
+                className="w-full py-3 rounded-xl border border-white/15 text-white/60 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors text-center"
+              >
                 Back to Home
               </Link>
             </div>

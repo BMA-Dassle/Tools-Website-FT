@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import CardCaptureForm, {
-  type CardCaptureHandle,
-} from "@/components/square/CardCaptureForm";
+import CardCaptureForm, { type CardCaptureHandle } from "@/components/square/CardCaptureForm";
 
 /**
  * Shared payment step used by Kids Bowl Free V2 and Open Bowling wizards.
@@ -182,7 +180,11 @@ export default function BowlingPaymentStep({
 
     return () => {
       cancelled = true;
-      try { applePayRef.current?.destroy(); } catch { /* ignore */ }
+      try {
+        applePayRef.current?.destroy();
+      } catch {
+        /* ignore */
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, depositCents]);
@@ -193,9 +195,11 @@ export default function BowlingPaymentStep({
     setTokenizing(true);
     setTokenizeError(null);
     try {
-      const result = await (applePayRef.current as unknown as {
-        tokenize: () => Promise<{ status: string; token?: string }>;
-      }).tokenize();
+      const result = await (
+        applePayRef.current as unknown as {
+          tokenize: () => Promise<{ status: string; token?: string }>;
+        }
+      ).tokenize();
       if (result.status !== "OK" || !result.token) {
         throw new Error("Apple Pay cancelled or failed");
       }
@@ -231,22 +235,24 @@ export default function BowlingPaymentStep({
 
   return (
     <div className="space-y-5">
-      <h2 className="font-heading font-black uppercase italic text-white text-xl">
-        {heading}
-      </h2>
+      <h2 className="font-heading font-black uppercase italic text-white text-xl">{heading}</h2>
 
       {/* Deposit summary */}
       {rewardDiscountCents > 0 && originalDepositCents ? (
         <div className="rounded-xl border border-[#22c55e]/20 bg-[#22c55e]/5 p-3 space-y-1.5">
           <div className="flex items-center justify-between text-sm font-body">
             <span className="text-white/50">Deposit</span>
-            <span className="text-white/50 line-through">{centsToDollars(originalDepositCents)}</span>
+            <span className="text-white/50 line-through">
+              {centsToDollars(originalDepositCents)}
+            </span>
           </div>
           <div className="flex items-center justify-between text-sm font-body">
             <span className="text-[#22c55e] flex items-center gap-1.5">
               <span className="text-xs">⭐</span> HeadPinz Reward
             </span>
-            <span className="text-[#22c55e] font-semibold">-{centsToDollars(rewardDiscountCents)}</span>
+            <span className="text-[#22c55e] font-semibold">
+              -{centsToDollars(rewardDiscountCents)}
+            </span>
           </div>
           <div className="border-t border-white/10 pt-1.5 flex items-center justify-between text-sm font-body">
             <span className="text-white font-semibold">You pay today</span>
@@ -262,12 +268,8 @@ export default function BowlingPaymentStep({
       ) : (
         <p className="text-white/45 text-sm">
           Deposit due today:{" "}
-          <span className="text-white font-semibold">
-            {centsToDollars(depositCents)}
-          </span>
-          {remaining > 0 && (
-            <> · Balance at center: {centsToDollars(remaining)}</>
-          )}
+          <span className="text-white font-semibold">{centsToDollars(depositCents)}</span>
+          {remaining > 0 && <> · Balance at center: {centsToDollars(remaining)}</>}
         </p>
       )}
 
@@ -290,7 +292,9 @@ export default function BowlingPaymentStep({
       {applePayReady && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
-          <span className="text-white/30 text-xs uppercase tracking-wider font-body">or pay with card</span>
+          <span className="text-white/30 text-xs uppercase tracking-wider font-body">
+            or pay with card
+          </span>
           <div className="flex-1 h-px bg-white/10" />
         </div>
       )}

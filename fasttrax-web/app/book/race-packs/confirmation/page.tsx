@@ -46,7 +46,9 @@ export default function RacePackConfirmation() {
         try {
           const res = await fetch(`/api/booking-store?billId=${billId}`);
           if (res.ok) details = await res.json();
-        } catch { /* Redis unavailable */ }
+        } catch {
+          /* Redis unavailable */
+        }
         if (!details) {
           const stored = localStorage.getItem(`booking_${billId}`);
           if (stored) details = JSON.parse(stored);
@@ -78,30 +80,45 @@ export default function RacePackConfirmation() {
           try {
             const payRaw = sessionStorage.getItem(`payment_${billId}`);
             if (payRaw) {
-              const pay = JSON.parse(payRaw) as { depositCreditFailed?: boolean; depositError?: string };
+              const pay = JSON.parse(payRaw) as {
+                depositCreditFailed?: boolean;
+                depositError?: string;
+              };
               if (pay.depositCreditFailed) {
                 setCreditPending(true);
-                setCreditPendingMsg(pay.depositError || "Credit hasn't landed yet — our team has been notified and will reconcile it.");
+                setCreditPendingMsg(
+                  pay.depositError ||
+                    "Credit hasn't landed yet — our team has been notified and will reconcile it.",
+                );
               }
             }
-          } catch { /* sessionStorage unavailable / non-JSON */ }
+          } catch {
+            /* sessionStorage unavailable / non-JSON */
+          }
 
           // Read live balance for the deposit kind we just credited.
           // No-op gracefully if Pandora is flaky — we still show
           // "credits added" copy from the booking row.
           if (details?.personId && details?.depositKindId) {
             try {
-              const balRes = await fetch(`/api/pandora/deposits/${encodeURIComponent(details.personId)}`, { cache: "no-store" });
+              const balRes = await fetch(
+                `/api/pandora/deposits/${encodeURIComponent(details.personId)}`,
+                { cache: "no-store" },
+              );
               if (balRes.ok) {
                 const balJson = await balRes.json();
                 const rows: DepositRow[] = Array.isArray(balJson?.data) ? balJson.data : [];
-                const row = rows.find(r => String(r.OUT_DPK_ID) === String(details!.depositKindId));
+                const row = rows.find(
+                  (r) => String(r.OUT_DPK_ID) === String(details!.depositKindId),
+                );
                 if (row) {
                   setCreditBalance(row.OUT_DPS_AMOUNT);
                   setCreditKindName(row.OUT_DPK_NAME);
                 }
               }
-            } catch { /* show without balance — booking row still describes the pack */ }
+            } catch {
+              /* show without balance — booking row still describes the pack */
+            }
           }
 
           trackBookingComplete(billId!);
@@ -158,7 +175,9 @@ export default function RacePackConfirmation() {
         {!loading && error && (
           <div className="text-center space-y-4">
             <p className="text-red-400">{error}</p>
-            <Link href="/book/race-packs" className="text-[#00E2E5] underline text-sm">Back to Race Packs</Link>
+            <Link href="/book/race-packs" className="text-[#00E2E5] underline text-sm">
+              Back to Race Packs
+            </Link>
           </div>
         )}
 
@@ -166,13 +185,31 @@ export default function RacePackConfirmation() {
           <div className="space-y-6 text-center">
             {/* Success */}
             <div className="space-y-3">
-              <div className={`w-20 h-20 rounded-full ${creditPending ? "bg-amber-500/20 border-amber-500/50" : "bg-green-500/20 border-green-500/50"} border-2 flex items-center justify-center mx-auto`}>
+              <div
+                className={`w-20 h-20 rounded-full ${creditPending ? "bg-amber-500/20 border-amber-500/50" : "bg-green-500/20 border-green-500/50"} border-2 flex items-center justify-center mx-auto`}
+              >
                 {creditPending ? (
-                  <svg className="w-10 h-10 text-amber-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg
+                    className="w-10 h-10 text-amber-400"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                 ) : (
-                  <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                  <svg
+                    className="w-10 h-10 text-green-400"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    viewBox="0 0 24 24"
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 )}
@@ -182,19 +219,25 @@ export default function RacePackConfirmation() {
               </h1>
               {creditPending ? (
                 <p className="text-white/60 text-sm">
-                  Your card was charged successfully. Credits will be applied shortly — our team has been notified.
+                  Your card was charged successfully. Credits will be applied shortly — our team has
+                  been notified.
                 </p>
-              ) : personName && (
-                <p className="text-white/60 text-sm">
-                  {packName} credits have been added to <strong className="text-white">{personName}</strong>&apos;s account.
-                </p>
+              ) : (
+                personName && (
+                  <p className="text-white/60 text-sm">
+                    {packName} credits have been added to{" "}
+                    <strong className="text-white">{personName}</strong>&apos;s account.
+                  </p>
+                )
               )}
             </div>
 
             {/* Pending-credit banner — only when via-deposit credit step failed */}
             {creditPending && creditPendingMsg && (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-left">
-                <p className="text-amber-400 font-bold text-xs uppercase tracking-wider mb-1">Credits Pending</p>
+                <p className="text-amber-400 font-bold text-xs uppercase tracking-wider mb-1">
+                  Credits Pending
+                </p>
                 <p className="text-white/70 text-xs">{creditPendingMsg}</p>
               </div>
             )}
@@ -217,7 +260,10 @@ export default function RacePackConfirmation() {
                 <div className="flex justify-between">
                   <span className="text-white/40 text-sm">Current Balance</span>
                   <span className="text-[#00E2E5] font-bold text-sm">
-                    {creditBalance} {creditKindName ? <span className="text-white/40 font-normal text-xs">({creditKindName})</span> : null}
+                    {creditBalance}{" "}
+                    {creditKindName ? (
+                      <span className="text-white/40 font-normal text-xs">({creditKindName})</span>
+                    ) : null}
                   </span>
                 </div>
               )}
@@ -239,7 +285,8 @@ export default function RacePackConfirmation() {
             <div className="rounded-2xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-5">
               <p className="text-[#00E2E5] font-bold text-sm mb-1">What&apos;s Next?</p>
               <p className="text-white/60 text-xs">
-                Credits are ready to use. Book a race and they&apos;ll be applied automatically at checkout.
+                Credits are ready to use. Book a race and they&apos;ll be applied automatically at
+                checkout.
               </p>
             </div>
 

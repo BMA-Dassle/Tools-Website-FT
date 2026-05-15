@@ -19,7 +19,7 @@ export interface PandoraPersonCreateInput {
   lastName: string;
   email?: string;
   phone?: string;
-  birthdate?: string;        // "YYYY-MM-DD"
+  birthdate?: string; // "YYYY-MM-DD"
   guardianID?: string;
   location?: PandoraCenterKey | string;
 }

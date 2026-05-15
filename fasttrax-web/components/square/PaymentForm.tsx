@@ -16,7 +16,11 @@ interface SquarePayments {
   card: (options?: Record<string, unknown>) => Promise<SquareCard>;
   applePay: (request: unknown) => Promise<SquareDigitalWallet>;
   googlePay: (request: unknown) => Promise<SquareDigitalWallet>;
-  paymentRequest: (config: { countryCode: string; currencyCode: string; total: { amount: string; label: string } }) => unknown;
+  paymentRequest: (config: {
+    countryCode: string;
+    currencyCode: string;
+    total: { amount: string; label: string };
+  }) => unknown;
 }
 
 interface SquareCard {
@@ -86,7 +90,7 @@ interface PaymentFormProps {
   // Card-on-file (returning racers only — OTP verified)
   squareCustomerId?: string;
   savedCards?: SavedCard[];
-  allowSaveCard?: boolean;  // Only true for OTP-verified returning racers
+  allowSaveCard?: boolean; // Only true for OTP-verified returning racers
   /** Optional Square catalog reference for the line item — lets
    *  callers point at a real catalog product with a custom name
    *  override (e.g. race packs share `YYOV5QCHQSJKZS7DDIALGU7Z`). */
@@ -105,7 +109,8 @@ const SQUARE_LOCATIONS: Record<string, string> = {
 };
 
 function detectSquareLocationId(overrideLocationId?: string): string {
-  if (overrideLocationId && SQUARE_LOCATIONS[overrideLocationId]) return SQUARE_LOCATIONS[overrideLocationId];
+  if (overrideLocationId && SQUARE_LOCATIONS[overrideLocationId])
+    return SQUARE_LOCATIONS[overrideLocationId];
   if (typeof window === "undefined") return SQUARE_LOCATIONS.fasttrax;
   const host = window.location.hostname;
   if (host.includes("headpinz")) return SQUARE_LOCATIONS.headpinz;
@@ -147,10 +152,14 @@ export default function PaymentForm({
   postPaymentAction,
 }: PaymentFormProps) {
   const squareLocationId = detectSquareLocationId(locationIdProp);
-  const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">(
+    "loading",
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(
-    savedCards.filter(c => !c.expired).length > 0 ? savedCards.filter(c => !c.expired)[0].id : null
+    savedCards.filter((c) => !c.expired).length > 0
+      ? savedCards.filter((c) => !c.expired)[0].id
+      : null,
   );
   const [saveCard, setSaveCard] = useState(false);
   const [applePayReady, setApplePayReady] = useState(false);
@@ -167,7 +176,9 @@ export default function PaymentForm({
 
     async function init() {
       try {
-        serverLog(`[PaymentForm] init start — appId=${SQUARE_APP_ID}, locId=${squareLocationId}, ua=${navigator.userAgent.slice(0, 80)}`);
+        serverLog(
+          `[PaymentForm] init start — appId=${SQUARE_APP_ID}, locId=${squareLocationId}, ua=${navigator.userAgent.slice(0, 80)}`,
+        );
 
         // Load SDK if not already loaded
         if (!window.Square) {
@@ -201,14 +212,18 @@ export default function PaymentForm({
           });
           serverLog(`[PaymentForm] Apple Pay request created, amount=${amountStr}`);
           const applePay = await payments.applePay(applePayRequest);
-          serverLog(`[PaymentForm] Apple Pay created, methods=[${Object.keys(applePay).join(",")}]`);
+          serverLog(
+            `[PaymentForm] Apple Pay created, methods=[${Object.keys(applePay).join(",")}]`,
+          );
           // Apple Pay has no attach() — it uses native sheet via tokenize()
           // Just store the reference and mark ready
           applePayRef.current = applePay as unknown as SquareDigitalWallet;
           setApplePayReady(true);
           serverLog("[PaymentForm] Apple Pay ready");
         } catch (apErr) {
-          serverLog(`[PaymentForm] Apple Pay not available: ${apErr instanceof Error ? apErr.message : String(apErr)}`);
+          serverLog(
+            `[PaymentForm] Apple Pay not available: ${apErr instanceof Error ? apErr.message : String(apErr)}`,
+          );
         }
 
         // Initialize Google Pay
@@ -226,7 +241,9 @@ export default function PaymentForm({
           setGooglePayReady(true);
           serverLog("[PaymentForm] Google Pay ready");
         } catch (gpErr) {
-          serverLog(`[PaymentForm] Google Pay not available: ${gpErr instanceof Error ? gpErr.message : String(gpErr)}`);
+          serverLog(
+            `[PaymentForm] Google Pay not available: ${gpErr instanceof Error ? gpErr.message : String(gpErr)}`,
+          );
         }
 
         setStatus("ready");
@@ -251,7 +268,11 @@ export default function PaymentForm({
     setStatus("processing");
     setErrorMessage(null);
     try {
-      const result = await (applePayRef.current as unknown as { tokenize: () => Promise<{ status: string; token?: string }> }).tokenize();
+      const result = await (
+        applePayRef.current as unknown as {
+          tokenize: () => Promise<{ status: string; token?: string }>;
+        }
+      ).tokenize();
       if (result.status !== "OK" || !result.token) throw new Error("Apple Pay cancelled or failed");
       await processPayment(result.token, false);
     } catch (err) {
@@ -275,7 +296,11 @@ export default function PaymentForm({
         contact,
         saveCard: saveCard && !!squareCustomerId && !usingSavedCard,
         squareCustomerId,
-        locationId: locationIdProp || (typeof window !== "undefined" && window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax"),
+        locationId:
+          locationIdProp ||
+          (typeof window !== "undefined" && window.location.hostname.includes("headpinz")
+            ? "headpinz"
+            : "fasttrax"),
         lineItem,
         postPaymentAction,
       }),
@@ -329,11 +354,19 @@ export default function PaymentForm({
     return (
       <div className="text-center py-12 space-y-4">
         <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500/50 flex items-center justify-center mx-auto">
-          <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+          <svg
+            className="w-8 h-8 text-emerald-400"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            viewBox="0 0 24 24"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <p className="text-white font-display text-xl uppercase tracking-widest">Payment Successful!</p>
+        <p className="text-white font-display text-xl uppercase tracking-widest">
+          Payment Successful!
+        </p>
         <p className="text-white/40 text-sm">Redirecting to your confirmation...</p>
       </div>
     );
@@ -359,18 +392,25 @@ export default function PaymentForm({
       )}
 
       {/* Digital wallets */}
-      <div className={!selectedCardId && (applePayReady || googlePayReady) ? "space-y-3" : "hidden"}>
+      <div
+        className={!selectedCardId && (applePayReady || googlePayReady) ? "space-y-3" : "hidden"}
+      >
         {applePayReady && (
           <button
             onClick={handleApplePay}
             disabled={status === "processing"}
             className="w-full h-11 rounded-lg bg-white text-black font-semibold text-sm flex items-center justify-center gap-1.5 hover:bg-white/90 active:bg-white/80 transition-colors disabled:opacity-50"
           >
-            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
+              <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+            </svg>
             Apple Pay
           </button>
         )}
-        <div id="sq-google-pay" className={googlePayReady ? "w-full min-h-[48px] [&_iframe]:!w-full" : "hidden"} />
+        <div
+          id="sq-google-pay"
+          className={googlePayReady ? "w-full min-h-[48px] [&_iframe]:!w-full" : "hidden"}
+        />
       </div>
       <div id="sq-apple-pay" className="hidden" />
       {!selectedCardId && (applePayReady || googlePayReady) && (

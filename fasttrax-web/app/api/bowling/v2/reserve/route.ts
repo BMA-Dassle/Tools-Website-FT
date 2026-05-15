@@ -88,16 +88,16 @@ const CENTER_GAN_PREFIX: Record<string, string> = {
  *   Adult Game Mon-Thur VIP $6/game   Adult Game Fri-Sun VIP $7/game
  *   Kids Bowl Free VIP (2) $2/session  Families Bowl Free VIP (2) $2/session
  */
-const ADULT_GAME_CATALOG_MON_THU     = "55HD24QD6W2D5566EATRXIO4";
-const ADULT_GAME_CATALOG_FRI         = "PS37ALSQJQTTK7FSWFTROQ36";
+const ADULT_GAME_CATALOG_MON_THU = "55HD24QD6W2D5566EATRXIO4";
+const ADULT_GAME_CATALOG_FRI = "PS37ALSQJQTTK7FSWFTROQ36";
 const ADULT_GAME_VIP_CATALOG_MON_THU = "FN2JBP462OGS7ABTOL42VIK4";
-const ADULT_GAME_VIP_CATALOG_FRI     = "G67DSSE3MUARHUMMVP632Q6R";
-const KBF_VIP_CATALOG               = "VOTDI26ES5J7TCHDEZ24JNEN"; // Kids Bowl Free VIP (2)
-const FBF_VIP_CATALOG               = "KGFEKTF57JT5SE55JVVV2NEJ"; // Families Bowl Free VIP (2)
-const KBF_GAMES_PER_SESSION          = 2;
+const ADULT_GAME_VIP_CATALOG_FRI = "G67DSSE3MUARHUMMVP632Q6R";
+const KBF_VIP_CATALOG = "VOTDI26ES5J7TCHDEZ24JNEN"; // Kids Bowl Free VIP (2)
+const FBF_VIP_CATALOG = "KGFEKTF57JT5SE55JVVV2NEJ"; // Families Bowl Free VIP (2)
+const KBF_GAMES_PER_SESSION = 2;
 
 /** VIP lane upcharge: $1 per person per game for ALL bowlers (kids included). */
-const KBF_VIP_PER_GAME_CENTS         = 100;
+const KBF_VIP_PER_GAME_CENTS = 100;
 
 const QAMF_CENTER_ID_TO_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
@@ -298,10 +298,13 @@ export async function POST(req: NextRequest) {
   // ── Determine product kind ──────────────────────────────────────
   // Moved above totals so adult game charges are included in payment validation.
   const productKind: "kbf" | "open" =
-    body.kind === "kbf" ? "kbf"
-    : body.kind === "open" ? "open"
-    : players.some((p) => p.kbfPassId) ? "kbf"
-    : "open";
+    body.kind === "kbf"
+      ? "kbf"
+      : body.kind === "open"
+        ? "open"
+        : players.some((p) => p.kbfPassId)
+          ? "kbf"
+          : "open";
 
   // ── KBF: VIP detection (server-side — never trust client) ────────
   // Look up the experience to determine VIP status from the webOfferId.
@@ -316,21 +319,27 @@ export async function POST(req: NextRequest) {
   // Kids Bowl Free = kids bowl free, adults pay per game.
   // Families Bowl Free = everyone bowls free (no paid adults).
   // VIP = $1/game extra for ALL bowlers (adults pay $6/$7 instead of $5/$6).
-  const paidAdultCount = productKind === "kbf"
-    ? players.filter((p) => p.isPaidAdult).length
-    : 0;
+  const paidAdultCount = productKind === "kbf" ? players.filter((p) => p.isPaidAdult).length : 0;
   const bookedDateYmd = bookedAt.slice(0, 10); // YYYY-MM-DD
   const bookedDow = new Date(`${bookedDateYmd}T12:00:00`).getDay();
   const isFriday = bookedDow === 5;
   // VIP adults pay $1 more per game ($6/$7 vs $5/$6)
-  const adultPerGameCents = isFriday ? (kbfIsVip ? 700 : 600) : (kbfIsVip ? 600 : 500);
+  const adultPerGameCents = isFriday ? (kbfIsVip ? 700 : 600) : kbfIsVip ? 600 : 500;
   const adultGameTotalCents = paidAdultCount * adultPerGameCents * KBF_GAMES_PER_SESSION;
   const adultGameCatalogId = kbfIsVip
-    ? (isFriday ? ADULT_GAME_VIP_CATALOG_FRI : ADULT_GAME_VIP_CATALOG_MON_THU)
-    : (isFriday ? ADULT_GAME_CATALOG_FRI : ADULT_GAME_CATALOG_MON_THU);
+    ? isFriday
+      ? ADULT_GAME_VIP_CATALOG_FRI
+      : ADULT_GAME_VIP_CATALOG_MON_THU
+    : isFriday
+      ? ADULT_GAME_CATALOG_FRI
+      : ADULT_GAME_CATALOG_MON_THU;
   const adultGameLabel = kbfIsVip
-    ? (isFriday ? "Adult Game Fri-Sun VIP" : "Adult Game Mon-Thur VIP")
-    : (isFriday ? "Adult Game Fri-Sun" : "Adult Game Mon-Thur");
+    ? isFriday
+      ? "Adult Game Fri-Sun VIP"
+      : "Adult Game Mon-Thur VIP"
+    : isFriday
+      ? "Adult Game Fri-Sun"
+      : "Adult Game Mon-Thur";
 
   if (adultGameTotalCents > 0) {
     reservationLines.push({
@@ -388,24 +397,20 @@ export async function POST(req: NextRequest) {
       s + Math.round(product.priceCents * quantity * (product.depositPct / 100)),
     0,
   );
-  const preTaxDepositCents = productDeposit + kbfExtraCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
+  const preTaxDepositCents =
+    productDeposit + kbfExtraCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
 
   // Weighted-average deposit % across all line items — passed to bowling-orders
   // so it can apply the same proportion to the tax-inclusive total.
   const overallDepositPct =
-    preTaxTotalCents > 0
-      ? Math.round((preTaxDepositCents / preTaxTotalCents) * 100)
-      : 100;
+    preTaxTotalCents > 0 ? Math.round((preTaxDepositCents / preTaxTotalCents) * 100) : 100;
 
   // Any items with a charge require a payment token — UNLESS a loyalty
   // reward covers the entire deposit (client sends depositCents: 0).
   const needsPayment = preTaxTotalCents > 0;
   const effectiveClientDeposit = body.depositCents ?? preTaxTotalCents; // pre-tax fallback
   if (needsPayment && effectiveClientDeposit > 0 && !body.squareToken) {
-    return NextResponse.json(
-      { error: "squareToken required when deposit > 0" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "squareToken required when deposit > 0" }, { status: 400 });
   }
 
   // ── KBF: per-day redemption cap (2 free games = 1 session/day) ──
@@ -479,9 +484,7 @@ export async function POST(req: NextRequest) {
       const itemParts = reservationLines.map((l) => {
         const total = l.quantity * l.unitPriceCents;
         const totalStr = `$${(total / 100).toFixed(2)}`;
-        return l.quantity > 1
-          ? `${l.quantity}x ${l.label} ${totalStr}`
-          : `${l.label} ${totalStr}`;
+        return l.quantity > 1 ? `${l.quantity}x ${l.label} ${totalStr}` : `${l.label} ${totalStr}`;
       });
       parts.push(itemParts.join(" + "));
     }
@@ -649,16 +652,16 @@ export async function POST(req: NextRequest) {
   if (qamfLanes.length > 0 && players.some((p) => p.name)) {
     const lane = qamfLanes[0];
     const laneId = lane.Id ?? String(lane.LaneNumber);
-    setLanePlayers(centerId, qamfReservationId, laneId,
+    setLanePlayers(
+      centerId,
+      qamfReservationId,
+      laneId,
       players.map((p) => ({
-        Name: productKind === "kbf"
-          ? (toLaneInsertName(p.name || "") || "Bowler")
-          : (p.name || "Bowler"),
+        Name:
+          productKind === "kbf" ? toLaneInsertName(p.name || "") || "Bowler" : p.name || "Bowler",
         ActivateBumpers: p.bumpers ?? false,
       })),
-    ).catch((err) =>
-      console.warn("[bowling/v2/reserve] setLanePlayers failed (non-fatal):", err),
-    );
+    ).catch((err) => console.warn("[bowling/v2/reserve] setLanePlayers failed (non-fatal):", err));
   }
 
   // ── Square payment (gift card deposit + day-of order) ──────────
@@ -669,68 +672,84 @@ export async function POST(req: NextRequest) {
   let squareGiftCardGan: string | undefined;
   let loyaltyRewardId: string | undefined;
   let rewardDiscountCents = body.rewardDiscountCents ?? 0;
-  let depositCents = 0;        // actual charged amount (tax-inclusive)
-  let totalCents = 0;          // tax-inclusive day-of order total
+  let depositCents = 0; // actual charged amount (tax-inclusive)
+  let totalCents = 0; // tax-inclusive day-of order total
 
   if (needsPayment) {
-    const squareLocationId =
-      body.locationId ?? centerCode;
+    const squareLocationId = body.locationId ?? centerCode;
 
     // Build Square line items, passing through catalog IDs, modifier selections, and notes.
     // lineItems (from the request body) carry modifier arrays keyed by squareProductId.
     const sqLineItems = [
       // Product-backed lines (from bowling_square_products table)
-      ...reservationLines.filter((l) => l.squareProductId != null).map((l) => {
-        const product = productItems.find((p) => p.product.id === l.squareProductId)?.product;
-        const reqItem  = lineItems.find((li) => li.squareProductId === l.squareProductId);
-        return {
-          name: l.label,
-          quantity: String(l.quantity),
-          basePriceMoney: { amount: l.unitPriceCents, currency: "USD" as const },
-          // Include catalog object ID so Square links to the catalog item for reporting
-          ...(product?.squareCatalogObjectId
-            ? { catalogObjectId: product.squareCatalogObjectId }
-            : {}),
-          // Forward modifier selections (e.g. pizza topping, soda flavor) to Square
-          ...(reqItem?.modifiers?.length
-            ? { modifiers: reqItem.modifiers }
-            : {}),
-          // Forward free-text note (fallback when catalog modifiers not yet configured)
-          ...(reqItem?.note ? { note: reqItem.note } : {}),
-        };
-      }),
+      ...reservationLines
+        .filter((l) => l.squareProductId != null)
+        .map((l) => {
+          const product = productItems.find((p) => p.product.id === l.squareProductId)?.product;
+          const reqItem = lineItems.find((li) => li.squareProductId === l.squareProductId);
+          return {
+            name: l.label,
+            quantity: String(l.quantity),
+            basePriceMoney: { amount: l.unitPriceCents, currency: "USD" as const },
+            // Include catalog object ID so Square links to the catalog item for reporting
+            ...(product?.squareCatalogObjectId
+              ? { catalogObjectId: product.squareCatalogObjectId }
+              : {}),
+            // Forward modifier selections (e.g. pizza topping, soda flavor) to Square
+            ...(reqItem?.modifiers?.length ? { modifiers: reqItem.modifiers } : {}),
+            // Forward free-text note (fallback when catalog modifiers not yet configured)
+            ...(reqItem?.note ? { note: reqItem.note } : {}),
+          };
+        }),
       // KBF paid adult game charges — catalog-linked for Square reporting
       ...(adultGameTotalCents > 0
-        ? [{
-            name: adultGameLabel,
-            quantity: String(paidAdultCount * KBF_GAMES_PER_SESSION),
-            basePriceMoney: { amount: adultPerGameCents, currency: "USD" as const },
-            catalogObjectId: adultGameCatalogId,
-          }]
+        ? [
+            {
+              name: adultGameLabel,
+              quantity: String(paidAdultCount * KBF_GAMES_PER_SESSION),
+              basePriceMoney: { amount: adultPerGameCents, currency: "USD" as const },
+              catalogObjectId: adultGameCatalogId,
+            },
+          ]
         : []),
       // KBF VIP upcharge for free bowlers — catalog-linked per bowler type
-      ...(kbfIsVip ? (() => {
-        const kbfKidCount = players.filter((p) => !p.isPaidAdult && p.kbfRelation === "kid").length;
-        const fbfAdultCount = players.filter((p) => !p.isPaidAdult).length - kbfKidCount;
-        const items: Array<{ name: string; quantity: string; basePriceMoney: { amount: number; currency: "USD" }; catalogObjectId: string }> = [];
-        if (kbfKidCount > 0) {
-          items.push({
-            name: "Kids Bowl Free VIP",
-            quantity: String(kbfKidCount),
-            basePriceMoney: { amount: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION, currency: "USD" },
-            catalogObjectId: KBF_VIP_CATALOG,
-          });
-        }
-        if (fbfAdultCount > 0) {
-          items.push({
-            name: "Families Bowl Free VIP",
-            quantity: String(fbfAdultCount),
-            basePriceMoney: { amount: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION, currency: "USD" },
-            catalogObjectId: FBF_VIP_CATALOG,
-          });
-        }
-        return items;
-      })() : []),
+      ...(kbfIsVip
+        ? (() => {
+            const kbfKidCount = players.filter(
+              (p) => !p.isPaidAdult && p.kbfRelation === "kid",
+            ).length;
+            const fbfAdultCount = players.filter((p) => !p.isPaidAdult).length - kbfKidCount;
+            const items: Array<{
+              name: string;
+              quantity: string;
+              basePriceMoney: { amount: number; currency: "USD" };
+              catalogObjectId: string;
+            }> = [];
+            if (kbfKidCount > 0) {
+              items.push({
+                name: "Kids Bowl Free VIP",
+                quantity: String(kbfKidCount),
+                basePriceMoney: {
+                  amount: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION,
+                  currency: "USD",
+                },
+                catalogObjectId: KBF_VIP_CATALOG,
+              });
+            }
+            if (fbfAdultCount > 0) {
+              items.push({
+                name: "Families Bowl Free VIP",
+                quantity: String(fbfAdultCount),
+                basePriceMoney: {
+                  amount: KBF_VIP_PER_GAME_CENTS * KBF_GAMES_PER_SESSION,
+                  currency: "USD",
+                },
+                catalogObjectId: FBF_VIP_CATALOG,
+              });
+            }
+            return items;
+          })()
+        : []),
       // $0 pass-through items (Pizza Bowl Pizza, Soda Pitcher) — not in Neon but
       // must appear as separate Square order line items with modifier selections.
       // Only used in the fallback path; primary path uses the pre-created dayofOrderId.
@@ -744,11 +763,13 @@ export async function POST(req: NextRequest) {
       })),
       // Extra pizza topping surcharge ($1 each beyond the 1 included)
       ...(body.extraToppingsCents && body.extraToppingsCents > 0
-        ? [{
-            name: "Extra Pizza Topping",
-            quantity: String(body.extraToppingsCents / 100),
-            basePriceMoney: { amount: 100, currency: "USD" as const },
-          }]
+        ? [
+            {
+              name: "Extra Pizza Topping",
+              quantity: String(body.extraToppingsCents / 100),
+              basePriceMoney: { amount: 100, currency: "USD" as const },
+            },
+          ]
         : []),
       // Booking fee — catalog-priced (no basePriceMoney override)
       ...(hasBookingFee
@@ -790,7 +811,9 @@ export async function POST(req: NextRequest) {
         const createData = await createRes.json();
         if (createRes.ok && createData.reward?.id) {
           loyaltyRewardId = createData.reward.id;
-          console.log(`[reserve] Loyalty reward created: ${loyaltyRewardId} (${rewardDiscountCents}c off)`);
+          console.log(
+            `[reserve] Loyalty reward created: ${loyaltyRewardId} (${rewardDiscountCents}c off)`,
+          );
         } else {
           const err = createData.errors?.[0];
           console.error(`[reserve] Reward creation failed: ${err?.code}: ${err?.detail}`);
@@ -870,7 +893,8 @@ export async function POST(req: NextRequest) {
 
     // Use the reward-adjusted total from Square when available;
     // otherwise fall back to the client-provided day-of total.
-    const authoritativeTotalCents = orderTotalAfterReward ?? body.dayofTotalCents ?? preTaxTotalCents;
+    const authoritativeTotalCents =
+      orderTotalAfterReward ?? body.dayofTotalCents ?? preTaxTotalCents;
     const actualDepositToCharge = loyaltyRewardId
       ? Math.round((authoritativeTotalCents * overallDepositPct) / 100)
       : (body.depositCents ?? Math.round((preTaxTotalCents * overallDepositPct) / 100));
@@ -898,11 +922,13 @@ export async function POST(req: NextRequest) {
           giftCardGan: `${CENTER_GAN_PREFIX[centerCode] ?? "HP"}${qamfReservationId.replace(/[^A-Za-z0-9]/g, "")}`,
           // Pass pre-created day-of order if provided (avoids duplicate creation).
           // Use the reward-adjusted total/deposit when a reward was applied.
-          ...(body.dayofOrderId ? {
-            existingDayofOrderId: body.dayofOrderId,
-            existingDayofTotalCents: authoritativeTotalCents,
-            existingDepositCents: actualDepositToCharge,
-          } : {}),
+          ...(body.dayofOrderId
+            ? {
+                existingDayofOrderId: body.dayofOrderId,
+                existingDayofTotalCents: authoritativeTotalCents,
+                existingDepositCents: actualDepositToCharge,
+              }
+            : {}),
         }),
       });
 
@@ -934,7 +960,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      squareDepositOrderId  = sqData.depositOrderId  ?? undefined;
+      squareDepositOrderId = sqData.depositOrderId ?? undefined;
       squareDepositPaymentId = sqData.depositPaymentId ?? undefined;
       squareDayofOrderId = sqData.dayofOrderId;
       squareGiftCardId = sqData.giftCardId ?? undefined;
@@ -1107,11 +1133,15 @@ export async function POST(req: NextRequest) {
     // KBF bowler breakdown — right after shoe/URL so staff see it immediately
     if (productKind === "kbf") {
       const kidCount = players.filter((p) => p.kbfRelation === "kid").length;
-      const freeAdultCount = players.filter((p) => !p.isPaidAdult && p.kbfRelation !== "kid").length;
+      const freeAdultCount = players.filter(
+        (p) => !p.isPaidAdult && p.kbfRelation !== "kid",
+      ).length;
       const breakdownParts: string[] = [];
       if (kidCount > 0) breakdownParts.push(`${kidCount} kid${kidCount !== 1 ? "s" : ""} free`);
-      if (freeAdultCount > 0) breakdownParts.push(`${freeAdultCount} adult${freeAdultCount !== 1 ? "s" : ""} free (FBF)`);
-      if (paidAdultCount > 0) breakdownParts.push(`${paidAdultCount} adult${paidAdultCount !== 1 ? "s" : ""} paid`);
+      if (freeAdultCount > 0)
+        breakdownParts.push(`${freeAdultCount} adult${freeAdultCount !== 1 ? "s" : ""} free (FBF)`);
+      if (paidAdultCount > 0)
+        breakdownParts.push(`${paidAdultCount} adult${paidAdultCount !== 1 ? "s" : ""} paid`);
       const vipTag = kbfIsVip ? " [VIP]" : "";
       finalParts.push(`KBF: ${breakdownParts.join(", ")}${vipTag}`);
     }
@@ -1121,9 +1151,7 @@ export async function POST(req: NextRequest) {
       const itemParts = reservationLines.map((l) => {
         const total = l.quantity * l.unitPriceCents;
         const totalStr = `$${(total / 100).toFixed(2)}`;
-        return l.quantity > 1
-          ? `${l.quantity}x ${l.label} ${totalStr}`
-          : `${l.label} ${totalStr}`;
+        return l.quantity > 1 ? `${l.quantity}x ${l.label} ${totalStr}` : `${l.label} ${totalStr}`;
       });
       finalParts.push(itemParts.join(" + "));
     }
@@ -1146,8 +1174,8 @@ export async function POST(req: NextRequest) {
 
     const finalNotes = finalParts.join("\n");
     const finalTitle = `${guest.name} (${players.length}p)`;
-    patchReservation(centerId, qamfReservationId, { Title: finalTitle, Notes: finalNotes }).catch((err) =>
-      console.warn("[bowling/v2/reserve] final notes patch failed (non-fatal):", err),
+    patchReservation(centerId, qamfReservationId, { Title: finalTitle, Notes: finalNotes }).catch(
+      (err) => console.warn("[bowling/v2/reserve] final notes patch failed (non-fatal):", err),
     );
   } catch (err) {
     console.warn("[bowling/v2/reserve] final notes build failed (non-fatal):", err);
@@ -1177,6 +1205,8 @@ export async function POST(req: NextRequest) {
     totalCents,
     remainingCents: totalCents - depositCents,
     shortCode,
-    confirmationPath: shortCode ? `${confirmBase}?code=${shortCode}` : `${confirmBase}?neonId=${neonId}`,
+    confirmationPath: shortCode
+      ? `${confirmBase}?code=${shortCode}`
+      : `${confirmBase}?neonId=${neonId}`,
   });
 }

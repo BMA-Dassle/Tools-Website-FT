@@ -39,7 +39,7 @@ const VOX_API_KEY = process.env.VOX_API_KEY || "";
 const VOX_FROM = "+12394819666"; // FastTrax SMS sender
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const SHORT_TTL = 60 * 60 * 24 * 90; // 90 days
-const DEDUP_TTL = 60 * 60 * 24;       // 24 hours
+const DEDUP_TTL = 60 * 60 * 24; // 24 hours
 const WINDOW_AHEAD_MS = 2 * 60 * 60 * 1000; // 2 hours
 const WINDOW_SKEW_BEHIND_MS = 5 * 60 * 1000; // include heats that started <5 min ago
 
@@ -155,20 +155,43 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
   const toFormatted = canonicalizePhone(to);
   if (!VOX_API_KEY) {
     console.error("[pre-race] VOX_API_KEY missing");
-    await logSms({ ts, phone: toFormatted || to, source: "pre-race-cron", status: null, ok: false, error: "VOX_API_KEY missing", body, ...audit });
+    await logSms({
+      ts,
+      phone: toFormatted || to,
+      source: "pre-race-cron",
+      status: null,
+      ok: false,
+      error: "VOX_API_KEY missing",
+      body,
+      ...audit,
+    });
     return false;
   }
   if (!toFormatted) {
-    await logSms({ ts, phone: to, source: "pre-race-cron", status: null, ok: false, error: "invalid phone format", body, ...audit });
+    await logSms({
+      ts,
+      phone: to,
+      source: "pre-race-cron",
+      status: null,
+      ok: false,
+      error: "invalid phone format",
+      body,
+      ...audit,
+    });
     return false;
   }
 
   const result = await voxSend(toFormatted, body);
   if (result.ok) {
     await logSms({
-      ts, phone: toFormatted, source: "pre-race-cron",
-      status: result.status, ok: true, body,
-      provider: result.provider, failedOver: result.failedOver,
+      ts,
+      phone: toFormatted,
+      source: "pre-race-cron",
+      status: result.status,
+      ok: true,
+      body,
+      provider: result.provider,
+      failedOver: result.failedOver,
       // Carry the Vox messageId so the webhook can correlate the
       // delivery callback back to this log entry. Without it the
       // entry stays YELLOW "sent" forever even after the carrier
@@ -189,21 +212,45 @@ async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boole
       source: "pre-race-cron",
       queuedAt: ts,
       shortCode: audit.shortCode,
-      audit: { sessionIds: audit.sessionIds, personIds: audit.personIds, memberCount: audit.memberCount },
+      audit: {
+        sessionIds: audit.sessionIds,
+        personIds: audit.personIds,
+        memberCount: audit.memberCount,
+      },
     });
     await logSms({
-      ts, phone: toFormatted, source: "pre-race-cron",
-      status: result.status, ok: false,
+      ts,
+      phone: toFormatted,
+      source: "pre-race-cron",
+      status: result.status,
+      ok: false,
       error: `[quota] queued for next reset window (${result.error || "429"})`,
-      body, ...audit,
+      body,
+      ...audit,
     });
     return false;
   }
 
   console.error(`[pre-race] SMS ${result.status}: ${result.error}`);
-  await logSms({ ts, phone: toFormatted, source: "pre-race-cron", status: result.status, ok: false, error: result.error || "", body, ...audit });
+  await logSms({
+    ts,
+    phone: toFormatted,
+    source: "pre-race-cron",
+    status: result.status,
+    ok: false,
+    error: result.error || "",
+    body,
+    ...audit,
+  });
   // Queue for retry so 429 bursts + transient failures self-heal on next cron tick.
-  await queueRetry({ cron: "pre-race-cron", phone: toFormatted, body, audit, status: result.status, error: result.error || "" });
+  await queueRetry({
+    cron: "pre-race-cron",
+    phone: toFormatted,
+    body,
+    audit,
+    status: result.status,
+    error: result.error || "",
+  });
   return false;
 }
 
@@ -247,7 +294,11 @@ function racerLabel(m: { firstName: string; lastName: string }): string {
   return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
 }
 
-function buildSingleSmsBody(sessionName: string, member: GroupTicketMember, shortUrl: string): string {
+function buildSingleSmsBody(
+  sessionName: string,
+  member: GroupTicketMember,
+  shortUrl: string,
+): string {
   return [
     `FastTrax e-ticket`,
     `Session ${sessionName} at ${formatTimeET(member.scheduledStart)}`,
@@ -327,7 +378,13 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   return lines.join("\n");
 }
 
-function buildEmailHtml(firstName: string, track: string, raceType: string, scheduledStart: string, shortUrl: string): string {
+function buildEmailHtml(
+  firstName: string,
+  track: string,
+  raceType: string,
+  scheduledStart: string,
+  shortUrl: string,
+): string {
   const time = formatTimeET(scheduledStart);
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
@@ -368,20 +425,21 @@ function buildGroupEmailHtml(
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
   );
-  const heading = recipient === "guardian"
-    ? `Your racers' e-tickets`
-    : `Your e-tickets`;
-  const intro = recipient === "guardian"
-    ? `Heads up — your racers are up soon.`
-    : `Heads up — your races are coming up.`;
-  const rows = sorted.map((m) => {
-    const time = formatTimeET(m.scheduledStart);
-    return `<tr><td style="padding:6px 0;border-bottom:1px solid #eee;">
+  const heading = recipient === "guardian" ? `Your racers' e-tickets` : `Your e-tickets`;
+  const intro =
+    recipient === "guardian"
+      ? `Heads up — your racers are up soon.`
+      : `Heads up — your races are coming up.`;
+  const rows = sorted
+    .map((m) => {
+      const time = formatTimeET(m.scheduledStart);
+      return `<tr><td style="padding:6px 0;border-bottom:1px solid #eee;">
       <strong style="color:#1a1a1a">${m.firstName}</strong>
       <span style="color:#555"> — ${m.track} Heat ${m.heatNumber} (${m.raceType})</span>
       <span style="color:#888"> · ${time}</span>
     </td></tr>`;
-  }).join("");
+    })
+    .join("");
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
@@ -457,7 +515,9 @@ export async function GET(req: NextRequest) {
   let emailSends = 0;
   // Drain any retries due now — 429s and transient failures self-heal without
   // having to wait for the main scan to re-identify the racer as fresh.
-  const retryStats = !dryRun ? await drainRetries("pre-race-cron") : { attempted: 0, ok: 0, requeued: 0, dead: 0 };
+  const retryStats = !dryRun
+    ? await drainRetries("pre-race-cron")
+    : { attempted: 0, ok: 0, requeued: 0, dead: 0 };
 
   try {
     const resources = activeResourcesForToday();
@@ -562,7 +622,8 @@ export async function GET(req: NextRequest) {
       // routes guardian-flavored since the bucket address IS the
       // parent and the body lists "your racers" (which includes them).
       const isGuardianFlavored = all.some((c) => c.resolved?.recipient === "guardian");
-      const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved?.contactFirstName;
+      const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved
+        ?.contactFirstName;
 
       if (all.length === 1) {
         // Single-racer single-phone path.
@@ -597,17 +658,13 @@ export async function GET(req: NextRequest) {
           const body = isGuardianFlavored
             ? buildGuardianSingleSmsBody(member, url)
             : buildSingleSmsBody(c.session.name, member, url);
-          const ok = await sendSms(
-            phone,
-            body,
-            {
-              sessionIds: [c.session.sessionId],
-              personIds: [c.participant.personId],
-              memberCount: 1,
-              shortCode: code,
-              viaGuardian: isGuardianFlavored,
-            },
-          );
+          const ok = await sendSms(phone, body, {
+            sessionIds: [c.session.sessionId],
+            personIds: [c.participant.personId],
+            memberCount: 1,
+            shortCode: code,
+            viaGuardian: isGuardianFlavored,
+          });
           if (ok) {
             await redis.set(dedupKey(c), "1", "EX", DEDUP_TTL);
             sent++;
@@ -628,7 +685,9 @@ export async function GET(req: NextRequest) {
 
       if (dryRun) {
         const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
-        console.log(`[pre-race DRY] would sms ${phone} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`);
+        console.log(
+          `[pre-race DRY] would sms ${phone} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`,
+        );
         continue;
       }
 
@@ -782,7 +841,13 @@ export async function GET(req: NextRequest) {
             : `Your FastTrax e-ticket · ${c.session.type} Race on ${c.trackDisplay} Track`;
           const html = isGuardianFlavored
             ? buildGroupEmailHtml([memberFromCandidate(c)], url, "guardian")
-            : buildEmailHtml(c.participant.firstName || "Racer", c.trackDisplay, c.session.type, c.session.scheduledStart, url);
+            : buildEmailHtml(
+                c.participant.firstName || "Racer",
+                c.trackDisplay,
+                c.session.type,
+                c.session.scheduledStart,
+                url,
+              );
           const ok = await sendEmail(displayEmail, subject, html);
           if (ok) {
             await redis.set(dedupKey(c), "1", "EX", DEDUP_TTL);
@@ -804,12 +869,15 @@ export async function GET(req: NextRequest) {
 
       if (dryRun) {
         const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
-        console.log(`[pre-race DRY] would email ${displayEmail} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`);
+        console.log(
+          `[pre-race DRY] would email ${displayEmail} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`,
+        );
         continue;
       }
 
       try {
-        const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved?.contactFirstName;
+        const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved
+          ?.contactFirstName;
         const groupId = await upsertGroupTicket({
           phone: "", // email-bucketed group has no phone
           locationId: FASTTRAX_LOCATION_ID,
@@ -843,7 +911,9 @@ export async function GET(req: NextRequest) {
       cron: "pre-race",
       dryRun,
       elapsedMs: Date.now() - started,
-      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      invoker: req.headers.get("x-vercel-cron")
+        ? "vercel-cron"
+        : req.headers.get("user-agent") || "unknown",
       candidates: candidates.length,
       sent,
       skipped,
@@ -876,7 +946,9 @@ export async function GET(req: NextRequest) {
       cron: "pre-race",
       dryRun,
       elapsedMs: Date.now() - started,
-      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      invoker: req.headers.get("x-vercel-cron")
+        ? "vercel-cron"
+        : req.headers.get("user-agent") || "unknown",
       candidates: 0,
       sent,
       skipped,
@@ -884,14 +956,24 @@ export async function GET(req: NextRequest) {
       fatalError: err instanceof Error ? err.message : "cron error",
     });
     return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "cron error", sent, skipped, errors },
+      {
+        ok: false,
+        error: err instanceof Error ? err.message : "cron error",
+        sent,
+        skipped,
+        errors,
+      },
       { status: 500 },
     );
   } finally {
     // Release the concurrency lock so the next 1-min fire can start
     // immediately instead of waiting for the 90s TTL.
     if (!dryRun) {
-      try { await redis.del(CRON_LOCK_KEY); } catch { /* best-effort */ }
+      try {
+        await redis.del(CRON_LOCK_KEY);
+      } catch {
+        /* best-effort */
+      }
     }
   }
 }

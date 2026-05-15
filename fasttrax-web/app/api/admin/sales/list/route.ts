@@ -37,7 +37,9 @@ import { readSmsCountsRange, type SmsDailyCounts } from "@/lib/sms-log";
 function todayET(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date());
 }
 
@@ -68,7 +70,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const from = (searchParams.get("from") || todayET()).trim();
     const to = (searchParams.get("to") || todayET()).trim();
-    const limit = Math.max(1, Math.min(5000, parseInt(searchParams.get("limit") || "1000", 10) || 1000));
+    const limit = Math.max(
+      1,
+      Math.min(5000, parseInt(searchParams.get("limit") || "1000", 10) || 1000),
+    );
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
       return NextResponse.json({ error: "Invalid from/to — use YYYY-MM-DD" }, { status: 400 });
@@ -134,7 +139,12 @@ export async function GET(req: NextRequest) {
     const povByTier = POV_TIERS.map((tier) => {
       const inTier = racingAll.filter((e) => inferTier(e) === tier);
       const povInTier = inTier.filter((e) => e.povPurchased === true);
-      return { tier, racingCount: inTier.length, povCount: povInTier.length, attachRate: pct(povInTier.length, inTier.length) };
+      return {
+        tier,
+        racingCount: inTier.length,
+        povCount: povInTier.length,
+        attachRate: pct(povInTier.length, inTier.length),
+      };
     }).filter((t) => t.racingCount > 0);
 
     const licenseCount = racingAll.filter((e) => e.licensePurchased === true).length;
@@ -176,7 +186,10 @@ export async function GET(req: NextRequest) {
       },
       addOnAttachCount,
       addOnAttachRate: pct(addOnAttachCount, racingAll.length),
-      topRaceProducts: topByName(racingAll.flatMap((e) => e.raceProductNames || []), 10),
+      topRaceProducts: topByName(
+        racingAll.flatMap((e) => e.raceProductNames || []),
+        10,
+      ),
     };
 
     // ── Attractions breakdown ──────────────────────────────────────
@@ -185,7 +198,10 @@ export async function GET(req: NextRequest) {
     );
     const attractions = {
       reservations: attractionAll.length,
-      topAddOns: topByName(all.flatMap((e) => e.addOnNames || []), 10),
+      topAddOns: topByName(
+        all.flatMap((e) => e.addOnNames || []),
+        10,
+      ),
     };
 
     // ── Video post-sale data (from Redis video-match log) ──────────
@@ -199,7 +215,11 @@ export async function GET(req: NextRequest) {
     function etDayStartMs(ymd: string): number {
       const probe = new Date(`${ymd}T12:00:00.000Z`);
       const etHour = parseInt(
-        probe.toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }),
+        probe.toLocaleString("en-US", {
+          timeZone: "America/New_York",
+          hour: "2-digit",
+          hour12: false,
+        }),
         10,
       );
       // utcOffset is how many hours ET is BEHIND UTC (4 for EDT, 5 for EST)
@@ -208,34 +228,35 @@ export async function GET(req: NextRequest) {
     }
 
     const videoStartMs = etDayStartMs(from);
-    const videoEndMs   = etDayStartMs(to) + 86_400_000 - 1; // end of `to` day in ET
+    const videoEndMs = etDayStartMs(to) + 86_400_000 - 1; // end of `to` day in ET
 
     const videoMatches = await listMatchesInRange({
       startMs: videoStartMs,
-      endMs:   videoEndMs,
-      limit:   2000,
+      endMs: videoEndMs,
+      limit: 2000,
     }).catch(() => []); // non-fatal — sales page must not break if Redis is down
 
     // Exclude blocked and manual-send synthetics
-    const realMatches = videoMatches.filter(
-      (m) => String(m.sessionId) !== "manual" && !m.blocked,
-    );
+    const realMatches = videoMatches.filter((m) => String(m.sessionId) !== "manual" && !m.blocked);
 
-    const videoTotal     = realMatches.length;
+    const videoTotal = realMatches.length;
     const videoPurchased = realMatches.filter((m) => m.purchased === true).length;
-    const videoViewed    = realMatches.filter((m) => m.viewed === true).length;
-    const videoSmsSent   = realMatches.filter((m) => m.notifySmsOk === true).length;
-    const videoPending   = realMatches.filter((m) => m.pendingNotify === true).length;
+    const videoViewed = realMatches.filter((m) => m.viewed === true).length;
+    const videoSmsSent = realMatches.filter((m) => m.notifySmsOk === true).length;
+    const videoPending = realMatches.filter((m) => m.pendingNotify === true).length;
 
     // Group by track — normalize "Red Track" → "Red" etc.
-    const trackMap = new Map<string, { total: number; purchased: number; viewed: number; smsSent: number }>();
+    const trackMap = new Map<
+      string,
+      { total: number; purchased: number; viewed: number; smsSent: number }
+    >();
     for (const m of realMatches) {
       const track = (m.track || "Unknown").replace(/\s*track\s*/i, "").trim() || "Unknown";
       const s = trackMap.get(track) ?? { total: 0, purchased: 0, viewed: 0, smsSent: 0 };
       s.total++;
-      if (m.purchased)    s.purchased++;
-      if (m.viewed)       s.viewed++;
-      if (m.notifySmsOk)  s.smsSent++;
+      if (m.purchased) s.purchased++;
+      if (m.viewed) s.viewed++;
+      if (m.notifySmsOk) s.smsSent++;
       trackMap.set(track, s);
     }
     const videosByTrack = Array.from(trackMap.entries())
@@ -256,15 +277,15 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.total - a.total);
 
     const videos = {
-      total:           videoTotal,
-      purchased:       videoPurchased,
-      viewed:          videoViewed,
-      smsSent:         videoSmsSent,
-      pending:         videoPending,
-      purchaseRate:    pct(videoPurchased, videoTotal),
+      total: videoTotal,
+      purchased: videoPurchased,
+      viewed: videoViewed,
+      smsSent: videoSmsSent,
+      pending: videoPending,
+      purchaseRate: pct(videoPurchased, videoTotal),
       smsDeliveryRate: pct(videoSmsSent, videoTotal),
-      byTrack:         videosByTrack,
-      byRaceType:      videosByRaceType,
+      byTrack: videosByTrack,
+      byRaceType: videosByRaceType,
     };
 
     // ── Per-day breakdown for chart rendering ─────────────────────

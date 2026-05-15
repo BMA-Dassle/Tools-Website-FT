@@ -47,7 +47,10 @@ function httpsGet(
       res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
     });
     req.on("error", reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(15000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
   });
 }
 
@@ -72,7 +75,10 @@ function httpsRequest(
       },
     );
     req.on("error", reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(15000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
     req.write(body);
     req.end();
   });
@@ -177,10 +183,7 @@ export async function cancelBmiAttractions(
 
       // 1. GET the full project entity
       // CRITICAL: orderId is a raw string — never parse through Number().
-      const getRes = await httpsGet(
-        `/api/${clientKey}/project/${orderId}`,
-        headers,
-      );
+      const getRes = await httpsGet(`/api/${clientKey}/project/${orderId}`, headers);
 
       if (getRes.status !== 200) {
         console.warn(
@@ -208,9 +211,7 @@ export async function cancelBmiAttractions(
       );
 
       if (putRes.status === 200) {
-        console.log(
-          `[bmi-attraction-cancel] cancelled project ${orderId} (${clientKey})`,
-        );
+        console.log(`[bmi-attraction-cancel] cancelled project ${orderId} (${clientKey})`);
       } else {
         console.warn(
           `[bmi-attraction-cancel] PUT project ${orderId} failed: ${putRes.status} ${putRes.body.substring(0, 200)}`,

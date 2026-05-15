@@ -67,8 +67,7 @@ const pricingSchema = {
   "@context": "https://schema.org",
   "@type": "ItemList",
   name: "HeadPinz Pricing",
-  description:
-    "Bowling, laser tag, and gel blaster rates at HeadPinz Fort Myers and Naples.",
+  description: "Bowling, laser tag, and gel blaster rates at HeadPinz Fort Myers and Naples.",
   itemListElement: [
     {
       "@type": "ListItem",
@@ -108,8 +107,7 @@ const pricingSchema = {
       item: {
         "@type": "Service",
         name: "NEXUS Gel Blasters",
-        description:
-          "Glow arena gel blaster combat with haptic vests and eco-friendly Gellets.",
+        description: "Glow arena gel blaster combat with haptic vests and eco-friendly Gellets.",
         offers: {
           "@type": "Offer",
           price: "12.00",
@@ -243,7 +241,9 @@ export default function HeadPinzPricingPage() {
               lineHeight: 1.6,
             }}
           >
-            Bowling rates, laser tag, gel blasters, and VIP lane experiences across our two Southwest Florida locations — Fort Myers and Naples. Book online for the best rates and guaranteed availability.
+            Bowling rates, laser tag, gel blasters, and VIP lane experiences across our two
+            Southwest Florida locations — Fort Myers and Naples. Book online for the best rates and
+            guaranteed availability.
           </p>
         </div>
       </section>
@@ -327,7 +327,10 @@ export default function HeadPinzPricingPage() {
               textAlign: "center",
             }}
           >
-            Disclaimer: rates above reflect base per-person and per-lane pricing. Day-of-week, time-of-day, group size, and package selections may adjust the final price. Live availability and the most current rates are shown in each booking flow. Prices subject to change without notice.
+            Disclaimer: rates above reflect base per-person and per-lane pricing. Day-of-week,
+            time-of-day, group size, and package selections may adjust the final price. Live
+            availability and the most current rates are shown in each booking flow. Prices subject
+            to change without notice.
           </p>
         </div>
       </section>
@@ -362,7 +365,9 @@ export default function HeadPinzPricingPage() {
               marginBottom: "32px",
             }}
           >
-            Two Southwest Florida bowling and entertainment centers. Whether you&apos;re searching &ldquo;bowling near me&rdquo; from Fort Myers, Naples, Cape Coral, Bonita Springs, Estero, or Marco Island — one of our locations is a short drive away.
+            Two Southwest Florida bowling and entertainment centers. Whether you&apos;re searching
+            &ldquo;bowling near me&rdquo; from Fort Myers, Naples, Cape Coral, Bonita Springs,
+            Estero, or Marco Island — one of our locations is a short drive away.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <Link
@@ -376,14 +381,30 @@ export default function HeadPinzPricingPage() {
             >
               <h3
                 className="font-heading uppercase"
-                style={{ color: coral, fontSize: "22px", letterSpacing: "1.2px", marginBottom: "8px" }}
+                style={{
+                  color: coral,
+                  fontSize: "22px",
+                  letterSpacing: "1.2px",
+                  marginBottom: "8px",
+                }}
               >
                 HeadPinz Fort Myers
               </h3>
-              <p className="font-body" style={{ color: "rgba(255,255,255,0.85)", fontSize: "15px", lineHeight: 1.5, marginBottom: "10px" }}>
+              <p
+                className="font-body"
+                style={{
+                  color: "rgba(255,255,255,0.85)",
+                  fontSize: "15px",
+                  lineHeight: 1.5,
+                  marginBottom: "10px",
+                }}
+              >
                 14513 Global Pkwy, Fort Myers, FL 33913
               </p>
-              <p className="font-body" style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", lineHeight: 1.5 }}>
+              <p
+                className="font-body"
+                style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", lineHeight: 1.5 }}
+              >
                 24 lanes · NEXUS Laser Tag · Gel Blasters · Old Time Pinboyz Lanes · Nemo&apos;s
               </p>
             </Link>
@@ -398,14 +419,30 @@ export default function HeadPinzPricingPage() {
             >
               <h3
                 className="font-heading uppercase"
-                style={{ color: coral, fontSize: "22px", letterSpacing: "1.2px", marginBottom: "8px" }}
+                style={{
+                  color: coral,
+                  fontSize: "22px",
+                  letterSpacing: "1.2px",
+                  marginBottom: "8px",
+                }}
               >
                 HeadPinz Naples
               </h3>
-              <p className="font-body" style={{ color: "rgba(255,255,255,0.85)", fontSize: "15px", lineHeight: 1.5, marginBottom: "10px" }}>
+              <p
+                className="font-body"
+                style={{
+                  color: "rgba(255,255,255,0.85)",
+                  fontSize: "15px",
+                  lineHeight: 1.5,
+                  marginBottom: "10px",
+                }}
+              >
                 8525 Radio Ln, Naples, FL 34104
               </p>
-              <p className="font-body" style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", lineHeight: 1.5 }}>
+              <p
+                className="font-body"
+                style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", lineHeight: 1.5 }}
+              >
                 16 lanes · Gel Blasters · VIP HyperBowling + NeoVerse · Nemo&apos;s
               </p>
             </Link>
@@ -470,7 +507,10 @@ export default function HeadPinzPricingPage() {
                 >
                   {f.q}
                 </h3>
-                <p className="font-body" style={{ color: "rgba(255,255,255,0.78)", fontSize: "15px", lineHeight: 1.6 }}>
+                <p
+                  className="font-body"
+                  style={{ color: "rgba(255,255,255,0.78)", fontSize: "15px", lineHeight: 1.6 }}
+                >
                   {f.a}
                 </p>
               </div>

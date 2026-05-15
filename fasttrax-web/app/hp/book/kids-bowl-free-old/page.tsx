@@ -6,11 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
-import {
-  bookableDateRange,
-  isKbfBookableDate,
-  KBF_PROGRAM_START_YMD,
-} from "@/lib/kbf-schedule";
+import { bookableDateRange, isKbfBookableDate, KBF_PROGRAM_START_YMD } from "@/lib/kbf-schedule";
 import {
   getBookingLocation,
   setBookingLocation,
@@ -998,7 +994,9 @@ export default function KidsBowlFreePage() {
     const center2 = CENTERS.find((c) => c.id === resolvedCenter);
     const lastUsedCenter = center2?.locationKey === "naples" ? "naples" : "fortmyers";
     const prefsToSave = selectedBowlers
-      .filter((b) => !b.isParent && b.passId > 0 && (b.relation === "kid" || b.relation === "family"))
+      .filter(
+        (b) => !b.isParent && b.passId > 0 && (b.relation === "kid" || b.relation === "family"),
+      )
       .map((b) => {
         const sel = bowlerSelections[b.key];
         return {

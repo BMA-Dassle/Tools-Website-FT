@@ -77,9 +77,23 @@ function AttractionCard({
         {/* Location badge */}
         <div className="absolute top-3 left-3">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-sm text-xs font-medium text-white/70 border border-white/10">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            <svg
+              className="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+              />
             </svg>
             {locationLabel}
           </span>
@@ -88,7 +102,13 @@ function AttractionCard({
         {attraction.durationLabel && (
           <div className="absolute top-3 right-3">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-sm text-xs font-medium text-white/70 border border-white/10">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <circle cx="12" cy="12" r="10" />
                 <path strokeLinecap="round" d="M12 6v6l4 2" />
               </svg>
@@ -112,7 +132,13 @@ function AttractionCard({
           style={{ backgroundColor: attraction.color, color: "#ffffff" }}
         >
           Book Now
-          <svg className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg
+            className="w-4 h-4 group-hover:translate-x-0.5 transition-transform"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>
         </div>
@@ -264,7 +290,11 @@ export default function HeadPinzBookLandingPage() {
               </div>
               <h2
                 className="font-heading font-black uppercase italic text-white mb-2"
-                style={{ fontSize: "clamp(20px, 3vw, 28px)", lineHeight: 1.15, letterSpacing: "-0.3px" }}
+                style={{
+                  fontSize: "clamp(20px, 3vw, 28px)",
+                  lineHeight: 1.15,
+                  letterSpacing: "-0.3px",
+                }}
               >
                 Looking for the ultimate VIP experience?
               </h2>
@@ -272,9 +302,9 @@ export default function HeadPinzBookLandingPage() {
                 className="font-body text-white/70"
                 style={{ fontSize: "14px", lineHeight: 1.6, maxWidth: "52ch" }}
               >
-                Let our event planners handle the whole thing — bowling, food, drinks, arcade,
-                laser tag — so you can focus on the fun. Birthdays, corporate outings, team
-                building, celebrations.
+                Let our event planners handle the whole thing — bowling, food, drinks, arcade, laser
+                tag — so you can focus on the fun. Birthdays, corporate outings, team building,
+                celebrations.
               </p>
             </div>
             <Link
@@ -310,21 +340,24 @@ export default function HeadPinzBookLandingPage() {
               className="font-heading font-black uppercase italic text-white mb-3"
               style={{ fontSize: "22px", lineHeight: 1.15, letterSpacing: "-0.3px" }}
             >
-              {pendingDestination === kbfHref ? "Start a Kids Bowl Free booking?" : "Start a bowling booking?"}
+              {pendingDestination === kbfHref
+                ? "Start a Kids Bowl Free booking?"
+                : "Start a bowling booking?"}
             </h3>
             <p
               className="font-body text-white/75 mb-2"
               style={{ fontSize: "14px", lineHeight: 1.6 }}
             >
-              {pendingDestination === kbfHref ? "Kids Bowl Free" : "Bowling"} runs on its own reservation flow, so we&apos;ll need to clear
-              what&apos;s in your current cart to continue.
+              {pendingDestination === kbfHref ? "Kids Bowl Free" : "Bowling"} runs on its own
+              reservation flow, so we&apos;ll need to clear what&apos;s in your current cart to
+              continue.
             </p>
             <p
               className="font-body text-white/60 mb-5"
               style={{ fontSize: "13px", lineHeight: 1.55 }}
             >
-              Don&apos;t worry — inside the booking you&apos;ll be able to add on
-              laser tag, gel blasters, pizza and drinks.
+              Don&apos;t worry — inside the booking you&apos;ll be able to add on laser tag, gel
+              blasters, pizza and drinks.
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <button
@@ -342,7 +375,11 @@ export default function HeadPinzBookLandingPage() {
                 className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-transform hover:scale-[1.02] disabled:opacity-60 disabled:scale-100"
                 style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
               >
-                {clearing ? "Clearing…" : pendingDestination === kbfHref ? "Clear & book Kids Bowl Free" : "Clear & book bowling"}
+                {clearing
+                  ? "Clearing…"
+                  : pendingDestination === kbfHref
+                    ? "Clear & book Kids Bowl Free"
+                    : "Clear & book bowling"}
               </button>
             </div>
           </div>

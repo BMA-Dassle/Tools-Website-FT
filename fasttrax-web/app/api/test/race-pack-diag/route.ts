@@ -70,7 +70,8 @@ async function depositSnapshot(base: string, personId: string) {
   const byKind: Record<string, number> = {};
   for (const d of arr) {
     const kind = d.depositKind || d.DepositKind || "unknown";
-    const bal = typeof d.balance === "number" ? d.balance : (typeof d.Balance === "number" ? d.Balance : 0);
+    const bal =
+      typeof d.balance === "number" ? d.balance : typeof d.Balance === "number" ? d.Balance : 0;
     byKind[kind] = (byKind[kind] || 0) + bal;
   }
   return { byKind, totalEntries: arr.length };
@@ -117,7 +118,11 @@ export async function GET(req: NextRequest) {
       });
       const text = await res.text();
       let parsed: unknown = text;
-      try { parsed = JSON.parse(text); } catch { /* keep raw */ }
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        /* keep raw */
+      }
       return { status: res.status, body: parsed, raw: text };
     };
 
@@ -131,9 +136,19 @@ export async function GET(req: NextRequest) {
         ok: true,
         probe: true,
         inputShape: {
-          personId, productId: productIdRaw, pageId, clientKey,
-          doConfirm, doCancel, depositKind, regContact, regProject,
-          regProjectLine, projectFirst, personIdInSell, includePageId,
+          personId,
+          productId: productIdRaw,
+          pageId,
+          clientKey,
+          doConfirm,
+          doCancel,
+          depositKind,
+          regContact,
+          regProject,
+          regProjectLine,
+          projectFirst,
+          personIdInSell,
+          includePageId,
           includeProductXref,
         },
         message: "Probe only — no BMI call. Drop probe=1 to actually run.",
@@ -141,7 +156,22 @@ export async function GET(req: NextRequest) {
     }
 
     const trace: Record<string, unknown> = {
-      input: { personId, productId: productIdRaw, pageId, clientKey, doConfirm, doCancel, depositKind, regContact, regProject, regProjectLine, projectFirst, personIdInSell, includePageId, includeProductXref },
+      input: {
+        personId,
+        productId: productIdRaw,
+        pageId,
+        clientKey,
+        doConfirm,
+        doCancel,
+        depositKind,
+        regContact,
+        regProject,
+        regProjectLine,
+        projectFirst,
+        personIdInSell,
+        includePageId,
+        includeProductXref,
+      },
       timestamp: new Date().toISOString(),
     };
 
@@ -214,7 +244,10 @@ export async function GET(req: NextRequest) {
         trace.registerProjectLine = { skipped: "no orderItemId in sell response" };
         return;
       }
-      const r = await bmi("person/registerProjectPerson", { method: "POST", body: projectLineBody });
+      const r = await bmi("person/registerProjectPerson", {
+        method: "POST",
+        body: projectLineBody,
+      });
       trace.registerProjectLine = r;
       trace.registerProjectLineBodySent = projectLineBody;
     };
@@ -256,7 +289,10 @@ export async function GET(req: NextRequest) {
 
     // 8. Cancel the test bill so it doesn't clutter BMI (unless asked to keep)
     if (doCancel) {
-      const cancelResp = await fetch(`${base}/api/bmi?endpoint=${encodeURIComponent(`bill/${orderId}/cancel`)}&clientKey=${clientKey}`, { method: "DELETE" });
+      const cancelResp = await fetch(
+        `${base}/api/bmi?endpoint=${encodeURIComponent(`bill/${orderId}/cancel`)}&clientKey=${clientKey}`,
+        { method: "DELETE" },
+      );
       trace.cancel = { status: cancelResp.status };
     }
 

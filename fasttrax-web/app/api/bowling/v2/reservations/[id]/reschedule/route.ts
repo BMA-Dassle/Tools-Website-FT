@@ -45,10 +45,7 @@ const SQUARE_CODE_TO_QAMF: Record<string, number> = {
   PPTR5G2N0QXF7: 3148,
 };
 
-export async function PATCH(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await ctx.params;
   const neonId = parseInt(idStr, 10);
   if (isNaN(neonId) || neonId < 1) {
@@ -69,10 +66,7 @@ export async function PATCH(
 
   const { bookedAt, webOfferId, optionId, optionType = "Game" } = body;
   if (!bookedAt || !webOfferId) {
-    return NextResponse.json(
-      { error: "bookedAt and webOfferId are required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "bookedAt and webOfferId are required" }, { status: 400 });
   }
 
   // ── Load existing Neon record ────────────────────────────────────
@@ -215,10 +209,7 @@ export async function PATCH(
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF error";
     console.error("[bowling/v2/reschedule] QAMF createReservation failed:", msg);
-    return NextResponse.json(
-      { error: `Reschedule failed: ${msg}` },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: `Reschedule failed: ${msg}` }, { status: 502 });
   }
 
   // ── Confirm the new QAMF reservation — MUST succeed ─────────────
@@ -230,11 +221,10 @@ export async function PATCH(
     // Clean up the orphaned temporary reservation
     try {
       await deleteReservation(qamfCenterId, newQamfId);
-    } catch { /* best effort */ }
-    return NextResponse.json(
-      { error: `QAMF confirm failed: ${msg}` },
-      { status: 502 },
-    );
+    } catch {
+      /* best effort */
+    }
+    return NextResponse.json({ error: `QAMF confirm failed: ${msg}` }, { status: 502 });
   }
 
   // ── Update Neon ──────────────────────────────────────────────────
@@ -263,7 +253,10 @@ export async function PATCH(
       await patchReservation(qamfCenterId, newQamfId, { Notes: memo });
     }
   } catch (err) {
-    console.warn("[bowling/v2/reschedule] memo patch failed:", err instanceof Error ? err.message : err);
+    console.warn(
+      "[bowling/v2/reschedule] memo patch failed:",
+      err instanceof Error ? err.message : err,
+    );
   }
 
   // ── Resend confirmation (fire-and-forget) ────────────────────────
@@ -279,7 +272,9 @@ export async function PATCH(
         forceResend: true,
       }),
     }).catch(() => {});
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   return NextResponse.json({ id: neonId, bookedAt, qamfReservationId: newQamfId });
 }

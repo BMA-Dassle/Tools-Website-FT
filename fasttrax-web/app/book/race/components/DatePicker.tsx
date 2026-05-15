@@ -15,8 +15,8 @@ interface DatePickerProps {
 const MEGA_PRODUCT_ID = "24965505";
 // Regular products covering weekdays + weekends
 const REGULAR_PRODUCT_IDS = [
-  "24960859",  // Starter Race Red (Mon-Thu)
-  "24953280",  // Starter Race Red (Fri-Sun)
+  "24960859", // Starter Race Red (Mon-Thu)
+  "24953280", // Starter Race Red (Fri-Sun)
 ];
 
 interface BmiActivity {
@@ -36,13 +36,15 @@ function toISO(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-async function fetchCalendarDays(productId: string, dateFrom: string, dateTill: string): Promise<string[]> {
+async function fetchCalendarDays(
+  productId: string,
+  dateFrom: string,
+  dateTill: string,
+): Promise<string[]> {
   try {
     const data = await bmiGet("availability", { productId, dateFrom, dateTill });
     const activities: BmiActivity[] = data.activities || [];
-    return activities
-      .filter((a) => a.status === 0)
-      .map((a) => a.date.split("T")[0]);
+    return activities.filter((a) => a.status === 0).map((a) => a.date.split("T")[0]);
   } catch {
     return [];
   }
@@ -69,56 +71,61 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
   // never see the jarring "April empty → snap to May" flash.
   const [ready, setReady] = useState(false);
 
-  const fetchAvailability = useCallback(async (year: number, month: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const dateFrom = `${year}-${String(month + 1).padStart(2, "0")}-01`;
-      const lastDay = getDaysInMonth(year, month);
-      const dateTill = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const fetchAvailability = useCallback(
+    async (year: number, month: number) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const dateFrom = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+        const lastDay = getDaysInMonth(year, month);
+        const dateTill = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-      // BMI's GET /availability date-level endpoint can return status:1 for today
-      // even when session-level slots exist (the POST /availability endpoint is
-      // authoritative). Always force today into the available set when it falls in
-      // the viewed month — the HeatPicker is the definitive gate.
-      const forceToday = todayStr >= dateFrom && todayStr <= dateTill ? [todayStr] : [];
+        // BMI's GET /availability date-level endpoint can return status:1 for today
+        // even when session-level slots exist (the POST /availability endpoint is
+        // authoritative). Always force today into the available set when it falls in
+        // the viewed month — the HeatPicker is the definitive gate.
+        const forceToday = todayStr >= dateFrom && todayStr <= dateTill ? [todayStr] : [];
 
-      if (productId) {
-        const days = await fetchCalendarDays(productId, dateFrom, dateTill);
-        const all = [...new Set([...days, ...forceToday])];
-        setAvailableDates(new Set(all));
-        setMegaDates(new Set());
-        return { all, mega: [] as string[] };
-      } else {
-        const [megaDays, ...regularResults] = await Promise.all([
-          fetchCalendarDays(MEGA_PRODUCT_ID, dateFrom, dateTill),
-          ...REGULAR_PRODUCT_IDS.map(id => fetchCalendarDays(id, dateFrom, dateTill)),
-        ]);
+        if (productId) {
+          const days = await fetchCalendarDays(productId, dateFrom, dateTill);
+          const all = [...new Set([...days, ...forceToday])];
+          setAvailableDates(new Set(all));
+          setMegaDates(new Set());
+          return { all, mega: [] as string[] };
+        } else {
+          const [megaDays, ...regularResults] = await Promise.all([
+            fetchCalendarDays(MEGA_PRODUCT_ID, dateFrom, dateTill),
+            ...REGULAR_PRODUCT_IDS.map((id) => fetchCalendarDays(id, dateFrom, dateTill)),
+          ]);
 
-        const allDates = new Set<string>([...megaDays, ...regularResults.flat(), ...forceToday]);
-        setAvailableDates(allDates);
-        setMegaDates(new Set(megaDays));
-        return { all: [...allDates], mega: megaDays };
+          const allDates = new Set<string>([...megaDays, ...regularResults.flat(), ...forceToday]);
+          setAvailableDates(allDates);
+          setMegaDates(new Set(megaDays));
+          return { all: [...allDates], mega: megaDays };
+        }
+      } catch {
+        setError("Couldn't load availability. Please try again.");
+        return { all: [] as string[], mega: [] as string[] };
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      setError("Couldn't load availability. Please try again.");
-      return { all: [] as string[], mega: [] as string[] };
-    } finally {
-      setLoading(false);
-    }
-  }, [productId, todayStr]);
+    },
+    [productId, todayStr],
+  );
 
   useEffect(() => {
     fetchAvailability(viewYear, viewMonth).then(({ all }) => {
       if (!checkedNoFuture) {
         // Initial probe: advance to next month if nothing bookable remains
         setCheckedNoFuture(true);
-        const futureDates = all.filter(d => d >= todayStr);
+        const futureDates = all.filter((d) => d >= todayStr);
         if (futureDates.length === 0) {
           // Silently advance — the calendar stays hidden (ready=false) until
           // the next month's data arrives, so the user never sees the flash.
-          if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
-          else setViewMonth(m => m + 1);
+          if (viewMonth === 11) {
+            setViewYear((y) => y + 1);
+            setViewMonth(0);
+          } else setViewMonth((m) => m + 1);
           // ready stays false; the next effect run will set it true
         } else {
           setReady(true);
@@ -132,19 +139,26 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
 
   const prevMonth = () => {
     setReady(true); // already probed; manual nav always reveals calendar
-    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
-    else setViewMonth(m => m - 1);
+    if (viewMonth === 0) {
+      setViewYear((y) => y - 1);
+      setViewMonth(11);
+    } else setViewMonth((m) => m - 1);
   };
 
   const nextMonth = () => {
     setReady(true);
-    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
-    else setViewMonth(m => m + 1);
+    if (viewMonth === 11) {
+      setViewYear((y) => y + 1);
+      setViewMonth(0);
+    } else setViewMonth((m) => m + 1);
   };
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
   const firstDow = getFirstDayOfWeek(viewYear, viewMonth);
-  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 
   const canPrev = !(viewYear === today.getFullYear() && viewMonth === today.getMonth());
 
@@ -154,9 +168,7 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
         <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
           Pick a Date
         </h2>
-        <p className="text-white/50 text-sm">
-          Choose when you&apos;d like to race.
-        </p>
+        <p className="text-white/50 text-sm">Choose when you&apos;d like to race.</p>
       </div>
 
       {/* Spinner shown while probing the initial month (hides the April→May flash) */}
@@ -188,7 +200,9 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
         {/* Day-of-week headers */}
         <div className="grid grid-cols-7 mb-1">
           {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
-            <div key={d} className="text-center text-[13px] text-white/30 py-1">{d}</div>
+            <div key={d} className="text-center text-[13px] text-white/30 py-1">
+              {d}
+            </div>
           ))}
         </div>
 
@@ -231,17 +245,18 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
                   title={groupEvent ? `Private Event: ${groupEvent.companyName}` : undefined}
                   className={`
                     aspect-square rounded-lg text-sm font-medium transition-all duration-150
-                    ${groupEvent
-                      ? "bg-amber-500/15 text-amber-400/60 cursor-not-allowed ring-1 ring-amber-500/30"
-                      : isSelected
-                        ? isMega
-                          ? "bg-[#A855F7] text-white font-bold shadow-lg shadow-[#A855F7]/30"
-                          : "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
-                        : isAvailable && !isPast
+                    ${
+                      groupEvent
+                        ? "bg-amber-500/15 text-amber-400/60 cursor-not-allowed ring-1 ring-amber-500/30"
+                        : isSelected
                           ? isMega
-                            ? "bg-[#A855F7]/20 text-[#C084FC] hover:bg-[#A855F7]/35 cursor-pointer"
-                            : "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
-                          : "text-white/20 cursor-not-allowed"
+                            ? "bg-[#A855F7] text-white font-bold shadow-lg shadow-[#A855F7]/30"
+                            : "bg-[#00E2E5] text-[#000418] font-bold shadow-lg shadow-[#00E2E5]/30"
+                          : isAvailable && !isPast
+                            ? isMega
+                              ? "bg-[#A855F7]/20 text-[#C084FC] hover:bg-[#A855F7]/35 cursor-pointer"
+                              : "bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30 cursor-pointer"
+                            : "text-white/20 cursor-not-allowed"
                     }
                     ${isToday && !isSelected && !groupEvent ? "ring-1 ring-white/30" : ""}
                   `}

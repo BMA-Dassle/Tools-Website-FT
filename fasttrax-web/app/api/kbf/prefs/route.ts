@@ -73,10 +73,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json(
-      { ok: true, saved },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ ok: true, saved }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("[kbf/prefs] error:", err);
     return NextResponse.json({ error: "save failed" }, { status: 500 });

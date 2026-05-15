@@ -51,39 +51,52 @@ export async function middleware(request: NextRequest) {
     if (embedMatch && EMBED_TOOLS.has(embedMatch[1])) {
       const embedSecret = process.env.ADMIN_EMBED_SECRET || "";
       if (!embedSecret) {
-        return new NextResponse("embed: ADMIN_EMBED_SECRET not configured", { status: 403, headers: { "content-type": "text/plain" } });
+        return new NextResponse("embed: ADMIN_EMBED_SECRET not configured", {
+          status: 403,
+          headers: { "content-type": "text/plain" },
+        });
       }
       const ts = request.nextUrl.searchParams.get("ts") || "";
       const sig = request.nextUrl.searchParams.get("sig") || "";
       if (!ts || !sig) {
-        return new NextResponse("embed: missing ts or sig param", { status: 403, headers: { "content-type": "text/plain" } });
+        return new NextResponse("embed: missing ts or sig param", {
+          status: 403,
+          headers: { "content-type": "text/plain" },
+        });
       }
       // Timestamp must be within 15 minutes
       const age = Math.abs(Date.now() - Number(ts));
       if (isNaN(age) || age > 15 * 60 * 1000) {
-        return new NextResponse(`embed: signature expired (age ${Math.round(age / 1000)}s, max 900s)`, { status: 403, headers: { "content-type": "text/plain" } });
+        return new NextResponse(
+          `embed: signature expired (age ${Math.round(age / 1000)}s, max 900s)`,
+          { status: 403, headers: { "content-type": "text/plain" } },
+        );
       }
       // HMAC-SHA256 verify (Web Crypto — available in Edge runtime)
       const enc = new TextEncoder();
       const key = await crypto.subtle.importKey(
-        "raw", enc.encode(embedSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+        "raw",
+        enc.encode(embedSecret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
       );
-      const expected_sig = new Uint8Array(
-        await crypto.subtle.sign("HMAC", key, enc.encode(ts)),
-      );
-      const hex = Array.from(expected_sig).map(b => b.toString(16).padStart(2, "0")).join("");
+      const expected_sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(ts)));
+      const hex = Array.from(expected_sig)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       if (sig !== hex) {
-        return new NextResponse("embed: invalid signature (wrong key)", { status: 403, headers: { "content-type": "text/plain" } });
+        return new NextResponse("embed: invalid signature (wrong key)", {
+          status: 403,
+          headers: { "content-type": "text/plain" },
+        });
       }
       // Valid — allow through with frame-ancestors lock + admin flag
       const requestHeaders = new Headers(request.headers);
       requestHeaders.set("x-admin-route", "1");
       requestHeaders.set("x-admin-via", "embed-hmac");
       const resp = NextResponse.next({ request: { headers: requestHeaders } });
-      resp.headers.set(
-        "Content-Security-Policy",
-        "frame-ancestors https://portal.headpinz.com",
-      );
+      resp.headers.set("Content-Security-Policy", "frame-ancestors https://portal.headpinz.com");
       return resp;
     }
 
@@ -118,7 +131,8 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith("/api/admin/e-tickets/") ||
       pathname.startsWith("/api/admin/pov-codes/");
     if (apiKeyEligible) {
-      const provided = request.headers.get("x-api-key") || request.nextUrl.searchParams.get("apiKey");
+      const provided =
+        request.headers.get("x-api-key") || request.nextUrl.searchParams.get("apiKey");
       const validKeys = (process.env.SALES_API_KEYS || "")
         .split(",")
         .map((k) => k.trim())
@@ -142,7 +156,8 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/admin/")) {
       token = pathname.split("/")[2] || "";
     } else {
-      token = request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
+      token =
+        request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
     }
 
     // Legacy-token redirect — staff bookmarked the e-ticket admin
@@ -169,12 +184,15 @@ export async function middleware(request: NextRequest) {
 
     if (!tokenOk) {
       if (pathname.startsWith("/api/")) {
-        return new NextResponse(
-          JSON.stringify({ error: "Not found" }),
-          { status: 404, headers: { "content-type": "application/json" } },
-        );
+        return new NextResponse(JSON.stringify({ error: "Not found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
       }
-      return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain" } });
+      return new NextResponse("Not found", {
+        status: 404,
+        headers: { "content-type": "text/plain" },
+      });
     }
 
     // ── IP allowlist for /admin/{token}/ page routes ─────────────────
@@ -211,10 +229,7 @@ export async function middleware(request: NextRequest) {
     // Allow portal to iframe admin pages when ?embedded=1 is set.
     // Without this, the default X-Frame-Options blocks cross-origin framing.
     if (request.nextUrl.searchParams.get("embedded") === "1") {
-      resp.headers.set(
-        "Content-Security-Policy",
-        "frame-ancestors https://portal.headpinz.com",
-      );
+      resp.headers.set("Content-Security-Policy", "frame-ancestors https://portal.headpinz.com");
       // Override any default X-Frame-Options that would conflict
       resp.headers.delete("X-Frame-Options");
     }
@@ -378,13 +393,13 @@ export async function middleware(request: NextRequest) {
     if (pathname.toLowerCase() === "/review") {
       return NextResponse.redirect(
         "https://search.google.com/local/writereview?placeid=ChIJw7rUvBSl3YgRZnV1tR0aK9s",
-        302
+        302,
       );
     }
     if (pathname.toLowerCase() === "/review/naples") {
       return NextResponse.redirect(
         "https://search.google.com/local/writereview?placeid=ChIJq6qqNOSi3YgREP2LHBrr1g4",
-        302
+        302,
       );
     }
   }
@@ -416,7 +431,7 @@ export async function middleware(request: NextRequest) {
     pathname === "/serviceworker.js" ||
     pathname.startsWith("/.well-known/") ||
     /^\/[a-zA-Z0-9_-]+\.txt$/.test(pathname) || // google*.txt, pinterest-*.txt etc
-    /^\/[a-zA-Z0-9_-]+\.html$/.test(pathname);  // bing*.html, facebook-domain-verification.html, etc
+    /^\/[a-zA-Z0-9_-]+\.html$/.test(pathname); // bing*.html, facebook-domain-verification.html, etc
 
   // HeadPinz domain: rewrite to /hp prefix (unless already there, shared
   // route, or root-level metadata that must be served as-is).
@@ -425,8 +440,10 @@ export async function middleware(request: NextRequest) {
   // domains without /hp rewriting — e.g. /accessibility (host-aware
   // metadata renders the right brand per request).
   const isSharedTopLevelRoute =
-    pathname === "/accessibility" || pathname.startsWith("/accessibility/") ||
-    pathname === "/cancellation-policy" || pathname.startsWith("/cancellation-policy/") ||
+    pathname === "/accessibility" ||
+    pathname.startsWith("/accessibility/") ||
+    pathname === "/cancellation-policy" ||
+    pathname.startsWith("/cancellation-policy/") ||
     pathname.startsWith("/event/");
   if (
     isHeadPinz &&
@@ -460,7 +477,10 @@ export async function middleware(request: NextRequest) {
     requestHeaders.set("x-brand", "headpinz");
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
-  if (isHeadPinz && (pathname.startsWith("/book/bowling") || pathname.startsWith("/book/kids-bowl-free"))) {
+  if (
+    isHeadPinz &&
+    (pathname.startsWith("/book/bowling") || pathname.startsWith("/book/kids-bowl-free"))
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = `/hp${pathname}`;
     const requestHeaders = new Headers(request.headers);
@@ -507,5 +527,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|images/|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|images/|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js)$).*)",
+  ],
 };

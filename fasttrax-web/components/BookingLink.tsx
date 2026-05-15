@@ -18,12 +18,7 @@ export default function BookingLink({
 
   if (isInternal) {
     return (
-      <Link
-        href={href}
-        className={className}
-        style={style}
-        onClick={trackBookingClick}
-      >
+      <Link href={href} className={className} style={style} onClick={trackBookingClick}>
         {children}
       </Link>
     );

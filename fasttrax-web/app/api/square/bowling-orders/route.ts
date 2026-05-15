@@ -90,7 +90,8 @@ const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
   CARD_DECLINED: "Card declined. Please try a different card.",
   CARD_DECLINED_VERIFICATION_REQUIRED: "Additional verification required. Please try again.",
   VERIFY_AVS_FAILURE: "Address verification failed. Check your billing zip code and try again.",
-  ADDRESS_VERIFICATION_FAILURE: "Address verification failed. Check your billing zip code and try again.",
+  ADDRESS_VERIFICATION_FAILURE:
+    "Address verification failed. Check your billing zip code and try again.",
   CARD_TOKEN_USED_BEFORE: "Payment token already used. Please re-enter your card details.",
   CARD_TOKEN_EXPIRED: "Payment session expired. Please re-enter your card details.",
   INVALID_CARD: "Card number could not be validated. Please check and try again.",
@@ -178,7 +179,9 @@ export async function POST(req: NextRequest) {
       // then, attach loyalty customer here as a fallback.
       if (squareCustomerId) {
         try {
-          const getRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, { headers: sqHeaders() });
+          const getRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, {
+            headers: sqHeaders(),
+          });
           if (getRes.ok) {
             const getData = await getRes.json();
             const existingCustId = getData.order?.customer_id;
@@ -213,13 +216,21 @@ export async function POST(req: NextRequest) {
       }
     } else {
       const dayofLineItems = (lineItems ?? []).map((li) => {
-        const modifiers =
-          li.modifiers?.length
-            ? { applied_modifiers: li.modifiers.map((m) => ({ catalog_object_id: m.catalog_object_id })) }
-            : {};
+        const modifiers = li.modifiers?.length
+          ? {
+              applied_modifiers: li.modifiers.map((m) => ({
+                catalog_object_id: m.catalog_object_id,
+              })),
+            }
+          : {};
         const noteField = li.note ? { note: li.note } : {};
         if (li.catalogObjectId) {
-          return { catalog_object_id: li.catalogObjectId, quantity: li.quantity, ...modifiers, ...noteField };
+          return {
+            catalog_object_id: li.catalogObjectId,
+            quantity: li.quantity,
+            ...modifiers,
+            ...noteField,
+          };
         }
         return {
           name: li.name,
@@ -249,7 +260,10 @@ export async function POST(req: NextRequest) {
         const sqErr = dayofOrderData.errors?.[0];
         const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(dayofOrderData);
         console.error("[square/bowling-orders] day-of order failed:", detail);
-        return NextResponse.json({ error: `Failed to create day-of order: ${detail}` }, { status: 500 });
+        return NextResponse.json(
+          { error: `Failed to create day-of order: ${detail}` },
+          { status: 500 },
+        );
       }
 
       dayofOrderId = dayofOrderData.order?.id as string;
@@ -309,7 +323,10 @@ export async function POST(req: NextRequest) {
       const sqErr = depositOrderData.errors?.[0];
       const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(depositOrderData);
       console.error("[square/bowling-orders] deposit order failed:", detail);
-      return NextResponse.json({ error: `Failed to create deposit order: ${detail}` }, { status: 500 });
+      return NextResponse.json(
+        { error: `Failed to create deposit order: ${detail}` },
+        { status: 500 },
+      );
     }
 
     const depositOrderId: string = depositOrderData.order?.id as string;
@@ -349,8 +366,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            FRIENDLY_PAYMENT_ERRORS[code] ??
-            "Payment could not be processed. Please try again.",
+            FRIENDLY_PAYMENT_ERRORS[code] ?? "Payment could not be processed. Please try again.",
           code,
           detail,
         },
@@ -360,10 +376,7 @@ export async function POST(req: NextRequest) {
 
     const depositPaymentId: string = payData.payment?.id;
     if (!depositPaymentId) {
-      return NextResponse.json(
-        { error: "Payment succeeded but returned no ID" },
-        { status: 500 },
-      );
+      return NextResponse.json({ error: "Payment succeeded but returned no ID" }, { status: 500 });
     }
 
     // ── Step 4: Create eGift card ─────────────────────────────────────────────
@@ -388,9 +401,7 @@ export async function POST(req: NextRequest) {
 
     if (!giftCardRes.ok || giftCardData.errors) {
       const sqErr = giftCardData.errors?.[0];
-      const detail = sqErr
-        ? `${sqErr.code}: ${sqErr.detail}`
-        : JSON.stringify(giftCardData);
+      const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(giftCardData);
       console.error("[square/bowling-orders] gift card creation failed:", detail);
       // Payment already captured — log for reconciliation. The booking is still
       // valid; ops can manually create/link a gift card via the Square dashboard.
@@ -438,9 +449,7 @@ export async function POST(req: NextRequest) {
 
     if (!activateRes.ok || activateData.errors) {
       const sqErr = activateData.errors?.[0];
-      const detail = sqErr
-        ? `${sqErr.code}: ${sqErr.detail}`
-        : JSON.stringify(activateData);
+      const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(activateData);
       console.error("[square/bowling-orders] gift card activation failed:", detail);
       return NextResponse.json(
         { error: `Payment captured but gift card activation failed: ${detail}` },

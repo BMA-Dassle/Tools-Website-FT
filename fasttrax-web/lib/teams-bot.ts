@@ -36,7 +36,11 @@ const DEFAULT_SERVICE_URL = "https://smba.trafficmanager.net/amer";
 
 const BOT_FETCH_TIMEOUT_MS = 8000; // Vercel has a 10s function-timeout; stay under it
 
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = BOT_FETCH_TIMEOUT_MS): Promise<Response> {
+function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = BOT_FETCH_TIMEOUT_MS,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));

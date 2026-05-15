@@ -21,10 +21,7 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
  *
  * No auth — customer-facing, but requires knowing the neonId.
  */
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await ctx.params;
   const neonId = parseInt(idStr, 10);
   if (isNaN(neonId) || neonId < 1) {
@@ -45,20 +42,14 @@ export async function GET(
   }
 
   if (!reservation.qamfReservationId) {
-    return NextResponse.json(
-      { error: "no QAMF reservation linked" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "no QAMF reservation linked" }, { status: 400 });
   }
 
   try {
     const qamfRes = await getReservation(qamfCenterId, reservation.qamfReservationId);
     const woId = qamfRes.WebOffer?.Id;
     if (!woId) {
-      return NextResponse.json(
-        { error: "reservation has no web offer" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "reservation has no web offer" }, { status: 400 });
     }
 
     // Extract option details
@@ -125,9 +116,6 @@ export async function GET(
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF error";
     console.error("[bowling/v2/reschedule/info] getReservation failed:", msg);
-    return NextResponse.json(
-      { error: `Failed to load offer info: ${msg}` },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: `Failed to load offer info: ${msg}` }, { status: 502 });
   }
 }

@@ -22,7 +22,7 @@ const SQUARE_VERSION = "2024-12-18";
 
 function sqHeaders() {
   return {
-    "Authorization": `Bearer ${SQUARE_TOKEN}`,
+    Authorization: `Bearer ${SQUARE_TOKEN}`,
     "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
@@ -189,8 +189,10 @@ export async function POST(req: NextRequest) {
     };
 
     if (!cardToken) return NextResponse.json({ error: "cardToken required" }, { status: 400 });
-    if (!planVariationId) return NextResponse.json({ error: "planVariationId required" }, { status: 400 });
-    if (!itemVariationId) return NextResponse.json({ error: "itemVariationId required" }, { status: 400 });
+    if (!planVariationId)
+      return NextResponse.json({ error: "planVariationId required" }, { status: 400 });
+    if (!itemVariationId)
+      return NextResponse.json({ error: "itemVariationId required" }, { status: 400 });
     if (!locationId) return NextResponse.json({ error: "locationId required" }, { status: 400 });
     if (!startDate) return NextResponse.json({ error: "startDate required" }, { status: 400 });
     if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });

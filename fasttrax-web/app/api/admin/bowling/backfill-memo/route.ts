@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   let dryRun = false;
   try {
-    const body = await req.json().catch(() => ({})) as { dryRun?: boolean };
+    const body = (await req.json().catch(() => ({}))) as { dryRun?: boolean };
     dryRun = body.dryRun === true;
   } catch {
     // No body — defaults are fine
@@ -141,9 +141,7 @@ export async function POST(req: NextRequest) {
       const itemParts = resLines.map((l) => {
         const total = l.quantity * l.unit_price_cents;
         const totalStr = `$${(total / 100).toFixed(2)}`;
-        return l.quantity > 1
-          ? `${l.quantity}x ${l.label} ${totalStr}`
-          : `${l.label} ${totalStr}`;
+        return l.quantity > 1 ? `${l.quantity}x ${l.label} ${totalStr}` : `${l.label} ${totalStr}`;
       });
       parts.push(itemParts.join(" + "));
     }

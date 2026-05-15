@@ -41,8 +41,13 @@ const API_VERSION = "2025-12-01.1.0";
 
 export type LaneStatus = "None" | "Open" | "Closed" | "Error";
 export type BookedLaneStatus =
-  | "None" | "Canceled" | "Temporary" | "Confirmed"
-  | "Ready" | "Running" | "Completed";
+  | "None"
+  | "Canceled"
+  | "Temporary"
+  | "Confirmed"
+  | "Ready"
+  | "Running"
+  | "Completed";
 export type ReservationStatus = "Temporary" | "Confirmed" | "Arrived" | "Completed";
 export type Service = "PlayNow" | "BookForLater";
 export type OpenType = "None" | "Time" | "Game" | "Unlimited";
@@ -97,7 +102,7 @@ export interface Reservation {
 }
 
 export interface NewReservationInput {
-  BookedAt: string;          // ISO 8601 with offset
+  BookedAt: string; // ISO 8601 with offset
   Title: string;
   Notes?: string;
   Customer?: {
@@ -269,10 +274,7 @@ export async function getReservation(
 }
 
 /** DELETE /centers/{centerId}/reservations/{reservationId} */
-export async function deleteReservation(
-  centerId: number,
-  reservationId: string,
-): Promise<void> {
+export async function deleteReservation(centerId: number, reservationId: string): Promise<void> {
   await call({
     method: "DELETE",
     path: `/centers/${centerId}/reservations/${reservationId}`,
@@ -361,10 +363,7 @@ export async function patchReservation(
 
 /** PATCH /centers/{centerId}/reservations/{reservationId}/expiresAt
  *  — extends the temporary 10-min hold by another 10 min */
-export async function extendReservation(
-  centerId: number,
-  reservationId: string,
-): Promise<void> {
+export async function extendReservation(centerId: number, reservationId: string): Promise<void> {
   await call({
     method: "PATCH",
     path: `/centers/${centerId}/reservations/${reservationId}/expiresAt`,

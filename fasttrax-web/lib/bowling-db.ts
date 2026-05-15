@@ -303,12 +303,12 @@ export async function ensureBowlingSchema(): Promise<void> {
 // ─────────────────────────────────────────────────────────────────
 
 export type BowlingProductKind =
-  | "kbf"             // base KBF lane item (referenced by experience_items; free)
-  | "open"            // base open bowling lane item (referenced by experience_items)
-  | "hourly"          // hourly lane item (referenced by experience_items)
-  | "addon_shoe"      // shoe rental (optional per-person add-on)
+  | "kbf" // base KBF lane item (referenced by experience_items; free)
+  | "open" // base open bowling lane item (referenced by experience_items)
+  | "hourly" // hourly lane item (referenced by experience_items)
+  | "addon_shoe" // shoe rental (optional per-person add-on)
   | "addon_attraction" // laser tag / gel blaster / escape room (stub)
-  | "addon_food";      // F&B packages (stub)
+  | "addon_food"; // F&B packages (stub)
 
 export type BowlingExperienceKind = "kbf" | "open" | "hourly";
 
@@ -348,13 +348,13 @@ export interface BowlingExperienceItem {
   id: number;
   experienceId: number;
   squareProductId: number;
-  label: string;                  // label_override ?? product.label
+  label: string; // label_override ?? product.label
   priceCents: number;
   depositPct: number;
   squareCatalogObjectId: string;
   quantity: number;
   sortOrder: number;
-  productKind: string;            // from bowling_square_products.product_kind
+  productKind: string; // from bowling_square_products.product_kind
 }
 
 export interface BowlingExperienceOffer {
@@ -362,7 +362,7 @@ export interface BowlingExperienceOffer {
   experienceId: number;
   centerCode: string;
   qamfWebOfferId: number;
-  qamfOptionType: string | null;  // 'Game' | 'Time' | 'Unlimited'
+  qamfOptionType: string | null; // 'Game' | 'Time' | 'Unlimited'
   qamfOptionId: number | null;
   isActive: boolean;
 }
@@ -373,7 +373,7 @@ export interface BowlingExperienceDurationOption {
   centerCode: string;
   qamfOptionId: number;
   durationMinutes: number;
-  label: string;            // "1.5 Hours", "2 Hours"
+  label: string; // "1.5 Hours", "2 Hours"
   squareMultiplier: number; // quantity multiplier on base experience items
   sortOrder: number;
   /** When set, use this product instead of the base experience item for pricing + catalog linkage. */
@@ -479,7 +479,13 @@ export interface BowlingReservation {
   squareGiftCardGan?: string;
   depositCents: number;
   totalCents: number;
-  status: "confirmed" | "confirm_pending" | "confirm_failed" | "arrived" | "completed" | "cancelled";
+  status:
+    | "confirmed"
+    | "confirm_pending"
+    | "confirm_failed"
+    | "arrived"
+    | "completed"
+    | "cancelled";
   /** Number of times the QAMF confirmation has been retried by the cron. */
   qamfConfirmAttempts: number;
   bookedAt: string;
@@ -688,9 +694,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     guestEmail: (row.guest_email as string) ?? undefined,
     guestPhone: (row.guest_phone as string) ?? undefined,
     notes: (row.notes as string) ?? undefined,
-    cancelledAt: row.cancelled_at
-      ? (row.cancelled_at as Date).toISOString()
-      : undefined,
+    cancelledAt: row.cancelled_at ? (row.cancelled_at as Date).toISOString() : undefined,
     squareRefundId: (row.square_refund_id as string) ?? undefined,
     refundCents: (row.refund_cents as number) ?? 0,
     shortCode: (row.short_code as string) ?? undefined,
@@ -716,7 +720,12 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     attractionBookings: (() => {
       const raw = row.attraction_bookings;
       if (!raw) return [];
-      if (typeof raw === "string") try { return JSON.parse(raw); } catch { return []; }
+      if (typeof raw === "string")
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return [];
+        }
       if (Array.isArray(raw)) return raw;
       return [];
     })(),
@@ -724,7 +733,9 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
   };
 }
 
-function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number; reservationId: number } {
+function rowToLine(
+  row: Record<string, unknown>,
+): ReservationLine & { id: number; reservationId: number } {
   return {
     id: row.id as number,
     reservationId: row.reservation_id as number,
@@ -747,7 +758,21 @@ function rowToLine(row: Record<string, unknown>): ReservationLine & { id: number
  * logged but the reservation is returned.
  */
 export async function insertBowlingReservation(
-  r: Omit<BowlingReservation, "id" | "insertedAt" | "cancelledAt" | "squareRefundId" | "refundCents" | "qamfConfirmAttempts" | "rewardDiscountCents" | "attractionBookings" | "checkinMethod"> & { rewardDiscountCents?: number; attractionBookings?: BowlingReservation["attractionBookings"] },
+  r: Omit<
+    BowlingReservation,
+    | "id"
+    | "insertedAt"
+    | "cancelledAt"
+    | "squareRefundId"
+    | "refundCents"
+    | "qamfConfirmAttempts"
+    | "rewardDiscountCents"
+    | "attractionBookings"
+    | "checkinMethod"
+  > & {
+    rewardDiscountCents?: number;
+    attractionBookings?: BowlingReservation["attractionBookings"];
+  },
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
   if (!isDbConfigured()) throw new Error("DATABASE_URL not configured");
@@ -804,7 +829,10 @@ export async function insertBowlingReservation(
 
 export async function getBowlingReservation(
   id: number,
-): Promise<(BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] }) | null> {
+): Promise<
+  | (BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] })
+  | null
+> {
   if (!isDbConfigured()) return null;
   await ensureBowlingSchema();
   const q = sql();
@@ -829,7 +857,10 @@ export async function getBowlingReservation(
  */
 export async function getBowlingReservationByQamfId(
   qamfReservationId: string,
-): Promise<(BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] }) | null> {
+): Promise<
+  | (BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] })
+  | null
+> {
   if (!isDbConfigured()) return null;
   await ensureBowlingSchema();
   const q = sql();
@@ -855,7 +886,10 @@ export async function getBowlingReservationByQamfId(
  */
 export async function getBowlingReservationByShortCode(
   shortCode: string,
-): Promise<(BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] }) | null> {
+): Promise<
+  | (BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] })
+  | null
+> {
   if (!isDbConfigured()) return null;
   await ensureBowlingSchema();
   const q = sql();
@@ -885,7 +919,7 @@ export type BowlingReservationWithLines = BowlingReservation & {
  */
 export async function listBowlingReservations(opts: {
   startDate: string; // 'YYYY-MM-DD' inclusive
-  endDate: string;   // 'YYYY-MM-DD' inclusive
+  endDate: string; // 'YYYY-MM-DD' inclusive
   centerCode?: string;
 }): Promise<BowlingReservationWithLines[]> {
   if (!isDbConfigured()) return [];
@@ -1194,7 +1228,10 @@ export async function updateBowlingReservationShortCode(
  */
 export async function getFutureKbfReservationByEmail(
   email: string,
-): Promise<(BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] }) | null> {
+): Promise<
+  | (BowlingReservation & { lines: (ReservationLine & { id: number; reservationId: number })[] })
+  | null
+> {
   if (!isDbConfigured()) return null;
   await ensureBowlingSchema();
   const q = sql();
@@ -1260,9 +1297,9 @@ export async function getKbfRedeemedMembers(
 
   // Filter to exact passId+slot pairs (the ANY match is per-column, not paired)
   const pairSet = new Set(pairs.map((p) => `${p.passId}|${p.slot}`));
-  return (rows as { pass_id: number; slot: number }[]).filter((r) =>
-    pairSet.has(`${r.pass_id}|${r.slot}`),
-  ).map((r) => ({ passId: r.pass_id, slot: r.slot }));
+  return (rows as { pass_id: number; slot: number }[])
+    .filter((r) => pairSet.has(`${r.pass_id}|${r.slot}`))
+    .map((r) => ({ passId: r.pass_id, slot: r.slot }));
 }
 
 /**
@@ -1338,7 +1375,11 @@ export async function buildQamfMemo(reservationId: number): Promise<string> {
     FROM bowling_reservations WHERE id = ${reservationId}
   `;
   if (!resRows.length) return "";
-  const res = resRows[0] as { deposit_cents: number; notes: string | null; short_code: string | null };
+  const res = resRows[0] as {
+    deposit_cents: number;
+    notes: string | null;
+    short_code: string | null;
+  };
 
   const lines = (await q`
     SELECT brl.label, brl.quantity, brl.unit_price_cents, bsp.product_kind
@@ -1346,7 +1387,12 @@ export async function buildQamfMemo(reservationId: number): Promise<string> {
     LEFT JOIN bowling_square_products bsp ON bsp.id = brl.square_product_id
     WHERE brl.reservation_id = ${reservationId}
     ORDER BY brl.id
-  `) as unknown as Array<{ label: string; quantity: number; unit_price_cents: number; product_kind: string | null }>;
+  `) as unknown as Array<{
+    label: string;
+    quantity: number;
+    unit_price_cents: number;
+    product_kind: string | null;
+  }>;
 
   const parts: string[] = [];
 
@@ -1372,9 +1418,7 @@ export async function buildQamfMemo(reservationId: number): Promise<string> {
     const itemParts = lines.map((l) => {
       const total = l.quantity * l.unit_price_cents;
       const totalStr = `$${(total / 100).toFixed(2)}`;
-      return l.quantity > 1
-        ? `${l.quantity}x ${l.label} ${totalStr}`
-        : `${l.label} ${totalStr}`;
+      return l.quantity > 1 ? `${l.quantity}x ${l.label} ${totalStr}` : `${l.label} ${totalStr}`;
     });
     parts.push(itemParts.join(" + "));
   }
@@ -1505,7 +1549,12 @@ export async function getReservationPlayersWithShoeAllowance(
 export async function upsertReservationPlayer(
   reservationId: number,
   slot: number,
-  update: { name?: string | null; shoeSize?: string | null; bumpers?: boolean | null; laneNumber?: number | null },
+  update: {
+    name?: string | null;
+    shoeSize?: string | null;
+    bumpers?: boolean | null;
+    laneNumber?: number | null;
+  },
 ): Promise<BowlingReservationPlayer | null> {
   if (!isDbConfigured()) return null;
   await ensureBowlingSchema();
@@ -1531,9 +1580,7 @@ export async function upsertReservationPlayer(
 function rowToExperience(row: Record<string, unknown>): BowlingExperience {
   // days_of_week comes back as a JS number[] from Neon (pg INTEGER[])
   const raw = row.days_of_week;
-  const daysOfWeek: number[] = Array.isArray(raw)
-    ? (raw as number[])
-    : [0, 1, 2, 3, 4, 5, 6]; // fallback: all days
+  const daysOfWeek: number[] = Array.isArray(raw) ? (raw as number[]) : [0, 1, 2, 3, 4, 5, 6]; // fallback: all days
 
   // square_modifier_list_ids comes back as string[] from Neon (pg TEXT[])
   const rawMods = row.square_modifier_list_ids;
@@ -1864,8 +1911,11 @@ export async function setBowlingExperienceItems(
     // Resolve squareCatalogObjectId from squareProductId if not directly provided
     let catalogObjectId = item.squareCatalogObjectId ?? null;
     if (!catalogObjectId && item.squareProductId) {
-      const pRows = await q`SELECT square_catalog_object_id FROM bowling_square_products WHERE id = ${item.squareProductId} LIMIT 1`;
-      catalogObjectId = pRows.length ? (pRows[0] as Record<string, unknown>).square_catalog_object_id as string : null;
+      const pRows =
+        await q`SELECT square_catalog_object_id FROM bowling_square_products WHERE id = ${item.squareProductId} LIMIT 1`;
+      catalogObjectId = pRows.length
+        ? ((pRows[0] as Record<string, unknown>).square_catalog_object_id as string)
+        : null;
     }
     await q`
       INSERT INTO bowling_experience_items

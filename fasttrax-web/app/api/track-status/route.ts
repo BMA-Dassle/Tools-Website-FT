@@ -38,9 +38,9 @@ import redis from "@/lib/redis";
 const UPSTREAM = "https://tools-track-status.vercel.app/api/v1/status";
 const CACHE_KEY = "track-status:cache:v1";
 const LOCK_KEY = "track-status:lock";
-const CACHE_TTL_SEC = 60;          // hold for a minute as a safety floor
-const FRESH_MS = 30_000;           // re-fetch upstream when cache is older than this
-const LOCK_TTL_SEC = 5;            // brief lock window for stampede prevention
+const CACHE_TTL_SEC = 60; // hold for a minute as a safety floor
+const FRESH_MS = 30_000; // re-fetch upstream when cache is older than this
+const LOCK_TTL_SEC = 5; // brief lock window for stampede prevention
 
 interface CachedEntry {
   fetchedAt: number;
@@ -80,7 +80,11 @@ async function tryAcquireLock(): Promise<boolean> {
 }
 
 async function releaseLock(): Promise<void> {
-  try { await redis.del(LOCK_KEY); } catch { /* ignore */ }
+  try {
+    await redis.del(LOCK_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function GET() {

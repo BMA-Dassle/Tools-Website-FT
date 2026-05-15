@@ -13,7 +13,7 @@ function encodeScoreGroup(name: string): string {
 function pandoraGet(path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.get(
-      { hostname: PANDORA_URL, path, headers: { "Authorization": `Bearer ${API_KEY}` } },
+      { hostname: PANDORA_URL, path, headers: { Authorization: `Bearer ${API_KEY}` } },
       (res) => {
         let data = "";
         res.on("data", (c) => (data += c));
@@ -21,7 +21,10 @@ function pandoraGet(path: string): Promise<{ status: number; body: string }> {
       },
     );
     req.on("error", reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(15000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
   });
 }
 
@@ -54,7 +57,8 @@ export async function GET(req: NextRequest) {
       const startDate = searchParams.get("startDate") || "2026-01-01T00:00:00";
       const endDate = searchParams.get("endDate") || "2026-12-31T23:59:59";
       const excludePractice = searchParams.get("excludePractice") || "false";
-      if (!scoreGroupsRaw) return NextResponse.json({ error: "scoreGroups required" }, { status: 400 });
+      if (!scoreGroupsRaw)
+        return NextResponse.json({ error: "scoreGroups required" }, { status: 400 });
 
       // The user-supplied list is already comma-separated league names.
       // Pandora wants them URI-encoded as a single value (commas
@@ -92,7 +96,10 @@ export async function GET(req: NextRequest) {
       const path = `/v2/bmi/records/summary/${locationId}/${encodedTrack}/${encodedGroup}?startDate=${encodedStart}&endDate=${encodedEnd}&excludePractice=${excludePractice}`;
       const res = await pandoraGet(path);
       if (res.status >= 400) {
-        return NextResponse.json({ error: "Failed to fetch standings", details: res.body.substring(0, 200) }, { status: res.status });
+        return NextResponse.json(
+          { error: "Failed to fetch standings", details: res.body.substring(0, 200) },
+          { status: res.status },
+        );
       }
       return NextResponse.json(JSON.parse(res.body));
     }
@@ -127,8 +134,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(JSON.parse(res.body));
     }
 
-    return NextResponse.json({ error: "action must be summary, sessions, or scores" }, { status: 400 });
+    return NextResponse.json(
+      { error: "action must be summary, sessions, or scores" },
+      { status: 400 },
+    );
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "League API error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "League API error" },
+      { status: 500 },
+    );
   }
 }

@@ -49,7 +49,12 @@ const breadcrumbJsonLd = {
   "@type": "BreadcrumbList",
   itemListElement: [
     { "@type": "ListItem", position: 1, name: "HeadPinz", item: "https://headpinz.com" },
-    { "@type": "ListItem", position: 2, name: "Fort Myers", item: "https://headpinz.com/fort-myers" },
+    {
+      "@type": "ListItem",
+      position: 2,
+      name: "Fort Myers",
+      item: "https://headpinz.com/fort-myers",
+    },
   ],
 };
 
@@ -58,10 +63,30 @@ const navJsonLd = {
   "@type": "ItemList",
   name: "HeadPinz Fort Myers",
   itemListElement: [
-    { "@type": "ListItem", position: 1, name: "Book Bowling", url: "https://headpinz.com/book/bowling" },
-    { "@type": "ListItem", position: 2, name: "Attractions", url: "https://headpinz.com/fort-myers/attractions" },
-    { "@type": "ListItem", position: 3, name: "Birthday Parties", url: "https://headpinz.com/fort-myers/birthdays" },
-    { "@type": "ListItem", position: 4, name: "Group Events", url: "https://headpinz.com/fort-myers/group-events" },
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: "Book Bowling",
+      url: "https://headpinz.com/book/bowling",
+    },
+    {
+      "@type": "ListItem",
+      position: 2,
+      name: "Attractions",
+      url: "https://headpinz.com/fort-myers/attractions",
+    },
+    {
+      "@type": "ListItem",
+      position: 3,
+      name: "Birthday Parties",
+      url: "https://headpinz.com/fort-myers/birthdays",
+    },
+    {
+      "@type": "ListItem",
+      position: 4,
+      name: "Group Events",
+      url: "https://headpinz.com/fort-myers/group-events",
+    },
   ],
 };
 
@@ -73,8 +98,10 @@ const attractions = [
   {
     name: "Premier Bowling",
     tagline: "24 State-of-the-Art Lanes",
-    description: "Modern lanes with cosmic glow effects, VIP lounge lanes, and a full-service bar steps away. 1.5 hours, up to 6 per lane.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    description:
+      "Modern lanes with cosmic glow effects, VIP lounge lanes, and a full-service bar steps away. 1.5 hours, up to 6 per lane.",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     price: "From $12.99",
     cta: "Reserve Lanes",
     ctaHref: "/hp/book/bowling",
@@ -86,8 +113,10 @@ const attractions = [
   {
     name: "NEXUS Laser Tag",
     tagline: "2-Story Glow Arena",
-    description: "Immersive, multi-level space-themed combat. Haptic vests and precision sensors for objective-based missions.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
+    description:
+      "Immersive, multi-level space-themed combat. Haptic vests and precision sensors for objective-based missions.",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     price: "$10/person",
     cta: "Join the Mission",
     ctaHref: "/hp/book/laser-tag",
@@ -99,8 +128,10 @@ const attractions = [
   {
     name: "NEXUS Gel Blasters",
     tagline: "Zero Mess. Total Mayhem.",
-    description: "State-of-the-art blasters with haptic vests. Eco-friendly Gellets evaporate on impact. All the action, none of the cleanup.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
+    description:
+      "State-of-the-art blasters with haptic vests. Eco-friendly Gellets evaporate on impact. All the action, none of the cleanup.",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     price: "$12/person",
     cta: "Book Gel Blasters",
     ctaHref: "/hp/book/gel-blaster",
@@ -112,7 +143,8 @@ const attractions = [
   {
     name: "NeoVerse",
     tagline: "Interactive Video Wall Experience",
-    description: "Step into a 360-degree immersive projection world. Touch-reactive walls, dynamic games, and mind-bending visuals.",
+    description:
+      "Step into a 360-degree immersive projection world. Touch-reactive walls, dynamic games, and mind-bending visuals.",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/neoverse.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
@@ -125,8 +157,10 @@ const attractions = [
   {
     name: "HyperBowling",
     tagline: "Where Bowling Meets Gaming",
-    description: "LED-integrated bumper targets turn every throw into a scoring challenge. Dynamic gameplay meets physical skill.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
+    description:
+      "LED-integrated bumper targets turn every throw into a scoring challenge. Dynamic gameplay meets physical skill.",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg",
     price: "Select VIP",
     cta: "Reserve VIP",
     ctaHref: "/hp/book/bowling",
@@ -138,8 +172,10 @@ const attractions = [
   {
     name: "Shuffly",
     tagline: "LED Shuffleboard Tables",
-    description: "Full-size shuffleboard tables with LED scoring. Perfect for groups, date nights, or casual competition.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
+    description:
+      "Full-size shuffleboard tables with LED scoring. Perfect for groups, date nights, or casual competition.",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
     price: "$10/group",
     cta: "Book Shuffly",
     ctaHref: "/hp/book/shuffly",
@@ -151,8 +187,10 @@ const attractions = [
   {
     name: "Game Zone",
     tagline: "40+ Premier Arcade Games",
-    description: "The latest titles, VR simulators, and a prize center. Load any amount onto a Game Card at our kiosks and play.",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp",
+    description:
+      "The latest titles, VR simulators, and a prize center. Load any amount onto a Game Card at our kiosks and play.",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp",
     price: "Game Cards",
     cta: "Learn More",
     ctaHref: "/hp/fort-myers/attractions",
@@ -219,13 +257,22 @@ export default function FortMyersPage() {
           className="absolute inset-0 w-full h-full object-cover"
           poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hero-poster.webp"
         >
-          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4" type="video/mp4" />
+          <source
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4"
+            type="video/mp4"
+          />
         </video>
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-[#0a1628]" />
 
-        <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "100vh" }}>
+        <div
+          className="relative z-10 flex flex-col items-center justify-center text-center px-4"
+          style={{ minHeight: "100vh" }}
+        >
           {/* Logo */}
-          <div className="relative mb-4" style={{ width: "clamp(140px, 25vw, 240px)", height: "clamp(42px, 7vw, 72px)" }}>
+          <div
+            className="relative mb-4"
+            style={{ width: "clamp(140px, 25vw, 240px)", height: "clamp(42px, 7vw, 72px)" }}
+          >
             <Image
               src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
               alt="HeadPinz"
@@ -252,7 +299,11 @@ export default function FortMyersPage() {
 
           <p
             className="font-body text-white/70 uppercase tracking-widest"
-            style={{ fontSize: "clamp(11px, 1.8vw, 15px)", marginBottom: "20px", letterSpacing: "3px" }}
+            style={{
+              fontSize: "clamp(11px, 1.8vw, 15px)",
+              marginBottom: "20px",
+              letterSpacing: "3px",
+            }}
           >
             Bowling &bull; Laser Tag &bull; Gel Blasters &bull; Arcade &bull; Dining
           </p>
@@ -273,7 +324,10 @@ export default function FortMyersPage() {
       </section>
 
       {/* ====== LOCATION INFO + LIVE AVAILABILITY ====== */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
           alt=""
@@ -306,21 +360,62 @@ export default function FortMyersPage() {
                 rel="noopener noreferrer"
                 className="flex items-start gap-3 text-white/70 hover:text-white transition-colors group"
               >
-                <svg className="w-5 h-5 text-[#fd5b56] shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                <svg
+                  className="w-5 h-5 text-[#fd5b56] shrink-0 mt-0.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
                 </svg>
-                <span className="text-sm">14513 Global Parkway<br />Fort Myers, FL 33913</span>
+                <span className="text-sm">
+                  14513 Global Parkway
+                  <br />
+                  Fort Myers, FL 33913
+                </span>
               </a>
-              <a href="tel:+12393022155" className="flex items-center gap-3 text-white/70 hover:text-white transition-colors">
-                <svg className="w-5 h-5 text-[#fd5b56] shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              <a
+                href="tel:+12393022155"
+                className="flex items-center gap-3 text-white/70 hover:text-white transition-colors"
+              >
+                <svg
+                  className="w-5 h-5 text-[#fd5b56] shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                  />
                 </svg>
                 <span className="text-sm">(239) 302-2155</span>
               </a>
               <div className="flex items-center gap-3 text-white/50">
-                <svg className="w-5 h-5 text-[#fd5b56] shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg
+                  className="w-5 h-5 text-[#fd5b56] shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 <span className="text-sm">Sun-Thu 11AM-12AM &bull; Fri-Sat 11AM-2AM</span>
               </div>
@@ -335,7 +430,10 @@ export default function FortMyersPage() {
       </section>
 
       {/* ====== WHAT'S INSIDE — Attraction Cards ====== */}
-      <section id="attractions" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        id="attractions"
+        style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="text-center" style={{ marginBottom: "clamp(32px, 6vw, 56px)" }}>
           <h2
             className="font-heading font-black uppercase text-white"
@@ -348,7 +446,10 @@ export default function FortMyersPage() {
           >
             What&apos;s Inside
           </h2>
-          <div className="mx-auto h-1 w-24 rounded-full" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
+          <div
+            className="mx-auto h-1 w-24 rounded-full"
+            style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }}
+          />
         </div>
 
         <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -362,7 +463,10 @@ export default function FortMyersPage() {
               }}
             >
               {/* Card image */}
-              <div className="relative overflow-hidden" style={{ height: "clamp(180px, 28vw, 240px)" }}>
+              <div
+                className="relative overflow-hidden"
+                style={{ height: "clamp(180px, 28vw, 240px)" }}
+              >
                 <Image
                   src={a.image}
                   alt={a.name}
@@ -434,7 +538,13 @@ export default function FortMyersPage() {
             className="inline-flex items-center gap-2 font-body text-white/60 hover:text-white text-sm uppercase tracking-wider transition-colors"
           >
             View All Attractions
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
           </Link>
@@ -442,7 +552,10 @@ export default function FortMyersPage() {
       </section>
 
       {/* ====== VIP EXPERIENCE ====== */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
+      >
         {/* Background video on desktop, poster on mobile */}
         <video
           autoPlay
@@ -453,7 +566,10 @@ export default function FortMyersPage() {
           className="absolute inset-0 w-full h-full object-cover"
           poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hyperbowling.jpg"
         >
-          <source src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling-v2.mp4" type="video/mp4" />
+          <source
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling-v2.mp4"
+            type="video/mp4"
+          />
         </video>
         <div className="absolute inset-0 bg-gradient-to-b from-[#0a1628]/70 via-[#0a1628]/50 to-[#0a1628]/80" />
 
@@ -473,7 +589,10 @@ export default function FortMyersPage() {
           >
             The VIP Experience
           </h2>
-          <div className="mx-auto h-1 w-24 rounded-full mb-10" style={{ background: "linear-gradient(90deg, #FFD700, #fd5b56)" }} />
+          <div
+            className="mx-auto h-1 w-24 rounded-full mb-10"
+            style={{ background: "linear-gradient(90deg, #FFD700, #fd5b56)" }}
+          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
             {/* NeoVerse card */}
@@ -491,13 +610,16 @@ export default function FortMyersPage() {
               </span>
               <h3
                 className="font-heading font-black uppercase text-white tracking-wider mb-3"
-                style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(255,215,0,0.25)" }}
+                style={{
+                  fontSize: "clamp(18px, 3vw, 24px)",
+                  textShadow: "0 0 20px rgba(255,215,0,0.25)",
+                }}
               >
                 NeoVerse
               </h3>
               <p className="font-body text-white/60 text-sm leading-relaxed">
-                Interactive LED video wall that transforms your bowling experience.
-                Exclusive to VIP lanes.
+                Interactive LED video wall that transforms your bowling experience. Exclusive to VIP
+                lanes.
               </p>
             </div>
 
@@ -516,13 +638,16 @@ export default function FortMyersPage() {
               </span>
               <h3
                 className="font-heading font-black uppercase text-white tracking-wider mb-3"
-                style={{ fontSize: "clamp(18px, 3vw, 24px)", textShadow: "0 0 20px rgba(0,226,229,0.25)" }}
+                style={{
+                  fontSize: "clamp(18px, 3vw, 24px)",
+                  textShadow: "0 0 20px rgba(0,226,229,0.25)",
+                }}
               >
                 HyperBowling
               </h3>
               <p className="font-body text-white/60 text-sm leading-relaxed">
-                LED targets in the bumpers — hit them for points while you bowl.
-                Skill meets spectacle.
+                LED targets in the bumpers — hit them for points while you bowl. Skill meets
+                spectacle.
               </p>
             </div>
           </div>
@@ -538,9 +663,19 @@ export default function FortMyersPage() {
       </section>
 
       {/* ====== WEEKLY SPECIALS ====== */}
-      <section id="specials" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        id="specials"
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
+      >
         {/* Subtle background glow */}
-        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 30% 20%, rgba(18,48,117,0.2) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(253,91,86,0.08) 0%, transparent 50%), #0a1628" }} />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse at 30% 20%, rgba(18,48,117,0.2) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(253,91,86,0.08) 0%, transparent 50%), #0a1628",
+          }}
+        />
         <div className="relative z-10">
           <div className="text-center" style={{ marginBottom: "16px" }}>
             <h2
@@ -554,7 +689,10 @@ export default function FortMyersPage() {
             >
               Weekly Specials
             </h2>
-            <div className="mx-auto h-1 w-24 rounded-full" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
+            <div
+              className="mx-auto h-1 w-24 rounded-full"
+              style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }}
+            />
           </div>
           <p className="font-body text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
             Bowling specials run all week long. All prices per lane, 1.5 hours unless noted.
@@ -591,11 +729,7 @@ export default function FortMyersPage() {
                     <span className="font-body text-white/40 text-xs ml-1">VIP</span>
                   </div>
                 </div>
-                {s.note && (
-                  <p className="font-body text-white/50 text-xs">
-                    {s.note}
-                  </p>
-                )}
+                {s.note && <p className="font-body text-white/50 text-xs">{s.note}</p>}
               </div>
             ))}
 
@@ -603,7 +737,10 @@ export default function FortMyersPage() {
             <Link
               href="/hp/menu#happy-hour"
               className="rounded-lg p-6 transition-all duration-300 hover:scale-[1.01] flex flex-col justify-center"
-              style={{ backgroundColor: "rgba(255,215,0,0.06)", border: "1.78px dashed rgba(255,215,0,0.35)" }}
+              style={{
+                backgroundColor: "rgba(255,215,0,0.06)",
+                border: "1.78px dashed rgba(255,215,0,0.35)",
+              }}
             >
               <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                 Nemo&apos;s Happy Hour
@@ -611,7 +748,9 @@ export default function FortMyersPage() {
               <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-3">
                 Every Day &bull; Open &ndash; 6PM
               </p>
-              <p className="font-body text-white/60 text-sm mb-1">$0.99 wings &bull; $10 flatbreads</p>
+              <p className="font-body text-white/60 text-sm mb-1">
+                $0.99 wings &bull; $10 flatbreads
+              </p>
               <p className="font-body text-white/60 text-sm mb-3">$1-$2 off drinks</p>
               <span className="font-body text-xs font-semibold" style={{ color: "#FFD700" }}>
                 View Happy Hour Menu &rarr;
@@ -622,10 +761,15 @@ export default function FortMyersPage() {
             <Link
               href="/hp/menu#free-wing-friday"
               className="rounded-lg p-6 transition-all duration-300 hover:scale-[1.01] flex flex-col justify-center relative overflow-hidden"
-              style={{ backgroundColor: "rgba(253,91,86,0.06)", border: "1.78px dashed rgba(253,91,86,0.35)" }}
+              style={{
+                backgroundColor: "rgba(253,91,86,0.06)",
+                border: "1.78px dashed rgba(253,91,86,0.35)",
+              }}
             >
               <div className="absolute top-3 right-3">
-                <span className="text-[8px] font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-2 py-0.5 rounded-full animate-pulse">New!</span>
+                <span className="text-[8px] font-bold uppercase tracking-widest bg-[#fd5b56] text-white px-2 py-0.5 rounded-full animate-pulse">
+                  New!
+                </span>
               </div>
               <h3 className="font-heading uppercase text-white text-base tracking-wider mb-1">
                 Free Wing Friday
@@ -642,20 +786,38 @@ export default function FortMyersPage() {
               </span>
             </Link>
           </div>
-
         </div>
       </section>
 
       {/* ====== GALLERY STRIP ====== */}
-      <section className="bg-[#0a1628]" style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(40px, 6vw, 60px)" }}>
+      <section
+        className="bg-[#0a1628]"
+        style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(40px, 6vw, 60px)" }}
+      >
         <div className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp", alt: "HeadPinz entertainment" },
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-fun.webp", alt: "HeadPinz fun" },
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp", alt: "HeadPinz action" },
-            { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-venue.webp", alt: "HeadPinz venue" },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-entertainment.webp",
+              alt: "HeadPinz entertainment",
+            },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-fun.webp",
+              alt: "HeadPinz fun",
+            },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-action.webp",
+              alt: "HeadPinz action",
+            },
+            {
+              src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-venue.webp",
+              alt: "HeadPinz venue",
+            },
           ].map((img) => (
-            <div key={img.src} className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "4/3" }}>
+            <div
+              key={img.src}
+              className="relative overflow-hidden rounded-lg"
+              style={{ aspectRatio: "4/3" }}
+            >
               <Image
                 src={img.src}
                 alt={img.alt}
@@ -699,15 +861,22 @@ export default function FortMyersPage() {
             </p>
             <h2
               className="font-heading font-black uppercase text-white mb-5"
-              style={{ fontSize: "clamp(28px, 5vw, 48px)", lineHeight: "1.05", letterSpacing: "-1px" }}
+              style={{
+                fontSize: "clamp(28px, 5vw, 48px)",
+                lineHeight: "1.05",
+                letterSpacing: "-1px",
+              }}
             >
               FastTrax Is Right Next Door
             </h2>
-            <p className="font-body text-white/75 leading-relaxed mb-6" style={{ fontSize: "clamp(15px, 2vw, 17px)" }}>
+            <p
+              className="font-body text-white/75 leading-relaxed mb-6"
+              style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
+            >
               HeadPinz doesn&apos;t have go-karts — but our sister property{" "}
-              <strong>FastTrax Entertainment</strong> does. Multi-level electric go-kart
-              racing, Nemo&apos;s Trackside sports bar, duckpin bowling, shuffly, and more —
-              one minute from HeadPinz at 14501 Global Parkway.
+              <strong>FastTrax Entertainment</strong> does. Multi-level electric go-kart racing,
+              Nemo&apos;s Trackside sports bar, duckpin bowling, shuffly, and more — one minute from
+              HeadPinz at 14501 Global Parkway.
             </p>
             <Link
               href="https://fasttraxent.com"
@@ -721,8 +890,18 @@ export default function FortMyersPage() {
       </section>
 
       {/* ====== NEMO'S FOOD & DRINKS ====== */}
-      <section id="menu" className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
-        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 70% 30%, rgba(253,91,86,0.08) 0%, transparent 50%), radial-gradient(ellipse at 20% 70%, rgba(18,48,117,0.15) 0%, transparent 60%), #0a1628" }} />
+      <section
+        id="menu"
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse at 70% 30%, rgba(253,91,86,0.08) 0%, transparent 50%), radial-gradient(ellipse at 20% 70%, rgba(18,48,117,0.15) 0%, transparent 60%), #0a1628",
+          }}
+        />
         <div className="relative z-10 max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
             {/* Left — text */}
@@ -738,14 +917,16 @@ export default function FortMyersPage() {
               >
                 Nemo&apos;s Food &amp; Drinks
               </h2>
-              <div className="h-1 w-24 rounded-full mb-6" style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }} />
+              <div
+                className="h-1 w-24 rounded-full mb-6"
+                style={{ background: "linear-gradient(90deg, #fd5b56, #123075)" }}
+              />
               <p
                 className="font-body text-white/70 mb-8"
                 style={{ fontSize: "clamp(14px, 2vw, 18px)", maxWidth: "500px", lineHeight: "1.6" }}
               >
-                Fresh cooked pizza, famous jumbo wings, and a full menu of appetizers,
-                burgers, wraps and more. Pair it with craft beers, cocktails, or
-                signature mocktails.
+                Fresh cooked pizza, famous jumbo wings, and a full menu of appetizers, burgers,
+                wraps and more. Pair it with craft beers, cocktails, or signature mocktails.
               </p>
               <Link
                 href="/hp/menu"
@@ -774,7 +955,10 @@ export default function FortMyersPage() {
       </section>
 
       {/* ====== BOTTOM CTA ====== */}
-      <section className="relative overflow-hidden" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ minHeight: "clamp(350px, 50vh, 500px)" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/cta-wide.webp"
           alt="HeadPinz bowling wide view"
@@ -788,7 +972,10 @@ export default function FortMyersPage() {
         {/* Top accent line */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#123075] via-white/60 to-[#fd5b56]" />
 
-        <div className="relative z-10 flex flex-col items-center justify-center text-center px-4" style={{ minHeight: "clamp(350px, 50vh, 500px)" }}>
+        <div
+          className="relative z-10 flex flex-col items-center justify-center text-center px-4"
+          style={{ minHeight: "clamp(350px, 50vh, 500px)" }}
+        >
           <h2
             className="font-heading font-black uppercase text-white"
             style={{
@@ -801,7 +988,8 @@ export default function FortMyersPage() {
             Ready for Some Fun?
           </h2>
           <p className="font-body text-white/60 text-sm mb-8 max-w-md mx-auto">
-            Reserve your lanes, book your battles, or just show up and play. We&apos;re open 7 days a week.
+            Reserve your lanes, book your battles, or just show up and play. We&apos;re open 7 days
+            a week.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <Link

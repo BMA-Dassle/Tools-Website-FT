@@ -64,7 +64,10 @@ export default function SignupModal({ onClose }: Props) {
   const [errors, setErrors] = useState<Partial<Record<keyof Bowler, string>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ subscriptionId: string; startDate: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{
+    subscriptionId: string;
+    startDate: string;
+  } | null>(null);
   const cardRef = useRef<CardCaptureHandle>(null);
 
   function handleInfoNext(e: React.FormEvent) {
@@ -128,7 +131,9 @@ export default function SignupModal({ onClose }: Props) {
             smsOptIn: bowler.smsOptIn,
             startDate: subData.startDate,
           }),
-        }).catch(() => { /* non-fatal */ }),
+        }).catch(() => {
+          /* non-fatal */
+        }),
         fetch("/api/notifications/have-a-ball-signup", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -141,7 +146,9 @@ export default function SignupModal({ onClose }: Props) {
             subscriptionId: subData.subscriptionId,
             startDate: subData.startDate,
           }),
-        }).catch(() => { /* non-fatal */ }),
+        }).catch(() => {
+          /* non-fatal */
+        }),
       ]);
 
       setConfirmation({ subscriptionId: subData.subscriptionId, startDate: subData.startDate });
@@ -173,7 +180,9 @@ export default function SignupModal({ onClose }: Props) {
 
         <div className="p-6 sm:p-8">
           <div className="mb-5">
-            <p className="text-[#fd5b56] text-xs font-bold uppercase tracking-widest">HeadPinz Fort Myers</p>
+            <p className="text-[#fd5b56] text-xs font-bold uppercase tracking-widest">
+              HeadPinz Fort Myers
+            </p>
             <h2 className="text-white font-heading uppercase text-2xl sm:text-3xl tracking-wider">
               Have-A-Ball League Signup
             </h2>
@@ -190,7 +199,7 @@ export default function SignupModal({ onClose }: Props) {
                 className={`h-1.5 flex-1 rounded-full ${
                   step === s
                     ? "bg-[#fd5b56]"
-                    : (["info", "payment", "success"].indexOf(step) > i)
+                    : ["info", "payment", "success"].indexOf(step) > i
                       ? "bg-[#fd5b56]/60"
                       : "bg-white/10"
                 }`}
@@ -281,11 +290,16 @@ export default function SignupModal({ onClose }: Props) {
           {step === "payment" && (
             <div className="space-y-5">
               <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
-                <p className="text-white font-semibold mb-1">Signing up: {bowler.firstName} {bowler.lastName}</p>
+                <p className="text-white font-semibold mb-1">
+                  Signing up: {bowler.firstName} {bowler.lastName}
+                </p>
                 <p>
-                  Your card will be <strong className="text-white">charged $21.30 every week for 12 weeks</strong> ($20 + $1.30 Lee County sales tax),
-                  starting <strong className="text-white">Tuesday, May 26, 2026</strong>. Season total: $255.60. You won&apos;t be charged anything today — the first
-                  charge runs on the start date. Cancel any time by contacting HeadPinz.
+                  Your card will be{" "}
+                  <strong className="text-white">charged $21.30 every week for 12 weeks</strong>{" "}
+                  ($20 + $1.30 Lee County sales tax), starting{" "}
+                  <strong className="text-white">Tuesday, May 26, 2026</strong>. Season total:
+                  $255.60. You won&apos;t be charged anything today — the first charge runs on the
+                  start date. Cancel any time by contacting HeadPinz.
                 </p>
               </div>
 
@@ -320,14 +334,23 @@ export default function SignupModal({ onClose }: Props) {
           {step === "success" && confirmation && (
             <div className="text-center space-y-4 py-4">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40">
-                <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                <svg
+                  className="w-8 h-8 text-emerald-400"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  viewBox="0 0 24 24"
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="text-white font-heading uppercase text-2xl">You&apos;re In, {bowler.firstName}!</h3>
+              <h3 className="text-white font-heading uppercase text-2xl">
+                You&apos;re In, {bowler.firstName}!
+              </h3>
               <p className="text-white/60 text-sm max-w-md mx-auto">
-                Your first weekly charge of $20 runs on <strong className="text-white">Tuesday, May 26, 2026</strong>. We&apos;ll email you ball
-                selection details and lane assignments as the season approaches.
+                Your first weekly charge of $20 runs on{" "}
+                <strong className="text-white">Tuesday, May 26, 2026</strong>. We&apos;ll email you
+                ball selection details and lane assignments as the season approaches.
               </p>
               <div className="inline-block rounded-lg bg-white/5 border border-white/10 px-4 py-2 text-xs text-white/50">
                 Subscription ID: {confirmation.subscriptionId}
@@ -358,7 +381,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-1 block">{label}</span>
+      <span className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-1 block">
+        {label}
+      </span>
       {children}
       {error && <span className="text-red-400 text-xs mt-1 block">{error}</span>}
     </label>
@@ -367,6 +392,8 @@ function Field({
 
 function inputClass(hasError: boolean) {
   return `w-full rounded-lg border bg-white/5 px-3 py-2.5 text-white placeholder-white/30 focus:outline-none focus:ring-2 ${
-    hasError ? "border-red-500/50 focus:ring-red-500/40" : "border-white/15 focus:ring-[#fd5b56]/40 focus:border-[#fd5b56]/50"
+    hasError
+      ? "border-red-500/50 focus:ring-red-500/40"
+      : "border-white/15 focus:ring-[#fd5b56]/40 focus:border-[#fd5b56]/50"
   }`;
 }

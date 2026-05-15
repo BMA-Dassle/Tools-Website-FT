@@ -76,9 +76,10 @@ async function retryDeposit(row: DepositFailureRow): Promise<DepositResult> {
       return {
         ok: false,
         status: res.status,
-        error: typeof parsed === "object" && parsed && "error" in parsed
-          ? String((parsed as Record<string, unknown>).error)
-          : `HTTP ${res.status}`,
+        error:
+          typeof parsed === "object" && parsed && "error" in parsed
+            ? String((parsed as Record<string, unknown>).error)
+            : `HTTP ${res.status}`,
       };
     }
     // Successful proxy response shape: { success: true, data: { depositID } | passthrough }
@@ -136,12 +137,22 @@ export async function GET(req: NextRequest) {
   const dryRun = url.searchParams.get("dryRun") === "1";
   const limit = Math.max(
     1,
-    Math.min(500, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT),
+    Math.min(
+      500,
+      parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT,
+    ),
   );
 
   const rows = await listUnresolved(limit);
   if (rows.length === 0) {
-    return NextResponse.json({ ok: true, scanned: 0, attempted: 0, succeeded: 0, failed: 0, dryRun });
+    return NextResponse.json({
+      ok: true,
+      scanned: 0,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      dryRun,
+    });
   }
 
   let attempted = 0;

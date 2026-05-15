@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { setVideoDisabled, linkCustomerEmail } from "@/lib/vt3";
 import { blockVideo, unblockVideo, getBlockState } from "@/lib/video-block";
-import {
-  getMatchByVideoCode,
-  updateVideoMatch,
-  isVideoReadyForNotify,
-} from "@/lib/video-match";
+import { getMatchByVideoCode, updateVideoMatch, isVideoReadyForNotify } from "@/lib/video-match";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
 
 /**

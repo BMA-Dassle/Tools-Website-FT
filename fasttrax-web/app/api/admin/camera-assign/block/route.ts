@@ -78,7 +78,9 @@ async function applyToExistingMatches(
     try {
       match = await getMatch(sessionId, personId);
     } catch (err) {
-      result.errors.push(`getMatch(${sessionId},${personId}): ${err instanceof Error ? err.message : "unknown"}`);
+      result.errors.push(
+        `getMatch(${sessionId},${personId}): ${err instanceof Error ? err.message : "unknown"}`,
+      );
       continue;
     }
     if (!match) continue; // no video matched yet — cron handles when it arrives
@@ -90,7 +92,9 @@ async function applyToExistingMatches(
         await setVideoDisabled(match.videoCode, true);
         result.vt3Flips++;
       } catch (err) {
-        result.errors.push(`setVideoDisabled(${match.videoCode},true): ${err instanceof Error ? err.message : "err"}`);
+        result.errors.push(
+          `setVideoDisabled(${match.videoCode},true): ${err instanceof Error ? err.message : "err"}`,
+        );
       }
       match.blocked = true;
       match.blockLevel = pairs.length > 1 ? "session" : "person";
@@ -105,14 +109,18 @@ async function applyToExistingMatches(
         const fresh = await getBlockState({ sessionId, personId, videoCode: match.videoCode });
         stillBlocked = fresh.blocked;
       } catch (err) {
-        result.errors.push(`getBlockState(${match.videoCode}): ${err instanceof Error ? err.message : "err"}`);
+        result.errors.push(
+          `getBlockState(${match.videoCode}): ${err instanceof Error ? err.message : "err"}`,
+        );
       }
       if (!stillBlocked) {
         try {
           await setVideoDisabled(match.videoCode, false);
           result.vt3Flips++;
         } catch (err) {
-          result.errors.push(`setVideoDisabled(${match.videoCode},false): ${err instanceof Error ? err.message : "err"}`);
+          result.errors.push(
+            `setVideoDisabled(${match.videoCode},false): ${err instanceof Error ? err.message : "err"}`,
+          );
         }
         match.blocked = undefined;
         match.blockLevel = undefined;
@@ -136,7 +144,9 @@ async function applyToExistingMatches(
                 result.vt3Linked++;
               }
             } catch (err) {
-              result.errors.push(`linkCustomerEmail(${match.videoCode}): ${err instanceof Error ? err.message : "err"}`);
+              result.errors.push(
+                `linkCustomerEmail(${match.videoCode}): ${err instanceof Error ? err.message : "err"}`,
+              );
             }
           }
           try {
@@ -157,7 +167,9 @@ async function applyToExistingMatches(
             match.pendingNotify = false;
             result.notified++;
           } catch (err) {
-            result.errors.push(`notifyVideoReady(${match.videoCode}): ${err instanceof Error ? err.message : "err"}`);
+            result.errors.push(
+              `notifyVideoReady(${match.videoCode}): ${err instanceof Error ? err.message : "err"}`,
+            );
           }
         } else if (neverNotified && !vt3Ready) {
           // Not ready yet — let the cron pick it up later.
@@ -181,7 +193,9 @@ export async function POST(req: NextRequest) {
     const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : undefined;
     const personIdsRaw: unknown = body?.personIds;
     const personIds: Array<string | number> = Array.isArray(personIdsRaw)
-      ? personIdsRaw.filter((x): x is string | number => typeof x === "string" || typeof x === "number")
+      ? personIdsRaw.filter(
+          (x): x is string | number => typeof x === "string" || typeof x === "number",
+        )
       : [];
 
     if (!sessionId) {
@@ -198,9 +212,10 @@ export async function POST(req: NextRequest) {
       // The client sends `personIds` (from the roster) so we can target
       // the matches without SCANning Redis.
       const pairs = personIds.map((pid) => ({ sessionId, personId: pid }));
-      const sideEffects = pairs.length > 0
-        ? await applyToExistingMatches(pairs, block, { reason })
-        : { touched: 0, vt3Flips: 0, notified: 0, vt3Linked: 0, errors: [] };
+      const sideEffects =
+        pairs.length > 0
+          ? await applyToExistingMatches(pairs, block, { reason })
+          : { touched: 0, vt3Flips: 0, notified: 0, vt3Linked: 0, errors: [] };
       return NextResponse.json({ ok: true, scope, block, ...sideEffects });
     }
 

@@ -88,7 +88,10 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
     >
       <div
         className="px-4 py-3 animate-pulse"
-        style={{ backgroundColor: "rgba(228,28,29,0.22)", borderBottom: "1px solid rgba(228,28,29,0.55)" }}
+        style={{
+          backgroundColor: "rgba(228,28,29,0.22)",
+          borderBottom: "1px solid rgba(228,28,29,0.55)",
+        }}
       >
         <p
           className="font-bold uppercase tracking-wider text-center"
@@ -102,7 +105,11 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
         <div className="mb-4">
           <span
             className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
-            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}50` }}
+            style={{
+              color: trackColor,
+              backgroundColor: `${trackColor}20`,
+              border: `1px solid ${trackColor}50`,
+            }}
           >
             {badgeFor(details)}
           </span>
@@ -116,7 +123,10 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
         </p>
 
         <div className="mt-5">
-          <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: "#ff6b6b" }}>
+          <p
+            className="text-xs font-bold uppercase tracking-wider mb-1"
+            style={{ color: "#ff6b6b" }}
+          >
             Check-In Closes
           </p>
           <p
@@ -129,7 +139,10 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
 
         <div
           className="mt-6 rounded-xl px-4 py-4"
-          style={{ backgroundColor: "rgba(228,28,29,0.12)", border: "1px solid rgba(228,28,29,0.4)" }}
+          style={{
+            backgroundColor: "rgba(228,28,29,0.12)",
+            border: "1px solid rgba(228,28,29,0.4)",
+          }}
         >
           <p
             className="font-bold text-white uppercase tracking-wider mb-1"
@@ -138,7 +151,9 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
             Head to Karting Check-In
           </p>
           <p className="text-white/80 text-sm">1st Floor · Karting Counter</p>
-          <p className="text-white/50 text-xs mt-1">Check in immediately — your heat is being staged now.</p>
+          <p className="text-white/50 text-xs mt-1">
+            Check in immediately — your heat is being staged now.
+          </p>
         </div>
 
         <p className="text-white/40 text-xs mt-5">{formatDate(details.scheduledStart)}</p>
@@ -152,11 +167,21 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
   );
 }
 
-export function PreRaceCard({ details, loadingStatus }: { details: CardDetails; loadingStatus?: boolean }) {
+export function PreRaceCard({
+  details,
+  loadingStatus,
+}: {
+  details: CardDetails;
+  loadingStatus?: boolean;
+}) {
   const trackColor = trackColorFor(details);
   const mins = minutesUntil(details.scheduledStart);
   const startsInText =
-    mins <= 0 ? "Starting soon" : mins < 60 ? `Starts in ${mins} min` : `Starts in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+    mins <= 0
+      ? "Starting soon"
+      : mins < 60
+        ? `Starts in ${mins} min`
+        : `Starts in ${Math.floor(mins / 60)}h ${mins % 60}m`;
 
   return (
     <div
@@ -192,7 +217,11 @@ export function PreRaceCard({ details, loadingStatus }: { details: CardDetails; 
         <div className="mb-4">
           <span
             className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
-            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}50` }}
+            style={{
+              color: trackColor,
+              backgroundColor: `${trackColor}20`,
+              border: `1px solid ${trackColor}50`,
+            }}
           >
             {badgeFor(details)}
           </span>
@@ -206,7 +235,9 @@ export function PreRaceCard({ details, loadingStatus }: { details: CardDetails; 
         </p>
 
         <div className="mt-5">
-          <p className="text-[#00E2E5]/80 text-xs font-bold uppercase tracking-wider mb-1">Check-In Closes</p>
+          <p className="text-[#00E2E5]/80 text-xs font-bold uppercase tracking-wider mb-1">
+            Check-In Closes
+          </p>
           <p
             className="text-white font-display uppercase tracking-wider leading-none"
             style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
@@ -218,11 +249,13 @@ export function PreRaceCard({ details, loadingStatus }: { details: CardDetails; 
 
         <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 text-white/60 text-xs leading-relaxed">
           Save this page or screenshot it. This is your e-ticket —{" "}
-          <strong className="text-white/80">show this screen at check-in</strong>. We&apos;ll notify you when your heat is
-          called.
+          <strong className="text-white/80">show this screen at check-in</strong>. We&apos;ll notify
+          you when your heat is called.
         </div>
 
-        {details.resNumber && <p className="text-[#00E2E5]/50 font-bold text-xs mt-4">{details.resNumber}</p>}
+        {details.resNumber && (
+          <p className="text-[#00E2E5]/50 font-bold text-xs mt-4">{details.resNumber}</p>
+        )}
       </div>
     </div>
   );
@@ -258,7 +291,11 @@ export function LoadingStatusCard({ details }: { details: CardDetails }) {
         <div className="mb-4">
           <span
             className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full"
-            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}50` }}
+            style={{
+              color: trackColor,
+              backgroundColor: `${trackColor}20`,
+              border: `1px solid ${trackColor}50`,
+            }}
           >
             {badgeFor(details)}
           </span>
@@ -277,24 +314,42 @@ export function InvalidCard({ details }: { details?: CardDetails }) {
     <div className="rounded-2xl border border-white/15 bg-white/[0.04] p-6 sm:p-8 text-center">
       <div
         className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-4"
-        style={{ backgroundColor: "rgba(156,163,175,0.15)", border: "1px solid rgba(156,163,175,0.35)" }}
+        style={{
+          backgroundColor: "rgba(156,163,175,0.15)",
+          border: "1px solid rgba(156,163,175,0.35)",
+        }}
       >
-        <svg className="w-7 h-7 text-white/50" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <svg
+          className="w-7 h-7 text-white/50"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
         </svg>
       </div>
-      <p className="text-white font-display uppercase tracking-wider text-xl mb-2">Ticket No Longer Valid</p>
+      <p className="text-white font-display uppercase tracking-wider text-xl mb-2">
+        Ticket No Longer Valid
+      </p>
       <p className="text-white/50 text-sm leading-relaxed max-w-xs mx-auto">
-        You&apos;re no longer assigned to this session. If you think this is a mistake, please see Guest Services.
+        You&apos;re no longer assigned to this session. If you think this is a mistake, please see
+        Guest Services.
       </p>
 
       {details && (
         <div className="mt-6 pt-6 border-t border-white/10">
-          <p className="text-white/30 text-[11px] uppercase tracking-widest mb-3">Original Ticket</p>
+          <p className="text-white/30 text-[11px] uppercase tracking-widest mb-3">
+            Original Ticket
+          </p>
 
           <span
             className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full opacity-70 mb-3"
-            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
+            style={{
+              color: trackColor,
+              backgroundColor: `${trackColor}20`,
+              border: `1px solid ${trackColor}40`,
+            }}
           >
             {badgeFor(details)}
           </span>
@@ -306,7 +361,9 @@ export function InvalidCard({ details }: { details?: CardDetails }) {
             {fullNameOf(details)}
           </p>
 
-          <p className="text-white/40 text-[11px] uppercase tracking-wider mt-3 mb-1">Check-In Closed</p>
+          <p className="text-white/40 text-[11px] uppercase tracking-wider mt-3 mb-1">
+            Check-In Closed
+          </p>
           <p
             className="text-white/55 font-display uppercase tracking-wider leading-none"
             style={{ fontSize: "clamp(32px, 10vw, 52px)" }}
@@ -339,7 +396,11 @@ export function PastCard({ details }: { details: CardDetails }) {
         <div className="mb-4">
           <span
             className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full opacity-70"
-            style={{ color: trackColor, backgroundColor: `${trackColor}20`, border: `1px solid ${trackColor}40` }}
+            style={{
+              color: trackColor,
+              backgroundColor: `${trackColor}20`,
+              border: `1px solid ${trackColor}40`,
+            }}
           >
             {badgeFor(details)}
           </span>
@@ -353,7 +414,9 @@ export function PastCard({ details }: { details: CardDetails }) {
         </p>
 
         <div className="mt-5">
-          <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-1">Check-In Closed</p>
+          <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-1">
+            Check-In Closed
+          </p>
           <p
             className="text-white/60 font-display uppercase tracking-wider leading-none"
             style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
@@ -365,7 +428,9 @@ export function PastCard({ details }: { details: CardDetails }) {
 
         <p className="text-white/30 text-xs mt-5">This heat&apos;s check-in window has closed.</p>
 
-        {details.resNumber && <p className="text-white/30 font-bold text-xs mt-4">{details.resNumber}</p>}
+        {details.resNumber && (
+          <p className="text-white/30 font-bold text-xs mt-4">{details.resNumber}</p>
+        )}
       </div>
     </div>
   );

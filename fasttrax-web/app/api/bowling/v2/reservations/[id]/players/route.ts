@@ -9,15 +9,15 @@ import { upsertMemberPref, getPrefsForPlayers } from "@/lib/kbf-prefs";
 import { getReservation, setLanePlayers } from "@/lib/qamf-bowling";
 
 // ── Square helpers (shoe-size KDS sync) ─────────────────────────────
-const SQUARE_BASE    = "https://connect.squareup.com/v2";
+const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2024-12-18";
 /** $0 catalog item used as a KDS ticket for shoe sizes. */
 const SHOE_KDS_CATALOG_ID = "3SCMJXWRY5KJZONU7HDKKUQ3";
 
 function sqHeaders(): Record<string, string> {
   return {
-    Authorization:    `Bearer ${process.env.SQUARE_ACCESS_TOKEN ?? ""}`,
-    "Content-Type":   "application/json",
+    Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN ?? ""}`,
+    "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
 }
@@ -30,8 +30,8 @@ function formatShoeSize(raw: string): string {
   const category = raw.slice(0, spaceIdx).toLowerCase();
   const size = raw.slice(spaceIdx + 1);
   if (category === "female" || category === "women") return `Female Size ${size}`;
-  if (category === "male"   || category === "men")   return `Male Size ${size}`;
-  if (category === "toddler" || category === "kids")  return `Toddler Size ${size}`;
+  if (category === "male" || category === "men") return `Male Size ${size}`;
+  if (category === "toddler" || category === "kids") return `Toddler Size ${size}`;
   return `${raw.slice(0, spaceIdx)} Size ${size}`;
 }
 
@@ -59,10 +59,7 @@ const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
 
 // ── GET ──────────────────────────────────────────────────────────────────────
 
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await ctx.params;
   const id = parseInt(idStr, 10);
   if (isNaN(id) || id < 1) {
@@ -114,7 +111,9 @@ export async function GET(
       }
     }
 
-    const laneNumbers = [...new Set(players.map((p) => p.laneNumber).filter((n): n is number => n != null))].sort((a, b) => a - b);
+    const laneNumbers = [
+      ...new Set(players.map((p) => p.laneNumber).filter((n): n is number => n != null)),
+    ].sort((a, b) => a - b);
     return NextResponse.json({ players, shoePairsAllowed, laneNumbers });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
@@ -132,10 +131,7 @@ interface PlayerPatch {
   laneNumber?: number | null;
 }
 
-export async function PATCH(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await ctx.params;
   const id = parseInt(idStr, 10);
   if (isNaN(id) || id < 1) {
@@ -255,14 +251,17 @@ export async function PATCH(
       const { players: latestPlayers } = await getReservationPlayersWithShoeAllowance(id);
       const shoePlayers = latestPlayers.filter((p) => p.shoeSize);
 
-      const sqOrderRes = await fetch(
-        `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
-        { headers: sqHeaders(), cache: "no-store" },
-      );
+      const sqOrderRes = await fetch(`${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`, {
+        headers: sqHeaders(),
+        cache: "no-store",
+      });
       if (sqOrderRes.ok) {
-        const sqOrderJson = await sqOrderRes.json() as {
+        const sqOrderJson = (await sqOrderRes.json()) as {
           order?: {
-            id: string; version: number; location_id: string; state: string;
+            id: string;
+            version: number;
+            location_id: string;
+            state: string;
             line_items?: Array<{ uid: string; catalog_object_id?: string }>;
           };
         };
@@ -272,9 +271,7 @@ export async function PATCH(
           const existingShoeUids = (sqOrder.line_items ?? [])
             .filter((li) => li.catalog_object_id === SHOE_KDS_CATALOG_ID)
             .map((li) => li.uid);
-          const fieldsToClear = existingShoeUids.map(
-            (uid) => `line_items[${uid}]`,
-          );
+          const fieldsToClear = existingShoeUids.map((uid) => `line_items[${uid}]`);
           const newShoeItems = shoePlayers.map((p) => ({
             catalog_object_id: SHOE_KDS_CATALOG_ID,
             quantity: "1",
@@ -301,7 +298,7 @@ export async function PATCH(
               },
             );
             if (!updateRes.ok) {
-              const errBody = await updateRes.json().catch(() => ({})) as {
+              const errBody = (await updateRes.json().catch(() => ({}))) as {
                 errors?: Array<{ detail?: string }>;
               };
               console.warn(
@@ -314,7 +311,10 @@ export async function PATCH(
       }
     } catch (err) {
       // Non-fatal — shoe KDS items are a convenience for kitchen staff
-      console.warn(`[players] shoe KDS sync error for neonId=${id}:`, err instanceof Error ? err.message : err);
+      console.warn(
+        `[players] shoe KDS sync error for neonId=${id}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
@@ -343,5 +343,11 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json({ players: saved, shoePairsAllowed, laneNumbers: [...new Set(saved.map((p) => p.laneNumber).filter((n): n is number => n != null))].sort((a, b) => a - b) });
+  return NextResponse.json({
+    players: saved,
+    shoePairsAllowed,
+    laneNumbers: [
+      ...new Set(saved.map((p) => p.laneNumber).filter((n): n is number => n != null)),
+    ].sort((a, b) => a - b),
+  });
 }

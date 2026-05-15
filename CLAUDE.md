@@ -50,40 +50,46 @@ mistake — read the linked lesson before working in the affected area.
 - **NEVER record session replay on KBF routes** (`/hp/kids-bowl-free/*`, `/api/kbf/*`) or admin routes (`/admin/*`, `/api/admin/*`). COPPA + customer PII. See [restructure-plan.md § Statsig + Session Replay](tasks/restructure-plan.md).
 - **NEVER skip the v2 cutover safety pattern.** When replacing a v1 feature, deploy v2 alongside v1 (different URL or flag-gated), let ops sign off, then redirect v1 → v2, then delete v1 in a third PR.
 - **ALWAYS pair displayed price with charge-time re-eval** when Statsig dynamic-config pricing is in play. Mismatch = hard fail the charge, page on-call. See [restructure-plan.md § Per-customer pricing](tasks/restructure-plan.md).
-- **NEVER guess at a live site's CSS/layout.** Always inspect actual HTML source and computed styles BEFORE writing component code. Use Chrome DevTools or WebFetch to read the real DOM. Screenshots alone are not enough. *(Lesson 2026-03-30.)*
+- **NEVER guess at a live site's CSS/layout.** Always inspect actual HTML source and computed styles BEFORE writing component code. Use Chrome DevTools or WebFetch to read the real DOM. Screenshots alone are not enough. _(Lesson 2026-03-30.)_
 - **NEVER bypass git hooks** with `--no-verify`, `--no-gpg-sign`, etc. Pre-commit (Husky + lint-staged, added PR2) is there to keep main clean. If a hook fails, fix the underlying issue.
 
 ## 1. Plan Mode Default
+
 - Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
 - If something goes sideways, STOP and re-plan immediately — don't keep pushing
 - Use plan mode for verification steps, not just building
 - Write detailed specs upfront to reduce ambiguity
 
 ## 2. Subagent Strategy
+
 - Use subagents liberally to keep main context window clean
 - Offload research, exploration, and parallel analysis to subagents
 - For complex problems, throw more compute at it via subagents
 - One task per subagent for focused execution
 
 ## 3. Self-Improvement Loop
+
 - After ANY correction from the user: update `tasks/lessons.md` with the pattern
 - Write rules for yourself that prevent the same mistake
 - Ruthlessly iterate on these lessons until mistake rate drops
 - Review lessons at session start for relevant project
 
 ## 4. Verification Before Done
+
 - Never mark a task complete without proving it works
 - Diff behavior between main and your changes when relevant
 - Ask yourself: "Would a staff engineer approve this?"
 - Run tests, check logs, demonstrate correctness
 
 ## 5. Demand Elegance (Balanced)
+
 - For non-trivial changes: pause and ask "is there a more elegant way?"
 - If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
 - Skip this for simple, obvious fixes — don't over-engineer
 - Challenge your own work before presenting it
 
 ## 6. Autonomous Bug Fixing
+
 - When given a bug report: just fix it. Don't ask for hand-holding
 - Point at logs, errors, failing tests — then resolve them
 - Zero context switching required from the user
@@ -106,12 +112,12 @@ mistake — read the linked lesson before working in the affected area.
 
 ## Reference files (one-stop index)
 
-| File | What it is | Read when |
-|---|---|---|
-| [tasks/restructure-status.md](tasks/restructure-status.md) | Live tracker — phase, next PR, blockers | Every session start, if restructure work is active |
-| [tasks/restructure-plan.md](tasks/restructure-plan.md) | Full restructure plan — conventions, PRs, backlog | Before suggesting structural changes |
-| [tasks/lessons.md](tasks/lessons.md) | Accumulated lessons & guardrails | Before working in any sensitive area (BMI, video, POV, SMS) |
-| [tasks/todo.md](tasks/todo.md) | Open in-flight feature work | When picking up a feature task |
-| `tasks/future/` | Future ideas / proposals (not actively scheduled) | When triaging new ideas |
-| `docs/` | API docs (BMI, Pandora) and SOPs | When integrating with upstream services |
-| `docs/adr/` *(planned PR2)* | Architecture Decision Records | When making or revisiting an architectural choice |
+| File                                                       | What it is                                        | Read when                                                   |
+| ---------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------- |
+| [tasks/restructure-status.md](tasks/restructure-status.md) | Live tracker — phase, next PR, blockers           | Every session start, if restructure work is active          |
+| [tasks/restructure-plan.md](tasks/restructure-plan.md)     | Full restructure plan — conventions, PRs, backlog | Before suggesting structural changes                        |
+| [tasks/lessons.md](tasks/lessons.md)                       | Accumulated lessons & guardrails                  | Before working in any sensitive area (BMI, video, POV, SMS) |
+| [tasks/todo.md](tasks/todo.md)                             | Open in-flight feature work                       | When picking up a feature task                              |
+| `tasks/future/`                                            | Future ideas / proposals (not actively scheduled) | When triaging new ideas                                     |
+| `docs/`                                                    | API docs (BMI, Pandora) and SOPs                  | When integrating with upstream services                     |
+| `docs/adr/` _(planned PR2)_                                | Architecture Decision Records                     | When making or revisiting an architectural choice           |

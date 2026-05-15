@@ -78,9 +78,7 @@ type Overlay = {
 
 function extractOverlay(v: Vt3Video): Overlay {
   const viewed =
-    !!v.hasVideoPageImpression ||
-    !!v.hasMediaCentreImpression ||
-    !!v.firstImpressionAt;
+    !!v.hasVideoPageImpression || !!v.hasMediaCentreImpression || !!v.firstImpressionAt;
   const unlockedAt = v.unlockTime || undefined;
   // VT3 considers ANY unlockTime → purchased (PAID, unlockCode,
   // and the rest are all paid paths per staff). Reverted from the
@@ -180,14 +178,14 @@ export async function GET(req: NextRequest) {
   let skippedAlreadyMatched = 0;
   let skippedNoAssignment = 0;
   let skippedOld = 0;
-  let skippedNotReady = 0;       // match row exists + still waiting on VT3
-  let savedPending = 0;           // NEW match, saved with pendingNotify=true
-  let deferredSent = 0;           // pending match turned ready, notify fired on this tick
-  let matched = 0;                // new match + immediate notify (VT3 already ready)
-  let skippedBlocked = 0;         // NEW match, blocked via camera-assign — saved but no notify
-  let unblockedAndSent = 0;       // existing blocked match detected as unblocked this tick, notify fired
-  let vt3Linked = 0;              // successful POST /videos/{code}/customer calls
-  let vt3DisabledFlips = 0;       // successful PUT /videos/by-code/{code} disabled:{bool} calls
+  let skippedNotReady = 0; // match row exists + still waiting on VT3
+  let savedPending = 0; // NEW match, saved with pendingNotify=true
+  let deferredSent = 0; // pending match turned ready, notify fired on this tick
+  let matched = 0; // new match + immediate notify (VT3 already ready)
+  let skippedBlocked = 0; // NEW match, blocked via camera-assign — saved but no notify
+  let unblockedAndSent = 0; // existing blocked match detected as unblocked this tick, notify fired
+  let vt3Linked = 0; // successful POST /videos/{code}/customer calls
+  let vt3DisabledFlips = 0; // successful PUT /videos/by-code/{code} disabled:{bool} calls
   let errors = 0;
 
   // Holding rules: notify only fires when VT3 status is one of the
@@ -196,7 +194,13 @@ export async function GET(req: NextRequest) {
   // recently slipped through our prior blocklist and sent SMS for a
   // still-processing video) holds by default. See
   // `VIDEO_READY_STATUSES` in lib/video-match.ts for the canonical list.
-  const matches: { videoCode: string; systemNumber: string; cameraNumber?: number; racer: string; sessionId: string | number }[] = [];
+  const matches: {
+    videoCode: string;
+    systemNumber: string;
+    cameraNumber?: number;
+    racer: string;
+    sessionId: string | number;
+  }[] = [];
 
   try {
     const siteId = parseInt(process.env.VT3_SITE_ID || "992", 10);
@@ -315,8 +319,7 @@ export async function GET(req: NextRequest) {
           // up. If the record was already notified before it got
           // blocked, leave pendingNotify alone — no re-send.
           if (wasBlocked && !isBlocked) {
-            const neverNotified =
-              !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
+            const neverNotified = !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
             if (neverNotified) existing.pendingNotify = true;
           }
         }
@@ -337,10 +340,7 @@ export async function GET(req: NextRequest) {
           status: v.status,
           sampleUploadTime: v.sampleUploadTime,
         });
-        const shouldFireNow =
-          !existing.blocked &&
-          existing.pendingNotify === true &&
-          vt3Ready;
+        const shouldFireNow = !existing.blocked && existing.pendingNotify === true && vt3Ready;
 
         if (shouldFireNow) {
           if (dryRun) {
@@ -657,10 +657,13 @@ export async function GET(req: NextRequest) {
       cron: "video-match",
       dryRun,
       elapsedMs: Date.now() - started,
-      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      invoker: req.headers.get("x-vercel-cron")
+        ? "vercel-cron"
+        : req.headers.get("user-agent") || "unknown",
       candidates: fetched,
       sent: matched + deferredSent + unblockedAndSent,
-      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady + skippedBlocked,
+      skipped:
+        skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady + skippedBlocked,
       errors,
     });
 
@@ -696,7 +699,9 @@ export async function GET(req: NextRequest) {
       cron: "video-match",
       dryRun,
       elapsedMs: Date.now() - started,
-      invoker: req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "unknown"),
+      invoker: req.headers.get("x-vercel-cron")
+        ? "vercel-cron"
+        : req.headers.get("user-agent") || "unknown",
       candidates: fetched,
       sent: matched,
       skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady,
@@ -709,7 +714,11 @@ export async function GET(req: NextRequest) {
     );
   } finally {
     if (!dryRun) {
-      try { await redis.del(CRON_LOCK_KEY); } catch { /* best-effort */ }
+      try {
+        await redis.del(CRON_LOCK_KEY);
+      } catch {
+        /* best-effort */
+      }
     }
   }
 }

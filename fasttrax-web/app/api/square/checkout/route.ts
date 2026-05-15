@@ -14,7 +14,8 @@ const SQUARE_LOCATION = process.env.SQUARE_LOCATION_ID || "";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { billId, amount, raceName, confirmUrl, returnUrl, cancelUrl, buyer, catalogObjectId } = await req.json();
+    const { billId, amount, raceName, confirmUrl, returnUrl, cancelUrl, buyer, catalogObjectId } =
+      await req.json();
 
     if (!billId || !amount) {
       return NextResponse.json({ error: "billId and amount required" }, { status: 400 });
@@ -31,14 +32,21 @@ export async function POST(req: NextRequest) {
         redirect_url: returnUrl || undefined,
         ask_for_shipping_address: false,
       },
-      pre_populated_data: buyer ? {
-        buyer_email: buyer.email || undefined,
-        buyer_phone_number: buyer.phone ? `+1${buyer.phone.replace(/\D/g, "").replace(/^1/, "")}` : undefined,
-        buyer_address: (buyer.firstName || buyer.lastName) ? {
-          first_name: buyer.firstName || undefined,
-          last_name: buyer.lastName || undefined,
-        } : undefined,
-      } : undefined,
+      pre_populated_data: buyer
+        ? {
+            buyer_email: buyer.email || undefined,
+            buyer_phone_number: buyer.phone
+              ? `+1${buyer.phone.replace(/\D/g, "").replace(/^1/, "")}`
+              : undefined,
+            buyer_address:
+              buyer.firstName || buyer.lastName
+                ? {
+                    first_name: buyer.firstName || undefined,
+                    last_name: buyer.lastName || undefined,
+                  }
+                : undefined,
+          }
+        : undefined,
       payment_note: `FastTrax - ${raceName || "Race Booking"} | Ref: ${billId}${confirmUrl ? ` | Confirmation: ${confirmUrl}` : ""}`,
     };
 
@@ -46,16 +54,18 @@ export async function POST(req: NextRequest) {
       // Use order with catalog item + custom name override
       paymentLinkBody.order = {
         location_id: SQUARE_LOCATION,
-        line_items: [{
-          catalog_object_id: catalogObjectId,
-          quantity: "1",
-          item_type: "ITEM",
-          name: raceName || undefined,
-          base_price_money: {
-            amount: amountCents,
-            currency: "USD",
+        line_items: [
+          {
+            catalog_object_id: catalogObjectId,
+            quantity: "1",
+            item_type: "ITEM",
+            name: raceName || undefined,
+            base_price_money: {
+              amount: amountCents,
+              currency: "USD",
+            },
           },
-        }],
+        ],
       };
     } else {
       // Use quick_pay for simple checkout
@@ -72,7 +82,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch(`${SQUARE_BASE}/online-checkout/payment-links`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${SQUARE_TOKEN}`,
+        Authorization: `Bearer ${SQUARE_TOKEN}`,
         "Content-Type": "application/json",
         "Square-Version": "2024-12-18",
       },

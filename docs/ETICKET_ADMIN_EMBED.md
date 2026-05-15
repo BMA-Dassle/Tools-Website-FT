@@ -7,6 +7,7 @@ click tracking, racer details, and one-click resend. The portal embeds it via
 iframe using the same HMAC-signed URL pattern as the bowling admin embed.
 
 **Embed URL (HMAC-signed):**
+
 ```
 https://headpinz.com/admin/embed/e-tickets?ts={timestamp}&sig={hmac_hex}
 ```
@@ -18,19 +19,21 @@ https://headpinz.com/admin/embed/e-tickets?ts={timestamp}&sig={hmac_hex}
 E-ticket delivery log and resend tool for front-desk staff:
 
 ### Table columns
-| Column | Description |
-|--------|-------------|
-| Time | Delivery timestamp (ET) |
-| Racer | First + last name from BMI person record |
-| Phone | Recipient phone (SMS deliveries) |
-| Track | Red / Blue track |
-| Heat | Heat number + scheduled start time |
-| Race Type | Starter / Advanced / Pro |
-| Status | Delivery state (sent, delivered, failed, clicked) |
-| Clicks | Click count + first/last click timestamps |
-| Actions | Resend via SMS, email, or both |
+
+| Column    | Description                                       |
+| --------- | ------------------------------------------------- |
+| Time      | Delivery timestamp (ET)                           |
+| Racer     | First + last name from BMI person record          |
+| Phone     | Recipient phone (SMS deliveries)                  |
+| Track     | Red / Blue track                                  |
+| Heat      | Heat number + scheduled start time                |
+| Race Type | Starter / Advanced / Pro                          |
+| Status    | Delivery state (sent, delivered, failed, clicked) |
+| Clicks    | Click count + first/last click timestamps         |
+| Actions   | Resend via SMS, email, or both                    |
 
 ### Admin actions
+
 1. **Resend** — re-deliver e-ticket link via SMS, email, or both
 2. **Filter** — by phone number, racer name, or track
 3. **Date picker** — view deliveries for any date
@@ -42,6 +45,7 @@ E-ticket delivery log and resend tool for front-desk staff:
 Identical to the bowling admin embed. One shared secret covers all embed pages.
 
 ### Auth flow
+
 1. Portal page loads -> calls its own `/api/integrations/admin-embed-url?tool=e-tickets`
 2. That endpoint generates `HMAC-SHA256(ADMIN_EMBED_SECRET, Date.now())`
 3. Returns `https://headpinz.com/admin/embed/e-tickets?ts={timestamp}&sig={hex}`
@@ -118,10 +122,10 @@ bowling has. When embedded, it renders in its default dark theme. Theme support
 
 The e-ticket admin client calls these APIs (token injected server-side):
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/admin/e-tickets/list?token=...&date=...` | GET | List deliveries for a date |
-| `/api/admin/e-tickets/resend?token=...` | POST | Resend e-ticket (SMS/email/both) |
+| Endpoint                                       | Method | Description                      |
+| ---------------------------------------------- | ------ | -------------------------------- |
+| `/api/admin/e-tickets/list?token=...&date=...` | GET    | List deliveries for a date       |
+| `/api/admin/e-tickets/resend?token=...`        | POST   | Resend e-ticket (SMS/email/both) |
 
 These are also accessible via the portal's api-key auth (`x-api-key` header with
 `SALES_API_KEYS`).

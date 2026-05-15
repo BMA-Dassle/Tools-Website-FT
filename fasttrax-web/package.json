@@ -8,7 +8,9 @@
     "postbuild": "node scripts/a11y-gate.mjs",
     "start": "next start",
     "lint": "eslint",
-    "lint:a11y": "node scripts/a11y-gate.mjs"
+    "lint:a11y": "node scripts/a11y-gate.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

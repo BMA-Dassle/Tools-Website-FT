@@ -31,7 +31,7 @@ function formatTime(iso: string): string {
 }
 
 const TRACK_PILL: Record<string, string> = {
-  Red:  "border-red-500/40 bg-red-500/[0.10] text-red-200",
+  Red: "border-red-500/40 bg-red-500/[0.10] text-red-200",
   Blue: "border-blue-500/40 bg-blue-500/[0.10] text-blue-200",
   Mega: "border-purple-500/40 bg-purple-500/[0.10] text-purple-200",
 };
@@ -82,13 +82,13 @@ export default function PriorBookingsBanner({
           ✓
         </span>
         <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest">
-          {otherLabel}{otherLabel.endsWith("s") ? "" : "s"} already booked
+          {otherLabel}
+          {otherLabel.endsWith("s") ? "" : "s"} already booked
         </p>
       </div>
       <p className="text-white/50 text-[11px] mb-3 leading-relaxed">
-        You&apos;re all set for the {otherLabel.toLowerCase()}s. Now pick heats for
-        your {currentCategory === "adult" ? "adults" : "juniors"} below — same
-        bill, same date.
+        You&apos;re all set for the {otherLabel.toLowerCase()}s. Now pick heats for your{" "}
+        {currentCategory === "adult" ? "adults" : "juniors"} below — same bill, same date.
       </p>
       <div className="flex flex-wrap gap-2">
         {entries.map((entry, i) => {
@@ -97,9 +97,9 @@ export default function PriorBookingsBanner({
             const earliest = entry.bookings.map((b) => b.block.start).sort()[0] || "";
             const racerCount = entry.bookings[0]?.quantity || 1;
             const label = pkg
-              ? (pkg.category === "junior" && pkg.name === "Ultimate Qualifier"
-                  ? `${pkg.name} (Junior)`
-                  : pkg.name)
+              ? pkg.category === "junior" && pkg.name === "Ultimate Qualifier"
+                ? `${pkg.name} (Junior)`
+                : pkg.name
               : "Package";
             return (
               <span

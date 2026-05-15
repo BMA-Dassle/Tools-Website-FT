@@ -20,8 +20,7 @@ const locations = [
     phoneTel: "+12394553755",
     hours: "Sun-Thu 11AM-12AM, Fri-Sat 11AM-2AM",
     href: "/hp/naples",
-    mapUrl:
-      "https://www.google.com/maps/search/?api=1&query=8525+Radio+Lane+Naples+FL+34104",
+    mapUrl: "https://www.google.com/maps/search/?api=1&query=8525+Radio+Lane+Naples+FL+34104",
   },
 ];
 
@@ -39,18 +38,13 @@ export default function HeadPinzFooter() {
           >
             HEADPINZ
           </Link>
-          <p className="text-white/40 text-sm mt-1 font-body">
-            Where Fun Comes Together
-          </p>
+          <p className="text-white/40 text-sm mt-1 font-body">Where Fun Comes Together</p>
         </div>
 
         {/* Locations grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
           {locations.map((loc) => (
-            <div
-              key={loc.name}
-              className="text-center md:text-left space-y-2"
-            >
+            <div key={loc.name} className="text-center md:text-left space-y-2">
               <h3 className="font-heading text-lg text-[#fd5b56] uppercase tracking-wider">
                 {loc.name}
               </h3>
@@ -67,16 +61,11 @@ export default function HeadPinzFooter() {
                 </a>
               </p>
               <p className="text-white/60 text-sm font-body">
-                <a
-                  href={`tel:${loc.phoneTel}`}
-                  className="hover:text-white transition-colors"
-                >
+                <a href={`tel:${loc.phoneTel}`} className="hover:text-white transition-colors">
                   {loc.phone}
                 </a>
               </p>
-              <p className="text-white/40 text-xs font-body">
-                {loc.hours}
-              </p>
+              <p className="text-white/40 text-xs font-body">{loc.hours}</p>
             </div>
           ))}
         </div>

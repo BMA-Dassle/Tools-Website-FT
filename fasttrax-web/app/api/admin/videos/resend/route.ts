@@ -196,8 +196,8 @@ type Body = {
    *  A manual match record is created on successful send so the row
    *  flips to "matched" on next list refresh. */
   videoCode?: string;
-  systemNumber?: string;     // video.system.name — the base/dock id
-  cameraNumber?: number;     // video.camera — hardware camera id
+  systemNumber?: string; // video.system.name — the base/dock id
+  cameraNumber?: number; // video.camera — hardware camera id
   customerUrl?: string;
   thumbnailUrl?: string;
   capturedAt?: string;
@@ -214,8 +214,11 @@ type Body = {
 
 export async function POST(req: NextRequest) {
   let body: Body;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
   const channel = body.channel;
   if (channel !== "sms" && channel !== "email" && channel !== "both") {
@@ -246,12 +249,22 @@ export async function POST(req: NextRequest) {
     // Build a minimal match record from what the client passed. We'll
     // save it after a successful send so the row transitions to matched.
     if (!body.customerUrl) body.customerUrl = `https://vt3.io/?code=${body.videoCode}`;
-    if (!body.capturedAt) return NextResponse.json({ error: "capturedAt required for unmatched send" }, { status: 400 });
+    if (!body.capturedAt)
+      return NextResponse.json(
+        { error: "capturedAt required for unmatched send" },
+        { status: 400 },
+      );
     if (channel !== "email" && !body.overridePhone) {
-      return NextResponse.json({ error: "overridePhone required for SMS send on unmatched video" }, { status: 400 });
+      return NextResponse.json(
+        { error: "overridePhone required for SMS send on unmatched video" },
+        { status: 400 },
+      );
     }
     if (channel !== "sms" && !body.overrideEmail) {
-      return NextResponse.json({ error: "overrideEmail required for email send on unmatched video" }, { status: 400 });
+      return NextResponse.json(
+        { error: "overrideEmail required for email send on unmatched video" },
+        { status: 400 },
+      );
     }
     match = {
       // Synthetic key — sessionId "manual" + personId = videoCode so
@@ -278,7 +291,10 @@ export async function POST(req: NextRequest) {
 
   if (!match) {
     return NextResponse.json(
-      { error: "provide either (sessionId+personId) for a matched resend, or videoCode+overrides for a manual send" },
+      {
+        error:
+          "provide either (sessionId+personId) for a matched resend, or videoCode+overrides for a manual send",
+      },
       { status: 400 },
     );
   }
@@ -290,7 +306,13 @@ export async function POST(req: NextRequest) {
 
   // SMS ────────────────────────────────────────────────────────────────
   if (channel === "sms" || channel === "both") {
-    const rawPhone = (body.overridePhone || match.phone || match.mobilePhone || match.homePhone || "").trim();
+    const rawPhone = (
+      body.overridePhone ||
+      match.phone ||
+      match.mobilePhone ||
+      match.homePhone ||
+      ""
+    ).trim();
     const phone = canonicalizePhone(rawPhone);
     if (!phone) {
       result.sms = {
@@ -312,13 +334,20 @@ export async function POST(req: NextRequest) {
       const ts = new Date().toISOString();
       try {
         const send = await voxSend(phone, smsBody);
-        result.sms = { ok: send.ok, status: send.status, sentTo: phone, error: send.ok ? undefined : send.error };
+        result.sms = {
+          ok: send.ok,
+          status: send.status,
+          sentTo: phone,
+          error: send.ok ? undefined : send.error,
+        };
         await logSms({
-          ts, phone,
+          ts,
+          phone,
           // video-resend (split from admin-resend) so the e-ticket
           // admin's default view doesn't pick up race-video SMS.
           source: "video-resend",
-          status: send.status, ok: send.ok,
+          status: send.status,
+          ok: send.ok,
           error: send.ok ? undefined : (send.error || "").slice(0, 500),
           body: smsBody,
           sessionIds: [match.sessionId],
@@ -327,7 +356,11 @@ export async function POST(req: NextRequest) {
           shortCode: match.videoCode,
         });
       } catch (err) {
-        result.sms = { ok: false, status: null, error: err instanceof Error ? err.message : "send error" };
+        result.sms = {
+          ok: false,
+          status: null,
+          error: err instanceof Error ? err.message : "send error",
+        };
       }
     }
   }
@@ -359,9 +392,18 @@ export async function POST(req: NextRequest) {
           // auto-fired video emails.
           bcc: "vendorcases@dassle.us",
         });
-        result.email = { ok: send.ok, status: send.status, sentTo: to, error: send.ok ? undefined : send.error };
+        result.email = {
+          ok: send.ok,
+          status: send.status,
+          sentTo: to,
+          error: send.ok ? undefined : send.error,
+        };
       } catch (err) {
-        result.email = { ok: false, status: null, error: err instanceof Error ? err.message : "email error" };
+        result.email = {
+          ok: false,
+          status: null,
+          error: err instanceof Error ? err.message : "email error",
+        };
       }
     }
   }

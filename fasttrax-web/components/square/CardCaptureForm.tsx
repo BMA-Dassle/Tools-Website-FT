@@ -125,7 +125,9 @@ const CardCaptureForm = forwardRef<CardCaptureHandle, Props>(function CardCaptur
       cancelled = true;
       try {
         cardInstance?.destroy();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       cardRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

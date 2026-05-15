@@ -8,15 +8,22 @@ function dotColor(status: string) {
 
 function formatShortTime(iso: string) {
   try {
-    return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
-  } catch { return ""; }
+    return new Date(iso).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York",
+    });
+  } catch {
+    return "";
+  }
 }
 
 function CheckingInTag({ race }: { race: CurrentRace }) {
   const time = race.scheduledStart ? formatShortTime(race.scheduledStart) : "";
   return (
     <span className="text-amber-400 text-[11px] font-bold animate-pulse">
-      Now Checking In: {race.raceType} Heat #{race.heatNumber}{time ? ` · ${time}` : ""}
+      Now Checking In: {race.raceType} Heat #{race.heatNumber}
+      {time ? ` · ${time}` : ""}
     </span>
   );
 }
@@ -42,11 +49,14 @@ export default function TrackStatus() {
               >
                 <div className="flex flex-col">
                   <div className="flex items-center gap-3">
-                    <span className={`w-2 h-2 rounded-full ${dotColor(data.tracks[0]?.status || "ok")} animate-pulse`} />
-                    <span className="font-body font-semibold text-white text-sm">
-                      Mega Track
-                    </span>
-                    <span className="font-body text-xs font-bold" style={{ color: "rgb(134,82,255)" }}>
+                    <span
+                      className={`w-2 h-2 rounded-full ${dotColor(data.tracks[0]?.status || "ok")} animate-pulse`}
+                    />
+                    <span className="font-body font-semibold text-white text-sm">Mega Track</span>
+                    <span
+                      className="font-body text-xs font-bold"
+                      style={{ color: "rgb(134,82,255)" }}
+                    >
                       {data.tracks[0]?.delayFormatted || "On Time"}
                     </span>
                   </div>
@@ -55,7 +65,10 @@ export default function TrackStatus() {
               </div>
             ) : (
               data.tracks.map((t) => {
-                const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as "blue" | "red" | "mega";
+                const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as
+                  | "blue"
+                  | "red"
+                  | "mega";
                 const race = currentRaces[key] || null;
                 return (
                   <div
@@ -65,7 +78,9 @@ export default function TrackStatus() {
                   >
                     <div className="flex flex-col">
                       <div className="flex items-center gap-3">
-                        <span className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`} />
+                        <span
+                          className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`}
+                        />
                         <span className="font-body font-semibold text-white text-sm">
                           {t.trackName}
                         </span>

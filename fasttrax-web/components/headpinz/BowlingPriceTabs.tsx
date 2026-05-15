@@ -110,10 +110,18 @@ export default function BowlingPriceTabs({ tables }: { tables: BowlingPriceTable
         <table className="w-full text-left font-body text-sm" style={{ minWidth: "520px" }}>
           <thead>
             <tr style={{ backgroundColor: `${active.color}88` }}>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">Time Period</th>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">1.5 Hours</th>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">2 Hours</th>
-              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">3 Hours</th>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs">
+                Time Period
+              </th>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">
+                1.5 Hours
+              </th>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">
+                2 Hours
+              </th>
+              <th className="px-4 py-3 text-white font-bold uppercase tracking-wider text-xs text-center">
+                3 Hours
+              </th>
             </tr>
           </thead>
           <tbody>

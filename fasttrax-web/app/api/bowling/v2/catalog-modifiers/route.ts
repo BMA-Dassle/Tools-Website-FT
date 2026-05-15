@@ -106,7 +106,10 @@ export async function GET(req: NextRequest) {
   // ── Mode 1: direct modifier list IDs (from bowling_experience row) ──
   const modifierListIdsParam = req.nextUrl.searchParams.get("modifierListIds");
   if (modifierListIdsParam) {
-    const ids = modifierListIdsParam.split(",").map((s) => s.trim()).filter(Boolean);
+    const ids = modifierListIdsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (ids.length === 0) return NextResponse.json([], { status: 200 });
 
     try {
@@ -122,7 +125,10 @@ export async function GET(req: NextRequest) {
   // ── Mode 2: catalog object lookup (legacy / fallback) ───────────────
   const catalogObjectId = req.nextUrl.searchParams.get("catalogObjectId");
   if (!catalogObjectId) {
-    return NextResponse.json({ error: "modifierListIds or catalogObjectId required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "modifierListIds or catalogObjectId required" },
+      { status: 400 },
+    );
   }
 
   try {
@@ -132,7 +138,9 @@ export async function GET(req: NextRequest) {
     );
 
     if (!objRes.ok) {
-      console.warn(`[catalog-modifiers] Square object fetch failed: ${objRes.status} for ${catalogObjectId}`);
+      console.warn(
+        `[catalog-modifiers] Square object fetch failed: ${objRes.status} for ${catalogObjectId}`,
+      );
       return NextResponse.json([], { status: 200 });
     }
 

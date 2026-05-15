@@ -88,7 +88,7 @@ function packUrlParam(p: RacePack): string {
 function packFromUrlParam(s: string | null): RacePack | null {
   if (!s) return null;
   const [type, count] = s.split("-");
-  return PACKS.find(p => p.type === type && String(p.raceCount) === count) || null;
+  return PACKS.find((p) => p.type === type && String(p.raceCount) === count) || null;
 }
 
 // ── Person lookup types ─────────────────────────────────────────────────────
@@ -133,7 +133,13 @@ export default function RacePacksPage() {
   const [smsError, setSmsError] = useState("");
   const [smsSent, setSmsSent] = useState(false);
   const [searchResults, setSearchResults] = useState<FoundAccount[]>([]);
-  const [newPerson, setNewPerson] = useState({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
+  const [newPerson, setNewPerson] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    dob: "",
+  });
   const [emailSmsSent, setEmailSmsSent] = useState(false);
   const [emailSmsCode, setEmailSmsCode] = useState("");
   const [disclaimersAccepted, setDisclaimersAccepted] = useState<boolean[]>([]);
@@ -269,7 +275,9 @@ export default function RacePacksPage() {
     // and the per-name scoring exist (frequent-racer phone search returns
     // hundreds of per-reservation contact-person stubs that crowd out
     // the real profile, both by rank and by name-collision).
-    const searchRes = await fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`);
+    const searchRes = await fetch(
+      `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
+    );
     const results = await searchRes.json();
     if (!Array.isArray(results) || results.length === 0) return [];
 
@@ -298,14 +306,18 @@ export default function RacePacksPage() {
         const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
         const p = await res.json();
         const memberships = (p.memberships || [])
-          .filter((m: { stops: string; name: string }) =>
-            (!m.stops || new Date(m.stops) > new Date()) &&
-            isRelevantMembership(m.name)
+          .filter(
+            (m: { stops: string; name: string }) =>
+              (!m.stops || new Date(m.stops) > new Date()) && isRelevantMembership(m.name),
           )
           .map((m: { name: string }) => m.name)
           .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
         const lastSeen = p.lastLineUp
-          ? new Date(p.lastLineUp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+          ? new Date(p.lastLineUp).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })
           : "";
         // Fetch credit balances
         let creditBalances: { kind: string; balance: number }[] = [];
@@ -314,27 +326,36 @@ export default function RacePacksPage() {
           if (depRes.ok) {
             const deposits: { depositKind: string; balance: number }[] = await depRes.json();
             creditBalances = deposits
-              .filter(d => d.balance > 0 && (d.depositKind.toLowerCase().includes("credit") || d.depositKind.toLowerCase().includes("pass")))
-              .map(d => ({ kind: d.depositKind, balance: d.balance }));
+              .filter(
+                (d) =>
+                  d.balance > 0 &&
+                  (d.depositKind.toLowerCase().includes("credit") ||
+                    d.depositKind.toLowerCase().includes("pass")),
+              )
+              .map((d) => ({ kind: d.depositKind, balance: d.balance }));
           }
         } catch {}
         const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-          (b.lastSeen || "").localeCompare(a.lastSeen || "")
+          (b.lastSeen || "").localeCompare(a.lastSeen || ""),
         );
         const loginCode = tags[0]?.tag || "";
         return {
           personId: String(p.id),
           fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
-          email: (p.addresses?.[0]?.email) || "",
+          email: p.addresses?.[0]?.email || "",
           lastSeen,
           loginCode,
           races: tags.length,
           memberships,
           creditBalances,
         } as FoundAccount;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     });
-    const allDetails = (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null);
+    const allDetails = (await Promise.all(detailPromises)).filter(
+      (d): d is FoundAccount => d !== null,
+    );
     allDetails.sort((a, b) => {
       if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
       if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
@@ -380,7 +401,10 @@ export default function RacePacksPage() {
 
   async function handleEmailOtpVerify() {
     const trimmed = emailSmsCode.trim();
-    if (!trimmed || trimmed.length !== 6) { setSmsError("Enter the 6-digit code"); return; }
+    if (!trimmed || trimmed.length !== 6) {
+      setSmsError("Enter the 6-digit code");
+      return;
+    }
     setSmsError("");
     const email = emailInput.trim().toLowerCase();
     try {
@@ -409,7 +433,9 @@ export default function RacePacksPage() {
       phone: lookupMode === "phone" ? lookupPhone : undefined,
       loginCode: account.loginCode,
     });
-    setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
+    setDisclaimersAccepted(
+      selectedPack!.type === "weekday" ? [false, false, false] : [false, false],
+    );
     changeStep("review");
   }
 
@@ -421,7 +447,9 @@ export default function RacePacksPage() {
       const fullName = `${p.firstName || ""} ${p.name || ""}`.trim();
       const email = p.addresses?.[0]?.email || "";
       setPerson({ personId: String(p.id), fullName, email });
-      setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
+      setDisclaimersAccepted(
+        selectedPack!.type === "weekday" ? [false, false, false] : [false, false],
+      );
       setLooking(false);
       changeStep("review");
     } catch {
@@ -499,7 +527,10 @@ export default function RacePacksPage() {
 
   async function handleSmsVerify() {
     const trimmed = smsCode.trim();
-    if (!trimmed || trimmed.length !== 6) { setSmsError("Enter the 6-digit code"); return; }
+    if (!trimmed || trimmed.length !== 6) {
+      setSmsError("Enter the 6-digit code");
+      return;
+    }
     setSmsError("");
     const digits = phoneInput.replace(/\D/g, "").replace(/^1/, "");
     try {
@@ -520,7 +551,13 @@ export default function RacePacksPage() {
   }
 
   function handleNewPerson() {
-    if (!newPerson.firstName || !newPerson.lastName || !newPerson.email || !newPerson.phone || !newPerson.dob) {
+    if (
+      !newPerson.firstName ||
+      !newPerson.lastName ||
+      !newPerson.email ||
+      !newPerson.phone ||
+      !newPerson.dob
+    ) {
       setError("Please fill in all fields.");
       return;
     }
@@ -530,7 +567,9 @@ export default function RacePacksPage() {
       email: newPerson.email,
       phone: newPerson.phone,
     });
-    setDisclaimersAccepted(selectedPack!.type === "weekday" ? [false, false, false] : [false, false]);
+    setDisclaimersAccepted(
+      selectedPack!.type === "weekday" ? [false, false, false] : [false, false],
+    );
     changeStep("review");
   }
 
@@ -572,7 +611,13 @@ export default function RacePacksPage() {
         const createRes = await fetch("/api/pandora", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ firstName, lastName, email: person.email, phone, birthdate: newPerson.dob || undefined }),
+          body: JSON.stringify({
+            firstName,
+            lastName,
+            email: person.email,
+            phone,
+            birthdate: newPerson.dob || undefined,
+          }),
         });
         const createData = await createRes.json();
         if (createData.personId) {
@@ -591,7 +636,9 @@ export default function RacePacksPage() {
           // Pandora person create failed — without a personId we have
           // nothing to credit. Surface to the customer instead of
           // silently charging.
-          throw new Error("Could not set up your racer account. Please try again or contact support.");
+          throw new Error(
+            "Could not set up your racer account. Please try again or contact support.",
+          );
         }
 
         setPayingStatus("Preparing your race pack...");
@@ -629,7 +676,11 @@ export default function RacePacksPage() {
         setCheckoutTotal(total);
         setCheckoutPersonId(String(linkedPersonId));
         setCheckoutIsNewRacer(isNewRacer);
-        trackBookingStep("Race Pack Payment", { pack: selectedPack.name, amount: total, viaDeposit: "true" });
+        trackBookingStep("Race Pack Payment", {
+          pack: selectedPack.name,
+          amount: total,
+          viaDeposit: "true",
+        });
         setPaying(false);
         return;
       }
@@ -642,7 +693,7 @@ export default function RacePacksPage() {
       if (isNewRacer && linkedPersonId) {
         setPayingStatus("Setting up your account...");
         for (let i = 0; i < 6; i++) {
-          await new Promise(r => setTimeout(r, 5000));
+          await new Promise((r) => setTimeout(r, 5000));
           const testSell = await fetch("/api/bmi?endpoint=booking%2Fsell", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -678,16 +729,23 @@ export default function RacePacksPage() {
       });
       const sellData = await sellRes.text();
       const sell = JSON.parse(sellData);
-      if (!sell.success && sell.success !== undefined) throw new Error(sell.errorMessage || "Sell failed");
+      if (!sell.success && sell.success !== undefined)
+        throw new Error(sell.errorMessage || "Sell failed");
 
       const billIdMatch = sellData.match(/"orderId"\s*:\s*(\d+)/);
       const billId = billIdMatch ? billIdMatch[1] : String(sell.orderId);
       if (!billId || billId === "undefined") throw new Error("No bill ID returned");
 
       // 2. Register contact person with personId
-      const regBody: Record<string, unknown> = { firstName, lastName, email: person.email, phone: phone.replace(/\D/g, "") };
+      const regBody: Record<string, unknown> = {
+        firstName,
+        lastName,
+        email: person.email,
+        phone: phone.replace(/\D/g, ""),
+      };
       if (linkedPersonId) {
-        const regJson = `{"orderId":${billId},"PersonId":${linkedPersonId},` + JSON.stringify(regBody).slice(1);
+        const regJson =
+          `{"orderId":${billId},"PersonId":${linkedPersonId},` + JSON.stringify(regBody).slice(1);
         await fetch("/api/bmi?endpoint=person%2FregisterContactPerson", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -761,7 +819,8 @@ export default function RacePacksPage() {
               Race Packs
             </h1>
             <p className="text-white/50 text-sm max-w-lg mx-auto">
-              Buy credits in bulk and save. Use them anytime or Monday–Thursday. Credits load instantly to your account.
+              Buy credits in bulk and save. Use them anytime or Monday–Thursday. Credits load
+              instantly to your account.
             </p>
           </div>
         </div>
@@ -780,7 +839,8 @@ export default function RacePacksPage() {
                 {selectedPack.raceCount}-Race Pack
               </p>
               <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest">
-                {selectedPack.type === "weekday" ? "Mon–Thu" : "Anytime"} · ${selectedPack.price.toFixed(2)}
+                {selectedPack.type === "weekday" ? "Mon–Thu" : "Anytime"} · $
+                {selectedPack.price.toFixed(2)}
               </p>
             </div>
           )}
@@ -793,18 +853,33 @@ export default function RacePacksPage() {
       {!RACE_PACK_VIA_DEPOSIT && step === "select" && (
         <div className="max-w-4xl mx-auto px-4 sm:px-6 mb-6 mt-4">
           <div className="rounded-xl border-2 border-red-500/50 bg-red-500/10 p-5 flex items-start gap-3">
-            <svg className="w-6 h-6 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            <svg
+              className="w-6 h-6 text-red-400 shrink-0 mt-0.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+              />
             </svg>
             <div>
-              <p className="text-red-400 font-bold text-base">Online Race Packs Temporarily Unavailable</p>
+              <p className="text-red-400 font-bold text-base">
+                Online Race Packs Temporarily Unavailable
+              </p>
               <p className="text-white/60 text-sm mt-1">
-                Race pack purchases are temporarily unavailable online due to a technical issue. Please see an on-site team member for assistance.
+                Race pack purchases are temporarily unavailable online due to a technical issue.
+                Please see an on-site team member for assistance.
               </p>
               <p className="text-amber-400 text-sm font-semibold mt-2">
                 3-packs are now available through{" "}
-                <Link href="/book/race" className="underline hover:text-amber-300">normal race booking</Link>
-                {" "}— pick your 3 heats up front at checkout.
+                <Link href="/book/race" className="underline hover:text-amber-300">
+                  normal race booking
+                </Link>{" "}
+                — pick your 3 heats up front at checkout.
               </p>
             </div>
           </div>
@@ -815,15 +890,19 @@ export default function RacePacksPage() {
       {step === "select" && (
         <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-16">
           <div className="grid grid-cols-2 gap-4 mb-3">
-            <p className="text-center text-white/30 text-xs font-bold uppercase tracking-widest">Monday – Thursday</p>
-            <p className="text-center text-white/30 text-xs font-bold uppercase tracking-widest">Anytime</p>
+            <p className="text-center text-white/30 text-xs font-bold uppercase tracking-widest">
+              Monday – Thursday
+            </p>
+            <p className="text-center text-white/30 text-xs font-bold uppercase tracking-widest">
+              Anytime
+            </p>
           </div>
 
           {/* Pack rows — disabled only when the via-deposit workaround
               is off (BMI sell flow remains broken upstream). */}
-          {[3, 5, 10].map(count => {
-            const weekday = PACKS.find(p => p.raceCount === count && p.type === "weekday")!;
-            const anytime = PACKS.find(p => p.raceCount === count && p.type === "anytime")!;
+          {[3, 5, 10].map((count) => {
+            const weekday = PACKS.find((p) => p.raceCount === count && p.type === "weekday")!;
+            const anytime = PACKS.find((p) => p.raceCount === count && p.type === "anytime")!;
             return (
               <div key={count} className="grid grid-cols-2 gap-4 mb-4">
                 <PackCard pack={weekday} onBuy={handleBuyNow} disabled={!RACE_PACK_VIA_DEPOSIT} />
@@ -833,7 +912,8 @@ export default function RacePacksPage() {
           })}
 
           <p className="text-center text-white/20 text-xs mt-6">
-            Credits are non-refundable. Monday–Thursday packs valid Mon–Thu only. Anytime packs valid any day.
+            Credits are non-refundable. Monday–Thursday packs valid Mon–Thu only. Anytime packs
+            valid any day.
           </p>
         </div>
       )}
@@ -861,7 +941,7 @@ export default function RacePacksPage() {
               ) : racerView === "found" ? (
                 <div className="space-y-3">
                   <p className="text-white/40 text-xs">Select your account:</p>
-                  {searchResults.map(a => (
+                  {searchResults.map((a) => (
                     <button
                       key={a.personId}
                       type="button"
@@ -874,19 +954,29 @@ export default function RacePacksPage() {
                           <p className="text-white font-semibold text-sm">{a.fullName}</p>
                           <div className="flex items-center gap-2 mt-1 flex-wrap">
                             {a.memberships.slice(0, 3).map((m, i) => (
-                              <span key={i} className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50">{m}</span>
+                              <span
+                                key={i}
+                                className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/50"
+                              >
+                                {m}
+                              </span>
                             ))}
                           </div>
                           {a.creditBalances && a.creditBalances.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {a.creditBalances.map((cb, ci) => (
-                                <span key={ci} className="text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90">
+                                <span
+                                  key={ci}
+                                  className="text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400/90"
+                                >
                                   {cb.kind}: {cb.balance}
                                 </span>
                               ))}
                             </div>
                           )}
-                          {a.lastSeen && <p className="text-white/30 text-xs mt-1">Last seen: {a.lastSeen}</p>}
+                          {a.lastSeen && (
+                            <p className="text-white/30 text-xs mt-1">Last seen: {a.lastSeen}</p>
+                          )}
                         </div>
                         <div className="text-right shrink-0 ml-3">
                           <p className="text-[#00E2E5] font-bold text-lg">{a.races}</p>
@@ -895,7 +985,13 @@ export default function RacePacksPage() {
                       </div>
                     </button>
                   ))}
-                  <button onClick={() => { setRacerView("lookup"); setError(""); }} className="text-white/30 text-xs hover:text-white/50 transition-colors">
+                  <button
+                    onClick={() => {
+                      setRacerView("lookup");
+                      setError("");
+                    }}
+                    className="text-white/30 text-xs hover:text-white/50 transition-colors"
+                  >
                     ← Back to search
                   </button>
                 </div>
@@ -905,13 +1001,23 @@ export default function RacePacksPage() {
 
                   {/* Mode tabs */}
                   <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-                    {(["phone", "email", "code", "new"] as const).map(m => (
+                    {(["phone", "email", "code", "new"] as const).map((m) => (
                       <button
                         key={m}
-                        onClick={() => { setLookupMode(m); setError(""); setSmsError(""); }}
+                        onClick={() => {
+                          setLookupMode(m);
+                          setError("");
+                          setSmsError("");
+                        }}
                         className={`flex-1 py-2 rounded-md text-xs font-semibold transition-colors ${lookupMode === m ? "bg-[#00E2E5] text-[#000418]" : "text-white/40 hover:text-white/60"}`}
                       >
-                        {m === "phone" ? "Phone" : m === "email" ? "Email" : m === "code" ? "Code" : "New"}
+                        {m === "phone"
+                          ? "Phone"
+                          : m === "email"
+                            ? "Email"
+                            : m === "code"
+                              ? "Code"
+                              : "New"}
                       </button>
                     ))}
                   </div>
@@ -921,8 +1027,11 @@ export default function RacePacksPage() {
                       <input
                         type="tel"
                         value={phoneInput}
-                        onChange={e => { setPhoneInput(formatPhoneInput(e.target.value)); if (error) setError(""); }}
-                        onKeyDown={e => e.key === "Enter" && handlePhoneSearch()}
+                        onChange={(e) => {
+                          setPhoneInput(formatPhoneInput(e.target.value));
+                          if (error) setError("");
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handlePhoneSearch()}
                         placeholder="(239) 555-1234"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm text-center tracking-wider placeholder:text-white/25 placeholder:tracking-normal focus:border-[#00E2E5]/50 focus:outline-none"
                       />
@@ -939,15 +1048,20 @@ export default function RacePacksPage() {
                   {lookupMode === "phone" && smsSent && (
                     <div className="space-y-3">
                       <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-3 text-center">
-                        <p className="text-green-400 font-semibold text-xs">Code sent to {phoneInput}</p>
+                        <p className="text-green-400 font-semibold text-xs">
+                          Code sent to {phoneInput}
+                        </p>
                       </div>
                       <input
                         type="text"
                         inputMode="numeric"
                         maxLength={6}
                         value={smsCode}
-                        onChange={e => { setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setSmsError(""); }}
-                        onKeyDown={e => e.key === "Enter" && handleSmsVerify()}
+                        onChange={(e) => {
+                          setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                          setSmsError("");
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handleSmsVerify()}
                         placeholder="000000"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-xl tracking-[0.4em] font-mono placeholder:text-white/20 focus:border-[#00E2E5]/50 focus:outline-none"
                       />
@@ -959,7 +1073,13 @@ export default function RacePacksPage() {
                       >
                         Verify Code
                       </button>
-                      <button onClick={() => { setSmsSent(false); setSmsCode(""); }} className="w-full text-white/30 text-xs hover:text-white/50 py-1">
+                      <button
+                        onClick={() => {
+                          setSmsSent(false);
+                          setSmsCode("");
+                        }}
+                        className="w-full text-white/30 text-xs hover:text-white/50 py-1"
+                      >
                         Resend code
                       </button>
                     </div>
@@ -971,12 +1091,19 @@ export default function RacePacksPage() {
                         ref={emailRef}
                         type="email"
                         value={emailInput}
-                        onChange={e => { setEmailInput(e.target.value); if (error) setError(""); }}
-                        onKeyDown={e => e.key === "Enter" && handleEmailSearch()}
+                        onChange={(e) => {
+                          setEmailInput(e.target.value);
+                          if (error) setError("");
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handleEmailSearch()}
                         placeholder="racer@email.com"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
                       />
-                      <button onClick={handleEmailSearch} disabled={!emailInput.includes("@")} className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors disabled:opacity-40">
+                      <button
+                        onClick={handleEmailSearch}
+                        disabled={!emailInput.includes("@")}
+                        className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors disabled:opacity-40"
+                      >
                         Send Verification Code
                       </button>
                     </div>
@@ -985,15 +1112,20 @@ export default function RacePacksPage() {
                   {lookupMode === "email" && emailSmsSent && (
                     <div className="space-y-3">
                       <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-3 text-center">
-                        <p className="text-green-400 font-semibold text-xs">Code sent to {emailInput}</p>
+                        <p className="text-green-400 font-semibold text-xs">
+                          Code sent to {emailInput}
+                        </p>
                       </div>
                       <input
                         type="text"
                         inputMode="numeric"
                         maxLength={6}
                         value={emailSmsCode}
-                        onChange={e => { setEmailSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setSmsError(""); }}
-                        onKeyDown={e => e.key === "Enter" && handleEmailOtpVerify()}
+                        onChange={(e) => {
+                          setEmailSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                          setSmsError("");
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handleEmailOtpVerify()}
                         placeholder="000000"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-center text-xl tracking-[0.4em] font-mono placeholder:text-white/20 focus:border-[#00E2E5]/50 focus:outline-none"
                       />
@@ -1005,7 +1137,13 @@ export default function RacePacksPage() {
                       >
                         Verify Code
                       </button>
-                      <button onClick={() => { setEmailSmsSent(false); setEmailSmsCode(""); }} className="w-full text-white/30 text-xs hover:text-white/50 py-1">
+                      <button
+                        onClick={() => {
+                          setEmailSmsSent(false);
+                          setEmailSmsCode("");
+                        }}
+                        className="w-full text-white/30 text-xs hover:text-white/50 py-1"
+                      >
                         Resend code
                       </button>
                     </div>
@@ -1016,12 +1154,18 @@ export default function RacePacksPage() {
                       <input
                         type="text"
                         value={codeInput}
-                        onChange={e => { setCodeInput(e.target.value); if (error) setError(""); }}
-                        onKeyDown={e => e.key === "Enter" && handleCodeVerify()}
+                        onChange={(e) => {
+                          setCodeInput(e.target.value);
+                          if (error) setError("");
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handleCodeVerify()}
                         placeholder="Login code"
                         className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
                       />
-                      <button onClick={handleCodeVerify} className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors">
+                      <button
+                        onClick={handleCodeVerify}
+                        className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors"
+                      >
                         Verify Code
                       </button>
                     </div>
@@ -1030,16 +1174,50 @@ export default function RacePacksPage() {
                   {lookupMode === "new" && (
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-2">
-                        <input value={newPerson.firstName} onChange={e => setNewPerson(p => ({ ...p, firstName: e.target.value }))} placeholder="First name" className="bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
-                        <input value={newPerson.lastName} onChange={e => setNewPerson(p => ({ ...p, lastName: e.target.value }))} placeholder="Last name" className="bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
+                        <input
+                          value={newPerson.firstName}
+                          onChange={(e) =>
+                            setNewPerson((p) => ({ ...p, firstName: e.target.value }))
+                          }
+                          placeholder="First name"
+                          className="bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
+                        />
+                        <input
+                          value={newPerson.lastName}
+                          onChange={(e) =>
+                            setNewPerson((p) => ({ ...p, lastName: e.target.value }))
+                          }
+                          placeholder="Last name"
+                          className="bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
+                        />
                       </div>
-                      <input value={newPerson.email} onChange={e => setNewPerson(p => ({ ...p, email: e.target.value }))} placeholder="Email" type="email" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
-                      <input value={newPerson.phone} onChange={e => setNewPerson(p => ({ ...p, phone: e.target.value }))} placeholder="Phone" type="tel" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none" />
+                      <input
+                        value={newPerson.email}
+                        onChange={(e) => setNewPerson((p) => ({ ...p, email: e.target.value }))}
+                        placeholder="Email"
+                        type="email"
+                        className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
+                      />
+                      <input
+                        value={newPerson.phone}
+                        onChange={(e) => setNewPerson((p) => ({ ...p, phone: e.target.value }))}
+                        placeholder="Phone"
+                        type="tel"
+                        className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-[#00E2E5]/50 focus:outline-none"
+                      />
                       <label className="block">
                         <span className="text-white/40 text-xs mb-1 block">Date of Birth</span>
-                        <input value={newPerson.dob} onChange={e => setNewPerson(p => ({ ...p, dob: e.target.value }))} type="date" className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm focus:border-[#00E2E5]/50 focus:outline-none [color-scheme:dark]" />
+                        <input
+                          value={newPerson.dob}
+                          onChange={(e) => setNewPerson((p) => ({ ...p, dob: e.target.value }))}
+                          type="date"
+                          className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm focus:border-[#00E2E5]/50 focus:outline-none [color-scheme:dark]"
+                        />
                       </label>
-                      <button onClick={handleNewPerson} className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors">
+                      <button
+                        onClick={handleNewPerson}
+                        className="w-full py-3 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors"
+                      >
                         Continue
                       </button>
                     </div>
@@ -1050,93 +1228,113 @@ export default function RacePacksPage() {
           )}
 
           {/* Review step — pack info + person + price + disclaimers + Pay */}
-          {step === "review" && person && (() => {
-            const disclaimers = [
-              ...(selectedPack.type === "weekday" ? ["This pack is only valid Monday through Thursday"] : []),
-              "Race pack is non-transferable",
-              "This does not book you a race. It is highly suggested you complete a reservation after purchase.",
-            ];
-            const allAccepted = disclaimersAccepted.length >= disclaimers.length && disclaimersAccepted.slice(0, disclaimers.length).every(Boolean) && clickwrapAccepted;
-            return (
-              <div className="space-y-4">
-                {/* Pack info */}
-                <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 text-center">
-                  <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest">{selectedPack.type === "weekday" ? "Monday – Thursday" : "Anytime"}</p>
-                  <p className="text-white font-display text-xl uppercase tracking-wider mt-1">{selectedPack.raceCount}-Race Pack</p>
-                  <p className="text-white/50 text-xs mt-1">{selectedPack.raceCount} race credits · ${(selectedPack.price / selectedPack.raceCount).toFixed(2)}/race</p>
-                </div>
-
-                {/* Person card */}
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-white font-bold">{person.fullName}</p>
-                  <p className="text-white/40 text-xs">{person.email}</p>
-                </div>
-
-                {/* Price breakdown */}
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/60">{selectedPack.name} ({selectedPack.type === "weekday" ? "Mon–Thu" : "Anytime"})</span>
-                    <span className="text-white">${selectedPack.price.toFixed(2)}</span>
+          {step === "review" &&
+            person &&
+            (() => {
+              const disclaimers = [
+                ...(selectedPack.type === "weekday"
+                  ? ["This pack is only valid Monday through Thursday"]
+                  : []),
+                "Race pack is non-transferable",
+                "This does not book you a race. It is highly suggested you complete a reservation after purchase.",
+              ];
+              const allAccepted =
+                disclaimersAccepted.length >= disclaimers.length &&
+                disclaimersAccepted.slice(0, disclaimers.length).every(Boolean) &&
+                clickwrapAccepted;
+              return (
+                <div className="space-y-4">
+                  {/* Pack info */}
+                  <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 text-center">
+                    <p className="text-[#00E2E5] text-xs font-bold uppercase tracking-widest">
+                      {selectedPack.type === "weekday" ? "Monday – Thursday" : "Anytime"}
+                    </p>
+                    <p className="text-white font-display text-xl uppercase tracking-wider mt-1">
+                      {selectedPack.raceCount}-Race Pack
+                    </p>
+                    <p className="text-white/50 text-xs mt-1">
+                      {selectedPack.raceCount} race credits · $
+                      {(selectedPack.price / selectedPack.raceCount).toFixed(2)}/race
+                    </p>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/60">Tax</span>
-                    <span className="text-white">${tax.toFixed(2)}</span>
+
+                  {/* Person card */}
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-white font-bold">{person.fullName}</p>
+                    <p className="text-white/40 text-xs">{person.email}</p>
                   </div>
-                  <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
-                    <span className="text-white">Total</span>
-                    <span className="text-[#00E2E5] text-lg">${total.toFixed(2)}</span>
+
+                  {/* Price breakdown */}
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-white/60">
+                        {selectedPack.name} (
+                        {selectedPack.type === "weekday" ? "Mon–Thu" : "Anytime"})
+                      </span>
+                      <span className="text-white">${selectedPack.price.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-white/60">Tax</span>
+                      <span className="text-white">${tax.toFixed(2)}</span>
+                    </div>
+                    <div className="border-t border-white/10 pt-2 flex justify-between font-bold">
+                      <span className="text-white">Total</span>
+                      <span className="text-[#00E2E5] text-lg">${total.toFixed(2)}</span>
+                    </div>
                   </div>
+
+                  {/* Disclaimers */}
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                    <p className="text-amber-400 font-bold text-xs uppercase tracking-wider">
+                      Please acknowledge
+                    </p>
+                    {disclaimers.map((text, i) => (
+                      <label key={i} className="flex items-start gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={disclaimersAccepted[i] || false}
+                          onChange={() =>
+                            setDisclaimersAccepted((prev) => {
+                              const next = [...prev];
+                              next[i] = !next[i];
+                              return next;
+                            })
+                          }
+                          className="mt-0.5 w-4 h-4 rounded border-white/30 bg-white/5 accent-[#00E2E5] shrink-0"
+                        />
+                        <span className="text-white/70 text-xs leading-relaxed group-hover:text-white/90 transition-colors">
+                          {text}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Cancellation policy clickwrap */}
+                  <ClickwrapCheckbox checked={clickwrapAccepted} onChange={setClickwrapAccepted} />
+
+                  <button
+                    onClick={handleCheckout}
+                    disabled={paying || !allAccepted}
+                    className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {allAccepted ? `Pay $${total.toFixed(2)} →` : "Accept all terms to continue"}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setPerson(null);
+                      setError("");
+                      setDisclaimersAccepted([]);
+                      setRacerView("lookup");
+                      changeStep("racer");
+                    }}
+                    className="w-full text-white/30 text-xs hover:text-white/50 transition-colors"
+                  >
+                    ← Change person
+                  </button>
                 </div>
-
-                {/* Disclaimers */}
-                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
-                  <p className="text-amber-400 font-bold text-xs uppercase tracking-wider">Please acknowledge</p>
-                  {disclaimers.map((text, i) => (
-                    <label key={i} className="flex items-start gap-3 cursor-pointer group">
-                      <input
-                        type="checkbox"
-                        checked={disclaimersAccepted[i] || false}
-                        onChange={() => setDisclaimersAccepted(prev => {
-                          const next = [...prev];
-                          next[i] = !next[i];
-                          return next;
-                        })}
-                        className="mt-0.5 w-4 h-4 rounded border-white/30 bg-white/5 accent-[#00E2E5] shrink-0"
-                      />
-                      <span className="text-white/70 text-xs leading-relaxed group-hover:text-white/90 transition-colors">{text}</span>
-                    </label>
-                  ))}
-                </div>
-
-                {/* Cancellation policy clickwrap */}
-                <ClickwrapCheckbox
-                  checked={clickwrapAccepted}
-                  onChange={setClickwrapAccepted}
-                />
-
-                <button
-                  onClick={handleCheckout}
-                  disabled={paying || !allAccepted}
-                  className="w-full py-3.5 rounded-xl bg-[#00E2E5] text-[#000418] font-bold text-sm hover:bg-white transition-colors shadow-lg shadow-[#00E2E5]/25 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {allAccepted ? `Pay $${total.toFixed(2)} →` : "Accept all terms to continue"}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setPerson(null);
-                    setError("");
-                    setDisclaimersAccepted([]);
-                    setRacerView("lookup");
-                    changeStep("racer");
-                  }}
-                  className="w-full text-white/30 text-xs hover:text-white/50 transition-colors"
-                >
-                  ← Change person
-                </button>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
           {/* Paying step — spinner while we set up the bill, then PaymentForm */}
           {step === "paying" && (
@@ -1144,9 +1342,7 @@ export default function RacePacksPage() {
               {paying ? (
                 <div className="flex flex-col items-center gap-4 py-8">
                   <div className="w-8 h-8 border-2 border-white/20 border-t-[#00E2E5] rounded-full animate-spin" />
-                  <p className="text-white/50 text-sm">
-                    {payingStatus || "Heading to payment..."}
-                  </p>
+                  <p className="text-white/50 text-sm">{payingStatus || "Heading to payment..."}</p>
                 </div>
               ) : person ? (
                 <PaymentForm
@@ -1165,29 +1361,40 @@ export default function RacePacksPage() {
                   // atomically with the charge. Both undefined when
                   // RACE_PACK_VIA_DEPOSIT is off → /api/square/pay
                   // falls back to the legacy "Deposit" line item.
-                  lineItem={RACE_PACK_VIA_DEPOSIT ? {
-                    catalogObjectId: SQUARE_RACE_PACK_CATALOG_ID,
-                    name: packLabel,
-                  } : undefined}
-                  postPaymentAction={RACE_PACK_VIA_DEPOSIT && checkoutPersonId ? {
-                    kind: "addDeposit",
-                    personId: checkoutPersonId,
-                    depositKindId: RACE_PACK_DEPOSIT_KIND[selectedPack.type],
-                    amount: selectedPack.raceCount,
-                    packLabel,
-                    raceCount: selectedPack.raceCount,
-                    isNewRacer: checkoutIsNewRacer,
-                  } : undefined}
+                  lineItem={
+                    RACE_PACK_VIA_DEPOSIT
+                      ? {
+                          catalogObjectId: SQUARE_RACE_PACK_CATALOG_ID,
+                          name: packLabel,
+                        }
+                      : undefined
+                  }
+                  postPaymentAction={
+                    RACE_PACK_VIA_DEPOSIT && checkoutPersonId
+                      ? {
+                          kind: "addDeposit",
+                          personId: checkoutPersonId,
+                          depositKindId: RACE_PACK_DEPOSIT_KIND[selectedPack.type],
+                          amount: selectedPack.raceCount,
+                          packLabel,
+                          raceCount: selectedPack.raceCount,
+                          isNewRacer: checkoutIsNewRacer,
+                        }
+                      : undefined
+                  }
                   onSuccess={(result: PaymentResult) => {
-                    sessionStorage.setItem(`payment_${checkoutBillId}`, JSON.stringify({
-                      cardBrand: result.cardBrand,
-                      cardLast4: result.cardLast4,
-                      amount: result.amount,
-                      paymentId: result.paymentId,
-                      depositId: result.depositId,
-                      depositCreditFailed: result.depositCreditFailed,
-                      depositError: result.depositError,
-                    }));
+                    sessionStorage.setItem(
+                      `payment_${checkoutBillId}`,
+                      JSON.stringify({
+                        cardBrand: result.cardBrand,
+                        cardLast4: result.cardLast4,
+                        amount: result.amount,
+                        paymentId: result.paymentId,
+                        depositId: result.depositId,
+                        depositCreditFailed: result.depositCreditFailed,
+                        depositError: result.depositError,
+                      }),
+                    );
                     window.location.href = `/book/race-packs/confirmation?billId=${checkoutBillId}`;
                   }}
                   onError={(msg) => {
@@ -1207,21 +1414,33 @@ export default function RacePacksPage() {
 
 // ── Pack Card ────────────────────────────────────────────────────────────────
 
-function PackCard({ pack, onBuy, disabled }: { pack: RacePack; onBuy: (p: RacePack) => void; disabled?: boolean }) {
+function PackCard({
+  pack,
+  onBuy,
+  disabled,
+}: {
+  pack: RacePack;
+  onBuy: (p: RacePack) => void;
+  disabled?: boolean;
+}) {
   const perRace = (pack.price / pack.raceCount).toFixed(2);
   const isAnytime = pack.type === "anytime";
 
   return (
-    <div className={`rounded-2xl border p-5 flex flex-col gap-3 transition-all hover:scale-[1.02] ${
-      isAnytime
-        ? "border-[#00E2E5]/30 bg-[#00E2E5]/[0.04] hover:border-[#00E2E5]/50"
-        : "border-blue-500/30 bg-blue-500/[0.04] hover:border-blue-500/50"
-    }`}>
+    <div
+      className={`rounded-2xl border p-5 flex flex-col gap-3 transition-all hover:scale-[1.02] ${
+        isAnytime
+          ? "border-[#00E2E5]/30 bg-[#00E2E5]/[0.04] hover:border-[#00E2E5]/50"
+          : "border-blue-500/30 bg-blue-500/[0.04] hover:border-blue-500/50"
+      }`}
+    >
       <div>
         <p className="text-white font-display text-xl uppercase tracking-wider">
           {pack.raceCount}-Race Pack
         </p>
-        <p className={`text-xs font-semibold ${isAnytime ? "text-[#00E2E5]/70" : "text-blue-400/70"}`}>
+        <p
+          className={`text-xs font-semibold ${isAnytime ? "text-[#00E2E5]/70" : "text-blue-400/70"}`}
+        >
           {isAnytime ? "Valid Any Day" : "Monday – Thursday"}
         </p>
       </div>

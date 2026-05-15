@@ -81,7 +81,9 @@ function startOfTodayET(): number {
   // Format today's ET YYYY-MM-DD, then re-parse with the right offset.
   const ymd = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
-    year: "numeric", month: "2-digit", day: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(now);
   // EDT (Apr-Oct) = UTC-4, EST = UTC-5. Same DST math the videos/list
   // route uses — fine for a daily window since DST transitions don't
@@ -100,13 +102,15 @@ interface Body {
 
 export async function POST(req: NextRequest) {
   let body: Body = {};
-  try { body = await req.json().catch(() => ({})); }
-  catch { /* keep empty */ }
+  try {
+    body = await req.json().catch(() => ({}));
+  } catch {
+    /* keep empty */
+  }
 
   const dryRun = !!body.dryRun;
-  const startMs = typeof body.sinceMs === "number" && body.sinceMs > 0
-    ? body.sinceMs
-    : startOfTodayET();
+  const startMs =
+    typeof body.sinceMs === "number" && body.sinceMs > 0 ? body.sinceMs : startOfTodayET();
   const endMs = Date.now();
 
   const matches = await listMatchesInRange({ startMs, endMs, limit: 1000 });
@@ -142,7 +146,8 @@ export async function POST(req: NextRequest) {
     // parent contact on file now).
     const drySessionsToFetch = new Set<string>();
     for (const m of candidates) {
-      const has = !!m.guardian && (!!m.guardian.mobilePhone || !!m.guardian.homePhone || !!m.guardian.email);
+      const has =
+        !!m.guardian && (!!m.guardian.mobilePhone || !!m.guardian.homePhone || !!m.guardian.email);
       if (!has && m.sessionId !== "manual") drySessionsToFetch.add(String(m.sessionId));
     }
     const dryGuardianMap = new Map<string, GuardianContact>();
@@ -160,12 +165,16 @@ export async function POST(req: NextRequest) {
       candidates: candidates.length,
       enrichableFromPandora: dryGuardianMap.size,
       skipped: skipped.length,
-      skipReasons: skipped.reduce((acc, s) => {
-        acc[s.reason] = (acc[s.reason] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
+      skipReasons: skipped.reduce(
+        (acc, s) => {
+          acc[s.reason] = (acc[s.reason] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      ),
       candidateSample: candidates.slice(0, 50).map((m) => {
-        const livedGuardian = m.guardian || dryGuardianMap.get(`${m.sessionId}:${m.personId}`) || null;
+        const livedGuardian =
+          m.guardian || dryGuardianMap.get(`${m.sessionId}:${m.personId}`) || null;
         return {
           videoCode: m.videoCode,
           firstName: m.firstName,
@@ -175,7 +184,7 @@ export async function POST(req: NextRequest) {
           guardianFirstName: livedGuardian?.firstName || null,
           guardianPhone: livedGuardian?.mobilePhone || livedGuardian?.homePhone || null,
           guardianEmail: livedGuardian?.email || null,
-          guardianSource: m.guardian ? "match-record" : (livedGuardian ? "pandora-refetch" : "none"),
+          guardianSource: m.guardian ? "match-record" : livedGuardian ? "pandora-refetch" : "none",
           priorSmsError: m.notifySmsError || null,
           priorEmailError: m.notifyEmailError || null,
         };
@@ -199,11 +208,8 @@ export async function POST(req: NextRequest) {
   // future operations don't need to re-fetch.
   const sessionsToFetch = new Set<string>();
   for (const m of candidates) {
-    const hasGuardian = !!m.guardian && (
-      !!m.guardian.mobilePhone ||
-      !!m.guardian.homePhone ||
-      !!m.guardian.email
-    );
+    const hasGuardian =
+      !!m.guardian && (!!m.guardian.mobilePhone || !!m.guardian.homePhone || !!m.guardian.email);
     if (!hasGuardian && m.sessionId !== "manual") {
       sessionsToFetch.add(String(m.sessionId));
     }
@@ -222,11 +228,9 @@ export async function POST(req: NextRequest) {
     try {
       // Graft fresh guardian data onto stale match records so the
       // notify path's pickVideoContact has something to fall back to.
-      const hasGuardianAlready = !!match.guardian && (
-        !!match.guardian.mobilePhone ||
-        !!match.guardian.homePhone ||
-        !!match.guardian.email
-      );
+      const hasGuardianAlready =
+        !!match.guardian &&
+        (!!match.guardian.mobilePhone || !!match.guardian.homePhone || !!match.guardian.email);
       if (!hasGuardianAlready) {
         const g = guardianBySessionPerson.get(`${match.sessionId}:${match.personId}`);
         if (g) {
@@ -236,11 +240,9 @@ export async function POST(req: NextRequest) {
       }
 
       const entry = cameraHistoryEntryFromMatch(match);
-      const hadGuardian = !!match.guardian && (
-        !!match.guardian.mobilePhone ||
-        !!match.guardian.homePhone ||
-        !!match.guardian.email
-      );
+      const hadGuardian =
+        !!match.guardian &&
+        (!!match.guardian.mobilePhone || !!match.guardian.homePhone || !!match.guardian.email);
 
       const n = await notifyVideoReady(match, entry);
       const nowIso = new Date().toISOString();
@@ -298,9 +300,12 @@ export async function POST(req: NextRequest) {
     stillNoContact,
     errored,
     skipped: skipped.length,
-    skipReasons: skipped.reduce((acc, s) => {
-      acc[s.reason] = (acc[s.reason] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>),
+    skipReasons: skipped.reduce(
+      (acc, s) => {
+        acc[s.reason] = (acc[s.reason] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    ),
   });
 }

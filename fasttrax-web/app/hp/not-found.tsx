@@ -5,7 +5,11 @@ export default function HeadPinzNotFound() {
     <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center text-center px-4">
       <h1
         className="font-heading font-black uppercase text-white mb-4"
-        style={{ fontSize: "clamp(80px, 20vw, 200px)", lineHeight: "1", textShadow: "rgba(255,215,0,0.3) 0px 0px 30px" }}
+        style={{
+          fontSize: "clamp(80px, 20vw, 200px)",
+          lineHeight: "1",
+          textShadow: "rgba(255,215,0,0.3) 0px 0px 30px",
+        }}
       >
         404
       </h1>
@@ -22,14 +26,25 @@ export default function HeadPinzNotFound() {
         <Link
           href="/"
           className="font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-          style={{ backgroundColor: "#FFD700", color: "#0a1628", borderRadius: "555px", padding: "16px 32px", fontSize: "14px" }}
+          style={{
+            backgroundColor: "#FFD700",
+            color: "#0a1628",
+            borderRadius: "555px",
+            padding: "16px 32px",
+            fontSize: "14px",
+          }}
         >
           Back to HeadPinz
         </Link>
         <Link
           href="/book/bowling"
           className="font-body font-bold uppercase text-white tracking-wider transition-all hover:scale-105"
-          style={{ backgroundColor: "rgb(253,91,86)", borderRadius: "555px", padding: "16px 32px", fontSize: "14px" }}
+          style={{
+            backgroundColor: "rgb(253,91,86)",
+            borderRadius: "555px",
+            padding: "16px 32px",
+            fontSize: "14px",
+          }}
         >
           Book Bowling
         </Link>

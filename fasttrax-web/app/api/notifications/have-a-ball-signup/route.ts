@@ -18,9 +18,10 @@ const TEAM_BCC = [
 ];
 
 function escape(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] || c
-  ));
+  return s.replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] || c,
+  );
 }
 
 function renderEmail(p: {
@@ -96,7 +97,10 @@ export async function POST(req: NextRequest) {
     };
 
     if (!email || !firstName || !subscriptionId) {
-      return NextResponse.json({ error: "email, firstName, subscriptionId required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "email, firstName, subscriptionId required" },
+        { status: 400 },
+      );
     }
     if (!SENDGRID_API_KEY) {
       console.error("[have-a-ball-signup] Missing SENDGRID_API_KEY");
@@ -116,7 +120,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${SENDGRID_API_KEY}`,
+        Authorization: `Bearer ${SENDGRID_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -135,12 +139,18 @@ export async function POST(req: NextRequest) {
     if (!res.ok) {
       const errText = await res.text();
       console.error("[have-a-ball-signup] SendGrid error:", res.status, errText);
-      return NextResponse.json({ error: "Send failed", detail: errText.slice(0, 300) }, { status: 500 });
+      return NextResponse.json(
+        { error: "Send failed", detail: errText.slice(0, 300) },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[have-a-ball-signup] error:", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Error" },
+      { status: 500 },
+    );
   }
 }

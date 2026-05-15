@@ -31,24 +31,24 @@ export async function GET(req: NextRequest) {
 
   const raw = await redis.lrange(DEBUG_LOG_KEY, 0, limit * 3); // fetch extra to allow for filtering
 
-  let entries = raw.map((s) => {
-    try {
-      return JSON.parse(s);
-    } catch {
-      return null;
-    }
-  }).filter(Boolean);
+  let entries = raw
+    .map((s) => {
+      try {
+        return JSON.parse(s);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 
   // Apply filters
   if (filterQamfId) {
-    entries = entries.filter((e: { raw?: { Data?: { Id?: string } } }) =>
-      e.raw?.Data?.Id === filterQamfId,
+    entries = entries.filter(
+      (e: { raw?: { Data?: { Id?: string } } }) => e.raw?.Data?.Id === filterQamfId,
     );
   }
   if (filterType) {
-    entries = entries.filter((e: { eventType?: string }) =>
-      e.eventType === filterType,
-    );
+    entries = entries.filter((e: { eventType?: string }) => e.eventType === filterType);
   }
 
   return NextResponse.json({

@@ -56,8 +56,8 @@ async function mintToken(centerId: number = DEFAULT_CENTER_ID): Promise<string> 
   // Without scope=bowling_reservations the token has no scope claim and
   // every API call returns 401. center_id scopes the token to a specific center.
   const body = new URLSearchParams({
-    grant_type:    "client_credentials",
-    client_id:     clientId,
+    grant_type: "client_credentials",
+    client_id: clientId,
     client_secret: clientSecret,
     scope: "bowling_reservations",
     center_id: String(centerId),
@@ -90,7 +90,9 @@ export async function getQamfBowlingToken(centerId: number = DEFAULT_CENTER_ID):
 }
 
 /** Force-evict the cached token (call after a 401 before retrying). */
-export async function invalidateQamfBowlingToken(centerId: number = DEFAULT_CENTER_ID): Promise<void> {
+export async function invalidateQamfBowlingToken(
+  centerId: number = DEFAULT_CENTER_ID,
+): Promise<void> {
   await redis.del(`${CACHE_KEY}:${centerId}`);
 }
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const QAMF_BASE = "https://qcloud.qubicaamf.com/bowler";
-const QAMF_SUBSCRIPTION_KEY = process.env.QAMF_SUBSCRIPTION_KEY || "93108f56-0825-4030-b85f-bc6a69fa502c";
+const QAMF_SUBSCRIPTION_KEY =
+  process.env.QAMF_SUBSCRIPTION_KEY || "93108f56-0825-4030-b85f-bc6a69fa502c";
 
 /**
  * Catch-all proxy for QubicaAMF Bowler API.
@@ -19,7 +20,7 @@ function buildUrl(path: string[], searchParams: URLSearchParams): string {
 async function proxyRequest(
   req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
-  method: string
+  method: string,
 ) {
   try {
     const { path } = await params;
@@ -80,7 +81,7 @@ async function proxyRequest(
     console.error("[qamf proxy] Error:", err);
     return NextResponse.json(
       { error: "QAMF proxy error", details: err instanceof Error ? err.message : "Unknown" },
-      { status: 502 }
+      { status: 502 },
     );
   }
 }

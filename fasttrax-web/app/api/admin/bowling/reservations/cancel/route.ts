@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import {
-  getBowlingReservation,
-  updateBowlingReservationCancelled,
-} from "@/lib/bowling-db";
+import { getBowlingReservation, updateBowlingReservationCancelled } from "@/lib/bowling-db";
 import { deleteReservation } from "@/lib/qamf-bowling";
 import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
@@ -73,9 +70,7 @@ export async function POST(req: NextRequest) {
       });
       squareRefundId = result.refundId;
       refundCents = result.refundedCents;
-      console.log(
-        `[admin/bowling/cancel] refunded ${refundCents}c neonId=${neonId}`,
-      );
+      console.log(`[admin/bowling/cancel] refunded ${refundCents}c neonId=${neonId}`);
     } catch (err) {
       console.error(
         `[admin/bowling/cancel] Square refund failed neonId=${neonId}:`,

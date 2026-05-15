@@ -26,7 +26,7 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
     fetchAvailability();
     const interval = setInterval(fetchAvailability, 60000); // Update every 60s
     return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerCode]);
 
   async function fetchAvailability() {
@@ -42,7 +42,7 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
       const formattedTime = `${y}-${m}-${d}T${h}:${min}`;
 
       const res = await fetch(
-        `/api/qamf/centers/${centerCode}/offers-availability?systemId=${centerCode}&datetime=${formattedTime}&players=1-6&page=1&itemsPerPage=50`
+        `/api/qamf/centers/${centerCode}/offers-availability?systemId=${centerCode}&datetime=${formattedTime}&players=1-6&page=1&itemsPerPage=50`,
       );
       const offers = await res.json();
 
@@ -53,7 +53,11 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
         if (n.includes("vip")) return "vip";
         return "regular";
       }
-      const labels: Record<string, string> = { regular: "Regular Lanes", vip: "VIP Lanes", oldtime: "Old Time Lanes" };
+      const labels: Record<string, string> = {
+        regular: "Regular Lanes",
+        vip: "VIP Lanes",
+        oldtime: "Old Time Lanes",
+      };
 
       const bestByType = new Map<string, LaneStatus>();
 
@@ -68,12 +72,20 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
         if (firstItem.Remaining === 0 && firstItem.Alternatives?.length > 0) {
           const alt = firstItem.Alternatives[0];
           const timeParts = alt.Time.split(":").map(Number);
-          const timeStr = new Date(0, 0, 0, timeParts[0], timeParts[1]).toLocaleTimeString("en-US", {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          });
-          status = { name, remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`, isAvailable: false, hasAlternative: true };
+          const timeStr = new Date(0, 0, 0, timeParts[0], timeParts[1]).toLocaleTimeString(
+            "en-US",
+            {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            },
+          );
+          status = {
+            name,
+            remaining: `${alt.Remaining} at ${timeStr.toLowerCase()}`,
+            isAvailable: false,
+            hasAlternative: true,
+          };
         } else if (firstItem.Remaining > 0) {
           status = { name, remaining: firstItem.Remaining, isAvailable: true };
         } else {
@@ -85,18 +97,23 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
         // Priority: available now > next-available-at-time > nothing
         if (!existing || (!existing.isAvailable && status.isAvailable)) {
           bestByType.set(name, status);
-        } else if (existing.isAvailable === status.isAvailable && typeof status.remaining === "number" && typeof existing.remaining === "number" && status.remaining > existing.remaining) {
+        } else if (
+          existing.isAvailable === status.isAvailable &&
+          typeof status.remaining === "number" &&
+          typeof existing.remaining === "number" &&
+          status.remaining > existing.remaining
+        ) {
           bestByType.set(name, status);
         }
       }
 
       // Order: Regular, VIP, Old Time
       const order = ["Regular Lanes", "VIP Lanes", "Old Time Lanes"];
-      const results = order.map(name => bestByType.get(name)).filter((s): s is LaneStatus => !!s);
+      const results = order.map((name) => bestByType.get(name)).filter((s): s is LaneStatus => !!s);
 
       setLanes(results);
       setBookingUrl(
-        location === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling"
+        location === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling",
       );
     } catch {
       setLanes([]);
@@ -118,7 +135,9 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
 
   return (
     <div className="space-y-3">
-      <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">Live Lane Availability</p>
+      <p className="text-white/40 text-xs uppercase tracking-widest font-semibold">
+        Live Lane Availability
+      </p>
       <div className="flex flex-col sm:flex-row gap-3">
         {lanes.map((lane) => (
           <div
@@ -132,7 +151,9 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
                   lane.isAvailable ? "bg-green-400 animate-pulse" : "bg-amber-400"
                 }`}
               />
-              <span className={`text-sm font-bold ${lane.isAvailable ? "text-green-400" : "text-amber-400"}`}>
+              <span
+                className={`text-sm font-bold ${lane.isAvailable ? "text-green-400" : "text-amber-400"}`}
+              >
                 {typeof lane.remaining === "number"
                   ? `${lane.remaining} Lane${lane.remaining !== 1 ? "s" : ""}`
                   : lane.remaining}
@@ -150,7 +171,13 @@ export default function LaneAvailability({ location = "fort-myers" }: { location
           className="inline-flex items-center gap-2 bg-[#fd5b56] hover:bg-[#ff7a77] text-white font-bold text-sm uppercase tracking-wider px-6 py-2.5 rounded-full transition-all hover:shadow-[0_0_20px_rgba(253,91,86,0.4)]"
         >
           Book Now
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>
         </Link>

@@ -3,10 +3,7 @@ import redis from "@/lib/redis";
 import { canonicalizePhone } from "@/lib/participant-contact";
 import { voxSend } from "@/lib/sms-retry";
 import { sendEmail } from "@/lib/sendgrid";
-import {
-  sendAdaptiveCardToChannel,
-  type BotActivityResponse,
-} from "@/lib/teams-bot";
+import { sendAdaptiveCardToChannel, type BotActivityResponse } from "@/lib/teams-bot";
 import {
   buildSalesLeadCardForState,
   buildSalesLeadSummary,
@@ -90,10 +87,7 @@ export async function POST(req: NextRequest) {
 
   const center = resolveCenter(body.centerKey!);
   if (!center) {
-    return NextResponse.json(
-      { error: `Unknown centerKey: ${body.centerKey}` },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: `Unknown centerKey: ${body.centerKey}` }, { status: 400 });
   }
 
   // ── 2. Submit to Pandora ─────────────────────────────────────────────────
@@ -167,10 +161,20 @@ export async function POST(req: NextRequest) {
   const [smsResult, emailResult, teamsResult] = await Promise.allSettled([
     shouldSendSms
       ? sendCustomerSms(lead.phone, copyCtx, planner)
-      : Promise.resolve({ ok: true, status: null, skipped: true as const, reason: `skipped — customer prefers ${pref}` }),
+      : Promise.resolve({
+          ok: true,
+          status: null,
+          skipped: true as const,
+          reason: `skipped — customer prefers ${pref}`,
+        }),
     shouldSendEmail
       ? sendCustomerEmail(lead, copyCtx, planner)
-      : Promise.resolve({ ok: true, status: null, skipped: true as const, reason: `skipped — customer prefers ${pref}` }),
+      : Promise.resolve({
+          ok: true,
+          status: null,
+          skipped: true as const,
+          reason: `skipped — customer prefers ${pref}`,
+        }),
     postToTeams(state),
   ]);
 
@@ -368,9 +372,10 @@ async function writeAuditLine(
   }>,
   meta: { actor?: string; to?: string },
 ): Promise<void> {
-  const outcome = settled.status === "fulfilled"
-    ? settled.value
-    : { ok: false, error: settled.reason?.message || "rejected" };
+  const outcome =
+    settled.status === "fulfilled"
+      ? settled.value
+      : { ok: false, error: settled.reason?.message || "rejected" };
   const toPart = meta.to ? ` to ${meta.to}` : "";
 
   let message: string;
@@ -379,11 +384,8 @@ async function writeAuditLine(
   } else if (outcome.ok) {
     message = `sent ok${toPart}`;
   } else {
-    const statusPart =
-      "status" in outcome && outcome.status ? ` (${outcome.status})` : "";
-    message = `FAILED${toPart}${statusPart}: ${
-      (outcome as { error?: string }).error || "unknown"
-    }`;
+    const statusPart = "status" in outcome && outcome.status ? ` (${outcome.status})` : "";
+    message = `FAILED${toPart}${statusPart}: ${(outcome as { error?: string }).error || "unknown"}`;
   }
   await appendPrivateNote({
     projectId,

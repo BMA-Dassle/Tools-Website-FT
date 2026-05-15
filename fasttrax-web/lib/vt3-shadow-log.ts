@@ -24,21 +24,21 @@ import { sql, isDbConfigured } from "@/lib/db";
  */
 
 export type ShadowDecision =
-  | "skip-no-assignment"      // unassigned camera → cron would skip too
-  | "save-and-notify"          // first sighting + ready → cron would save+notify
-  | "save-pending"             // first sighting + not ready → cron would save with pendingNotify
-  | "fire-deferred-notify"     // pending match becomes ready → cron would notify on this tick
-  | "skip-already-notified"    // match exists, already notified, no overlay change
-  | "update-overlay"           // match exists, viewed/purchased/unlock fields differ
-  | "cleanup-expired"          // VT3 marked EXPIRED — cron would mark the record
-  | "skip-blocked"             // camera-assignment is blocked (admin gate)
-  | "ignored-not-message"      // connected event, heartbeat, or unknown
-  | "error";                   // shadow processing threw
+  | "skip-no-assignment" // unassigned camera → cron would skip too
+  | "save-and-notify" // first sighting + ready → cron would save+notify
+  | "save-pending" // first sighting + not ready → cron would save with pendingNotify
+  | "fire-deferred-notify" // pending match becomes ready → cron would notify on this tick
+  | "skip-already-notified" // match exists, already notified, no overlay change
+  | "update-overlay" // match exists, viewed/purchased/unlock fields differ
+  | "cleanup-expired" // VT3 marked EXPIRED — cron would mark the record
+  | "skip-blocked" // camera-assignment is blocked (admin gate)
+  | "ignored-not-message" // connected event, heartbeat, or unknown
+  | "error"; // shadow processing threw
 
 export interface ShadowLogEntry {
   videoCode: string;
-  innerEventType: string;       // "video-updated" | "sample-uploaded"
-  status: string | null;        // VT3 status field on the payload
+  innerEventType: string; // "video-updated" | "sample-uploaded"
+  status: string | null; // VT3 status field on the payload
   decision: ShadowDecision;
   /** Was a match record already in Redis when we processed this? */
   matchExisted: boolean;

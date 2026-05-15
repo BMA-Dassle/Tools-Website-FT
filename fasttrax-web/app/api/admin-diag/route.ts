@@ -28,10 +28,13 @@ export async function GET(req: NextRequest) {
   const expected = process.env.ADMIN_ETICKETS_TOKEN || "";
   const allowlistRaw = process.env.ADMIN_ALLOWED_IPS || "";
   const allowlist = allowlistRaw
-    .split(",").map((s) => s.trim()).filter(Boolean);
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const allowlistSet = new Set(allowlist);
 
-  const suppliedToken = new URL(req.url).searchParams.get("token") || req.headers.get("x-admin-token") || "";
+  const suppliedToken =
+    new URL(req.url).searchParams.get("token") || req.headers.get("x-admin-token") || "";
   const tokenMatches = !!expected && !!suppliedToken && suppliedToken === expected;
 
   return NextResponse.json(

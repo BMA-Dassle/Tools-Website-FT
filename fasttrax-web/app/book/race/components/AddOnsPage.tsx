@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Image from "next/image";
 
-const HEADPINZ_LOGO = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png";
+const HEADPINZ_LOGO =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png";
 
 export interface AddOnItem {
   id: string;
@@ -37,7 +38,13 @@ interface TimeSlot {
 interface AddOnsPageProps {
   racerCount: number;
   date: string; // YYYY-MM-DD
-  bookedHeats: { start: string; stop: string; track: string | null; tier?: string | null; label?: string | null }[]; // race heats to avoid
+  bookedHeats: {
+    start: string;
+    stop: string;
+    track: string | null;
+    tier?: string | null;
+    label?: string | null;
+  }[]; // race heats to avoid
   onContinue: (addOns: AddOnItem[]) => void;
   onBack: () => void;
   initialAddOns?: AddOnItem[];
@@ -48,9 +55,11 @@ const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabe
     id: "27488020",
     name: "FastTrax Shuffly 1 Hour Combo",
     shortName: "FT Shuffly Combo",
-    description: "A modern twist on classic shuffleboard with immersive AR effects, automatic scoring, and dynamic LED lighting. Up to 10 players per lane.",
+    description:
+      "A modern twist on classic shuffleboard with immersive AR effects, automatic scoring, and dynamic LED lighting. Up to 10 players per lane.",
     price: 10,
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/shuffly-Z5qjcBLniaNQKdjQGFI3RfWRwx36HZ.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/shuffly-Z5qjcBLniaNQKdjQGFI3RfWRwx36HZ.jpg",
     perPerson: false,
     maxPerGroup: 10,
     color: "#E53935",
@@ -62,9 +71,11 @@ const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabe
     id: "23345635",
     name: "Duckpin Bowling - 1 Hour",
     shortName: "Duckpin",
-    description: "Fast, fun bowling with smaller pins and lighter balls. No rental shoes required! Perfect for groups between races.",
+    description:
+      "Fast, fun bowling with smaller pins and lighter balls. No rental shoes required! Perfect for groups between races.",
     price: 35,
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06561.webp",
     perPerson: false,
     maxPerGroup: 6,
     color: "#004AAD",
@@ -74,9 +85,11 @@ const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabe
     id: "27488200",
     name: "Nexus Gel Blaster",
     shortName: "Gel Blaster",
-    description: "Step into a live-action video game! High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets. Located at HeadPinz next door.",
+    description:
+      "Step into a live-action video game! High-tech blasters, glowing environments, and fast-paced team battles using eco-friendly Gellets. Located at HeadPinz next door.",
     price: 10,
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg",
     perPerson: true,
     color: "#39FF14",
     location: "headpinz",
@@ -87,9 +100,11 @@ const ADD_ONS: (Omit<AddOnItem, "quantity"> & { discountLabel?: string; saveLabe
     id: "8976685",
     name: "Nexus Laser Tag Arena",
     shortName: "Laser Tag",
-    description: "Immersive team-based battles with advanced laser blasters and vests in a glowing arena filled with lights, fog, and music. Located at HeadPinz next door.",
+    description:
+      "Immersive team-based battles with advanced laser blasters and vests in a glowing arena filled with lights, fog, and music. Located at HeadPinz next door.",
     price: 10,
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/lasertag-uMlQDT8COLcGQVEfVyqgjgUOseIZjI.jpg",
     perPerson: true,
     color: "#E53935",
     location: "headpinz",
@@ -112,23 +127,36 @@ function formatTime(iso: string): string {
 
 // Check if a time slot conflicts with any booked race heat
 // 30 min buffer on BOTH sides of the race
-function conflictsWithRace(slotStart: string, slotStop: string, heats: { start: string; stop: string }[]): boolean {
+function conflictsWithRace(
+  slotStart: string,
+  slotStop: string,
+  heats: { start: string; stop: string }[],
+): boolean {
   const sStart = parseLocal(slotStart).getTime();
   const sStop = parseLocal(slotStop).getTime();
   const buffer = 30 * 60_000;
-  return heats.some(h => {
+  return heats.some((h) => {
     const hStart = parseLocal(h.start).getTime();
     const hStop = parseLocal(h.stop).getTime();
-    return sStart < (hStop + buffer) && sStop > (hStart - buffer);
+    return sStart < hStop + buffer && sStop > hStart - buffer;
   });
 }
 
-export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, onBack, initialAddOns }: AddOnsPageProps) {
+export default function AddOnsPage({
+  racerCount,
+  date,
+  bookedHeats,
+  onContinue,
+  onBack,
+  initialAddOns,
+}: AddOnsPageProps) {
   // Restore previous selections if navigating back
   const [selections, setSelections] = useState<Record<string, number>>(() => {
     if (!initialAddOns) return {};
     const m: Record<string, number> = {};
-    for (const a of initialAddOns) { if (a.quantity > 0) m[a.id] = a.quantity; }
+    for (const a of initialAddOns) {
+      if (a.quantity > 0) m[a.id] = a.quantity;
+    }
     return m;
   });
   const [timeSlots, setTimeSlots] = useState<Record<string, TimeSlot[]>>({});
@@ -140,18 +168,22 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
   }
 
   function setQty(id: string, qty: number) {
-    setSelections(prev => ({ ...prev, [id]: Math.max(0, qty) }));
+    setSelections((prev) => ({ ...prev, [id]: Math.max(0, qty) }));
     // Fetch time slots when first selected
     if (qty > 0 && !timeSlots[id] && !loadingSlots[id]) {
       fetchTimeSlots(id, qty);
     }
     if (qty === 0) {
-      setSelectedTimes(prev => { const n = { ...prev }; delete n[id]; return n; });
+      setSelectedTimes((prev) => {
+        const n = { ...prev };
+        delete n[id];
+        return n;
+      });
     }
   }
 
   async function fetchTimeSlots(productId: string, qty: number) {
-    setLoadingSlots(prev => ({ ...prev, [productId]: true }));
+    setLoadingSlots((prev) => ({ ...prev, [productId]: true }));
     try {
       const dateOnly = date.split("T")[0];
       const allSlots: TimeSlot[] = [];
@@ -176,7 +208,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
           });
           if (!res.ok) continue;
           const data = await res.json();
-          for (const p of (data.proposals || [])) {
+          for (const p of data.proposals || []) {
             const block = p.blocks?.[0]?.block;
             if (!block) continue;
             const key = block.start;
@@ -196,32 +228,33 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
               block,
             });
           }
-        } catch { /* skip this hour */ }
+        } catch {
+          /* skip this hour */
+        }
       }
 
       allSlots.sort((a, b) => a.start.localeCompare(b.start));
-      setTimeSlots(prev => ({ ...prev, [productId]: allSlots }));
+      setTimeSlots((prev) => ({ ...prev, [productId]: allSlots }));
 
       // Auto-select first available slot
       if (allSlots.length > 0) {
-        setSelectedTimes(prev => ({ ...prev, [productId]: 0 }));
+        setSelectedTimes((prev) => ({ ...prev, [productId]: 0 }));
       }
     } catch {
-      setTimeSlots(prev => ({ ...prev, [productId]: [] }));
+      setTimeSlots((prev) => ({ ...prev, [productId]: [] }));
     } finally {
-      setLoadingSlots(prev => ({ ...prev, [productId]: false }));
+      setLoadingSlots((prev) => ({ ...prev, [productId]: false }));
     }
   }
 
   function handleContinue() {
-    const addOns: AddOnItem[] = ADD_ONS
-      .filter(a => getQty(a.id) > 0)
-      .map(a => {
+    const addOns: AddOnItem[] = ADD_ONS.filter((a) => getQty(a.id) > 0)
+      .map((a) => {
         const slots = timeSlots[a.id] || [];
         const selectedIdx = selectedTimes[a.id];
         const slot = selectedIdx !== undefined ? slots[selectedIdx] : undefined;
         // If no slot selected but we have previous data from initialAddOns, carry it forward
-        const prev = initialAddOns?.find(ia => ia.id === a.id);
+        const prev = initialAddOns?.find((ia) => ia.id === a.id);
         return {
           ...a,
           quantity: getQty(a.id),
@@ -231,7 +264,7 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
         };
       })
       // Only include add-ons that have a time slot selected
-      .filter(a => a.selectedTime || a.proposal);
+      .filter((a) => a.selectedTime || a.proposal);
     onContinue(addOns);
   }
 
@@ -252,19 +285,23 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
       {/* Show booked race times for reference */}
       {bookedHeats.length > 0 && (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-          <p className="text-white/40 text-xs uppercase tracking-wider font-semibold mb-2">Your Race Schedule</p>
+          <p className="text-white/40 text-xs uppercase tracking-wider font-semibold mb-2">
+            Your Race Schedule
+          </p>
           <div className="flex flex-wrap gap-2">
             {bookedHeats.map((h, i) => {
-              const color = h.track === "Red" ? "#E53935" : h.track === "Blue" ? "#004AAD" : "#00E2E5";
+              const color =
+                h.track === "Red" ? "#E53935" : h.track === "Blue" ? "#004AAD" : "#00E2E5";
               // Prefer a caller-supplied label (e.g. "Starter Race
               // Mega") if provided; otherwise build from track + tier
               // so package heats read "Mega Starter" / "Mega
               // Intermediate" instead of two ambiguous "Mega" pills.
               const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : null;
-              const display = h.label
-                || (h.track && tierLabel ? `${h.track} ${tierLabel}` : null)
-                || h.track
-                || "Race";
+              const display =
+                h.label ||
+                (h.track && tierLabel ? `${h.track} ${tierLabel}` : null) ||
+                h.track ||
+                "Race";
               return (
                 <span
                   key={i}
@@ -276,12 +313,14 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
               );
             })}
           </div>
-          <p className="text-white/30 text-xs mt-1.5">Pick add-on times that don&apos;t overlap with your races</p>
+          <p className="text-white/30 text-xs mt-1.5">
+            Pick add-on times that don&apos;t overlap with your races
+          </p>
         </div>
       )}
 
       <div className="grid gap-4">
-        {ADD_ONS.map(addon => {
+        {ADD_ONS.map((addon) => {
           const qty = getQty(addon.id);
           const isSelected = qty > 0;
           const priceLabel = addon.perPerson
@@ -324,9 +363,13 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="text-white font-bold text-sm">{addon.name}</h3>
-                      <span className="text-[#00E2E5] font-bold text-sm shrink-0">{priceLabel}</span>
+                      <span className="text-[#00E2E5] font-bold text-sm shrink-0">
+                        {priceLabel}
+                      </span>
                     </div>
-                    <p className="text-white/40 text-xs mt-1 leading-relaxed">{addon.description}</p>
+                    <p className="text-white/40 text-xs mt-1 leading-relaxed">
+                      {addon.description}
+                    </p>
                     {(addon.discountLabel || addon.saveLabel) && (
                       <div className="mt-1.5 flex items-center gap-2">
                         {addon.discountLabel && (
@@ -341,9 +384,23 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                     )}
                     {addon.location === "headpinz" && (
                       <p className="text-amber-400/80 text-xs font-semibold mt-1 flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <svg
+                          className="w-3 h-3"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
                         </svg>
                         Located at HeadPinz — right next door to FastTrax
                       </p>
@@ -358,7 +415,8 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                         onClick={() => setQty(addon.id, racerCount)}
                         className="w-full py-2.5 rounded-lg text-xs font-bold bg-[#00E2E5]/10 text-[#00E2E5] border border-[#00E2E5]/30 hover:bg-[#00E2E5]/20 transition-colors"
                       >
-                        Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — ${(addon.price * racerCount).toFixed(2)}
+                        Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — $
+                        {(addon.price * racerCount).toFixed(2)}
                       </button>
                     ) : (
                       /* Added state: show total + small adjuster */
@@ -370,16 +428,22 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                           >
                             -
                           </button>
-                          <span className="w-6 text-center text-white font-semibold text-xs">{qty}</span>
+                          <span className="w-6 text-center text-white font-semibold text-xs">
+                            {qty}
+                          </span>
                           <button
                             onClick={() => setQty(addon.id, qty + 1)}
                             className="w-7 h-7 rounded border border-white/20 text-white/50 hover:border-white/40 hover:text-white transition-colors flex items-center justify-center text-sm"
                           >
                             +
                           </button>
-                          <span className="text-white/30 text-xs ml-1">{qty} {qty === 1 ? "person" : "people"}</span>
+                          <span className="text-white/30 text-xs ml-1">
+                            {qty} {qty === 1 ? "person" : "people"}
+                          </span>
                         </div>
-                        <span className="text-[#00E2E5] text-sm font-semibold">${(addon.price * qty).toFixed(2)}</span>
+                        <span className="text-[#00E2E5] text-sm font-semibold">
+                          ${(addon.price * qty).toFixed(2)}
+                        </span>
                       </div>
                     )
                   ) : (
@@ -415,17 +479,35 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                         <p className="text-amber-400/70 text-xs">No times available on this date</p>
                       ) : (
                         <div className="space-y-1.5">
-                          <p className="text-white/50 text-xs uppercase tracking-wider font-semibold">Select a time</p>
+                          <p className="text-white/50 text-xs uppercase tracking-wider font-semibold">
+                            Select a time
+                          </p>
                           <div className="flex flex-wrap gap-1.5">
                             {(() => {
                               const slots = timeSlots[addon.id] || [];
                               // Merge race heats into the timeline
-                              const allItems: { time: string; type: "slot" | "race"; idx?: number; trackColor?: string; label: string }[] = [
-                                ...slots.map((s, idx) => ({ time: s.start, type: "slot" as const, idx, label: formatTime(s.start) })),
-                                ...bookedHeats.map(h => ({
+                              const allItems: {
+                                time: string;
+                                type: "slot" | "race";
+                                idx?: number;
+                                trackColor?: string;
+                                label: string;
+                              }[] = [
+                                ...slots.map((s, idx) => ({
+                                  time: s.start,
+                                  type: "slot" as const,
+                                  idx,
+                                  label: formatTime(s.start),
+                                })),
+                                ...bookedHeats.map((h) => ({
                                   time: h.start,
                                   type: "race" as const,
-                                  trackColor: h.track === "Red" ? "#E53935" : h.track === "Blue" ? "#004AAD" : "#00E2E5",
+                                  trackColor:
+                                    h.track === "Red"
+                                      ? "#E53935"
+                                      : h.track === "Blue"
+                                        ? "#004AAD"
+                                        : "#00E2E5",
                                   label: formatTime(h.start),
                                 })),
                               ];
@@ -437,7 +519,11 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                                     <span
                                       key={`race-${i}`}
                                       className="px-3 py-1.5 rounded-lg text-xs font-bold border-2 opacity-70 cursor-not-allowed"
-                                      style={{ borderColor: item.trackColor, color: item.trackColor, backgroundColor: `${item.trackColor}15` }}
+                                      style={{
+                                        borderColor: item.trackColor,
+                                        color: item.trackColor,
+                                        backgroundColor: `${item.trackColor}15`,
+                                      }}
                                       title="Your race"
                                     >
                                       {item.label} 🏎️
@@ -449,20 +535,24 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                                 // Same building: back-to-back OK (just no overlap)
                                 // Different building: 30 min buffer needed (travel time)
                                 const slotData = slots[item.idx!];
-                                const conflictsWithOther = slotData && Object.entries(selectedTimes).some(([otherId, otherIdx]) => {
-                                  if (otherId === addon.id) return false;
-                                  const otherSlots = timeSlots[otherId];
-                                  if (!otherSlots || otherSlots[otherIdx] === undefined) return false;
-                                  const other = otherSlots[otherIdx];
-                                  const otherAddon = ADD_ONS.find(a => a.id === otherId);
-                                  const sameBuilding = otherAddon && otherAddon.location === addon.location;
-                                  const buffer = sameBuilding ? 0 : 30 * 60_000;
-                                  const sStart = parseLocal(slotData.start).getTime();
-                                  const sStop = parseLocal(slotData.stop).getTime();
-                                  const oStart = parseLocal(other.start).getTime();
-                                  const oStop = parseLocal(other.stop).getTime();
-                                  return sStart < (oStop + buffer) && sStop > (oStart - buffer);
-                                });
+                                const conflictsWithOther =
+                                  slotData &&
+                                  Object.entries(selectedTimes).some(([otherId, otherIdx]) => {
+                                    if (otherId === addon.id) return false;
+                                    const otherSlots = timeSlots[otherId];
+                                    if (!otherSlots || otherSlots[otherIdx] === undefined)
+                                      return false;
+                                    const other = otherSlots[otherIdx];
+                                    const otherAddon = ADD_ONS.find((a) => a.id === otherId);
+                                    const sameBuilding =
+                                      otherAddon && otherAddon.location === addon.location;
+                                    const buffer = sameBuilding ? 0 : 30 * 60_000;
+                                    const sStart = parseLocal(slotData.start).getTime();
+                                    const sStop = parseLocal(slotData.stop).getTime();
+                                    const oStart = parseLocal(other.start).getTime();
+                                    const oStop = parseLocal(other.stop).getTime();
+                                    return sStart < oStop + buffer && sStop > oStart - buffer;
+                                  });
                                 if (conflictsWithOther) {
                                   return (
                                     <span
@@ -477,7 +567,12 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                                 return (
                                   <button
                                     key={`slot-${item.idx}`}
-                                    onClick={() => setSelectedTimes(prev => ({ ...prev, [addon.id]: item.idx! }))}
+                                    onClick={() =>
+                                      setSelectedTimes((prev) => ({
+                                        ...prev,
+                                        [addon.id]: item.idx!,
+                                      }))
+                                    }
                                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                                       isChosen
                                         ? "bg-[#00E2E5] text-[#000418]"
@@ -492,7 +587,8 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
                           </div>
                           {selectedTimes[addon.id] !== undefined && (
                             <p className="text-white/30 text-xs">
-                              {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].start)} — {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].stop)}
+                              {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].start)} —{" "}
+                              {formatTime(timeSlots[addon.id][selectedTimes[addon.id]].stop)}
                             </p>
                           )}
                         </div>
@@ -507,13 +603,17 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
       </div>
 
       {/* Summary + CTA */}
-      <div className={`rounded-xl border p-5 transition-all duration-300 ${
-        totalAddOns > 0 ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"
-      }`}>
+      <div
+        className={`rounded-xl border p-5 transition-all duration-300 ${
+          totalAddOns > 0 ? "border-[#00E2E5]/40 bg-[#00E2E5]/8" : "border-white/10 bg-white/3"
+        }`}
+      >
         {totalAddOns > 0 ? (
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <p className="text-white/50 text-xs mb-1">{totalAddOns} add-on{totalAddOns !== 1 ? "s" : ""} selected</p>
+              <p className="text-white/50 text-xs mb-1">
+                {totalAddOns} add-on{totalAddOns !== 1 ? "s" : ""} selected
+              </p>
               <p className="text-[#00E2E5] font-bold text-lg">+${totalCost.toFixed(2)}</p>
             </div>
             <div className="flex flex-col gap-2 shrink-0">
@@ -538,7 +638,10 @@ export default function AddOnsPage({ racerCount, date, bookedHeats, onContinue, 
         )}
       </div>
 
-      <button onClick={onBack} className="text-sm text-white/40 hover:text-white/70 transition-colors">
+      <button
+        onClick={onBack}
+        className="text-sm text-white/40 hover:text-white/70 transition-colors"
+      >
         ← Back to heat selection
       </button>
     </div>

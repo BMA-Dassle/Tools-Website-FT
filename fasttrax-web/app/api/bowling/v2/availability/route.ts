@@ -58,8 +58,8 @@ function parseHourToken(token: string): number {
   let h = parseInt(m[1], 10);
   const period = m[2].toUpperCase();
   if (period === "PM" && h !== 12) h += 12;
-  if (period === "AM" && h <= 2) h += 24;       // 12 AM → 24, 1 AM → 25, 2 AM → 26
-  if (period === "AM" && h === 12) h = 24;       // 12 AM → 24 (midnight)
+  if (period === "AM" && h <= 2) h += 24; // 12 AM → 24, 1 AM → 25, 2 AM → 26
+  if (period === "AM" && h === 12) h = 24; // 12 AM → 24 (midnight)
   return h;
 }
 
@@ -107,7 +107,12 @@ function buildProbeTime(date: string, hour: number, minute: number, tzOffset: st
   return `${calDate}T${String(calHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00${tzOffset}`;
 }
 
-function buildFullDayProbeTimes(date: string, tzOffset: string, openHour: number, closeHour: number): string[] {
+function buildFullDayProbeTimes(
+  date: string,
+  tzOffset: string,
+  openHour: number,
+  closeHour: number,
+): string[] {
   const times: string[] = [];
   const [y, mo, d] = date.split("-").map(Number);
   const nextDate = new Date(y, mo - 1, d + 1);
@@ -130,16 +135,18 @@ function buildFullDayProbeTimes(date: string, tzOffset: string, openHour: number
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
-  const centerIdStr    = searchParams.get("centerId");
-  const playersStr     = searchParams.get("players");
-  const startDate      = searchParams.get("startDate");
-  const hourStr        = searchParams.get("hour");
-  const minuteStr      = searchParams.get("minute");
-  const kindStr        = searchParams.get("kind") as "kbf" | "open" | "hourly" | null;
-  const webOfferIdStr  = searchParams.get("webOfferId");
+  const centerIdStr = searchParams.get("centerId");
+  const playersStr = searchParams.get("players");
+  const startDate = searchParams.get("startDate");
+  const hourStr = searchParams.get("hour");
+  const minuteStr = searchParams.get("minute");
+  const kindStr = searchParams.get("kind") as "kbf" | "open" | "hourly" | null;
+  const webOfferIdStr = searchParams.get("webOfferId");
   const durationMinStr = searchParams.get("durationMinutes");
 
-  console.log(`[avail] ENTRY params: centerId=${centerIdStr} players=${playersStr} date=${startDate} hour=${hourStr} min=${minuteStr} kind=${kindStr}`);
+  console.log(
+    `[avail] ENTRY params: centerId=${centerIdStr} players=${playersStr} date=${startDate} hour=${hourStr} min=${minuteStr} kind=${kindStr}`,
+  );
 
   if (!centerIdStr || !playersStr || !startDate) {
     console.log(`[avail] EXIT: missing required params`);
@@ -149,9 +156,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const centerId        = parseInt(centerIdStr, 10);
-  const players         = parseInt(playersStr, 10);
-  const webOfferId      = webOfferIdStr ? parseInt(webOfferIdStr, 10) : undefined;
+  const centerId = parseInt(centerIdStr, 10);
+  const players = parseInt(playersStr, 10);
+  const webOfferId = webOfferIdStr ? parseInt(webOfferIdStr, 10) : undefined;
   const durationMinOver = durationMinStr ? parseInt(durationMinStr, 10) : undefined;
 
   if (isNaN(centerId) || isNaN(players) || players < 1) {
@@ -174,17 +181,19 @@ export async function GET(req: NextRequest) {
     (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
   );
 
-  console.log(`[avail] experiences: all=${allExperiences.length} valid=${validExperiences.length} dow=${dow} offerIds=[${validExperiences.map(e => e.qamfWebOfferId).join(",")}]`);
+  console.log(
+    `[avail] experiences: all=${allExperiences.length} valid=${validExperiences.length} dow=${dow} offerIds=[${validExperiences.map((e) => e.qamfWebOfferId).join(",")}]`,
+  );
 
   // When webOfferId is specified (e.g. reschedule), narrow to just that offer
   if (webOfferId) {
-    validExperiences = validExperiences.filter(
-      (e) => e.qamfWebOfferId === webOfferId,
-    );
+    validExperiences = validExperiences.filter((e) => e.qamfWebOfferId === webOfferId);
   }
 
   if (validExperiences.length === 0) {
-    console.log(`[avail] EXIT: no valid experiences for dow=${dow} centerCode=${centerCode} kind=${kindStr}`);
+    console.log(
+      `[avail] EXIT: no valid experiences for dow=${dow} centerCode=${centerCode} kind=${kindStr}`,
+    );
     return NextResponse.json({ Availabilities: [] });
   }
 
@@ -213,7 +222,9 @@ export async function GET(req: NextRequest) {
     let earliestMin = openHour * 60;
     if (startDate === todayET) {
       const parts = new Intl.DateTimeFormat("en-US", {
-        hour: "numeric", minute: "numeric", hourCycle: "h23",
+        hour: "numeric",
+        minute: "numeric",
+        hourCycle: "h23",
         timeZone: "America/New_York",
       }).formatToParts(new Date());
       const nowH = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
@@ -239,7 +250,7 @@ export async function GET(req: NextRequest) {
     earliestMin = Math.ceil(earliestMin / 15) * 15;
 
     const windowStart = Math.max(hour * 60 + minute - 300, earliestMin); // -5h, clamped
-    const windowEnd = Math.min(hour * 60 + minute + 300, closeHour * 60);  // +5h, clamped
+    const windowEnd = Math.min(hour * 60 + minute + 300, closeHour * 60); // +5h, clamped
 
     probeTimes = [];
     for (let t = windowStart; t <= windowEnd; t += 15) {
@@ -260,7 +271,13 @@ export async function GET(req: NextRequest) {
   try {
     // Probe in batches of 8 to avoid QAMF rate limiting, with error tracking
     let probeErrors = 0;
-    const results: Array<{ Availabilities: Array<{ TotalPlayers: number; BookedAt: string; WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] } }> }> = [];
+    const results: Array<{
+      Availabilities: Array<{
+        TotalPlayers: number;
+        BookedAt: string;
+        WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] };
+      }>;
+    }> = [];
     for (let i = 0; i < probeTimes.length; i += 8) {
       const batch = probeTimes.slice(i, i + 8);
       const batchResults = await Promise.all(
@@ -272,9 +289,21 @@ export async function GET(req: NextRequest) {
           }).catch((err) => {
             probeErrors++;
             if (probeErrors <= 3) {
-              console.warn(`[avail] probe error at ${bookedAt}: ${err instanceof Error ? err.message : String(err)}`);
+              console.warn(
+                `[avail] probe error at ${bookedAt}: ${err instanceof Error ? err.message : String(err)}`,
+              );
             }
-            return { Availabilities: [] as Array<{ TotalPlayers: number; BookedAt: string; WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] } }> };
+            return {
+              Availabilities: [] as Array<{
+                TotalPlayers: number;
+                BookedAt: string;
+                WebOffer: {
+                  Id: string | number;
+                  Options: Record<string, unknown>;
+                  Services: string[];
+                };
+              }>,
+            };
           }),
         ),
       );
@@ -297,16 +326,21 @@ export async function GET(req: NextRequest) {
 
     // Filter slots that would run past closing time
     availabilities = availabilities.filter((a) => {
-      const mins = durationMinOver
-        ?? (a.WebOffer?.Options as { Time?: Array<{ Minutes?: number }> })?.Time?.[0]?.Minutes
-        ?? undefined;
+      const mins =
+        durationMinOver ??
+        (a.WebOffer?.Options as { Time?: Array<{ Minutes?: number }> })?.Time?.[0]?.Minutes ??
+        undefined;
       if (!mins || mins <= 0) return true; // no duration info → keep (game/unlimited)
       return !slotExceedsClose(a.BookedAt, mins, closeHour);
     });
 
-    console.log(`[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length} errors=${probeErrors} raw=${results.reduce((n, r) => n + r.Availabilities.length, 0)} filtered=${availabilities.length}`);
+    console.log(
+      `[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length} errors=${probeErrors} raw=${results.reduce((n, r) => n + r.Availabilities.length, 0)} filtered=${availabilities.length}`,
+    );
     if (availabilities.length > 0) {
-      console.log(`[avail] first=${availabilities[0].BookedAt} last=${availabilities[availabilities.length - 1].BookedAt}`);
+      console.log(
+        `[avail] first=${availabilities[0].BookedAt} last=${availabilities[availabilities.length - 1].BookedAt}`,
+      );
     }
 
     return NextResponse.json({ Availabilities: availabilities });

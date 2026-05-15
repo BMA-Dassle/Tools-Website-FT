@@ -45,15 +45,19 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const parsed: any[] = JSON.parse(stored);
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAttractionItems(parsed.map(a => ({
-        name: `${a.attractionName}: ${a.product?.name || ""}`,
-        quantity: a.quantity || 1,
-        time: a.time?.block?.start || "",
-        date: a.date || "",
-        price: (a.product?.price || 0) * (a.quantity || 1),
-        isAttraction: true,
-      })));
-    } catch { /* ignore */ }
+      setAttractionItems(
+        parsed.map((a) => ({
+          name: `${a.attractionName}: ${a.product?.name || ""}`,
+          quantity: a.quantity || 1,
+          time: a.time?.block?.start || "",
+          date: a.date || "",
+          price: (a.product?.price || 0) * (a.quantity || 1),
+          isAttraction: true,
+        })),
+      );
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const allItems = [...attractionItems, ...items];
@@ -77,13 +81,24 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-white text-sm font-semibold">{item.name}</p>
-                    {item.time && <p className="text-white/40 text-xs">{formatDate(item.time)} · {formatTime(item.time)}</p>}
+                    {item.time && (
+                      <p className="text-white/40 text-xs">
+                        {formatDate(item.time)} · {formatTime(item.time)}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-white/50 text-xs">
-                        {item.isAttraction ? `${item.quantity} ${item.quantity !== 1 ? "people" : "person"}` : `${item.quantity} racer${item.quantity !== 1 ? "s" : ""}`}
+                        {item.isAttraction
+                          ? `${item.quantity} ${item.quantity !== 1 ? "people" : "person"}`
+                          : `${item.quantity} racer${item.quantity !== 1 ? "s" : ""}`}
                       </span>
                       {item.price !== undefined && item.price > 0 && (
-                        <span className="text-[#00E2E5] text-xs">${item.isAttraction ? item.price.toFixed(2) : (item.price * item.quantity).toFixed(2)}</span>
+                        <span className="text-[#00E2E5] text-xs">
+                          $
+                          {item.isAttraction
+                            ? item.price.toFixed(2)
+                            : (item.price * item.quantity).toFixed(2)}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -91,12 +106,25 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
                     <button
                       type="button"
                       aria-label="Remove item"
-                      onClick={(e) => { e.stopPropagation(); onRemove(i - attractionItems.length); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemove(i - attractionItems.length);
+                      }}
                       className="text-red-400/50 hover:text-red-400 transition-colors p-1"
                       title="Remove"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   )}
@@ -120,8 +148,18 @@ export default function FloatingCart({ items, onCheckout, onRemove }: FloatingCa
         onClick={() => setOpen(!open)}
         className="relative w-14 h-14 rounded-full bg-[#00E2E5] text-[#000418] shadow-lg shadow-[#00E2E5]/30 hover:bg-white transition-colors flex items-center justify-center"
       >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+        <svg
+          className="w-6 h-6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"
+          />
         </svg>
         {/* Badge */}
         <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">

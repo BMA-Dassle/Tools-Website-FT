@@ -43,7 +43,7 @@ async function getToken(clientKey = BMI_CLIENT_KEY): Promise<string> {
 
 function bmiHeaders(token: string) {
   return {
-    "Authorization": `Bearer ${token}`,
+    Authorization: `Bearer ${token}`,
     "BMI-Subscription-Key": BMI_SUB_KEY,
     "Content-Type": "application/json",
     "Accept-Language": "en",
@@ -89,13 +89,14 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const endpoint = searchParams.get("endpoint");
 
-  if (!endpoint || !ALLOWED_GET.some(e => endpoint.startsWith(e))) {
+  if (!endpoint || !ALLOWED_GET.some((e) => endpoint.startsWith(e))) {
     return NextResponse.json({ error: "Endpoint not allowed" }, { status: 403 });
   }
 
   try {
     const clientKey = searchParams.get("clientKey") || BMI_CLIENT_KEY;
-    if (!ALLOWED_CLIENTS.has(clientKey)) return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+    if (!ALLOWED_CLIENTS.has(clientKey))
+      return NextResponse.json({ error: "Invalid client" }, { status: 403 });
     const token = await getToken(clientKey);
 
     // Build upstream URL — pass through all query params except 'endpoint' and 'clientKey'
@@ -142,13 +143,14 @@ export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const endpoint = searchParams.get("endpoint");
 
-  if (!endpoint || !ALLOWED_POST.some(e => endpoint.startsWith(e))) {
+  if (!endpoint || !ALLOWED_POST.some((e) => endpoint.startsWith(e))) {
     return NextResponse.json({ error: "Endpoint not allowed" }, { status: 403 });
   }
 
   try {
     const clientKey = searchParams.get("clientKey") || BMI_CLIENT_KEY;
-    if (!ALLOWED_CLIENTS.has(clientKey)) return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+    if (!ALLOWED_CLIENTS.has(clientKey))
+      return NextResponse.json({ error: "Invalid client" }, { status: 403 });
     const token = await getToken(clientKey);
 
     // Build upstream URL with query params
@@ -197,13 +199,14 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const endpoint = searchParams.get("endpoint");
 
-  if (!endpoint || !ALLOWED_DELETE.some(e => endpoint.startsWith(e))) {
+  if (!endpoint || !ALLOWED_DELETE.some((e) => endpoint.startsWith(e))) {
     return NextResponse.json({ error: "Endpoint not allowed" }, { status: 403 });
   }
 
   try {
     const clientKey = searchParams.get("clientKey") || BMI_CLIENT_KEY;
-    if (!ALLOWED_CLIENTS.has(clientKey)) return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+    if (!ALLOWED_CLIENTS.has(clientKey))
+      return NextResponse.json({ error: "Invalid client" }, { status: 403 });
     const token = await getToken(clientKey);
     const url = `${BMI_API_URL}/public-booking/${clientKey}/${endpoint}`;
 

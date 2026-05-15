@@ -2,8 +2,8 @@
 
 export interface SavedCard {
   id: string;
-  brand: string;       // "VISA", "MASTERCARD", etc.
-  last4: string;       // "4242"
+  brand: string; // "VISA", "MASTERCARD", etc.
+  last4: string; // "4242"
   expMonth: number;
   expYear: number;
   expired: boolean;
@@ -12,7 +12,7 @@ export interface SavedCard {
 interface SavedCardSelectorProps {
   cards: SavedCard[];
   selectedCardId: string | null;
-  onSelect: (cardId: string | null) => void;  // null = "use new card"
+  onSelect: (cardId: string | null) => void; // null = "use new card"
 }
 
 const BRAND_ICONS: Record<string, string> = {
@@ -31,15 +31,21 @@ const BRAND_LABELS: Record<string, string> = {
   JCB: "JCB",
 };
 
-export default function SavedCardSelector({ cards, selectedCardId, onSelect }: SavedCardSelectorProps) {
-  const validCards = cards.filter(c => !c.expired);
-  const expiredCards = cards.filter(c => c.expired);
+export default function SavedCardSelector({
+  cards,
+  selectedCardId,
+  onSelect,
+}: SavedCardSelectorProps) {
+  const validCards = cards.filter((c) => !c.expired);
+  const expiredCards = cards.filter((c) => c.expired);
 
   return (
     <div className="space-y-2">
-      <p className="text-white/50 text-xs uppercase tracking-wider font-semibold mb-2">Saved Cards</p>
+      <p className="text-white/50 text-xs uppercase tracking-wider font-semibold mb-2">
+        Saved Cards
+      </p>
 
-      {validCards.map(card => (
+      {validCards.map((card) => (
         <button
           key={card.id}
           onClick={() => onSelect(card.id)}
@@ -60,7 +66,13 @@ export default function SavedCardSelector({ cards, selectedCardId, onSelect }: S
           </div>
           {selectedCardId === card.id && (
             <div className="w-5 h-5 rounded-full bg-[#00E2E5] flex items-center justify-center shrink-0">
-              <svg className="w-3 h-3 text-[#000418]" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+              <svg
+                className="w-3 h-3 text-[#000418]"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                viewBox="0 0 24 24"
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
@@ -68,7 +80,7 @@ export default function SavedCardSelector({ cards, selectedCardId, onSelect }: S
         </button>
       ))}
 
-      {expiredCards.map(card => (
+      {expiredCards.map((card) => (
         <div
           key={card.id}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-white/5 bg-white/[0.02] opacity-50"
@@ -96,7 +108,13 @@ export default function SavedCardSelector({ cards, selectedCardId, onSelect }: S
         <p className="text-white text-sm font-semibold">Use a different card</p>
         {selectedCardId === null && (
           <div className="ml-auto w-5 h-5 rounded-full bg-[#00E2E5] flex items-center justify-center shrink-0">
-            <svg className="w-3 h-3 text-[#000418]" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+            <svg
+              className="w-3 h-3 text-[#000418]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              viewBox="0 0 24 24"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>

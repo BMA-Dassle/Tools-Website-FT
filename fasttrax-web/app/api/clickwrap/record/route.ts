@@ -40,10 +40,7 @@ export async function POST(req: NextRequest) {
     "unknown";
   const userAgent = req.headers.get("user-agent") || "";
 
-  const ts =
-    typeof body.ts === "string" && body.ts
-      ? body.ts
-      : new Date().toISOString();
+  const ts = typeof body.ts === "string" && body.ts ? body.ts : new Date().toISOString();
 
   const policyVersion =
     typeof body.policyVersion === "string" && body.policyVersion

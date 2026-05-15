@@ -118,9 +118,13 @@ function formatEt(iso: string): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
       timeZone: "America/New_York",
-      hour: "numeric", minute: "2-digit", hour12: true,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
     });
-  } catch { return iso; }
+  } catch {
+    return iso;
+  }
 }
 
 type TrackSlug = "" | "blue" | "red" | "mega";
@@ -153,10 +157,7 @@ function abbreviateType(type: string): string {
   const junior = /^JUNIOR\s+/.test(t);
   const base = t.replace(/^JUNIOR\s+/, "");
   const abbr =
-    base === "STARTER" ? "STR" :
-    base === "INTERMEDIATE" ? "INT" :
-    base === "PRO" ? "PRO" :
-    base; // unknown types pass through unchanged
+    base === "STARTER" ? "STR" : base === "INTERMEDIATE" ? "INT" : base === "PRO" ? "PRO" : base; // unknown types pass through unchanged
   return junior ? `JR ${abbr}` : abbr;
 }
 
@@ -211,26 +212,27 @@ function trackChipClasses(trackName: string | undefined, isActive: boolean): str
  * already-active chip clears the filter (so there's no separate
  * "All" button — tapping again = all).
  */
-const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string; idle: string }[] = [
-  {
-    slug: "blue",
-    label: "Blue",
-    active: "bg-[#00E2E5] border-[#00E2E5] text-[#000418]",
-    idle:   "border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10",
-  },
-  {
-    slug: "red",
-    label: "Red",
-    active: "bg-[#E53935] border-[#E53935] text-white",
-    idle:   "border-[#E53935]/50 text-[#ff7171] hover:bg-[#E53935]/10",
-  },
-  {
-    slug: "mega",
-    label: "Mega",
-    active: "bg-[#8652FF] border-[#8652FF] text-white",
-    idle:   "border-[#8652FF]/50 text-[#c4adff] hover:bg-[#8652FF]/10",
-  },
-];
+const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string; idle: string }[] =
+  [
+    {
+      slug: "blue",
+      label: "Blue",
+      active: "bg-[#00E2E5] border-[#00E2E5] text-[#000418]",
+      idle: "border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10",
+    },
+    {
+      slug: "red",
+      label: "Red",
+      active: "bg-[#E53935] border-[#E53935] text-white",
+      idle: "border-[#E53935]/50 text-[#ff7171] hover:bg-[#E53935]/10",
+    },
+    {
+      slug: "mega",
+      label: "Mega",
+      active: "bg-[#8652FF] border-[#8652FF] text-white",
+      idle: "border-[#8652FF]/50 text-[#c4adff] hover:bg-[#8652FF]/10",
+    },
+  ];
 
 /** Tracks that are running today (ET). Tuesday = Mega only;
  *  every other day = Blue + Red. Filters the chip row so staff
@@ -244,7 +246,15 @@ function visibleTrackSlugsET(): Array<Exclude<TrackSlug, "">> {
   return weekday === "Tue" ? ["mega"] : ["blue", "red"];
 }
 
-export default function CameraAssignClient({ token, track: initialTrack, version }: { token: string; track?: string; version?: string }) {
+export default function CameraAssignClient({
+  token,
+  track: initialTrack,
+  version,
+}: {
+  token: string;
+  track?: string;
+  version?: string;
+}) {
   // Only show chips for tracks that are running today.
   // Tuesday = Mega only; other days = Blue + Red. If the URL was
   // bookmarked with a now-hidden track (e.g. ?track=blue on a
@@ -284,7 +294,9 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   const [daySessions, setDaySessions] = useState<DaySession[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
   const [scanBuffer, setScanBuffer] = useState("");
-  const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(null);
+  const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(
+    null,
+  );
   /** Heat-wide block state. Populated from the session-load response.
    *  When `blocked: true`, the participant list paints names red and
    *  the "Block Heat" button flips to "Unblock Heat". */
@@ -365,53 +377,59 @@ export default function CameraAssignClient({ token, track: initialTrack, version
     }
   }, [token]);
 
-  const saveBarcode = useCallback(async (cameraNumber: number, barcode: string) => {
-    const bc = barcode.trim();
-    if (!bc) return;
-    setBarcodeErr(null);
-    try {
-      const res = await fetch("/api/admin/camera-assign/barcodes", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify({ cameraNumber, barcode: bc }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || `save failed (${res.status})`);
-      setBarcodeMap((prev) => ({ ...prev, [String(cameraNumber)]: bc }));
-      // Auto-advance to the next unmapped camera so USB barcode
-      // readers can chain scans without staff having to click.
-      setBarcodeInput("");
-      setBarcodeActiveCam((cur) => {
-        const start = Math.max(cur + 1, 1);
-        for (let i = start; i <= 96; i++) {
-          if (!barcodeMap[String(i)] && i !== cameraNumber) return i;
-        }
-        return Math.min(96, cur + 1);
-      });
-      // Re-focus the input so next scan lands here.
-      setTimeout(() => barcodeInputRef.current?.focus(), 0);
-    } catch (e) {
-      setBarcodeErr(e instanceof Error ? e.message : "save failed");
-    }
-  }, [token, barcodeMap]);
+  const saveBarcode = useCallback(
+    async (cameraNumber: number, barcode: string) => {
+      const bc = barcode.trim();
+      if (!bc) return;
+      setBarcodeErr(null);
+      try {
+        const res = await fetch("/api/admin/camera-assign/barcodes", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-token": token },
+          body: JSON.stringify({ cameraNumber, barcode: bc }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `save failed (${res.status})`);
+        setBarcodeMap((prev) => ({ ...prev, [String(cameraNumber)]: bc }));
+        // Auto-advance to the next unmapped camera so USB barcode
+        // readers can chain scans without staff having to click.
+        setBarcodeInput("");
+        setBarcodeActiveCam((cur) => {
+          const start = Math.max(cur + 1, 1);
+          for (let i = start; i <= 96; i++) {
+            if (!barcodeMap[String(i)] && i !== cameraNumber) return i;
+          }
+          return Math.min(96, cur + 1);
+        });
+        // Re-focus the input so next scan lands here.
+        setTimeout(() => barcodeInputRef.current?.focus(), 0);
+      } catch (e) {
+        setBarcodeErr(e instanceof Error ? e.message : "save failed");
+      }
+    },
+    [token, barcodeMap],
+  );
 
-  const deleteBarcode = useCallback(async (cameraNumber: number) => {
-    setBarcodeErr(null);
-    try {
-      const res = await fetch(
-        `/api/admin/camera-assign/barcodes?cameraNumber=${cameraNumber}`,
-        { method: "DELETE", headers: { "x-admin-token": token } },
-      );
-      if (!res.ok) throw new Error(`delete failed (${res.status})`);
-      setBarcodeMap((prev) => {
-        const next = { ...prev };
-        delete next[String(cameraNumber)];
-        return next;
-      });
-    } catch (e) {
-      setBarcodeErr(e instanceof Error ? e.message : "delete failed");
-    }
-  }, [token]);
+  const deleteBarcode = useCallback(
+    async (cameraNumber: number) => {
+      setBarcodeErr(null);
+      try {
+        const res = await fetch(`/api/admin/camera-assign/barcodes?cameraNumber=${cameraNumber}`, {
+          method: "DELETE",
+          headers: { "x-admin-token": token },
+        });
+        if (!res.ok) throw new Error(`delete failed (${res.status})`);
+        setBarcodeMap((prev) => {
+          const next = { ...prev };
+          delete next[String(cameraNumber)];
+          return next;
+        });
+      } catch (e) {
+        setBarcodeErr(e instanceof Error ? e.message : "delete failed");
+      }
+    },
+    [token],
+  );
 
   const openBarcodeModal = useCallback(() => {
     setBarcodeModalOpen(true);
@@ -444,8 +462,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   const barcodeBufferRef = useRef("");
   const saveBarcodeRef = useRef(saveBarcode);
   const activeCamRef = useRef(barcodeActiveCam);
-  useEffect(() => { saveBarcodeRef.current = saveBarcode; }, [saveBarcode]);
-  useEffect(() => { activeCamRef.current = barcodeActiveCam; }, [barcodeActiveCam]);
+  useEffect(() => {
+    saveBarcodeRef.current = saveBarcode;
+  }, [saveBarcode]);
+  useEffect(() => {
+    activeCamRef.current = barcodeActiveCam;
+  }, [barcodeActiveCam]);
 
   /** Auto-save helper. Fires the save + clears the buffer.
    *  Uses a 7-char length trigger as the primary auto-fire signal
@@ -505,7 +527,9 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   // time. Racers' cameras carry a barcode; when USB barcode scanners
   // type the barcode into the main input, we translate it to the
   // camera number before calling assign().
-  useEffect(() => { void loadBarcodes(); }, [loadBarcodes]);
+  useEffect(() => {
+    void loadBarcodes();
+  }, [loadBarcodes]);
 
   /** Reverse lookup: barcode → cameraNumber (string). Derived from
    *  the forward `barcodeMap` so there's a single source of truth. */
@@ -587,7 +611,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  on a timer so the red fades out. */
   const [conflictBlinkPid, setConflictBlinkPid] = useState<string | null>(null);
   const conflictTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (conflictTimerRef.current) clearTimeout(conflictTimerRef.current); }, []);
+  useEffect(
+    () => () => {
+      if (conflictTimerRef.current) clearTimeout(conflictTimerRef.current);
+    },
+    [],
+  );
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   /** Ref on whichever participant row is currently the active scan
@@ -604,7 +633,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  after 2.5s. */
   const [unknownScanFlash, setUnknownScanFlash] = useState(false);
   const unknownScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (unknownScanTimerRef.current) clearTimeout(unknownScanTimerRef.current); }, []);
+  useEffect(
+    () => () => {
+      if (unknownScanTimerRef.current) clearTimeout(unknownScanTimerRef.current);
+    },
+    [],
+  );
 
   /** Scroll the active racer into view whenever activeIndex changes.
    *  Refs in React commit before useEffect, so by the time this runs
@@ -646,7 +680,9 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   // cascade into the track-change effect re-firing and clobbering the
   // currently-loaded session.
   const scanBufferRef = useRef(scanBuffer);
-  useEffect(() => { scanBufferRef.current = scanBuffer; }, [scanBuffer]);
+  useEffect(() => {
+    scanBufferRef.current = scanBuffer;
+  }, [scanBuffer]);
 
   /** Abort controller for the currently-pending loadSession fetch.
    *  When the operator changes heat (taps a different row, switches
@@ -669,59 +705,65 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  (same system number can exist on different tracks at similar times).
    *  If track isn't set, we short-circuit and let the UI show its
    *  "pick a track" prompt. */
-  const loadSession = useCallback(async (sessionIdOverride?: string, forceRefresh: boolean = false) => {
-    // Abort any in-flight prior call. The operator just picked a
-    // different heat (or hit Refresh) — the previous heat's data is
-    // no longer wanted, and letting it land late would overwrite the
-    // new heat's roster.
-    loadSessionAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    loadSessionAbortRef.current = ctrl;
-    const signal = ctrl.signal;
+  const loadSession = useCallback(
+    async (sessionIdOverride?: string, forceRefresh: boolean = false) => {
+      // Abort any in-flight prior call. The operator just picked a
+      // different heat (or hit Refresh) — the previous heat's data is
+      // no longer wanted, and letting it land late would overwrite the
+      // new heat's roster.
+      loadSessionAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      loadSessionAbortRef.current = ctrl;
+      const signal = ctrl.signal;
 
-    if (!track) {
-      // Clear any stale state so the prompt renders cleanly.
+      if (!track) {
+        // Clear any stale state so the prompt renders cleanly.
+        setSession(null);
+        setParticipants([]);
+        setNote(null);
+        setActiveIndex(0);
+        setLastScan(null);
+        return;
+      }
+      setLoading(true);
+      setErr(null);
       setSession(null);
       setParticipants([]);
       setNote(null);
       setActiveIndex(0);
       setLastScan(null);
-      return;
-    }
-    setLoading(true);
-    setErr(null);
-    setSession(null);
-    setParticipants([]);
-    setNote(null);
-    setActiveIndex(0);
-    setLastScan(null);
-    try {
-      const qs = new URLSearchParams({ token });
-      if (sessionIdOverride) qs.set("sessionId", sessionIdOverride);
-      qs.set("track", track);
-      // Initial loads + auto-polls read the cron-warmed cache for
-      // instant render even during Pandora outages. Manual refresh
-      // button passes `refresh=1` to bypass the cache and force a
-      // live Pandora call — staff get fresh data on demand.
-      if (forceRefresh) qs.set("refresh", "1");
-      const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store", signal });
-      if (signal.aborted) return;
-      if (!res.ok) throw new Error(`load failed: ${res.status}`);
-      const json = (await res.json()) as SessionResponse;
-      if (signal.aborted) return;
-      setSession(json.session);
-      setParticipants(json.participants || []);
-      setNote(json.note || null);
-      setSessionBlock(json.sessionBlock || { blocked: false });
-      // Auto-highlight the first UNASSIGNED racer (or first if all assigned)
-      const firstUnassigned = (json.participants || []).findIndex((p) => !p.systemNumber);
-      setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }, [token, track]);
+      try {
+        const qs = new URLSearchParams({ token });
+        if (sessionIdOverride) qs.set("sessionId", sessionIdOverride);
+        qs.set("track", track);
+        // Initial loads + auto-polls read the cron-warmed cache for
+        // instant render even during Pandora outages. Manual refresh
+        // button passes `refresh=1` to bypass the cache and force a
+        // live Pandora call — staff get fresh data on demand.
+        if (forceRefresh) qs.set("refresh", "1");
+        const res = await fetch(`/api/admin/camera-assign/session?${qs}`, {
+          cache: "no-store",
+          signal,
+        });
+        if (signal.aborted) return;
+        if (!res.ok) throw new Error(`load failed: ${res.status}`);
+        const json = (await res.json()) as SessionResponse;
+        if (signal.aborted) return;
+        setSession(json.session);
+        setParticipants(json.participants || []);
+        setNote(json.note || null);
+        setSessionBlock(json.sessionBlock || { blocked: false });
+        // Auto-highlight the first UNASSIGNED racer (or first if all assigned)
+        const firstUnassigned = (json.participants || []).findIndex((p) => !p.systemNumber);
+        setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "failed to load");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token, track],
+  );
 
   /** In-place refresh that preserves local scan state.
    *
@@ -744,73 +786,83 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  automatically — we flag a note so staff knows a newer session is
    *  queued up. They hit Reload when ready.
    */
-  const refreshSession = useCallback(async (signal?: AbortSignal) => {
-    // No track → nothing to refresh (UI is showing the pick-a-track prompt).
-    if (!track) return;
-    // Don't refresh while staff is on a test session (overrideSessionId)
-    // or actively scanning — would clobber in-progress work.
-    if (overrideSessionId) return;
-    if (scanBufferRef.current) return;
+  const refreshSession = useCallback(
+    async (signal?: AbortSignal) => {
+      // No track → nothing to refresh (UI is showing the pick-a-track prompt).
+      if (!track) return;
+      // Don't refresh while staff is on a test session (overrideSessionId)
+      // or actively scanning — would clobber in-progress work.
+      if (overrideSessionId) return;
+      if (scanBufferRef.current) return;
 
-    try {
-      const qs = new URLSearchParams({ token, track });
-      const res = await fetch(`/api/admin/camera-assign/session?${qs}`, { cache: "no-store", signal });
-      if (signal?.aborted) return;
-      if (!res.ok) return;
-      const json = (await res.json()) as SessionResponse;
-      const newSession = json.session;
-      const newParticipants = json.participants || [];
-
-      // No session selected yet — fall through to loadSession.
-      if (!session) {
-        setSession(newSession);
-        setParticipants(newParticipants);
-        setNote(json.note || null);
-        const firstUnassigned = newParticipants.findIndex((p) => !p.systemNumber);
-        setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
-        return;
-      }
-
-      // The server's "next upcoming" advanced past us. Keep rendering the
-      // session we loaded (so scan progress survives), but surface a note
-      // so staff can hit Reload to move on.
-      if (newSession && String(newSession.sessionId) !== String(session.sessionId)) {
-        setNote(
-          `New upcoming session: ${newSession.track.replace(" Track", "")} · Heat ${newSession.heatNumber} · ${formatEt(newSession.scheduledStart)}. Hit Reload when ready.`,
-        );
-        return;
-      }
-
-      // Same session — merge participant list in-place. Preserve any
-      // systemNumber we have locally (post-scan), since the server may
-      // have slightly stale data if our scan just landed.
-      setParticipants((prev) => {
-        const prevByPid = new Map(prev.map((p) => [String(p.personId), p]));
-        return newParticipants.map((np) => {
-          const existing = prevByPid.get(String(np.personId));
-          if (existing?.systemNumber && !np.systemNumber) {
-            // Keep our local assignment.
-            return { ...np, systemNumber: existing.systemNumber, assignedAt: existing.assignedAt };
-          }
-          return np;
+      try {
+        const qs = new URLSearchParams({ token, track });
+        const res = await fetch(`/api/admin/camera-assign/session?${qs}`, {
+          cache: "no-store",
+          signal,
         });
-      });
-      // Always refresh the block snapshot from the server — block state
-      // is authoritative there (and can flip from other staff screens).
-      setSessionBlock(json.sessionBlock || { blocked: false });
+        if (signal?.aborted) return;
+        if (!res.ok) return;
+        const json = (await res.json()) as SessionResponse;
+        const newSession = json.session;
+        const newParticipants = json.participants || [];
 
-      // Fix up activeIndex if the racer at that slot got removed.
-      setActiveIndex((prev) => {
-        if (prev < 0 || prev >= newParticipants.length) {
+        // No session selected yet — fall through to loadSession.
+        if (!session) {
+          setSession(newSession);
+          setParticipants(newParticipants);
+          setNote(json.note || null);
           const firstUnassigned = newParticipants.findIndex((p) => !p.systemNumber);
-          return firstUnassigned >= 0 ? firstUnassigned : 0;
+          setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
+          return;
         }
-        return prev;
-      });
-    } catch {
-      // Non-fatal — next tick will try again.
-    }
-  }, [token, track, overrideSessionId, session]);
+
+        // The server's "next upcoming" advanced past us. Keep rendering the
+        // session we loaded (so scan progress survives), but surface a note
+        // so staff can hit Reload to move on.
+        if (newSession && String(newSession.sessionId) !== String(session.sessionId)) {
+          setNote(
+            `New upcoming session: ${newSession.track.replace(" Track", "")} · Heat ${newSession.heatNumber} · ${formatEt(newSession.scheduledStart)}. Hit Reload when ready.`,
+          );
+          return;
+        }
+
+        // Same session — merge participant list in-place. Preserve any
+        // systemNumber we have locally (post-scan), since the server may
+        // have slightly stale data if our scan just landed.
+        setParticipants((prev) => {
+          const prevByPid = new Map(prev.map((p) => [String(p.personId), p]));
+          return newParticipants.map((np) => {
+            const existing = prevByPid.get(String(np.personId));
+            if (existing?.systemNumber && !np.systemNumber) {
+              // Keep our local assignment.
+              return {
+                ...np,
+                systemNumber: existing.systemNumber,
+                assignedAt: existing.assignedAt,
+              };
+            }
+            return np;
+          });
+        });
+        // Always refresh the block snapshot from the server — block state
+        // is authoritative there (and can flip from other staff screens).
+        setSessionBlock(json.sessionBlock || { blocked: false });
+
+        // Fix up activeIndex if the racer at that slot got removed.
+        setActiveIndex((prev) => {
+          if (prev < 0 || prev >= newParticipants.length) {
+            const firstUnassigned = newParticipants.findIndex((p) => !p.systemNumber);
+            return firstUnassigned >= 0 ? firstUnassigned : 0;
+          }
+          return prev;
+        });
+      } catch {
+        // Non-fatal — next tick will try again.
+      }
+    },
+    [token, track, overrideSessionId, session],
+  );
 
   /** Load the last N "called" races from our SMS log (via the new
    *  /called endpoint). Used to populate the live quick-pick pills.
@@ -823,55 +875,73 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  round-trip, both state updates applied in the same commit so the
    *  pills arrive as a single visual wave (not prev-first-then-upcoming
    *  staggered over a second). scanBufferRef gate keeps mid-scan safe. */
-  const loadHeats = useCallback(async (signal?: AbortSignal) => {
-    if (!track) {
-      setCalledSessions([]); setCalledLoading(false);
-      setUpcomingSessions([]); setUpcomingLoading(false);
-      return;
-    }
-    if (scanBufferRef.current) return;
-    setCalledLoading(true);
-    setUpcomingLoading(true);
-    try {
-      const qs = new URLSearchParams({ token, track, before: "4", after: "3" });
-      const res = await fetch(`/api/admin/camera-assign/heats?${qs}`, { cache: "no-store", signal });
-      if (signal?.aborted) return;
-      if (!res.ok) return;
-      const json = await res.json();
-      // Both setStates in the same async tick — React 18 batches them
-      // automatically so the pills render in one commit.
-      setCalledSessions(json.called || []);
-      setUpcomingSessions(json.upcoming || []);
-    } catch {
-      /* non-fatal */
-    } finally {
-      setCalledLoading(false);
-      setUpcomingLoading(false);
-    }
-  }, [token, track]);
+  const loadHeats = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!track) {
+        setCalledSessions([]);
+        setCalledLoading(false);
+        setUpcomingSessions([]);
+        setUpcomingLoading(false);
+        return;
+      }
+      if (scanBufferRef.current) return;
+      setCalledLoading(true);
+      setUpcomingLoading(true);
+      try {
+        const qs = new URLSearchParams({ token, track, before: "4", after: "3" });
+        const res = await fetch(`/api/admin/camera-assign/heats?${qs}`, {
+          cache: "no-store",
+          signal,
+        });
+        if (signal?.aborted) return;
+        if (!res.ok) return;
+        const json = await res.json();
+        // Both setStates in the same async tick — React 18 batches them
+        // automatically so the pills render in one commit.
+        setCalledSessions(json.called || []);
+        setUpcomingSessions(json.upcoming || []);
+      } catch {
+        /* non-fatal */
+      } finally {
+        setCalledLoading(false);
+        setUpcomingLoading(false);
+      }
+    },
+    [token, track],
+  );
 
   /** Full-day schedule loader. Pulls every session for the current
    *  track today, sorted by scheduledStart asc, with per-heat
    *  assignedCount from Redis. Drives the new scrollable heat list.
    *  Respects the scanBuffer mid-scan guard so the list doesn't
    *  jostle while staff is entering a camera number. */
-  const loadDay = useCallback(async (signal?: AbortSignal) => {
-    if (!track) { setDaySessions([]); setDayLoading(false); return; }
-    if (scanBufferRef.current) return;
-    setDayLoading(true);
-    try {
-      const qs = new URLSearchParams({ token, track });
-      const res = await fetch(`/api/admin/camera-assign/day?${qs}`, { cache: "no-store", signal });
-      if (signal?.aborted) return;
-      if (!res.ok) return;
-      const json = await res.json();
-      setDaySessions(json.sessions || []);
-    } catch {
-      /* non-fatal — keep last-known list */
-    } finally {
-      setDayLoading(false);
-    }
-  }, [token, track]);
+  const loadDay = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!track) {
+        setDaySessions([]);
+        setDayLoading(false);
+        return;
+      }
+      if (scanBufferRef.current) return;
+      setDayLoading(true);
+      try {
+        const qs = new URLSearchParams({ token, track });
+        const res = await fetch(`/api/admin/camera-assign/day?${qs}`, {
+          cache: "no-store",
+          signal,
+        });
+        if (signal?.aborted) return;
+        if (!res.ok) return;
+        const json = await res.json();
+        setDaySessions(json.sessions || []);
+      } catch {
+        /* non-fatal — keep last-known list */
+      } finally {
+        setDayLoading(false);
+      }
+    },
+    [token, track],
+  );
 
   /** Load today's past sessions for the test-data dropdown. Scoped to
    *  today (days=1) — staff only testing on the day's earlier heats.
@@ -879,7 +949,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  we guard against any Pandora-side ordering weirdness in case a
    *  response ever comes back unsorted). */
   const loadPast = useCallback(async () => {
-    if (!track) { setPastSessions([]); setPastLoaded(false); setPastLoading(false); return; }
+    if (!track) {
+      setPastSessions([]);
+      setPastLoaded(false);
+      setPastLoading(false);
+      return;
+    }
     setPastLoading(true);
     try {
       const qs = new URLSearchParams({ token, mode: "past", days: "1", track });
@@ -918,7 +993,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
     setOverrideSessionId("");
     setPastLoaded(false);
     setPastSessions([]);
-    setPastLoading(!!track);    // show loading immediately if a track is now selected
+    setPastLoading(!!track); // show loading immediately if a track is now selected
     setCalledSessions([]);
     setCalledLoading(!!track);
     setUpcomingSessions([]);
@@ -960,9 +1035,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   //    operator is mid-scan.
   useVisibleInterval(refreshSession, 5_000);
   useVisibleInterval(
-    useCallback(async (signal: AbortSignal) => {
-      await Promise.all([loadHeats(signal), loadDay(signal)]);
-    }, [loadHeats, loadDay]),
+    useCallback(
+      async (signal: AbortSignal) => {
+        await Promise.all([loadHeats(signal), loadDay(signal)]);
+      },
+      [loadHeats, loadDay],
+    ),
     30_000,
   );
 
@@ -976,7 +1054,10 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   // strand the input.
   useEffect(() => {
     const refocus = () => {
-      if (document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "SELECT") {
+      if (
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "SELECT"
+      ) {
         inputRef.current?.focus();
       }
     };
@@ -989,121 +1070,127 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  highlighted racer. The scanned value is the base/dock system ID,
    *  which matches video.system.name on vt3.io and drives the
    *  video-match cron. */
-  const assign = useCallback(async (systemNumber: string) => {
-    const rawScan = systemNumber.trim();
-    if (!rawScan) return;
-    if (activeIndex < 0 || activeIndex >= participants.length) {
-      setErr("No racer highlighted — can't assign.");
-      return;
-    }
-    // Resolve the scan → camera number. Three accepted shapes:
-    //   1. Value is a known mapped barcode → translate to camera #
-    //   2. Value is a short pure-digit camera number (1-99) — direct
-    //   3. Anything else: REJECT with a red flash. Forces staff to
-    //      provision the barcode via the 🏷 BC modal first instead
-    //      of silently binding an unrecognized value.
-    const mappedCam = barcodeToCam[rawScan];
-    let sys: string;
-    if (mappedCam) {
-      sys = mappedCam;
-    } else if (/^\d{1,2}$/.test(rawScan)) {
-      // 1-2 digit numeric — treat as a direct camera number
-      // (legacy NFC-typed input path, plus quick manual entry).
-      sys = rawScan;
-    } else {
-      // Unmapped barcode-shaped value. Flash red, drop the scan.
-      setUnknownScanFlash(true);
-      setErr(`"${rawScan}" is not registered to a camera. Map it via 🏷 BC first.`);
-      if (unknownScanTimerRef.current) clearTimeout(unknownScanTimerRef.current);
-      unknownScanTimerRef.current = setTimeout(() => setUnknownScanFlash(false), 2500);
-      return;
-    }
-    const p = participants[activeIndex];
-
-    // Duplicate-camera guard: if any OTHER racer in this session
-    // already holds this system number, flash their row red, surface
-    // the conflict in the error line, and DO NOT advance — staff
-    // needs to re-scan with a different camera. Scanning the same
-    // camera back onto the SAME racer is a no-op (ignored).
-    const existing = participants.find(
-      (x) => x.systemNumber === sys && String(x.personId) !== String(p.personId),
-    );
-    if (existing) {
-      const pid = String(existing.personId);
-      setConflictBlinkPid(pid);
-      setErr(`Camera ${sys} already assigned to ${existing.firstName} ${existing.lastName}`);
-      // Clear scan input so the next scan doesn't echo the old value
-      setScanBuffer("");
-      if (conflictTimerRef.current) clearTimeout(conflictTimerRef.current);
-      conflictTimerRef.current = setTimeout(() => {
-        setConflictBlinkPid((cur) => (cur === pid ? null : cur));
-      }, 2500);
-      return;
-    }
-
-    setErr(null);
-    try {
-      const res = await fetch("/api/admin/camera-assign/assign", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify({
-          sessionId: session?.sessionId,
-          personId: p.personId,
-          firstName: p.firstName,
-          lastName: p.lastName,
-          systemNumber: sys,
-          sessionName: session?.name,
-          scheduledStart: session?.scheduledStart,
-          track: session?.track,
-          raceType: session?.type,
-          heatNumber: session?.heatNumber,
-          // Contact fields — pass through from the participant record
-          // so the video-match cron can notify without a Pandora refetch.
-          email: p.email,
-          mobilePhone: p.mobilePhone,
-          homePhone: p.homePhone,
-          phone: p.phone,
-          acceptSmsCommercial: p.acceptSmsCommercial,
-          acceptSmsScores: p.acceptSmsScores,
-          // Guardian fallback for minors (videos-only at the moment).
-          // Pass it through whenever Pandora gave us one — server
-          // tolerates undefined so this is safe pre-rollout.
-          guardian: p.guardian ?? null,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `save failed (${res.status})`);
+  const assign = useCallback(
+    async (systemNumber: string) => {
+      const rawScan = systemNumber.trim();
+      if (!rawScan) return;
+      if (activeIndex < 0 || activeIndex >= participants.length) {
+        setErr("No racer highlighted — can't assign.");
+        return;
       }
-      // Update local state with the assignment
-      setParticipants((prev) =>
-        prev.map((x, i) =>
-          i === activeIndex
-            ? { ...x, systemNumber: sys, assignedAt: new Date().toISOString() }
-            : x,
-        ),
+      // Resolve the scan → camera number. Three accepted shapes:
+      //   1. Value is a known mapped barcode → translate to camera #
+      //   2. Value is a short pure-digit camera number (1-99) — direct
+      //   3. Anything else: REJECT with a red flash. Forces staff to
+      //      provision the barcode via the 🏷 BC modal first instead
+      //      of silently binding an unrecognized value.
+      const mappedCam = barcodeToCam[rawScan];
+      let sys: string;
+      if (mappedCam) {
+        sys = mappedCam;
+      } else if (/^\d{1,2}$/.test(rawScan)) {
+        // 1-2 digit numeric — treat as a direct camera number
+        // (legacy NFC-typed input path, plus quick manual entry).
+        sys = rawScan;
+      } else {
+        // Unmapped barcode-shaped value. Flash red, drop the scan.
+        setUnknownScanFlash(true);
+        setErr(`"${rawScan}" is not registered to a camera. Map it via 🏷 BC first.`);
+        if (unknownScanTimerRef.current) clearTimeout(unknownScanTimerRef.current);
+        unknownScanTimerRef.current = setTimeout(() => setUnknownScanFlash(false), 2500);
+        return;
+      }
+      const p = participants[activeIndex];
+
+      // Duplicate-camera guard: if any OTHER racer in this session
+      // already holds this system number, flash their row red, surface
+      // the conflict in the error line, and DO NOT advance — staff
+      // needs to re-scan with a different camera. Scanning the same
+      // camera back onto the SAME racer is a no-op (ignored).
+      const existing = participants.find(
+        (x) => x.systemNumber === sys && String(x.personId) !== String(p.personId),
       );
-      setLastScan({ camera: sys, racer: `${p.firstName} ${p.lastName}`, at: Date.now() });
-      setFlashCounter((c) => c + 1);
-      // Advance to next un-assigned racer; if none, stay put
-      setActiveIndex((current) => {
-        const next = participants.findIndex((x, i) => i > current && !x.systemNumber);
-        return next >= 0 ? next : current;
-      });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "save failed");
-    }
-  }, [participants, activeIndex, session, token, barcodeToCam]);
+      if (existing) {
+        const pid = String(existing.personId);
+        setConflictBlinkPid(pid);
+        setErr(`Camera ${sys} already assigned to ${existing.firstName} ${existing.lastName}`);
+        // Clear scan input so the next scan doesn't echo the old value
+        setScanBuffer("");
+        if (conflictTimerRef.current) clearTimeout(conflictTimerRef.current);
+        conflictTimerRef.current = setTimeout(() => {
+          setConflictBlinkPid((cur) => (cur === pid ? null : cur));
+        }, 2500);
+        return;
+      }
+
+      setErr(null);
+      try {
+        const res = await fetch("/api/admin/camera-assign/assign", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-token": token },
+          body: JSON.stringify({
+            sessionId: session?.sessionId,
+            personId: p.personId,
+            firstName: p.firstName,
+            lastName: p.lastName,
+            systemNumber: sys,
+            sessionName: session?.name,
+            scheduledStart: session?.scheduledStart,
+            track: session?.track,
+            raceType: session?.type,
+            heatNumber: session?.heatNumber,
+            // Contact fields — pass through from the participant record
+            // so the video-match cron can notify without a Pandora refetch.
+            email: p.email,
+            mobilePhone: p.mobilePhone,
+            homePhone: p.homePhone,
+            phone: p.phone,
+            acceptSmsCommercial: p.acceptSmsCommercial,
+            acceptSmsScores: p.acceptSmsScores,
+            // Guardian fallback for minors (videos-only at the moment).
+            // Pass it through whenever Pandora gave us one — server
+            // tolerates undefined so this is safe pre-rollout.
+            guardian: p.guardian ?? null,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `save failed (${res.status})`);
+        }
+        // Update local state with the assignment
+        setParticipants((prev) =>
+          prev.map((x, i) =>
+            i === activeIndex
+              ? { ...x, systemNumber: sys, assignedAt: new Date().toISOString() }
+              : x,
+          ),
+        );
+        setLastScan({ camera: sys, racer: `${p.firstName} ${p.lastName}`, at: Date.now() });
+        setFlashCounter((c) => c + 1);
+        // Advance to next un-assigned racer; if none, stay put
+        setActiveIndex((current) => {
+          const next = participants.findIndex((x, i) => i > current && !x.systemNumber);
+          return next >= 0 ? next : current;
+        });
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "save failed");
+      }
+    },
+    [participants, activeIndex, session, token, barcodeToCam],
+  );
 
   /** Handle Enter-delimited scan from NFC reader (or manual typing). */
-  const onInputKey = useCallback((ev: React.KeyboardEvent<HTMLInputElement>) => {
-    if (ev.key === "Enter") {
-      ev.preventDefault();
-      const val = scanBuffer.trim();
-      setScanBuffer("");
-      if (val) void assign(val);
-    }
-  }, [scanBuffer, assign]);
+  const onInputKey = useCallback(
+    (ev: React.KeyboardEvent<HTMLInputElement>) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        const val = scanBuffer.trim();
+        setScanBuffer("");
+        if (val) void assign(val);
+      }
+    },
+    [scanBuffer, assign],
+  );
 
   /**
    * Start / stop the Web NFC reader. Uses the phone's built-in NFC radio
@@ -1136,11 +1223,26 @@ export default function CameraAssignClient({ token, track: initialTrack, version
     try {
       // Use the constructor via a dynamic cast — NDEFReader is not in
       // the TypeScript DOM lib as of this project's TS version.
-      const NDEFReaderCtor = (window as unknown as { NDEFReader: new () => {
-        scan: (opts?: { signal: AbortSignal }) => Promise<void>;
-        onreading: ((ev: { serialNumber?: string; message: { records: Array<{ recordType: string; data: ArrayBuffer | DataView; mediaType?: string }> } }) => void) | null;
-        onreadingerror: ((ev: Event) => void) | null;
-      } }).NDEFReader;
+      const NDEFReaderCtor = (
+        window as unknown as {
+          NDEFReader: new () => {
+            scan: (opts?: { signal: AbortSignal }) => Promise<void>;
+            onreading:
+              | ((ev: {
+                  serialNumber?: string;
+                  message: {
+                    records: Array<{
+                      recordType: string;
+                      data: ArrayBuffer | DataView;
+                      mediaType?: string;
+                    }>;
+                  };
+                }) => void)
+              | null;
+            onreadingerror: ((ev: Event) => void) | null;
+          };
+        }
+      ).NDEFReader;
       const ndef = new NDEFReaderCtor();
       const controller = new AbortController();
       nfcAbortRef.current = controller;
@@ -1153,9 +1255,8 @@ export default function CameraAssignClient({ token, track: initialTrack, version
         let raw = "";
         for (const record of ev.message.records) {
           try {
-            const buf = record.data instanceof ArrayBuffer
-              ? record.data
-              : (record.data as DataView).buffer;
+            const buf =
+              record.data instanceof ArrayBuffer ? record.data : (record.data as DataView).buffer;
             const text = decoder.decode(buf);
             if (record.recordType === "text") {
               // NDEF text records start with a status byte + lang code
@@ -1195,13 +1296,15 @@ export default function CameraAssignClient({ token, track: initialTrack, version
       const name = err?.name;
       let msg: string;
       if (name === "NotAllowedError") {
-        msg = "NFC blocked — tap the 🔒 in Chrome's URL bar → Permissions → NFC → Allow, then reload.";
+        msg =
+          "NFC blocked — tap the 🔒 in Chrome's URL bar → Permissions → NFC → Allow, then reload.";
       } else if (name === "NotSupportedError") {
         msg = "No NFC hardware found, or the phone's NFC is turned off in Settings.";
       } else if (name === "NotReadableError") {
         msg = "NFC radio couldn't start — toggle NFC off/on in Android settings.";
       } else if (name === "SecurityError") {
-        msg = "Web NFC needs HTTPS (this page IS HTTPS, so this shouldn't happen — check if you're inside a WebView).";
+        msg =
+          "Web NFC needs HTTPS (this page IS HTTPS, so this shouldn't happen — check if you're inside a WebView).";
       } else {
         msg = err?.message || "NFC failed to start";
       }
@@ -1219,29 +1322,34 @@ export default function CameraAssignClient({ token, track: initialTrack, version
   }, []);
 
   /** Un-assign a specific participant. */
-  const unassign = useCallback(async (idx: number) => {
-    const p = participants[idx];
-    if (!p || !session) return;
-    if (!confirm(`Un-assign camera ${p.systemNumber} from ${p.firstName} ${p.lastName}?`)) return;
-    try {
-      const qs = new URLSearchParams({
-        token,
-        sessionId: String(session.sessionId),
-        personId: String(p.personId),
-      });
-      const res = await fetch(`/api/admin/camera-assign/assign?${qs}`, {
-        method: "DELETE",
-        headers: { "x-admin-token": token },
-      });
-      if (!res.ok) throw new Error(`delete failed (${res.status})`);
-      setParticipants((prev) =>
-        prev.map((x, i) => (i === idx ? { ...x, systemNumber: undefined, assignedAt: undefined } : x)),
-      );
-      setActiveIndex(idx);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "un-assign failed");
-    }
-  }, [participants, session, token]);
+  const unassign = useCallback(
+    async (idx: number) => {
+      const p = participants[idx];
+      if (!p || !session) return;
+      if (!confirm(`Un-assign camera ${p.systemNumber} from ${p.firstName} ${p.lastName}?`)) return;
+      try {
+        const qs = new URLSearchParams({
+          token,
+          sessionId: String(session.sessionId),
+          personId: String(p.personId),
+        });
+        const res = await fetch(`/api/admin/camera-assign/assign?${qs}`, {
+          method: "DELETE",
+          headers: { "x-admin-token": token },
+        });
+        if (!res.ok) throw new Error(`delete failed (${res.status})`);
+        setParticipants((prev) =>
+          prev.map((x, i) =>
+            i === idx ? { ...x, systemNumber: undefined, assignedAt: undefined } : x,
+          ),
+        );
+        setActiveIndex(idx);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "un-assign failed");
+      }
+    },
+    [participants, session, token],
+  );
 
   /**
    * Resolve the user-visible reason string from the current modal state.
@@ -1290,10 +1398,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
       if (!res.ok) throw new Error(`block failed (${res.status})`);
       const now = new Date().toISOString();
       setSessionBlock({ blocked: true, level: "session", reason, blockedAt: now });
-      setParticipants((prev) => prev.map((p) => {
-        if (p.block?.level === "person") return p; // preserve person override
-        return { ...p, block: { blocked: true, level: "session", reason, blockedAt: now } };
-      }));
+      setParticipants((prev) =>
+        prev.map((p) => {
+          if (p.block?.level === "person") return p; // preserve person override
+          return { ...p, block: { blocked: true, level: "session", reason, blockedAt: now } };
+        }),
+      );
       resetBlockModal();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "block failed");
@@ -1319,10 +1429,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
       });
       if (!res.ok) throw new Error(`unblock failed (${res.status})`);
       setSessionBlock({ blocked: false });
-      setParticipants((prev) => prev.map((p) => {
-        if (p.block?.level === "person") return p; // preserve person block
-        return { ...p, block: { blocked: false } };
-      }));
+      setParticipants((prev) =>
+        prev.map((p) => {
+          if (p.block?.level === "person") return p; // preserve person block
+          return { ...p, block: { blocked: false } };
+        }),
+      );
     } catch (e) {
       setErr(e instanceof Error ? e.message : "unblock failed");
     } finally {
@@ -1356,11 +1468,13 @@ export default function CameraAssignClient({ token, track: initialTrack, version
       });
       if (!res.ok) throw new Error(`person block failed (${res.status})`);
       const now = new Date().toISOString();
-      setParticipants((prev) => prev.map((p) =>
-        String(p.personId) === String(target.personId)
-          ? { ...p, block: { blocked: true, level: "person", reason, blockedAt: now } }
-          : p,
-      ));
+      setParticipants((prev) =>
+        prev.map((p) =>
+          String(p.personId) === String(target.personId)
+            ? { ...p, block: { blocked: true, level: "person", reason, blockedAt: now } }
+            : p,
+        ),
+      );
       resetBlockModal();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "person block failed");
@@ -1374,49 +1488,63 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    * writes an "unblock" override marker so the person escapes the
    * session-level block; otherwise clears the per-person key entirely.
    */
-  const unblockPersonDirect = useCallback(async (participant: Participant) => {
-    if (!session) return;
-    const heatBlocked = sessionBlock.blocked;
-    const override = heatBlocked;
-    setBlockBusy(true);
-    try {
-      const res = await fetch(`/api/admin/camera-assign/block`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-token": token },
-        body: JSON.stringify({
-          scope: "person",
-          sessionId: session.sessionId,
-          personId: participant.personId,
-          block: false,
-          override,
-        }),
-      });
-      if (!res.ok) throw new Error(`person unblock failed (${res.status})`);
-      setParticipants((prev) => prev.map((p) =>
-        String(p.personId) === String(participant.personId)
-          ? { ...p, block: heatBlocked ? { blocked: false, level: "person" } : { blocked: false } }
-          : p,
-      ));
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "person unblock failed");
-    } finally {
-      setBlockBusy(false);
-    }
-  }, [session, sessionBlock.blocked, token]);
+  const unblockPersonDirect = useCallback(
+    async (participant: Participant) => {
+      if (!session) return;
+      const heatBlocked = sessionBlock.blocked;
+      const override = heatBlocked;
+      setBlockBusy(true);
+      try {
+        const res = await fetch(`/api/admin/camera-assign/block`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-token": token },
+          body: JSON.stringify({
+            scope: "person",
+            sessionId: session.sessionId,
+            personId: participant.personId,
+            block: false,
+            override,
+          }),
+        });
+        if (!res.ok) throw new Error(`person unblock failed (${res.status})`);
+        setParticipants((prev) =>
+          prev.map((p) =>
+            String(p.personId) === String(participant.personId)
+              ? {
+                  ...p,
+                  block: heatBlocked ? { blocked: false, level: "person" } : { blocked: false },
+                }
+              : p,
+          ),
+        );
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "person unblock failed");
+      } finally {
+        setBlockBusy(false);
+      }
+    },
+    [session, sessionBlock.blocked, token],
+  );
 
   /** Dispatch: open the modal on block; direct unblock. */
-  const togglePersonBlock = useCallback((participant: Participant) => {
-    if (participant.block?.blocked) {
-      void unblockPersonDirect(participant);
-    } else {
-      setBlockModalTarget(participant);
-      setBlockReason("Crash");
-      setBlockReasonOther("");
-    }
-  }, [unblockPersonDirect]);
+  const togglePersonBlock = useCallback(
+    (participant: Participant) => {
+      if (participant.block?.blocked) {
+        void unblockPersonDirect(participant);
+      } else {
+        setBlockModalTarget(participant);
+        setBlockReason("Crash");
+        setBlockReasonOther("");
+      }
+    },
+    [unblockPersonDirect],
+  );
 
   // Computed
-  const assignedCount = useMemo(() => participants.filter((p) => p.systemNumber).length, [participants]);
+  const assignedCount = useMemo(
+    () => participants.filter((p) => p.systemNumber).length,
+    [participants],
+  );
   const totalCount = participants.length;
   const doneAll = totalCount > 0 && assignedCount === totalCount;
 
@@ -1425,7 +1553,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
    *  immediately on tap — otherwise pills looked inert for ~2–3s
    *  while the /session fetch was in flight. */
   const activeSessionId = useMemo(
-    () => (overrideSessionId || (session ? String(session.sessionId) : "")),
+    () => overrideSessionId || (session ? String(session.sessionId) : ""),
     [overrideSessionId, session],
   );
 
@@ -1481,7 +1609,9 @@ export default function CameraAssignClient({ token, track: initialTrack, version
       )}
       <div className="max-w-5xl mx-auto p-3 sm:p-6">
         <header className="mb-2 sm:mb-4">
-          <h1 className="text-lg sm:text-2xl font-bold uppercase tracking-wider">Camera Assignment</h1>
+          <h1 className="text-lg sm:text-2xl font-bold uppercase tracking-wider">
+            Camera Assignment
+          </h1>
           <p className="text-white/50 text-xs mt-0.5 hidden sm:block">
             Scan each camera&apos;s NFC tag to bind it to a racer.
           </p>
@@ -1518,7 +1648,11 @@ export default function CameraAssignClient({ token, track: initialTrack, version
               <button
                 type="button"
                 onClick={() => void toggleNfc()}
-                title={nfcActive ? "Stop listening for NFC tags" : "Use this phone's NFC radio (tap a tag to assign)"}
+                title={
+                  nfcActive
+                    ? "Stop listening for NFC tags"
+                    : "Use this phone's NFC radio (tap a tag to assign)"
+                }
                 aria-label={nfcActive ? "Stop NFC scanning" : "Start NFC scanning"}
                 className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
                   nfcActive
@@ -1533,7 +1667,9 @@ export default function CameraAssignClient({ token, track: initialTrack, version
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
-              title={isFullscreen ? "Exit fullscreen" : "Hide browser chrome + status bar for kiosk use"}
+              title={
+                isFullscreen ? "Exit fullscreen" : "Hide browser chrome + status bar for kiosk use"
+              }
               aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
               className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
                 isFullscreen
@@ -1561,49 +1697,59 @@ export default function CameraAssignClient({ token, track: initialTrack, version
             with an inline "Change" button on mobile that opens the
             heat-picker modal. Desktop uses the inline schedule panel
             below instead, so no Change button is rendered on md+. */}
-        {track && (() => {
-          const pillClass = "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border transition-colors";
-          return (
-            <div
-              className="flex items-stretch flex-wrap gap-1.5 mb-2"
-              role="group"
-              aria-label="Current heat"
-            >
-              {session ? (
-                <span
-                  className={`${pillClass} inline-flex items-center gap-1.5 ${trackChipClasses(session.track, true)}`}
-                >
-                  <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
-                  {sessionChipLabel(session, { dropTrack: true })}
-                </span>
-              ) : pendingSessionLabel ? (
-                <span
-                  className={`${pillClass} inline-flex items-center gap-1.5 ${trackChipClasses(pendingSessionLabel.track, true)}`}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="inline-block w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"
-                  />
-                  {sessionChipLabel(pendingSessionLabel, { dropTrack: true })}
-                </span>
-              ) : (
-                <span className={`${pillClass} border-dashed border-white/25 text-white/40 inline-flex items-center gap-1.5`}>
-                  <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-white/30" />
-                  Pick a heat
-                </span>
-              )}
-              {/* Small Change button — mobile only. Desktop has the
-                  inline schedule list below and doesn't need this. */}
-              <button
-                type="button"
-                onClick={() => setHeatModalOpen(true)}
-                className={`${pillClass} md:hidden border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10`}
+        {track &&
+          (() => {
+            const pillClass =
+              "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border transition-colors";
+            return (
+              <div
+                className="flex items-stretch flex-wrap gap-1.5 mb-2"
+                role="group"
+                aria-label="Current heat"
               >
-                Change ▸
-              </button>
-            </div>
-          );
-        })()}
+                {session ? (
+                  <span
+                    className={`${pillClass} inline-flex items-center gap-1.5 ${trackChipClasses(session.track, true)}`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block w-1.5 h-1.5 rounded-full bg-current"
+                    />
+                    {sessionChipLabel(session, { dropTrack: true })}
+                  </span>
+                ) : pendingSessionLabel ? (
+                  <span
+                    className={`${pillClass} inline-flex items-center gap-1.5 ${trackChipClasses(pendingSessionLabel.track, true)}`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"
+                    />
+                    {sessionChipLabel(pendingSessionLabel, { dropTrack: true })}
+                  </span>
+                ) : (
+                  <span
+                    className={`${pillClass} border-dashed border-white/25 text-white/40 inline-flex items-center gap-1.5`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block w-1.5 h-1.5 rounded-full bg-white/30"
+                    />
+                    Pick a heat
+                  </span>
+                )}
+                {/* Small Change button — mobile only. Desktop has the
+                  inline schedule list below and doesn't need this. */}
+                <button
+                  type="button"
+                  onClick={() => setHeatModalOpen(true)}
+                  className={`${pillClass} md:hidden border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10`}
+                >
+                  Change ▸
+                </button>
+              </div>
+            );
+          })()}
 
         {/* Full-day schedule — every heat for the selected track today,
             sorted by time. Replaces the old ±3 called + ±3 upcoming
@@ -1611,217 +1757,255 @@ export default function CameraAssignClient({ token, track: initialTrack, version
             - Desktop (md+): inline scrollable panel.
             - Mobile (<md):  summary button that opens a fullscreen
                              modal with bigger tap targets. */}
-        {track && (() => {
-          const activeSid = activeSessionId;
-          const fmt = (iso: string) => new Date(iso).toLocaleString("en-US", {
-            timeZone: "America/New_York",
-            hour: "numeric", minute: "2-digit", hour12: true,
-          });
-          const counts = {
-            past: daySessions.filter((s) => s.status === "past").length,
-            live: daySessions.filter((s) => s.status === "live").length,
-            upcoming: daySessions.filter((s) => s.status === "upcoming").length,
-          };
-          const summaryText = daySessions.length === 0 && !dayLoading
-            ? "No heats today"
-            : `${daySessions.length} heat${daySessions.length === 1 ? "" : "s"} · ${counts.past} done · ${counts.live} live · ${counts.upcoming} upcoming`;
+        {track &&
+          (() => {
+            const activeSid = activeSessionId;
+            const fmt = (iso: string) =>
+              new Date(iso).toLocaleString("en-US", {
+                timeZone: "America/New_York",
+                hour: "numeric",
+                minute: "2-digit",
+                hour12: true,
+              });
+            const counts = {
+              past: daySessions.filter((s) => s.status === "past").length,
+              live: daySessions.filter((s) => s.status === "live").length,
+              upcoming: daySessions.filter((s) => s.status === "upcoming").length,
+            };
+            const summaryText =
+              daySessions.length === 0 && !dayLoading
+                ? "No heats today"
+                : `${daySessions.length} heat${daySessions.length === 1 ? "" : "s"} · ${counts.past} done · ${counts.live} live · ${counts.upcoming} upcoming`;
 
-          // The session that auto-scroll should target on load.
-          // Prefer a "live" heat (currently running); fall back to
-          // the first upcoming one. Computed once per render.
-          const focusSessionId = (
-            daySessions.find((s) => s.status === "live")
-            || daySessions.find((s) => s.status === "upcoming")
-          )?.sessionId;
+            // The session that auto-scroll should target on load.
+            // Prefer a "live" heat (currently running); fall back to
+            // the first upcoming one. Computed once per render.
+            const focusSessionId = (
+              daySessions.find((s) => s.status === "live") ||
+              daySessions.find((s) => s.status === "upcoming")
+            )?.sessionId;
 
-          // Shared row renderer for both desktop list + mobile modal.
-          // `bigTouch` controls padding + font-size so the mobile modal
-          // gets fat-finger-friendly tap targets.
-          const renderRow = (s: DaySession, bigTouch: boolean) => {
-            const isLoaded = activeSid === String(s.sessionId);
-            const isPicking = pickingSid === String(s.sessionId);
-            const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
-            const statusColor = s.status === "past" ? "text-white/40" : s.status === "live" ? "text-[#00E2E5]" : "text-white/60";
-            const isFocusTarget = String(s.sessionId) === String(focusSessionId);
-            return (
-              <button
-                key={`day-${s.sessionId}`}
-                type="button"
-                ref={isFocusTarget ? liveHeatRef : null}
-                onClick={() => {
-                  if (isLoaded) {
+            // Shared row renderer for both desktop list + mobile modal.
+            // `bigTouch` controls padding + font-size so the mobile modal
+            // gets fat-finger-friendly tap targets.
+            const renderRow = (s: DaySession, bigTouch: boolean) => {
+              const isLoaded = activeSid === String(s.sessionId);
+              const isPicking = pickingSid === String(s.sessionId);
+              const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
+              const statusColor =
+                s.status === "past"
+                  ? "text-white/40"
+                  : s.status === "live"
+                    ? "text-[#00E2E5]"
+                    : "text-white/60";
+              const isFocusTarget = String(s.sessionId) === String(focusSessionId);
+              return (
+                <button
+                  key={`day-${s.sessionId}`}
+                  type="button"
+                  ref={isFocusTarget ? liveHeatRef : null}
+                  onClick={() => {
+                    if (isLoaded) {
+                      setHeatModalOpen(false);
+                      return;
+                    }
+                    // Close the modal immediately — the participants
+                    // panel underneath swaps to a "Loading Heat N…"
+                    // state driven by `loading && pickingSid` while
+                    // the fetch is in flight, so the operator gets
+                    // clear feedback without the modal sitting on
+                    // top of it. `pickingSid` clears once the new
+                    // session lands (see useEffect above).
                     setHeatModalOpen(false);
-                    return;
-                  }
-                  // Close the modal immediately — the participants
-                  // panel underneath swaps to a "Loading Heat N…"
-                  // state driven by `loading && pickingSid` while
-                  // the fetch is in flight, so the operator gets
-                  // clear feedback without the modal sitting on
-                  // top of it. `pickingSid` clears once the new
-                  // session lands (see useEffect above).
-                  setHeatModalOpen(false);
-                  setPickingSid(String(s.sessionId));
-                  setOverrideSessionId(String(s.sessionId));
-                  void loadSession(String(s.sessionId));
-                }}
-                disabled={isLoaded || !!pickingSid}
-                className={`w-full flex items-center gap-2 text-left border-t border-white/[0.04] transition-colors disabled:cursor-not-allowed ${
-                  bigTouch ? "px-4 py-3.5 text-sm" : "px-3 py-2 text-xs"
-                } ${
-                  isPicking
-                    ? "bg-[#00E2E5]/20 border-[#00E2E5]/40"
-                    : isLoaded
-                      ? "bg-[#00E2E5]/15 cursor-default"
-                      : pickingSid
-                        ? "opacity-40"
-                        : s.status === "past"
-                          ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
-                          : s.status === "live"
-                            ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
-                            : "hover:bg-white/[0.04]"
-                }`}
-                title={isLoaded ? "Currently loaded" : `Load Heat ${s.heatNumber}`}
-              >
-                {isPicking ? (
-                  <span
-                    aria-hidden="true"
-                    className={`${bigTouch ? "w-5 h-5" : "w-4 h-4"} shrink-0 inline-block rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin`}
-                  />
-                ) : (
-                  <span aria-hidden="true" className={`${bigTouch ? "w-5 text-base" : "w-4"} text-center shrink-0 ${statusColor}`}>
-                    {statusIcon}
-                  </span>
-                )}
-                <span className={`tabular-nums text-white/80 shrink-0 ${bigTouch ? "w-20" : "w-16"}`}>
-                  {fmt(s.scheduledStart)}
-                </span>
-                <span className={`text-white/50 shrink-0 uppercase tracking-wider ${bigTouch ? "w-20" : "w-14"}`}>
-                  Heat <span className="text-white font-semibold">{s.heatNumber}</span>
-                </span>
-                <span className="text-white/60 flex-1 truncate">
-                  {s.type}
-                </span>
-                <span
-                  className={`tabular-nums px-1.5 py-0.5 rounded shrink-0 ${
-                    bigTouch ? "text-sm" : "text-xs"
+                    setPickingSid(String(s.sessionId));
+                    setOverrideSessionId(String(s.sessionId));
+                    void loadSession(String(s.sessionId));
+                  }}
+                  disabled={isLoaded || !!pickingSid}
+                  className={`w-full flex items-center gap-2 text-left border-t border-white/[0.04] transition-colors disabled:cursor-not-allowed ${
+                    bigTouch ? "px-4 py-3.5 text-sm" : "px-3 py-2 text-xs"
                   } ${
-                    s.assignedCount > 0
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-white/5 text-white/40"
+                    isPicking
+                      ? "bg-[#00E2E5]/20 border-[#00E2E5]/40"
+                      : isLoaded
+                        ? "bg-[#00E2E5]/15 cursor-default"
+                        : pickingSid
+                          ? "opacity-40"
+                          : s.status === "past"
+                            ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
+                            : s.status === "live"
+                              ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
+                              : "hover:bg-white/[0.04]"
                   }`}
-                  title={`${s.assignedCount} camera${s.assignedCount === 1 ? "" : "s"} assigned`}
+                  title={isLoaded ? "Currently loaded" : `Load Heat ${s.heatNumber}`}
                 >
-                  {s.assignedCount} cam
-                </span>
-              </button>
-            );
-          };
+                  {isPicking ? (
+                    <span
+                      aria-hidden="true"
+                      className={`${bigTouch ? "w-5 h-5" : "w-4 h-4"} shrink-0 inline-block rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin`}
+                    />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className={`${bigTouch ? "w-5 text-base" : "w-4"} text-center shrink-0 ${statusColor}`}
+                    >
+                      {statusIcon}
+                    </span>
+                  )}
+                  <span
+                    className={`tabular-nums text-white/80 shrink-0 ${bigTouch ? "w-20" : "w-16"}`}
+                  >
+                    {fmt(s.scheduledStart)}
+                  </span>
+                  <span
+                    className={`text-white/50 shrink-0 uppercase tracking-wider ${bigTouch ? "w-20" : "w-14"}`}
+                  >
+                    Heat <span className="text-white font-semibold">{s.heatNumber}</span>
+                  </span>
+                  <span className="text-white/60 flex-1 truncate">{s.type}</span>
+                  <span
+                    className={`tabular-nums px-1.5 py-0.5 rounded shrink-0 ${
+                      bigTouch ? "text-sm" : "text-xs"
+                    } ${
+                      s.assignedCount > 0
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "bg-white/5 text-white/40"
+                    }`}
+                    title={`${s.assignedCount} camera${s.assignedCount === 1 ? "" : "s"} assigned`}
+                  >
+                    {s.assignedCount} cam
+                  </span>
+                </button>
+              );
+            };
 
-          return (
-            <>
-              {/* Mobile uses the inline "Change ▸" button up on the
+            return (
+              <>
+                {/* Mobile uses the inline "Change ▸" button up on the
                   Working-on pill row — no big summary card needed
                   here. Desktop keeps the inline schedule panel. */}
 
-              {/* Desktop inline panel (md+). */}
-              <div className="hidden md:block mb-3 rounded-lg border border-white/10 bg-white/[0.02]">
-                <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-                  <div className="text-xs text-white/50 uppercase tracking-wider">{summaryText}</div>
-                  {dayLoading && (
-                    <span
-                      aria-hidden="true"
-                      className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
-                    />
-                  )}
-                </div>
-                <div className="max-h-[260px] overflow-y-auto">
-                  {daySessions.length === 0 && !dayLoading && (
-                    <div className="text-center text-white/30 text-xs py-6">No heats found for this track today.</div>
-                  )}
-                  {daySessions.map((s) => renderRow(s, false))}
-                </div>
-              </div>
-
-              {/* Mobile heat-picker modal. */}
-              {heatModalOpen && (
-                <div
-                  className="fixed inset-0 z-[9999] flex items-stretch justify-center p-0 bg-black/80 md:hidden"
-                  style={{ height: "100dvh" }}
-                  {...modalBackdropProps(() => { setHeatModalOpen(false); setPickingSid(null); })}
-                >
-                  <div
-                    className="relative w-full h-full flex flex-col"
-                    style={{ backgroundColor: "#0a1128" }}
-                  >
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-                      <div>
-                        <div className="text-base font-bold uppercase tracking-wider">
-                          {track.toUpperCase()} Heats
-                        </div>
-                        <div className="text-xs text-white/50 mt-0.5">{summaryText}</div>
+                {/* Desktop inline panel (md+). */}
+                <div className="hidden md:block mb-3 rounded-lg border border-white/10 bg-white/[0.02]">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                    <div className="text-xs text-white/50 uppercase tracking-wider">
+                      {summaryText}
+                    </div>
+                    {dayLoading && (
+                      <span
+                        aria-hidden="true"
+                        className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
+                      />
+                    )}
+                  </div>
+                  <div className="max-h-[260px] overflow-y-auto">
+                    {daySessions.length === 0 && !dayLoading && (
+                      <div className="text-center text-white/30 text-xs py-6">
+                        No heats found for this track today.
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => { setHeatModalOpen(false); setPickingSid(null); }}
-                        aria-label="Close heat picker"
-                        className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
-                        style={{ fontSize: "22px", lineHeight: 1 }}
-                      >
-                        &times;
-                      </button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                      {daySessions.length === 0 && !dayLoading && (
-                        <div className="text-center text-white/30 text-sm py-10">No heats found for this track today.</div>
-                      )}
-                      {daySessions.map((s) => renderRow(s, true))}
-                    </div>
+                    )}
+                    {daySessions.map((s) => renderRow(s, false))}
                   </div>
                 </div>
-              )}
-            </>
-          );
-        })()}
+
+                {/* Mobile heat-picker modal. */}
+                {heatModalOpen && (
+                  <div
+                    className="fixed inset-0 z-[9999] flex items-stretch justify-center p-0 bg-black/80 md:hidden"
+                    style={{ height: "100dvh" }}
+                    {...modalBackdropProps(() => {
+                      setHeatModalOpen(false);
+                      setPickingSid(null);
+                    })}
+                  >
+                    <div
+                      className="relative w-full h-full flex flex-col"
+                      style={{ backgroundColor: "#0a1128" }}
+                    >
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                        <div>
+                          <div className="text-base font-bold uppercase tracking-wider">
+                            {track.toUpperCase()} Heats
+                          </div>
+                          <div className="text-xs text-white/50 mt-0.5">{summaryText}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHeatModalOpen(false);
+                            setPickingSid(null);
+                          }}
+                          aria-label="Close heat picker"
+                          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+                          style={{ fontSize: "22px", lineHeight: 1 }}
+                        >
+                          &times;
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto">
+                        {daySessions.length === 0 && !dayLoading && (
+                          <div className="text-center text-white/30 text-sm py-10">
+                            No heats found for this track today.
+                          </div>
+                        )}
+                        {daySessions.map((s) => renderRow(s, true))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
         {/* Summary line — session info + counter + reload, mirroring
             SMS admin's "N matches · Refresh" strip */}
         <div className="flex items-center justify-between gap-2 mb-2 text-xs text-white/50">
           <span className="truncate">
-            {loading
-              ? "Loading…"
-              : session
-                ? <>
-                    {session.track.replace(" Track", "")} · Heat {session.heatNumber} · {session.type} · {formatEt(session.scheduledStart)}
-                    <span className="ml-2 text-white/70"><span className="text-[#00E2E5] font-semibold">{assignedCount}</span> / {totalCount} assigned</span>
-                  </>
-                : note || "—"}
+            {loading ? (
+              "Loading…"
+            ) : session ? (
+              <>
+                {session.track.replace(" Track", "")} · Heat {session.heatNumber} · {session.type} ·{" "}
+                {formatEt(session.scheduledStart)}
+                <span className="ml-2 text-white/70">
+                  <span className="text-[#00E2E5] font-semibold">{assignedCount}</span> /{" "}
+                  {totalCount} assigned
+                </span>
+              </>
+            ) : (
+              note || "—"
+            )}
             {err && <span className="ml-2 text-red-400">· {err}</span>}
           </span>
           <div className="flex items-center gap-3 shrink-0">
-            {session && (
-              sessionBlock.blocked ? (
+            {session &&
+              (sessionBlock.blocked ? (
                 <button
                   type="button"
                   onClick={() => void unblockHeat()}
                   disabled={blockBusy}
                   className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30 disabled:opacity-50"
-                  title={sessionBlock.reason ? `Blocked: ${sessionBlock.reason}` : "Unblock this heat"}
+                  title={
+                    sessionBlock.reason ? `Blocked: ${sessionBlock.reason}` : "Unblock this heat"
+                  }
                 >
                   🚫 Unblock Heat
                 </button>
               ) : (
                 <button
                   type="button"
-                  onClick={() => { setBlockModalTarget("heat"); setBlockReason("Crash"); setBlockReasonOther(""); }}
+                  onClick={() => {
+                    setBlockModalTarget("heat");
+                    setBlockReason("Crash");
+                    setBlockReasonOther("");
+                  }}
                   disabled={blockBusy}
                   className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border border-white/15 text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300 disabled:opacity-50"
                   title="Block all videos from this heat — no SMS/email will send"
                 >
                   Block Heat
                 </button>
-              )
-            )}
+              ))}
             <button
               type="button"
               // Refresh the CURRENTLY LOADED heat (or pending pick if
@@ -1831,9 +2015,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
               // overrideSessionId, which kicked staff out of any
               // past/manually-picked heat they were working on.
               onClick={() => {
-                const sid = session
-                  ? String(session.sessionId)
-                  : (overrideSessionId || undefined);
+                const sid = session ? String(session.sessionId) : overrideSessionId || undefined;
                 // Manual refresh — bypass the Redis cache and force
                 // a live Pandora call so staff see fresh data
                 // (the auto-poll uses cache-first for speed).
@@ -1944,11 +2126,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
               ✓ Camera <span className="font-mono">{lastScan.camera}</span> → {lastScan.racer}
             </div>
           )}
-          {nfcError && (
-            <div className="mt-1 text-xs text-red-400 truncate">
-              NFC: {nfcError}
-            </div>
-          )}
+          {nfcError && <div className="mt-1 text-xs text-red-400 truncate">NFC: {nfcError}</div>}
         </div>
 
         {/* Participants list — matches SMS admin card density */}
@@ -1959,34 +2137,37 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                 Select a track to start
               </div>
               <div className="text-white/50 text-xs">
-                Tap <span className="font-semibold text-[#00E2E5]">Blue</span>,
-                {" "}<span className="font-semibold text-[#ff7171]">Red</span>, or
-                {" "}<span className="font-semibold text-[#c4adff]">Mega</span> above.
+                Tap <span className="font-semibold text-[#00E2E5]">Blue</span>,{" "}
+                <span className="font-semibold text-[#ff7171]">Red</span>, or{" "}
+                <span className="font-semibold text-[#c4adff]">Mega</span> above.
               </div>
             </div>
           )}
-          {track && loading && participants.length === 0 && (() => {
-            // Resolve the heat the operator just tapped so the
-            // loading copy reads "Loading Heat 12…" instead of a
-            // generic spinner. Falls back to a plain "Loading
-            // heat…" label if pickingSid isn't a known session
-            // (initial load, manual reload, etc.).
-            const pickingHeat = pickingSid
-              ? daySessions.find((s) => String(s.sessionId) === pickingSid)?.heatNumber
-              : null;
-            const loadingLabel = pickingHeat ? `Loading Heat ${pickingHeat}…` : "Loading heat…";
-            return (
-            <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center py-10">
-              <div className="inline-flex items-center gap-2 text-[#00E2E5] text-sm">
-                <span
-                  aria-hidden="true"
-                  className="inline-block w-4 h-4 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
-                />
-                {loadingLabel}
-              </div>
-            </div>
-            );
-          })()}
+          {track &&
+            loading &&
+            participants.length === 0 &&
+            (() => {
+              // Resolve the heat the operator just tapped so the
+              // loading copy reads "Loading Heat 12…" instead of a
+              // generic spinner. Falls back to a plain "Loading
+              // heat…" label if pickingSid isn't a known session
+              // (initial load, manual reload, etc.).
+              const pickingHeat = pickingSid
+                ? daySessions.find((s) => String(s.sessionId) === pickingSid)?.heatNumber
+                : null;
+              const loadingLabel = pickingHeat ? `Loading Heat ${pickingHeat}…` : "Loading heat…";
+              return (
+                <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center py-10">
+                  <div className="inline-flex items-center gap-2 text-[#00E2E5] text-sm">
+                    <span
+                      aria-hidden="true"
+                      className="inline-block w-4 h-4 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
+                    />
+                    {loadingLabel}
+                  </div>
+                </div>
+              );
+            })()}
           {track && participants.length === 0 && !loading && (
             <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-8">
               No participants.
@@ -1999,7 +2180,8 @@ export default function CameraAssignClient({ token, track: initialTrack, version
             // When heat is blocked but this racer has an explicit
             // person-level unblock override, paint a distinguishing
             // chip so staff remembers the override is in effect.
-            const personOverride = !isBlocked && sessionBlock.blocked && p.block?.level === "person";
+            const personOverride =
+              !isBlocked && sessionBlock.blocked && p.block?.level === "person";
             // Duplicate-camera blink — conflictBlinkPid is set for ~2.5s
             // after staff tries to scan a camera already bound to this
             // racer; the CSS animation on this class pulses red.
@@ -2031,18 +2213,32 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                            it lines up with the name above. */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className={`text-sm tabular-nums w-6 text-center shrink-0 ${
-                      isBlocked ? "text-red-300" : isActive ? "text-[#00E2E5]" : hasCam ? "text-emerald-400" : "text-white/40"
-                    }`}>
+                    <div
+                      className={`text-sm tabular-nums w-6 text-center shrink-0 ${
+                        isBlocked
+                          ? "text-red-300"
+                          : isActive
+                            ? "text-[#00E2E5]"
+                            : hasCam
+                              ? "text-emerald-400"
+                              : "text-white/40"
+                      }`}
+                    >
                       {i + 1}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className={`text-sm font-semibold ${isBlocked ? "text-red-300" : ""}`}>
-                        <span className="break-words">{p.firstName} {p.lastName}</span>
+                        <span className="break-words">
+                          {p.firstName} {p.lastName}
+                        </span>
                         {isBlocked && (
                           <span
                             className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/25 text-red-200 align-middle"
-                            title={p.block?.reason ? `Blocked: ${p.block.reason}` : `Blocked (${p.block?.level})`}
+                            title={
+                              p.block?.reason
+                                ? `Blocked: ${p.block.reason}`
+                                : `Blocked (${p.block?.level})`
+                            }
                           >
                             🚫 blocked
                           </span>
@@ -2068,7 +2264,10 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                         </span>
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); void unassign(i); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void unassign(i);
+                          }}
                           aria-label={`Un-assign camera from ${p.firstName} ${p.lastName}`}
                           title="Un-assign this camera (re-scan to reassign)"
                           className="text-xs px-1.5 py-0.5 rounded border border-white/15 text-white/50 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
@@ -2077,9 +2276,16 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                         </button>
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void togglePersonBlock(p);
+                          }}
                           disabled={blockBusy}
-                          aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
+                          aria-label={
+                            isBlocked
+                              ? `Unblock ${p.firstName} ${p.lastName}`
+                              : `Block ${p.firstName} ${p.lastName}`
+                          }
                           title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
                           className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
                             isBlocked
@@ -2099,9 +2305,16 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                         )}
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); void togglePersonBlock(p); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void togglePersonBlock(p);
+                          }}
                           disabled={blockBusy}
-                          aria-label={isBlocked ? `Unblock ${p.firstName} ${p.lastName}` : `Block ${p.firstName} ${p.lastName}`}
+                          aria-label={
+                            isBlocked
+                              ? `Unblock ${p.firstName} ${p.lastName}`
+                              : `Block ${p.firstName} ${p.lastName}`
+                          }
                           title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
                           className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
                             isBlocked
@@ -2137,7 +2350,12 @@ export default function CameraAssignClient({ token, track: initialTrack, version
         >
           <div
             className="relative w-full max-w-md rounded-xl mt-10"
-            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,255,255,0.1)", maxHeight: "calc(100dvh - 5rem)", overflowY: "auto" }}
+            style={{
+              backgroundColor: "#0a1128",
+              border: "1.78px solid rgba(255,255,255,0.1)",
+              maxHeight: "calc(100dvh - 5rem)",
+              overflowY: "auto",
+            }}
           >
             <button
               type="button"
@@ -2169,9 +2387,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                       }}
                       className="w-full text-left rounded border border-white/10 bg-white/[0.02] hover:bg-white/5 px-3 py-2 text-sm"
                     >
-                      <div className="font-semibold text-white truncate">
-                        {sessionChipLabel(s)}
-                      </div>
+                      <div className="font-semibold text-white truncate">{sessionChipLabel(s)}</div>
                       <div className="text-xs text-white/50 mt-0.5">
                         {formatEt(s.scheduledStart)}
                       </div>
@@ -2195,10 +2411,15 @@ export default function CameraAssignClient({ token, track: initialTrack, version
           style={{ height: "100dvh" }}
           {...modalBackdropProps(() => setBarcodeModalOpen(false))}
         >
-          <div className="relative w-full max-w-2xl mx-auto h-full flex flex-col" style={{ backgroundColor: "#0a1128" }}>
+          <div
+            className="relative w-full max-w-2xl mx-auto h-full flex flex-col"
+            style={{ backgroundColor: "#0a1128" }}
+          >
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
               <div>
-                <div className="text-base font-bold uppercase tracking-wider">🏷 Barcode → Camera</div>
+                <div className="text-base font-bold uppercase tracking-wider">
+                  🏷 Barcode → Camera
+                </div>
                 <div className="text-xs text-white/50 mt-0.5">
                   {Object.keys(barcodeMap).length} / 96 mapped
                   {barcodeLoading && " · loading…"}
@@ -2278,9 +2499,7 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                   Save
                 </button>
               </div>
-              {barcodeErr && (
-                <div className="mt-1 text-xs text-red-400">{barcodeErr}</div>
-              )}
+              {barcodeErr && <div className="mt-1 text-xs text-red-400">{barcodeErr}</div>}
             </div>
 
             {/* Camera list — 1 to 96. The entire row is tappable to
@@ -2328,18 +2547,25 @@ export default function CameraAssignClient({ token, track: initialTrack, version
                     aria-label={`Select camera ${camN} as active scan target`}
                     aria-pressed={isActive}
                   >
-                    <span className={`w-16 shrink-0 tabular-nums uppercase tracking-wider ${
-                      isActive ? "text-[#00E2E5] font-bold" : "text-white/70"
-                    }`}>
+                    <span
+                      className={`w-16 shrink-0 tabular-nums uppercase tracking-wider ${
+                        isActive ? "text-[#00E2E5] font-bold" : "text-white/70"
+                      }`}
+                    >
                       Cam {camN}
                     </span>
-                    <span className={`flex-1 truncate font-mono text-xs ${bc ? "text-emerald-300" : "text-white/30"}`}>
+                    <span
+                      className={`flex-1 truncate font-mono text-xs ${bc ? "text-emerald-300" : "text-white/30"}`}
+                    >
                       {bc || "— no barcode —"}
                     </span>
                     {bc && (
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); void deleteBarcode(camN); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteBarcode(camN);
+                        }}
                         className="shrink-0 text-xs px-2 py-1 rounded border border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
                         aria-label={`Clear barcode for camera ${camN}`}
                       >
@@ -2358,107 +2584,130 @@ export default function CameraAssignClient({ token, track: initialTrack, version
           per-racer blocks. Reason is a dropdown of preset categories
           so staff picks from a consistent vocabulary; "Other" reveals
           a free-text field for the rare case not covered by presets. */}
-      {blockModalTarget && session && (() => {
-        const isHeat = blockModalTarget === "heat";
-        const personTarget = isHeat ? null : (blockModalTarget as Participant);
-        const onClose = () => { if (!blockBusy) resetBlockModal(); };
-        const onSubmit = () => { void (isHeat ? submitHeatBlockFromModal() : submitPersonBlockFromModal()); };
-        return (
-          <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/80"
-            style={{ height: "100dvh" }}
-            {...modalBackdropProps(onClose)}
-          >
+      {blockModalTarget &&
+        session &&
+        (() => {
+          const isHeat = blockModalTarget === "heat";
+          const personTarget = isHeat ? null : (blockModalTarget as Participant);
+          const onClose = () => {
+            if (!blockBusy) resetBlockModal();
+          };
+          const onSubmit = () => {
+            void (isHeat ? submitHeatBlockFromModal() : submitPersonBlockFromModal());
+          };
+          return (
             <div
-              className="relative w-full max-w-md rounded-xl"
-              style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(239,68,68,0.4)", maxHeight: "calc(100dvh - 1.5rem)", overflowY: "auto" }}
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/80"
+              style={{ height: "100dvh" }}
+              {...modalBackdropProps(onClose)}
             >
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close"
-                disabled={blockBusy}
-                className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white disabled:opacity-50"
-                style={{ fontSize: "20px", lineHeight: 1 }}
+              <div
+                className="relative w-full max-w-md rounded-xl"
+                style={{
+                  backgroundColor: "#0a1128",
+                  border: "1.78px solid rgba(239,68,68,0.4)",
+                  maxHeight: "calc(100dvh - 1.5rem)",
+                  overflowY: "auto",
+                }}
               >
-                &times;
-              </button>
-              <div className="p-5 sm:p-6">
-                <h3 className="text-lg font-bold uppercase tracking-wide mb-2 pr-10 text-red-300">
-                  🚫 {isHeat ? "Block this heat?" : "Block this racer?"}
-                </h3>
-                <p className="text-sm text-white/70 mb-3">
-                  {isHeat ? (
-                    <>
-                      All <span className="font-semibold text-white">{totalCount}</span> racers in{" "}
-                      <span className="font-semibold text-white">
-                        {session.track.replace(" Track", "")} · Heat {session.heatNumber} · {session.type}
-                      </span>{" "}
-                      will be blocked.
-                    </>
-                  ) : personTarget && (
-                    <>
-                      <span className="font-semibold text-white">
-                        {personTarget.firstName} {personTarget.lastName}
-                      </span>
-                      {personTarget.systemNumber && (
-                        <> (cam <span className="font-mono text-emerald-300">{personTarget.systemNumber}</span>)</>
-                      )}
-                      {" "}will be blocked.
-                    </>
-                  )}{" "}
-                  Video{isHeat ? "s" : ""} will still be matched + visible in the admin, but
-                  <span className="text-red-300 font-semibold"> no SMS or email will send</span>,
-                  and the vt3.io link will be disabled.
-                </p>
-                <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
-                  Reason
-                  <select
-                    value={blockReason}
-                    onChange={(e) => setBlockReason(e.target.value as BlockReason)}
-                    className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-                  >
-                    {BLOCK_REASONS.map((r) => (
-                      <option key={r} value={r} style={{ backgroundColor: "#0a1128" }}>{r}</option>
-                    ))}
-                  </select>
-                </label>
-                {blockReason === "Other" && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close"
+                  disabled={blockBusy}
+                  className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white disabled:opacity-50"
+                  style={{ fontSize: "20px", lineHeight: 1 }}
+                >
+                  &times;
+                </button>
+                <div className="p-5 sm:p-6">
+                  <h3 className="text-lg font-bold uppercase tracking-wide mb-2 pr-10 text-red-300">
+                    🚫 {isHeat ? "Block this heat?" : "Block this racer?"}
+                  </h3>
+                  <p className="text-sm text-white/70 mb-3">
+                    {isHeat ? (
+                      <>
+                        All <span className="font-semibold text-white">{totalCount}</span> racers in{" "}
+                        <span className="font-semibold text-white">
+                          {session.track.replace(" Track", "")} · Heat {session.heatNumber} ·{" "}
+                          {session.type}
+                        </span>{" "}
+                        will be blocked.
+                      </>
+                    ) : (
+                      personTarget && (
+                        <>
+                          <span className="font-semibold text-white">
+                            {personTarget.firstName} {personTarget.lastName}
+                          </span>
+                          {personTarget.systemNumber && (
+                            <>
+                              {" "}
+                              (cam{" "}
+                              <span className="font-mono text-emerald-300">
+                                {personTarget.systemNumber}
+                              </span>
+                              )
+                            </>
+                          )}{" "}
+                          will be blocked.
+                        </>
+                      )
+                    )}{" "}
+                    Video{isHeat ? "s" : ""} will still be matched + visible in the admin, but
+                    <span className="text-red-300 font-semibold"> no SMS or email will send</span>,
+                    and the vt3.io link will be disabled.
+                  </p>
                   <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
-                    Describe
-                    <input
-                      type="text"
-                      value={blockReasonOther}
-                      onChange={(e) => setBlockReasonOther(e.target.value)}
-                      placeholder="Short reason for the block"
-                      maxLength={200}
+                    Reason
+                    <select
+                      value={blockReason}
+                      onChange={(e) => setBlockReason(e.target.value as BlockReason)}
                       className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
-                    />
+                    >
+                      {BLOCK_REASONS.map((r) => (
+                        <option key={r} value={r} style={{ backgroundColor: "#0a1128" }}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                )}
-                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end mt-3">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    disabled={blockBusy}
-                    className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onSubmit}
-                    disabled={blockBusy || (blockReason === "Other" && !blockReasonOther.trim())}
-                    className="text-sm px-5 py-3 sm:py-2 rounded bg-red-500 text-white font-bold hover:bg-red-400 disabled:opacity-50"
-                  >
-                    {blockBusy ? "Blocking…" : isHeat ? "Block Heat" : "Block Racer"}
-                  </button>
+                  {blockReason === "Other" && (
+                    <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
+                      Describe
+                      <input
+                        type="text"
+                        value={blockReasonOther}
+                        onChange={(e) => setBlockReasonOther(e.target.value)}
+                        placeholder="Short reason for the block"
+                        maxLength={200}
+                        className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                      />
+                    </label>
+                  )}
+                  <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end mt-3">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      disabled={blockBusy}
+                      className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onSubmit}
+                      disabled={blockBusy || (blockReason === "Other" && !blockReasonOther.trim())}
+                      className="text-sm px-5 py-3 sm:py-2 rounded bg-red-500 text-white font-bold hover:bg-red-400 disabled:opacity-50"
+                    >
+                      {blockBusy ? "Blocking…" : isHeat ? "Block Heat" : "Block Racer"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
     </div>
   );
 }

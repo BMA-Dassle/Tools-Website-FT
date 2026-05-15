@@ -34,7 +34,12 @@ interface Props {
   initialWasCalled: boolean;
 }
 
-export default function ETicketView({ ticket, initialCheckingIn, initialOnSession, initialWasCalled }: Props) {
+export default function ETicketView({
+  ticket,
+  initialCheckingIn,
+  initialOnSession,
+  initialWasCalled,
+}: Props) {
   const [checkingIn, setCheckingIn] = useState(initialCheckingIn);
   const [onSession, setOnSession] = useState(initialOnSession);
   // wasCalled is monotonic (false → true only) once the checkin cron flags
@@ -99,7 +104,10 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
           `/api/pandora/session-participants?locationId=${encodeURIComponent(ticket.locationId)}&sessionId=${encodeURIComponent(String(ticket.sessionId))}`,
           { cache: "no-store", signal },
         ),
-        fetch(`/api/race-session-state?sessionId=${encodeURIComponent(String(ticket.sessionId))}`, { cache: "no-store", signal }),
+        fetch(`/api/race-session-state?sessionId=${encodeURIComponent(String(ticket.sessionId))}`, {
+          cache: "no-store",
+          signal,
+        }),
       ]);
       if (signal.aborted) return;
       if (currentRes.ok) {
@@ -114,7 +122,9 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
         const list = Array.isArray(d?.data) ? d.data : [];
         if (list.length > 0) {
           const target = String(ticket.personId);
-          const stillOn = list.some((p: { personId: string | number }) => String(p.personId) === target);
+          const stillOn = list.some(
+            (p: { personId: string | number }) => String(p.personId) === target,
+          );
           setOnSession(stillOn);
         }
       }
@@ -176,13 +186,20 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
 
       <div className="w-full max-w-lg">
         <div className="text-center mb-5">
-          <p className="text-white/30 text-xs uppercase tracking-[0.3em] mb-1">FastTrax Entertainment</p>
+          <p className="text-white/30 text-xs uppercase tracking-[0.3em] mb-1">
+            FastTrax Entertainment
+          </p>
           <p className="text-white/60 text-sm font-semibold">E-Ticket</p>
           {ticket.viaGuardian && (
             <p className="text-amber-300/80 text-[11px] mt-2 inline-block px-2 py-0.5 rounded-full border border-amber-300/30 bg-amber-500/10">
-              {ticket.guardianFirstName
-                ? <>Sent to <strong className="text-amber-200">{ticket.guardianFirstName}</strong> (parent)</>
-                : <>Sent to your guardian</>}
+              {ticket.guardianFirstName ? (
+                <>
+                  Sent to <strong className="text-amber-200">{ticket.guardianFirstName}</strong>{" "}
+                  (parent)
+                </>
+              ) : (
+                <>Sent to your guardian</>
+              )}
             </p>
           )}
         </div>
@@ -245,7 +262,9 @@ export default function ETicketView({ ticket, initialCheckingIn, initialOnSessio
 
         <div className="mt-6 text-center">
           <p className="text-white/30 text-xs">14501 Global Parkway, Fort Myers, FL 33913</p>
-          <p className="text-white/20 text-[11px] mt-1">Show this screen at check-in · No paper ticket needed</p>
+          <p className="text-white/20 text-[11px] mt-1">
+            Show this screen at check-in · No paper ticket needed
+          </p>
         </div>
       </div>
 

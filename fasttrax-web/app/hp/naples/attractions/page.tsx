@@ -8,8 +8,7 @@ import SeoFaq from "@/components/headpinz/SeoFaq";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 export const metadata: Metadata = {
-  title:
-    "All Attractions - Bowling, Laser Tag, Gel Blasters, VIP, Arcade | HeadPinz Naples",
+  title: "All Attractions - Bowling, Laser Tag, Gel Blasters, VIP, Arcade | HeadPinz Naples",
   description:
     "Explore everything at HeadPinz Naples: 24-lane premier bowling, NEXUS laser tag, NeoVerse, HyperBowling, and 40+ arcade games. Six attractions under one roof.",
   keywords: [
@@ -106,7 +105,8 @@ const attractions = [
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
     borderColor: "rgba(255,215,0,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-neoverse-v2.mp4",
+    videoUrl:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-neoverse-v2.mp4",
   },
   {
     name: "HyperBowling",
@@ -123,7 +123,8 @@ const attractions = [
     badge: "VIP EXCLUSIVE",
     accent: "#FFD700",
     borderColor: "rgba(255,215,0,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling-v2.mp4",
+    videoUrl:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hyperbowling-v2.mp4",
   },
   {
     name: "Game Zone",
@@ -140,7 +141,8 @@ const attractions = [
     badge: null,
     accent: "#00E2E5",
     borderColor: "rgba(0,226,229,0.35)",
-    videoUrl: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4",
+    videoUrl:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-arcade-v2.mp4",
   },
 ];
 
@@ -228,13 +230,12 @@ export default function NaplesAttractionsPage() {
                 className={`relative rounded-lg overflow-hidden ${
                   isEven ? "md:flex-row-reverse" : ""
                 }`}
-                style={{ backgroundColor: "rgba(7,16,39,0.5)", border: `1.78px dashed ${a.borderColor}` }}
+                style={{
+                  backgroundColor: "rgba(7,16,39,0.5)",
+                  border: `1.78px dashed ${a.borderColor}`,
+                }}
               >
-                <div
-                  className={`flex flex-col md:flex-row ${
-                    isEven ? "md:flex-row-reverse" : ""
-                  }`}
-                >
+                <div className={`flex flex-col md:flex-row ${isEven ? "md:flex-row-reverse" : ""}`}>
                   {/* Image/Video side */}
                   <div className="relative md:w-[60%] flex-shrink-0" style={{ minHeight: "400px" }}>
                     {a.videoUrl ? (
@@ -305,9 +306,7 @@ export default function NaplesAttractionsPage() {
                       {a.description}
                     </p>
 
-                    <p className="font-body text-white/40 text-sm mb-2">
-                      {a.details}
-                    </p>
+                    <p className="font-body text-white/40 text-sm mb-2">{a.details}</p>
 
                     <p
                       className="font-body font-bold mb-6"
@@ -340,9 +339,7 @@ export default function NaplesAttractionsPage() {
                           {a.cta}
                         </Link>
                       )}
-                      {a.videoUrl && (
-                        <AttractionVideo videoUrl={a.videoUrl} accent={a.accent} />
-                      )}
+                      {a.videoUrl && <AttractionVideo videoUrl={a.videoUrl} accent={a.accent} />}
                     </div>
                   </div>
                 </div>
@@ -368,11 +365,11 @@ export default function NaplesAttractionsPage() {
             className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto mb-10"
             style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
           >
-            Southwest Florida&apos;s most immersive laser tag experience is right here in
-            Naples. Our NEXUS arena is a two-story, glow-in-the-dark space-themed battlefield
-            built for team missions, birthday parties, and adrenaline-charged date nights.
-            Play with up to 20 players per session — no experience needed. Walk-ins welcome
-            during peak hours; book ahead on weekends and holidays.
+            Southwest Florida&apos;s most immersive laser tag experience is right here in Naples.
+            Our NEXUS arena is a two-story, glow-in-the-dark space-themed battlefield built for team
+            missions, birthday parties, and adrenaline-charged date nights. Play with up to 20
+            players per session — no experience needed. Walk-ins welcome during peak hours; book
+            ahead on weekends and holidays.
           </p>
 
           <h2
@@ -385,11 +382,11 @@ export default function NaplesAttractionsPage() {
             className="font-body text-white/75 leading-relaxed text-center max-w-3xl mx-auto"
             style={{ fontSize: "clamp(15px, 2vw, 17px)" }}
           >
-            Naples&apos; only indoor gel blasters — the same glow-in-the-dark space
-            themed NEXUS environment as our laser tag, swapped for eco-friendly gel blasters
-            with haptic-feedback vests. Gellets evaporate on impact, so there&apos;s zero
-            cleanup and no mess on you or your clothes. Great for ages 8+, groups, and
-            team-building. Safety gear and training included.
+            Naples&apos; only indoor gel blasters — the same glow-in-the-dark space themed NEXUS
+            environment as our laser tag, swapped for eco-friendly gel blasters with haptic-feedback
+            vests. Gellets evaporate on impact, so there&apos;s zero cleanup and no mess on you or
+            your clothes. Great for ages 8+, groups, and team-building. Safety gear and training
+            included.
           </p>
         </div>
       </section>

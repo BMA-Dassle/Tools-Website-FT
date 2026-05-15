@@ -35,8 +35,5 @@ export async function POST(req: NextRequest) {
   );
 
   const anyFailure = results.some((r) => !r.ok);
-  return NextResponse.json(
-    { ok: !anyFailure, results },
-    { status: anyFailure ? 502 : 200 },
-  );
+  return NextResponse.json({ ok: !anyFailure, results }, { status: anyFailure ? 502 : 200 });
 }

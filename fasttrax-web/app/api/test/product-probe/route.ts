@@ -24,10 +24,7 @@ export async function GET(req: NextRequest) {
   const clientKey = searchParams.get("clientKey") || "headpinzftmyers";
 
   if (!productId || !pageId) {
-    return NextResponse.json(
-      { error: "Required: productId, pageId" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Required: productId, pageId" }, { status: 400 });
   }
 
   const base = baseUrl(req);
@@ -39,7 +36,11 @@ export async function GET(req: NextRequest) {
     });
     const text = await res.text();
     let parsed: unknown = text;
-    try { parsed = JSON.parse(text); } catch { /* keep raw */ }
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* keep raw */
+    }
     return { status: res.status, body: parsed, raw: text };
   };
 
@@ -64,7 +65,10 @@ export async function GET(req: NextRequest) {
     trace.scheduledLines = schedLines;
 
     // 3. Cancel
-    const cancelRes = await fetch(`${base}/api/bmi?endpoint=${encodeURIComponent(`bill/${orderId}/cancel`)}&clientKey=${clientKey}`, { method: "DELETE" });
+    const cancelRes = await fetch(
+      `${base}/api/bmi?endpoint=${encodeURIComponent(`bill/${orderId}/cancel`)}&clientKey=${clientKey}`,
+      { method: "DELETE" },
+    );
     trace.cancel = { status: cancelRes.status };
   }
 

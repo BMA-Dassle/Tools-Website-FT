@@ -75,9 +75,7 @@ interface OverlayShape {
 
 function extractOverlay(v: OverlayInput): OverlayShape {
   const viewed =
-    !!v.hasVideoPageImpression ||
-    !!v.hasMediaCentreImpression ||
-    !!v.firstImpressionAt;
+    !!v.hasVideoPageImpression || !!v.hasMediaCentreImpression || !!v.firstImpressionAt;
   const unlockedAt = v.unlockTime || undefined;
   const purchased = !!unlockedAt;
   return {
@@ -231,7 +229,10 @@ async function doFireNotify(record: VideoMatch): Promise<{
   }
   record.pendingNotify = false;
   await updateVideoMatch(record).catch(() => void 0);
-  return { smsOk: n.sms.attempted ? n.sms.ok : undefined, emailOk: n.email.attempted ? n.email.ok : undefined };
+  return {
+    smsOk: n.sms.attempted ? n.sms.ok : undefined,
+    emailOk: n.email.attempted ? n.email.ok : undefined,
+  };
 }
 
 export async function processVideoEvent(
@@ -240,12 +241,13 @@ export async function processVideoEvent(
 ): Promise<ProcessResult> {
   const { source, dryRun = false } = opts;
   const code = event.code;
-  const ready = event.forceReady === true
-    ? true
-    : isVideoReadyForNotify({
-        status: event.status ?? null,
-        sampleUploadTime: event.sampleUploadTime ?? null,
-      });
+  const ready =
+    event.forceReady === true
+      ? true
+      : isVideoReadyForNotify({
+          status: event.status ?? null,
+          sampleUploadTime: event.sampleUploadTime ?? null,
+        });
 
   const existing = await getMatchByVideoCode(code);
 
@@ -300,8 +302,7 @@ export async function processVideoEvent(
       // the notify branch below picks it up. If already notified,
       // leave alone — no re-send.
       if (wasBlocked && !isBlocked) {
-        const neverNotified =
-          !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
+        const neverNotified = !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
         if (neverNotified) existing.pendingNotify = true;
       }
     }
@@ -362,10 +363,7 @@ export async function processVideoEvent(
           existing.vt3CustomerLinkedAt = new Date().toISOString();
         }
       } catch (err) {
-        console.error(
-          `[video-event-processor:${source}] linkCustomerEmail(${code}) failed:`,
-          err,
-        );
+        console.error(`[video-event-processor:${source}] linkCustomerEmail(${code}) failed:`, err);
       }
     }
     const fired = await doFireNotify(existing);
@@ -452,7 +450,8 @@ export async function processVideoEvent(
   });
 
   if (dryRun) {
-    if (blockState.blocked) return { decision: "saved-and-blocked", source, videoCode: code, notes: "dryRun" };
+    if (blockState.blocked)
+      return { decision: "saved-and-blocked", source, videoCode: code, notes: "dryRun" };
     if (!ready) return { decision: "saved-pending", source, videoCode: code, notes: "dryRun" };
     return { decision: "saved-and-notified", source, videoCode: code, notes: "dryRun" };
   }
@@ -544,10 +543,7 @@ export async function processVideoEvent(
         matchRecord.vt3CustomerLinkedAt = new Date().toISOString();
       }
     } catch (err) {
-      console.error(
-        `[video-event-processor:${source}] linkCustomerEmail(${code}) failed:`,
-        err,
-      );
+      console.error(`[video-event-processor:${source}] linkCustomerEmail(${code}) failed:`, err);
     }
   }
 
@@ -612,8 +608,7 @@ export function videoEventFromWebhookPayload(
         ? payload.hasMediaCentreImpression
         : undefined,
     unlockTime: typeof payload.unlockTime === "string" ? payload.unlockTime : null,
-    purchaseType:
-      typeof payload.purchaseType === "string" ? payload.purchaseType : null,
+    purchaseType: typeof payload.purchaseType === "string" ? payload.purchaseType : null,
     // sample-uploaded events come with no status/createdAt — flag
     // forceReady so the processor treats them as ready without those
     // fields. Match-creation path requires created_at though, so

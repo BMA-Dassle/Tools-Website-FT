@@ -98,7 +98,8 @@ const jsonLdSchemas = [
         { "@type": "MenuSection", name: "Happy Hour Specials" },
       ],
     },
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-wings.png",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/nemos-wings.png",
   },
   {
     "@context": "https://schema.org",

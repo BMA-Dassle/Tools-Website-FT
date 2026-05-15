@@ -34,7 +34,9 @@ export async function GET(req: NextRequest) {
   }
 
   const dryRun = url.searchParams.get("dryRun") === "1";
-  const invoker = req.headers.get("x-vercel-cron") ? "vercel-cron" : (req.headers.get("user-agent") || "manual");
+  const invoker = req.headers.get("x-vercel-cron")
+    ? "vercel-cron"
+    : req.headers.get("user-agent") || "manual";
 
   try {
     const csv = await downloadKbfCsv();

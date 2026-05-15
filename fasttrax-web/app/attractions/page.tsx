@@ -5,7 +5,8 @@ import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 
 export const metadata: Metadata = {
-  title: "All Attractions – Go-Karts, Arcade, Bowling, Laser Tag & More | FastTrax & HeadPinz Fort Myers",
+  title:
+    "All Attractions – Go-Karts, Arcade, Bowling, Laser Tag & More | FastTrax & HeadPinz Fort Myers",
   description:
     "116,000 sq ft across two buildings: indoor go-kart racing, 50+ arcade games, duckpin bowling, laser tag, gel blasters, shuffleboard & trackside dining. Fort Myers' biggest entertainment campus — more to do than Dave & Buster's, GameTime, or 810 Bowling combined.",
   keywords: [
@@ -45,9 +46,18 @@ const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
 /* ── Gallery images (3-across row) ── */
 const galleryImages = [
-  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00273.webp", alt: "FastTrax interior view" },
-  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp", alt: "FastTrax racing action" },
-  { src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00401.webp", alt: "FastTrax entertainment" },
+  {
+    src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00273.webp",
+    alt: "FastTrax interior view",
+  },
+  {
+    src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp",
+    alt: "FastTrax racing action",
+  },
+  {
+    src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00401.webp",
+    alt: "FastTrax entertainment",
+  },
 ];
 
 /* ── FastTrax attraction cards ── */
@@ -56,11 +66,16 @@ const fasttraxCards = [
     title: "High-Powered Electric Racing",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp",
     desc: (
       <>
-        <strong>The Tech:</strong> <strong>Biz-Karts EcoVolt GT</strong> karts on a <strong>360Karting</strong> multi-level structure.<br />
-        <strong>The Experience: </strong>Florida&apos;s longest indoor multi-level circuit. Featuring instant torque and smart crash detection that only slows karts within 75ft of a wreck.
+        <strong>The Tech:</strong> <strong>Biz-Karts EcoVolt GT</strong> karts on a{" "}
+        <strong>360Karting</strong> multi-level structure.
+        <br />
+        <strong>The Experience: </strong>Florida&apos;s longest indoor multi-level circuit.
+        Featuring instant torque and smart crash detection that only slows karts within 75ft of a
+        wreck.
       </>
     ),
     cta: { label: "GO TO RACING PAGE", href: "/racing", color: "rgb(228,28,29)" },
@@ -69,10 +84,13 @@ const fasttraxCards = [
     title: "The Game Zone at FastTrax",
     color: "rgb(134,82,255)",
     borderColor: "rgba(134,82,255,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp",
     desc: (
       <>
-        <strong>The Experience:</strong> 50+ of the latest arcade titles, VR simulators, and &ldquo;The Winner&apos;s Circle&rdquo; prize center.<br />
+        <strong>The Experience:</strong> 50+ of the latest arcade titles, VR simulators, and
+        &ldquo;The Winner&apos;s Circle&rdquo; prize center.
+        <br />
         <strong>The Tech:</strong> Load any amount onto a Game Card at our kiosks and play.
       </>
     ),
@@ -82,10 +100,12 @@ const fasttraxCards = [
     title: "FastTrax Duckpin Bowling",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
     desc: (
       <>
-        <strong>The Vibe:</strong> Faster, social bowling with boutique lounge seating.<br />
+        <strong>The Vibe:</strong> Faster, social bowling with boutique lounge seating.
+        <br />
         <strong>The Perk:</strong> <strong>No rental shoes required.</strong> Walk in and bowl.
       </>
     ),
@@ -95,10 +115,12 @@ const fasttraxCards = [
     title: "Shuffly at FastTrax",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
     desc: (
       <>
-        <strong>The Vibe:</strong> A modern, high-energy take on a classic. Slide into some competitive fun with a chilled-out atmosphere. Perfect for groups between races.
+        <strong>The Vibe:</strong> A modern, high-energy take on a classic. Slide into some
+        competitive fun with a chilled-out atmosphere. Perfect for groups between races.
       </>
     ),
     cta: { label: "BOOK SHUFFLY", href: "/book/shuffly", color: "rgb(228,28,29)" },
@@ -111,10 +133,12 @@ const headpinzCards = [
     title: "HeadPinz Laser Tag",
     color: "rgb(228,28,29)",
     borderColor: "rgba(228,28,29,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     desc: (
       <>
-        <strong>The Vibe:</strong> Immersive, multi-level urban combat.<br />
+        <strong>The Vibe:</strong> Immersive, multi-level urban combat.
+        <br />
         <strong>The Gear:</strong> Haptic vests and precision sensors for objective-based missions.
       </>
     ),
@@ -124,7 +148,8 @@ const headpinzCards = [
     title: "HeadPinz Gel Blaster",
     color: "rgb(134,82,255)",
     borderColor: "rgba(134,82,255,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     desc: (
       <>
         <strong>The Vibe:</strong> Combat sports with <strong>Zero Mess</strong>.<br />
@@ -137,13 +162,19 @@ const headpinzCards = [
     title: "HeadPinz Premier Bowling",
     color: "rgb(0,74,173)",
     borderColor: "rgba(0,74,173,0.59)",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/headpinz-bowling-l7MEjKld7FsVtVvOASAbzaoBvXhBhi.jpg",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/headpinz-bowling-l7MEjKld7FsVtVvOASAbzaoBvXhBhi.jpg",
     desc: (
       <>
-        <strong>The Vibe:</strong> 24 state-of-the-art lanes including VIP lounge lanes with elite lighting and service.
+        <strong>The Vibe:</strong> 24 state-of-the-art lanes including VIP lounge lanes with elite
+        lighting and service.
       </>
     ),
-    cta: { label: "BOOK A LANE", href: "https://www.mybowlingpassport.com/2/9172/book", color: "rgb(0,74,173)" },
+    cta: {
+      label: "BOOK A LANE",
+      href: "https://www.mybowlingpassport.com/2/9172/book",
+      color: "rgb(0,74,173)",
+    },
   },
 ];
 
@@ -156,19 +187,35 @@ export default function AttractionsPage() {
       />
 
       {/* ── Section: Two Buildings Intro ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="bg-[#000418]"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "16px",
+              textShadow: glowShadow,
+            }}
           >
             Two Buildings. One Massive Destination
           </h2>
           <p
             className="font-body"
-            style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "700px" }}
+            style={{
+              color: "rgba(255,255,255,0.898)",
+              fontSize: "18px",
+              lineHeight: "1.6",
+              maxWidth: "700px",
+            }}
           >
-            Explore over 113,000 sq. ft. of adrenaline-pumping action. Start at the high-speed racing hub of FastTrax, then step next door to the premier social entertainment of HeadPinz.
+            Explore over 113,000 sq. ft. of adrenaline-pumping action. Start at the high-speed
+            racing hub of FastTrax, then step next door to the premier social entertainment of
+            HeadPinz.
           </p>
         </div>
       </section>
@@ -177,7 +224,11 @@ export default function AttractionsPage() {
       <section className="bg-[#000418]" style={{ padding: "0 32px 120px" }}>
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4">
           {galleryImages.map((img) => (
-            <div key={img.src} className="relative overflow-hidden rounded-lg" style={{ aspectRatio: "16/10" }}>
+            <div
+              key={img.src}
+              className="relative overflow-hidden rounded-lg"
+              style={{ aspectRatio: "16/10" }}
+            >
               <Image
                 src={img.src}
                 alt={img.alt}
@@ -191,7 +242,10 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: FastTrax 63K Racing Hub ── */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/checkered-flag.webp"
           alt="Background"
@@ -203,7 +257,13 @@ export default function AttractionsPage() {
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "48px",
+              textShadow: glowShadow,
+            }}
           >
             FastTrax: The 63,000 Sq. Ft. Racing Hub
           </h2>
@@ -222,23 +282,43 @@ export default function AttractionsPage() {
                 }}
               >
                 {/* Card image */}
-                <div className="relative flex-shrink-0" style={{ height: "clamp(150px, 25vw, 200px)" }}>
-                  <Image src={card.image} alt={card.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw" />
+                <div
+                  className="relative flex-shrink-0"
+                  style={{ height: "clamp(150px, 25vw, 200px)" }}
+                >
+                  <Image
+                    src={card.image}
+                    alt={card.title}
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                  />
                 </div>
                 {/* Card content */}
                 <div className="flex flex-col flex-1" style={{ padding: "24px 20px" }}>
-                  <h3 className="font-heading uppercase mb-3" style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}>
+                  <h3
+                    className="font-heading uppercase mb-3"
+                    style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}
+                  >
                     {card.title}
                   </h3>
-                  <p className="font-body flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}>
+                  <p
+                    className="font-body flex-1"
+                    style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}
+                  >
                     {card.desc}
                   </p>
-                  {card.cta && (
-                    card.cta.href.startsWith("http") ? (
+                  {card.cta &&
+                    (card.cta.href.startsWith("http") ? (
                       <BookingLink
                         href={card.cta.href}
                         className="inline-block mt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                        style={{
+                          backgroundColor: card.cta.color,
+                          borderRadius: "555px",
+                          padding: "16px 24px",
+                          fontSize: "14px",
+                        }}
                       >
                         {card.cta.label}
                       </BookingLink>
@@ -246,12 +326,16 @@ export default function AttractionsPage() {
                       <a
                         href={card.cta.href}
                         className="inline-block mt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                        style={{
+                          backgroundColor: card.cta.color,
+                          borderRadius: "555px",
+                          padding: "16px 24px",
+                          fontSize: "14px",
+                        }}
                       >
                         {card.cta.label}
                       </a>
-                    )
-                  )}
+                    ))}
                 </div>
               </div>
             ))}
@@ -260,7 +344,10 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: HeadPinz 50K Social Flagship ── */}
-      <section className="relative overflow-hidden" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/headpinz-interior.webp"
           alt="HeadPinz interior"
@@ -272,7 +359,13 @@ export default function AttractionsPage() {
         <div className="relative z-10 max-w-7xl mx-auto">
           <h2
             className="font-heading font-black uppercase text-white text-center"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "48px", textShadow: glowShadow }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "48px",
+              textShadow: glowShadow,
+            }}
           >
             headPinz: The 50,000 Sq. Ft. Social Flagship
           </h2>
@@ -291,23 +384,43 @@ export default function AttractionsPage() {
                 }}
               >
                 {/* Card image */}
-                <div className="relative flex-shrink-0" style={{ height: "clamp(150px, 25vw, 200px)" }}>
-                  <Image src={card.image} alt={card.title} fill className="object-cover" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
+                <div
+                  className="relative flex-shrink-0"
+                  style={{ height: "clamp(150px, 25vw, 200px)" }}
+                >
+                  <Image
+                    src={card.image}
+                    alt={card.title}
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                  />
                 </div>
                 {/* Card content */}
                 <div className="flex flex-col flex-1" style={{ padding: "24px 20px" }}>
-                  <h3 className="font-heading uppercase mb-3" style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}>
+                  <h3
+                    className="font-heading uppercase mb-3"
+                    style={{ color: card.color, fontSize: "22px", letterSpacing: "1.2px" }}
+                  >
                     {card.title}
                   </h3>
-                  <p className="font-body flex-1" style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}>
+                  <p
+                    className="font-body flex-1"
+                    style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.5" }}
+                  >
                     {card.desc}
                   </p>
-                  {card.cta && (
-                    card.cta.href.startsWith("http") ? (
+                  {card.cta &&
+                    (card.cta.href.startsWith("http") ? (
                       <BookingLink
                         href={card.cta.href}
                         className="inline-block mt-auto pt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                        style={{
+                          backgroundColor: card.cta.color,
+                          borderRadius: "555px",
+                          padding: "16px 24px",
+                          fontSize: "14px",
+                        }}
                       >
                         {card.cta.label}
                       </BookingLink>
@@ -315,12 +428,16 @@ export default function AttractionsPage() {
                       <a
                         href={card.cta.href}
                         className="inline-block mt-auto pt-4 font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-                        style={{ backgroundColor: card.cta.color, borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+                        style={{
+                          backgroundColor: card.cta.color,
+                          borderRadius: "555px",
+                          padding: "16px 24px",
+                          fontSize: "14px",
+                        }}
                       >
                         {card.cta.label}
                       </a>
-                    )
-                  )}
+                    ))}
                 </div>
               </div>
             ))}
@@ -329,25 +446,45 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: Dining - Nemo's Trackside ── */}
-      <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}>
+      <section
+        className="bg-[#000418]"
+        style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}
+      >
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
             <h2
               className="font-heading font-black uppercase text-white"
-              style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: glowShadow }}
+              style={{
+                fontSize: "clamp(32px, 8vw, 72px)",
+                lineHeight: "1",
+                letterSpacing: "3px",
+                marginBottom: "16px",
+                textShadow: glowShadow,
+              }}
             >
               Dining: Nemo&apos;s Trackside
             </h2>
             <p
               className="font-body mb-6"
-              style={{ color: "rgba(255,255,255,0.898)", fontSize: "18px", lineHeight: "1.6", maxWidth: "600px" }}
+              style={{
+                color: "rgba(255,255,255,0.898)",
+                fontSize: "18px",
+                lineHeight: "1.6",
+                maxWidth: "600px",
+              }}
             >
-              Located on-site to serve both buildings, Nemo&apos;s is the campus&apos;s official fueling station.
+              Located on-site to serve both buildings, Nemo&apos;s is the campus&apos;s official
+              fueling station.
             </p>
             <Link
               href="/menu"
               className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-              style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+              style={{
+                backgroundColor: "rgb(228,28,29)",
+                borderRadius: "555px",
+                padding: "16px 24px",
+                fontSize: "14px",
+              }}
             >
               VIEW MENU &amp; DINING
             </Link>
@@ -365,7 +502,10 @@ export default function AttractionsPage() {
       </section>
 
       {/* ── Section: Destination Combo Packages (bottom CTA) ── */}
-      <section className="relative overflow-hidden" style={{ minHeight: "clamp(500px, 80vh, 788px)" }}>
+      <section
+        className="relative overflow-hidden"
+        style={{ minHeight: "clamp(500px, 80vh, 788px)" }}
+      >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/group-events-bg.webp"
           alt="Destination Combos"
@@ -377,20 +517,37 @@ export default function AttractionsPage() {
         <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
           <h2
             className="font-heading font-black uppercase text-white"
-            style={{ fontSize: "clamp(32px, 8vw, 72px)", lineHeight: "1", letterSpacing: "3px", marginBottom: "16px", textShadow: "rgba(28,0,255,0.4) 0px 0px 30px" }}
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "16px",
+              textShadow: "rgba(28,0,255,0.4) 0px 0px 30px",
+            }}
           >
             Destination Combo Packages (Best Value)
           </h2>
           <p
             className="font-body mb-8 mx-auto"
-            style={{ color: "rgb(255,255,255)", fontSize: "16px", lineHeight: "1.6", maxWidth: "600px" }}
+            style={{
+              color: "rgb(255,255,255)",
+              fontSize: "16px",
+              lineHeight: "1.6",
+              maxWidth: "600px",
+            }}
           >
-            Why limit the fun? Our Destination Combos let you mix and match FastTrax Racing with HeadPinz Bowling, Laser Tag, and Gaming
+            Why limit the fun? Our Destination Combos let you mix and match FastTrax Racing with
+            HeadPinz Bowling, Laser Tag, and Gaming
           </p>
           <Link
             href="/pricing"
             className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-            style={{ backgroundColor: "rgb(228,28,29)", borderRadius: "555px", padding: "16px 24px", fontSize: "14px" }}
+            style={{
+              backgroundColor: "rgb(228,28,29)",
+              borderRadius: "555px",
+              padding: "16px 24px",
+              fontSize: "14px",
+            }}
           >
             VIEW DESTINATION COMBOS
           </Link>

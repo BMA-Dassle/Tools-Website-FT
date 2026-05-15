@@ -191,8 +191,7 @@ const UQ_LONG =
 
 const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
   title: "Heads Up — Ultimate Qualifier",
-  body:
-    "Your Intermediate race in this package is reserved on the assumption you qualify in your Starter heat. About 75% of new racers level up on their first try. If you don't qualify, no problem — but please read carefully before continuing:",
+  body: "Your Intermediate race in this package is reserved on the assumption you qualify in your Starter heat. About 75% of new racers level up on their first try. If you don't qualify, no problem — but please read carefully before continuing:",
   acks: [
     "I understand the Intermediate race is reserved only if I qualify (level up) in my Starter race",
     "If I don't qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this package",
@@ -202,7 +201,8 @@ const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
     "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
 
-const ROOKIE_LONG = "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (one per group, dine-in only).";
+const ROOKIE_LONG =
+  "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (one per group, dine-in only).";
 
 const PACKAGES: PackageDefinition[] = [
   // ── Rookie Pack — Mega (Tuesday) ──────────────────────────────────────────
@@ -230,9 +230,7 @@ const PACKAGES: PackageDefinition[] = [
         ref: "starter",
         label: "Starter Race Mega",
         tier: "starter",
-        tracks: [
-          { track: "Mega", productId: "24965505", pageId: "24966930", price: 20.99 },
-        ],
+        tracks: [{ track: "Mega", productId: "24965505", pageId: "24966930", price: 20.99 }],
       },
     ],
     includesLicense: true,
@@ -264,7 +262,7 @@ const PACKAGES: PackageDefinition[] = [
         label: "Starter Race",
         tier: "starter",
         tracks: [
-          { track: "Red",  productId: "24960859", pageId: "24961568", price: 20.99 },
+          { track: "Red", productId: "24960859", pageId: "24961568", price: 20.99 },
           { track: "Blue", productId: "24960393", pageId: "24961568", price: 20.99 },
         ],
       },
@@ -328,7 +326,7 @@ const PACKAGES: PackageDefinition[] = [
         label: "Starter Race",
         tier: "starter",
         tracks: [
-          { track: "Red",  productId: "24953280", pageId: "24871574", price: 26.99 },
+          { track: "Red", productId: "24953280", pageId: "24871574", price: 26.99 },
           { track: "Blue", productId: "24952964", pageId: "24871574", price: 26.99 },
         ],
       },
@@ -411,8 +409,7 @@ const PACKAGES: PackageDefinition[] = [
   {
     id: "ultimate-qualifier-mega",
     name: "Ultimate Qualifier",
-    shortDescription:
-      "Starter Mega + Intermediate Mega + license + POV + free appetizer",
+    shortDescription: "Starter Mega + Intermediate Mega + license + POV + free appetizer",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     // First-time racers only. A returning racer who's already
@@ -470,8 +467,7 @@ const PACKAGES: PackageDefinition[] = [
   {
     id: "ultimate-qualifier-weekday",
     name: "Ultimate Qualifier",
-    shortDescription:
-      "Starter + Intermediate + License + POV + free appetizer",
+    shortDescription: "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -484,7 +480,7 @@ const PACKAGES: PackageDefinition[] = [
         label: "Starter Race",
         tier: "starter",
         tracks: [
-          { track: "Red",  productId: "24960859", pageId: "24961568", price: 20.99 },
+          { track: "Red", productId: "24960859", pageId: "24961568", price: 20.99 },
           { track: "Blue", productId: "24960393", pageId: "24961568", price: 20.99 },
         ],
       },
@@ -494,7 +490,7 @@ const PACKAGES: PackageDefinition[] = [
         label: "Intermediate Race",
         tier: "intermediate",
         tracks: [
-          { track: "Red",  productId: "45810802", pageId: "25850629", price: 20.99 },
+          { track: "Red", productId: "45810802", pageId: "25850629", price: 20.99 },
           { track: "Blue", productId: "45811366", pageId: "25850629", price: 20.99 },
         ],
         minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
@@ -567,8 +563,7 @@ const PACKAGES: PackageDefinition[] = [
   {
     id: "ultimate-qualifier-weekend",
     name: "Ultimate Qualifier",
-    shortDescription:
-      "Starter + Intermediate + License + POV + free appetizer",
+    shortDescription: "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -581,7 +576,7 @@ const PACKAGES: PackageDefinition[] = [
         label: "Starter Race",
         tier: "starter",
         tracks: [
-          { track: "Red",  productId: "24953280", pageId: "24871574", price: 26.99 },
+          { track: "Red", productId: "24953280", pageId: "24871574", price: 26.99 },
           { track: "Blue", productId: "24952964", pageId: "24871574", price: 26.99 },
         ],
       },
@@ -591,7 +586,7 @@ const PACKAGES: PackageDefinition[] = [
         label: "Intermediate Race",
         tier: "intermediate",
         tracks: [
-          { track: "Red",  productId: "45811390", pageId: "25850598", price: 26.99 },
+          { track: "Red", productId: "45811390", pageId: "25850598", price: 26.99 },
           { track: "Blue", productId: "45811415", pageId: "25850598", price: 26.99 },
         ],
         minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
@@ -781,7 +776,9 @@ export function packageSavings(pkg: PackageDefinition, racerCount: number): numb
 }
 
 /** Pull the gap rule for a component, if any. */
-export function packageHeatGapMinutes(component: PackageRaceComponent): { ref: string; minutes: number } | null {
+export function packageHeatGapMinutes(
+  component: PackageRaceComponent,
+): { ref: string; minutes: number } | null {
   return component.minMinutesAfterEndOf ?? null;
 }
 

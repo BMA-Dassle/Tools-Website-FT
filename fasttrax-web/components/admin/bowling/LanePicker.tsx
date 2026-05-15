@@ -90,9 +90,7 @@ export default function LanePicker({ lanes, selected, onChange, loading }: LaneP
   return (
     <div>
       {loading && (
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
-          Loading lanes...
-        </div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>Loading lanes...</div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {sorted.map((lane) => {
@@ -115,11 +113,27 @@ export default function LanePicker({ lanes, selected, onChange, loading }: LaneP
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: "#6b7280" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#22c55e", display: "inline-block" }} />
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              backgroundColor: "#22c55e",
+              display: "inline-block",
+            }}
+          />
           Available
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#ef4444", display: "inline-block" }} />
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              backgroundColor: "#ef4444",
+              display: "inline-block",
+            }}
+          />
           In Use
         </span>
       </div>

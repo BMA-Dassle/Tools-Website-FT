@@ -80,9 +80,11 @@ function birthYearFrom(birthday: string): number | null {
 /** Parse "YYYY-MM-DD" or "MM/DD/YYYY" into {month, day, year}. */
 function parseBirthday(raw: string): { month: string; day: string; year: string } {
   const ymd = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw.trim());
-  if (ymd) return { year: ymd[1], month: String(parseInt(ymd[2], 10)), day: String(parseInt(ymd[3], 10)) };
+  if (ymd)
+    return { year: ymd[1], month: String(parseInt(ymd[2], 10)), day: String(parseInt(ymd[3], 10)) };
   const mdy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw.trim());
-  if (mdy) return { month: String(parseInt(mdy[1], 10)), day: String(parseInt(mdy[2], 10)), year: mdy[3] };
+  if (mdy)
+    return { month: String(parseInt(mdy[1], 10)), day: String(parseInt(mdy[2], 10)), year: mdy[3] };
   return { month: "", day: "", year: "" };
 }
 
@@ -98,7 +100,16 @@ function parseBirthday(raw: string): { month: string; day: string; year: string 
  */
 async function registerOnKidsBowlFree(input: {
   alleyId: string;
-  parent: { firstName: string; lastName: string; email: string; phone: string; address?: string; city?: string; state?: string; zip?: string };
+  parent: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
   kids: { firstName: string; lastName: string; birthday: string }[];
   password: string;
 }): Promise<void> {

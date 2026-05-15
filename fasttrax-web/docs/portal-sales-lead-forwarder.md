@@ -2,7 +2,7 @@
 
 **Target repo:** `C:\GIT\Tools-Team-Member-Portal`
 **Target file:** `api/bot/messages.ts`
-**Paired feature:** `fasttrax-web` Sales-Leads Flow (see [`okay-we-need-to-harmonic-gem.md`](../../../..\Users\eric.osborn.CORP\.claude\plans\okay-we-need-to-harmonic-gem.md))
+**Paired feature:** `fasttrax-web` Sales-Leads Flow (see [`okay-we-need-to-harmonic-gem.md`](../../../..\Users\eric.osborn.CORP.claude\plans\okay-we-need-to-harmonic-gem.md))
 
 ---
 
@@ -10,7 +10,7 @@
 
 We built a sales-leads flow in `fasttrax-web` that posts Teams Adaptive Cards with **Acknowledged** and **Contacted** action buttons into planner chats. The bot app that sends these cards is **the portal's existing bot** (`BOT_APP_ID = ecb2f15a-ff53-479b-836f-c3bf3d8a562f`), so sending works out-of-the-box — the OAuth2 client-credentials flow uses the same `BOT_APP_ID` + `BOT_APP_SECRET` from either app's env.
 
-**Problem:** when a planner *clicks* a button on one of those cards, Teams POSTs the invoke activity to the bot's registered Azure messaging endpoint — which currently points at `portal.headpinz.com/api/bot/messages`. fasttrax-web never sees the click, so the card never updates, Redis state never transitions, and the audit trail never logs the action.
+**Problem:** when a planner _clicks_ a button on one of those cards, Teams POSTs the invoke activity to the bot's registered Azure messaging endpoint — which currently points at `portal.headpinz.com/api/bot/messages`. fasttrax-web never sees the click, so the card never updates, Redis state never transitions, and the audit trail never logs the action.
 
 **Solution:** the portal forwards any `sales_lead_*` verb to fasttrax-web via HTTP, fasttrax handles the state transition + card update, returns the new card to portal, and portal passes that back to Teams as the invoke response. No Azure changes, no new Teams app install.
 
@@ -45,21 +45,21 @@ The portal does **not** need to know anything about sales-lead state, render any
 //
 // Portal keeps zero state about sales leads — this is a transparent pipe.
 
-const SALES_LEAD_VERBS = new Set(['sales_lead_ack', 'sales_lead_contacted']);
+const SALES_LEAD_VERBS = new Set(["sales_lead_ack", "sales_lead_contacted"]);
 
 const FASTTRAX_BOT_ACTION_URL =
-  process.env.FASTTRAX_BOT_ACTION_URL || 'https://headpinz.com/api/teams/bot-action';
-const PORTAL_FORWARD_SECRET = process.env.PORTAL_FORWARD_SECRET || '';
+  process.env.FASTTRAX_BOT_ACTION_URL || "https://headpinz.com/api/teams/bot-action";
+const PORTAL_FORWARD_SECRET = process.env.PORTAL_FORWARD_SECRET || "";
 
 async function forwardSalesLeadAction(activity: any): Promise<any> {
   if (!PORTAL_FORWARD_SECRET) {
-    throw new Error('PORTAL_FORWARD_SECRET is not configured');
+    throw new Error("PORTAL_FORWARD_SECRET is not configured");
   }
   const resp = await fetch(FASTTRAX_BOT_ACTION_URL, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'x-portal-forward-secret': PORTAL_FORWARD_SECRET,
+      "Content-Type": "application/json",
+      "x-portal-forward-secret": PORTAL_FORWARD_SECRET,
     },
     body: JSON.stringify(activity),
     // Teams invoke budget is ~15s. Keep fasttrax under 10s, leaving us buffer.
@@ -77,75 +77,77 @@ async function forwardSalesLeadAction(activity: any): Promise<any> {
 **Then, in the existing `invoke` handler** (currently lines 210-251 of `messages.ts`), insert the forwarder **before** the `ACTION_HANDLERS` lookup. Here's the relevant before/after — just the changed region inside `case 'invoke':`:
 
 **Before** (current code, `messages.ts:217-235`):
+
 ```ts
-          const actionVerb = activity.value?.action?.verb;
-          const actionData = activity.value?.action?.data || activity.value?.data;
-          const actionType = actionVerb || actionData?.action;
+const actionVerb = activity.value?.action?.verb;
+const actionData = activity.value?.action?.data || activity.value?.data;
+const actionType = actionVerb || actionData?.action;
 
-          if (!actionType) {
-            return res.status(200).json({
-              status: 400,
-              body: 'Missing action type in card data',
-            });
-          }
+if (!actionType) {
+  return res.status(200).json({
+    status: 400,
+    body: "Missing action type in card data",
+  });
+}
 
-          const actionHandler = ACTION_HANDLERS[actionType];
-          if (!actionHandler) {
-            console.warn(`Unknown bot action: ${actionType}`);
-            return res.status(200).json({
-              status: 400,
-              body: `Unknown action: ${actionType}`,
-            });
-          }
+const actionHandler = ACTION_HANDLERS[actionType];
+if (!actionHandler) {
+  console.warn(`Unknown bot action: ${actionType}`);
+  return res.status(200).json({
+    status: 400,
+    body: `Unknown action: ${actionType}`,
+  });
+}
 ```
 
 **After**:
+
 ```ts
-          const actionVerb = activity.value?.action?.verb;
-          const actionData = activity.value?.action?.data || activity.value?.data;
-          const actionType = actionVerb || actionData?.action;
+const actionVerb = activity.value?.action?.verb;
+const actionData = activity.value?.action?.data || activity.value?.data;
+const actionType = actionVerb || actionData?.action;
 
-          if (!actionType) {
-            return res.status(200).json({
-              status: 400,
-              body: 'Missing action type in card data',
-            });
-          }
+if (!actionType) {
+  return res.status(200).json({
+    status: 400,
+    body: "Missing action type in card data",
+  });
+}
 
-          // ── Sales-lead verbs → forward to fasttrax-web ──
-          if (SALES_LEAD_VERBS.has(actionType)) {
-            try {
-              const result = await forwardSalesLeadAction(activity);
-              // fasttrax can return EITHER a success card-replace shape OR
-              // an error-toast shape (`application/vnd.microsoft.error`).
-              // Pass its full response through verbatim — do not reconstruct.
-              return res.status(200).json(result);
-            } catch (err: any) {
-              console.error('[SalesLead forward]', err?.message);
-              // CRITICAL: on local failure (fetch error, timeout) we return
-              // an ERROR-TOAST response, NOT a replacement card. Teams shows
-              // the clicker a small error popup; the original card stays
-              // intact for everyone else. Replacing the card on every forward
-              // hiccup would destroy the chat history.
-              return res.status(200).json({
-                statusCode: 502,
-                type: 'application/vnd.microsoft.error',
-                value: {
-                  code: 'BadGateway',
-                  message: `Sales lead update failed: ${err?.message || 'forward error'}`,
-                },
-              });
-            }
-          }
+// ── Sales-lead verbs → forward to fasttrax-web ──
+if (SALES_LEAD_VERBS.has(actionType)) {
+  try {
+    const result = await forwardSalesLeadAction(activity);
+    // fasttrax can return EITHER a success card-replace shape OR
+    // an error-toast shape (`application/vnd.microsoft.error`).
+    // Pass its full response through verbatim — do not reconstruct.
+    return res.status(200).json(result);
+  } catch (err: any) {
+    console.error("[SalesLead forward]", err?.message);
+    // CRITICAL: on local failure (fetch error, timeout) we return
+    // an ERROR-TOAST response, NOT a replacement card. Teams shows
+    // the clicker a small error popup; the original card stays
+    // intact for everyone else. Replacing the card on every forward
+    // hiccup would destroy the chat history.
+    return res.status(200).json({
+      statusCode: 502,
+      type: "application/vnd.microsoft.error",
+      value: {
+        code: "BadGateway",
+        message: `Sales lead update failed: ${err?.message || "forward error"}`,
+      },
+    });
+  }
+}
 
-          const actionHandler = ACTION_HANDLERS[actionType];
-          if (!actionHandler) {
-            console.warn(`Unknown bot action: ${actionType}`);
-            return res.status(200).json({
-              status: 400,
-              body: `Unknown action: ${actionType}`,
-            });
-          }
+const actionHandler = ACTION_HANDLERS[actionType];
+if (!actionHandler) {
+  console.warn(`Unknown bot action: ${actionType}`);
+  return res.status(200).json({
+    status: 400,
+    body: `Unknown action: ${actionType}`,
+  });
+}
 ```
 
 The forwarder block goes **between** the `if (!actionType)` early-return and the `ACTION_HANDLERS[actionType]` lookup. No existing handlers are affected — the `SALES_LEAD_VERBS` set is tight and won't conflict with portal verbs (`acknowledge_break_alert`, `acknowledge_work_order`, `close_work_order`, `submit_close_work_order`, `select_location`).
@@ -162,6 +164,7 @@ PORTAL_FORWARD_SECRET=<same value as in fasttrax-web/.env.local>
 The same `PORTAL_FORWARD_SECRET` value lives in both repos' envs — that's how fasttrax-web authenticates the incoming invoke as coming from the portal (header: `x-portal-forward-secret`). When rotating, update both at the same time.
 
 Current value already chosen and in `fasttrax-web/.env.local`:
+
 ```
 PORTAL_FORWARD_SECRET=c7f3b21e9d4a58b6e0f17c9d3a42b85e6f981c0b2d4e7a5c8f9b0d1e2f3a4b5c
 ```
@@ -178,11 +181,11 @@ PORTAL_FORWARD_SECRET=c7f3b21e9d4a58b6e0f17c9d3a42b85e6f981c0b2d4e7a5c8f9b0d1e2f
 
 Three options were considered (see plan §3c):
 
-| Option | Pros | Cons | Verdict |
-|---|---|---|---|
-| **A. Portal forwards sales-lead invokes to fasttrax** | No Azure changes, no new Teams install, portal stays primary handler | Small cross-repo coupling | **Chosen** |
-| B. Register a second Azure bot for fasttrax | Clean separation | New Teams app install, planners add new bot to each chat, more ops surface | Rejected — too much friction |
-| C. Move messaging endpoint to fasttrax, forward non-sales to portal | Inverse of A | Portal traffic is higher, worse coupling | Rejected |
+| Option                                                              | Pros                                                                 | Cons                                                                       | Verdict                      |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------- |
+| **A. Portal forwards sales-lead invokes to fasttrax**               | No Azure changes, no new Teams install, portal stays primary handler | Small cross-repo coupling                                                  | **Chosen**                   |
+| B. Register a second Azure bot for fasttrax                         | Clean separation                                                     | New Teams app install, planners add new bot to each chat, more ops surface | Rejected — too much friction |
+| C. Move messaging endpoint to fasttrax, forward non-sales to portal | Inverse of A                                                         | Portal traffic is higher, worse coupling                                   | Rejected                     |
 
 ---
 

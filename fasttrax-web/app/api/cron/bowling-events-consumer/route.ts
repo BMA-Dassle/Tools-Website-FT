@@ -52,12 +52,12 @@ const BATCH_SIZE = 50;
 // QAMF reservation-level status → Neon status mapping.
 // See docs/qamf-lane-lifecycle.md for the full state machine.
 const QAMF_STATUS_MAP: Record<string, BowlingReservation["status"] | "cancel"> = {
-  Confirmed:  "confirmed",
-  Ready:      "arrived",     // reservation-level Ready = lanes assigned
-  Arrived:    "arrived",
-  Completed:  "completed",
-  Canceled:   "cancel",      // triggers refund flow
-  Cancelled:  "cancel",      // alternate spelling
+  Confirmed: "confirmed",
+  Ready: "arrived", // reservation-level Ready = lanes assigned
+  Arrived: "arrived",
+  Completed: "completed",
+  Canceled: "cancel", // triggers refund flow
+  Cancelled: "cancel", // alternate spelling
 };
 
 interface QamfWebhookEntry {
@@ -77,13 +77,13 @@ interface QamfWebhookEntry {
 }
 
 const results = {
-  processed:  0,
-  updated:    0,
-  cancelled:  0,
-  refunded:   0,
-  skipped:    0,
-  errors:     0,
-  unknown:    0,
+  processed: 0,
+  updated: 0,
+  cancelled: 0,
+  refunded: 0,
+  skipped: 0,
+  errors: 0,
+  unknown: 0,
 };
 
 async function handleCancellation(
@@ -106,17 +106,17 @@ async function handleCancellation(
       const idempotencyKey = `qamf-cancel-${webhookId}`;
       const result = await processSquareBowlingRefund({
         depositPaymentId: reservation.squareDepositPaymentId,
-        giftCardId:       reservation.squareGiftCardId,
-        dayofOrderId:     reservation.squareDayofOrderId,
-        locationId:       reservation.centerCode,
+        giftCardId: reservation.squareGiftCardId,
+        dayofOrderId: reservation.squareDayofOrderId,
+        locationId: reservation.centerCode,
         idempotencyKey,
       });
       squareRefundId = result.refundId;
-      refundCents    = result.refundedCents;
+      refundCents = result.refundedCents;
       results.refunded++;
       console.log(
         `[bowling-events] neonId=${reservation.id} refunded ${refundCents}¢` +
-        ` refundId=${result.refundId}`,
+          ` refundId=${result.refundId}`,
       );
     } catch (err) {
       // Log but still mark cancelled in Neon — staff can manually refund
@@ -142,8 +142,14 @@ export async function GET(req: NextRequest) {
   const started = Date.now();
 
   // Reset counters
-  results.processed = results.updated = results.cancelled =
-    results.refunded = results.skipped = results.errors = results.unknown = 0;
+  results.processed =
+    results.updated =
+    results.cancelled =
+    results.refunded =
+    results.skipped =
+    results.errors =
+    results.unknown =
+      0;
 
   try {
     // Drain up to BATCH_SIZE events from the RIGHT end (oldest-first FIFO)
@@ -169,10 +175,10 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const eventType   = entry.eventType ?? entry.raw?.Type ?? "unknown";
-      const data        = entry.raw?.Data;
-      const qamfId      = data?.Id ?? "";
-      const qamfStatus  = data?.Status ?? "";
+      const eventType = entry.eventType ?? entry.raw?.Type ?? "unknown";
+      const data = entry.raw?.Data;
+      const qamfId = data?.Id ?? "";
+      const qamfStatus = data?.Status ?? "";
 
       // Only process tracked prefixes (X=web, K=kiosk, C=conqueror)
       const TRACKED_PREFIXES = ["X", "K", "C"];
@@ -192,24 +198,31 @@ export async function GET(req: NextRequest) {
         const existing = await getBowlingReservationByQamfId(qamfId);
         if (!existing && entry.centerId) {
           try {
-            const QAMF_ID_TO_CODE: Record<number, string> = { 9172: "TXBSQN0FEKQ11", 3148: "PPTR5G2N0QXF7" };
+            const QAMF_ID_TO_CODE: Record<number, string> = {
+              9172: "TXBSQN0FEKQ11",
+              3148: "PPTR5G2N0QXF7",
+            };
             const cc = QAMF_ID_TO_CODE[entry.centerId];
             if (cc) {
               const qamfRes = await getReservation(entry.centerId, qamfId);
               const guest = qamfRes.Customer?.Guest;
-              await insertBowlingReservation({
-                centerCode: cc,
-                productKind: "open",
-                qamfReservationId: qamfId,
-                depositCents: 0, totalCents: 0,
-                status: "confirmed",
-                bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
-                playerCount: qamfRes.TotalPlayers ?? undefined,
-                guestName: guest?.Name ?? undefined,
-                guestEmail: guest?.Email ?? undefined,
-                guestPhone: guest?.PhoneNumber ?? undefined,
-                bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
-              }, []);
+              await insertBowlingReservation(
+                {
+                  centerCode: cc,
+                  productKind: "open",
+                  qamfReservationId: qamfId,
+                  depositCents: 0,
+                  totalCents: 0,
+                  status: "confirmed",
+                  bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
+                  playerCount: qamfRes.TotalPlayers ?? undefined,
+                  guestName: guest?.Name ?? undefined,
+                  guestEmail: guest?.Email ?? undefined,
+                  guestPhone: guest?.PhoneNumber ?? undefined,
+                  bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
+                },
+                [],
+              );
               console.log(`[bowling-events] walkin backfill qamfId=${qamfId}`);
             }
           } catch (err) {
@@ -235,20 +248,31 @@ export async function GET(req: NextRequest) {
       let reservation = await getBowlingReservationByQamfId(qamfId);
       if (!reservation && (qamfId.startsWith("K") || qamfId.startsWith("C")) && entry.centerId) {
         try {
-          const QAMF_ID_TO_CODE: Record<number, string> = { 9172: "TXBSQN0FEKQ11", 3148: "PPTR5G2N0QXF7" };
+          const QAMF_ID_TO_CODE: Record<number, string> = {
+            9172: "TXBSQN0FEKQ11",
+            3148: "PPTR5G2N0QXF7",
+          };
           const cc = QAMF_ID_TO_CODE[entry.centerId];
           if (cc) {
             const qamfRes = await getReservation(entry.centerId, qamfId);
             const guest = qamfRes.Customer?.Guest;
-            await insertBowlingReservation({
-              centerCode: cc, productKind: "open", qamfReservationId: qamfId,
-              depositCents: 0, totalCents: 0, status: "confirmed",
-              bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
-              playerCount: qamfRes.TotalPlayers ?? undefined,
-              guestName: guest?.Name ?? undefined, guestEmail: guest?.Email ?? undefined,
-              guestPhone: guest?.PhoneNumber ?? undefined,
-              bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
-            }, []);
+            await insertBowlingReservation(
+              {
+                centerCode: cc,
+                productKind: "open",
+                qamfReservationId: qamfId,
+                depositCents: 0,
+                totalCents: 0,
+                status: "confirmed",
+                bookedAt: qamfRes.BookedAt ?? new Date().toISOString(),
+                playerCount: qamfRes.TotalPlayers ?? undefined,
+                guestName: guest?.Name ?? undefined,
+                guestEmail: guest?.Email ?? undefined,
+                guestPhone: guest?.PhoneNumber ?? undefined,
+                bookingSource: qamfId.startsWith("K") ? "kiosk" : "conqueror",
+              },
+              [],
+            );
             reservation = await getBowlingReservationByQamfId(qamfId);
           }
         } catch (err) {
@@ -264,7 +288,7 @@ export async function GET(req: NextRequest) {
       if (dryRun) {
         console.log(
           `[bowling-events] dryRun: would process qamfId=${qamfId}` +
-          ` neonId=${reservation.id} type=${eventType} status=${qamfStatus}`,
+            ` neonId=${reservation.id} type=${eventType} status=${qamfStatus}`,
         );
         results.skipped++;
         continue;
@@ -272,7 +296,9 @@ export async function GET(req: NextRequest) {
 
       // ── reservation.deleted → always cancel + refund ──────────────────
       if (eventType === "reservation.deleted") {
-        console.log(`[bowling-events] reservation.deleted qamfId=${qamfId} neonId=${reservation.id}`);
+        console.log(
+          `[bowling-events] reservation.deleted qamfId=${qamfId} neonId=${reservation.id}`,
+        );
         await handleCancellation(reservation, entry.webhookId);
         continue;
       }
@@ -337,7 +363,11 @@ export async function GET(req: NextRequest) {
         //     time to collect shoe sizes via check-in before sending to KDS)
         //  3. Lanes[].Status="Running"  (lane-level) — all prefixes
         const webhookLanes = Array.isArray((data as Record<string, unknown>)?.Lanes)
-          ? ((data as Record<string, unknown>).Lanes as Array<{ LaneNumber?: number; Status?: string; Players?: Array<{ Name?: string; ShoeSize?: string | null }> }>)
+          ? ((data as Record<string, unknown>).Lanes as Array<{
+              LaneNumber?: number;
+              Status?: string;
+              Players?: Array<{ Name?: string; ShoeSize?: string | null }>;
+            }>)
           : [];
         const rezStatusReady = qamfStatus === "Ready";
         const hasReadyLane = webhookLanes.some((l) => l.Status === "Ready");
@@ -350,8 +380,8 @@ export async function GET(req: NextRequest) {
           const tLaneOpen = Date.now();
           console.log(
             `[bowling-events] lane-open trigger neonId=${reservation.id} qamfId=${qamfId}` +
-            ` Data.Status="${qamfStatus}" rezReady=${rezStatusReady} laneReady=${hasReadyLane} laneRunning=${hasRunningLane} isKiosk=${isKiosk}` +
-            ` webhookId=${entry.webhookId}`,
+              ` Data.Status="${qamfStatus}" rezReady=${rezStatusReady} laneReady=${hasReadyLane} laneRunning=${hasRunningLane} isKiosk=${isKiosk}` +
+              ` webhookId=${entry.webhookId}`,
           );
 
           // Extract lane numbers directly from the webhook payload —
@@ -373,7 +403,9 @@ export async function GET(req: NextRequest) {
               try {
                 const tQamf = Date.now();
                 const qamfRes = await getReservation(centerId, qamfId);
-                console.log(`[bowling-events] getReservation fallback neonId=${reservation.id} ${Date.now() - tQamf}ms`);
+                console.log(
+                  `[bowling-events] getReservation fallback neonId=${reservation.id} ${Date.now() - tQamf}ms`,
+                );
                 laneNumbers = (qamfRes.Lanes ?? [])
                   .map((l) => l.LaneNumber)
                   .filter((n): n is number => typeof n === "number");
@@ -422,9 +454,9 @@ export async function GET(req: NextRequest) {
             });
             console.log(
               `[bowling-events] lane-open neonId=${reservation.id} totalMs=${Date.now() - tLaneOpen}` +
-              ` lane="${laneResult.laneLabel}" kitchen=${laneResult.kitchenItemsUpdated}` +
-              ` paymentId=${laneResult.paymentId ?? "none"}` +
-              (laneResult.error ? ` error=${laneResult.error}` : ""),
+                ` lane="${laneResult.laneLabel}" kitchen=${laneResult.kitchenItemsUpdated}` +
+                ` paymentId=${laneResult.paymentId ?? "none"}` +
+                (laneResult.error ? ` error=${laneResult.error}` : ""),
             );
           } catch (err) {
             console.error(
@@ -441,7 +473,7 @@ export async function GET(req: NextRequest) {
         if (!neonAction) {
           console.log(
             `[bowling-events] reservation.updated qamfId=${qamfId}` +
-            ` status=${qamfStatus} — no mapped action, skip`,
+              ` status=${qamfStatus} — no mapped action, skip`,
           );
           results.skipped++;
           continue;
@@ -450,7 +482,7 @@ export async function GET(req: NextRequest) {
         if (neonAction === "cancel") {
           console.log(
             `[bowling-events] reservation.updated with status=${qamfStatus}` +
-            ` → cancellation qamfId=${qamfId} neonId=${reservation.id}`,
+              ` → cancellation qamfId=${qamfId} neonId=${reservation.id}`,
           );
           await handleCancellation(reservation, entry.webhookId);
           continue;
@@ -466,7 +498,7 @@ export async function GET(req: NextRequest) {
         if (current === "completed" || current === "cancelled") {
           console.log(
             `[bowling-events] skipping status transition ${current} → ${neonAction}` +
-            ` (terminal state) neonId=${reservation.id}`,
+              ` (terminal state) neonId=${reservation.id}`,
           );
           results.skipped++;
           continue;
@@ -476,7 +508,7 @@ export async function GET(req: NextRequest) {
         results.updated++;
         console.log(
           `[bowling-events] neonId=${reservation.id} qamfId=${qamfId}` +
-          ` status ${current} → ${neonAction}`,
+            ` status ${current} → ${neonAction}`,
         );
         continue;
       }

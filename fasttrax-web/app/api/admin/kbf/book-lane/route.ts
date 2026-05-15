@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  setReservationCustomer,
-  setReservationStatus,
-} from "@/lib/qamf-bowling";
+import { setReservationCustomer, setReservationStatus } from "@/lib/qamf-bowling";
 import {
   insertBowlingReservation,
   insertReservationPlayers,
@@ -63,19 +60,12 @@ export async function POST(req: NextRequest) {
 
   const centerId = CENTER_CODE_TO_QAMF[centerCode];
   if (!centerId || !qamfId || !bowlers?.length || !rawBookedAt) {
-    return NextResponse.json(
-      { error: "Missing required fields" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
   // QAMF requires minutes as multiples of 5, seconds=0, ms=0
   const bookedAtDate = new Date(rawBookedAt);
-  bookedAtDate.setMinutes(
-    Math.floor(bookedAtDate.getMinutes() / 5) * 5,
-    0,
-    0,
-  );
+  bookedAtDate.setMinutes(Math.floor(bookedAtDate.getMinutes() / 5) * 5, 0, 0);
   const bookedAt = bookedAtDate.toISOString().replace(/\.\d{3}Z$/, "Z");
 
   const steps: string[] = [];
@@ -155,8 +145,7 @@ export async function POST(req: NextRequest) {
           relation: b.kbfRelation,
           wantBumpers: b.bumpers ?? null,
           shoeSizeLabel: b.shoeSize || null,
-          lastUsedCenter:
-            centerCode === "TXBSQN0FEKQ11" ? "fortmyers" : "naples",
+          lastUsedCenter: centerCode === "TXBSQN0FEKQ11" ? "fortmyers" : "naples",
         }).catch(() => void 0);
       }
     }
@@ -173,10 +162,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Book Lane failed";
-    console.error(
-      `[admin/kbf/book-lane] failed at step ${steps.length}:`,
-      msg,
-    );
+    console.error(`[admin/kbf/book-lane] failed at step ${steps.length}:`, msg);
     return NextResponse.json(
       {
         ok: false,

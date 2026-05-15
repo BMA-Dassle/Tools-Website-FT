@@ -26,11 +26,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function GroupEventsLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function GroupEventsLayout({ children }: { children: React.ReactNode }) {
   // FAQ JSON-LD is rendered by the page component (FAQJsonLd) to avoid
   // duplicate FAQPage schemas that trigger Google Search Console errors.
   // Nav + Footer provided by parent naples/layout.tsx.

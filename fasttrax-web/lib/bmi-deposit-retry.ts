@@ -39,8 +39,8 @@ import { sql, isDbConfigured } from "@/lib/db";
 
 export type DepositFailureSource =
   | "race-pack-square" // /api/square/pay — addDeposit failed after Square charge
-  | "pov-claim"        // /api/pov-codes?action=claim-from-credit — deduct failed
-  | "manual"           // staff-entered backfill row
+  | "pov-claim" // /api/pov-codes?action=claim-from-credit — deduct failed
+  | "manual" // staff-entered backfill row
   | "sales-log-backfill"; // one-time import from old sales_log.deposit_credit_pending rows
 
 export interface DepositFailureRow {
@@ -267,7 +267,10 @@ export async function summarizeFailures(): Promise<FailureSummary> {
 
 /** Look up failures for a specific person — admin "is this person
  *  missing credits?" lookup. */
-export async function listForPerson(personId: string | number, limit: number = 50): Promise<DepositFailureRow[]> {
+export async function listForPerson(
+  personId: string | number,
+  limit: number = 50,
+): Promise<DepositFailureRow[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();
   const q = sql();

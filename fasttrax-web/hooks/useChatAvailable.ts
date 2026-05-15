@@ -134,7 +134,10 @@ export function openChat() {
   const innerShadow = innerEl?.shadowRoot;
   if (innerShadow) {
     const btn = innerShadow.querySelector("#wplc-chat-button, button, a") as HTMLElement | null;
-    if (btn) { btn.click(); return; }
+    if (btn) {
+      btn.click();
+      return;
+    }
   }
 
   // Fallback: try the outer shadow

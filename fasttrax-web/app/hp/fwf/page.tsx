@@ -6,8 +6,7 @@ export const metadata: Metadata = {
     "Sign in to your HeadPinz Rewards account to claim your Free Wing Friday. 5 free wings every Friday 4-6 PM with any food or beverage purchase.",
   openGraph: {
     title: "Free Wing Friday - HeadPinz Rewards",
-    description:
-      "Sign in to claim your Free Wing Friday. 5 free wings every Friday 4-6 PM.",
+    description: "Sign in to claim your Free Wing Friday. 5 free wings every Friday 4-6 PM.",
     type: "website",
     url: "https://headpinz.com/fwf",
   },
@@ -68,9 +67,7 @@ export default function FWFPage() {
               allow="payment"
             />
           </div>
-          <p className="text-center text-white/30 text-xs mt-4">
-            Powered by Square Loyalty
-          </p>
+          <p className="text-center text-white/30 text-xs mt-4">Powered by Square Loyalty</p>
         </div>
       </section>
 
@@ -90,7 +87,8 @@ export default function FWFPage() {
             </span>
           </div>
           <p className="font-body text-white/50 text-sm">
-            4 &ndash; 6 PM with any food or beverage purchase at Nemo&apos;s Trackside. Dine-in only.
+            4 &ndash; 6 PM with any food or beverage purchase at Nemo&apos;s Trackside. Dine-in
+            only.
           </p>
           <a
             href="/rewards"

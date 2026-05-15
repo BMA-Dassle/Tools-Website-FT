@@ -87,10 +87,7 @@ export async function POST(req: NextRequest) {
 
   const qamfCenterId = CENTER_CODE_TO_QAMF[existing.centerCode];
   if (!qamfCenterId) {
-    return NextResponse.json(
-      { error: `unknown center: ${existing.centerCode}` },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: `unknown center: ${existing.centerCode}` }, { status: 400 });
   }
 
   // ── Cancel BMI attraction bookings (best-effort) ──────────────────
@@ -128,7 +125,9 @@ export async function POST(req: NextRequest) {
     }
     try {
       await deleteReservation(qamfCenterId, existing.qamfReservationId);
-      console.log(`[admin/reschedule] neonId=${neonId} deleted old QAMF ${existing.qamfReservationId}`);
+      console.log(
+        `[admin/reschedule] neonId=${neonId} deleted old QAMF ${existing.qamfReservationId}`,
+      );
     } catch (err) {
       // Non-fatal: hold may have expired or been removed already.
       console.warn(
@@ -190,7 +189,9 @@ export async function POST(req: NextRequest) {
     // Try to clean up the orphaned temporary reservation
     try {
       await deleteReservation(qamfCenterId, newQamfId);
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
     return NextResponse.json(
       { error: `QAMF failed to confirm new reservation: ${msg}` },
       { status: 502 },
@@ -241,7 +242,9 @@ export async function POST(req: NextRequest) {
         forceResend: true,
       }),
     }).catch(() => {});
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   return NextResponse.json({
     success: true,

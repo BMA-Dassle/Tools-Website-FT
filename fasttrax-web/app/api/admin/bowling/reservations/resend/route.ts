@@ -32,10 +32,7 @@ export async function POST(req: NextRequest) {
   };
 
   if (!neonId || !channel) {
-    return NextResponse.json(
-      { error: "neonId and channel required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "neonId and channel required" }, { status: 400 });
   }
 
   // Delegate to the notification route with forceResend + explicit channel

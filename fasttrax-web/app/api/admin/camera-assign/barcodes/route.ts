@@ -23,10 +23,7 @@ const byBarcodeKey = (bc: string) => `camera-barcode:by-barcode:${bc}`;
 export async function GET() {
   try {
     const raw = await redis.hgetall(MAP_KEY);
-    return NextResponse.json(
-      { mappings: raw || {} },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ mappings: raw || {} }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("[barcodes GET]", err);
     return NextResponse.json({ error: "read failed" }, { status: 500 });

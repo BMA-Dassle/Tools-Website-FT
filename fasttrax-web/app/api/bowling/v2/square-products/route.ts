@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getBowlingSquareProducts,
-  type BowlingProductKind,
-} from "@/lib/bowling-db";
+import { getBowlingSquareProducts, type BowlingProductKind } from "@/lib/bowling-db";
 
 /**
  * GET /api/bowling/v2/square-products
@@ -31,10 +28,7 @@ export async function GET(req: NextRequest) {
 
   const centerCode = centerCodeParam ?? (centerId ? CENTER_ID_TO_CODE[centerId] : null);
   if (!centerCode) {
-    return NextResponse.json(
-      { error: "centerId or centerCode required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "centerId or centerCode required" }, { status: 400 });
   }
 
   try {
