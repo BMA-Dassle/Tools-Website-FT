@@ -84,6 +84,51 @@ function sqHeaders(): Record<string, string> {
   };
 }
 
+/** A Square HTTP status that indicates a transient failure worth retrying. */
+function isTransientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+/**
+ * fetch() wrapper with exponential backoff retry on 429 + 5xx.
+ *
+ * Square occasionally throws 429 (rate limit) under bursty load — e.g. when
+ * many lanes go Running within the same second. The 429 window is short
+ * (typically <1s), so two retries with 250ms / 750ms backoff almost always
+ * succeed. If all attempts fail with a transient status, the final response
+ * is returned (caller can inspect .status), and callers should mark the
+ * reservation as retryable so the lane-poll cron can pick it up again later.
+ *
+ * POSTs to Square use idempotency keys, so retries cannot double-charge.
+ */
+async function fetchWithRetry(url: string, init: RequestInit, label: string): Promise<Response> {
+  const delaysMs = [250, 750]; // retries 2 and 3
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      if (attempt < delaysMs.length) {
+        console.warn(
+          `[lane-open] ${label} threw attempt ${attempt + 1}, retrying in ${delaysMs[attempt]}ms:`,
+          err instanceof Error ? err.message : err,
+        );
+        await new Promise((r) => setTimeout(r, delaysMs[attempt]));
+        continue;
+      }
+      throw err;
+    }
+    if (isTransientStatus(res.status) && attempt < delaysMs.length) {
+      console.warn(
+        `[lane-open] ${label} ${res.status} attempt ${attempt + 1}, retrying in ${delaysMs[attempt]}ms`,
+      );
+      await new Promise((r) => setTimeout(r, delaysMs[attempt]));
+      continue;
+    }
+    return res;
+  }
+}
+
 function buildLaneLabel(laneNumbers: number[]): string {
   if (laneNumbers.length === 0) return "";
   if (laneNumbers.length === 1) return `Lane ${laneNumbers[0]}`;
@@ -123,22 +168,35 @@ export async function processLaneOpen(opts: {
   let paymentId: string | undefined;
   let paymentCents: number | undefined;
   let processingError: string | undefined;
+  // True when processingError was caused by a transient Square failure
+  // (429/5xx/network) AFTER our in-function retries were exhausted. The
+  // caller leaves dayof_order_sent_at NULL so the lane-poll cron retries.
+  let retryable = false;
 
   const srcTag = source ?? "unknown";
 
   if (reservation.squareDayofOrderId) {
     // ── 1. Fetch day-of order ─────────────────────────────────────
     const tOrder = Date.now();
-    const orderRes = await fetch(`${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`, {
-      headers: sqHeaders(),
-      cache: "no-store",
-    });
+    const orderRes = await fetchWithRetry(
+      `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+      { headers: sqHeaders(), cache: "no-store" },
+      `GET order neonId=${neonId}`,
+    );
     console.log(`[lane-open] neonId=${neonId} src=${srcTag} GET order ${Date.now() - tOrder}ms`);
     if (!orderRes.ok) {
       const body = (await orderRes.json().catch(() => ({}))) as { errors?: { detail: string }[] };
       const msg = body.errors?.[0]?.detail ?? `Order fetch failed (${orderRes.status})`;
-      console.error(`[lane-open] neonId=${neonId} order fetch failed: ${msg}`);
-      await updateBowlingReservationLaneOpen(neonId, { laneNumbers, error: msg, source });
+      const transient = isTransientStatus(orderRes.status);
+      console.error(
+        `[lane-open] neonId=${neonId} order fetch failed: ${msg} (retryable=${transient})`,
+      );
+      await updateBowlingReservationLaneOpen(neonId, {
+        laneNumbers,
+        error: msg,
+        source,
+        retryable: transient,
+      });
       return { ok: false, laneLabel, kitchenItemsUpdated: 0, error: msg };
     }
     const orderJson = (await orderRes.json()) as { order?: SquareOrder };
@@ -166,30 +224,31 @@ export async function processLaneOpen(opts: {
       let updatedOrderVersion = order.version;
       try {
         const tNotes = Date.now();
-        const noteRes = await fetch(`${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`, {
-          method: "PUT",
-          headers: sqHeaders(),
-          body: JSON.stringify({
-            order: {
-              version: order.version,
-              location_id: reservation.centerCode,
-              // SHIPMENT fulfillment → KDS routing
-              fulfillments: [
-                {
-                  type: "SHIPMENT",
-                  shipment_details: {
-                    recipient: { display_name: laneLabel },
+        const noteRes = await fetchWithRetry(
+          `${SQUARE_BASE}/orders/${reservation.squareDayofOrderId}`,
+          {
+            method: "PUT",
+            headers: sqHeaders(),
+            body: JSON.stringify({
+              order: {
+                version: order.version,
+                location_id: reservation.centerCode,
+                // SHIPMENT fulfillment → KDS routing
+                fulfillments: [
+                  {
+                    type: "SHIPMENT",
+                    shipment_details: {
+                      recipient: { display_name: laneLabel },
+                    },
                   },
-                },
-              ],
-              // Sparse note update — only present when there are kitchen items
-              ...(updatedItems.length > 0 ? { line_items: updatedItems } : {}),
-            },
-            idempotency_key: `${idempotencyBase}-notes`,
-          }),
-        });
-        console.log(
-          `[lane-open] neonId=${neonId} src=${srcTag} PUT notes ${Date.now() - tNotes}ms`,
+                ],
+                // Sparse note update — only present when there are kitchen items
+                ...(updatedItems.length > 0 ? { line_items: updatedItems } : {}),
+              },
+              idempotency_key: `${idempotencyBase}-notes`,
+            }),
+          },
+          `PUT notes neonId=${neonId}`,
         );
         if (noteRes.ok) {
           kitchenItemsUpdated = kitchenItems.length;
@@ -217,14 +276,18 @@ export async function processLaneOpen(opts: {
         try {
           // Get authoritative gift card balance
           const tGc = Date.now();
-          const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${reservation.squareGiftCardId}`, {
-            headers: sqHeaders(),
-            cache: "no-store",
-          });
+          const gcRes = await fetchWithRetry(
+            `${SQUARE_BASE}/gift-cards/${reservation.squareGiftCardId}`,
+            { headers: sqHeaders(), cache: "no-store" },
+            `GET gift-card neonId=${neonId}`,
+          );
           console.log(
             `[lane-open] neonId=${neonId} src=${srcTag} GET gift-card ${Date.now() - tGc}ms`,
           );
-          if (!gcRes.ok) throw new Error(`Gift card fetch failed (${gcRes.status})`);
+          if (!gcRes.ok) {
+            if (isTransientStatus(gcRes.status)) retryable = true;
+            throw new Error(`Gift card fetch failed (${gcRes.status})`);
+          }
           const gcJson = (await gcRes.json()) as {
             gift_card?: { balance_money?: { amount?: number } };
           };
@@ -236,19 +299,23 @@ export async function processLaneOpen(opts: {
             const amountToPay = remaining > 0 ? Math.min(gcBalance, remaining) : gcBalance;
 
             const tPay = Date.now();
-            const payRes = await fetch(`${SQUARE_BASE}/payments`, {
-              method: "POST",
-              headers: sqHeaders(),
-              body: JSON.stringify({
-                idempotency_key: `${idempotencyBase}-pay`,
-                source_id: reservation.squareGiftCardId,
-                amount_money: { amount: amountToPay, currency: "USD" },
-                order_id: reservation.squareDayofOrderId,
-                location_id: reservation.centerCode,
-                autocomplete: true,
-                note: `Deposit applied — ${reservation.qamfReservationId ?? `#${reservation.id}`}${laneLabel ? ` — ${laneLabel}` : ""}`,
-              }),
-            });
+            const payRes = await fetchWithRetry(
+              `${SQUARE_BASE}/payments`,
+              {
+                method: "POST",
+                headers: sqHeaders(),
+                body: JSON.stringify({
+                  idempotency_key: `${idempotencyBase}-pay`,
+                  source_id: reservation.squareGiftCardId,
+                  amount_money: { amount: amountToPay, currency: "USD" },
+                  order_id: reservation.squareDayofOrderId,
+                  location_id: reservation.centerCode,
+                  autocomplete: true,
+                  note: `Deposit applied — ${reservation.qamfReservationId ?? `#${reservation.id}`}${laneLabel ? ` — ${laneLabel}` : ""}`,
+                }),
+              },
+              `POST payment neonId=${neonId}`,
+            );
             console.log(
               `[lane-open] neonId=${neonId} src=${srcTag} POST payment ${Date.now() - tPay}ms`,
             );
@@ -276,7 +343,10 @@ export async function processLaneOpen(opts: {
                 errors?: { code: string; detail: string }[];
               };
               const errMsg = errBody.errors?.[0]?.detail ?? `Payment failed (${payRes.status})`;
-              console.error(`[lane-open] neonId=${neonId} gift card payment failed: ${errMsg}`);
+              if (isTransientStatus(payRes.status)) retryable = true;
+              console.error(
+                `[lane-open] neonId=${neonId} gift card payment failed: ${errMsg} (retryable=${retryable})`,
+              );
               processingError = errMsg;
             }
           } else {
@@ -284,7 +354,13 @@ export async function processLaneOpen(opts: {
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          console.error(`[lane-open] neonId=${neonId} payment threw: ${errMsg}`);
+          // fetch() throwing (network error) is also transient
+          if (!(err instanceof Error && err.message.startsWith("Gift card fetch failed"))) {
+            retryable = true;
+          }
+          console.error(
+            `[lane-open] neonId=${neonId} payment threw: ${errMsg} (retryable=${retryable})`,
+          );
           processingError = errMsg;
         }
       }
@@ -382,14 +458,20 @@ export async function processLaneOpen(opts: {
   }
 
   // ── 4. Write to Neon ──────────────────────────────────────────────
+  // On a transient (retryable) error we deliberately leave dayof_order_sent_at
+  // NULL so the lane-poll cron can retry. On success or permanent failure we
+  // set it so we don't redo work or loop on a hopeless error.
   const tNeon = Date.now();
   const written = await updateBowlingReservationLaneOpen(neonId, {
     laneNumbers,
     paymentId,
     error: processingError,
     source,
+    retryable: retryable && !!processingError,
   });
-  console.log(`[lane-open] neonId=${neonId} src=${srcTag} Neon write ${Date.now() - tNeon}ms`);
+  console.log(
+    `[lane-open] neonId=${neonId} src=${srcTag} Neon write ${Date.now() - tNeon}ms retryable=${retryable && !!processingError}`,
+  );
 
   if (!written) {
     // Race: another trigger wrote first — that's fine, no action needed
@@ -400,7 +482,8 @@ export async function processLaneOpen(opts: {
   console.log(
     `[lane-open] neonId=${neonId} src=${srcTag} done totalMs=${Date.now() - t0}` +
       ` lane="${laneLabel}" kitchen=${kitchenItemsUpdated}` +
-      ` paymentId=${paymentId ?? "none"} error=${processingError ?? "none"}`,
+      ` paymentId=${paymentId ?? "none"} error=${processingError ?? "none"}` +
+      ` retryable=${retryable && !!processingError}`,
   );
 
   return {

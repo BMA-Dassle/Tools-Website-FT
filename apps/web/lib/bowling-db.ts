@@ -2017,18 +2017,49 @@ export async function getAllBowlingExperiences(): Promise<
  * idempotency guard — returns false if the row was already processed or
  * the reservation is cancelled.
  *
+ * When `opts.retryable` is true, this records the error and lane/source
+ * metadata but leaves `dayof_order_sent_at` NULL, so the lane-poll cron
+ * (and subsequent webhooks) can retry. Square calls inside processLaneOpen
+ * all use stable idempotency keys so retries are safe.
+ *
  * Called by both the bowling-events-consumer (webhook path) and the
  * bowling-lane-poll cron (polling fallback). Both use the same
  * idempotency keys so concurrent triggers are safe.
  */
 export async function updateBowlingReservationLaneOpen(
   id: number,
-  opts: { laneNumbers: number[]; paymentId?: string; error?: string; source?: string },
+  opts: {
+    laneNumbers: number[];
+    paymentId?: string;
+    error?: string;
+    source?: string;
+    retryable?: boolean;
+  },
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
   await ensureBowlingSchema();
   const q = sql();
   const laneLabel = opts.laneNumbers.join(",");
+
+  if (opts.retryable) {
+    // Transient failure (429/5xx/network). Record the error so admins see
+    // something went wrong, but do NOT set dayof_order_sent_at — that
+    // would burn the idempotency guard and prevent the lane-poll cron
+    // from retrying. Also don't advance status; let the QAMF status
+    // events drive that as usual.
+    const rows = await q`
+      UPDATE bowling_reservations SET
+        dayof_order_lane   = ${laneLabel || null},
+        dayof_order_error  = ${opts.error ?? null},
+        dayof_order_source = ${opts.source ?? null}
+      WHERE id = ${id}
+        AND dayof_order_sent_at IS NULL
+        AND status != 'cancelled'
+      RETURNING id
+    `;
+    return rows.length > 0;
+  }
+
   const rows = await q`
     UPDATE bowling_reservations SET
       dayof_order_sent_at = NOW(),
