@@ -8,6 +8,7 @@ embeds it via iframe using the same HMAC-signed URL pattern as the bowling
 and e-ticket admin embeds.
 
 **Embed URL (HMAC-signed):**
+
 ```
 https://headpinz.com/admin/embed/videos?ts={timestamp}&sig={hmac_hex}
 ```
@@ -19,22 +20,24 @@ https://headpinz.com/admin/embed/videos?ts={timestamp}&sig={hmac_hex}
 Video match log and resend tool for front-desk staff:
 
 ### Table columns
-| Column | Description |
-|--------|-------------|
-| Time | Video capture timestamp (ET) |
-| Racer | First + last name from BMI person record |
-| Track | Red / Blue track |
-| Heat | Heat number + scheduled start |
-| Camera | Hardware camera number |
-| System | Base-station / NFC tag system number |
-| Code | Short video code (customer-facing) |
-| Thumbnail | Video thumbnail preview |
-| Duration | Video length |
-| Match | When the video was matched to the racer |
-| Delivery | SMS/email delivery state |
-| Actions | Resend via SMS, email, or both (with address override) |
+
+| Column    | Description                                            |
+| --------- | ------------------------------------------------------ |
+| Time      | Video capture timestamp (ET)                           |
+| Racer     | First + last name from BMI person record               |
+| Track     | Red / Blue track                                       |
+| Heat      | Heat number + scheduled start                          |
+| Camera    | Hardware camera number                                 |
+| System    | Base-station / NFC tag system number                   |
+| Code      | Short video code (customer-facing)                     |
+| Thumbnail | Video thumbnail preview                                |
+| Duration  | Video length                                           |
+| Match     | When the video was matched to the racer                |
+| Delivery  | SMS/email delivery state                               |
+| Actions   | Resend via SMS, email, or both (with address override) |
 
 ### Admin actions
+
 1. **Resend** — re-deliver video link via SMS, email, or both
 2. **Override address** — resend to a different phone/email than original
 3. **Filter** — by racer name, camera, video code
@@ -48,6 +51,7 @@ Identical to the bowling and e-ticket admin embeds. One shared secret covers
 all embed pages.
 
 ### Auth flow
+
 1. Portal page loads -> calls its own `/api/integrations/admin-embed-url?tool=videos`
 2. That endpoint generates `HMAC-SHA256(ADMIN_EMBED_SECRET, Date.now())`
 3. Returns `https://headpinz.com/admin/embed/videos?ts={timestamp}&sig={hex}`
@@ -116,10 +120,10 @@ bowling has. When embedded, it renders in its default dark theme. Theme support
 
 The video admin client calls these APIs (token injected server-side):
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/admin/videos/list?token=...&date=...` | GET | List matched videos for a date |
-| `/api/admin/videos/resend?token=...` | POST | Resend video link (SMS/email/both) |
+| Endpoint                                    | Method | Description                        |
+| ------------------------------------------- | ------ | ---------------------------------- |
+| `/api/admin/videos/list?token=...&date=...` | GET    | List matched videos for a date     |
+| `/api/admin/videos/resend?token=...`        | POST   | Resend video link (SMS/email/both) |
 
 These are also accessible via the portal's api-key auth (`x-api-key` header with
 `SALES_API_KEYS`).

@@ -73,10 +73,10 @@ Turbo orchestration) is unchanged — only the package manager flipped.
 ### What went wrong, in sequence
 
 1. **PR1 added a workspace-root `pnpm-lock.yaml`** while leaving Vercel's
-   project root at `fasttrax-web/`. The plan said "Vercel impact: none." Wrong.
+   project root at `apps/web/`. The plan said "Vercel impact: none." Wrong.
    **Vercel walks UP from the configured project root looking for any lockfile.**
    Finding `pnpm-lock.yaml` at the repo root caused Vercel to switch from
-   `npm install` to `pnpm install` in `fasttrax-web/` even though nothing inside
+   `npm install` to `pnpm install` in `apps/web/` even though nothing inside
    that directory changed. Build failed with `ERR_PNPM_META_FETCH_FAIL` and a
    cascade of `ERR_INVALID_THIS` registry errors on every package fetch.
 
@@ -98,7 +98,7 @@ Turbo orchestration) is unchanged — only the package manager flipped.
 
 Switched to **npm workspaces + Turborepo** on 2026-05-06:
 
-- Deleted `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc`, `fasttrax-web/package-lock.json`.
+- Deleted `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc`, `apps/web/package-lock.json`.
 - Root `package.json` now has `"workspaces": [...]`, `"packageManager": "npm@11.6.4"`,
   no pnpm-specific fields.
 - Vercel install command override turned OFF (Vercel auto-detects npm from
@@ -108,8 +108,8 @@ Switched to **npm workspaces + Turborepo** on 2026-05-06:
 ### What we lost vs what we kept
 
 **Lost:** pnpm's strict isolated `node_modules`. Transitive deps now hoist —
-`fasttrax-web/eslint.config.mjs` can import `eslint-plugin-jsx-a11y` without
-declaring it in `fasttrax-web/package.json` (it's pulled transitively via
+`apps/web/eslint.config.mjs` can import `eslint-plugin-jsx-a11y` without
+declaring it in `apps/web/package.json` (it's pulled transitively via
 `eslint-config-next`). We're not catching that class of bug at install time
 anymore. Acceptable trade-off; we can add `depcheck` or `knip` to CI later if
 it becomes a real problem.
@@ -230,7 +230,7 @@ body = body.slice(0, -1) + `,"personId":${pid}}`;
 
 ## CRITICAL: Shared top-level routes need middleware update for HeadPinz (2026-04-30)
 
-**ALWAYS add new shared routes to `isSharedTopLevelRoute` in `fasttrax-web/middleware.ts`.**
+**ALWAYS add new shared routes to `isSharedTopLevelRoute` in `apps/web/middleware.ts`.**
 
 The middleware rewrites every HeadPinz request to `/hp{pathname}`, so `headpinz.com/foo` becomes
 `/hp/foo` internally. If `app/hp/foo/page.tsx` doesn't exist, HeadPinz visitors get a 404 even
@@ -243,7 +243,7 @@ rewrite and serves the brand-aware page directly on both domains.
 commit:**
 
 ```ts
-// fasttrax-web/middleware.ts
+// apps/web/middleware.ts
 const isSharedTopLevelRoute =
   pathname === "/accessibility" || pathname.startsWith("/accessibility/") ||
   pathname === "/cancellation-policy" || pathname.startsWith("/cancellation-policy/") ||

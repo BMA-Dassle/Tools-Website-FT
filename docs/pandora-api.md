@@ -17,11 +17,12 @@ Fetches full customer details from BMI Firebird database including contact infor
 **Parameters:**
 | Name | Type | In | Description |
 |------|------|-----|-------------|
-| locationID * | string | path | Square location ID (e.g., `TXBSQN0FEKQ11` for FastTrax FT Myers) |
-| personID * | string | path | BMI Firebird person ID (NOT SMS-Timing ID). Maps via SMS-Timing Office API `externalId` field, but NOT the same value. Example: Curtis Stavich = `713365` in Pandora, `313535` in SMS-Timing, `34147` as externalId. |
+| locationID _ | string | path | Square location ID (e.g., `TXBSQN0FEKQ11` for FastTrax FT Myers) |
+| personID _ | string | path | BMI Firebird person ID (NOT SMS-Timing ID). Maps via SMS-Timing Office API `externalId` field, but NOT the same value. Example: Curtis Stavich = `713365` in Pandora, `313535` in SMS-Timing, `34147` as externalId. |
 | picture | string | query | Include profile picture in response (true/false). Default: true |
 
 **Response (200):**
+
 ```json
 {
   "id": "string",
@@ -38,6 +39,7 @@ Fetches full customer details from BMI Firebird database including contact infor
 ```
 
 **Key fields:**
+
 - `waiverExpiry` — Date the waiver/license expires. Compare to today to check validity.
 - `related` — Array of related person IDs (family members sharing same email/account).
 - `pic` — Base64 encoded profile picture (omit with `?picture=false` to reduce payload).
@@ -45,10 +47,10 @@ Fetches full customer details from BMI Firebird database including contact infor
 
 ## Environment Variables
 
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `SWAGGER_ADMIN_KEY` | `NCrVi4BwlNpz5qVR9WayitENvgeOwl4L2wZIOnyJOoA=` | API key for Pandora API |
-| `SQUARE_FT_LOCATION_ID` | `TXBSQN0FEKQ11` | FastTrax Fort Myers Square location ID |
+| Variable                | Value                                          | Description                            |
+| ----------------------- | ---------------------------------------------- | -------------------------------------- |
+| `SWAGGER_ADMIN_KEY`     | `NCrVi4BwlNpz5qVR9WayitENvgeOwl4L2wZIOnyJOoA=` | API key for Pandora API                |
+| `SQUARE_FT_LOCATION_ID` | `TXBSQN0FEKQ11`                                | FastTrax Fort Myers Square location ID |
 
 ## Notes
 
@@ -60,10 +62,10 @@ Fetches full customer details from BMI Firebird database including contact infor
 
 The Pandora API uses BMI Firebird database IDs which are DIFFERENT from SMS-Timing IDs:
 
-| Person | Pandora/Firebird ID | SMS-Timing ID | SMS-Timing externalId |
-|--------|-------------------|---------------|----------------------|
-| Eric Osborn | `409523` | `409523` | `34205` |
-| Curtis Stavich | `713365` | `313535` | `34147` |
+| Person         | Pandora/Firebird ID | SMS-Timing ID | SMS-Timing externalId |
+| -------------- | ------------------- | ------------- | --------------------- |
+| Eric Osborn    | `409523`            | `409523`      | `34205`               |
+| Curtis Stavich | `713365`            | `313535`      | `34147`               |
 
 Note: Eric's Pandora ID happens to match his SMS-Timing ID, but Curtis's don't match at all.
 The Pandora API returns `id` in the response which IS the Firebird ID used in the URL.

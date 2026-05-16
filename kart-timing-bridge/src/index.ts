@@ -151,8 +151,7 @@ async function consumeStream(): Promise<void> {
       // server's content-type. Stringify for downstream forwarding.
       let raw: string;
       if (typeof ev.data === "string") raw = ev.data;
-      else if (ev.data instanceof ArrayBuffer)
-        raw = new TextDecoder().decode(ev.data);
+      else if (ev.data instanceof ArrayBuffer) raw = new TextDecoder().decode(ev.data);
       else raw = String(ev.data);
 
       // The server emits empty data frames as keep-alives between real
@@ -183,23 +182,15 @@ async function consumeStream(): Promise<void> {
               : "raw";
           counts.set(t, (counts.get(t) ?? 0) + 1);
         }
-        const summary = [...counts.entries()]
-          .map(([t, n]) => `${t}x${n}`)
-          .join(",");
+        const summary = [...counts.entries()].map(([t, n]) => `${t}x${n}`).join(",");
         typeLabel = `array(${parsed.length}:${summary})`;
-      } else if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "$type" in parsed
-      ) {
+      } else if (typeof parsed === "object" && parsed !== null && "$type" in parsed) {
         typeLabel = String((parsed as Record<string, unknown>).$type);
       }
 
       console.log(`[kart-bridge] message type=${typeLabel} bytes=${raw.length}`);
       debug("payload:", parsed);
-      forward(parsed).catch((err) =>
-        console.error("[kart-bridge] forward threw:", err),
-      );
+      forward(parsed).catch((err) => console.error("[kart-bridge] forward threw:", err));
     });
 
     ws.addEventListener("error", (ev) => {
@@ -228,7 +219,9 @@ async function consumeStream(): Promise<void> {
         console.error("[kart-bridge] open watchdog fired — connection stalled");
         try {
           ws.close();
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         if (!closed) {
           closed = true;
           reject(new Error("connection stalled"));

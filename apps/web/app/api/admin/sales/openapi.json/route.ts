@@ -1,0 +1,2659 @@
+import { NextResponse } from "next/server";
+
+/**
+ * GET /api/admin/sales/openapi.json
+ *
+ * Public OpenAPI 3.0 spec for the FastTrax sales-admin endpoints.
+ * Exposed for external consumers (HeadPinz portal, any future
+ * dashboard integration) — auth is handled by `x-api-key` against
+ * the SALES_API_KEYS env var.
+ *
+ * Note: the spec itself is served WITHOUT authentication so Swagger
+ * UI / external tooling can fetch it for discovery. Calls to the
+ * documented endpoints still require a valid x-api-key (or the
+ * operator admin token — see middleware.ts).
+ *
+ * Robots: this route is under /api/admin/* which is already covered
+ * by robots.txt's Disallow: /api/* directive — won't be indexed.
+ */
+
+const spec = {
+  openapi: "3.0.3",
+  info: {
+    title: "FastTrax Admin API",
+    description: [
+      "Admin API surface for the FastTrax employee portal and HeadPinz portal.",
+      "",
+      "Four logical groupings, all gated by the same `x-api-key` header:",
+      "  • **Sales** — read-only sales reporting (totals + raw entries).",
+      "  • **Videos** — race-video pipeline: list, refresh, manual / bulk resend, block / unblock.",
+      "  • **E-Tickets** — pre-race + check-in SMS log + per-message resend.",
+      "  • **Bowling** — bowling reservation admin: list, cancel, reschedule, resend, force-confirm.",
+      "",
+      "**Auth**: every request requires the `x-api-key` header (or `?apiKey=` query param).",
+      "Keys are issued by FastTrax ops and rotated centrally — request one from the operator team.",
+      "",
+      "**Time zone**: all date params and `byDay` rows are bucketed in `America/New_York` (ET).",
+      "Reservations made between midnight UTC and 4 AM ET roll into the *previous* ET calendar day.",
+      "",
+      "**Range cap**: aggregations are computed live against Postgres + Redis on every request.",
+      "Practical max range is ~90 days — the underlying SMS log retains 90 days, sales_log has no cap.",
+      "",
+      "**Idempotency**: video / e-ticket mutating endpoints (resend, bulk-resend, block) are NOT",
+      "idempotent — each call sends a fresh SMS / hits the VT3 disable endpoint. Confirm before retrying.",
+    ].join("\n"),
+    version: "1.2.0",
+    contact: {
+      name: "FastTrax Operations",
+      email: "ops@fasttraxent.com",
+    },
+  },
+  servers: [
+    { url: "https://fasttraxent.com", description: "Production" },
+    { url: "https://headpinz.com", description: "Production (HeadPinz brand mirror — same data)" },
+  ],
+  tags: [
+    { name: "Sales", description: "Read-only sales reporting." },
+    {
+      name: "Videos",
+      description: "Race-video pipeline: list, refresh, resend, bulk resend, block / unblock.",
+    },
+    { name: "E-Tickets", description: "Pre-race + check-in SMS log + per-message resend." },
+    {
+      name: "POV Codes",
+      description: "ViewPoint / POV unlock-code issuance, redemption, and breakage.",
+    },
+    {
+      name: "Bowling",
+      description:
+        "Bowling reservation admin: list, cancel, reschedule, resend confirmation, force-confirm stuck reservations.",
+    },
+  ],
+  security: [{ ApiKeyAuth: [] }],
+  components: {
+    securitySchemes: {
+      ApiKeyAuth: {
+        type: "apiKey" as const,
+        in: "header" as const,
+        name: "x-api-key",
+        description:
+          "API key issued by FastTrax ops. Set as the `x-api-key` header on every request.",
+      },
+    },
+    schemas: {
+      SaleEntry: {
+        type: "object",
+        description: "One confirmed reservation row, newest-first in the `entries` array.",
+        properties: {
+          ts: { type: "string", format: "date-time", example: "2026-05-02T18:54:49.015Z" },
+          billId: {
+            type: "string",
+            description: "BMI bill / order id",
+            example: "63000000003382314",
+            nullable: true,
+          },
+          reservationNumber: {
+            type: "string",
+            description: "Customer-facing reservation # (e.g. W33846)",
+            example: "W33846",
+            nullable: true,
+          },
+          brand: { type: "string", enum: ["fasttrax", "headpinz"], nullable: true },
+          location: { type: "string", enum: ["fortmyers", "naples"], nullable: true },
+          bookingType: {
+            type: "string",
+            enum: ["racing", "racing-pack", "attractions", "mixed", "other"],
+          },
+          participantCount: {
+            type: "integer",
+            description: "Racer count (MAX of line.persons across distinct karting lines)",
+            example: 4,
+            nullable: true,
+          },
+          isNewRacer: {
+            type: "boolean",
+            nullable: true,
+            description: "True for first-time racers, false for returning, null when unknown",
+          },
+          rookiePack: {
+            type: "boolean",
+            nullable: true,
+            description: "Legacy boolean — superseded by packageId. Kept for back-compat.",
+          },
+          packageId: {
+            type: "string",
+            nullable: true,
+            example: "ultimate-qualifier-weekend",
+            description: "Stable package identifier when this booking used a named bundle.",
+          },
+          povPurchased: { type: "boolean", nullable: true },
+          povQty: { type: "integer", nullable: true },
+          licensePurchased: { type: "boolean", nullable: true },
+          expressLane: {
+            type: "boolean",
+            nullable: true,
+            description: "True for returning racers with valid waivers who skip Guest Services.",
+          },
+          raceProductNames: { type: "array", items: { type: "string" }, nullable: true },
+          addOnNames: { type: "array", items: { type: "string" }, nullable: true },
+          totalUsd: { type: "number", nullable: true },
+          email: { type: "string", format: "email", nullable: true },
+          phone: { type: "string", nullable: true },
+        },
+      },
+      RacingBreakdown: {
+        type: "object",
+        properties: {
+          reservations: { type: "integer" },
+          newRacers: { type: "integer" },
+          returningRacers: { type: "integer" },
+          expressLane: { type: "integer" },
+          rookiePack: {
+            type: "object",
+            properties: {
+              count: { type: "integer" },
+              pctOfNew: { type: "number" },
+              pctOfRacing: { type: "number" },
+            },
+          },
+          packages: {
+            type: "object",
+            properties: {
+              total: { type: "integer", description: "Sum across all package variants in range" },
+              byType: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", example: "ultimate-qualifier-weekend" },
+                    label: { type: "string", example: "Ultimate Qualifier" },
+                    count: { type: "integer" },
+                    pctOfRacing: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+          pov: {
+            type: "object",
+            properties: {
+              count: { type: "integer", description: "Number of bookings that included POV video" },
+              qty: { type: "integer", description: "Total POV videos sold (sum of povQty)" },
+              attachRate: { type: "number" },
+              byNewRacer: { type: "integer" },
+              byReturning: { type: "integer" },
+              attachRateNewRacer: { type: "number" },
+              attachRateReturning: { type: "number" },
+              byTier: {
+                type: "array",
+                nullable: true,
+                items: {
+                  type: "object",
+                  properties: {
+                    tier: { type: "string", enum: ["starter", "intermediate", "pro"] },
+                    racingCount: { type: "integer" },
+                    povCount: { type: "integer" },
+                    attachRate: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+          license: {
+            type: "object",
+            properties: { count: { type: "integer" } },
+          },
+          addOnAttachCount: { type: "integer" },
+          addOnAttachRate: { type: "number" },
+          topRaceProducts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                count: { type: "integer" },
+              },
+            },
+          },
+        },
+      },
+      AttractionsBreakdown: {
+        type: "object",
+        properties: {
+          reservations: { type: "integer" },
+          topAddOns: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                count: { type: "integer" },
+              },
+            },
+          },
+        },
+      },
+      DailyTotal: {
+        type: "object",
+        properties: {
+          ymd: {
+            type: "string",
+            format: "date",
+            example: "2026-05-02",
+            description: "ET calendar day",
+          },
+          reservations: { type: "integer" },
+          racers: { type: "integer" },
+        },
+      },
+      SmsDailyCounts: {
+        type: "object",
+        properties: {
+          date: { type: "string", format: "date", example: "2026-05-02" },
+          attempts: {
+            type: "integer",
+            description: "Every SMS send attempt this day (success + failure)",
+          },
+          ok: { type: "integer", description: "Provider-accepted (HTTP 2xx at send time)" },
+          delivered: {
+            type: "integer",
+            description: "Carrier-confirmed handset delivery (DLR webhook)",
+          },
+          bySource: {
+            type: "object",
+            properties: {
+              bookingConfirm: { type: "integer", description: "Booking-confirmation SMS" },
+              eTicket: {
+                type: "integer",
+                description: "Pre-race e-ticket SMS (~30 min before each heat)",
+              },
+              checkIn: {
+                type: "integer",
+                description: "'Now checking in' alert SMS (heat just got called)",
+              },
+              video: { type: "integer", description: "Race-video-ready SMS" },
+              other: { type: "integer", description: "Admin resends, level-up, fallback" },
+            },
+          },
+        },
+      },
+      SmsTotals: {
+        type: "object",
+        properties: {
+          attempts: { type: "integer" },
+          ok: { type: "integer" },
+          delivered: { type: "integer" },
+          bookingConfirm: { type: "integer" },
+          eTicket: { type: "integer" },
+          checkIn: { type: "integer" },
+          video: { type: "integer" },
+          other: { type: "integer" },
+        },
+      },
+      SalesListResponse: {
+        type: "object",
+        properties: {
+          range: {
+            type: "object",
+            properties: {
+              from: { type: "string", format: "date" },
+              to: { type: "string", format: "date" },
+              days: { type: "integer" },
+            },
+          },
+          totals: {
+            type: "object",
+            properties: {
+              reservations: { type: "integer" },
+              racers: {
+                type: "integer",
+                description: "Sum of participantCount across all entries",
+              },
+              racingReservations: { type: "integer" },
+              racingPackReservations: { type: "integer" },
+              attractionReservations: { type: "integer" },
+              mixedReservations: { type: "integer" },
+            },
+          },
+          racing: { $ref: "#/components/schemas/RacingBreakdown" },
+          attractions: { $ref: "#/components/schemas/AttractionsBreakdown" },
+          byDay: {
+            type: "array",
+            items: { $ref: "#/components/schemas/DailyTotal" },
+          },
+          sms: {
+            type: "object",
+            nullable: true,
+            properties: {
+              totals: { $ref: "#/components/schemas/SmsTotals" },
+              byDay: {
+                type: "array",
+                items: { $ref: "#/components/schemas/SmsDailyCounts" },
+              },
+            },
+          },
+          entries: {
+            type: "array",
+            items: { $ref: "#/components/schemas/SaleEntry" },
+            description: "Raw reservation rows, newest first, paged to `limit`.",
+          },
+        },
+      },
+      ErrorResponse: {
+        type: "object",
+        properties: {
+          error: { type: "string" },
+        },
+      },
+
+      // ── Videos ─────────────────────────────────────────────────────────
+      VideoMatchEntry: {
+        type: "object",
+        description: [
+          "One row from the videos board. `matched: true` rows have full racer + session info",
+          "(linked to a Pandora session by the cron / webhook). `matched: false` rows are raw VT3",
+          "videos that haven't been linked yet — staff can manually send them by supplying",
+          "`overridePhone` / `overrideEmail` to /resend, which creates a real match record.",
+        ].join("\n"),
+        properties: {
+          matched: { type: "boolean" },
+          videoId: { type: "integer", description: "VT3 internal video id" },
+          videoCode: {
+            type: "string",
+            description: "10-char VT3 share code (used as primary key)",
+            example: "BX99JBXTQ7",
+          },
+          systemNumber: {
+            type: "string",
+            description: "Camera base / dock id (video.system.name)",
+            example: "1",
+          },
+          cameraNumber: {
+            type: "integer",
+            description: "Hardware camera id (video.camera)",
+            nullable: true,
+            example: 12,
+          },
+          customerUrl: {
+            type: "string",
+            description: "VT3 customer-facing watch URL",
+            example: "https://vt3.io/?code=BX99JBXTQ7",
+          },
+          thumbnailUrl: { type: "string", nullable: true },
+          capturedAt: { type: "string", format: "date-time" },
+          duration: { type: "number", nullable: true, description: "Seconds" },
+          matchedAt: {
+            type: "string",
+            format: "date-time",
+            description: "= capturedAt for unmatched rows; cron-link timestamp for matched rows",
+          },
+
+          // Matched-only fields ↓ — null/undefined when matched=false
+          firstName: { type: "string", nullable: true },
+          lastName: { type: "string", nullable: true },
+          sessionId: { type: "string", nullable: true },
+          personId: { type: "string", nullable: true },
+          track: { type: "string", nullable: true, example: "Blue Track" },
+          heatNumber: { type: "integer", nullable: true },
+          raceType: { type: "string", nullable: true, example: "Starter Race" },
+          email: { type: "string", format: "email", nullable: true },
+          phone: { type: "string", nullable: true },
+
+          // Overlay (VT3-derived state, mirrored from /api/cron/video-match overlay pass)
+          viewed: {
+            type: "boolean",
+            nullable: true,
+            description: "Customer has loaded the watch page or media-centre at least once",
+          },
+          firstViewedAt: { type: "string", format: "date-time", nullable: true },
+          lastViewedAt: { type: "string", format: "date-time", nullable: true },
+          purchased: {
+            type: "boolean",
+            nullable: true,
+            description: "True only when VT3 marks purchaseType=PAID",
+          },
+          purchaseType: { type: "string", nullable: true, example: "PAID" },
+          unlockedAt: { type: "string", format: "date-time", nullable: true },
+
+          // Block state
+          blocked: { type: "boolean", nullable: true },
+          blockLevel: { type: "string", enum: ["video", "session", "person"], nullable: true },
+          blockReason: { type: "string", nullable: true },
+          blockedAt: { type: "string", format: "date-time", nullable: true },
+
+          // Notify outcome — set by cron / webhook / resend handlers
+          pendingNotify: {
+            type: "boolean",
+            nullable: true,
+            description: "True while VT3 hasn't sampled / encoded the video yet",
+          },
+          notifySmsOk: { type: "boolean", nullable: true },
+          notifySmsError: { type: "string", nullable: true },
+          notifySmsSentTo: { type: "string", nullable: true },
+          notifySmsSentAt: { type: "string", format: "date-time", nullable: true },
+          notifyEmailOk: { type: "boolean", nullable: true },
+          notifyEmailError: { type: "string", nullable: true },
+          notifyEmailSentTo: { type: "string", format: "email", nullable: true },
+          notifyEmailSentAt: { type: "string", format: "date-time", nullable: true },
+          viaGuardian: {
+            type: "boolean",
+            nullable: true,
+            description:
+              "True when notification went to guardian instead of racer (minor + guardian fallback)",
+          },
+        },
+      },
+      VideoListResponse: {
+        type: "object",
+        properties: {
+          date: { type: "string", format: "date", example: "2026-05-03" },
+          total: { type: "integer", description: "Total rows after all filters" },
+          returned: { type: "integer", description: "Rows in this page (≤ limit)" },
+          entries: { type: "array", items: { $ref: "#/components/schemas/VideoMatchEntry" } },
+        },
+      },
+      VideoRefreshGetResponse: {
+        type: "object",
+        properties: {
+          videoCode: { type: "string" },
+          vt3: {
+            type: "object",
+            description:
+              "Raw VT3 record as returned by the VT3 API. `null` if not in the last 500.",
+            nullable: true,
+          },
+          ours: {
+            $ref: "#/components/schemas/VideoMatchEntry",
+            nullable: true,
+          },
+        },
+      },
+      VideoRefreshPostResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          videoCode: { type: "string" },
+          before: { type: "object", description: "Overlay fields BEFORE refresh" },
+          after: { type: "object", description: "Overlay fields AFTER refresh" },
+          vt3Raw: {
+            type: "object",
+            description: "Raw VT3 source fields used to compute the new overlay",
+          },
+        },
+      },
+      VideoResendBody: {
+        type: "object",
+        required: ["channel"],
+        description: [
+          "Two send modes:",
+          "  • **Matched resend**: provide `sessionId` + `personId` (loads the existing match record).",
+          "  • **Manual send**: provide `videoCode` + `capturedAt` + the relevant override(s) for an unmatched VT3 video.",
+          "    Creates a synthetic match record so the row flips to matched on next refresh.",
+        ].join("\n"),
+        properties: {
+          sessionId: {
+            oneOf: [{ type: "string" }, { type: "integer" }],
+            description: "Required for matched resend.",
+          },
+          personId: {
+            oneOf: [{ type: "string" }, { type: "integer" }],
+            description: "Required for matched resend.",
+          },
+
+          videoCode: { type: "string", description: "Required for manual unmatched send." },
+          systemNumber: { type: "string", description: "VT3 base / dock id — manual send." },
+          cameraNumber: { type: "integer", description: "VT3 hardware camera — manual send." },
+          customerUrl: {
+            type: "string",
+            description:
+              "VT3 customer URL — defaults to https://vt3.io/?code={videoCode} if omitted.",
+          },
+          thumbnailUrl: { type: "string" },
+          capturedAt: {
+            type: "string",
+            format: "date-time",
+            description: "Required for manual send.",
+          },
+          duration: { type: "number" },
+          firstName: { type: "string" },
+          lastName: { type: "string" },
+
+          channel: { type: "string", enum: ["sms", "email", "both"] },
+          overridePhone: {
+            type: "string",
+            description:
+              "Send SMS here instead of the ticket's stored phone. Required for manual SMS send.",
+          },
+          overrideEmail: {
+            type: "string",
+            format: "email",
+            description:
+              "Send email here instead of the ticket's stored email. Required for manual email send.",
+          },
+        },
+      },
+      VideoResendResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          result: {
+            type: "object",
+            properties: {
+              sms: {
+                type: "object",
+                nullable: true,
+                properties: {
+                  ok: { type: "boolean" },
+                  status: { type: "integer", nullable: true },
+                  sentTo: { type: "string", nullable: true },
+                  error: { type: "string", nullable: true },
+                },
+              },
+              email: {
+                type: "object",
+                nullable: true,
+                properties: {
+                  ok: { type: "boolean" },
+                  status: { type: "integer", nullable: true },
+                  sentTo: { type: "string", format: "email", nullable: true },
+                  error: { type: "string", nullable: true },
+                },
+              },
+            },
+          },
+          match: { $ref: "#/components/schemas/VideoMatchEntry" },
+        },
+      },
+      VideoBulkResendBody: {
+        type: "object",
+        properties: {
+          minutes: {
+            type: "integer",
+            default: 60,
+            minimum: 1,
+            maximum: 1440,
+            description:
+              "Lookback window — matches whose matchedAt falls within this many minutes of now are eligible.",
+          },
+          dryRun: {
+            type: "boolean",
+            default: false,
+            description: "Preview the candidate set without firing.",
+          },
+        },
+      },
+      VideoBulkResendResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          dryRun: { type: "boolean" },
+          windowMinutes: { type: "integer" },
+          windowStart: { type: "string", format: "date-time" },
+          windowEnd: { type: "string", format: "date-time" },
+          candidates: { type: "integer" },
+          sent: { type: "integer", description: "SMS successfully delivered." },
+          queued: {
+            type: "integer",
+            description:
+              "Rows pushed to the long-lived quota queue (will self-deliver after cooldown).",
+          },
+          failed: { type: "integer" },
+          stoppedOnQuota: { type: "boolean" },
+          skipped: { type: "integer" },
+          skipReasons: { type: "object", additionalProperties: { type: "integer" } },
+          candidateSample: {
+            type: "array",
+            description: "Only present when dryRun=true. First 20 candidates.",
+            items: { type: "object" },
+          },
+        },
+      },
+      VideoBlockBody: {
+        type: "object",
+        required: ["videoCode", "block"],
+        properties: {
+          videoCode: { type: "string", example: "BX99JBXTQ7" },
+          block: { type: "boolean", description: "true = block; false = unblock." },
+          reason: {
+            type: "string",
+            description:
+              "Optional free-text reason — stored on the match record. Truncated to 500 chars.",
+          },
+        },
+      },
+      VideoBlockResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          block: { type: "boolean", description: "Echoes the requested action." },
+          vt3Ok: {
+            type: "boolean",
+            description: "True if VT3's disable endpoint accepted the change.",
+          },
+          stillBlocked: {
+            type: "boolean",
+            nullable: true,
+            description:
+              "Unblock-only: true when a session-level or person-level block still applies.",
+          },
+          notified: {
+            type: "boolean",
+            nullable: true,
+            description:
+              "Unblock-only: true when an inline notify fired (ready video that had never been notified).",
+          },
+          vt3Linked: {
+            type: "boolean",
+            nullable: true,
+            description:
+              "Unblock-only: true when we pushed the customer email to VT3's customer profile.",
+          },
+        },
+      },
+
+      // ── E-Tickets ──────────────────────────────────────────────────────
+      EnrichedSmsLogEntry: {
+        type: "object",
+        description:
+          "One SMS log row, joined back to the underlying race ticket / group ticket so the UI can render racer name + heat info next to the row.",
+        properties: {
+          ts: { type: "string", format: "date-time", description: "Send timestamp" },
+          phone: { type: "string", example: "+12395551234" },
+          source: {
+            type: "string",
+            enum: [
+              "pre-race-cron",
+              "checkin-cron",
+              "admin-resend",
+              "video-resend",
+              "pov-resend",
+              "video-match",
+              "booking-confirm",
+            ],
+            example: "pre-race-cron",
+          },
+          status: {
+            type: "integer",
+            nullable: true,
+            description: "Provider HTTP status at send time",
+          },
+          ok: { type: "boolean", description: "True for provider 2xx" },
+          error: { type: "string", nullable: true },
+          body: { type: "string", description: "Verbatim SMS body the customer received" },
+          sessionIds: {
+            type: "array",
+            items: { oneOf: [{ type: "string" }, { type: "integer" }] },
+            nullable: true,
+          },
+          personIds: {
+            type: "array",
+            items: { oneOf: [{ type: "string" }, { type: "integer" }] },
+            nullable: true,
+          },
+          memberCount: { type: "integer", nullable: true },
+          shortCode: {
+            type: "string",
+            nullable: true,
+            description:
+              "6-char /s/{code} redirect key — primary handle for resends + click telemetry",
+          },
+          provider: { type: "string", nullable: true, example: "voxtelesys" },
+          providerMessageId: {
+            type: "string",
+            nullable: true,
+            description: "Voxtelesys/Twilio id; used to correlate carrier DLR webhooks",
+          },
+          deliveryStatus: {
+            type: "string",
+            nullable: true,
+            description: "Carrier DLR final state: delivered | undelivered | failed",
+          },
+          failedOver: {
+            type: "boolean",
+            nullable: true,
+            description: "True when primary provider failed and we retried via Twilio",
+          },
+          viaGuardian: { type: "boolean", nullable: true },
+
+          // Joined ticket fields
+          racerNames: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Racer names extracted from the underlying RaceTicket / GroupTicket record",
+          },
+          track: { type: "string", nullable: true },
+          heatNumber: { type: "integer", nullable: true },
+          raceType: { type: "string", nullable: true },
+          scheduledStart: { type: "string", format: "date-time", nullable: true },
+
+          // Click telemetry — populated when /s/{code} has been visited
+          clickCount: {
+            type: "integer",
+            nullable: true,
+            description: "Number of times /s/{code} was visited",
+          },
+          clickFirst: { type: "string", format: "date-time", nullable: true },
+          clickLast: { type: "string", format: "date-time", nullable: true },
+        },
+      },
+      ETicketListResponse: {
+        type: "object",
+        properties: {
+          date: { type: "string", format: "date" },
+          total: { type: "integer" },
+          returned: { type: "integer" },
+          entries: { type: "array", items: { $ref: "#/components/schemas/EnrichedSmsLogEntry" } },
+        },
+      },
+      ETicketResendBody: {
+        type: "object",
+        required: ["shortCode", "body"],
+        properties: {
+          shortCode: {
+            type: "string",
+            description:
+              "Required. The 6-char /s/{code} redirect key from the SMS log entry — ties the resend back to a ticket.",
+          },
+          body: {
+            type: "string",
+            description:
+              "Required. Exact SMS body to resend (typically copied verbatim from the log entry).",
+          },
+          overridePhone: {
+            type: "string",
+            description:
+              "Optional. Send to this E.164 number instead of the ticket's stored phone. Falls back to the ticket phone when omitted; required if the ticket is missing or has expired (12h TTL).",
+          },
+        },
+      },
+      ETicketResendResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          status: {
+            type: "integer",
+            nullable: true,
+            description: "Provider HTTP status at send time",
+          },
+          sentTo: {
+            type: "string",
+            description: "E.164 number actually sent to (after canonicalization)",
+          },
+          error: { type: "string", nullable: true },
+        },
+      },
+
+      // ── Bowling ──────────────────────────────────────────────────────
+      BowlingReservationLine: {
+        type: "object",
+        description: "One line item on a bowling reservation (bowling, shoes, food, etc.).",
+        properties: {
+          label: { type: "string", example: "Pizza Bowl Pizza" },
+          quantity: { type: "integer", example: 1 },
+          unitPriceCents: {
+            type: "integer",
+            example: 6495,
+            description: "Per-unit price in cents",
+          },
+        },
+      },
+      BowlingReservation: {
+        type: "object",
+        description: [
+          "One bowling reservation row from Neon, enriched with order lines.",
+          "Includes QAMF + Square IDs, guest info, status, deposit/total amounts,",
+          "and lane-open processing state (dayof_* fields).",
+        ].join("\n"),
+        properties: {
+          id: { type: "integer", description: "Neon row ID", example: 42 },
+          centerCode: {
+            type: "string",
+            enum: ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"],
+            description: "Square location ID (FM or Naples)",
+          },
+          productKind: {
+            type: "string",
+            enum: ["kbf", "open"],
+            description: "kbf = Kids Bowl Free, open = paid bowling",
+          },
+          qamfReservationId: {
+            type: "string",
+            nullable: true,
+            example: "X1234567",
+            description: "QAMF reservation ID (starts with X for web bookings)",
+          },
+          squareDepositOrderId: {
+            type: "string",
+            nullable: true,
+            description: "Square order ID for the deposit charge",
+          },
+          squareDayofOrderId: {
+            type: "string",
+            nullable: true,
+            description: "Square day-of order ID (left open for staff to redeem at center)",
+          },
+          squareGiftCardGan: {
+            type: "string",
+            nullable: true,
+            description: "Square eGift card number (holds deposit balance)",
+          },
+          shortCode: {
+            type: "string",
+            nullable: true,
+            example: "aB3xY7",
+            description: "6-char code for /s/{code} confirmation link",
+          },
+          depositCents: {
+            type: "integer",
+            example: 1500,
+            description: "Deposit amount charged (cents)",
+          },
+          totalCents: {
+            type: "integer",
+            example: 6495,
+            description: "Full reservation total (cents)",
+          },
+          status: {
+            type: "string",
+            enum: [
+              "confirmed",
+              "confirm_pending",
+              "confirm_failed",
+              "arrived",
+              "completed",
+              "cancelled",
+            ],
+          },
+          bookedAt: {
+            type: "string",
+            format: "date-time",
+            description: "Reservation date/time (ISO 8601)",
+          },
+          playerCount: { type: "integer", nullable: true, example: 4 },
+          guestName: { type: "string", nullable: true, example: "Jane Smith" },
+          guestEmail: { type: "string", format: "email", nullable: true },
+          guestPhone: { type: "string", nullable: true, example: "+12395551234" },
+          notes: { type: "string", nullable: true },
+          cancelledAt: { type: "string", format: "date-time", nullable: true },
+          refundCents: {
+            type: "integer",
+            example: 0,
+            description: "Amount refunded (cents), 0 if not refunded",
+          },
+          dayofOrderSentAt: {
+            type: "string",
+            format: "date-time",
+            nullable: true,
+            description: "Set when the lane-open processor sends the order to Square",
+          },
+          dayofOrderLane: {
+            type: "string",
+            nullable: true,
+            example: "12",
+            description: "Lane number(s) assigned, e.g. '12' or '12,13'",
+          },
+          dayofPaymentId: {
+            type: "string",
+            nullable: true,
+            description: "Square payment ID for the gift card charge at lane-open",
+          },
+          dayofOrderError: {
+            type: "string",
+            nullable: true,
+            description: "Error from last lane-open attempt (null on success)",
+          },
+          insertedAt: { type: "string", format: "date-time" },
+          lines: {
+            type: "array",
+            items: { $ref: "#/components/schemas/BowlingReservationLine" },
+            description: "Order line items (bowling, shoes, food)",
+          },
+        },
+      },
+      BowlingReservationListResponse: {
+        type: "object",
+        properties: {
+          reservations: {
+            type: "array",
+            items: { $ref: "#/components/schemas/BowlingReservation" },
+          },
+        },
+      },
+      BowlingCancelBody: {
+        type: "object",
+        required: ["neonId"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID to cancel" },
+        },
+      },
+      BowlingCancelResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          refundCents: {
+            type: "integer",
+            description: "Amount refunded in cents (0 for free bookings)",
+          },
+        },
+      },
+      BowlingResendBody: {
+        type: "object",
+        required: ["neonId", "channel"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID" },
+          channel: {
+            type: "string",
+            enum: ["email", "sms", "both"],
+            description: "Which notification channel(s) to use",
+          },
+          overridePhone: {
+            type: "string",
+            description: "Optional. Send SMS to this number instead of the stored phone.",
+          },
+          overrideEmail: {
+            type: "string",
+            format: "email",
+            description: "Optional. Send email to this address instead of the stored email.",
+          },
+        },
+      },
+      BowlingResendResponse: {
+        type: "object",
+        properties: {
+          email: { type: "boolean", nullable: true, description: "True if email was sent" },
+          sms: {
+            type: "boolean",
+            nullable: true,
+            description: "True if SMS was sent, false if it failed",
+          },
+        },
+      },
+      BowlingRescheduleBody: {
+        type: "object",
+        required: ["neonId", "bookedAt", "webOfferId"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID to reschedule" },
+          bookedAt: {
+            type: "string",
+            format: "date-time",
+            description: "New booking date/time (ISO 8601)",
+          },
+          webOfferId: {
+            type: "integer",
+            description: "QAMF web offer ID (must match the original experience)",
+          },
+          optionId: {
+            type: "integer",
+            description: "Optional. QAMF option ID (for Time/Unlimited experiences).",
+          },
+          optionType: {
+            type: "string",
+            enum: ["Game", "Time", "Unlimited"],
+            description: "Option type. Defaults to 'Game'.",
+          },
+        },
+      },
+      BowlingRescheduleResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          bookedAt: { type: "string", format: "date-time", description: "The new booking time" },
+          qamfReservationId: { type: "string", description: "New QAMF reservation ID" },
+        },
+      },
+      BowlingRescheduleInfoResponse: {
+        type: "object",
+        description:
+          "QAMF web offer details for the reservation, used to fetch constrained availability.",
+        properties: {
+          webOfferId: { type: "integer", description: "QAMF web offer ID" },
+          optionId: { type: "integer", nullable: true },
+          optionType: { type: "string", enum: ["Game", "Time", "Unlimited"] },
+          centerId: {
+            type: "integer",
+            description: "QAMF center ID (9172=FM, 3148=Naples)",
+            example: 9172,
+          },
+          centerCode: { type: "string", enum: ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"] },
+          playerCount: { type: "integer" },
+          bookedAt: { type: "string", format: "date-time" },
+          guestName: { type: "string", nullable: true },
+          productKind: { type: "string", enum: ["kbf", "open"] },
+        },
+      },
+      BowlingForceConfirmBody: {
+        type: "object",
+        required: ["neonId"],
+        properties: {
+          neonId: { type: "integer", description: "Neon reservation ID to force-confirm" },
+        },
+      },
+      BowlingForceConfirmResponse: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          neonId: { type: "integer" },
+          qamfReservationId: { type: "string" },
+          action: {
+            type: "string",
+            enum: ["confirmed", "already_confirmed", "recreated_and_confirmed"],
+            description:
+              "What happened: confirmed an existing Temporary reservation, recognized it was already confirmed, or recreated a new one because the original was gone.",
+          },
+          message: { type: "string", nullable: true, description: "Human-readable explanation" },
+        },
+      },
+
+      // ── POV Codes ──────────────────────────────────────────────────────
+      PovIssuedEntry: {
+        type: "object",
+        description:
+          "One issuance event — typically a customer's batch of 1–4 POV codes from a single sale or claim.",
+        properties: {
+          source: {
+            type: "string",
+            enum: ["web-sale", "in-center", "unknown"],
+            description:
+              "Which path issued these codes. `web-sale` = customer paid online at checkout. `in-center` = customer redeemed BMI ViewPoint Credit on the e-ticket page (front-desk credit applied). `unknown` = neither billId nor personId present (rare).",
+          },
+          billId: { type: "string", nullable: true },
+          personId: { type: "string", nullable: true },
+          sessionId: { type: "string", nullable: true },
+          locationId: { type: "string", nullable: true },
+          issuedAt: {
+            type: "string",
+            format: "date-time",
+            description: "Earliest usedAt across the codes in this group",
+          },
+          codes: {
+            type: "array",
+            items: { type: "string" },
+            description: "10-char POV codes. PII — treat carefully.",
+          },
+          codeCount: { type: "integer" },
+          email: { type: "string", format: "email", nullable: true },
+          phone: { type: "string", nullable: true },
+          racerName: { type: "string", nullable: true },
+          raceDate: {
+            type: "string",
+            format: "date",
+            nullable: true,
+            description: "From booking-record cache when present",
+          },
+          reservationNumber: { type: "string", nullable: true, example: "W23905" },
+        },
+      },
+      PovIssuedListResponse: {
+        type: "object",
+        properties: {
+          range: {
+            type: "object",
+            properties: {
+              from: { type: "string", format: "date" },
+              to: { type: "string", format: "date" },
+              days: { type: "integer" },
+            },
+          },
+          total: { type: "integer", description: "Total issuance events in the filtered set" },
+          totalCodes: { type: "integer", description: "Sum of codeCount across all events" },
+          bySource: {
+            type: "object",
+            description: "Breakdown by source path. Keys: `web-sale` | `in-center` | `unknown`.",
+            additionalProperties: {
+              type: "object",
+              properties: {
+                events: { type: "integer" },
+                codes: { type: "integer" },
+              },
+            },
+          },
+          returned: { type: "integer" },
+          entries: { type: "array", items: { $ref: "#/components/schemas/PovIssuedEntry" } },
+        },
+      },
+      PovIssuedResendBody: {
+        type: "object",
+        required: ["channel"],
+        description: "Either `billId` OR `personId` is required to identify the customer's codes.",
+        properties: {
+          billId: { type: "string", description: "Lookup by web-reservation bill" },
+          personId: { type: "string", description: "Lookup by claim-from-credit person" },
+          sessionId: {
+            type: "string",
+            description: "Optional — narrows person lookup to a specific Pandora session",
+          },
+          channel: { type: "string", enum: ["sms", "email", "both"] },
+          overridePhone: { type: "string" },
+          overrideEmail: { type: "string", format: "email" },
+          bodyOverride: {
+            type: "string",
+            description: "Optional — replaces the default SMS body verbatim",
+          },
+        },
+      },
+      PovIssuedResendResponse: {
+        type: "object",
+        properties: {
+          ok: {
+            type: "boolean",
+            description:
+              "True if SMS or email succeeded (inspect result.{sms,email}.ok per channel)",
+          },
+          codes: { type: "array", items: { type: "string" } },
+          codeCount: { type: "integer" },
+          result: {
+            type: "object",
+            properties: {
+              sms: {
+                type: "object",
+                nullable: true,
+                properties: {
+                  ok: { type: "boolean" },
+                  status: { type: "integer", nullable: true },
+                  sentTo: { type: "string", nullable: true },
+                  error: { type: "string", nullable: true },
+                },
+              },
+              email: {
+                type: "object",
+                nullable: true,
+                properties: {
+                  ok: { type: "boolean" },
+                  status: { type: "integer", nullable: true },
+                  sentTo: { type: "string", format: "email", nullable: true },
+                  error: { type: "string", nullable: true },
+                },
+              },
+            },
+          },
+          lookup: {
+            type: "object",
+            properties: {
+              billId: { type: "string", nullable: true },
+              personId: { type: "string", nullable: true },
+              sessionId: { type: "string", nullable: true },
+            },
+          },
+        },
+      },
+      PovBreakageDailyTotal: {
+        type: "object",
+        description: "Per-race-date roll-up. `breakage = max(0, povSold − vt3Unlocked)`.",
+        properties: {
+          ymd: { type: "string", format: "date", example: "2026-05-03" },
+          salesRows: { type: "integer", description: "Neon sales_log rows for this race date" },
+          povSold: { type: "integer", description: "SUM(pov_qty) from Neon — operator truth" },
+          vt3Sold: {
+            type: "integer",
+            description: "VT3 video-report videoSalesCount for this calendar day",
+          },
+          vt3Unlocked: {
+            type: "integer",
+            description:
+              "VT3 unlockedVideoCount — videos that became playable. Used as the redemption proxy.",
+          },
+          vt3UnlockCode: {
+            type: "integer",
+            description: "VT3 unlockCodeVideoCount — narrower 'our codes only' redemption counter",
+          },
+          vt3Manual: {
+            type: "integer",
+            description: "VT3 manualUnlockVideoCount — staff override unlocks",
+          },
+          breakage: { type: "integer" },
+          redemptionPct: {
+            type: "number",
+            description: "vt3Unlocked / povSold (0..1, 4 decimals)",
+          },
+        },
+      },
+      PovReportPoint: {
+        type: "object",
+        description:
+          "One time-bucket of VT3's video-report. All `*Count` fields are integers, ratios are 0..1 with 4-decimal precision.",
+        properties: {
+          siteId: {
+            type: "integer",
+            nullable: true,
+            description: "FastTrax site id (992) or null when this is the cross-site aggregate",
+          },
+          from: {
+            type: "string",
+            description: "Bucket start (local ISO, no offset — interpret in `range.timezone`)",
+            example: "2026-05-03T00:00:00",
+          },
+          to: { type: "string" },
+          ymd: {
+            type: "string",
+            format: "date",
+            description: "Convenience YYYY-MM-DD slice of `from` for chart axes",
+          },
+
+          // Volumes
+          videoCount: {
+            type: "integer",
+            description: "TOTAL videos captured (every kart capture in the window)",
+          },
+          uploadedVideoCount: {
+            type: "integer",
+            description: "Videos that finished encoding to playable state",
+          },
+          unlockedVideoCount: {
+            type: "integer",
+            description: "Videos made playable to a customer (sales + free unlocks)",
+          },
+          videoSalesCount: {
+            type: "integer",
+            description: "TOTAL sales (paid OR consumed-via-credit). Operator term: 'sold'",
+          },
+
+          // Source-of-sale breakdown — these sum to videoSalesCount
+          stripeVideoCount: {
+            type: "integer",
+            description:
+              "Online card via Stripe (post-race vt3.io purchase). Operator term: 'online'",
+          },
+          stripeTerminalVideoCount: {
+            type: "integer",
+            description: "In-person card via Stripe Terminal",
+          },
+          venueVideoCount: { type: "integer", description: "Venue / cash purchase" },
+          unlockCodeVideoCount: {
+            type: "integer",
+            description:
+              "OUR website-issued POV unlock-codes redeemed. Operator term: 'unlock' = our web sales",
+          },
+
+          // Unlock-method breakdown
+          preUnlockedVideoCount: {
+            type: "integer",
+            description: "Unlocked BEFORE race (bundle / credit pre-applied)",
+          },
+          postUnlockedVideoCount: {
+            type: "integer",
+            description: "Unlocked AFTER race (the standard purchase path)",
+          },
+          manualUnlockVideoCount: {
+            type: "integer",
+            description:
+              "Staff override unlock (operator forced from the desk). Operator term: 'manual unlock' = our override",
+          },
+          apiUnlockVideoCount: {
+            type: "integer",
+            description: "API/integration unlock (none yet)",
+          },
+
+          // Engagement
+          videoImpressionCount: {
+            type: "integer",
+            description: "Unique videos whose share page was opened",
+          },
+          videoPageImpressionCount: {
+            type: "integer",
+            description: "vt3.io/?code=X page hits (subset of impressions)",
+          },
+          mediaCentreImpressionCount: {
+            type: "integer",
+            description: "Media-centre tile hits (subset of impressions)",
+          },
+
+          // Pipeline health
+          deliveryRate: { type: "number", description: "0..100 % — encoder pipeline health" },
+          totalDataUp: { type: "integer", description: "Bytes uploaded — capacity planning" },
+          averageVideoSize: { type: "integer", description: "Bytes / video — capacity planning" },
+
+          // Computed conversion ratios (this endpoint adds these — VT3 doesn't return them)
+          salesPerCaptured: {
+            type: "number",
+            description:
+              "videoSalesCount / videoCount — what fraction of capture is monetized (0..1)",
+          },
+          unlockPerCaptured: {
+            type: "number",
+            description: "unlockedVideoCount / videoCount — what fraction is being watched (0..1)",
+          },
+          salesPerImpression: {
+            type: "number",
+            description: "videoSalesCount / videoImpressionCount — close-rate among viewers (0..1)",
+          },
+        },
+      },
+      PovReportTotals: {
+        type: "object",
+        description:
+          "Sum of every PovReportPoint over the window, plus rolled-up conversion ratios.",
+        properties: {
+          videoCount: { type: "integer" },
+          videoImpressionCount: { type: "integer" },
+          videoPageImpressionCount: { type: "integer" },
+          mediaCentreImpressionCount: { type: "integer" },
+          unlockedVideoCount: { type: "integer" },
+          videoSalesCount: { type: "integer" },
+          stripeVideoCount: { type: "integer" },
+          stripeTerminalVideoCount: { type: "integer" },
+          venueVideoCount: { type: "integer" },
+          unlockCodeVideoCount: { type: "integer" },
+          preUnlockedVideoCount: { type: "integer" },
+          postUnlockedVideoCount: { type: "integer" },
+          uploadedVideoCount: { type: "integer" },
+          manualUnlockVideoCount: { type: "integer" },
+          apiUnlockVideoCount: { type: "integer" },
+          totalDataUp: { type: "integer" },
+          averageVideoSize: { type: "integer" },
+          salesPerCaptured: { type: "number" },
+          unlockPerCaptured: { type: "number" },
+          salesPerImpression: { type: "number" },
+        },
+      },
+      PovReportResponse: {
+        type: "object",
+        properties: {
+          range: {
+            type: "object",
+            properties: {
+              from: { type: "string", format: "date" },
+              to: { type: "string", format: "date" },
+              days: { type: "integer" },
+              timezone: { type: "string", example: "America/New_York" },
+              interval: { type: "string", enum: ["hours", "days", "weeks", "months"] },
+            },
+          },
+          sites: {
+            type: "array",
+            items: { type: "integer" },
+            description: "Sites the report covers (e.g. [992] = FastTrax)",
+          },
+          totals: { $ref: "#/components/schemas/PovReportTotals" },
+          byInterval: {
+            type: "array",
+            items: { $ref: "#/components/schemas/PovReportPoint" },
+            description:
+              "One row per interval bucket (per the `interval` request param). FastTrax-only when present, otherwise the cross-site aggregate.",
+          },
+        },
+      },
+      PovBreakageResponse: {
+        type: "object",
+        properties: {
+          range: {
+            type: "object",
+            properties: {
+              from: { type: "string", format: "date" },
+              to: { type: "string", format: "date" },
+              days: { type: "integer" },
+            },
+          },
+          totals: {
+            type: "object",
+            properties: {
+              salesRows: {
+                type: "integer",
+                description:
+                  "Number of POV sales rows in window (Neon sales_log.pov_purchased = true)",
+              },
+              povSold: {
+                type: "integer",
+                description: "SUM(pov_qty) — operator-truth issued count from Neon",
+              },
+              vt3Sold: {
+                type: "integer",
+                description:
+                  "VT3 videoSalesCount summed across the window — total sales VT3 saw (paid + credit)",
+              },
+              unlocked: {
+                type: "integer",
+                description:
+                  "VT3 unlockedVideoCount summed — the headline 'redeemed' number per ops direction",
+              },
+              unlockCodeRedeemed: {
+                type: "integer",
+                description: "VT3 unlockCodeVideoCount summed — narrower 'our codes only' counter",
+              },
+              manualUnlocked: {
+                type: "integer",
+                description: "VT3 manualUnlockVideoCount — staff override unlocks at the desk",
+              },
+              breakage: {
+                type: "integer",
+                description:
+                  "max(0, povSold − unlocked). Operator-truth POV value not yet redeemed.",
+              },
+              redemptionPct: {
+                type: "number",
+                description: "unlocked / povSold (0..1, 4 decimals). Headline metric.",
+              },
+              breakagePct: { type: "number", description: "breakage / povSold (0..1, 4 decimals)" },
+            },
+          },
+          pool: {
+            type: "object",
+            description:
+              "Health of the available code pool — staff watch this to know when to import more.",
+            properties: {
+              available: {
+                type: "integer",
+                description: "Codes still in pov:codes Redis SET, ready to be issued",
+              },
+            },
+          },
+          byDay: {
+            type: "array",
+            items: { $ref: "#/components/schemas/PovBreakageDailyTotal" },
+            description:
+              "Per-race-date series. Includes days where VT3 saw activity but Neon had no POV sale (povSold = 0 in those rows) so charts don't go sparse.",
+          },
+          excluded: {
+            type: "object",
+            description: "Diagnostic counts.",
+            properties: {
+              outOfRange: { type: "integer" },
+              noDate: { type: "integer" },
+            },
+          },
+          meta: {
+            type: "object",
+            description:
+              "Source-of-truth tags so portal devs know what unlocked vs unlockCodeRedeemed actually counts.",
+            properties: {
+              issuedSource: {
+                type: "string",
+                example: "neon.sales_log.pov_qty WHERE pov_purchased",
+              },
+              redeemedSource: { type: "string", example: "vt3.video-report.unlockedVideoCount" },
+              notes: { type: "array", items: { type: "string" } },
+            },
+          },
+        },
+      },
+    },
+  },
+  paths: {
+    "/api/admin/sales/list": {
+      get: {
+        tags: ["Sales"],
+        summary: "Sales report (aggregations + raw entries)",
+        description: [
+          "Returns aggregated metrics (totals, racing breakdown, attractions, daily volume, SMS)",
+          "plus an array of raw reservation entries for the requested ET-day range.",
+          "",
+          "All percentages are pre-computed (one decimal place) so consumers don't need to do math.",
+          "All dates are ET-bucketed; the response's `byDay` rows are aligned to the same calendar.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "from",
+            in: "query" as const,
+            description: "Start date (ET) — inclusive. Format YYYY-MM-DD. Defaults to today.",
+            schema: { type: "string", format: "date", example: "2026-04-25" },
+          },
+          {
+            name: "to",
+            in: "query" as const,
+            description: "End date (ET) — inclusive. Format YYYY-MM-DD. Defaults to today.",
+            schema: { type: "string", format: "date", example: "2026-05-02" },
+          },
+          {
+            name: "limit",
+            in: "query" as const,
+            description:
+              "Max number of raw reservation entries returned in `entries[]`. Aggregations are always computed across the full range. Default 1000.",
+            schema: { type: "integer", default: 1000, minimum: 1, maximum: 10000 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Sales report",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SalesListResponse" },
+              },
+            },
+          },
+          "401": {
+            description: "Unauthorized — missing or invalid x-api-key",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "404": {
+            description:
+              "Endpoint hidden — same body as 401 to avoid leaking that the path exists.",
+          },
+          "500": {
+            description: "Server error (Postgres / Redis hiccup)",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+    "/api/admin/sales/openapi.json": {
+      get: {
+        tags: ["Sales"],
+        summary: "OpenAPI 3.0 spec (this document)",
+        description:
+          "Returns this OpenAPI 3.0 specification. No auth required — exposed for tooling discovery.",
+        security: [],
+        responses: {
+          "200": {
+            description: "OpenAPI 3.0 spec (application/json)",
+            content: {
+              "application/json": {
+                schema: { type: "object" },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ── Videos ──────────────────────────────────────────────────────────
+    "/api/admin/videos/list": {
+      get: {
+        tags: ["Videos"],
+        summary: "List race-video matches for an ET day",
+        description: [
+          "Returns a merged list of (a) match records the cron / webhook has linked to a Pandora session,",
+          "and (b) raw VT3 videos in the same ET window that haven't been linked yet.",
+          "Matched rows carry full racer + session + heat info; unmatched rows carry only the VT3 fields",
+          "and let staff manually send via /api/admin/videos/resend with overridePhone / overrideEmail.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "date",
+            in: "query" as const,
+            schema: { type: "string", format: "date" },
+            description: "YYYY-MM-DD ET day. Defaults to today.",
+          },
+          {
+            name: "show",
+            in: "query" as const,
+            schema: { type: "string", enum: ["all", "matched", "unmatched"], default: "all" },
+            description: "Filter by match state.",
+          },
+          {
+            name: "q",
+            in: "query" as const,
+            schema: { type: "string" },
+            description:
+              "Free-text — racer name, camera number, video code, phone digits. Case-insensitive.",
+          },
+          {
+            name: "status",
+            in: "query" as const,
+            schema: { type: "string", enum: ["notified", "unnotified", "failed"] },
+            description:
+              "Filter matched rows by notify outcome. Ignored for unmatched (no send state yet).",
+          },
+          {
+            name: "limit",
+            in: "query" as const,
+            schema: { type: "integer", default: 200, minimum: 1, maximum: 500 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Video list",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/VideoListResponse" } },
+            },
+          },
+          "400": {
+            description: "Invalid date format",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized — missing or invalid x-api-key" },
+          "404": {
+            description:
+              "Endpoint hidden — same body as 401 to avoid leaking that the path exists.",
+          },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+    "/api/admin/videos/refresh": {
+      get: {
+        tags: ["Videos"],
+        summary: "Inspect a single video — VT3 raw vs. our match",
+        description: [
+          "Read-only debug endpoint. Pulls VT3's most recent 500 videos for the FastTrax site,",
+          "finds the one with the supplied videoCode, and returns both the raw VT3 record and our",
+          "stored match record side-by-side. Useful for explaining 'why does our admin show X but VT3",
+          "shows Y' (typically stale unlockTime / purchaseType).",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "videoCode",
+            in: "query" as const,
+            required: true,
+            schema: { type: "string" },
+            description: "10-char VT3 share code.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "VT3 + our record side-by-side",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/VideoRefreshGetResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing videoCode",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "500": {
+            description: "VT3 fetch failed",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Videos"],
+        summary: "Re-apply VT3 overlay onto our stored match record",
+        description: [
+          "Mutating sibling of GET. Pulls VT3 live data for the videoCode and rewrites our match record's",
+          "viewed / firstViewedAt / lastViewedAt / purchased / purchaseType / unlockedAt fields to the latest VT3 values.",
+          "Useful when the cron's 200-record window has scrolled past an older video and stale fields linger.",
+        ].join("\n"),
+        parameters: [
+          { name: "videoCode", in: "query" as const, required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Refresh applied — before/after diff plus VT3 source fields",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/VideoRefreshPostResponse" },
+              },
+            },
+          },
+          "400": { description: "Missing videoCode" },
+          "401": { description: "Unauthorized" },
+          "404": {
+            description: "videoCode not found in VT3 latest 500 OR no match record exists",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "500": {
+            description: "Refresh failed",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+    "/api/admin/videos/resend": {
+      post: {
+        tags: ["Videos"],
+        summary: "Resend (or manual-send) a race-video notification",
+        description: [
+          "Two send modes — pick one set of inputs:",
+          "",
+          "**Matched resend**: provide `sessionId` + `personId`. Loads the existing match record,",
+          "rebuilds the exact SMS body + email HTML the cron would have sent, fires to the override",
+          "(if any) or the snapshotted contact. Logs SMS with source='admin-resend'.",
+          "",
+          "**Manual unmatched send**: provide `videoCode` + `capturedAt` + override(s). Builds a synthetic",
+          "match record and sends. On success, the match is persisted so the row flips to matched on the next list refresh.",
+        ].join("\n"),
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/VideoResendBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description:
+              "Send attempt result (ok=true even when one channel fails — inspect result.{sms,email})",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/VideoResendResponse" } },
+            },
+          },
+          "400": {
+            description:
+              "Invalid body — missing channel, missing required fields for the chosen send mode, or bad JSON",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": {
+            description: "Match not found and no fallback to manual send",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+    "/api/admin/videos/bulk-resend": {
+      post: {
+        tags: ["Videos"],
+        summary: "Bulk re-fire video-ready SMS over a recent window",
+        description: [
+          "Re-sends the video-ready SMS for every match whose `matchedAt` falls within the last `minutes` and",
+          "has a usable contact (racer-first, guardian-fallback for minor racers). Skips manual-send synthetic",
+          "records and matches still pending VT3 upload.",
+          "",
+          "On hitting Vox / Twilio quota, remaining candidates are pushed onto the long-lived",
+          "`sms:quota:queue` and self-deliver after the cooldown — no work is dropped.",
+          "",
+          "Use `dryRun: true` to preview the candidate set before firing.",
+        ].join("\n"),
+        requestBody: {
+          required: false,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/VideoBulkResendBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Bulk run result (or dry-run preview when dryRun=true)",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/VideoBulkResendResponse" },
+              },
+            },
+          },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+    "/api/admin/videos/block": {
+      post: {
+        tags: ["Videos"],
+        summary: "Block or unblock a race video",
+        description: [
+          "**Block**: writes a video-level block key, calls VT3 to disable the share URL, and patches our",
+          "match record's blocked mirror so the videos board renders the block chip. If a match record",
+          "exists and was sitting as pendingNotify, that flag is cleared (blocked records don't fire SMS).",
+          "",
+          "**Unblock**: removes our block key, re-resolves heat-level + person-level blocks (some may still",
+          "apply, in which case `stillBlocked: true` and VT3 stays disabled), re-enables on VT3 if not still",
+          "blocked, and — if the match was never notified and VT3 reports the video is ready — pushes the",
+          "customer email to VT3 + fires notify inline so the customer doesn't have to wait for the next cron tick.",
+        ].join("\n"),
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/VideoBlockBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Block / unblock result",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/VideoBlockResponse" } },
+            },
+          },
+          "400": {
+            description: "Missing videoCode",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "500": {
+            description: "Block / unblock failed",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    // ── E-Tickets ──────────────────────────────────────────────────────
+    "/api/admin/e-tickets/list": {
+      get: {
+        tags: ["E-Tickets"],
+        summary: "List per-message SMS log for an ET day, enriched with ticket info",
+        description: [
+          "Reads the SMS log for the given date and joins each row back to the underlying RaceTicket /",
+          "GroupTicket via the shortCode → /s/{code} → /t/{id} or /g/{id} chain.",
+          "",
+          "Default view excludes `video-match` (covered by the Videos board) and `booking-confirm` (covered",
+          "by the sales dashboard). Pass `source=video-match` or `source=booking-confirm` to drill in.",
+          "",
+          "Each row also carries click telemetry (`clickCount`, `clickFirst`, `clickLast`) when the customer",
+          "has visited the /s/{code} short URL.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "date",
+            in: "query" as const,
+            schema: { type: "string", format: "date" },
+            description: "YYYY-MM-DD ET. Defaults to today.",
+          },
+          {
+            name: "source",
+            in: "query" as const,
+            schema: {
+              type: "string",
+              enum: [
+                "pre-race-cron",
+                "checkin-cron",
+                "admin-resend",
+                "video-resend",
+                "pov-resend",
+                "video-match",
+                "booking-confirm",
+              ],
+            },
+            description:
+              "Filter to a single source. Default view hides video-match, video-resend, pov-resend, and booking-confirm — pass `source=` to drill in to any of them.",
+          },
+          {
+            name: "phone",
+            in: "query" as const,
+            schema: { type: "string" },
+            description: "Exact E.164 match.",
+          },
+          {
+            name: "sessionId",
+            in: "query" as const,
+            schema: { type: "string" },
+            description: "Entry must cover this session id.",
+          },
+          {
+            name: "personId",
+            in: "query" as const,
+            schema: { type: "string" },
+            description: "Entry must cover this person id.",
+          },
+          {
+            name: "q",
+            in: "query" as const,
+            schema: { type: "string" },
+            description: "Free-text — racer name, phone digits, or shortCode. Case-insensitive.",
+          },
+          {
+            name: "limit",
+            in: "query" as const,
+            schema: { type: "integer", default: 100, minimum: 1, maximum: 500 },
+          },
+          {
+            name: "offset",
+            in: "query" as const,
+            schema: { type: "integer", default: 0, minimum: 0 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Enriched SMS log",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ETicketListResponse" } },
+            },
+          },
+          "400": {
+            description: "Invalid date format",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+    // ── POV Codes ──────────────────────────────────────────────────────
+    "/api/admin/pov-codes/report": {
+      get: {
+        tags: ["POV Codes"],
+        summary: "VT3 viewpoint video-report — captured, sold, unlocked, impressions, conversions",
+        description: [
+          "Pulls VT3's `/reporting/video-report` for the FastTrax site and surfaces every counter VT3",
+          "exposes plus three computed conversion ratios.",
+          "",
+          "**Operator-language → API field map**:",
+          "  • `sold` (total) → `videoSalesCount`",
+          "  • `online` (post sales via vt3.io card purchase) → `stripeVideoCount` (also see `postUnlockedVideoCount`)",
+          "  • `unlock` (our website-issued POV codes redeemed) → `unlockCodeVideoCount`",
+          "  • `manual unlock` (staff override) → `manualUnlockVideoCount`",
+          "",
+          "**Volumes**:",
+          "  • `videoCount` — every kart capture in the window (totals all-up)",
+          "  • `uploadedVideoCount` — captures that finished encoding",
+          "  • `unlockedVideoCount` — videos made playable (sales + free unlocks)",
+          "",
+          "**Engagement**:",
+          "  • `videoImpressionCount` = `videoPageImpressionCount` + `mediaCentreImpressionCount`",
+          "",
+          "**Conversions (added by us)**:",
+          "  • `salesPerCaptured` = videoSalesCount / videoCount",
+          "  • `unlockPerCaptured` = unlockedVideoCount / videoCount",
+          "  • `salesPerImpression` = videoSalesCount / videoImpressionCount",
+          "",
+          "Window is bucketed per the `interval` param (default daily). Date filter is ET; the endpoint",
+          "applies the right DST offset before calling VT3.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "from",
+            in: "query" as const,
+            description: "ET start date (inclusive). YYYY-MM-DD. Default = 30 days ago.",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query" as const,
+            description:
+              "ET end date (inclusive — endpoint bumps this by 1 day before calling VT3). YYYY-MM-DD. Default = today.",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "interval",
+            in: "query" as const,
+            description: "Bucket granularity. Default `days`.",
+            schema: { type: "string", enum: ["hours", "days", "weeks", "months"], default: "days" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Video report",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/PovReportResponse" } },
+            },
+          },
+          "400": {
+            description: "Invalid date or interval",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Endpoint hidden — same body as 401" },
+          "500": {
+            description: "VT3 fetch failed",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    "/api/admin/pov-codes/issued/list": {
+      get: {
+        tags: ["POV Codes"],
+        summary: "Unified inventory of issued POV codes (web sale + credit-claim paths)",
+        description: [
+          "Lists every POV code we've issued, grouped by issuance event so each row represents one customer's",
+          "batch of codes (typically 1–4 per bill). Codes from BOTH issuance paths appear in the same response:",
+          "",
+          "  • **`web-sale`** — customer paid for POV at online checkout (`billId` populated)",
+          "  • **`in-center`** — customer redeemed BMI ViewPoint Credit on the e-ticket page (`personId` populated)",
+          "",
+          "Each entry is enriched with race date, reservation number, racer name and contact info from the",
+          "booking-record cache when one is on file (12h ticket TTL / 90d booking-record TTL).",
+          "",
+          "Date filter targets `issuedAt` (when the code was popped from the pool). Default window is 90 days",
+          "to give ops a useful long tail for resends.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "from",
+            in: "query" as const,
+            schema: { type: "string", format: "date" },
+            description: "Issued-on lower bound, ET. Default = 90 days ago.",
+          },
+          {
+            name: "to",
+            in: "query" as const,
+            schema: { type: "string", format: "date" },
+            description: "Issued-on upper bound, ET. Default = today.",
+          },
+          {
+            name: "billId",
+            in: "query" as const,
+            schema: { type: "string" },
+            description: "Exact match",
+          },
+          {
+            name: "personId",
+            in: "query" as const,
+            schema: { type: "string" },
+            description: "Exact match",
+          },
+          {
+            name: "source",
+            in: "query" as const,
+            schema: { type: "string", enum: ["web-sale", "in-center", "unknown"] },
+            description:
+              "Filter to one issuance path. `web-sale` = customer paid online at checkout; `in-center` = front-desk credit redemption via e-ticket page.",
+          },
+          {
+            name: "q",
+            in: "query" as const,
+            schema: { type: "string" },
+            description:
+              "Free-text search across email, racer name, billId, personId, reservation number, codes.",
+          },
+          {
+            name: "limit",
+            in: "query" as const,
+            schema: { type: "integer", default: 500, minimum: 1, maximum: 2000 },
+          },
+          {
+            name: "offset",
+            in: "query" as const,
+            schema: { type: "integer", default: 0, minimum: 0 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Issued-codes inventory",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PovIssuedListResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Invalid date format",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Endpoint hidden — same body as 401" },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+    "/api/admin/pov-codes/issued/resend": {
+      post: {
+        tags: ["POV Codes"],
+        summary: "Resend a customer's POV codes via SMS / email",
+        description: [
+          "Looks up the codes for the supplied `billId` OR `personId` (+ optional `sessionId` for narrowing claim-",
+          "from-credit lookups), composes a default SMS body and a branded HTML email containing the inline codes,",
+          "and sends via the standard voxSend / sendgrid helpers. Logs SMS with `source: 'admin-resend'`.",
+          "",
+          "**Default SMS body** (1 segment for ≤ 3 codes, ASCII-only):",
+          "```",
+          "FastTrax POV codes:",
+          "ABCD123456",
+          "WXYZ789012",
+          "",
+          "Redeem at vt3.io - paste the code on the site to unlock your video.",
+          "```",
+          "",
+          "Pass `bodyOverride` to replace the default verbatim. Recipient resolution: `overridePhone`/`overrideEmail`",
+          "first, then the booking-record contact if a billId is on file.",
+        ].join("\n"),
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/PovIssuedResendBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description:
+              "Send result. `ok` is true when at least one channel succeeded; inspect `result.{sms,email}.ok` per channel.",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PovIssuedResendResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing channel, missing identifier, or bad JSON",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": {
+            description: "No codes found for the supplied billId/personId",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    "/api/admin/pov-codes/breakage": {
+      get: {
+        tags: ["POV Codes"],
+        summary: "POV redemption + breakage report",
+        description: [
+          "Three-source cross-reference — Neon is the issued source-of-truth, VT3 is the redemption truth,",
+          "Redis is the bridge that lets us go from a sale to a specific 10-char code:",
+          "",
+          "  1. **Neon `sales_log`** — every confirmed POV sale (`pov_purchased = true`, summed via `pov_qty`).",
+          "     This is the operator-truth issued count; the headline `redemptionPct` is anchored on it.",
+          "  2. **Redis `pov:used`** — codes popped out of the available pool for each billId. Bridges Neon",
+          "     bills to specific codes for per-row inspection.",
+          "  3. **VT3 `POST /unlock-codes`** — redemption registry. Status `USED` + `redeemedAt` set means",
+          "     the customer entered the code on vt3.io and unlocked their video.",
+          "",
+          "**Cross-reference quirk**: VT3 returns codes MASKED in the API response (`ZBHT7*****`). Our Redis",
+          "hash has full plaintext. We match by the first-5-character visible prefix; collision rate at our",
+          "volume is ~0.06%. Ambiguous matches surface as a separate counter rather than silently miscounted.",
+          "",
+          "**Date filter targets the RACE date** (the ET day they booked the race for), pulled from the",
+          "`bookingrecord:{billId}` Redis cache. Sales without a booking record fall back to the booking",
+          "timestamp's ET day so they stay visible.",
+          "",
+          "**Headline number**: `totals.redemptionPct` = `redeemed / povSold`. Industry baseline for digital",
+          "voucher redemption is 30–50%; sub-30% is worth investigating.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "from",
+            in: "query" as const,
+            description:
+              "Race-date lower bound (ET, inclusive). YYYY-MM-DD. Default = 30 days ago.",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "to",
+            in: "query" as const,
+            description: "Race-date upper bound (ET, inclusive). YYYY-MM-DD. Default = today.",
+            schema: { type: "string", format: "date" },
+          },
+          {
+            name: "limit",
+            in: "query" as const,
+            description:
+              "Max raw rows in `entries[]`. Aggregations always span the full filtered set. Default 1000.",
+            schema: { type: "integer", default: 1000, minimum: 1, maximum: 5000 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Breakage report",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/PovBreakageResponse" } },
+            },
+          },
+          "400": {
+            description: "Invalid date format",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized — missing or invalid x-api-key" },
+          "404": {
+            description:
+              "Endpoint hidden — same body as 401 to avoid leaking that the path exists.",
+          },
+          "500": {
+            description: "Server error (Redis / VT3 / booking-record hiccup)",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    "/api/admin/e-tickets/resend": {
+      post: {
+        tags: ["E-Tickets"],
+        summary: "Resend a single e-ticket SMS by shortCode",
+        description: [
+          "Sends `body` to the ticket's stored phone (or `overridePhone` when supplied). Logs the send",
+          "with source='admin-resend' so audits distinguish it from cron-fired deliveries.",
+          "",
+          "Body is passed in verbatim from the UI — no reconstruction from ticket data. Trusts the auth-gated caller.",
+          "",
+          "Failures fail loudly (no retry queue) so the operator sees the error and can correct manually.",
+        ].join("\n"),
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/ETicketResendBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Send result — ok=true means provider 2xx, false means provider rejected",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ETicketResendResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Invalid body or invalid phone",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": {
+            description: "Ticket not found / shortCode expired AND no overridePhone supplied",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    // ── Bowling ──────────────────────────────────────────────────────
+    "/api/admin/bowling/reservations": {
+      get: {
+        tags: ["Bowling"],
+        summary: "List bowling reservations for a date",
+        description: [
+          "Returns all bowling reservations booked on the given date, including order line items",
+          "(bowling, shoes, food) and lane-open processing state.",
+          "",
+          "Each reservation includes a `shortCode` for the `/s/{code}` confirmation link.",
+          "Legacy rows that pre-date the shortCode column get a code generated and backfilled on first access.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "token",
+            in: "query" as const,
+            required: true,
+            schema: { type: "string" },
+            description: "Admin camera token (ADMIN_CAMERA_TOKEN)",
+          },
+          {
+            name: "date",
+            in: "query" as const,
+            required: true,
+            schema: { type: "string", format: "date" },
+            description: "YYYY-MM-DD — filter reservations booked on this date",
+          },
+          {
+            name: "center",
+            in: "query" as const,
+            schema: { type: "string", enum: ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"] },
+            description: "Optional. Filter to a single center (Square location ID).",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Reservation list",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BowlingReservationListResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing or invalid date param",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized — invalid token" },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/cancel": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Cancel a bowling reservation (admin — no time cutoff)",
+        description: [
+          "Admin cancellation — same logic as the customer cancel route but WITHOUT the 1-hour cutoff.",
+          "Admins can cancel at any time.",
+          "",
+          "Flow:",
+          "  1. Cancel in QAMF (best-effort — continues even if QAMF fails)",
+          "  2. Issue Square refund via gift card unload (if deposit was charged)",
+          "  3. Mark cancelled in Neon with refund amount",
+          "",
+          "If Square refund fails, the request returns 502 and the reservation is NOT cancelled.",
+          "Staff can retry or issue a manual refund in Square Dashboard.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "token",
+            in: "query" as const,
+            required: true,
+            schema: { type: "string" },
+            description: "Admin camera token",
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/BowlingCancelBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Successfully cancelled",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BowlingCancelResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing neonId",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": {
+            description: "Reservation not found",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "409": {
+            description: "Already cancelled",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "502": {
+            description: "Square refund failed — reservation NOT cancelled",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/resend": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Resend bowling confirmation email and/or SMS",
+        description: [
+          "Delegates to the bowling-confirmation notification route with `forceResend=true`",
+          "to bypass dedup. Can override the phone number or email to send to a different contact.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "token",
+            in: "query" as const,
+            required: true,
+            schema: { type: "string" },
+            description: "Admin camera token",
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/BowlingResendBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Send result",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BowlingResendResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing neonId or channel",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/reschedule": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Reschedule a bowling reservation to a new time",
+        description: [
+          "Reschedules within the same web offer (experience). Price and deposit stay the same.",
+          "",
+          "Flow:",
+          "  1. Delete old QAMF reservation (best-effort)",
+          "  2. Create new QAMF reservation at the new time",
+          "  3. Confirm the new reservation — MUST succeed or the whole operation fails",
+          "  4. Update Neon (booked_at, qamf_reservation_id, reset status to confirmed)",
+          "  5. Clear any dayof_* lane-open state (status reset)",
+          "  6. Resend confirmation email + SMS (fire-and-forget)",
+          "",
+          "Payment (Square deposit / day-of order) is NOT touched.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "token",
+            in: "query" as const,
+            required: true,
+            schema: { type: "string" },
+            description: "Admin camera token",
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/BowlingRescheduleBody" } },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Rescheduled successfully — confirmation resent",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BowlingRescheduleResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing required fields, cancelled, or completed",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": {
+            description: "Reservation not found",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "502": {
+            description: "QAMF failed to create or confirm new reservation",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    "/api/admin/bowling/reservations/reschedule/info": {
+      get: {
+        tags: ["Bowling"],
+        summary: "Get QAMF web offer details for a reservation (reschedule prep)",
+        description: [
+          "Returns the QAMF web offer ID, option details, center ID, and player count for an existing",
+          "reservation. Used by the admin reschedule modal to fetch availability constrained to the same",
+          "web offer / experience.",
+          "",
+          "**Auth**: `token` query param must match the `ADMIN_CAMERA_TOKEN` env var.",
+        ].join("\n"),
+        parameters: [
+          {
+            name: "token",
+            in: "query" as const,
+            required: true,
+            schema: { type: "string" },
+            description: "Admin camera token",
+          },
+          {
+            name: "neonId",
+            in: "query" as const,
+            required: true,
+            schema: { type: "integer" },
+            description: "Neon reservation ID",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Web offer details for constrained availability fetch",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BowlingRescheduleInfoResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing/invalid neonId, no QAMF reservation linked, or unknown center",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": {
+            description: "Reservation not found",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "502": {
+            description: "QAMF fetch failed",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    "/api/admin/bowling/force-confirm": {
+      post: {
+        tags: ["Bowling"],
+        summary: "Force-confirm a stuck reservation (confirm_pending / confirm_failed)",
+        description: [
+          "Manually rescues a bowling reservation stuck in `confirm_pending` or `confirm_failed` status.",
+          "Useful when the automatic retry cron has exhausted its attempts or the QAMF reservation",
+          "expired before confirmation.",
+          "",
+          "Three possible outcomes (reported in `action` field):",
+          "  • **confirmed** — existing QAMF reservation was Temporary; attached customer and confirmed",
+          "  • **already_confirmed** — reservation was already confirmed on QAMF side; Neon updated",
+          "  • **recreated_and_confirmed** — QAMF reservation was gone (expired/deleted); created a",
+          "    fresh one from the stored booking details, confirmed it, updated Neon with new QAMF ID",
+          "",
+          "If the QAMF reservation is gone AND we cannot determine the original webOfferId from the",
+          "reservation lines, the request fails with 422 and the operator must create a new QAMF",
+          "reservation manually.",
+          "",
+          "**Auth**: `ADMIN_CAMERA_TOKEN` via middleware.",
+        ].join("\n"),
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/BowlingForceConfirmBody" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Force-confirm result",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BowlingForceConfirmResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Missing neonId or unknown center",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "404": {
+            description: "Reservation not found",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "422": {
+            description: "Cannot recreate — webOfferId not resolvable from reservation lines",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "502": {
+            description: "QAMF operation failed (customer attach, confirm, or create)",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+export async function GET() {
+  return NextResponse.json(spec, {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "x-api-key, x-admin-token, content-type",
+      "Cache-Control": "public, max-age=300",
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "x-api-key, x-admin-token, content-type",
+    },
+  });
+}

@@ -1,0 +1,327 @@
+import redis from "@/lib/redis";
+import type { GuardianContact } from "@/lib/participant-contact";
+
+/**
+ * Camera → racer assignments for a given race session.
+ *
+ * Front-desk flow:
+ *   1. /admin/{token}/camera-assign loads the next upcoming session's
+ *      participants.
+ *   2. Staff scans each kart's NFC tag (a USB reader that types the camera
+ *      number + Enter). The page assigns that camera to the currently
+ *      highlighted racer and advances to the next.
+ *   3. Each scan writes TWO Redis keys:
+ *        - assignKey   — full record keyed by (sessionId, personId) for
+ *                         the admin UI to list/edit
+ *        - watchKey    — reverse lookup keyed by cameraNumber so a
+ *                         downstream process (watching vt3.io / Viewpoint
+ *                         for new video uploads) can resolve a camera
+ *                         number back to the racer and attach the video
+ *                         to their e-ticket.
+ *
+ * TTL: 24 hours. Covers the whole race day + some slack for video uploads
+ * that arrive post-race.
+ */
+
+const TTL_SECONDS = 60 * 60 * 24; // 24h
+
+export interface CameraAssignment {
+  sessionId: string | number;
+  personId: string | number;
+  firstName: string;
+  lastName: string;
+  /** Session info captured at assign-time so the watcher doesn't need a Pandora refetch */
+  sessionName?: string;
+  scheduledStart?: string;
+  track?: string;
+  raceType?: string;
+  heatNumber?: number;
+  /** The number that came off the NFC tag — this is the SYSTEM (base
+   *  station / dock) number, matches `video.system.name` on vt3.io.
+   *  The actual camera hardware id is a separate field (`video.camera`)
+   *  that we don't know until the video uploads. */
+  systemNumber: string;
+  /** ISO timestamp of the scan */
+  assignedAt: string;
+  /** Email of the staff member who scanned (optional, for audit) */
+  assignedBy?: string;
+  /** Contact info for the "your video is ready" notification that
+   *  fires when the camera returns + uploads to vt3.io. Captured at
+   *  scan-in so the video-match cron doesn't need a second Pandora
+   *  round-trip per match. */
+  email?: string;
+  mobilePhone?: string;
+  homePhone?: string;
+  phone?: string;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+  /** Optional guardian / parent contact snapshot. Used by the
+   *  video-match cron + notify path to fall back when a minor racer
+   *  has no usable contact of their own. Pandora-rolled-out field —
+   *  may be undefined for older assignments. */
+  guardian?: GuardianContact | null;
+}
+
+function assignKey(sessionId: string | number, personId: string | number): string {
+  return `camera-assign:${sessionId}:${personId}`;
+}
+
+/** Reverse lookup keyed by the SYSTEM number (from NFC / video.system.name). */
+function watchKey(systemNumber: string): string {
+  return `system-watch:${systemNumber}`;
+}
+
+function sessionIndexKey(sessionId: string | number): string {
+  return `camera-assign:session:${sessionId}`;
+}
+
+/**
+ * Time-indexed history of assignments for a given SYSTEM. Sorted set,
+ * score = assignedAt epoch ms, value = JSON of the assignment.
+ * Used by the video-match cron: when a video uploads from system S
+ * at time T, we find the most recent history entry with score <= T
+ * — that's the racer who had system S at that moment. Critical for
+ * days when the same base station runs multiple heats with different
+ * racers.
+ */
+function historyKey(systemNumber: string): string {
+  return `system-history:${systemNumber}`;
+}
+
+/**
+ * Persist an assignment. Writes three entries atomically via a pipeline:
+ *   1. The primary record keyed by (sessionId, personId)
+ *   2. A camera-watch reverse lookup keyed by cameraNumber
+ *   3. A set of personIds on this session (for fast "list all assignments
+ *      for this session" without scanning all admin keys)
+ *
+ * If the camera was already assigned to a DIFFERENT racer in the same
+ * session window, that prior watch entry is overwritten — last scan wins.
+ * If the same racer already had a camera, it gets replaced.
+ */
+export async function upsertCameraAssignment(a: CameraAssignment): Promise<void> {
+  const primary = assignKey(a.sessionId, a.personId);
+  const watch = watchKey(a.systemNumber);
+  const idx = sessionIndexKey(a.sessionId);
+  const hist = historyKey(a.systemNumber);
+
+  const payload = JSON.stringify(a);
+  // Watch + history payloads include contact fields so the video-match
+  // cron can deliver the "video ready" notification without re-fetching
+  // from Pandora.
+  const watchPayload = JSON.stringify({
+    sessionId: a.sessionId,
+    personId: a.personId,
+    firstName: a.firstName,
+    lastName: a.lastName,
+    systemNumber: a.systemNumber,
+    sessionName: a.sessionName,
+    scheduledStart: a.scheduledStart,
+    track: a.track,
+    raceType: a.raceType,
+    heatNumber: a.heatNumber,
+    assignedAt: a.assignedAt,
+    email: a.email,
+    mobilePhone: a.mobilePhone,
+    homePhone: a.homePhone,
+    phone: a.phone,
+    acceptSmsCommercial: a.acceptSmsCommercial,
+    acceptSmsScores: a.acceptSmsScores,
+    guardian: a.guardian,
+  });
+  const historyScore = new Date(a.assignedAt).getTime();
+
+  const pipeline = redis.pipeline();
+  pipeline.set(primary, payload, "EX", TTL_SECONDS);
+  pipeline.set(watch, watchPayload, "EX", TTL_SECONDS);
+  pipeline.sadd(idx, String(a.personId));
+  pipeline.expire(idx, TTL_SECONDS);
+  // Time-indexed history — same camera may have multiple assignments
+  // across the day as karts rotate between heats. The video-match
+  // cron reads this set and picks the entry with the largest score
+  // that is still <= video.created_at.
+  pipeline.zadd(hist, historyScore, watchPayload);
+  pipeline.expire(hist, TTL_SECONDS);
+  await pipeline.exec();
+}
+
+/**
+ * Find who had a given camera at a specific moment. Used by the
+ * video-match cron: takes the video's `created_at` (ISO string) and
+ * the kart/camera number (`system.name` on VT3 records), returns the
+ * most recent camera-assign whose assignedAt is earlier than the
+ * video's capture time. Returns null if the camera was never
+ * assigned (or the assignment TTL'd out before the video uploaded).
+ */
+export interface CameraHistoryEntry {
+  sessionId: string | number;
+  personId: string | number;
+  firstName: string;
+  lastName: string;
+  systemNumber: string;
+  sessionName?: string;
+  scheduledStart?: string;
+  track?: string;
+  raceType?: string;
+  heatNumber?: number;
+  assignedAt: string;
+  email?: string;
+  mobilePhone?: string;
+  homePhone?: string;
+  phone?: string;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+  /** Guardian contact for minors — populated when Pandora's
+   *  participant record carries a guardian object. The video-notify
+   *  path falls back to this when the racer's own contact is missing
+   *  or opted out. */
+  guardian?: GuardianContact | null;
+}
+
+/** Maximum age, in milliseconds, between an assignment's scan time and
+ *  the video capture time before we consider the assignment stale.
+ *
+ *  Why 8h: the longest legitimate gap is "delayed video upload during
+ *  one operating evening" — VT3 encoder backlogs of 6–8 hours have been
+ *  observed and are normal. A racer's video shouldn't ever lag more
+ *  than that behind their actual heat. Anything longer is almost
+ *  certainly a cross-operating-day bleed-through (e.g., the same camera
+ *  used the next afternoon by a racer who didn't re-scan), which would
+ *  misattribute the new video to whoever last touched the camera.
+ *
+ *  Symptom that motivated this: video 9D4H6EWT5V (kart 7 footage)
+ *  was captured 5/2 17:46 UTC — 14h after Dovydas's 5/1 23:36 ET race —
+ *  and matched to him because his was still the latest entry in
+ *  system-history:47. Bumped his SMS with the wrong video. */
+const MAX_ASSIGNMENT_AGE_MS = 8 * 60 * 60 * 1000;
+
+export async function getAssignmentAtTime(
+  systemNumber: string,
+  atIso: string,
+): Promise<CameraHistoryEntry | null> {
+  try {
+    const atMs = new Date(atIso).getTime();
+    if (!Number.isFinite(atMs)) return null;
+    // ZREVRANGEBYSCORE → all entries ≤ atMs, highest first. LIMIT 0 1
+    // gives us just the one we want. WITHSCORES so we can also check
+    // the assignment's age relative to atMs (see staleness gate below).
+    const result = await redis.zrevrangebyscore(
+      historyKey(systemNumber),
+      atMs,
+      "-inf",
+      "WITHSCORES",
+      "LIMIT",
+      0,
+      1,
+    );
+    if (!result || result.length < 2) return null;
+    const entry = JSON.parse(result[0]) as CameraHistoryEntry;
+    const assignedAtMs = parseInt(result[1], 10);
+    if (!Number.isFinite(assignedAtMs)) return entry; // belt-and-suspenders
+
+    // Staleness gate — see MAX_ASSIGNMENT_AGE_MS doc above. Without
+    // this, a video uploaded long after the assignment was scanned
+    // (typical case: camera was used the next day by a racer who
+    // didn't re-scan) gets matched to whoever was last assigned, even
+    // though the camera has since been on a totally different kart.
+    const ageMs = atMs - assignedAtMs;
+    if (ageMs > MAX_ASSIGNMENT_AGE_MS) {
+      console.log(
+        `[camera-assign] stale assignment for system ${systemNumber}: ` +
+          `${entry.firstName} ${entry.lastName} (heat ${entry.heatNumber}) ` +
+          `was scanned ${Math.round(ageMs / 60000)}min before capture — ` +
+          `cutoff is ${Math.round(MAX_ASSIGNMENT_AGE_MS / 60000)}min — skipping`,
+      );
+      return null;
+    }
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load all camera assignments for one session.
+ */
+export async function listAssignmentsForSession(
+  sessionId: string | number,
+): Promise<CameraAssignment[]> {
+  const idx = sessionIndexKey(sessionId);
+  const personIds = await redis.smembers(idx);
+  if (personIds.length === 0) return [];
+
+  const keys = personIds.map((pid) => assignKey(sessionId, pid));
+  const raws = await redis.mget(...keys);
+  const out: CameraAssignment[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    try {
+      out.push(JSON.parse(raw));
+    } catch {
+      // skip malformed
+    }
+  }
+  return out;
+}
+
+/**
+ * Remove one assignment (both the primary record and the camera-watch
+ * reverse lookup). Used when staff mis-scans and needs to redo.
+ */
+export async function deleteCameraAssignment(
+  sessionId: string | number,
+  personId: string | number,
+): Promise<void> {
+  const primary = assignKey(sessionId, personId);
+  const raw = await redis.get(primary);
+  if (raw) {
+    try {
+      const a = JSON.parse(raw) as CameraAssignment;
+      if (a.systemNumber) {
+        // Only clear the watch if it STILL points at this assignment —
+        // another racer may have since scanned the same system.
+        const watchRaw = await redis.get(watchKey(a.systemNumber));
+        if (watchRaw) {
+          try {
+            const w = JSON.parse(watchRaw);
+            if (String(w.personId) === String(personId)) {
+              await redis.del(watchKey(a.systemNumber));
+            }
+          } catch {
+            /* leave watch alone */
+          }
+        }
+      }
+    } catch {
+      /* best effort */
+    }
+  }
+  await redis.del(primary);
+  await redis.srem(sessionIndexKey(sessionId), String(personId));
+}
+
+/**
+ * Reverse lookup: given a SYSTEM number, which racer is expected to be
+ * using it (if any)? Downstream Viewpoint watcher uses this to route a
+ * freshly-uploaded video to the right racer's e-ticket.
+ */
+export async function getRacerBySystem(systemNumber: string): Promise<{
+  sessionId: string | number;
+  personId: string | number;
+  firstName: string;
+  lastName: string;
+  systemNumber: string;
+  sessionName?: string;
+  scheduledStart?: string;
+  track?: string;
+  heatNumber?: number;
+  assignedAt: string;
+} | null> {
+  try {
+    const raw = await redis.get(watchKey(systemNumber));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}

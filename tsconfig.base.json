@@ -1,5 +1,5 @@
 {
-  "//": "Shared TypeScript compiler options for all workspace packages. Future packages (packages/* and apps/*) will extend this. fasttrax-web/tsconfig.json is intentionally NOT updated to extend this in PR1 — it has app-specific settings (target ES2017, jsx react-jsx) that we don't want to touch as part of the workspace bootstrap. Path aliases for @ft/* packages will be added here once those packages exist (PR4+).",
+  "//": "Shared TypeScript compiler options for workspace packages under packages/*. apps/web/tsconfig.json is intentionally NOT extending this (different target + jsx) and carries its own @ft/* path aliases. Update both when adding a new @ft/* package.",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["dom", "dom.iterable", "esnext"],

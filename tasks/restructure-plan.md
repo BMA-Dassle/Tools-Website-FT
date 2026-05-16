@@ -2,7 +2,7 @@
 
 ## Context
 
-`Tools-Website-FT` today is three sibling directories at the repo root (`fasttrax-web/`, `kart-timing-bridge/`, `vt3-bridge/`) with no workspace orchestration, no shared packages, no env validation, no tests, no Prettier, no React Query, and a 43-file flat `lib/` god folder inside the Next app. The app is healthy and serves real revenue (9 Vercel crons, 75+ API endpoints, 2 brands), but it has no organizational seams to grow into. New features get bolted onto `lib/`, conventions drift, and recent regressions ([tasks/lessons.md](lessons.md)) point at exactly the kind of mistakes a thoughtful structure prevents (BMI ID precision, idempotency on shared inventory, multi-source data cascade, stale `useCallback` closures, middleware allow-list desync).
+`Tools-Website-FT` today is three sibling directories at the repo root (`apps/web/`, `kart-timing-bridge/`, `vt3-bridge/`) with no workspace orchestration, no shared packages, no env validation, no tests, no Prettier, no React Query, and a 43-file flat `lib/` god folder inside the Next app. The app is healthy and serves real revenue (9 Vercel crons, 75+ API endpoints, 2 brands), but it has no organizational seams to grow into. New features get bolted onto `lib/`, conventions drift, and recent regressions ([tasks/lessons.md](lessons.md)) point at exactly the kind of mistakes a thoughtful structure prevents (BMI ID precision, idempotency on shared inventory, multi-source data cascade, stale `useCallback` closures, middleware allow-list desync).
 
 This effort stands up the bones: a real npm workspaces + Turborepo workspace, a defined shape for new code (per [Best Practices for Organizing Your Next.js 15 — bajrayejoon/dev.to](https://dev.to/bajrayejoon/best-practices-for-organizing-your-nextjs-15-2025-53ji)), the dev-environment / code-style / testing / React Query / docs conventions from [gregsantos's CLAUDE.md gist](https://gist.github.com/gregsantos/2fc7d7551631b809efa18a0bc4debd2a), and the painful lessons from `tasks/lessons.md` codified into compile-time / lint-time guardrails.
 
@@ -27,14 +27,14 @@ This effort stands up the bones: a real npm workspaces + Turborepo workspace, a 
 
 Worth being explicit so we don't redo settled work:
 
-- ✅ **TypeScript strict mode** ([fasttrax-web/tsconfig.json](../fasttrax-web/tsconfig.json) line 7)
+- ✅ **TypeScript strict mode** ([apps/web/tsconfig.json](../apps/web/tsconfig.json) line 7)
 - ✅ **Next.js App Router** (no Pages Router, all routes in `app/`)
 - ✅ **Tailwind CSS v4** with custom palette
-- ✅ **ESLint flat config** with `eslint-config-next` + a11y rules ([fasttrax-web/eslint.config.mjs](../fasttrax-web/eslint.config.mjs))
+- ✅ **ESLint flat config** with `eslint-config-next` + a11y rules ([apps/web/eslint.config.mjs](../apps/web/eslint.config.mjs))
 - ✅ **Path alias** `@/*` → `./` (per-app)
 - ✅ **Route groups & dynamic segments** (`[token]`, `[slug]`, etc.)
-- ✅ **Domain-grouped components** in [fasttrax-web/components/](../fasttrax-web/components/) (`booking/`, `home/`, `headpinz/`, `seo/`, `square/`)
-- ✅ **CSP, HSTS, security headers** in [fasttrax-web/next.config.ts](../fasttrax-web/next.config.ts)
+- ✅ **Domain-grouped components** in [apps/web/components/](../apps/web/components/) (`booking/`, `home/`, `headpinz/`, `seo/`, `square/`)
+- ✅ **CSP, HSTS, security headers** in [apps/web/next.config.ts](../apps/web/next.config.ts)
 - ✅ **npm workspaces + Turborepo at root** (PR1 ✅)
 
 ## What's missing and gets added in this effort
@@ -44,7 +44,7 @@ Worth being explicit so we don't redo settled work:
 - ❌ Prettier — added in PR2
 - ❌ Typed env validation (zod) — added in PR4
 - ❌ Vitest / any test runner (zero tests today) — added in PR2
-- ❌ React Query (`@tanstack/react-query` not in [fasttrax-web/package.json](../fasttrax-web/package.json)) — added in PR5
+- ❌ React Query (`@tanstack/react-query` not in [apps/web/package.json](../apps/web/package.json)) — added in PR5
 - ❌ Structured logger (currently `console.log`) — added in PR4
 - ❌ Husky + lint-staged — added in PR2
 - ❌ ADRs / `docs/adr/` directory — added in PR2
@@ -69,7 +69,7 @@ Tools-Website-FT/
 │   ├── adr/                      # NEW — Architecture Decision Records
 │   └── (existing API docs)
 ├── apps/
-│   ├── web/                      # Next.js app (was fasttrax-web/, moved in PR3)
+│   ├── web/                      # Next.js app (was apps/web/, moved in PR3)
 │   ├── kart-timing-bridge/       # moved in Phase 3
 │   └── vt3-bridge/               # moved in Phase 3
 ├── packages/
@@ -127,8 +127,8 @@ apps/web/
 |---|---|---|
 | `@ft/env` | zod-validated env schema, typed `env` export | seed in PR4 |
 | `@ft/logger` | pino with redaction + `child({ requestId })` | seed in PR4 |
-| `@ft/auth-admin` | `requireAdminToken()`, `requireApiKey()`, `requireBoth()` | extracted from [middleware.ts](../fasttrax-web/middleware.ts) lines 22–132 in PR7 |
-| `@ft/db` | `sql` tag + `queryWithRawIds()` (BMI-safe JSON) | extracted from [lib/db.ts](../fasttrax-web/lib/db.ts) in PR6 |
+| `@ft/auth-admin` | `requireAdminToken()`, `requireApiKey()`, `requireBoth()` | extracted from [middleware.ts](../apps/web/middleware.ts) lines 22–132 in PR7 |
+| `@ft/db` | `sql` tag + `queryWithRawIds()` (BMI-safe JSON) | extracted from [lib/db.ts](../apps/web/lib/db.ts) in PR6 |
 | `@ft/feature-flags` | Statsig server + client wrapper, typed gate names + dynamic config helpers | seed in PR8 |
 | `@ft/observability` | Sentry init + session-replay route allow-list | seed in Phase 4 |
 | `@ft/services` | grouped vendor client modules | empty stubs in PR4; populated as features migrate |
@@ -177,7 +177,7 @@ Phase 4  ─ Optional hardening          (deferred)
 
 - Add: root `package.json` (with `workspaces` array + `packageManager: npm@11.6.4` + `devDeps: { turbo }`), `turbo.json`, `tsconfig.base.json`, `.nvmrc`.
 - Workspaces: `["fasttrax-web", "kart-timing-bridge", "vt3-bridge", "packages/*", "apps/*"]`
-- **Vercel impact:** none. Root stays `fasttrax-web/`. Vercel auto-detects npm from the root `package-lock.json`.
+- **Vercel impact:** none. Root stays `apps/web/`. Vercel auto-detects npm from the root `package-lock.json`.
 - **Verified:** `npm install` (1m), `npx turbo run build` (1m16s, a11y clean), `next dev` (Ready in 2.4s).
 
 #### PR2 — Tooling baselines: Prettier, Husky+lint-staged, Vitest, CI, CLAUDE.md, .env.example, in-repo plan & status tracker
@@ -186,7 +186,7 @@ Phase 4  ─ Optional hardening          (deferred)
 - **Husky + lint-staged:** pre-commit runs `prettier --write` + `eslint --fix` on staged files. Never bypass with `--no-verify`.
 - **Vitest:** root `vitest.workspace.ts`, per-package `vitest.config.ts`. Tests colocate as `*.test.ts(x)`.
 - **CI:** `.github/workflows/ci.yml` runs `npm ci && npx turbo run typecheck lint test build` on PR.
-- **`.env.example`:** generated from keys observed in [middleware.ts](../fasttrax-web/middleware.ts), [vercel.json](../fasttrax-web/vercel.json), `lib/*`.
+- **`.env.example`:** generated from keys observed in [middleware.ts](../apps/web/middleware.ts), [vercel.json](../apps/web/vercel.json), `lib/*`.
 - **CLAUDE.md & docs in repo:** the new CLAUDE.md, this restructure-plan.md, and restructure-status.md (already landed as a separate docs commit after PR1).
 - **No code moves. No app behavior change.**
 - **Risk:** low.
@@ -199,7 +199,7 @@ Phase 4  ─ Optional hardening          (deferred)
 - **Risk:** high (404 storm if root-dir not flipped). Mitigations: preview-deploy with root-dir flipped first; 1-line revert PR ready; merge during quiet window.
 - **Add** `apps/web/src/` empty scaffold with `.gitkeep` files so the convention is visible.
 - **Add** alias `"~/*": ["./src/*"]` in `apps/web/tsconfig.json`.
-- (`fasttrax-web/package-lock.json` was already deleted on 2026-05-06 when the workspace switched from pnpm to npm — see lessons.md.)
+- (`apps/web/package-lock.json` was already deleted on 2026-05-06 when the workspace switched from pnpm to npm — see lessons.md.)
 
 > **Phase 0 exit gate:** Workspace builds. Vercel deploys. New `apps/web/src/` scaffold is visible. Bridges, brands, crons, admin auth — all unchanged.
 
@@ -213,21 +213,21 @@ Everything a v2 feature needs to exist on day one.
 
 - **`@ft/env`:** `packages/env/src/{index.ts,schema.ts}`. Pure zod. Schema marks current vars `.optional()` initially; tighten later.
 - **`@ft/logger`:** pino, JSON in prod / pretty in dev, `child({ requestId })`.
-- Wire [lib/db.ts](../fasttrax-web/lib/db.ts) and `lib/redis.ts` to read `env` from `@ft/env`.
+- Wire [lib/db.ts](../apps/web/lib/db.ts) and `lib/redis.ts` to read `env` from `@ft/env`.
 - **Risk:** medium — missing required env crashes prod boot; mitigated by `.optional()` initially.
 
 #### PR5 — React Query install + `<QueryProvider>` + `@ft/shared` query-key factory
 
 - Install `@tanstack/react-query` and `@tanstack/react-query-devtools` in `apps/web`.
 - Create `apps/web/src/context/QueryProvider.tsx` (client component) wrapping `QueryClientProvider` with defaults: `staleTime: 30_000`, `refetchOnWindowFocus: false`, `retry: 1`. Devtools mount only when `process.env.NODE_ENV !== "production"`.
-- Wire `<QueryProvider>` into [apps/web/app/layout.tsx](../fasttrax-web/app/layout.tsx) inside the `<body>`.
+- Wire `<QueryProvider>` into [apps/web/app/layout.tsx](../apps/web/app/layout.tsx) inside the `<body>`.
 - Create `packages/shared/src/queryKeys.ts` with the central query-key factory.
 - Also seed `packages/shared/src/index.ts` with `Brand`, `SHARED_TOP_LEVEL_ROUTES`, `IdempotencyKey` branded type.
 - **Risk:** low — purely additive.
 
 #### PR6 — `@ft/db` with BMI-safe helper
 
-- Move [lib/db.ts](../fasttrax-web/lib/db.ts) to `packages/db/src/index.ts`. Re-export from old path for one release as a shim.
+- Move [lib/db.ts](../apps/web/lib/db.ts) to `packages/db/src/index.ts`. Re-export from old path for one release as a shim.
 - Add `queryWithRawIds(text, params, { rawIdFields: string[] })` — string-concat JSON for listed fields, never `JSON.stringify(bigint)`. Pattern from `bookRaceHeat()` in `lib/data.ts`.
 - Add `withIdempotency(key, fn)` Redis-locked wrapper.
 - Snapshot test against captured `bookRaceHeat()` JSON output.
@@ -235,7 +235,7 @@ Everything a v2 feature needs to exist on day one.
 
 #### PR7 — `@ft/auth-admin` (with tests)
 
-- Move admin token + IP + api-key logic from [middleware.ts](../fasttrax-web/middleware.ts) lines 22–132 and `lib/admin-auth.ts` into `packages/auth-admin/src/`.
+- Move admin token + IP + api-key logic from [middleware.ts](../apps/web/middleware.ts) lines 22–132 and `lib/admin-auth.ts` into `packages/auth-admin/src/`.
 - Provide route-handler helpers: `requireAdminToken(req)`, `requireApiKey(req, surface)`, `requireBoth(req, surface)`.
 - Test matrix: token ok/wrong/missing × api-key surfaces × admin paths × public spec exception × legacy-token 308 redirect.
 - **Risk:** medium — regression 404s the entire admin surface. Behavior must be bit-for-bit identical.
@@ -246,7 +246,7 @@ Everything a v2 feature needs to exist on day one.
 - `@ft/feature-flags` package wrapping both with typed gate names + dynamic config helpers.
 - `STATSIG_SERVER_SECRET_KEY` + `NEXT_PUBLIC_STATSIG_CLIENT_KEY` added to `@ft/env`.
 - `<StatsigProvider>` in `apps/web/src/context/` next to `<QueryProvider>`.
-- CSP update in [next.config.ts](../fasttrax-web/next.config.ts) — add `https://api.statsig.com` and `https://events.statsigapi.net` to `connect-src`.
+- CSP update in [next.config.ts](../apps/web/next.config.ts) — add `https://api.statsig.com` and `https://events.statsigapi.net` to `connect-src`.
 - Identity model: anonymous cookie UUID + brand custom property; BMI personId added later when needed.
 - ESLint rule banning `process.env.NEXT_PUBLIC_*_ENABLED` reads outside `@ft/feature-flags`.
 - Migrate existing `NEXT_PUBLIC_ROOKIE_PACK_ENABLED` and `NEXT_PUBLIC_ULTIMATE_QUALIFIER_ENABLED` from `lib/packages.ts` to Statsig gates as the worked example.
@@ -433,7 +433,7 @@ Bridges (`kart-timing-bridge/`, `vt3-bridge/`) move whenever convenient — isol
 | **Idempotency on shared inventory** | `@ft/db.withIdempotency(key, fn)` Redis-locked by `(endpoint, billId\|sessionId\|personId)`. Service functions touching shared inventory accept `IdempotencyKey` (branded type from `@ft/shared`) as first arg → compile-time error if missing. |
 | **Multi-source data cascade** | `@ft/shared.cascade<T>(...sources)` helper. Convention: files under `**/confirmation/**` or `**/admin/**` read via `cascade(live, cached, fallback)`. Soft lint rule flags direct `cachedSource?.x` access without sibling live read. |
 | **`useCallback` dep arrays** | `react-hooks/exhaustive-deps: "error"` scoped to `apps/web/src/**` (new code). Existing components stay at `warn` so no PR is blocked retroactively. |
-| **`isSharedTopLevelRoute` middleware desync** | `@ft/shared.SHARED_TOP_LEVEL_ROUTES: readonly string[]`; [middleware.ts:337-339](../fasttrax-web/middleware.ts) imports it. Vitest test scans `apps/web/app/*/page.tsx` directories at depth 1 and fails CI if any page uses `headers()` to switch on host but isn't in the const. |
+| **`isSharedTopLevelRoute` middleware desync** | `@ft/shared.SHARED_TOP_LEVEL_ROUTES: readonly string[]`; [middleware.ts:337-339](../apps/web/middleware.ts) imports it. Vitest test scans `apps/web/app/*/page.tsx` directories at depth 1 and fails CI if any page uses `headers()` to switch on host but isn't in the const. |
 | **Per-customer pricing displayed ≠ charged** | `@ft/feature-flags` `evaluatePricing()` writes audit row before returning. Charge handler re-eval'd via same helper; mismatch throws and pages on-call. (Lesson appended to `tasks/lessons.md` before PR11 ships.) |
 | **Session replay on PII routes** | `@ft/observability` route allow-list with build-time check denying KBF + admin patterns. CI fails if violated. |
 
@@ -443,7 +443,7 @@ This is the menu Phase 3 pulls from. No fixed PR order — items move when one o
 
 **High** (active touch points, recent commits — most likely to be needed by early v2 features):
 
-1. [lib/sms-log.ts](../fasttrax-web/lib/sms-log.ts), `lib/sms-quota.ts`, `lib/sms-retry.ts`, [lib/twilio-send.ts](../fasttrax-web/lib/twilio-send.ts) → `src/features/sms/` + `@ft/services/twilio`. Pulled by **PR9 v2 SMS log worked example**.
+1. [lib/sms-log.ts](../apps/web/lib/sms-log.ts), `lib/sms-quota.ts`, `lib/sms-retry.ts`, [lib/twilio-send.ts](../apps/web/lib/twilio-send.ts) → `src/features/sms/` + `@ft/services/twilio`. Pulled by **PR9 v2 SMS log worked example**.
 2. `lib/video-event-processor.ts`, `lib/video-match.ts`, `lib/video-notify.ts`, `lib/video-block.ts`, `lib/vt3.ts`, `lib/vt3-shadow-log.ts` → `src/features/videos/` + `@ft/services/vt3`. **High React Query value** — likely pulled by v2 Videos admin.
 3. `lib/race-tickets.ts`, `lib/heat-conflict.ts`, `lib/camera-assign.ts`, `app/api/admin/pov-codes/*` → `src/features/race-day/`. Pulled by v2 camera-assign / voucher admin.
 4. `lib/sales-lead-card.ts`, `lib/sales-lead-config.ts`, `lib/sales-lead-copy.ts`, `lib/sales-log.ts`, `components/SalesLeadForm.tsx` (43KB!) → `src/features/sales-leads/`. Component must be split during migration.
@@ -502,16 +502,16 @@ This effort spans multiple days, sessions, and potentially other people picking 
 
 ## Critical files for implementation reference
 
-- [fasttrax-web/package.json](../fasttrax-web/package.json) — current deps; becomes `apps/web/package.json` in PR3
-- [fasttrax-web/tsconfig.json](../fasttrax-web/tsconfig.json) — extends `tsconfig.base.json` after PR1; gains `~/*` alias in PR3
-- [fasttrax-web/vercel.json](../fasttrax-web/vercel.json) — 9 cron paths, must not change
-- [fasttrax-web/middleware.ts](../fasttrax-web/middleware.ts) — 409-line load-bearing brand router; auth block (22–132) extracted in PR7; `isSharedTopLevelRoute` (337–339) replaced by `@ft/shared` const in PR5
-- [fasttrax-web/next.config.ts](../fasttrax-web/next.config.ts) — CSP, www→apex 301s, `/documents/*` rewrite — preserve as-is; CSP gets Statsig + Sentry endpoints in PR8 / Phase 4
-- [fasttrax-web/eslint.config.mjs](../fasttrax-web/eslint.config.mjs) — flat config; new rules layered in PR2 scoped to `src/`
-- [fasttrax-web/app/layout.tsx](../fasttrax-web/app/layout.tsx) — `<QueryProvider>` wired in PR5, `<StatsigProvider>` in PR8
-- [fasttrax-web/lib/db.ts](../fasttrax-web/lib/db.ts) — extracted in PR6
-- [fasttrax-web/lib/admin-auth.ts](../fasttrax-web/lib/admin-auth.ts) — extracted in PR7
-- [fasttrax-web/lib/packages.ts](../fasttrax-web/lib/packages.ts) — env-flag reads migrate to `@ft/feature-flags` in PR8
-- [fasttrax-web/scripts/a11y-gate.mjs](../fasttrax-web/scripts/a11y-gate.mjs) — postbuild a11y check, must keep working
+- [apps/web/package.json](../apps/web/package.json) — current deps; becomes `apps/web/package.json` in PR3
+- [apps/web/tsconfig.json](../apps/web/tsconfig.json) — extends `tsconfig.base.json` after PR1; gains `~/*` alias in PR3
+- [apps/web/vercel.json](../apps/web/vercel.json) — 9 cron paths, must not change
+- [apps/web/middleware.ts](../apps/web/middleware.ts) — 409-line load-bearing brand router; auth block (22–132) extracted in PR7; `isSharedTopLevelRoute` (337–339) replaced by `@ft/shared` const in PR5
+- [apps/web/next.config.ts](../apps/web/next.config.ts) — CSP, www→apex 301s, `/documents/*` rewrite — preserve as-is; CSP gets Statsig + Sentry endpoints in PR8 / Phase 4
+- [apps/web/eslint.config.mjs](../apps/web/eslint.config.mjs) — flat config; new rules layered in PR2 scoped to `src/`
+- [apps/web/app/layout.tsx](../apps/web/app/layout.tsx) — `<QueryProvider>` wired in PR5, `<StatsigProvider>` in PR8
+- [apps/web/lib/db.ts](../apps/web/lib/db.ts) — extracted in PR6
+- [apps/web/lib/admin-auth.ts](../apps/web/lib/admin-auth.ts) — extracted in PR7
+- [apps/web/lib/packages.ts](../apps/web/lib/packages.ts) — env-flag reads migrate to `@ft/feature-flags` in PR8
+- [apps/web/scripts/a11y-gate.mjs](../apps/web/scripts/a11y-gate.mjs) — postbuild a11y check, must keep working
 - [tasks/lessons.md](lessons.md) — source of guardrail requirements
 - [tasks/todo.md](todo.md) — open in-flight work to coordinate around (HeadPinz metadata on shared `/book`)
