@@ -1,8 +1,8 @@
 # Restructure Status
 
 **Last updated:** 2026-05-15 by Alex
-**Current phase:** Phase 0 — Foundation
-**Next up:** PR6 (`@ft/db` with `queryWithRawIds` + `withIdempotency` — last runway PR before booking starts)
+**Current phase:** Phase 1 — v2 Runway (PR6 landed; PR4/5/7/8 deferred — can ship alongside or after booking)
+**Next up:** PR-B1 (Booking feature scaffold — `apps/web/src/features/booking/{state,service,data}` skeleton, `BookingFlow` shell, `/book/v2` chooser, vendor stub-mode infrastructure)
 
 > Read [tasks/restructure-plan.md](restructure-plan.md) for the full plan, conventions, and migration backlog.
 
@@ -48,7 +48,16 @@
 
 - [ ] **PR4** — `@ft/env` + `@ft/logger`
 - [ ] **PR5** — React Query install + `<QueryProvider>` + `@ft/shared` query-key factory
-- [ ] **PR6** — `@ft/db` with BMI-safe helper (`queryWithRawIds`, `withIdempotency`)
+- [x] **PR6** — `@ft/db` with BMI-safe helpers — landed 2026-05-15.
+  - New workspace package at `packages/db/` (scope: `@ft`). Exports:
+    - `sql()` / `isDbConfigured()` — ported from `apps/web/lib/db.ts` unchanged.
+    - `stringifyWithRawIds(payload, { rawIds })` — replaces `JSON.stringify` for HTTP bodies that carry 17-digit BMI IDs. Validates each raw id is a digit-only string (defense against JSON injection); produces byte-identical output to the hand-rolled pattern in `bookRaceHeat()`. Centralizes the lesson from `tasks/lessons.md` § "BMI ID Precision."
+    - `withIdempotency(redis, key, fn, opts?)` — Redis-locked wrapper for endpoints that consume shared inventory. Structurally-typed Redis interface so the package doesn't pull in ioredis. Cache writes only happen on success; throws bypass the cache (matches the pov-codes pattern).
+  - `apps/web/lib/db.ts` is now a one-line re-export shim from `@ft/db`. Every existing `@/lib/db` import (16 call sites: `bowling-db`, `bmi-deposit-retry`, several admin routes) works unchanged.
+  - Path alias `@ft/db` wired in both `tsconfig.base.json` (for packages/*) and `apps/web/tsconfig.json` (for the Next app). `apps/web/package.json` gained `"@ft/db": "*"` workspace dep.
+  - Vitest: `packages/db/src/{raw-ids,idempotency}.test.ts` — **13 tests passing** covering snapshot parity with `bookRaceHeat()` (5 raw-id tests), injection rejection, multi-id appending, and the idempotency cache/retry/TTL/annotation behavior. Reference impl of `bookRaceHeat()`'s string-concat is copied into the test so future regressions are caught by direct diff.
+  - Verified: `npm run format:check` ✓, `npx turbo run typecheck` 4/4 ✓, `npx turbo run test --filter=@ft/db` 13/13 ✓, `npx turbo run build` 3/3 ✓ (1m14s, a11y clean).
+  - Scope decision: `@ft` (per blocker resolution 2026-05-15 — see below).
 - [ ] **PR7** — `@ft/auth-admin` (with tests)
 - [ ] **PR8** — `@ft/feature-flags` (Statsig wrapper) + migrate existing two env-flags to gates
 
@@ -81,13 +90,14 @@ Each migration that ships gets a one-line entry below.
 - **Statsig identity model** — confirm cookie-based (recommended) vs email-gate vs promo-code-style before PR8.
 - **Per-customer pricing scope** — confirm which products get targeting first (race packages? bowling? all?) before PR11.
 - **Privacy policy update** — must precede any session-replay PR (Phase 4 blocker).
-- **`@ft/*` package scope name** — placeholder; pick final scope (`@ft`, `@fasttrax`, `@ftw`, etc.) before PR4 since it's baked into every package import.
+- ~~**`@ft/*` package scope name**~~ — **RESOLVED 2026-05-15:** `@ft` (chosen for brevity, matches the placeholder in the plan). First package `@ft/db` shipped in PR6.
 
 ## Lessons learned during restructure
 
 - **PR2 (2026-05-14):** Next.js 16 generates `.next/dev/types/validator.ts` referencing route layouts that may no longer exist on disk. `tsc --noEmit` fails on stale typegen until `.next/` is cleaned (or a fresh `next build` regenerates it). CI is unaffected because it starts cold; local typecheck after refactoring routes needs `rm -rf apps/web/.next` first.
 - **PR2 (2026-05-14):** Surfacing lint via CI exposed ~105 pre-existing errors (mostly new React 19 `react-hooks/set-state-in-effect`, `react-hooks/refs`, `react-hooks/exhaustive-deps`) and ~148 warnings. Both CI lint and the pre-commit lint-staged hook are prettier-only / `continue-on-error` until a dedicated cleanup PR lands. Don't ship new code that triggers these rules.
 - **PR2 (2026-05-15):** Husky's `prepare` script on Windows occasionally corrupts `core.hooksPath` to `--version/_` (looks like a `git config --version` output got substituted into the set command). Symptom: every git op prints `env: unknown option -- version/_/<hook-name>` and the hook silently no-ops. Fix: `git config core.hooksPath .husky/_`.
+- **PR6 (2026-05-15):** Path aliases for workspace packages need to be declared in BOTH `tsconfig.base.json` (for sibling packages under `packages/*`) AND `apps/web/tsconfig.json` (the Next app doesn't extend the base config — different `target` and `jsx`). Forgetting either side produces "Cannot find module '@ft/db'" at type-check time only. Add to both whenever a new `@ft/*` package lands.
 
 ## Update protocol
 
