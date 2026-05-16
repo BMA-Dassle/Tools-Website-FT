@@ -173,7 +173,7 @@ const specials = [
   },
   {
     name: "Late Night Madness",
-    when: "Fri-Sat 11PM-1AM",
+    when: "Fri-Sat 12AM-2AM",
     regular: "$11.99",
     vip: "$13.99",
     note: "2 hours unlimited",
