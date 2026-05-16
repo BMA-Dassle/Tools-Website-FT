@@ -1,8 +1,8 @@
 # Restructure Status
 
 **Last updated:** 2026-05-15 by Alex
-**Current phase:** Phase 1 — v2 Runway (PR6 landed; PR4/5/7/8 deferred — can ship alongside or after booking)
-**Next up:** PR-B1 (Booking feature scaffold — `apps/web/src/features/booking/{state,service,data}` skeleton, `BookingFlow` shell, `/book/v2` chooser, vendor stub-mode infrastructure)
+**Current phase:** Phase 2 — First v2 feature (booking) — scaffold landed in PR-B1
+**Next up:** PR-B2 (Race v2 — full flow at `/book/race/v2` with real BMI adapter via `@ft/db.stringifyWithRawIds`, Square anchor + payment, confirmation page)
 
 > Read [tasks/restructure-plan.md](restructure-plan.md) for the full plan, conventions, and migration backlog.
 
@@ -64,6 +64,28 @@
 > Phase 1 exit gate: a new file at `apps/web/src/features/<example>/hooks.ts` can use React Query + `@ft/db` + `@ft/logger` + `@ft/env` + `@ft/feature-flags`, and an admin route can guard via `@ft/auth-admin`, all without modifying any v1 file.
 
 ## Phase 2 — First v2 features
+
+### Booking rewrite (per `~/.claude/plans/we-are-going-to-polymorphic-hejlsberg.md`)
+
+- [x] **PR-B1** — Booking feature scaffold — landed 2026-05-15.
+  - Installed `@tanstack/react-query` + `@tanstack/react-query-devtools` and `zod` in `apps/web` (the React-Query install was deferred from PR5; landed here as the first consumer).
+  - [apps/web/src/context/QueryProvider.tsx](../apps/web/src/context/QueryProvider.tsx) — client component, sensible defaults (staleTime 30s, retry 1, no refetch-on-focus), devtools only when `NODE_ENV !== "production"`.
+  - QueryProvider scoped to `/book/[activity]/v2` and `/book/kbf/v2` via layout files — v1 booking + every other v1 page pay zero React Query cost.
+  - [apps/web/src/features/booking/](../apps/web/src/features/booking/) skeleton: `types.ts` (Activity/Brand/CenterCode/ContactInfo), `state/{types,machine,steps}.ts` (Draft union, reducer, per-activity step registry with placeholder steps for race / race-pack / attraction / bowling / kbf), `service/index.ts` (BookingService interface + `getService()` dispatcher that throws "not implemented" for each activity), `data/index.ts` + `data/mock-mode.ts` + `data/square.ts` + `data/__fixtures__/square.ts` (reference adapter showing the `LOCAL_<VENDOR>_MOCK=1` toggle pattern; in-memory mock so wizard can roundtrip without Square credentials), `queries.ts` (React Query key factory keyed under `["booking", ...]`), `schemas.ts` (zod placeholders), `hooks/index.ts` (empty, fills per-activity), `index.ts` (public surface).
+  - [apps/web/src/components/features/booking/BookingFlow.tsx](../apps/web/src/components/features/booking/BookingFlow.tsx) — orchestrator shell. Drives the reducer, renders the current step's component, handles breadcrumb + Next/Back. Step components are placeholders that render nothing yet — the host is ready for per-activity PRs to fill them in.
+  - Routes wired (all build cleanly):
+    - `/book/v2` — brand-aware chooser server component, reads `x-brand` header, preselects FastTrax's race tile or HeadPinz's bowling tile.
+    - `/book/[activity]/v2` — dynamic route, slug → Activity mapping (race / race-pack / bowling / attractions). Unknown slugs → 404.
+    - `/book/kbf/v2` — separate route for KBF (different SEO + COPPA model).
+  - **Vendor stub-mode pattern established** — `isMockMode("vendor")` returns false in prod (hard guard) and only true when `LOCAL_<VENDOR>_MOCK=1` in dev. `square.ts` demonstrates the real/mock dispatch; bmi/conq/pandora/kbf adapters follow the same shape when they land.
+  - Verified: `npm run format:check` ✓, `npx turbo run typecheck` 4/4 ✓, `npx turbo run test` 13/13 ✓ (no booking-feature tests yet — those land per-activity), `npx turbo run build` 3/3 ✓ (a11y clean, 1m27s). Three new routes show in the build manifest: `/book/v2`, `/book/[activity]/v2`, `/book/kbf/v2`.
+- [ ] **PR-B2** — Race v2 (real BMI adapter, Square anchor, payment, confirmation)
+- [ ] **PR-B3** — Attraction v2 (gel-blaster / laser-tag / duck-pin / shuffly)
+- [ ] **PR-B4** — Race-pack v2 (multi-component heats, Pandora deposit credits)
+- [ ] **PR-B5** — Bowling v2 (Conq adapter, gift-card-as-deposit)
+- [ ] **PR-B6** — KBF v2 (identity gate, conditional Square anchor for paid add-ons)
+
+### Other v2 features (independent of booking)
 
 - [ ] **PR9** — v2 SMS Log admin (worked example for `src/features/<feature>/` + React Query + flag-gated cutover)
 - [ ] (next v2 features picked per business need — see plan § Phase 2)
