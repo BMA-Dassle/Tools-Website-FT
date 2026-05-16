@@ -17,6 +17,7 @@ yarn.lock
 
 # Generated / vendored
 apps/web/public/
+apps/web/next-env.d.ts
 **/coverage/
 
 # Markdown that is intentionally hand-formatted (tables, ASCII art)
