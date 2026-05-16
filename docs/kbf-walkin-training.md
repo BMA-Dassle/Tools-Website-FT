@@ -56,6 +56,7 @@ All registered kids appear with checkboxes. Kids are **auto-selected** unless th
 - **Played today** (red badge) — already used their 2 free games today, checkbox is off
 
 You can:
+
 - **Uncheck** a kid who isn't bowling
 - **Check** a family member (FBF accounts only)
 - **Set shoe sizes** — click the shoe size button on each row
@@ -68,6 +69,7 @@ You can:
 Once bowlers are selected and a phone number is on file, the green **Bowl Now** button activates. Click it.
 
 **What happens behind the scenes:**
+
 - The system creates a temporary reservation in QAMF
 - QAMF automatically picks the best available lane
 - A green card appears showing the **assigned lane number**
@@ -82,6 +84,7 @@ You'll see a green box:
 > Temp hold active — confirm to open the lane
 
 You have two options:
+
 - **Cancel** — releases the hold, lets you change bowlers or pick a different time
 - **Open Lane [number]** — finalizes everything
 
@@ -112,29 +115,29 @@ Click **New Lookup** to reset and help the next guest.
 
 ## What Can Go Wrong
 
-| Situation | What You'll See | What to Do |
-|---|---|---|
-| All kids show "Played today" | Red badges on every kid, buttons disabled | They've already used their free games. They can still bowl but need to pay full price — book through regular Conqueror. |
-| "Already has a reservation" warning | Yellow box with date/time | They already have a future booking. Book Lane is disabled but Bowl Now still works. |
-| No accounts found | "No accounts found" message | Double-check spelling. Try email or phone instead. They may not be registered at KidsBowlFree.com. |
-| Hold fails | Error message appears | Usually means no lanes are available (all open/running). Check Conqueror for lane availability. |
-| Lane open fails partway | Progress shows which step failed | The reservation may be partially created. Check Conqueror — if the lane is running, just charge shoes normally. Contact management if it's stuck. |
-| Guest wants to change bowlers after hold | Bowler list is locked (greyed out) | Click **Cancel** on the hold card, make changes, then click Bowl Now again. |
+| Situation                                | What You'll See                           | What to Do                                                                                                                                        |
+| ---------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| All kids show "Played today"             | Red badges on every kid, buttons disabled | They've already used their free games. They can still bowl but need to pay full price — book through regular Conqueror.                           |
+| "Already has a reservation" warning      | Yellow box with date/time                 | They already have a future booking. Book Lane is disabled but Bowl Now still works.                                                               |
+| No accounts found                        | "No accounts found" message               | Double-check spelling. Try email or phone instead. They may not be registered at KidsBowlFree.com.                                                |
+| Hold fails                               | Error message appears                     | Usually means no lanes are available (all open/running). Check Conqueror for lane availability.                                                   |
+| Lane open fails partway                  | Progress shows which step failed          | The reservation may be partially created. Check Conqueror — if the lane is running, just charge shoes normally. Contact management if it's stuck. |
+| Guest wants to change bowlers after hold | Bowler list is locked (greyed out)        | Click **Cancel** on the hold card, make changes, then click Bowl Now again.                                                                       |
 
 ---
 
 ## Quick Reference
 
-| Item | Detail |
-|---|---|
-| **Free games** | 2 per registered bowler per day |
-| **Days** | Monday – Friday only |
-| **Hours** | 11 AM – close (Mon–Thu), 11 AM – 5 PM (Fri) |
-| **Shoes** | NOT included — always charge separately |
-| **KBF** | Kids free, adults pay |
-| **FBF** | Everyone free (paid upgrade families) |
-| **Phone required** | Yes — must be on file or entered at desk |
-| **Lane assignment** | Automatic — system picks the best lane |
+| Item                | Detail                                      |
+| ------------------- | ------------------------------------------- |
+| **Free games**      | 2 per registered bowler per day             |
+| **Days**            | Monday – Friday only                        |
+| **Hours**           | 11 AM – close (Mon–Thu), 11 AM – 5 PM (Fri) |
+| **Shoes**           | NOT included — always charge separately     |
+| **KBF**             | Kids free, adults pay                       |
+| **FBF**             | Everyone free (paid upgrade families)       |
+| **Phone required**  | Yes — must be on file or entered at desk    |
+| **Lane assignment** | Automatic — system picks the best lane      |
 
 ---
 
@@ -157,6 +160,7 @@ Same as Bowl Now — check off the kids (and family members for FBF accounts) wh
 The blue **Book Lane** button takes you to the booking calendar (step 2 of the UI).
 
 **Book Lane is disabled if:**
+
 - The family already has an upcoming KBF reservation (yellow warning box shows the existing date/time)
 - No kids are selected
 - No phone number on file
@@ -185,11 +189,13 @@ As soon as you pick a minute, the system **automatically creates a temporary hol
 > **Time slot held — 10 min expiry**
 
 This means:
+
 - The slot is reserved for **10 minutes** while you confirm
 - No one else (online or at the desk) can take that slot
 - If you don't confirm within 10 minutes, the hold expires and the slot opens back up
 
 **If you change your mind:**
+
 - Click a **different minute** — the old hold is cancelled, a new one is created
 - Click a **different hour** — the old hold is cancelled
 - Click a **different date** — the old hold is cancelled
@@ -219,25 +225,25 @@ Click **New Lookup** to help the next guest.
 
 ## Book Lane: What Can Go Wrong
 
-| Situation | What You'll See | What to Do |
-|---|---|---|
-| No times available for a date | "No available start times for this date" | That day may be fully booked, or the KBF offer hours are restricted. Try a different date. |
-| Already has a reservation | Yellow warning, Book Lane button disabled | They can only have one upcoming KBF reservation at a time. They need to use or cancel the existing one first. |
-| Hold expired before confirming | Confirm may fail with an error | Pick the time again — a new hold will be created. If the slot was taken, pick a different time. |
-| Guest changes their mind on date/time | Calendar and time chips still active | Just pick a new date or time. The old hold is automatically cancelled. |
-| Guest wants to cancel after confirming | Booking is finalized | Contact management — confirmed bookings need to be cancelled in the reservations admin. |
-| Only late-night times showing | Times like "9 PM", "9:45 PM" only | This is a Conqueror configuration issue — the KBF offer may be restricted to certain hours at that center. Contact management. |
+| Situation                              | What You'll See                           | What to Do                                                                                                                     |
+| -------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| No times available for a date          | "No available start times for this date"  | That day may be fully booked, or the KBF offer hours are restricted. Try a different date.                                     |
+| Already has a reservation              | Yellow warning, Book Lane button disabled | They can only have one upcoming KBF reservation at a time. They need to use or cancel the existing one first.                  |
+| Hold expired before confirming         | Confirm may fail with an error            | Pick the time again — a new hold will be created. If the slot was taken, pick a different time.                                |
+| Guest changes their mind on date/time  | Calendar and time chips still active      | Just pick a new date or time. The old hold is automatically cancelled.                                                         |
+| Guest wants to cancel after confirming | Booking is finalized                      | Contact management — confirmed bookings need to be cancelled in the reservations admin.                                        |
+| Only late-night times showing          | Times like "9 PM", "9:45 PM" only         | This is a Conqueror configuration issue — the KBF offer may be restricted to certain hours at that center. Contact management. |
 
 ---
 
 ## Key Differences: Bowl Now vs. Book Lane
 
-| | Bowl Now | Book Lane |
-|---|---|---|
-| **When** | Right now — guest is at the desk | Future date — guest wants to reserve ahead |
-| **Lane assignment** | Immediate — system picks and opens a lane | At arrival — no lane assigned until check-in |
-| **Shoes to KDS** | Yes — sent immediately | No — handled at check-in |
-| **Charge for shoes** | Yes — immediately after confirming | At check-in, not at booking time |
-| **Hold expiry** | No expiry (PlayNow) | 10 minutes (BookForLater) |
-| **Square order** | Created (shoe line items for KDS) | Not created until check-in |
-| **Lane in Conqueror** | Opens to Running immediately | Created as future reservation |
+|                       | Bowl Now                                  | Book Lane                                    |
+| --------------------- | ----------------------------------------- | -------------------------------------------- |
+| **When**              | Right now — guest is at the desk          | Future date — guest wants to reserve ahead   |
+| **Lane assignment**   | Immediate — system picks and opens a lane | At arrival — no lane assigned until check-in |
+| **Shoes to KDS**      | Yes — sent immediately                    | No — handled at check-in                     |
+| **Charge for shoes**  | Yes — immediately after confirming        | At check-in, not at booking time             |
+| **Hold expiry**       | No expiry (PlayNow)                       | 10 minutes (BookForLater)                    |
+| **Square order**      | Created (shoe line items for KDS)         | Not created until check-in                   |
+| **Lane in Conqueror** | Opens to Running immediately              | Created as future reservation                |

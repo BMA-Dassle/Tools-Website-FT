@@ -12,7 +12,7 @@
  * outside Vercel just to bridge the always-on stream into our
  * normal webhook-driven request/response model.
  *
- * Auth flow mirrors `fasttrax-web/lib/vt3.ts` — POST /auth/local
+ * Auth flow mirrors `apps/web/lib/vt3.ts` — POST /auth/local
  * with username + password, get JWT good for 7 days, cache in
  * memory for 6 days, re-login on 401.
  *
@@ -265,14 +265,11 @@ async function consumeStream(): Promise<void> {
         } else if (typeof parsed === "object" && parsed !== null) {
           const p = parsed as Record<string, unknown>;
           if (typeof p.sessionId === "string") sessionId = p.sessionId;
-          else if (event.event === "session" && typeof p.id === "string")
-            sessionId = p.id;
+          else if (event.event === "session" && typeof p.id === "string") sessionId = p.id;
         }
         if (sessionId) console.log(`[vt3-bridge] captured sessionId=${sessionId}`);
       }
-      console.log(
-        `[vt3-bridge] event=${event.event ?? "message"} id=${event.id ?? "-"}`,
-      );
+      console.log(`[vt3-bridge] event=${event.event ?? "message"} id=${event.id ?? "-"}`);
       debug("payload:", parsed);
       await forward({
         eventType: event.event ?? "message",

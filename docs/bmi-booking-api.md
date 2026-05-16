@@ -3,6 +3,7 @@
 Documentation compiled from three BMI Confluence pages and live testing (2026-04-01).
 
 ## Sources
+
 1. **João Casanova (Aug 2025)** — "Booking API Subscriptions flow" — original endpoints
 2. **Angelina Obolonina (Mar 2026)** — "Full Public Booking API Documentation" — extended endpoints (some not deployed)
 3. **Updated João doc (Apr 2026)** — latest confirmed working endpoints with `Bmi-Subscription-Key` header
@@ -12,6 +13,7 @@ Documentation compiled from three BMI Confluence pages and live testing (2026-04
 **Auth Endpoint:** `POST https://api.bmileisure.com/auth/{clientKey}/publicbooking`
 
 **Required Headers (ALL requests including auth):**
+
 ```
 Bmi-Subscription-Key: d0119e685b6d4ba5b7559a13d148c7ec
 Content-Type: application/json
@@ -19,6 +21,7 @@ Accept-Language: en
 ```
 
 **Auth Request Body:**
+
 ```json
 {
   "Username": "headpinzftmyers",
@@ -27,6 +30,7 @@ Accept-Language: en
 ```
 
 **Auth Response:**
+
 ```json
 {
   "TokenType": "bearer",
@@ -37,6 +41,7 @@ Accept-Language: en
 ```
 
 After auth, include on all subsequent requests:
+
 ```
 Authorization: Bearer {AccessToken}
 Bmi-Subscription-Key: d0119e685b6d4ba5b7559a13d148c7ec
@@ -51,42 +56,42 @@ Bmi-Subscription-Key: d0119e685b6d4ba5b7559a13d148c7ec
 
 ## Endpoint Status (tested 2026-04-01)
 
-| # | Endpoint | Method | Path | Source | Status |
-|---|----------|--------|------|--------|--------|
-| 1 | Locations | GET | `/locations` | All 3 docs | LIVE |
-| 2 | Pages by date | GET | `/page?date={iso}` | All 3 docs | LIVE |
-| 3 | All products | GET | `/products` | All 3 docs | LIVE (cached 1hr) |
-| 4 | Product image | GET | `/image/product?productId={id}` | João + Angelina | LIVE |
-| 5 | Available days | GET | `/availability?productId={id}&dateFrom=&dateTill=` | All 3 docs | LIVE |
-| 6 | Time slot proposals | POST | `/availability?date={date}` | All 3 docs | LIVE |
-| 7 | Book time slot | POST | `/booking/book` | All 3 docs | LIVE |
-| 8 | Sell (add to cart) | POST | `/booking/sell` | Angelina + latest João | LIVE |
-| 9 | Confirm payment | POST | `/payment/confirm` | All 3 docs | LIVE |
-| 10 | Cancel order | DELETE | `/bill/{orderId}/cancel` | Latest João | LIVE |
-| 11 | Register contact | POST | `/person/registerContactPerson` | Angelina | LIVE |
-| 12 | Page by XRef | GET | `/page/{pageXRef}` | Angelina | untested |
-| 13 | Register participant | POST | `/person/registerProjectPerson` | Angelina | untested |
-| 14 | Subscriptions | GET | `/subscription/{loginCode}/{pageXRef}` | João original | untested |
-| 15 | Save memo | POST | `/booking/memo` | Angelina only | NOT DEPLOYED |
-| 16 | Remove item | POST | `/booking/removeItem` | Angelina only | NOT DEPLOYED |
-| 17 | Order overview | GET | `/order/{orderId}/overview` | Angelina only | NOT DEPLOYED |
-| 18 | Cancel (old path) | DELETE | `/order/{orderId}/cancel` | Angelina only | NOT DEPLOYED |
-| 19 | Person lookup | GET | `/person?email={email}` | Angelina only | NOT DEPLOYED |
+| #   | Endpoint             | Method | Path                                               | Source                 | Status            |
+| --- | -------------------- | ------ | -------------------------------------------------- | ---------------------- | ----------------- |
+| 1   | Locations            | GET    | `/locations`                                       | All 3 docs             | LIVE              |
+| 2   | Pages by date        | GET    | `/page?date={iso}`                                 | All 3 docs             | LIVE              |
+| 3   | All products         | GET    | `/products`                                        | All 3 docs             | LIVE (cached 1hr) |
+| 4   | Product image        | GET    | `/image/product?productId={id}`                    | João + Angelina        | LIVE              |
+| 5   | Available days       | GET    | `/availability?productId={id}&dateFrom=&dateTill=` | All 3 docs             | LIVE              |
+| 6   | Time slot proposals  | POST   | `/availability?date={date}`                        | All 3 docs             | LIVE              |
+| 7   | Book time slot       | POST   | `/booking/book`                                    | All 3 docs             | LIVE              |
+| 8   | Sell (add to cart)   | POST   | `/booking/sell`                                    | Angelina + latest João | LIVE              |
+| 9   | Confirm payment      | POST   | `/payment/confirm`                                 | All 3 docs             | LIVE              |
+| 10  | Cancel order         | DELETE | `/bill/{orderId}/cancel`                           | Latest João            | LIVE              |
+| 11  | Register contact     | POST   | `/person/registerContactPerson`                    | Angelina               | LIVE              |
+| 12  | Page by XRef         | GET    | `/page/{pageXRef}`                                 | Angelina               | untested          |
+| 13  | Register participant | POST   | `/person/registerProjectPerson`                    | Angelina               | untested          |
+| 14  | Subscriptions        | GET    | `/subscription/{loginCode}/{pageXRef}`             | João original          | untested          |
+| 15  | Save memo            | POST   | `/booking/memo`                                    | Angelina only          | NOT DEPLOYED      |
+| 16  | Remove item          | POST   | `/booking/removeItem`                              | Angelina only          | NOT DEPLOYED      |
+| 17  | Order overview       | GET    | `/order/{orderId}/overview`                        | Angelina only          | NOT DEPLOYED      |
+| 18  | Cancel (old path)    | DELETE | `/order/{orderId}/cancel`                          | Angelina only          | NOT DEPLOYED      |
+| 19  | Person lookup        | GET    | `/person?email={email}`                            | Angelina only          | NOT DEPLOYED      |
 
 ## Endpoint Details
 
 ### 1. Retrieve all locations
+
 `GET /public-booking/{clientKey}/locations`
 
 ```json
 {
-  "locations": [
-    { "clientKey": "headpinzftmyers", "name": "Headpinz Ft. Myers" }
-  ]
+  "locations": [{ "clientKey": "headpinzftmyers", "name": "Headpinz Ft. Myers" }]
 }
 ```
 
 ### 2. Retrieve all pages available on a date
+
 `GET /public-booking/{clientKey}/page?date={date}`
 
 - `date` — ISO 8601, e.g. `2026-04-07T00:00:00.000Z`
@@ -114,16 +119,19 @@ Returns array of page objects, each containing products grouped by category.
 | xRef | String | External reference |
 
 ### 3. Retrieve all bookable products
+
 `GET /public-booking/{clientKey}/products`
 
 Cached for 1 hour. Returns flat array of all products.
 
 ### 4. Return image of a product
+
 `GET /public-booking/{clientKey}/image/product?productId={productId}`
 
 Returns binary image data.
 
 ### 5. Return available days in a period
+
 `GET /public-booking/{clientKey}/availability?productId={id}&dateFrom={date}&dateTill={date}`
 
 ```json
@@ -134,12 +142,15 @@ Returns binary image data.
   ]
 }
 ```
+
 - `status` — 0=Available, 1=FullyBooked
 
 ### 6. Retrieve time slot proposals
+
 `POST /public-booking/{clientKey}/availability?date={date}`
 
 Request:
+
 ```json
 {
   "productId": "33415132",
@@ -149,6 +160,7 @@ Request:
 ```
 
 Response:
+
 ```json
 {
   "proposals": [
@@ -176,9 +188,11 @@ Response:
 ```
 
 ### 7. Book a time slot
+
 `POST /public-booking/{clientKey}/booking/book`
 
 Request:
+
 ```json
 {
   "productId": "103983",
@@ -212,6 +226,7 @@ Request:
 ```
 
 Response:
+
 ```json
 {
   "schedules": [...],
@@ -223,9 +238,11 @@ Response:
 ```
 
 ### 8. Add product to cart (sell)
+
 `POST /public-booking/{clientKey}/booking/sell`
 
 Request:
+
 ```json
 {
   "ProductId": 123,
@@ -237,6 +254,7 @@ Request:
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -249,9 +267,11 @@ Response:
 ```
 
 ### 9. Confirm external payment
+
 `POST /public-booking/{clientKey}/payment/confirm`
 
 Request:
+
 ```json
 {
   "id": "pay_abc123",
@@ -263,6 +283,7 @@ Request:
 ```
 
 Response:
+
 ```json
 {
   "status": 0,
@@ -271,18 +292,22 @@ Response:
   "orderId": "1001"
 }
 ```
+
 - `status` — 0=Confirmed, 1=Cancelled, 2=Failed, 3=Uncertain, 5=Pending
 
 ### 10. Cancel order
+
 `DELETE /public-booking/{clientKey}/bill/{orderId}/cancel`
 
 > Note: Angelina doc says `/order/{orderId}/cancel` but that returns 404.
 > The working path is `/bill/{orderId}/cancel` per latest João doc.
 
 ### 11. Register a contact person
+
 `POST /public-booking/{clientKey}/person/registerContactPerson`
 
 Request:
+
 ```json
 {
   "firstName": "John",
@@ -296,57 +321,64 @@ Request:
 ## Enums
 
 ### ProductKind
-| Value | Name | Description |
-|-------|------|-------------|
-| 1 | Normal | Standard product |
-| 2 | Entry | Entry/admission |
-| 3 | Membership | Membership |
-| 4 | Voucher | Voucher |
-| 5 | GiftCard | Gift card |
-| 6 | Dynamic | Combo with age groups |
-| 7 | Combo | Combo/package |
-| 8 | ServiceCharge | Service charge |
+
+| Value | Name          | Description           |
+| ----- | ------------- | --------------------- |
+| 1     | Normal        | Standard product      |
+| 2     | Entry         | Entry/admission       |
+| 3     | Membership    | Membership            |
+| 4     | Voucher       | Voucher               |
+| 5     | GiftCard      | Gift card             |
+| 6     | Dynamic       | Combo with age groups |
+| 7     | Combo         | Combo/package         |
+| 8     | ServiceCharge | Service charge        |
 
 ### BookingMode
-| Value | Name |
-|-------|------|
-| 0 | Individual (per person) |
-| 1 | PerSlot (per session) |
+
+| Value | Name                    |
+| ----- | ----------------------- |
+| 0     | Individual (per person) |
+| 1     | PerSlot (per session)   |
 
 ### AvailabilityStatus
-| Value | Name |
-|-------|------|
-| 0 | Available |
-| 1 | FullyBooked |
+
+| Value | Name        |
+| ----- | ----------- |
+| 0     | Available   |
+| 1     | FullyBooked |
 
 ### PaymentStatus
-| Value | Name |
-|-------|------|
-| 0 | Confirmed |
-| 1 | Cancelled |
-| 2 | Failed |
-| 3 | Uncertain |
-| 4 | BillNotFound |
-| 5 | Pending |
-| 6 | PaymentNotFound |
-| 7 | Voided |
-| 8 | DepositsNotProcessed |
+
+| Value | Name                 |
+| ----- | -------------------- |
+| 0     | Confirmed            |
+| 1     | Cancelled            |
+| 2     | Failed               |
+| 3     | Uncertain            |
+| 4     | BillNotFound         |
+| 5     | Pending              |
+| 6     | PaymentNotFound      |
+| 7     | Voided               |
+| 8     | DepositsNotProcessed |
 
 ### DepositKind
-| Value | Name |
-|-------|------|
-| 0 | Money |
-| 1 | Point |
-| 2 | Credit |
+
+| Value | Name   |
+| ----- | ------ |
+| 0     | Money  |
+| 1     | Point  |
+| 2     | Credit |
 
 ### BillLineKind
-| Value | Name |
-|-------|------|
-| 0 | Normal |
-| 1 | Supplement |
-| 2 | Modifier |
+
+| Value | Name       |
+| ----- | ---------- |
+| 0     | Normal     |
+| 1     | Supplement |
+| 2     | Modifier   |
 
 ## Typical Booking Flow
+
 ```
 1. Authenticate           → POST /auth/{clientKey}/publicbooking
 2. Get products           → GET  /public-booking/{clientKey}/products
@@ -358,6 +390,7 @@ Request:
 ```
 
 ## Notes
+
 - All date/time values use ISO 8601 format
 - Response fields are camelCase (not PascalCase as some Confluence docs show)
 - CORS is enabled for all origins

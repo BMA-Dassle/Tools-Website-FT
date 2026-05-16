@@ -8,17 +8,18 @@ HeadPinz Rewards is a loyalty program built on Square's Loyalty API. Customers e
 
 ### Key Objects
 
-| Object | Description | Example ID |
-|---|---|---|
-| **Loyalty Program** | Singleton — always `"main"` | `main` |
-| **Loyalty Account** | Per-customer point balance | `3b142dff-b4f5-4fe4-9c16-f70441ca415f` |
-| **Customer** | Square customer profile (linked 1:1 to loyalty account) | `ZAWPP8WRHGB1RZ39D12EXH7N4R` |
-| **Reward Tier** | Redeemable discount definition (e.g., "$10 off") | tier ID from program |
-| **Reward** | Instance of a redeemed tier, applied to an order | created at booking time |
+| Object              | Description                                             | Example ID                             |
+| ------------------- | ------------------------------------------------------- | -------------------------------------- |
+| **Loyalty Program** | Singleton — always `"main"`                             | `main`                                 |
+| **Loyalty Account** | Per-customer point balance                              | `3b142dff-b4f5-4fe4-9c16-f70441ca415f` |
+| **Customer**        | Square customer profile (linked 1:1 to loyalty account) | `ZAWPP8WRHGB1RZ39D12EXH7N4R`           |
+| **Reward Tier**     | Redeemable discount definition (e.g., "$10 off")        | tier ID from program                   |
+| **Reward**          | Instance of a redeemed tier, applied to an order        | created at booking time                |
 
 ### Accrual Rules
 
 Current program uses **spend-based** accrual:
+
 - **10 Pinz per $1 spent** (pre-tax amount)
 - Example: Fun 4 All $15.99 = 150 Pinz
 
@@ -53,6 +54,7 @@ In the booking wizard guest info step:
 6. Profile completion (`POST /api/square/loyalty/complete-profile`) awards **500 bonus Pinz**
 
 State set in wizard:
+
 - `loyaltyAccount` — `{ id, balance, lifetimePoints, customerId }`
 - `loyaltyCustomer` — `{ id, firstName, lastName, email, phone }`
 - `loyaltyIsNewSignup` — boolean
@@ -88,6 +90,7 @@ body: {
 ```
 
 The reserve route:
+
 1. Passes `squareCustomerId` to bowling-orders (which sets it on the day-of order + deposit payment)
 2. Stores `squareCustomerId`, `loyaltyAction` in Neon `bowling_reservations`
 3. Does NOT accrue points here (order is still OPEN)
@@ -167,39 +170,39 @@ PUT /v2/orders/{order_id}
 
 ## Neon Schema (bowling_reservations)
 
-| Column | Type | Description |
-|---|---|---|
-| `square_customer_id` | TEXT | Square customer ID (loyalty member) |
-| `loyalty_action` | TEXT | `"signup"` (new) or `"existing"` (returning member) |
-| `square_dayof_order_id` | TEXT | Day-of Square order (catalog items, left open) |
-| `square_deposit_order_id` | TEXT | Deposit Square order (closed immediately) |
-| `square_gift_card_id` | TEXT | Gift card ID for deposit tracking |
-| `square_gift_card_gan` | TEXT | Gift card GAN (e.g., HPFMX77012) |
-| `square_loyalty_reward_id` | TEXT | Redeemed reward ID (if applicable) |
-| `reward_discount_cents` | INTEGER | Discount amount from reward |
+| Column                     | Type    | Description                                         |
+| -------------------------- | ------- | --------------------------------------------------- |
+| `square_customer_id`       | TEXT    | Square customer ID (loyalty member)                 |
+| `loyalty_action`           | TEXT    | `"signup"` (new) or `"existing"` (returning member) |
+| `square_dayof_order_id`    | TEXT    | Day-of Square order (catalog items, left open)      |
+| `square_deposit_order_id`  | TEXT    | Deposit Square order (closed immediately)           |
+| `square_gift_card_id`      | TEXT    | Gift card ID for deposit tracking                   |
+| `square_gift_card_gan`     | TEXT    | Gift card GAN (e.g., HPFMX77012)                    |
+| `square_loyalty_reward_id` | TEXT    | Redeemed reward ID (if applicable)                  |
+| `reward_discount_cents`    | INTEGER | Discount amount from reward                         |
 
 ## API Endpoints (Internal)
 
-| Route | Method | Purpose |
-|---|---|---|
-| `/api/square/loyalty/lookup` | GET | Look up loyalty account by phone |
-| `/api/square/loyalty/enroll` | POST | Create customer + loyalty account |
-| `/api/square/loyalty/complete-profile` | POST | Update name/email + award 500 bonus Pinz |
-| `/api/square/loyalty/program` | GET | Fetch reward tiers for redemption UI |
-| `/api/square/bowling-orders/quote` | POST | Create day-of order (now includes customer_id) |
-| `/api/square/bowling-orders` | POST | Process deposit payment + create gift card |
+| Route                                  | Method | Purpose                                        |
+| -------------------------------------- | ------ | ---------------------------------------------- |
+| `/api/square/loyalty/lookup`           | GET    | Look up loyalty account by phone               |
+| `/api/square/loyalty/enroll`           | POST   | Create customer + loyalty account              |
+| `/api/square/loyalty/complete-profile` | POST   | Update name/email + award 500 bonus Pinz       |
+| `/api/square/loyalty/program`          | GET    | Fetch reward tiers for redemption UI           |
+| `/api/square/bowling-orders/quote`     | POST   | Create day-of order (now includes customer_id) |
+| `/api/square/bowling-orders`           | POST   | Process deposit payment + create gift card     |
 
 ## Key Files
 
-| File | What |
-|---|---|
-| `components/bowling/BowlingWizard.tsx` | Loyalty UI, enrollment, reward selection |
-| `app/api/bowling/v2/reserve/route.ts` | Booking endpoint — passes loyalty data through |
-| `app/api/square/bowling-orders/route.ts` | Day-of order + deposit + gift card creation |
-| `app/api/square/bowling-orders/quote/route.ts` | Quote endpoint (sets customer_id on order) |
-| `lib/bowling-lane-open.ts` | Lane-open: gift card payment, order completion, point accrual |
-| `lib/sales-lead-config.ts` | Planner phone/email config (Stephanie, Lori, Kelsea) |
-| `app/api/square/loyalty/*/route.ts` | Loyalty API wrappers |
+| File                                           | What                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------- |
+| `components/bowling/BowlingWizard.tsx`         | Loyalty UI, enrollment, reward selection                      |
+| `app/api/bowling/v2/reserve/route.ts`          | Booking endpoint — passes loyalty data through                |
+| `app/api/square/bowling-orders/route.ts`       | Day-of order + deposit + gift card creation                   |
+| `app/api/square/bowling-orders/quote/route.ts` | Quote endpoint (sets customer_id on order)                    |
+| `lib/bowling-lane-open.ts`                     | Lane-open: gift card payment, order completion, point accrual |
+| `lib/sales-lead-config.ts`                     | Planner phone/email config (Stephanie, Lori, Kelsea)          |
+| `app/api/square/loyalty/*/route.ts`            | Loyalty API wrappers                                          |
 
 ## Lessons Learned
 

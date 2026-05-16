@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+:root {
+  --color-bg-deep: #000418;
+  --color-bg-navy: #010a20;
+  --color-bg-card: #071027;
+  --color-cyan: #00e2e5;
+  --color-magenta: #f800c6;
+  --color-violet: #8652ff;
+  --color-red: #e53935;
+  --color-light: #f5ecee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-bg-deep);
+  color: #ffffff;
+  font-family: var(--font-body), sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Generous mobile text — match Topgolf/Main Event sizing */
+@media (max-width: 640px) {
+  body {
+    font-size: 16px;
+  }
+  p,
+  span,
+  li,
+  td,
+  th,
+  label,
+  input,
+  select,
+  textarea,
+  button {
+    font-size: inherit;
+  }
+}
+
+/* Brand-specific font mapping */
+.brand-fasttrax {
+  --font-heading: var(--font-exo2);
+  --font-body: var(--font-barlow);
+}
+.brand-headpinz {
+  --font-heading: var(--font-outfit);
+  --font-body: var(--font-dmsans);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading), sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-heading), sans-serif;
+  font-style: italic;
+  line-height: 0.9;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+
+.glow-cyan {
+  text-shadow: 0 0 30px rgba(0, 226, 229, 0.5);
+}
+
+/* Camera-assign success flash. Keyed by the scan counter, so each
+   successful scan remounts this element and the animation re-fires. */
+@keyframes scan-success-flash {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.55;
+  }
+  55% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.scan-success-flash {
+  animation: scan-success-flash 900ms ease-out forwards;
+}
+
+/* Pulsing glow for the bowler-details CTA on the confirmation page.
+   Draws attention without being obnoxious — one gentle ring of coral light. */
+@keyframes cta-pulse-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(253, 91, 86, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(253, 91, 86, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(253, 91, 86, 0);
+  }
+}
+.cta-pulse-glow {
+  animation: cta-pulse-glow 2s ease-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-cyan);
+  border-radius: 2px;
+}
+
+/* Utility: hide horizontal scrollbars on overflow-x-auto containers where the
+   scrollbar itself reads as a stray cyan bar (e.g. booking step indicators). */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide 3CX default floating button — shown via JS when agents are online */
+call-us-selector {
+  display: none !important;
+}

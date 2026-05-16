@@ -1,0 +1,530 @@
+import { NextRequest, NextResponse } from "next/server";
+import { listAssignmentsForSession } from "@/lib/camera-assign";
+import { getSessionBlockSnapshot } from "@/lib/video-block";
+
+/**
+ * GET /api/admin/camera-assign/session
+ *
+ *   (no params)              → next upcoming session across all tracks.
+ *   ?track=blue              → only Blue Track (or red/mega) — used when
+ *                              a kiosk is dedicated to one track.
+ *   ?sessionId={id}          → specific session (test mode). Scans all 3
+ *                              track resources for today to resolve.
+ *   ?mode=past&days=7        → past sessions across the last N days
+ *                              (default 7), descending by time, for the
+ *                              test picker.
+ *
+ * Auth: middleware.ts gates /api/admin/camera-assign/* on ADMIN_CAMERA_TOKEN.
+ */
+
+const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
+const TRACK_RESOURCES = ["Blue Track", "Red Track", "Mega Track"] as const;
+
+function trackSlugToResource(slug: string | null): (typeof TRACK_RESOURCES)[number] | null {
+  if (!slug) return null;
+  const s = slug.toLowerCase();
+  if (s === "blue" || s === "blue-track") return "Blue Track";
+  if (s === "red" || s === "red-track") return "Red Track";
+  if (s === "mega" || s === "mega-track") return "Mega Track";
+  return null;
+}
+
+interface PandoraSession {
+  sessionId: string;
+  name: string;
+  scheduledStart: string; // ISO UTC
+  type: string;
+  heatNumber: number;
+}
+
+interface PandoraGuardian {
+  personId?: string | number;
+  firstName?: string;
+  lastName?: string;
+  email?: string | null;
+  homePhone?: string | null;
+  mobilePhone?: string | null;
+  acceptMailCommercial?: boolean;
+  acceptMailScores?: boolean;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+}
+
+interface Participant {
+  personId: string | number;
+  firstName: string;
+  lastName: string;
+  email?: string | null;
+  /** Raw Pandora contact fields — we let the client see them so video-
+   *  notifications (SMS/email) have what they need at match time. */
+  homePhone?: string | null;
+  mobilePhone?: string | null;
+  phone?: string | null;
+  acceptSmsCommercial?: boolean;
+  acceptSmsScores?: boolean;
+  /** Guardian / parent contact for minors. Pandora is rolling this
+   *  out — undefined for old records. Forwarded to the camera-assign
+   *  client so it can attach to the assignment + video-notify can
+   *  fall back to it when the racer has no usable contact. */
+  guardian?: PandoraGuardian | null;
+  /** Kart number assigned by SMS-Timing. Populated during/after the
+   *  race; null/undefined on upcoming sessions (karts are assigned
+   *  close to race time). Passed through so the camera-assign UI can
+   *  display it when present. */
+  kartNumber?: number | string | null;
+  /** True when the participant's bill is paid. Always present when
+   *  we call Pandora with `excludeUnpaid=false`; used by the client
+   *  to dim/flag unpaid racers so staff knows to collect payment
+   *  before binding a camera. */
+  paid?: boolean;
+}
+
+function etYmd(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function rangeETForDays(
+  backDays: number,
+  forwardDays: number,
+): { startDate: string; endDate: string } {
+  // Use a simple UTC day-boundary math — Pandora accepts ISO UTC timestamps
+  // and we want to include the full day across the ET window; going
+  // UTC ± the whole day captures DST transitions safely without having to
+  // resolve the right offset per day.
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const start = new Date(now - backDays * dayMs);
+  const end = new Date(now + forwardDays * dayMs);
+  // Floor/ceil to UTC day boundaries to keep the windows round.
+  start.setUTCHours(0, 0, 0, 0);
+  end.setUTCHours(0, 0, 0, 0);
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+}
+
+/** Today's ET-local-string range — matches the cron's `todayETRange`
+ *  in app/api/cron/pre-race-tickets/route.ts. Critical that camera-
+ *  assign uses the EXACT same format as the cron, otherwise the
+ *  sessions cache key differs and we never hit the cron-warmed cache.
+ *  Symptom of mismatch: 404 "sessionId not found" because cacheOnly
+ *  reads return empty. */
+function todayETRange(): { startDate: string; endDate: string } {
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  return {
+    startDate: `${ymd}T00:00:00`,
+    endDate: `${ymd}T23:59:59`,
+  };
+}
+
+/** Three sessions-fetch modes:
+ *   - "cacheOnly"   — Redis or empty. Auto-poll path; never blocks
+ *                     on Pandora (truly instant render).
+ *   - "preferCache" — Redis first, fall through to live Pandora on
+ *                     miss. Manual Refresh path; the sessions list
+ *                     rarely changes mid-day so we'd rather re-use
+ *                     the warm cache, but we still recover when
+ *                     cache is cold (e.g. cron hasn't run yet) so
+ *                     the route doesn't 404.
+ *   - "fresh"       — bypass cache, force live Pandora. Currently
+ *                     unused for sessions (sessions list rarely
+ *                     changes intra-day; cron is the live writer).
+ */
+type SessionsFetchMode = "cacheOnly" | "preferCache" | "fresh";
+
+async function fetchSessionsForResource(
+  resourceName: string,
+  startDate: string,
+  endDate: string,
+  mode: SessionsFetchMode,
+): Promise<(PandoraSession & { resourceName: string })[]> {
+  const qs = new URLSearchParams({
+    locationId: FASTTRAX_LOCATION_ID,
+    resourceName,
+    startDate,
+    endDate,
+  });
+  if (mode === "fresh") qs.set("fresh", "1");
+  else if (mode === "preferCache") qs.set("prefer", "cache");
+  else qs.set("cacheOnly", "1");
+  const res = await fetch(`${BASE}/api/pandora/sessions?${qs.toString()}`, { cache: "no-store" });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const list: PandoraSession[] = Array.isArray(data?.data) ? data.data : [];
+  return list.map((s) => ({ ...s, resourceName }));
+}
+
+async function fetchSessionsInWindow(
+  resources: readonly string[],
+  startDate: string,
+  endDate: string,
+  mode: SessionsFetchMode,
+) {
+  const per = await Promise.all(
+    resources.map((r) => fetchSessionsForResource(r, startDate, endDate, mode)),
+  );
+  return per.flat();
+}
+
+/**
+ * Pull participants for a session. Cache-first by default — reads
+ * the cron-warmed Redis snapshot for an instant load even when
+ * Pandora is degraded. The refresh button on the camera-assign UI
+ * forwards `?refresh=1` to bypass the cache and force a live
+ * Pandora call.
+ *
+ * Crons (pre-race-tickets every 2 min, checkin-alerts every 1 min)
+ * keep the cache warm against the same cache key, so during
+ * operating hours the cache-hit path is the common case.
+ */
+async function fetchParticipants(
+  sessionId: string | number,
+  forceFresh: boolean,
+): Promise<Participant[]> {
+  // Camera-assign wants to see unpaid racers too — staff can still bind
+  // a camera while payment is being taken. `excludeRemoved` stays on
+  // so scratched racers don't pollute the roster.
+  const params = new URLSearchParams({
+    locationId: FASTTRAX_LOCATION_ID,
+    sessionId: String(sessionId),
+    excludeRemoved: "true",
+    excludeUnpaid: "false",
+  });
+  // Refresh button → live Pandora call. Default load → cacheOnly=1
+  // so auto-poll NEVER waits on Pandora (cron warmups populate
+  // the cache; the page just reads it). Cold cache returns empty
+  // and the next cron run + the next poll fixes it.
+  if (forceFresh) params.set("fresh", "1");
+  else params.set("cacheOnly", "1");
+
+  const res = await fetch(`${BASE}/api/pandora/session-participants?${params.toString()}`, {
+    cache: "no-store",
+    // Server-only admin call — internal trust header gets full
+    // PII back (firstName/lastName for staff display). Public
+    // e-ticket browser calls don't include this header and get
+    // a redacted personId-only response.
+    headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data?.data) ? (data.data as Participant[]) : [];
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const mode = searchParams.get("mode");
+    const sessionIdParam = searchParams.get("sessionId");
+    const trackParam = searchParams.get("track");
+    const daysParam = parseInt(searchParams.get("days") || "7", 10) || 7;
+    // Refresh button on the camera-assign page forwards `refresh=1`
+    // — bypasses the Redis cache and forces a live Pandora call.
+    // Default load is cache-first (cron-warmed Redis) for instant
+    // render even during Pandora outages.
+    const refresh = searchParams.get("refresh") === "1";
+
+    // Resolve which track resources to query.
+    //
+    // - Explicit `?track=...` → just that one (kiosk dedicated to a track).
+    // - No track + Tuesday (Mega day) → Mega Track ONLY.
+    // - No track + other days → Blue + Red (Mega isn't running).
+    //
+    // Was: "no track = all three resources" — meant Tuesdays burned
+    // 2 wasted Pandora calls (Blue + Red have no sessions), and
+    // other days burned 1 wasted call (Mega). Each call is ~1-2s
+    // normally, 12s+ during Pandora outages, so trimming wasted ones
+    // cuts load and makes the page snappier.
+    const requestedResource = trackSlugToResource(trackParam);
+    const weekdayET = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+    }).format(new Date());
+    const isMegaDay = weekdayET === "Tue";
+    const resources: readonly string[] = requestedResource
+      ? [requestedResource]
+      : isMegaDay
+        ? ["Mega Track"]
+        : ["Blue Track", "Red Track"];
+
+    const now = Date.now();
+
+    // Past mode: broad window (last N days) so staff can demo on a day
+    // the track isn't open. We still only want sessions whose start is
+    // in the past.
+    if (mode === "past") {
+      // forwardDays MUST be ≥ 1 so the Pandora query window extends
+      // through today. With 0 here, the window ended at today-00:00 UTC
+      // (~8 PM yesterday ET during EDT), dropping today's already-run
+      // heats from the "Earlier" modal.
+      const { startDate, endDate } = rangeETForDays(Math.max(1, Math.min(30, daysParam)), 1);
+      // Past-mode session list: cron doesn't warm 30-day-back data,
+      // so prefer-cache (with live fallback) gives staff a usable
+      // result whether or not someone has hit this window before.
+      const all = await fetchSessionsInWindow(resources, startDate, endDate, "preferCache");
+      const past = all
+        .filter((s) => new Date(s.scheduledStart).getTime() <= now)
+        .sort(
+          (a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime(),
+        );
+      return NextResponse.json(
+        {
+          sessions: past.map((s) => ({
+            sessionId: s.sessionId,
+            name: s.name,
+            scheduledStart: s.scheduledStart,
+            track: s.resourceName,
+            heatNumber: s.heatNumber,
+            type: s.type,
+            dateYmd: etYmd(new Date(s.scheduledStart)),
+          })),
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    // Live mode: TODAY only. CRITICAL — uses the same date-range
+    // function as the pre-race-tickets cron so we hit the cron-
+    // warmed sessions cache. Earlier we used UTC day boundaries
+    // (rangeETForDays) which produced a different cache key than
+    // the cron's ET-local-string format — every call cache-missed,
+    // cacheOnly=1 returned empty, sessions list was empty, and the
+    // route 404'd because picked sessionId wasn't in the empty list.
+    const { startDate, endDate } = todayETRange();
+
+    // ── Latency optimization ────────────────────────────────────────
+    //
+    // Both Pandora calls (sessions list + participants) take ~1-2s
+    // each. When the client passes `sessionId` (the common case for
+    // camera-assign — the heat picker on the page already knows the
+    // id), we have everything we need to start the participants /
+    // assignments fetches immediately, in parallel with the
+    // sessions-list lookup we still need for metadata + validation.
+    //
+    // This roughly halves perceived load time when an operator picks
+    // a heat: was sessions→participants→blocks (~2-3s serial), now
+    // max(sessions, participants)→blocks (~1-2s).
+    //
+    // Sessions-list mode:
+    //   - Auto-poll (refresh=false) → cacheOnly (instant, never
+    //     blocks). Cold cache returns empty; the next poll picks
+    //     up after the cron warms it. Page can still render the
+    //     prior session via PriorBookings… etc.
+    //   - Refresh button (refresh=true) → preferCache (Redis hit
+    //     when warm, falls through to live Pandora on miss).
+    //     Recovers from cold-cache 404s when staff explicitly hits
+    //     Refresh after a cron miss.
+    //
+    // Refresh DOESN'T force a fresh sessions list — today's heat
+    // schedule rarely changes mid-day, and the cron is the live
+    // writer. Refresh's whole point is the SPECIFIC heat's
+    // participants (forceFresh on that call below).
+    const sessionsMode: SessionsFetchMode = refresh ? "preferCache" : "cacheOnly";
+    const sessionsPromise = fetchSessionsInWindow(resources, startDate, endDate, sessionsMode);
+    const earlyParticipantsPromise = sessionIdParam
+      ? fetchParticipants(sessionIdParam, refresh)
+      : null;
+    const earlyAssignmentsPromise = sessionIdParam
+      ? listAssignmentsForSession(sessionIdParam)
+      : null;
+
+    const allSessions = await sessionsPromise;
+
+    // Pick the session to surface — either explicitly requested, or the
+    // next upcoming one.
+    let picked: (PandoraSession & { resourceName: string }) | undefined;
+    if (sessionIdParam) {
+      picked = allSessions.find((s) => String(s.sessionId) === sessionIdParam);
+      // Removed the 30-day-back wider fallback — it existed for
+      // the now-removed "Earlier sessions" modal + day-old bookmark
+      // recovery, and meant a single bad sessionId could trigger a
+      // multi-resource 30-day Pandora search (slow + heavy). With
+      // the Earlier modal gone there's no UI path to deep-link a
+      // session outside today. Bookmarks from yesterday just get a
+      // clean 404 — staff reload without the sessionId param to
+      // pick fresh.
+      if (!picked) {
+        return NextResponse.json(
+          { error: `sessionId ${sessionIdParam} not found in today's heats` },
+          { status: 404 },
+        );
+      }
+    } else {
+      const upcoming = allSessions
+        .filter((s) => new Date(s.scheduledStart).getTime() > now)
+        .sort(
+          (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+        );
+      picked = upcoming[0];
+    }
+
+    if (!picked) {
+      const trackLabel = requestedResource ?? "any track";
+      return NextResponse.json(
+        {
+          session: null,
+          participants: [],
+          assignments: [],
+          note: `No upcoming sessions for ${trackLabel} in the next 8 days.`,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    // Use the early-fired promises when the client gave us sessionId;
+    // otherwise fire them now against the resolved "next upcoming".
+    const [participants, assignments] = await Promise.all([
+      earlyParticipantsPromise ?? fetchParticipants(picked.sessionId, refresh),
+      earlyAssignmentsPromise ?? listAssignmentsForSession(picked.sessionId),
+    ]);
+
+    // Map assignments by personId for fast merge with participants.
+    const byPid = new Map(assignments.map((a) => [String(a.personId), a]));
+
+    // ── Build the merged roster ─────────────────────────────────
+    //
+    // Two sources, in priority order:
+    //   1. Pandora participants (fresh — has live paid status,
+    //      kartNumber, etc.)
+    //   2. Existing camera assignments (snapshot from when the
+    //      assignment was made — has firstName/lastName/contact
+    //      info captured at that time)
+    //
+    // Critical: when Pandora's participants list is EMPTY (cold
+    // cache, cacheOnly=1, or upstream is degraded) but Redis HAS
+    // assignment records for this session, we still render the
+    // roster from the assignments. Without this, races that already
+    // have all cameras assigned would render as an empty page —
+    // staff can't see what they already did. Merge dedupes by
+    // personId so a participant + assignment record for the same
+    // person collapses into one row.
+    const seenPids = new Set<string>();
+    const roster: Array<{
+      personId: string | number;
+      firstName: string;
+      lastName: string;
+      email?: string;
+      mobilePhone?: string;
+      homePhone?: string;
+      phone?: string;
+      acceptSmsCommercial?: boolean;
+      acceptSmsScores?: boolean;
+      guardian?: NonNullable<Participant["guardian"]>;
+      kartNumber?: number | string;
+      paid?: boolean;
+      systemNumber?: string;
+      assignedAt?: string;
+      fromAssignmentOnly?: boolean;
+    }> = [];
+
+    // Pass 1 — every Pandora participant (priority source).
+    for (const p of participants) {
+      const pidStr = String(p.personId);
+      if (!pidStr || pidStr === "null" || pidStr === "undefined") continue;
+      seenPids.add(pidStr);
+      const a = byPid.get(pidStr);
+      roster.push({
+        personId: p.personId,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        email: p.email || undefined,
+        mobilePhone: p.mobilePhone || undefined,
+        homePhone: p.homePhone || undefined,
+        phone: p.phone || undefined,
+        acceptSmsCommercial: p.acceptSmsCommercial,
+        acceptSmsScores: p.acceptSmsScores,
+        // Pass guardian through verbatim — camera-assign client
+        // forwards it to /assign which snapshots it onto the
+        // assignment record.
+        guardian: p.guardian ?? undefined,
+        kartNumber: p.kartNumber ?? undefined,
+        paid: p.paid,
+        systemNumber: a?.systemNumber,
+        assignedAt: a?.assignedAt,
+      });
+    }
+
+    // Pass 2 — assignments whose personId WASN'T in the participant
+    // list. Hydrates the roster from snapshot data when Pandora
+    // didn't return that racer (cold cache or removed-from-roster
+    // post-assignment). Marked `fromAssignmentOnly: true` so the
+    // client can render a subtle indicator if it wants — useful
+    // for spotting "racer was scratched after camera assigned".
+    for (const a of assignments) {
+      const pidStr = String(a.personId);
+      if (!pidStr || seenPids.has(pidStr)) continue;
+      seenPids.add(pidStr);
+      roster.push({
+        personId: a.personId,
+        firstName: a.firstName,
+        lastName: a.lastName,
+        email: a.email || undefined,
+        mobilePhone: a.mobilePhone || undefined,
+        homePhone: a.homePhone || undefined,
+        phone: a.phone || undefined,
+        acceptSmsCommercial: a.acceptSmsCommercial,
+        acceptSmsScores: a.acceptSmsScores,
+        guardian: a.guardian ?? undefined,
+        // No paid / kartNumber — those weren't snapshotted on the
+        // assignment record. Client renders these as undefined.
+        systemNumber: a.systemNumber,
+        assignedAt: a.assignedAt,
+        fromAssignmentOnly: true,
+      });
+    }
+
+    // Fetch block snapshot in one MGET so the client can paint blocked
+    // names red on the first render. Falls back to "no blocks" on any
+    // error — the block UI is an enhancement, not load-critical.
+    let blockSnapshot: {
+      sessionBlock: { blocked: boolean; reason?: string; blockedAt?: string };
+      personBlocks: Record<
+        string,
+        { blocked: boolean; level?: string; reason?: string; blockedAt?: string }
+      >;
+    } = { sessionBlock: { blocked: false }, personBlocks: {} };
+    try {
+      blockSnapshot = await getSessionBlockSnapshot({
+        sessionId: picked.sessionId,
+        personIds: roster.map((r) => r.personId),
+      });
+    } catch (err) {
+      console.error("[camera-assign/session] block snapshot failed:", err);
+    }
+
+    const enriched = roster.map((r) => ({
+      ...r,
+      block: blockSnapshot.personBlocks[String(r.personId)] || { blocked: false },
+    }));
+
+    return NextResponse.json(
+      {
+        session: {
+          sessionId: picked.sessionId,
+          name: picked.name,
+          scheduledStart: picked.scheduledStart,
+          track: picked.resourceName,
+          heatNumber: picked.heatNumber,
+          type: picked.type,
+        },
+        participants: enriched,
+        sessionBlock: blockSnapshot.sessionBlock,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (err) {
+    console.error("[camera-assign/session]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to load session" },
+      { status: 500 },
+    );
+  }
+}
