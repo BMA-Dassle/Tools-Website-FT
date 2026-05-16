@@ -77,7 +77,13 @@
       "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\app\\\\\\\\api\" -name \"*bowling*\" -type f)",
       "Bash(find \"c:\\\\\\\\git\\\\\\\\Tools-Website-FT\\\\\\\\fasttrax-web\\\\\\\\app\\\\\\\\api\" -type f -name \"*.ts\")",
       "Bash(xargs grep -l \"bowling\\\\|conq\\\\|qamf\")",
-      "Bash(xargs grep -l \"bowling\\\\|BowlingExperience\\\\|Reservation\")"
+      "Bash(xargs grep -l \"bowling\\\\|BowlingExperience\\\\|Reservation\")",
+      "Bash(curl -s -H \"Cookie: dev-brand=headpinz\" http://localhost:3000/book/v2)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/book/race)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/book/gel-blaster)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/book)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
