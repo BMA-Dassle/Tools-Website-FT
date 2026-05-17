@@ -8,12 +8,11 @@ import {
   reducer,
   STEP_REGISTRY,
   type Activity,
-  type BookingSession,
   type Brand,
   type EntryContext,
-  type SessionItem,
   type StepDef,
 } from "~/features/booking";
+import { CartView } from "./CartView";
 
 /**
  * BookingFlow — orchestrator shell for the unified v2 booking session.
@@ -60,7 +59,13 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
   const activeItem = getActiveItem(session);
 
   if (!activeItem) {
-    return <CartViewPlaceholder session={session} />;
+    return (
+      <CartView
+        session={session}
+        onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
+        onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+      />
+    );
   }
 
   const steps = STEP_REGISTRY[activeItem.kind];
@@ -70,7 +75,13 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
 
   // Defensive: if the cursor is somehow past the end, snap back to cart.
   if (!currentStep) {
-    return <CartViewPlaceholder session={session} />;
+    return (
+      <CartView
+        session={session}
+        onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
+        onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+      />
+    );
   }
 
   // canAdvance is item-typed at definition; the registry's union erases
@@ -176,30 +187,5 @@ function NavigationButtons({
         {nextLabel}
       </button>
     </div>
-  );
-}
-
-function CartViewPlaceholder({ session }: { session: BookingSession }) {
-  // The real cart view (item list + AdditionalActivities cross-sell +
-  // Checkout button) lands in commit 5 of PR-B2. For now we render the
-  // current items as a flat list so it's clear the session model works.
-  return (
-    <section className="mx-auto max-w-2xl p-6">
-      <h1 className="text-2xl font-semibold">Your cart</h1>
-      <p className="mt-2 text-sm text-gray-600">
-        PR-B2 commit 2 — multi-item session live, cart UI ships in commit 5.
-      </p>
-      {session.items.length === 0 ? (
-        <p className="mt-6 text-sm text-gray-500">No items yet.</p>
-      ) : (
-        <ul className="mt-6 space-y-2">
-          {session.items.map((item: SessionItem) => (
-            <li key={item.id} className="rounded border border-gray-200 p-4 text-sm">
-              <code className="text-gray-500">{item.kind}</code> — id {item.id.slice(0, 8)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
