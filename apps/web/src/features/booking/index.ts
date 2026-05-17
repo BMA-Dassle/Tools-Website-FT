@@ -5,7 +5,6 @@
  * (NOT from individual subpaths) so the public API stays curated and
  * refactors inside the feature don't ripple out.
  */
-export { DEFAULT_ACTIVITY_BY_BRAND } from "./types";
 export type { Activity, Brand, CenterCode, ContactInfo, BookingStatus } from "./types";
 
 export { emptyDraft } from "./state/types";

@@ -28,9 +28,3 @@ export interface ContactInfo {
   email: string;
   phone: string;
 }
-
-/** Activities valid for each brand's default landing. The chooser preselects. */
-export const DEFAULT_ACTIVITY_BY_BRAND: Record<Brand, Activity> = {
-  fasttrax: "race",
-  headpinz: "bowling",
-};
