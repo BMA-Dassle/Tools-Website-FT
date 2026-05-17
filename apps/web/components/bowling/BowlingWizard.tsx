@@ -674,6 +674,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   const [shoeProducts, setShoeProducts] = useState<BowlingSquareProduct[]>([]);
   const [shoeQty, setShoeQty] = useState<Record<number, number>>({});
+  const [showNoShoesModal, setShowNoShoesModal] = useState(false);
 
   // ── Pizza Bowl modifier selections ───────────────────────────────
   // Loaded from Square catalog once a pizza-bowl experience is selected.
@@ -4665,6 +4666,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   type="button"
                   onClick={() => {
                     setError(null);
+                    if (shoePreTaxTotal === 0) {
+                      setShowNoShoesModal(true);
+                      return;
+                    }
                     setStep("attractions");
                   }}
                   className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
@@ -4675,6 +4680,57 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     : "Skip Shoes"}
                 </button>
               </div>
+
+              {/* ── No-shoes warning modal ───────────────────────────── */}
+              {showNoShoesModal && (
+                <div
+                  className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.65)",
+                    backdropFilter: "blur(4px)",
+                  }}
+                  {...modalBackdropProps(() => setShowNoShoesModal(false))}
+                >
+                  <div
+                    className="w-full sm:max-w-sm mx-0 sm:mx-4 rounded-t-2xl sm:rounded-2xl p-6 pb-8 sm:pb-6"
+                    style={{
+                      backgroundColor: "#0d1829",
+                      border: "1px solid rgba(255,255,255,0.10)",
+                    }}
+                  >
+                    <p className="font-heading uppercase tracking-widest text-white/50 text-xs mb-3">
+                      Bowling Shoes Required
+                    </p>
+                    <p className="font-body text-white text-base mb-1">
+                      You must have bowling shoes to bowl.
+                    </p>
+                    <p className="font-body text-white/55 text-sm mb-6">
+                      If you do not have your own bowling shoes, please add rentals now to avoid
+                      delays at check-in.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowNoShoesModal(false)}
+                        className="w-full rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
+                        style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                      >
+                        Add Shoes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNoShoesModal(false);
+                          setStep("attractions");
+                        }}
+                        className="w-full rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
+                      >
+                        I have my own shoes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
