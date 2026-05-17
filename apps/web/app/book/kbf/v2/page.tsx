@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { BookingFlow } from "~/components/features/booking";
+import type { EntryContext } from "~/features/booking";
+import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
 
 export const metadata: Metadata = {
   title: "Kids Bowl Free — Reserve a lane (v2)",
@@ -16,6 +18,12 @@ export const metadata: Metadata = {
  *
  * entryBrand is pinned to "headpinz" — there is no FastTrax KBF.
  */
-export default function KbfV2Page() {
-  return <BookingFlow activity="kbf" entryBrand="headpinz" />;
+export default async function KbfV2Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const initialContext: EntryContext = parseEntryContextFromSearchParams(sp);
+  return <BookingFlow activity="kbf" entryBrand="headpinz" initialContext={initialContext} />;
 }

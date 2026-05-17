@@ -2,7 +2,8 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { BookingFlow } from "~/components/features/booking";
-import type { Activity, Brand } from "~/features/booking";
+import type { Activity, Brand, EntryContext } from "~/features/booking";
+import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
 
 /**
  * Per-activity v2 booking page — `/book/[attraction]/v2`.
@@ -23,6 +24,9 @@ import type { Activity, Brand } from "~/features/booking";
  * back in PR-B4 at their own route. /book/race-pack/v2 → 404 for now.
  *
  * Unknown slugs → 404.
+ *
+ * URL params (?member, ?promo, ?firstName, etc.) are parsed into
+ * EntryContext and seeded into the session for prefill.
  */
 
 const ATTRACTION_SLUGS = new Set(["gel-blaster", "laser-tag", "duck-pin", "shuffly"]);
@@ -55,13 +59,20 @@ export async function generateMetadata({
 
 export default async function BookActivityV2Page({
   params,
+  searchParams,
 }: {
   params: Promise<{ attraction: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { attraction: slug } = await params;
   const activity = slugToActivity(slug);
   if (!activity) notFound();
 
+  const sp = await searchParams;
   const entryBrand = await readEntryBrand();
-  return <BookingFlow activity={activity} entryBrand={entryBrand} />;
+  const initialContext: EntryContext = parseEntryContextFromSearchParams(sp);
+
+  return (
+    <BookingFlow activity={activity} entryBrand={entryBrand} initialContext={initialContext} />
+  );
 }
