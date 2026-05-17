@@ -1,110 +1,205 @@
 "use client";
 
-import { useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 import {
-  emptyDraft,
+  emptySession,
+  getActiveItem,
+  newItem,
   reducer,
   STEP_REGISTRY,
   type Activity,
-  type BookingState,
-  type CenterCode,
+  type BookingSession,
+  type Brand,
+  type EntryContext,
+  type SessionItem,
+  type StepDef,
 } from "~/features/booking";
 
 /**
- * BookingFlow — orchestrator shell for the unified v2 booking wizard.
+ * BookingFlow — orchestrator shell for the unified v2 booking session.
  *
- * Reads the per-activity step registry, drives the reducer, renders the
- * current step's component. The host is dumb: it doesn't know about
- * activity-specific logic — that lives in each step's Component.
+ * The customer enters via an activity-specific URL (/book/race/v2,
+ * /book/bowling/v2, etc.). BookingFlow creates a fresh session with the
+ * entry brand + any prefilled context, seeds the first item for the
+ * requested activity, and drives that item's step list.
  *
- * PR-B1 ships the SHELL. Real step components and step transitions land
- * per-activity in PR-B2..B6. For now we just confirm the host wires up:
- *   - emptyDraft seeds the reducer
- *   - STEP_REGISTRY picks the right step list per activity
- *   - Next / Back / step breadcrumb work against placeholder steps
+ * Session-level views (cart with cross-sell, checkout, payment,
+ * confirmation) are filled in by later commits in PR-B2:
+ *   - commit 5: AdditionalActivities cross-sell rendered alongside the
+ *     cart list once activeItemId becomes null.
+ *   - commit 9: Square anchor + payment wiring takes over after cart.
+ *   - commit 10: confirmation page is a separate route.
+ *
+ * For now this component handles a single-item sub-wizard cleanly. Real
+ * step components plug into STEP_REGISTRY in commit 8 of PR-B2.
  */
 export interface BookingFlowProps {
   activity: Activity;
-  /** Optionally preselect a center (from the chooser or URL param). */
-  initialCenter?: CenterCode | null;
+  entryBrand: Brand;
+  initialContext?: EntryContext;
 }
 
-export function BookingFlow({ activity, initialCenter = null }: BookingFlowProps) {
-  const initialState: BookingState = useMemo(
-    () => ({ draft: { ...emptyDraft(activity), center: initialCenter }, stepIndex: 0 }),
-    [activity, initialCenter],
+export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlowProps) {
+  const initial = useMemo(
+    () => emptySession({ entryBrand, context: initialContext }),
+    [entryBrand, initialContext],
   );
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [session, dispatch] = useReducer(reducer, initial);
 
-  const steps = STEP_REGISTRY[activity];
-  const currentStep = steps[state.stepIndex];
+  // Seed an initial item for the entry activity on first mount. The reducer
+  // owns the item id and step cursor; we just kick it off here.
+  useEffect(() => {
+    if (session.items.length === 0) {
+      dispatch({ type: "addItem", item: newItem(activity) });
+    }
+    // We only want this to fire once per BookingFlow mount; subsequent
+    // session edits don't need to re-seed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  if (!currentStep) {
-    // Past the last step — this is where the confirmation page would render.
-    return (
-      <section className="mx-auto max-w-2xl p-6">
-        <h1 className="text-2xl font-semibold">Booking complete</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Confirmation view ships in the per-activity PR. Order id:{" "}
-          <code>{state.draft.squareOrderId ?? "(none)"}</code>
-        </p>
-      </section>
-    );
+  const activeItem = getActiveItem(session);
+
+  if (!activeItem) {
+    return <CartViewPlaceholder session={session} />;
   }
 
-  const canAdvance = currentStep.canAdvance(state.draft);
+  const steps = STEP_REGISTRY[activeItem.kind];
+  const stepIndex = session.cursors[activeItem.id] ?? 0;
+  const currentStep = steps[stepIndex];
+  const isLastStep = stepIndex >= steps.length - 1;
+
+  // Defensive: if the cursor is somehow past the end, snap back to cart.
+  if (!currentStep) {
+    return <CartViewPlaceholder session={session} />;
+  }
+
+  // canAdvance is item-typed at definition; the registry's union erases
+  // that, but the runtime guarantee holds because the step list is
+  // selected by item.kind.
+  const stepUntyped = currentStep as StepDef;
+  const canAdvance = stepUntyped.canAdvance(activeItem, session);
   const advanceOk = canAdvance === true;
+
+  // Last step's "Next" returns to the cart view rather than advancing
+  // into oblivion. Commit 5 will fill the cart in; until then this is
+  // the natural exit from a sub-wizard.
+  const handleNext = () => {
+    if (isLastStep) {
+      dispatch({ type: "setActiveItem", id: null });
+    } else {
+      dispatch({ type: "next" });
+    }
+  };
 
   return (
     <section className="mx-auto max-w-2xl p-6">
-      {/* Breadcrumb */}
-      <ol className="mb-6 flex flex-wrap gap-2 text-sm">
-        {steps.map((s, i) => (
-          <li
-            key={s.id}
-            className={
-              i === state.stepIndex
-                ? "font-semibold text-black"
-                : i < state.stepIndex
-                  ? "text-gray-500"
-                  : "text-gray-300"
-            }
-          >
-            {s.title}
-            {i < steps.length - 1 && <span className="ml-2 text-gray-300">›</span>}
-          </li>
-        ))}
-      </ol>
+      <Breadcrumb steps={steps} stepIndex={stepIndex} />
 
-      {/* Current step */}
       <div className="rounded-lg border border-gray-200 p-6">
         <h2 className="mb-4 text-xl font-semibold">{currentStep.title}</h2>
-        <currentStep.Component draft={state.draft} />
+        <stepUntyped.Component
+          item={activeItem}
+          session={session}
+          onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
+        />
         <p className="mt-4 text-xs text-gray-400">
-          PR-B1 scaffold — step body lands in the per-activity PR ({activity}).
+          PR-B2 scaffold — step body lands later this PR ({activeItem.kind}).
         </p>
       </div>
 
-      {/* Navigation */}
-      <div className="mt-4 flex justify-between">
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "back" })}
-          disabled={state.stepIndex === 0}
-          className="rounded border border-gray-300 px-4 py-2 text-sm disabled:opacity-40"
+      <NavigationButtons
+        stepIndex={stepIndex}
+        canAdvance={advanceOk}
+        reason={advanceOk ? undefined : canAdvance.reason}
+        nextLabel={isLastStep ? "Add to cart" : "Next"}
+        onBack={() => dispatch({ type: "back" })}
+        onNext={handleNext}
+      />
+    </section>
+  );
+}
+
+function Breadcrumb({ steps, stepIndex }: { steps: StepDef[]; stepIndex: number }) {
+  return (
+    <ol className="mb-6 flex flex-wrap gap-2 text-sm">
+      {steps.map((s, i) => (
+        <li
+          key={s.id}
+          className={
+            i === stepIndex
+              ? "font-semibold text-black"
+              : i < stepIndex
+                ? "text-gray-500"
+                : "text-gray-300"
+          }
         >
-          Back
-        </button>
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "next" })}
-          disabled={!advanceOk}
-          title={advanceOk ? undefined : canAdvance.reason}
-          className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
+          {s.title}
+          {i < steps.length - 1 && <span className="ml-2 text-gray-300">›</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function NavigationButtons({
+  stepIndex,
+  canAdvance,
+  reason,
+  nextLabel,
+  onBack,
+  onNext,
+}: {
+  stepIndex: number;
+  canAdvance: boolean;
+  reason?: string;
+  nextLabel: string;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="mt-4 flex justify-between">
+      <button
+        type="button"
+        onClick={onBack}
+        disabled={stepIndex === 0}
+        className="rounded border border-gray-300 px-4 py-2 text-sm disabled:opacity-40"
+      >
+        Back
+      </button>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!canAdvance}
+        title={reason}
+        className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-40"
+      >
+        {nextLabel}
+      </button>
+    </div>
+  );
+}
+
+function CartViewPlaceholder({ session }: { session: BookingSession }) {
+  // The real cart view (item list + AdditionalActivities cross-sell +
+  // Checkout button) lands in commit 5 of PR-B2. For now we render the
+  // current items as a flat list so it's clear the session model works.
+  return (
+    <section className="mx-auto max-w-2xl p-6">
+      <h1 className="text-2xl font-semibold">Your cart</h1>
+      <p className="mt-2 text-sm text-gray-600">
+        PR-B2 commit 2 — multi-item session live, cart UI ships in commit 5.
+      </p>
+      {session.items.length === 0 ? (
+        <p className="mt-6 text-sm text-gray-500">No items yet.</p>
+      ) : (
+        <ul className="mt-6 space-y-2">
+          {session.items.map((item: SessionItem) => (
+            <li key={item.id} className="rounded border border-gray-200 p-4 text-sm">
+              <code className="text-gray-500">{item.kind}</code> — id {item.id.slice(0, 8)}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

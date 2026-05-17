@@ -1,7 +1,8 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { BookingFlow } from "~/components/features/booking";
-import type { Activity } from "~/features/booking";
+import type { Activity, Brand } from "~/features/booking";
 
 /**
  * Per-activity v2 booking page — `/book/[attraction]/v2`.
@@ -10,16 +11,16 @@ import type { Activity } from "~/features/booking";
  * `app/book/[attraction]/page.tsx` (Next.js requires consistent param
  * names at any given route depth). The URL still reads naturally:
  *
- *   /book/race/v2           → "race"
- *   /book/race-pack/v2      → "race-pack"
- *   /book/gel-blaster/v2    → "attraction"   (slug pinned in draft later)
- *   /book/laser-tag/v2      → "attraction"
- *   /book/duck-pin/v2       → "attraction"
- *   /book/shuffly/v2        → "attraction"
- *   /book/bowling/v2        → "bowling"
+ *   /book/race/v2           → activity: "race"
+ *   /book/bowling/v2        → activity: "bowling"
+ *   /book/gel-blaster/v2    → activity: "attraction" (slug carried by item)
+ *   /book/laser-tag/v2      → activity: "attraction"
+ *   /book/duck-pin/v2       → activity: "attraction"
+ *   /book/shuffly/v2        → activity: "attraction"
  *
- * KBF lives at /book/kbf/v2 (separate route — different SEO + legal
- * model) rather than in this dynamic slot.
+ * KBF lives at /book/kbf/v2 (separate route — distinct SEO + legal model).
+ * Race-packs are NOT a booking — they are credit-pack purchases that come
+ * back in PR-B4 at their own route. /book/race-pack/v2 → 404 for now.
  *
  * Unknown slugs → 404.
  */
@@ -28,10 +29,14 @@ const ATTRACTION_SLUGS = new Set(["gel-blaster", "laser-tag", "duck-pin", "shuff
 
 function slugToActivity(slug: string): Activity | null {
   if (slug === "race") return "race";
-  if (slug === "race-pack" || slug === "race-packs") return "race-pack";
   if (slug === "bowling") return "bowling";
   if (ATTRACTION_SLUGS.has(slug)) return "attraction";
   return null;
+}
+
+async function readEntryBrand(): Promise<Brand> {
+  const hdrs = await headers();
+  return hdrs.get("x-brand") === "headpinz" ? "headpinz" : "fasttrax";
 }
 
 export async function generateMetadata({
@@ -57,5 +62,6 @@ export default async function BookActivityV2Page({
   const activity = slugToActivity(slug);
   if (!activity) notFound();
 
-  return <BookingFlow activity={activity} />;
+  const entryBrand = await readEntryBrand();
+  return <BookingFlow activity={activity} entryBrand={entryBrand} />;
 }

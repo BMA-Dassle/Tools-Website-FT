@@ -8,12 +8,14 @@ export const metadata: Metadata = {
 };
 
 /**
- * Kids Bowl Free v2 entry. Distinct route from /book/[activity]/v2 because:
- *   - HeadPinz-only (cross-brand chooser surfaces it separately).
+ * Kids Bowl Free v2 entry. Distinct route from /book/[attraction]/v2 because:
+ *   - HeadPinz-only (the customer is always on a HeadPinz brand experience).
  *   - COPPA + parental verification flow needs its own SEO + privacy posture.
  *   - The composite "Verify" step (lookup → 6-digit code → roster) is the
- *     first step of the registry rather than threading through generic UI.
+ *     first step of the kbf item rather than threading through generic UI.
+ *
+ * entryBrand is pinned to "headpinz" — there is no FastTrax KBF.
  */
 export default function KbfV2Page() {
-  return <BookingFlow activity="kbf" />;
+  return <BookingFlow activity="kbf" entryBrand="headpinz" />;
 }

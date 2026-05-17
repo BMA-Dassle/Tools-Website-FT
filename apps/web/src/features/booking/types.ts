@@ -6,7 +6,15 @@
  * components can refer to them without circular imports.
  */
 
-export type Activity = "race" | "race-pack" | "attraction" | "bowling" | "kbf";
+/**
+ * What a customer can BOOK in v2. NOT the same as Square's `Booking Activity`
+ * custom attribute (which discriminates shuffly's FT-side vs HP-side under
+ * the hood — the catalog resolves that via session.entryBrand).
+ *
+ * Race-packs are NOT a booking activity — they are credit-pack purchases
+ * built later (PR-B4) as a SessionItem variant alongside BookingItem.
+ */
+export type Activity = "race" | "attraction" | "bowling" | "kbf";
 
 export type Brand = "fasttrax" | "headpinz";
 

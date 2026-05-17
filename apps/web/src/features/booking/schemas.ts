@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 
-export const ActivitySchema = z.enum(["race", "race-pack", "attraction", "bowling", "kbf"]);
+export const ActivitySchema = z.enum(["race", "attraction", "bowling", "kbf"]);
 export type ActivityInput = z.infer<typeof ActivitySchema>;
 
 export const ContactInfoSchema = z.object({
