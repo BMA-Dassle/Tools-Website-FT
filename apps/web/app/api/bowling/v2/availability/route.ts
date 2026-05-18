@@ -334,13 +334,16 @@ export async function GET(req: NextRequest) {
       results.push(...batchResults);
     }
 
-    // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers
+    // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers.
+    // QAMF's spec types WebOffer.Id as string | number and we've seen it flip
+    // per-center; normalize to number here so the client can use strict ===
+    // against DB-sourced numeric offer IDs without silent type-mismatch.
     const seen = new Set<string>();
     let availabilities = results
       .flatMap((r) => r.Availabilities)
+      .map((a) => ({ ...a, WebOffer: { ...a.WebOffer, Id: Number(a.WebOffer.Id) } }))
       .filter((a) => {
-        // Only keep offers we know about in the DB for this day
-        if (!validOfferIds.has(Number(a.WebOffer.Id))) return false;
+        if (!validOfferIds.has(a.WebOffer.Id)) return false;
         const key = `${a.BookedAt}::${a.WebOffer.Id}`;
         if (seen.has(key)) return false;
         seen.add(key);
