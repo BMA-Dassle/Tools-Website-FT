@@ -7,14 +7,14 @@ import { BreadcrumbJsonLd, HeadPinzFortMyersJsonLd } from "@/components/seo/Json
 import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Fort Myers | Best Bowling Alley, Laser Tag & Arcade",
+  title: "HeadPinz Fort Myers FL | Best Bowling Center, Laser Tag & Arcade",
   description:
-    "Fort Myers' best bowling alley — 24 lanes from $13.99, shoes included. Plus NEXUS laser tag, gel blasters, HyperBowling, NeoVerse, 40+ arcade games & Nemo's dining. Open late. Book now!",
+    "Fort Myers' best bowling center — 24 lanes from $13.99, shoes included. Plus NEXUS laser tag, gel blasters, HyperBowling, NeoVerse, 40+ arcade games & Nemo's dining. Open late. Book now!",
   keywords: [
     "HeadPinz Fort Myers",
     "bowling Fort Myers",
-    "bowling alley Fort Myers",
-    "best bowling alley Fort Myers",
+    "bowling center Fort Myers",
+    "best bowling center Fort Myers",
     "bowling near me Fort Myers",
     "laser tag Fort Myers",
     "gel blasters Fort Myers",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     "Fun 4 Night Fort Myers",
   ],
   openGraph: {
-    title: "HeadPinz Fort Myers | Best Bowling, Laser Tag & Arcade",
+    title: "HeadPinz Fort Myers FL | Best Bowling, Laser Tag & Arcade",
     description:
       "24 bowling lanes from $13.99 (shoes included), NEXUS laser tag, gel blasters, 40+ arcade games & Nemo's dining. Fort Myers' top entertainment spot. Book now!",
     type: "website",
@@ -285,7 +285,7 @@ export default function FortMyersPage() {
               textShadow: "0 0 40px rgba(253,91,86,0.35)",
             }}
           >
-            Fort Myers
+            HeadPinz Fort Myers
           </h1>
 
           <p

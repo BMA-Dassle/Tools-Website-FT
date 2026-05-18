@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     "jobs Fort Myers",
     "jobs Naples FL",
     "entertainment jobs Fort Myers",
-    "bowling alley jobs",
+    "bowling center jobs",
     "part time jobs Fort Myers",
     "hospitality jobs Naples",
     "HeadPinz hiring",

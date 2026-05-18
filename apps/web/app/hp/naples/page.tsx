@@ -7,13 +7,13 @@ import { BreadcrumbJsonLd, HeadPinzNaplesJsonLd } from "@/components/seo/JsonLd"
 import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Naples FL | Best Bowling Alley, Laser Tag & Arcade",
+  title: "HeadPinz Naples FL | Best Bowling Center, Laser Tag & Arcade",
   description:
-    "Naples' best bowling alley — lanes from $13.99, shoes included. Plus HyperBowling, NeoVerse, NEXUS laser tag, 40+ arcade games & Nemo's Sports Bistro at 8525 Radio Lane. Book online!",
+    "Naples' best bowling center — lanes from $13.99, shoes included. Plus HyperBowling, NeoVerse, NEXUS laser tag, 40+ arcade games & Nemo's Sports Bistro at 8525 Radio Lane. Book online!",
   keywords: [
     "HeadPinz Naples",
     "bowling Naples FL",
-    "bowling alley Naples Florida",
+    "bowling center Naples Florida",
     "best bowling Naples FL",
     "bowling near me Naples",
     "laser tag Naples",
@@ -268,7 +268,7 @@ export default function NaplesPage() {
               textShadow: "0 0 40px rgba(253,91,86,0.35)",
             }}
           >
-            Naples
+            HeadPinz Naples
           </h1>
 
           <p

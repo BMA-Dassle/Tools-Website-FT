@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     "bar Naples FL",
     "restaurant Fort Myers",
     "restaurant Naples FL",
-    "bowling alley food",
+    "bowling center food",
     "pizza Fort Myers",
     "burgers Fort Myers",
     "drink specials Fort Myers",

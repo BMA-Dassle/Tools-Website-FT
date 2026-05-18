@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     "VIP bowling Fort Myers",
     "indoor activities Fort Myers",
     "cosmic bowling Fort Myers",
-    "best bowling alley Fort Myers",
+    "best bowling center Fort Myers",
   ],
   openGraph: {
     title: "All Attractions - HeadPinz Fort Myers",
@@ -431,7 +431,7 @@ export default function AttractionsPage() {
             a: "Yes. HeadPinz Fort Myers offers youth bowling leagues for ages 5 through 17 in fall, winter, and spring sessions. All leagues are USBC-certified and come with coaching. Ask at the front desk or call (239) 288-8385 for upcoming signup dates.",
           },
           {
-            q: "Are you the best bowling alley in Fort Myers?",
+            q: "Are you the best bowling center in Fort Myers?",
             a: "We'd like to think so — 24 state-of-the-art lanes, VIP bowling with NeoVerse interactive walls, HyperBowling LED target bumpers, cosmic glow bowling, and Nemo's Sports Bistro for food and drinks all under one roof.",
           },
           {
