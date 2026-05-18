@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchAvailability } from "@/lib/qamf-bowling";
-import { getBowlingExperiences } from "@/lib/bowling-db";
+import { getBowlingExperiences, type BowlingExperienceKind } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 
 /**
@@ -140,12 +140,30 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get("startDate");
   const hourStr = searchParams.get("hour");
   const minuteStr = searchParams.get("minute");
-  const kindStr = searchParams.get("kind") as "kbf" | "open" | "hourly" | null;
+  // `kind` accepts a single value ("kbf") or a comma-separated list
+  // ("open,hourly"). The open wizard sends both so KBF offers don't leak into
+  // its availability — KBF experiences are filtered client-side, so a slot
+  // whose webOfferId belongs to a KBF experience contributes to no tier and
+  // silently breaks the "next available" fallback.
+  const kindStr = searchParams.get("kind");
+  const validKindValues: BowlingExperienceKind[] = ["kbf", "open", "hourly"];
+  const kinds: BowlingExperienceKind[] = kindStr
+    ? (kindStr.split(",").map((k) => k.trim()).filter(Boolean) as BowlingExperienceKind[])
+    : [];
+  for (const k of kinds) {
+    if (!validKindValues.includes(k)) {
+      console.log(`[avail] EXIT: invalid kind value '${k}'`);
+      return NextResponse.json(
+        { error: `invalid kind: ${k}. Must be one of: ${validKindValues.join(", ")}` },
+        { status: 400 },
+      );
+    }
+  }
   const webOfferIdStr = searchParams.get("webOfferId");
   const durationMinStr = searchParams.get("durationMinutes");
 
   console.log(
-    `[avail] ENTRY params: centerId=${centerIdStr} players=${playersStr} date=${startDate} hour=${hourStr} min=${minuteStr} kind=${kindStr}`,
+    `[avail] ENTRY params: centerId=${centerIdStr} players=${playersStr} date=${startDate} hour=${hourStr} min=${minuteStr} kinds=[${kinds.join(",")}]`,
   );
 
   if (!centerIdStr || !playersStr || !startDate) {
@@ -175,11 +193,17 @@ export async function GET(req: NextRequest) {
 
   const dow = new Date(`${startDate}T12:00:00`).getDay(); // 0=Sun … 6=Sat
 
-  // Get experiences valid for this day-of-week
-  const allExperiences = await getBowlingExperiences(centerCode, kindStr ?? undefined);
+  // Get experiences valid for this day-of-week.
+  // DB function only filters by a single kind, so for multi-kind requests we
+  // fetch all and post-filter — cheaper than two separate DB round-trips.
+  const dbKind = kinds.length === 1 ? kinds[0] : undefined;
+  const allExperiences = await getBowlingExperiences(centerCode, dbKind);
   let validExperiences = allExperiences.filter(
     (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
   );
+  if (kinds.length > 1) {
+    validExperiences = validExperiences.filter((e) => kinds.includes(e.kind));
+  }
 
   console.log(
     `[avail] experiences: all=${allExperiences.length} valid=${validExperiences.length} dow=${dow} offerIds=[${validExperiences.map((e) => e.qamfWebOfferId).join(",")}]`,

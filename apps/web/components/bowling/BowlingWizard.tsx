@@ -1283,9 +1283,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       async function probe(targeted: boolean): Promise<AvailabilitySlot[]> {
         let url = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
         // KBF wizard: scope to kbf offers only.
-        // Open bowling wizard: do NOT pass kind — it needs both 'open' (specials)
-        // AND 'hourly' (lane rentals) since the tier+offer steps show both.
+        // Open bowling wizard: pass kind=open,hourly so the server excludes KBF
+        // from validOfferIds. Without this, KBF-offer slots flow through but
+        // contribute to no tier (client filters kbf out of experiences[]),
+        // poisoning the "next available" fallback with phantom unmatched slots.
         if (kind === "kbf") url += `&kind=kbf`;
+        else url += `&kind=open,hourly`;
         if (opts?.webOfferId) url += `&webOfferId=${opts.webOfferId}`;
         if (targeted && opts?.hour !== undefined && opts?.minute !== undefined) {
           url += `&hour=${opts.hour}&minute=${opts.minute}`;
