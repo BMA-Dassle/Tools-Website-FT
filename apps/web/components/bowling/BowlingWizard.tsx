@@ -1311,21 +1311,25 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         }
         // First request after a deploy can hit a cold Lambda / cold QAMF
         // auth and return 502 from the route's all-probes-failed guard.
-        // One quick retry with a small backoff turns that into a smooth
-        // first-load instead of "No slots available."
-        for (let attempt = 1; attempt <= 2; attempt++) {
+        // Vercel may also spin up additional cold instances under load, so
+        // subsequent requests can hit fresh cold workers — retry a few
+        // times with growing backoff to cover that case before surfacing
+        // a "no slots" UX that's actually an upstream blip.
+        const backoffs = [600, 1500, 2500];
+        let lastStatus = 0;
+        for (let attempt = 0; attempt < backoffs.length; attempt++) {
           const res = await fetch(url);
           if (res.ok) {
             const data = (await res.json()) as { Availabilities?: RawSlot[]; error?: string };
             return parseRaw(data.Availabilities ?? []);
           }
-          if (attempt === 1 && (res.status === 502 || res.status === 504)) {
-            await new Promise((r) => setTimeout(r, 750));
-            continue;
-          }
-          throw new Error(`Availability request failed: ${res.status}`);
+          lastStatus = res.status;
+          const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+          const last = attempt === backoffs.length - 1;
+          if (!retryable || last) break;
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
         }
-        return [];
+        throw new Error(`Availability request failed: ${lastStatus}`);
       }
 
       try {
@@ -4006,6 +4010,44 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       >
                         ← Choose a different time
                       </button>
+                    </div>
+                  ) : availableSlots.length === 0 ? (
+                    // Fetch finished with no data — either an upstream blip
+                    // (slotsError set, e.g. cold-Lambda retry exhausted) or
+                    // genuinely zero availability for this date. Either way,
+                    // render ONE coherent message + retry instead of N tier
+                    // cards each saying "No more availability today," which
+                    // misleadingly implies QAMF said the day is sold out.
+                    <div className="text-center py-10 space-y-4">
+                      <p className="font-body text-white/55 text-sm">
+                        {slotsError
+                          ? "We couldn't reach the bowling system. Please try again."
+                          : "No times available for this day. Try another date."}
+                      </p>
+                      <div className="flex gap-3 justify-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            lastFetchKey.current = "";
+                            void fetchSlots(selectedDate, {
+                              hour: selectedHour ?? undefined,
+                              minute: selectedMinute ?? undefined,
+                            });
+                          }}
+                          className="rounded-full px-5 py-2.5 font-body font-bold text-xs uppercase tracking-wider text-white transition-all hover:scale-[1.01]"
+                          style={{ backgroundColor: CORAL, boxShadow: `0 0 14px ${CORAL}40` }}
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStep("slots")}
+                          className="rounded-full px-5 py-2.5 font-body font-bold text-xs uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                        >
+                          Change time
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-4">

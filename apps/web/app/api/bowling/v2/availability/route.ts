@@ -3,6 +3,11 @@ import { searchAvailability } from "@/lib/qamf-bowling";
 import { getBowlingExperiences, type BowlingExperienceKind } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 
+// Cold-start + 4-7 batches of 8 probes can exceed the default 10s budget
+// when QAMF auth is also cold. Other QAMF-touching routes use 30s; match
+// that so we don't 504 ourselves into a false "no slots" UX.
+export const maxDuration = 30;
+
 /**
  * GET /api/bowling/v2/availability
  *
