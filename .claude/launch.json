@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "fasttrax",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "--webpack"],
       "port": 3000,
       "autoPort": true,
       "cwd": "fasttrax-web"

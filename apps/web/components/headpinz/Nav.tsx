@@ -93,6 +93,11 @@ export default function HeadPinzNav() {
     {
       label: "Bowling",
       children: [
+        {
+          label: "Book Now",
+          href:
+            currentLoc.key === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling",
+        },
         { label: "Leagues", href: currentLoc.leagues },
         // Have-A-Ball league is Fort Myers only
         ...(currentLoc.key === "fort-myers"
