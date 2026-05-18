@@ -596,11 +596,27 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // the offer step. The hold is extended every 8 min and released when
   // the user navigates back to offer or the wizard unmounts.
   // holdRef / holdTimerRef use refs to avoid stale closures in the timer.
+  //
+  // Hold lifetime is also gated by a 15-minute client-side countdown that
+  // resets on user activity (step changes, clicks, keypresses, scrolls).
+  // If the countdown reaches zero, the hold is released and the wizard
+  // reloads back to the start so the user can't accept a slot they no
+  // longer own.
+
+  const HOLD_MAX_MS = 15 * 60 * 1000;
+  // Throttle: only send a server-side extend PATCH at most once every 60s
+  // when activity resets the countdown. The 8-min keep-alive interval still
+  // covers the QAMF TTL independently — this just keeps the server in sync
+  // sooner when the user is actively interacting.
+  const HOLD_EXTEND_THROTTLE_MS = 60 * 1000;
 
   const holdRef = useRef<{ qamfId: string; centerId: number } | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdExpiresAtRef = useRef<number | null>(null);
+  const holdLastExtendRef = useRef<number>(0);
   const [holdBusy, setHoldBusy] = useState(false);
   const [holdActive, setHoldActive] = useState(false);
+  const [holdSecondsLeft, setHoldSecondsLeft] = useState(0);
   // Pending back-navigation that would release the hold — stored while
   // the "Release lane?" confirmation is visible.
   const [pendingRelease, setPendingRelease] = useState<Step | null>(null);
@@ -1785,12 +1801,36 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       clearInterval(holdTimerRef.current);
       holdTimerRef.current = null;
     }
+    holdExpiresAtRef.current = null;
+    holdLastExtendRef.current = 0;
     setHoldActive(false);
+    setHoldSecondsLeft(0);
     void fetch(`/api/bowling/v2/reserve/hold/${qamfId}`, {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ centerId: hCenterId }),
     }).catch(() => {});
+  }, []);
+
+  // ── Hold: refresh countdown on activity ──────────────────────────
+  // Resets the 15-min countdown back to MAX, and (throttled) fires a
+  // server-side PATCH so the QAMF TTL is also kept fresh sooner than the
+  // 8-min keep-alive would. No-op when no hold is active.
+  const refreshHoldCountdown = useCallback(() => {
+    if (!holdRef.current) return;
+    const now = Date.now();
+    holdExpiresAtRef.current = now + HOLD_MAX_MS;
+    setHoldSecondsLeft(Math.ceil(HOLD_MAX_MS / 1000));
+    if (now - holdLastExtendRef.current > HOLD_EXTEND_THROTTLE_MS) {
+      holdLastExtendRef.current = now;
+      const { qamfId, centerId: hCenterId } = holdRef.current;
+      void fetch(`/api/bowling/v2/reserve/hold/${qamfId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ centerId: hCenterId }),
+      }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Hold: create + advance ───────────────────────────────────────
@@ -1830,6 +1870,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         if (!res.ok) throw new Error(data.error ?? "Hold failed");
 
         holdRef.current = { qamfId: data.qamfReservationId!, centerId: center.qamfId };
+        holdExpiresAtRef.current = Date.now() + HOLD_MAX_MS;
+        holdLastExtendRef.current = Date.now();
+        setHoldSecondsLeft(Math.ceil(HOLD_MAX_MS / 1000));
         setHoldActive(true);
 
         // Extend every 8 min so the 10-min QAMF TTL never expires
@@ -1887,6 +1930,51 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       }
     };
   }, []);
+
+  // ── Hold: refresh on step change ────────────────────────────────
+  // Advancing or going back is a strong "user is engaged" signal — reset
+  // the 15-min countdown so we don't expire someone mid-checkout.
+  useEffect(() => {
+    if (!holdActive) return;
+    refreshHoldCountdown();
+  }, [step, holdActive, refreshHoldCountdown]);
+
+  // ── Hold: refresh on user interaction ───────────────────────────
+  // Any pointer/key/scroll activity resets the countdown. Throttled
+  // server-side PATCH lives in refreshHoldCountdown.
+  useEffect(() => {
+    if (!holdActive) return;
+    const handler = () => refreshHoldCountdown();
+    window.addEventListener("pointerdown", handler, { passive: true });
+    window.addEventListener("keydown", handler);
+    window.addEventListener("scroll", handler, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", handler);
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("scroll", handler);
+    };
+  }, [holdActive, refreshHoldCountdown]);
+
+  // ── Hold: 1-second tick + auto-expire ───────────────────────────
+  // When the countdown hits zero we release the QAMF hold and reload the
+  // wizard back to the start — the user can't pay for a slot we no
+  // longer own.
+  useEffect(() => {
+    if (!holdActive) return;
+    const tick = setInterval(() => {
+      if (!holdExpiresAtRef.current) return;
+      const secs = Math.max(0, Math.ceil((holdExpiresAtRef.current - Date.now()) / 1000));
+      setHoldSecondsLeft(secs);
+      if (secs === 0) {
+        // Release hold and refresh the wizard back to the beginning
+        releaseHold();
+        if (typeof window !== "undefined") {
+          window.location.reload();
+        }
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [holdActive, releaseHold]);
 
   // ── HeadPinz Rewards helpers ────────────────────────────────────
 
@@ -2346,7 +2434,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       className="w-1.5 h-1.5 rounded-full animate-pulse"
                       style={{ backgroundColor: GOLD }}
                     />
-                    Lane held
+                    Lane held ·{" "}
+                    <span className="tabular-nums">
+                      {Math.floor(holdSecondsLeft / 60)}:
+                      {(holdSecondsLeft % 60).toString().padStart(2, "0")}
+                    </span>
                   </div>
                 )}
               </div>
