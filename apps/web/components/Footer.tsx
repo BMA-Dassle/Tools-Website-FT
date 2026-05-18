@@ -120,7 +120,31 @@ export default function Footer() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 mt-10 pt-6 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30">
+      {/* Sister brand callout — adjacent venue at 14513 Global Parkway. The
+          cross-domain backlink helps Google understand the brand pair and
+          passes authority between fasttraxent.com and headpinz.com. */}
+      <div className="max-w-7xl mx-auto px-4 mt-10 pt-6 border-t border-white/10">
+        <p className="text-center text-sm text-white/60">
+          Next door to FastTrax:{" "}
+          <a
+            href="https://headpinz.com"
+            className="text-[#00E2E5] hover:text-white transition-colors font-semibold"
+          >
+            HeadPinz Fort Myers
+          </a>{" "}
+          — bowling, laser tag, gel blasters &amp; arcade. Same campus, different building.
+          Also in{" "}
+          <a
+            href="https://headpinz.com/naples"
+            className="text-[#00E2E5] hover:text-white transition-colors font-semibold"
+          >
+            Naples
+          </a>
+          .
+        </p>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 mt-6 pt-6 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30">
         <p>© 2026 Fast Trax FEC LLC. All rights reserved.</p>
         <p>
           <a
