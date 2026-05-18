@@ -3,6 +3,8 @@ import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title:
@@ -36,6 +38,7 @@ export const metadata: Metadata = {
       "116,000 sq ft of indoor go-karts, arcade, bowling, laser tag, gel blaster & dining across two connected buildings in Fort Myers.",
     type: "website",
     url: "https://fasttraxent.com/attractions",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/attractions",
@@ -181,6 +184,12 @@ const headpinzCards = [
 export default function AttractionsPage() {
   return (
     <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Attractions", url: "https://fasttraxent.com/attractions" },
+        ]}
+      />
       <SubpageHero
         title="Attractions"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/attractions-hero.webp"

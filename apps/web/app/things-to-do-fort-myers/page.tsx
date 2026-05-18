@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 /**
  * Things to Do in Fort Myers — FastTrax-side hub page targeting the
@@ -33,6 +34,7 @@ export const metadata: Metadata = {
     url: "https://fasttraxent.com/things-to-do-fort-myers",
     siteName: "FastTrax Entertainment",
     type: "article",
+    images: [...FASTTRAX_OG],
   },
 };
 

@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { trackBookingClick } from "@/lib/analytics";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 const blueGlow = "rgba(0,12,255,0.4) 0px 0px 30px";
@@ -16,6 +17,12 @@ export default function RacingPage() {
 
   return (
     <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Racing", url: "https://fasttraxent.com/racing" },
+        ]}
+      />
       <SubpageHero
         title="Racing & Qualifications"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/qualifications-hero.webp"

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import RewardsPortal from "@/components/headpinz/RewardsPortal";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "My Rewards Dashboard",
@@ -9,6 +11,7 @@ export const metadata: Metadata = {
     description: "View your Pinz balance and available rewards.",
     type: "website",
     url: "https://fasttraxent.com/rewards/dashboard",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/rewards/dashboard",
@@ -17,6 +20,14 @@ export const metadata: Metadata = {
 
 export default function RewardsDashboardPage() {
   return (
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Rewards", url: "https://fasttraxent.com/rewards" },
+          { name: "Dashboard", url: "https://fasttraxent.com/rewards/dashboard" },
+        ]}
+      />
     <div className="bg-[#0a1628] min-h-screen">
       {/* Hero */}
       <section
@@ -65,5 +76,6 @@ export default function RewardsDashboardPage() {
         </a>
       </section>
     </div>
+    </>
   );
 }

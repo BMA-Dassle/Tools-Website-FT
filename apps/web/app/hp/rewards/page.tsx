@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import RewardsSignIn from "./RewardsSignIn";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Rewards - HeadPinz Loyalty Program",
@@ -19,6 +21,7 @@ export const metadata: Metadata = {
       "Earn points every visit. Redeem for free games, discounts, and exclusive perks at HeadPinz.",
     type: "website",
     url: "https://headpinz.com/rewards",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/rewards",
@@ -27,6 +30,13 @@ export const metadata: Metadata = {
 
 export default function RewardsPage() {
   return (
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Rewards", url: "https://headpinz.com/rewards" },
+        ]}
+      />
     <div className="bg-[#0a1628]">
       {/* Hero */}
       <section
@@ -138,5 +148,6 @@ export default function RewardsPage() {
       {/* Bottom spacer */}
       <div style={{ height: "clamp(40px, 6vw, 80px)" }} />
     </div>
+    </>
   );
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Birthday Parties at HeadPinz Naples - Bowling, Laser Tag, Gel Blasters & Arcade",
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
       "Bronze, Silver & VIP birthday packages with bowling, gel blasters, arcade gaming & dedicated party ambassador at HeadPinz Naples.",
     type: "website",
     url: "https://headpinz.com/naples/birthdays",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/naples/birthdays",

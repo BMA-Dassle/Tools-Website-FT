@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Group Events & Private Parties at HeadPinz Naples - Bowling, Laser Tag & Catering",
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
       "Classic & VIP bowling, laser tag, gel blasters, arcade, buffet catering & full bar for groups of 10 to 500+ at HeadPinz Naples.",
     type: "website",
     url: "https://headpinz.com/naples/group-events",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/naples/group-events",

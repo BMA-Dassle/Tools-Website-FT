@@ -6,6 +6,7 @@ import AttractionVideo from "@/components/headpinz/AttractionVideo";
 import AutoplayVideo from "@/components/headpinz/AutoplayVideo";
 import SeoFaq from "@/components/headpinz/SeoFaq";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "All Attractions - Bowling, Laser Tag, Gel Blasters, VIP, Arcade | HeadPinz Fort Myers",
@@ -32,6 +33,7 @@ export const metadata: Metadata = {
       "Six attractions under one roof: premier bowling, NEXUS laser tag, gel blasters, NeoVerse, HyperBowling, and 40+ arcade games.",
     type: "website",
     url: "https://headpinz.com/fort-myers/attractions",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/fort-myers/attractions",

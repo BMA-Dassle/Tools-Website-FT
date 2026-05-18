@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
@@ -24,6 +26,7 @@ export const metadata: Metadata = {
       "2 free games every weekday for kids 15 and under. Three locations in Southwest Florida.",
     type: "website",
     url: "https://headpinz.com/kids-bowl-free",
+    images: [...HEADPINZ_OG],
   },
   alternates: { canonical: "https://headpinz.com/kids-bowl-free" },
 };
@@ -48,6 +51,13 @@ const features = [
 
 export default function KidsBowlFreePage() {
   return (
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Kids Bowl Free", url: "https://headpinz.com/kids-bowl-free" },
+        ]}
+      />
     <div className="bg-[#0a1628]">
       {/* ====== HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "80vh" }}>
@@ -394,5 +404,6 @@ export default function KidsBowlFreePage() {
         </div>
       </section>
     </div>
+    </>
   );
 }

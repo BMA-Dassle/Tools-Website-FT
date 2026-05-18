@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Careers at HeadPinz | Now Hiring in Fort Myers & Naples FL",
@@ -23,6 +25,7 @@ export const metadata: Metadata = {
       "Join our team at HeadPinz! Positions available at Fort Myers and Naples locations. Apply now.",
     type: "website",
     url: "https://headpinz.com/careers",
+    images: [...HEADPINZ_OG],
   },
   alternates: { canonical: "https://headpinz.com/careers" },
 };
@@ -97,6 +100,13 @@ export default async function CareersPage() {
   const hasJobs = jobs.length > 0;
 
   return (
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Careers", url: "https://headpinz.com/careers" },
+        ]}
+      />
     <main style={{ background: bg, minHeight: "100vh", color: "#fff", paddingBottom: "80px" }}>
       <style>{`.career-card-link:hover .career-card{border-color:rgba(253,91,86,0.5)!important;background:rgba(255,255,255,0.07)!important}`}</style>
 
@@ -439,5 +449,6 @@ export default async function CareersPage() {
         </div>
       </section>
     </main>
+    </>
   );
 }

@@ -2,25 +2,34 @@ import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 import TuesdayAlert from "@/components/home/TuesdayAlert";
 
+const HERO_POSTER =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp";
+const HERO_VIDEO =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-video.mp4";
+
 export default function Hero() {
   return (
     <section
       className="relative overflow-hidden bg-[#000418]"
       style={{ minHeight: "min(813px, 100vh)" }}
     >
+      {/* LCP optimization — React 19 hoists these to <head> on render.
+          The poster image IS the LCP candidate on mobile (75% of traffic)
+          since the video is gated by autoplay heuristics. */}
+      <link rel="preload" as="image" href={HERO_POSTER} fetchPriority="high" />
+      <link rel="preconnect" href="https://wuce3at4k1appcmf.public.blob.vercel-storage.com" />
+
       {/* Video background */}
       <video
         autoPlay
         muted
         loop
         playsInline
+        preload="metadata"
         className="absolute inset-0 w-full h-full object-cover"
-        poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp"
+        poster={HERO_POSTER}
       >
-        <source
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-video.mp4"
-          type="video/mp4"
-        />
+        <source src={HERO_VIDEO} type="video/mp4" />
       </video>
 
       {/* Dark overlay */}
@@ -41,31 +50,26 @@ export default function Hero() {
             Florida&apos;s Largest Indoor Racing Destination
           </p>
 
-          {/* Headline */}
-          <div>
-            <h1
-              className="font-heading font-black uppercase text-white"
+          {/* Headline — single h1, two visual lines for color */}
+          <h1
+            className="font-heading font-black uppercase text-white"
+            style={{
+              fontSize: "clamp(2.5rem, 7vw, 5.5rem)",
+              lineHeight: "1.05",
+              letterSpacing: "-1px",
+            }}
+          >
+            <span className="block">LIVE LIFE IN THE</span>
+            <span
+              className="block"
               style={{
-                fontSize: "clamp(2.5rem, 7vw, 5.5rem)",
-                lineHeight: "1.05",
-                letterSpacing: "-1px",
-              }}
-            >
-              LIVE LIFE IN THE
-            </h1>
-            <h1
-              className="font-heading font-black uppercase"
-              style={{
-                fontSize: "clamp(2.5rem, 7vw, 5.5rem)",
-                lineHeight: "1.05",
-                letterSpacing: "-1px",
                 color: "rgb(228,28,29)",
                 textShadow: "0 0 40px rgba(228,28,29,0.5)",
               }}
             >
               FASTTRAX
-            </h1>
-          </div>
+            </span>
+          </h1>
 
           {/* Description */}
           <p

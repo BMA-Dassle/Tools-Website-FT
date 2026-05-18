@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG, HEADPINZ_OG } from "@/lib/seo";
 
 /**
  * Accessibility Statement — served on both fasttraxent.com and
@@ -35,6 +36,7 @@ export async function generateMetadata(): Promise<Metadata> {
       url: `${base}/accessibility`,
       siteName: brand,
       type: "article",
+      images: isHeadPinz ? [...HEADPINZ_OG] : [...FASTTRAX_OG],
     },
   };
 }

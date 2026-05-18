@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AlternativePage } from "@/components/AlternativePage";
 import { HP_ALTERNATIVES, listAlternatives } from "@/lib/alternatives-data";
+import { HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 
 /**
  * HeadPinz alternative comparison landing pages.
@@ -37,11 +38,13 @@ export async function generateMetadata({
       type: "article",
       url: canonicalUrl,
       siteName: "HeadPinz",
+      images: [...HEADPINZ_OG],
     },
     twitter: {
       card: "summary_large_image",
       title: `${title} | HeadPinz`,
       description,
+      images: [HEADPINZ_OG_IMAGE],
     },
     keywords: [
       data.searchTerm,

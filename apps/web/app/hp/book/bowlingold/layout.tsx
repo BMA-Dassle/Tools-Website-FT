@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import HeadPinzNav from "@/components/headpinz/Nav";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Book Bowling - Reserve Lanes Online | HeadPinz",
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
       "Reserve bowling lanes online. Choose date, lane type, and package. VIP lanes with NeoVerse and HyperBowling.",
     type: "website",
     url: "https://headpinz.com/book/bowling",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/book/bowling",

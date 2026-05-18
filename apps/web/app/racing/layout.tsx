@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { FAQJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Indoor Go-Kart Racing & Qualifications – FastTrax Fort Myers",
@@ -38,6 +39,7 @@ export const metadata: Metadata = {
       "Florida's largest indoor multi-level electric kart track. Adult, Junior & Mini karts with Starter-to-Pro qualification system. 63,000 sq ft of racing action.",
     type: "website",
     url: "https://fasttraxent.com/racing",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/racing",

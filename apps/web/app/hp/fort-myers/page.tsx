@@ -3,7 +3,8 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
-import { HeadPinzFortMyersJsonLd } from "@/components/seo/JsonLd";
+import { BreadcrumbJsonLd, HeadPinzFortMyersJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "HeadPinz Fort Myers | Best Bowling Alley, Laser Tag & Arcade",
@@ -34,6 +35,7 @@ export const metadata: Metadata = {
       "24 bowling lanes from $13.99 (shoes included), NEXUS laser tag, gel blasters, 40+ arcade games & Nemo's dining. Fort Myers' top entertainment spot. Book now!",
     type: "website",
     url: "https://headpinz.com/fort-myers",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/fort-myers",
@@ -42,21 +44,7 @@ export const metadata: Metadata = {
 
 // Note: LocalBusiness schema now lives in components/seo/JsonLd.tsx
 // (HeadPinzFortMyersJsonLd) so it can ref the parent HeadPinz Organization
-// via @id. This file only keeps the breadcrumb + nav ItemList schemas.
-
-const breadcrumbJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  itemListElement: [
-    { "@type": "ListItem", position: 1, name: "HeadPinz", item: "https://headpinz.com" },
-    {
-      "@type": "ListItem",
-      position: 2,
-      name: "Fort Myers",
-      item: "https://headpinz.com/fort-myers",
-    },
-  ],
-};
+// via @id. Breadcrumb schema is emitted via <BreadcrumbJsonLd>.
 
 const navJsonLd = {
   "@context": "https://schema.org",
@@ -238,14 +226,17 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a1628]">
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Fort Myers", url: "https://headpinz.com/fort-myers" },
+        ]}
+      />
       <HeadPinzFortMyersJsonLd />
-      {[breadcrumbJsonLd, navJsonLd].map((schema, i) => (
-        <script
-          key={i}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-        />
-      ))}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(navJsonLd) }}
+      />
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <video

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /* ------------------------------------------------------------------ */
@@ -346,6 +347,13 @@ export default function MenuPage() {
       : menuSections.filter((s) => getCategoryForSection(s.name) === activeCategory);
 
   return (
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Menu", url: "https://headpinz.com/menu" },
+        ]}
+      />
     <div className="bg-[#0a1628]">
       {/* ====== HERO ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "60vh" }}>
@@ -911,5 +919,6 @@ export default function MenuPage() {
         </div>
       )}
     </div>
+    </>
   );
 }

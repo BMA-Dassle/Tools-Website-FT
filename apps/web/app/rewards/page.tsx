@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import RewardsSignIn from "./RewardsSignIn";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Rewards - FastTrax Loyalty Program",
@@ -19,6 +21,7 @@ export const metadata: Metadata = {
       "Earn points every visit. Redeem for free races, discounts, and exclusive perks at FastTrax.",
     type: "website",
     url: "https://fasttraxent.com/rewards",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/rewards",
@@ -27,6 +30,13 @@ export const metadata: Metadata = {
 
 export default function RewardsPage() {
   return (
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Rewards", url: "https://fasttraxent.com/rewards" },
+        ]}
+      />
     <div className="bg-[#0a1628]">
       {/* Hero */}
       <section
@@ -138,5 +148,6 @@ export default function RewardsPage() {
       {/* Bottom spacer */}
       <div style={{ height: "clamp(40px, 6vw, 80px)" }} />
     </div>
+    </>
   );
 }

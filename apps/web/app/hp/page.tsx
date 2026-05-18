@@ -1,6 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "HeadPinz – Bowling, Laser Tag, Arcade & Dining | Fort Myers & Naples FL",
@@ -31,6 +33,7 @@ export const metadata: Metadata = {
       "Bowling from $13.99, laser tag, gel blasters, 40+ arcade games & dining. Two Southwest Florida locations. Shoes included — book online!",
     type: "website",
     url: "https://headpinz.com",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com",
@@ -122,6 +125,8 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 
 export default function HeadPinzHome() {
   return (
+    <>
+      <BreadcrumbJsonLd items={[{ name: "HeadPinz", url: "https://headpinz.com" }]} />
     <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
       {jsonLdSchemas.map((schema, i) => (
         <script
@@ -251,5 +256,6 @@ export default function HeadPinzHome() {
         </div>
       </div>
     </div>
+    </>
   );
 }

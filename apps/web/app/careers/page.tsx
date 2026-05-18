@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Careers at FastTrax | Now Hiring in Fort Myers FL",
@@ -23,6 +25,7 @@ export const metadata: Metadata = {
       "Join our team at FastTrax Entertainment Center! Positions available in Fort Myers. Apply now.",
     type: "website",
     url: "https://fasttraxent.com/careers",
+    images: [...FASTTRAX_OG],
   },
   alternates: { canonical: "https://fasttraxent.com/careers" },
 };
@@ -93,7 +96,14 @@ export default async function CareersPage() {
   const hasJobs = jobs.length > 0;
 
   return (
-    <main style={{ background: bg, minHeight: "100vh", color: "#fff", paddingBottom: "80px" }}>
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Careers", url: "https://fasttraxent.com/careers" },
+        ]}
+      />
+      <main style={{ background: bg, minHeight: "100vh", color: "#fff", paddingBottom: "80px" }}>
       <style>{`.ft-career-link:hover .ft-career-card{border-color:rgba(229,0,0,0.5)!important;background:rgba(255,255,255,0.05)!important}`}</style>
 
       {/* Hero */}
@@ -449,5 +459,6 @@ export default async function CareersPage() {
         </div>
       </section>
     </main>
+    </>
   );
 }

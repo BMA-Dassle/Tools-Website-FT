@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Free Wing Friday - Sign In",
@@ -9,6 +11,7 @@ export const metadata: Metadata = {
     description: "Sign in to claim your Free Wing Friday. 5 free wings every Friday 4-6 PM.",
     type: "website",
     url: "https://headpinz.com/fwf",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/fwf",
@@ -17,6 +20,13 @@ export const metadata: Metadata = {
 
 export default function FWFPage() {
   return (
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Free Wing Friday", url: "https://headpinz.com/fwf" },
+        ]}
+      />
     <div className="bg-[#0a1628] min-h-screen">
       {/* Hero */}
       <section
@@ -99,5 +109,6 @@ export default function FWFPage() {
         </div>
       </section>
     </div>
+    </>
   );
 }
