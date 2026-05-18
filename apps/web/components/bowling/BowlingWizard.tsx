@@ -1275,30 +1275,68 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         });
       }
 
-      try {
-        // Build URL — server handles daysOfWeek filtering via DB lookup.
-        // When hour+minute are provided, server probes only that time slot
-        // (1 QAMF call instead of 60+). Full-day mode omits them.
+      // Server handles daysOfWeek filtering via DB lookup.
+      // Targeted mode (hour+minute) probes a ±5h window — fast (~1 batch of 8
+      // QAMF calls) and the common path. Full-day mode probes every 15 min from
+      // open to close — slower but exhaustive. We fall back to full-day below
+      // when targeted returns no slot at the user's exact selected time.
+      async function probe(targeted: boolean): Promise<AvailabilitySlot[]> {
         let url = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
         // KBF wizard: scope to kbf offers only.
         // Open bowling wizard: do NOT pass kind — it needs both 'open' (specials)
         // AND 'hourly' (lane rentals) since the tier+offer steps show both.
         if (kind === "kbf") url += `&kind=kbf`;
         if (opts?.webOfferId) url += `&webOfferId=${opts.webOfferId}`;
-        if (opts?.hour !== undefined && opts?.minute !== undefined) {
+        if (targeted && opts?.hour !== undefined && opts?.minute !== undefined) {
           url += `&hour=${opts.hour}&minute=${opts.minute}`;
         }
-
         const data = await fetch(url).then(
           (r) => r.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
         );
+        return parseRaw(data.Availabilities ?? []);
+      }
 
-        const merged = parseRaw(data.Availabilities ?? []);
+      try {
+        const merged = await probe(true);
+
+        // Widen to full-day if the targeted ±5h probe missed the user's exact
+        // selected time. Without this, the offer step renders "No more
+        // availability today" against a stale window — e.g. user picks 1 PM,
+        // window covers 8 AM–6 PM, real slots from 9 PM are invisible.
+        // Skip widen when no time was selected (probe was already full-day).
+        if (
+          opts?.hour !== undefined &&
+          opts?.minute !== undefined &&
+          !merged.some(
+            (s) =>
+              slotHourET(s.bookedAt, date) === opts.hour &&
+              slotMinuteET(s.bookedAt) === opts.minute,
+          )
+        ) {
+          try {
+            const fullDay = await probe(false);
+            const seen = new Set(merged.map((s) => `${s.bookedAt}::${s.webOfferId}`));
+            for (const s of fullDay) {
+              const k = `${s.bookedAt}::${s.webOfferId}`;
+              if (!seen.has(k)) {
+                merged.push(s);
+                seen.add(k);
+              }
+            }
+          } catch (err) {
+            // Keep targeted results — partial is better than nothing.
+            console.warn(
+              "[bowling-wizard] widen probe failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+
         setAvailableSlots(merged);
         lastFetchKey.current = `${date}:${count}:${opts?.hour ?? ""}:${opts?.minute ?? ""}`;
 
         if (merged.length === 0) {
-          setSlotsError("No slots available for this date and time. Try another time.");
+          setSlotsError("No slots available for this date. Try another date.");
         }
       } catch (err) {
         setSlotsError(err instanceof Error ? err.message : "Failed to load slots");
@@ -1322,6 +1360,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     setSelectedMinute(null);
     setAvailableSlots([]);
     setSlotsError(null);
+    // Drop the fetch cache key too — otherwise re-picking the same time
+    // after Back skips the fetch and renders against an empty slot list.
+    lastFetchKey.current = "";
 
     if (step === "reschedule") {
       void fetchSlots(selectedDate, { forPlayerCount: existingReservation?.playerCount ?? 1 });
