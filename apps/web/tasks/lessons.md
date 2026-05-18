@@ -149,3 +149,53 @@ Separate BMI regression: credits don't post on race-pack sells via
 the public booking API after a page config change. Exhaustively
 tested every documented + undocumented parameter combination — all
 fail. Write-up at `tasks/bmi-race-pack-credits-bug.md`.
+
+## 2026-05-18 — Cold-start probe failure presents as false "no availability", not 5xx
+
+**Mistake:** User reported the bowling wizard showing "No more
+availability today" for Naples Wed 1pm, despite the network response
+in DevTools showing slots. I jumped to a webOfferId string-vs-number
+type mismatch (the spec types it `string | number`), normalized to
+number in the v2 availability route, and shipped. Didn't fix it.
+
+The actual signature the user surfaced two messages later: **first
+request after deploy shows nothing, second request shows "Next
+available."** That's a cold-start retry pattern, not a data filter
+pattern.
+
+**Root cause:** [v2/availability/route.ts](../apps/web/app/api/bowling/v2/availability/route.ts)
+does `.catch((err) => ({ Availabilities: [] }))` per probe and returns
+`{ Availabilities: [] }` with HTTP 200 regardless of how many probes
+errored. On a cold Lambda + cold QAMF auth (right after deploy), a
+batch of probes can all silently fail → the route returns empty →
+the wizard treats it as "this day is sold out." The Lambda warms up
+within a few seconds and the next request succeeds — which is exactly
+what the user saw.
+
+**What I should have done before guessing:**
+- Listened harder to "first time doesn't load, second time works."
+  That phrase IS the diagnosis. Retry semantics, not data semantics.
+- Asked one question: "Does the network response show
+  `Availabilities: []` on the failing request, or a populated array?"
+  If `[]`, it's an upstream/probe failure; if populated, it's a
+  client filter bug. I conflated these and built the wrong fix first.
+- Checked the Vercel function logs for `[avail] all N probes failed`
+  / `probe error at …` warnings BEFORE proposing a data-shape fix.
+
+**Rule for myself:**
+- When a route silently coalesces upstream errors into an empty
+  success response, that's a bug shaped exactly like "the data is
+  there but the UI hides it" — and it's the FIRST hypothesis to
+  check, not the last. Look for `.catch(() => empty)` / `try {…}
+  catch {…}` patterns that swallow signals before doing type
+  forensics on the payload.
+- "Show me the response on the failing request" is the cheap
+  diagnostic. Type mismatches require seeing the data to confirm;
+  cold-start failures require seeing the absence of data.
+
+**Fix landed:**
+- Server: per-probe single retry + `502` when every probe failed,
+  so the client can distinguish "QAMF unreachable" from "genuinely
+  zero availability."
+- Client: `fetchSlots` retries once on 502/504 with a 750ms backoff
+  before surfacing the error.

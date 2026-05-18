@@ -1309,10 +1309,23 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         if (targeted && opts?.hour !== undefined && opts?.minute !== undefined) {
           url += `&hour=${opts.hour}&minute=${opts.minute}`;
         }
-        const data = await fetch(url).then(
-          (r) => r.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
-        );
-        return parseRaw(data.Availabilities ?? []);
+        // First request after a deploy can hit a cold Lambda / cold QAMF
+        // auth and return 502 from the route's all-probes-failed guard.
+        // One quick retry with a small backoff turns that into a smooth
+        // first-load instead of "No slots available."
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = (await res.json()) as { Availabilities?: RawSlot[]; error?: string };
+            return parseRaw(data.Availabilities ?? []);
+          }
+          if (attempt === 1 && (res.status === 502 || res.status === 504)) {
+            await new Promise((r) => setTimeout(r, 750));
+            continue;
+          }
+          throw new Error(`Availability request failed: ${res.status}`);
+        }
+        return [];
       }
 
       try {

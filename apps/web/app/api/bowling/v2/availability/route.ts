@@ -293,45 +293,63 @@ export async function GET(req: NextRequest) {
   // per offer × time). We post-filter by validOfferIds afterward.
 
   try {
-    // Probe in batches of 8 to avoid QAMF rate limiting, with error tracking
+    // Probe in batches of 8 to avoid QAMF rate limiting, with error tracking.
+    // Each probe gets one retry on failure — cold Lambdas + cold Redis +
+    // cold QAMF auth on the first request after a deploy used to fail
+    // silently, producing { Availabilities: [] } and a false "no slots"
+    // UI. A single retry catches that transient blip without inflating
+    // latency on the warm path.
     let probeErrors = 0;
-    const results: Array<{
+    type ProbeResult = {
       Availabilities: Array<{
         TotalPlayers: number;
         BookedAt: string;
         WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] };
       }>;
-    }> = [];
+    };
+    const results: ProbeResult[] = [];
+    async function probeOne(bookedAt: string): Promise<ProbeResult> {
+      const call = () =>
+        searchAvailability(centerId, {
+          BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
+          TotalPlayers: players,
+          WebOffer: { Services: ["BookForLater"] },
+        });
+      try {
+        return await call();
+      } catch (err1) {
+        try {
+          return await call();
+        } catch (err2) {
+          probeErrors++;
+          if (probeErrors <= 3) {
+            console.warn(
+              `[avail] probe error at ${bookedAt} (after retry): ${err2 instanceof Error ? err2.message : String(err2)}`,
+            );
+          }
+          return { Availabilities: [] };
+        }
+      }
+    }
     for (let i = 0; i < probeTimes.length; i += 8) {
       const batch = probeTimes.slice(i, i + 8);
-      const batchResults = await Promise.all(
-        batch.map((bookedAt) =>
-          searchAvailability(centerId, {
-            BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
-            TotalPlayers: players,
-            WebOffer: { Services: ["BookForLater"] },
-          }).catch((err) => {
-            probeErrors++;
-            if (probeErrors <= 3) {
-              console.warn(
-                `[avail] probe error at ${bookedAt}: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
-            return {
-              Availabilities: [] as Array<{
-                TotalPlayers: number;
-                BookedAt: string;
-                WebOffer: {
-                  Id: string | number;
-                  Options: Record<string, unknown>;
-                  Services: string[];
-                };
-              }>,
-            };
-          }),
-        ),
-      );
+      const batchResults = await Promise.all(batch.map(probeOne));
       results.push(...batchResults);
+    }
+
+    // When *every* probe failed even after retry, we have no signal —
+    // returning 200 + empty would be indistinguishable from "this day
+    // is sold out" and the client would render "No slots available."
+    // Surface a 502 so the wizard can show a retry-able banner instead
+    // of misleading the user.
+    if (probeErrors === probeTimes.length && probeTimes.length > 0) {
+      console.error(
+        `[avail] all ${probeTimes.length} probes failed for centerId=${centerId} date=${startDate}`,
+      );
+      return NextResponse.json(
+        { error: "Availability temporarily unavailable, please retry" },
+        { status: 502 },
+      );
     }
 
     // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers.
