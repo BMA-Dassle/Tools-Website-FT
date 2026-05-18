@@ -22,15 +22,10 @@ import { CartView } from "./CartView";
  * entry brand + any prefilled context, seeds the first item for the
  * requested activity, and drives that item's step list.
  *
- * Session-level views (cart with cross-sell, checkout, payment,
- * confirmation) are filled in by later commits in PR-B2:
- *   - commit 5: AdditionalActivities cross-sell rendered alongside the
- *     cart list once activeItemId becomes null.
- *   - commit 9: Square anchor + payment wiring takes over after cart.
- *   - commit 10: confirmation page is a separate route.
- *
- * For now this component handles a single-item sub-wizard cleanly. Real
- * step components plug into STEP_REGISTRY in commit 8 of PR-B2.
+ * Styling tracks v1's dark booking theme: navy body bg (from globals.css),
+ * cyan #00E2E5 primary CTAs, `bg-white/5` cards with `border-white/10`
+ * borders, numbered step circles with cyan glow on active. The .brand-*
+ * class on the root cascades the brand font (Exo2 / Outfit) from globals.css.
  */
 export interface BookingFlowProps {
   activity: Activity;
@@ -56,15 +51,18 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
   const activeItem = getActiveItem(session);
 
   if (!activeItem) {
     return (
-      <CartView
-        session={session}
-        onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
-        onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
-      />
+      <div className={brandClass}>
+        <CartView
+          session={session}
+          onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
+          onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+        />
+      </div>
     );
   }
 
@@ -76,11 +74,13 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
   // Defensive: if the cursor is somehow past the end, snap back to cart.
   if (!currentStep) {
     return (
-      <CartView
-        session={session}
-        onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
-        onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
-      />
+      <div className={brandClass}>
+        <CartView
+          session={session}
+          onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
+          onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+        />
+      </div>
     );
   }
 
@@ -92,8 +92,7 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
   const advanceOk = canAdvance === true;
 
   // Last step's "Next" returns to the cart view rather than advancing
-  // into oblivion. Commit 5 will fill the cart in; until then this is
-  // the natural exit from a sub-wizard.
+  // into oblivion.
   const handleNext = () => {
     if (isLastStep) {
       dispatch({ type: "setActiveItem", id: null });
@@ -103,17 +102,17 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
   };
 
   return (
-    <section className="mx-auto max-w-2xl p-6">
-      <Breadcrumb steps={steps} stepIndex={stepIndex} />
+    <section className={`${brandClass} mx-auto max-w-2xl p-4 sm:p-6`}>
+      <StepIndicator steps={steps} stepIndex={stepIndex} />
 
-      <div className="rounded-lg border border-gray-200 p-6">
-        <h2 className="mb-4 text-xl font-semibold">{currentStep.title}</h2>
+      <div className="rounded-2xl border border-white/10 bg-white/3 p-4 sm:p-8">
+        <h2 className="mb-4 text-xl font-semibold text-white">{currentStep.title}</h2>
         <stepUntyped.Component
           item={activeItem}
           session={session}
           onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
         />
-        <p className="mt-4 text-xs text-gray-400">
+        <p className="mt-4 text-xs text-white/30">
           PR-B2 scaffold — step body lands later this PR ({activeItem.kind}).
         </p>
       </div>
@@ -130,24 +129,45 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
   );
 }
 
-function Breadcrumb({ steps, stepIndex }: { steps: StepDef[]; stepIndex: number }) {
+/**
+ * Numbered step circles with connecting lines. Mirrors v1's StepIndicator
+ * shape (8x8 circles, cyan glow for active, checkmark hint for complete).
+ * Horizontal-scroll on overflow because step lists can be long.
+ */
+function StepIndicator({ steps, stepIndex }: { steps: StepDef[]; stepIndex: number }) {
   return (
-    <ol className="mb-6 flex flex-wrap gap-2 text-sm">
-      {steps.map((s, i) => (
-        <li
-          key={s.id}
-          className={
-            i === stepIndex
-              ? "font-semibold text-black"
-              : i < stepIndex
-                ? "text-gray-500"
-                : "text-gray-300"
-          }
-        >
-          {s.title}
-          {i < steps.length - 1 && <span className="ml-2 text-gray-300">›</span>}
-        </li>
-      ))}
+    <ol className="mb-6 flex items-center gap-2 overflow-x-auto pb-2 text-xs sm:text-sm">
+      {steps.map((s, i) => {
+        const isActive = i === stepIndex;
+        const isComplete = i < stepIndex;
+        return (
+          <li key={s.id} className="flex shrink-0 items-center gap-2">
+            <span
+              className={
+                isActive
+                  ? "flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#00E2E5] bg-[#00E2E5] text-sm font-bold text-[#000418] shadow-[0_0_20px_rgba(0,226,229,0.4)]"
+                  : isComplete
+                    ? "flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/20 bg-white/20 text-sm font-bold text-white/60"
+                    : "flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/20 text-sm font-bold text-white/40"
+              }
+            >
+              {isComplete ? "✓" : i + 1}
+            </span>
+            <span
+              className={
+                isActive
+                  ? "font-semibold text-white"
+                  : isComplete
+                    ? "text-white/60"
+                    : "text-white/30"
+              }
+            >
+              {s.title}
+            </span>
+            {i < steps.length - 1 && <span className="mx-1 h-px w-6 bg-white/10" />}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -168,12 +188,12 @@ function NavigationButtons({
   onNext: () => void;
 }) {
   return (
-    <div className="mt-4 flex justify-between">
+    <div className="mt-4 flex items-center justify-between">
       <button
         type="button"
         onClick={onBack}
         disabled={stepIndex === 0}
-        className="rounded border border-gray-300 px-4 py-2 text-sm disabled:opacity-40"
+        className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
       >
         Back
       </button>
@@ -182,7 +202,7 @@ function NavigationButtons({
         onClick={onNext}
         disabled={!canAdvance}
         title={reason}
-        className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-40"
+        className="rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
       >
         {nextLabel}
       </button>
