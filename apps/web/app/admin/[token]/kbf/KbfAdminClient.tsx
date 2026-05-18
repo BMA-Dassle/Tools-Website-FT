@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import CenterPicker, { CENTERS } from "@/components/admin/bowling/CenterPicker";
 import AdminBowlerList from "@/components/admin/bowling/AdminBowlerList";
 import type { AdminBowlerSelection } from "@/components/admin/bowling/BowlerEditor";
@@ -52,6 +53,16 @@ function centerCodeForName(name: string): string {
   return "TXBSQN0FEKQ11";
 }
 
+/** Resolve a `?center=` URL param to a center code. Accepts label slugs or raw codes. */
+function resolveCenterParam(param: string | null): string | null {
+  if (!param) return null;
+  const v = param.toLowerCase().replace(/[\s_-]/g, "");
+  if (v === "naples") return "PPTR5G2N0QXF7";
+  if (v === "fortmyers" || v === "fm" || v === "ftmyers") return "TXBSQN0FEKQ11";
+  const match = CENTERS.find((c) => c.code === param);
+  return match ? match.code : null;
+}
+
 const BLUE = "#004AAD";
 
 /** "3 PM", "11 AM" */
@@ -89,8 +100,12 @@ function buildCalCells(year: number, month: number): (number | null)[] {
 // ── Component ──────────────────────────────────────────────────────────
 
 export default function KbfAdminClient({ token }: { token: string }) {
+  const searchParams = useSearchParams();
+
   // State: center + search
-  const [centerCode, setCenterCode] = useState<string>(CENTERS[0].code);
+  const [centerCode, setCenterCode] = useState<string>(
+    () => resolveCenterParam(searchParams.get("center")) ?? CENTERS[0].code,
+  );
   const [query, setQuery] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
