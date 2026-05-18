@@ -79,6 +79,22 @@ export default function HeadPinzNav() {
     const bookingKey = pathLoc.key === "fort-myers" ? "headpinz" : pathLoc.key;
     setBookingLocation(bookingKey as LocationKey);
   }
+  // Mobile keeps the original flat list — no overflow there, dropdowns would just add taps.
+  const mobileLinks: NavChild[] = [
+    { label: "Attractions", href: `${currentLoc.href}/attractions` },
+    { label: "Birthdays", href: `${currentLoc.href}/birthdays` },
+    { label: "Group Events", href: `${currentLoc.href}/group-events` },
+    { label: "Specials", href: `${currentLoc.href}#specials` },
+    { label: "Nemo's", href: "/menu" },
+    { label: "Leagues", href: currentLoc.leagues },
+    ...(currentLoc.key === "fort-myers"
+      ? [{ label: "Have-A-Ball", href: "/fort-myers/have-a-ball" }]
+      : []),
+    { label: "Rewards", href: "/rewards" },
+    { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
+    { label: "Waiver", href: currentLoc.waiver },
+  ];
+
   const navItems: NavItem[] = [
     { label: "Attractions", href: `${currentLoc.href}/attractions` },
     {
@@ -398,72 +414,30 @@ export default function HeadPinzNav() {
                 </Link>
               ))}
             </div>
-            {navItems.map((item) => {
-              if (item.children) {
-                return (
-                  <div key={item.label} className="border-b border-white/10 pb-2">
-                    <div className="font-body font-bold uppercase tracking-wider text-xs py-2 text-[#fd5b56]/80">
-                      {item.label}
-                    </div>
-                    <div className="flex flex-col gap-1 pl-3">
-                      {item.children.map((child) =>
-                        child.href.startsWith("http") ? (
-                          <a
-                            key={child.label}
-                            href={child.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => setOpen(false)}
-                            className="font-body font-semibold uppercase tracking-wider text-sm py-1.5 transition-colors text-white/80 hover:text-[#fd5b56]"
-                          >
-                            {child.label}
-                          </a>
-                        ) : (
-                          <Link
-                            key={child.label}
-                            href={child.href}
-                            onClick={() => setOpen(false)}
-                            className="font-body font-semibold uppercase tracking-wider text-sm py-1.5 transition-colors"
-                            style={{ color: "rgba(255,255,255,0.8)" }}
-                          >
-                            {child.label}
-                          </Link>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                );
-              }
-              const href = item.href!;
-              return href.startsWith("http") ? (
+            {mobileLinks.map((l) =>
+              l.href.startsWith("http") ? (
                 <a
-                  key={item.label}
-                  href={href}
+                  key={l.label}
+                  href={l.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setOpen(false)}
                   className="font-body font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors text-white/80 hover:text-[#fd5b56]"
                 >
-                  {item.label}
+                  {l.label}
                 </a>
               ) : (
                 <Link
-                  key={item.label}
-                  href={href}
+                  key={l.label}
+                  href={l.href}
                   onClick={() => setOpen(false)}
                   className="font-body font-semibold uppercase tracking-wider text-sm py-2 border-b border-white/10 transition-colors"
                   style={{ color: "rgba(255,255,255,0.8)" }}
                 >
-                  {item.label}
+                  {l.label}
                 </Link>
-              );
-            })}
-            <a
-              href={currentLoc.booking}
-              className="mt-2 bg-[#fd5b56] text-white font-body font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
-            >
-              Book Now
-            </a>
+              ),
+            )}
           </div>
         </div>
       </nav>
