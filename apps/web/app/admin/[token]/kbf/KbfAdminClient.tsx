@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
 import CenterPicker, { CENTERS } from "@/components/admin/bowling/CenterPicker";
 import AdminBowlerList from "@/components/admin/bowling/AdminBowlerList";
 import type { AdminBowlerSelection } from "@/components/admin/bowling/BowlerEditor";
@@ -99,12 +98,16 @@ function buildCalCells(year: number, month: number): (number | null)[] {
 
 // ── Component ──────────────────────────────────────────────────────────
 
-export default function KbfAdminClient({ token }: { token: string }) {
-  const searchParams = useSearchParams();
-
+export default function KbfAdminClient({
+  token,
+  initialCenterParam = null,
+}: {
+  token: string;
+  initialCenterParam?: string | null;
+}) {
   // State: center + search
   const [centerCode, setCenterCode] = useState<string>(
-    () => resolveCenterParam(searchParams.get("center")) ?? CENTERS[0].code,
+    () => resolveCenterParam(initialCenterParam) ?? CENTERS[0].code,
   );
   const [query, setQuery] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");

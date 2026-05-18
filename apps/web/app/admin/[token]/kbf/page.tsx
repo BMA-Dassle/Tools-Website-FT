@@ -10,12 +10,19 @@ import KbfAdminClient from "./KbfAdminClient";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Props = { params: Promise<{ token: string }> };
+type Props = {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default async function Page({ params }: Props) {
+export default async function Page({ params, searchParams }: Props) {
   const { token } = await params;
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  return <KbfAdminClient token={token} />;
+  const sp = await searchParams;
+  const rawCenter = sp.center;
+  const initialCenterParam = Array.isArray(rawCenter) ? rawCenter[0] : rawCenter;
+
+  return <KbfAdminClient token={token} initialCenterParam={initialCenterParam ?? null} />;
 }
