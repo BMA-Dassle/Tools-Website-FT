@@ -3804,11 +3804,15 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     on {dateLabel}
                   </p>
 
-                  {/* Loading state — shown while availability fetch is in flight.
-                    We advance to this step immediately when "See Packages" is
-                    tapped so the user sees forward motion instead of a frozen
-                    calendar screen. */}
-                  {slotsLoading ? (
+                  {/* Loading state — shown while availability OR experiences
+                    fetch is in flight. Both must complete before tiersToShow
+                    can be evaluated honestly: experiences[] drives the filter,
+                    and if it's still empty we'd false-negative as "No packages
+                    available" on the first visit (race vs the availability
+                    fetch). We advance to this step immediately when "See
+                    Packages" is tapped so the user sees forward motion instead
+                    of a frozen calendar screen. */}
+                  {slotsLoading || experiencesLoading ? (
                     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
                       <div
                         className="w-10 h-10 border-2 border-white/15 rounded-full animate-spin mx-auto mb-4"
