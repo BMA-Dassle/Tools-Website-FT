@@ -1844,9 +1844,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Creates a QAMF Temporary hold for the given slot.
   // Called immediately when the user taps a time chip on the offer step
   // so the hold starts counting before they fill in their details.
-  // Non-fatal — submit falls back to fresh createReservation if this fails.
+  //
+  // Returns:
+  //   "ok"          — hold created, holdRef set, safe to advance
+  //   "unavailable" — slot was taken (409 LanesNotAvailable / "not available");
+  //                   caller MUST stay on the offer step or fall back to
+  //                   another slot. createHold has already cleared the
+  //                   selection, surfaced an inline error, and refetched
+  //                   availability for non-VIP callers.
+  //   "error"       — transient/network failure; caller may advance and
+  //                   let /reserve fall back to a fresh createReservation
+  //                   at submit time.
   const createHold = useCallback(
-    async (slot: AvailabilitySlot) => {
+    async (
+      slot: AvailabilitySlot,
+      opts?: { silent?: boolean },
+    ): Promise<"ok" | "unavailable" | "error"> => {
       // Release any in-flight hold before creating a new one
       releaseHold();
 
@@ -1867,7 +1880,25 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           }),
         });
         const data = (await res.json()) as { qamfReservationId?: string; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Hold failed");
+        if (!res.ok) {
+          const msg = data.error ?? "Hold failed";
+          const isLaneUnavailable =
+            /LanesNotAvailable|not available|409|Conflict|sold\s*out/i.test(msg);
+          if (isLaneUnavailable) {
+            // Slot was taken between availability fetch and hold attempt.
+            // When `silent` is set (VIP fallback path), the caller will
+            // handle messaging/refetch — don't trample its UI.
+            if (!opts?.silent) {
+              setSelectedSlot(null);
+              setError(
+                "That time was just taken. We've refreshed the available slots — pick another.",
+              );
+              void fetchSlots(selectedDate);
+            }
+            return "unavailable";
+          }
+          throw new Error(msg);
+        }
 
         holdRef.current = { qamfId: data.qamfReservationId!, centerId: center.qamfId };
         holdExpiresAtRef.current = Date.now() + HOLD_MAX_MS;
@@ -1887,28 +1918,63 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           },
           8 * 60 * 1000,
         );
+        return "ok";
       } catch (err) {
         // Non-fatal — submit will fall back to fresh createReservation
         console.warn("[BowlingWizard] hold creation failed:", err);
+        return "error";
       } finally {
         setHoldBusy(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [center.qamfId, activePlayerCount, releaseHold],
+    [center.qamfId, activePlayerCount, releaseHold, fetchSlots, selectedDate],
   );
 
-  // Used by VIP upgrade modal — fires hold (non-blocking, non-fatal)
-  // and advances to next step immediately. The hold continues in the
-  // background — by the time the user fills in shoes + details + payment,
-  // it'll be long confirmed.
+  // Used by VIP upgrade modal — awaits hold creation, then advances only
+  // if the hold succeeded.
+  //
+  // When the primary slot is unavailable (e.g. someone snagged the VIP
+  // lane between the modal opening and the user tapping Upgrade), and a
+  // `fallbackSlot` is provided (the regular slot the user already had
+  // selected), we silently try the fallback and still advance. This
+  // matches the "VIP no longer available, just move on" UX.
+  //
+  // If no fallback is provided, or the fallback is also unavailable,
+  // createHold has cleared the selection / refetched / shown an inline
+  // error; we do NOT advance.
   const createHoldAndAdvance = useCallback(
-    (slot: AvailabilitySlot, incShoes: boolean, isPerLaneExp: boolean) => {
-      void createHold(slot);
-      if (isPerLaneExp) {
+    async (
+      slot: AvailabilitySlot,
+      incShoes: boolean,
+      isPerLaneExp: boolean,
+      fallback?: {
+        slot: AvailabilitySlot;
+        incShoes: boolean;
+        isPerLaneExp: boolean;
+        onFallback?: () => void;
+      },
+    ) => {
+      let result = await createHold(slot);
+      let effectiveIncShoes = incShoes;
+      let effectiveIsPerLane = isPerLaneExp;
+
+      if (result === "unavailable" && fallback) {
+        // VIP slot gone — silently fall back to the regular slot the user
+        // had picked before opening the upgrade modal. createHold(silent)
+        // suppresses the "time was just taken" banner so the fallback is
+        // seamless.
+        fallback.onFallback?.();
+        result = await createHold(fallback.slot, { silent: true });
+        effectiveIncShoes = fallback.incShoes;
+        effectiveIsPerLane = fallback.isPerLaneExp;
+      }
+
+      if (result !== "ok") return;
+      if (effectiveIsPerLane) {
         setStep("attractions");
       } else {
-        setStep(incShoes ? "attractions" : "shoes");
+        setStep(effectiveIncShoes ? "attractions" : "shoes");
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4693,15 +4759,35 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         <button
                           type="button"
                           onClick={() => {
-                            // Switch to VIP slot and create hold on it
+                            // Switch to VIP slot and create hold on it.
+                            // If the VIP slot was just taken, silently fall
+                            // back to the regular slot the user already had
+                            // selected and advance — they don't lose their
+                            // session over a VIP availability blip.
                             setSelectedTier("vip");
                             setSelectedSlot(vipUpgradeSlot);
                             setShowVipUpgrade(false);
                             const vipIncludesShoes = vipDisplay.includesShoes ?? false;
+                            const regularFallbackSlot = selectedSlot;
                             void createHoldAndAdvance(
                               vipUpgradeSlot,
                               vipIncludesShoes,
                               vipIsPerLane,
+                              regularFallbackSlot
+                                ? {
+                                    slot: regularFallbackSlot,
+                                    incShoes: selectedIncludesShoes,
+                                    isPerLaneExp: selectedIsPerLane,
+                                    onFallback: () => {
+                                      // Revert UI back to the regular slot
+                                      setSelectedTier("regular");
+                                      setSelectedSlot(regularFallbackSlot);
+                                      setError(
+                                        "That VIP lane was just taken — keeping your regular lane.",
+                                      );
+                                    },
+                                  }
+                                : undefined,
                             );
                           }}
                           className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02]"
