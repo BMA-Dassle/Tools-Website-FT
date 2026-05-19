@@ -945,12 +945,12 @@ export default function GroupEventPage() {
                       defaultValue=""
                       className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
                     >
-                      <option value="" disabled>
+                      <option value="" disabled style={{ backgroundColor: "#000418", color: "#fff" }}>
                         Year
                       </option>
                       {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(
                         (y) => (
-                          <option key={y} value={y}>
+                          <option key={y} value={y} style={{ backgroundColor: "#000418", color: "#fff" }}>
                             {y}
                           </option>
                         ),
@@ -962,7 +962,7 @@ export default function GroupEventPage() {
                       defaultValue=""
                       className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
                     >
-                      <option value="" disabled>
+                      <option value="" disabled style={{ backgroundColor: "#000418", color: "#fff" }}>
                         Month
                       </option>
                       {[
@@ -979,7 +979,7 @@ export default function GroupEventPage() {
                         "Nov",
                         "Dec",
                       ].map((m, i) => (
-                        <option key={i + 1} value={i + 1}>
+                        <option key={i + 1} value={i + 1} style={{ backgroundColor: "#000418", color: "#fff" }}>
                           {m}
                         </option>
                       ))}
@@ -990,11 +990,11 @@ export default function GroupEventPage() {
                       defaultValue=""
                       className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
                     >
-                      <option value="" disabled>
+                      <option value="" disabled style={{ backgroundColor: "#000418", color: "#fff" }}>
                         Day
                       </option>
                       {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                        <option key={d} value={d}>
+                        <option key={d} value={d} style={{ backgroundColor: "#000418", color: "#fff" }}>
                           {d}
                         </option>
                       ))}
