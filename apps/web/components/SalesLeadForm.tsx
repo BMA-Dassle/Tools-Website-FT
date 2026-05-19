@@ -259,15 +259,39 @@ export function SalesLeadForm({
     }
   }, [isShortNotice, shortNoticeAck]);
 
-  // Where "Book online instead" sends short-notice guests. Absolute URLs
-  // so the guest always lands on the right branded hub regardless of
-  // which domain the form was opened on.
+  /**
+   * Under-minimum guest-count warning.
+   *
+   * Group event packages require 20+ guests; kids birthday packages
+   * require 12+. Below threshold we steer guests to online booking
+   * (which opens 45 days in advance) and make clear that if they still
+   * want the event team to coordinate, the minimum-headcount pricing
+   * is required — they pay for 20 (or 12) regardless of actual count.
+   *
+   * Threshold flips on event type; reset ack when threshold no longer
+   * violated so a later re-trigger warns again. Fires on the Step 1
+   * "Continue" click rather than on mount so the default guestCount
+   * ("15", below the group threshold) doesn't ambush the user.
+   */
+  const guestMinimum = eventType === "birthday-kid" ? 12 : 20;
+  const belowMinimum = Number(guestCount) > 0 && Number(guestCount) < guestMinimum;
+  const [showUnderMinWarning, setShowUnderMinWarning] = useState(false);
+  const [underMinAck, setUnderMinAck] = useState(false);
+  useEffect(() => {
+    if (!belowMinimum && underMinAck) {
+      setUnderMinAck(false);
+    }
+  }, [belowMinimum, underMinAck]);
+
+  // Where "Book online instead" sends short-notice / under-minimum guests.
+  // Absolute URLs so the guest always lands on the right branded hub
+  // regardless of which domain the form was opened on.
   const onlineBookingHref =
     selectedCenter === "fasttrax-ft-myers"
       ? "https://fasttraxent.com/book"
       : selectedCenter === "headpinz-naples"
-        ? "https://headpinz.com/book?location=naples"
-        : "https://headpinz.com/book";
+        ? "https://headpinz.com/hp/book?location=naples"
+        : "https://headpinz.com/hp/book";
 
   // Resolve the "submit a HeadPinz kids party request" link from the
   // currently-selected center — stay in-domain on HP, go external from FT.
@@ -565,6 +589,16 @@ export function SalesLeadForm({
                     onChange={(e) => setGuestCount(e.target.value)}
                     className={inputCls(accent)}
                   />
+                  {belowMinimum && (
+                    <p
+                      className="mt-1.5 text-white/60"
+                      style={{ fontSize: "11px", lineHeight: 1.4 }}
+                    >
+                      Event minimum is {guestMinimum} guests
+                      {eventType === "birthday-kid" ? "" : " (12 for kids birthdays)"}.
+                      Smaller groups can book online (opens 45 days out).
+                    </p>
+                  )}
                 </Field>
               </div>
             </>
@@ -775,7 +809,17 @@ export function SalesLeadForm({
             {step < 3 ? (
               <button
                 type="button"
-                onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3)}
+                onClick={() => {
+                  // From step 1: gate on the guest-count minimum. Show the
+                  // steering modal once; ack lets the user proceed at min
+                  // pricing. Ack auto-resets if they later raise the count
+                  // above the threshold.
+                  if (step === 1 && belowMinimum && !underMinAck) {
+                    setShowUnderMinWarning(true);
+                    return;
+                  }
+                  setStep((s) => (s + 1) as 1 | 2 | 3);
+                }}
                 disabled={step === 1 ? !canAdvanceFromStep1 : !canAdvanceFromStep2}
                 className="flex-[2] px-6 py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 style={{ backgroundColor: accent, color: accentText }}
@@ -1019,6 +1063,101 @@ export function SalesLeadForm({
                   className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors text-center leading-tight"
                 >
                   Keep my date
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Under-minimum warning — group events require 20+ (12+ for kids
+          birthdays). Below threshold we steer to online booking (45-day
+          window) and warn that event-team booking is billed at minimum
+          headcount. Ack-to-continue mirrors the other two warnings. */}
+      {showUnderMinWarning && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center p-4 overflow-y-auto"
+          style={{ backgroundColor: "rgba(0,4,24,0.88)" }}
+          {...modalBackdropProps(() => {
+            setUnderMinAck(true);
+            setShowUnderMinWarning(false);
+          })}
+        >
+          <div
+            className="relative w-full max-w-xl rounded-xl my-8"
+            style={{ backgroundColor: "#0a1128", border: "1.78px solid rgba(255,193,7,0.5)" }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setUnderMinAck(true);
+                setShowUnderMinWarning(false);
+              }}
+              aria-label="Close dialog"
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              style={{ fontSize: "20px", lineHeight: 1 }}
+            >
+              &times;
+            </button>
+            <div className="p-6 sm:p-8">
+              <div
+                className="uppercase font-bold mb-2"
+                style={{ color: "#FFC107", fontSize: "11px", letterSpacing: "3px" }}
+              >
+                Smaller Group
+              </div>
+              <h3
+                className="font-heading font-black uppercase italic text-white mb-4"
+                style={{
+                  fontSize: "clamp(22px, 4vw, 30px)",
+                  lineHeight: 1.15,
+                  letterSpacing: "-0.3px",
+                }}
+              >
+                Better Booked Online
+              </h3>
+              <div
+                className="space-y-3 font-body text-white/80"
+                style={{ fontSize: "14px", lineHeight: 1.6 }}
+              >
+                <p>
+                  Our event packages are designed for groups of{" "}
+                  <strong className="text-white">20 or more</strong>{" "}
+                  <em className="text-white/70">(12 or more for kids birthday parties)</em>. For
+                  smaller gatherings, our online booking is the fastest path — lanes, karts, and
+                  attractions with no planner needed.{" "}
+                  <em className="text-white/70">
+                    Online booking opens <strong className="text-white">45 days in advance</strong>{" "}
+                    of your date.
+                  </em>
+                </p>
+                <p>
+                  If your event is further out, or you&apos;d still like our event team to
+                  coordinate, our{" "}
+                  <strong className="text-white">group minimums are required</strong> — pricing
+                  will be billed at 20 guests (or 12 for kids birthdays) regardless of your actual
+                  headcount. You&apos;ll pay the same as a full-size group.
+                </p>
+              </div>
+
+              <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
+                <a
+                  href={onlineBookingHref}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline text-center leading-tight"
+                  style={{ backgroundColor: accent, color: accentText }}
+                >
+                  Book online
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnderMinAck(true);
+                    setShowUnderMinWarning(false);
+                    setStep(2);
+                  }}
+                  className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors text-center leading-tight"
+                >
+                  Continue with my request
                 </button>
               </div>
             </div>
