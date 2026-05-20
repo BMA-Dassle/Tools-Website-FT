@@ -21,7 +21,12 @@ import { setLanePlayers } from "@/lib/qamf-bowling";
 import { toLaneInsertName } from "@/lib/qamf-name";
 import redis from "@/lib/redis";
 import { shortenUrl } from "@/lib/short-url";
-import { resolveAudienceMember, splitGuestName } from "~/features/marketing";
+import {
+  normalizePhoneE164,
+  recordOptIn,
+  resolveAudienceMember,
+  splitGuestName,
+} from "~/features/marketing";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -285,22 +290,49 @@ export async function POST(req: NextRequest) {
   // resolve by phone (+ name fallback). Failure is non-fatal — booking
   // continues without it.
   let resolvedSquareCustomerId: string | undefined = body.squareCustomerId;
-  if (!resolvedSquareCustomerId && guest.phone) {
-    try {
-      const { firstName, lastName } = splitGuestName(guest.name);
-      const audience = await resolveAudienceMember({
-        phone: guest.phone,
-        firstName,
-        lastName,
-        email: guest.email || undefined,
-      });
-      resolvedSquareCustomerId = audience.squareCustomerId;
-    } catch (err) {
-      console.warn(
-        "[bowling/v2/reserve] audience resolve failed (non-fatal):",
-        err instanceof Error ? err.message : err,
-      );
+  let resolvedPhoneE164: string | undefined;
+  if (guest.phone) {
+    if (!resolvedSquareCustomerId) {
+      try {
+        const { firstName, lastName } = splitGuestName(guest.name);
+        const audience = await resolveAudienceMember({
+          phone: guest.phone,
+          firstName,
+          lastName,
+          email: guest.email || undefined,
+        });
+        resolvedSquareCustomerId = audience.squareCustomerId;
+        resolvedPhoneE164 = audience.phoneE164;
+      } catch (err) {
+        console.warn(
+          "[bowling/v2/reserve] audience resolve failed (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
+    // Fall back to a fresh normalize when the audience resolve didn't run
+    // (rewards-member path supplies squareCustomerId already).
+    if (!resolvedPhoneE164) {
+      try {
+        resolvedPhoneE164 = normalizePhoneE164(guest.phone);
+      } catch {
+        // Phone unparseable — skip marketing opt-in below.
+      }
+    }
+  }
+
+  // ── Marketing opt-in (mirrors transactional smsOptIn) ────────────
+  // When a customer agrees to SMS confirmation at booking, also enroll
+  // them in marketing. STOP replies (handled by the inbound SMS webhook
+  // in PR-GS6) flip them back out. Fire-and-forget; never blocks booking.
+  const smsOptInAtBooking = body.smsOptIn ?? true;
+  if (smsOptInAtBooking && resolvedPhoneE164) {
+    recordOptIn({
+      phoneE164: resolvedPhoneE164,
+      source: "booking_confirmation",
+    }).catch((err) =>
+      console.warn("[bowling/v2/reserve] marketing opt-in record failed (non-fatal):", err),
+    );
   }
 
   // ── Load Square products + compute subtotals ────────────────────

@@ -31,3 +31,11 @@ export {
   getConsent,
   type MarketingConsentSource,
 } from "./consent";
+
+export {
+  assertGsm7Safe,
+  renderBowlingSurveyInvite,
+  TEMPLATE_KEYS,
+  type BowlingSurveyInviteVars,
+  type TemplateKey,
+} from "./templates";
