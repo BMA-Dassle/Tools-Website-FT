@@ -304,6 +304,23 @@ export async function insertGuestSurvey(input: InsertGuestSurveyInput): Promise<
   return rowToSurvey(rows[0] as Record<string, unknown>);
 }
 
+/**
+ * Hard-delete a guest_surveys row by token. Used as a rollback when an
+ * SMS send fails after the row has been inserted — leaving the row in
+ * place would (a) report a sent-at the customer never received, and
+ * (b) block retries via the (origin, origin_ref) uniqueness constraint.
+ *
+ * Best-effort: callers wrap this in their own try/catch and log on
+ * failure. Returns true if a row was deleted.
+ */
+export async function deleteGuestSurveyByToken(token: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureGuestSurveySchema();
+  const q = sql();
+  const rows = await q`DELETE FROM guest_surveys WHERE token = ${token} RETURNING id`;
+  return rows.length > 0;
+}
+
 export async function getGuestSurveyByToken(token: string): Promise<GuestSurveyRow | null> {
   if (!isDbConfigured()) return null;
   await ensureGuestSurveySchema();
