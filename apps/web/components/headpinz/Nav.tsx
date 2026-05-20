@@ -146,11 +146,14 @@ export default function HeadPinzNav() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
-      {/* Top bar — hours + location selector */}
+      {/* Top bar — hours + location selector. Use text-[10px] on the
+          narrowest viewports so the day name doesn't wrap to a second
+          line on long-name days (Wednesday, Saturday). Bumps up to
+          text-xs at sm+. */}
       <div
-        className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#0a1628]" : "bg-transparent"}`}
+        className={`text-[10px] sm:text-xs text-white/60 px-3 sm:px-4 py-1.5 flex items-center justify-between whitespace-nowrap transition-colors duration-300 ${scrolled ? "bg-[#0a1628]" : "bg-transparent"}`}
       >
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <a
             href="https://www.facebook.com/HeadPinzFortMyers"
             target="_blank"
@@ -174,7 +177,7 @@ export default function HeadPinzNav() {
             </svg>
           </a>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Location selector */}
           <div className="relative">
             <button
@@ -297,11 +300,7 @@ export default function HeadPinzNav() {
                         strokeWidth="2"
                         viewBox="0 0 24 24"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M19 9l-7 7-7-7"
-                        />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                       </svg>
                     </button>
                     {/* pt-2 gives a hover-buffer so the menu doesn't snap closed crossing the gap */}

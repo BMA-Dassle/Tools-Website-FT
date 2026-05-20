@@ -23,7 +23,7 @@ interface SurveyFormProps {
 type SubmitState =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "picking_reward" } // survey submitted, waiting on the user's reward pick
+  | { kind: "picking_reward"; errorMessage?: string } // survey submitted, waiting on pick (errorMessage when a prior pick failed)
   | { kind: "issuing_reward"; kind2: RewardKind }
   | { kind: "reward_issued"; reward: RewardSummary }
   | { kind: "error"; message: string };
@@ -71,9 +71,11 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
+        // Keep the user on the reward picker so they can retry the same
+        // (or other) reward without losing context.
         setSubmitState({
-          kind: "error",
-          message: errBody.error || `Reward request failed (${res.status})`,
+          kind: "picking_reward",
+          errorMessage: errBody.error || `Reward request failed (${res.status})`,
         });
         return;
       }
@@ -89,8 +91,8 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
       setSubmitState({ kind: "reward_issued", reward: data.reward });
     } catch (err) {
       setSubmitState({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Network error",
+        kind: "picking_reward",
+        errorMessage: err instanceof Error ? err.message : "Network error",
       });
     }
   }
@@ -137,6 +139,9 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
           centerName={centerName}
           loading={submitState.kind === "issuing_reward"}
           loadingKind={submitState.kind === "issuing_reward" ? submitState.kind2 : null}
+          errorMessage={
+            submitState.kind === "picking_reward" ? submitState.errorMessage : undefined
+          }
           onPick={pickReward}
         />
       </Shell>
@@ -214,24 +219,32 @@ interface QuestionFieldProps {
 }
 
 function QuestionField({ question, value, onChange }: QuestionFieldProps) {
+  // Plain <div> rather than <fieldset>/<legend>: the default legend
+  // styling positions the label BREAKING the top border (sticking out
+  // above the card) instead of sitting inside. Eric reported "questions
+  // go above the question boxes" — that's this exact behavior. We get
+  // grouping semantics via role + aria-labelledby on the inputs container.
+  const headingId = `q-${question.id}`;
   return (
-    <fieldset
-      className="rounded-xl p-4 space-y-3"
+    <div
+      className="rounded-xl p-4"
       style={{ backgroundColor: HP_CARD, border: `1px solid ${HP_BORDER}` }}
     >
-      <legend className="font-heading font-semibold text-base leading-snug px-1">
+      <div id={headingId} className="font-heading font-semibold text-base leading-snug mb-3">
         {question.question}
-      </legend>
-      {question.kind === "rating_1_5" ? (
-        <Rating1to5 value={value} onChange={onChange} />
-      ) : question.kind === "yes_no" ? (
-        <YesNo value={value} onChange={onChange} />
-      ) : question.kind === "multi" ? (
-        <MultiChoice choices={question.choices ?? []} value={value} onChange={onChange} />
-      ) : (
-        <TextInput value={value} onChange={onChange} />
-      )}
-    </fieldset>
+      </div>
+      <div role="group" aria-labelledby={headingId}>
+        {question.kind === "rating_1_5" ? (
+          <Rating1to5 value={value} onChange={onChange} />
+        ) : question.kind === "yes_no" ? (
+          <YesNo value={value} onChange={onChange} />
+        ) : question.kind === "multi" ? (
+          <MultiChoice choices={question.choices ?? []} value={value} onChange={onChange} />
+        ) : (
+          <TextInput value={value} onChange={onChange} />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -372,10 +385,17 @@ interface RewardPickerProps {
   centerName: string;
   loading: boolean;
   loadingKind: RewardKind | null;
+  errorMessage?: string;
   onPick: (kind: RewardKind) => void;
 }
 
-function RewardPicker({ centerName, loading, loadingKind, onPick }: RewardPickerProps) {
+function RewardPicker({
+  centerName,
+  loading,
+  loadingKind,
+  errorMessage,
+  onPick,
+}: RewardPickerProps) {
   return (
     <div>
       <header className="mb-6">
@@ -384,6 +404,21 @@ function RewardPicker({ centerName, loading, loadingKind, onPick }: RewardPicker
           Pick your reward — we&apos;ll send it as soon as you tap.
         </p>
       </header>
+
+      {errorMessage ? (
+        <div
+          role="alert"
+          className="rounded-lg p-3 mb-4 text-sm"
+          style={{
+            backgroundColor: "rgba(253,91,86,0.12)",
+            border: `1px solid ${HP_BORDER_ACTIVE}`,
+            color: "#ffd6d4",
+          }}
+        >
+          <strong className="font-semibold">Couldn&apos;t issue that reward.</strong> {errorMessage}{" "}
+          Tap again to retry, or pick the other option.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <RewardCard

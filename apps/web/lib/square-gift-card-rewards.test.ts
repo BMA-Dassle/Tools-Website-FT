@@ -70,15 +70,41 @@ afterEach(() => {
 });
 
 describe("mintDigitalGiftCard", () => {
-  it("creates a DIGITAL gift card and activates it with the load amount", async () => {
+  it("creates, activates with $0, then adjust-increments to the load amount", async () => {
     const mock = installFetchMock();
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/gift-cards` && c.method === "POST",
       () => ({ status: 200, body: { gift_card: { id: "gc_1", gan: "7777111122223333" } } }),
     );
+    // Both ACTIVATE and ADJUST_INCREMENT POST to /gift-cards/activities
+    // (no id in path) — disambiguate by body.type.
+    let activeCount = 0;
+    let adjustCount = 0;
     mock.when(
-      (c) => c.url === `${SQUARE_BASE}/gift-cards/gc_1/activities` && c.method === "POST",
-      () => ({ status: 200, body: { gift_card_activity: { id: "act_1" } } }),
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        c.method === "POST" &&
+        typeof c.body === "object" &&
+        c.body !== null &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ACTIVATE",
+      () => {
+        activeCount += 1;
+        return { status: 200, body: { gift_card_activity: { id: "act_a" } } };
+      },
+    );
+    mock.when(
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        c.method === "POST" &&
+        typeof c.body === "object" &&
+        c.body !== null &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ADJUST_INCREMENT",
+      () => {
+        adjustCount += 1;
+        return { status: 200, body: { gift_card_activity: { id: "act_inc" } } };
+      },
     );
 
     const result = await mintDigitalGiftCard({
@@ -92,6 +118,8 @@ describe("mintDigitalGiftCard", () => {
       gan: "7777111122223333",
       balanceCents: 500,
     });
+    expect(activeCount).toBe(1);
+    expect(adjustCount).toBe(1);
 
     const createCall = mock.calls.find((c) => c.url.endsWith("/gift-cards"))!;
     expect(createCall.body).toMatchObject({
@@ -100,18 +128,75 @@ describe("mintDigitalGiftCard", () => {
       gift_card: { type: "DIGITAL" },
     });
 
-    const actCall = mock.calls.find((c) => c.url.includes("/gift-cards/gc_1/activities"))!;
-    expect(actCall.body).toMatchObject({
+    // ACTIVATE call: amount=0, gift_card_id in body (not URL)
+    const activeCall = mock.calls.find(
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ACTIVATE",
+    )!;
+    expect(activeCall.body).toMatchObject({
       idempotency_key: "gc-act-abc123",
       gift_card_activity: {
         type: "ACTIVATE",
         location_id: "LOC_TEST",
         gift_card_id: "gc_1",
-        activate_activity_details: {
+        activate_activity_details: { amount_money: { amount: 0, currency: "USD" } },
+      },
+    });
+
+    // ADJUST_INCREMENT call: actual amount, MARKETING_PROMOTION reason
+    const adjustCall = mock.calls.find(
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ADJUST_INCREMENT",
+    )!;
+    expect(adjustCall.body).toMatchObject({
+      idempotency_key: "gc-adj-abc123",
+      gift_card_activity: {
+        type: "ADJUST_INCREMENT",
+        location_id: "LOC_TEST",
+        gift_card_id: "gc_1",
+        adjust_increment_activity_details: {
           amount_money: { amount: 500, currency: "USD" },
+          reason: "MARKETING_PROMOTION",
         },
       },
     });
+  });
+
+  it("honors a custom reason on the adjust-increment", async () => {
+    const mock = installFetchMock();
+    mock.when(
+      (c) => c.url === `${SQUARE_BASE}/gift-cards` && c.method === "POST",
+      () => ({ status: 200, body: { gift_card: { id: "gc_1", gan: "1234" } } }),
+    );
+    mock.when(
+      (c) => c.url === `${SQUARE_BASE}/gift-cards/activities`,
+      () => ({ status: 200, body: { gift_card_activity: { id: "x" } } }),
+    );
+
+    await mintDigitalGiftCard({
+      locationId: "LOC",
+      amountCents: 500,
+      baseKey: "k",
+      reason: "BIRTHDAY_CLUB",
+    });
+
+    const adjustCall = mock.calls.find(
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ADJUST_INCREMENT",
+    )!;
+    expect(
+      (
+        adjustCall.body as {
+          gift_card_activity: { adjust_increment_activity_details: { reason: string } };
+        }
+      ).gift_card_activity.adjust_increment_activity_details.reason,
+    ).toBe("BIRTHDAY_CLUB");
   });
 
   it("throws SquarePaymentError on create failure", async () => {
@@ -140,19 +225,50 @@ describe("mintDigitalGiftCard", () => {
     ).rejects.toMatchObject({ code: "GIFT_CARD_CREATE_INCOMPLETE" });
   });
 
-  it("throws on activation failure", async () => {
+  it("throws when ACTIVATE fails", async () => {
     const mock = installFetchMock();
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/gift-cards` && c.method === "POST",
       () => ({ status: 200, body: { gift_card: { id: "gc_1", gan: "1234" } } }),
     );
     mock.when(
-      (c) => c.url.includes("/activities"),
-      () => ({ status: 422, body: { errors: [{ code: "LOAD_FAILED", detail: "x" }] } }),
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ACTIVATE",
+      () => ({ status: 422, body: { errors: [{ code: "ACTIVATE_FAILED", detail: "x" }] } }),
     );
     await expect(
       mintDigitalGiftCard({ locationId: "LOC", amountCents: 500, baseKey: "x" }),
-    ).rejects.toMatchObject({ code: "LOAD_FAILED" });
+    ).rejects.toMatchObject({ code: "ACTIVATE_FAILED" });
+  });
+
+  it("throws when ADJUST_INCREMENT fails (orphans the activated $0 card — operator must comp manually)", async () => {
+    const mock = installFetchMock();
+    mock.when(
+      (c) => c.url === `${SQUARE_BASE}/gift-cards` && c.method === "POST",
+      () => ({ status: 200, body: { gift_card: { id: "gc_1", gan: "1234" } } }),
+    );
+    mock.when(
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ACTIVATE",
+      () => ({ status: 200, body: { gift_card_activity: { id: "a" } } }),
+    );
+    mock.when(
+      (c) =>
+        c.url === `${SQUARE_BASE}/gift-cards/activities` &&
+        (c.body as { gift_card_activity?: { type?: string } }).gift_card_activity?.type ===
+          "ADJUST_INCREMENT",
+      () => ({
+        status: 422,
+        body: { errors: [{ code: "ADJUST_FAILED", detail: "out of funds" }] },
+      }),
+    );
+    await expect(
+      mintDigitalGiftCard({ locationId: "LOC", amountCents: 500, baseKey: "x" }),
+    ).rejects.toMatchObject({ code: "ADJUST_FAILED" });
   });
 });
 
