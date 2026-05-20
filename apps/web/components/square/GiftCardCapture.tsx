@@ -177,7 +177,7 @@ const GiftCardCapture = forwardRef<GiftCardCaptureHandle, Props>(function GiftCa
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-sm text-white/60">Gift card</label>
+        <span className="text-sm text-white/60">Gift card</span>
         {busy && (
           <span className="text-xs text-white/40">
             {status === "tokenizing" ? "Reading…" : "Looking up balance…"}
