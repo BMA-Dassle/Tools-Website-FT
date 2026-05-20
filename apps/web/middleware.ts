@@ -483,6 +483,29 @@ export async function middleware(request: NextRequest) {
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
 
+  // HeadPinz domain on a shared top-level route (e.g. /survey/, /event/) —
+  // skip the /hp rewrite but STILL flag the brand so the root layout
+  // suppresses the FastTrax Nav/Footer and the body picks up brand-headpinz
+  // (deep navy + HP fonts). Also suppress the mobile Book-Now bar so it
+  // doesn't overlap a focused customer-flow screen.
+  if (isHeadPinz && isSharedTopLevelRoute) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
+    if (pathname.startsWith("/survey/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // Survey routes on EITHER domain: suppress the mobile Book-Now bar so
+  // it doesn't sit on top of the survey content (FastTrax bowling visitor
+  // hitting fasttraxent.com/survey/* would otherwise get the FT MobileBookBar).
+  if (pathname.startsWith("/survey/")) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-no-mobile-bar", "1");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   // HeadPinz domain on shared routes (/book, /api):
   //   - /book (exactly) → rewrite to /hp/book (HP-branded booking hub)
   //   - /book/bowling/* → rewrite to /hp/book/bowling/* (bowling pages

@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import type { GuestSurveyQuestion } from "@/lib/guest-survey-db";
 // Import gating from the leaf module (NOT the feature barrel) — the barrel
 // re-exports service.ts which transitively pulls ioredis into the client
@@ -9,8 +8,6 @@ import type { GuestSurveyQuestion } from "@/lib/guest-survey-db";
 // fails the build.
 import { visibleQuestions, type AnswerMap } from "~/features/guest-survey/gating";
 
-const HP_LOGO_URL =
-  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp";
 const HP_BG = "#0a1628"; // matches body background set in root layout
 const HP_CARD = "rgba(7,16,39,0.95)"; // deep navy panel
 const HP_BORDER = "rgba(255,255,255,0.08)";
@@ -39,6 +36,15 @@ type SubmitState =
 export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
+
+  // Scroll to top whenever the page transitions into a terminal state so the
+  // user sees "Thanks!" instead of being stuck at the bottom near the submit
+  // button after a long-scrolling form.
+  useEffect(() => {
+    if (submitState.kind === "done") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [submitState.kind]);
 
   const visible = useMemo(() => visibleQuestions(questions, answers), [questions, answers]);
   const answeredCount = visible.filter((q) => answers[String(q.id)] != null).length;
@@ -131,22 +137,11 @@ function Shell({ children }: { children: React.ReactNode }) {
       className="min-h-screen text-white font-body"
       style={{
         backgroundColor: HP_BG,
-        paddingTop: "max(env(safe-area-inset-top), 16px)",
+        paddingTop: "max(env(safe-area-inset-top), 24px)",
         paddingBottom: "max(env(safe-area-inset-bottom), 24px)",
       }}
     >
-      <div className="px-4 pt-2 pb-6 flex justify-center">
-        <Image
-          src={HP_LOGO_URL}
-          alt="HeadPinz"
-          width={160}
-          height={48}
-          className="h-10 w-auto object-contain"
-          unoptimized
-          priority
-        />
-      </div>
-      <div className="w-full max-w-md mx-auto px-4">{children}</div>
+      <div className="w-full max-w-md mx-auto px-4 pt-6">{children}</div>
     </main>
   );
 }

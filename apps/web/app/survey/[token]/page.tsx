@@ -1,4 +1,3 @@
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import {
   getGuestSurveyByToken,
@@ -9,8 +8,6 @@ import { recordTouch } from "~/features/marketing";
 import { CENTER_META } from "@/lib/bowling-lane-ready-notify";
 import { SurveyForm } from "./SurveyForm";
 
-const HP_LOGO_URL =
-  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp";
 const HP_BG = "#0a1628";
 
 export const dynamic = "force-dynamic";
@@ -73,22 +70,11 @@ function ShellWrap({ children }: { children: React.ReactNode }) {
       className="min-h-screen text-white font-body"
       style={{
         backgroundColor: HP_BG,
-        paddingTop: "max(env(safe-area-inset-top), 16px)",
+        paddingTop: "max(env(safe-area-inset-top), 24px)",
         paddingBottom: "max(env(safe-area-inset-bottom), 24px)",
       }}
     >
-      <div className="px-4 pt-2 pb-6 flex justify-center">
-        <Image
-          src={HP_LOGO_URL}
-          alt="HeadPinz"
-          width={160}
-          height={48}
-          className="h-10 w-auto object-contain"
-          unoptimized
-          priority
-        />
-      </div>
-      <div className="w-full max-w-md mx-auto px-4">{children}</div>
+      <div className="w-full max-w-md mx-auto px-4 pt-6">{children}</div>
     </main>
   );
 }
