@@ -510,6 +510,11 @@ export async function mintDigitalGiftCard(params: {
    *  order (e.g. "Gift Card - Guest Survey (500.088)"). Must be a real
    *  catalog discount, not ad-hoc, so the GL booking lands correctly. */
   discountCatalogObjectId: string;
+  /** Optional Square customer id. When provided, the card is linked to
+   *  the customer after activation so it appears under their profile in
+   *  the Square dashboard. Best-effort — a link failure does NOT roll
+   *  back the mint (the card is still good and findable by GAN). */
+  customerId?: string;
 }): Promise<MintGiftCardResult> {
   // ── 1. Create order: $X eGiftCard line + $X catalog discount → $0 ─
   const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
@@ -720,6 +725,42 @@ export async function mintDigitalGiftCard(params: {
       `Card is ${verifiedState ?? "unknown"} with balance ${verifiedBalance}`,
       500,
     );
+  }
+
+  // ── 6. Link the card to the Square customer profile (best-effort).
+  //    Surfaces the card on the customer's "Gift Cards" tab in the
+  //    Square dashboard. Pandora_API uses the same endpoint
+  //    (linkCustomerToGiftCard in square.utils.ts). A link failure is
+  //    not fatal — the card itself is still ACTIVE and usable.
+  if (params.customerId) {
+    try {
+      const linkRes = await fetch(`${SQUARE_BASE}/gift-cards/${giftCardId}/link-customer`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({ customer_id: params.customerId }),
+      });
+      if (!linkRes.ok) {
+        const linkData = (await linkRes.json().catch(() => ({}))) as {
+          errors?: Array<{ code?: string; detail?: string }>;
+        };
+        console.warn("[square-gift-card] link-customer failed (non-fatal):", {
+          status: linkRes.status,
+          giftCardId,
+          customerId: params.customerId,
+          code: linkData.errors?.[0]?.code,
+          detail: linkData.errors?.[0]?.detail,
+        });
+      } else {
+        console.log(
+          `[square-gift-card] linked giftCardId=${giftCardId} to customerId=${params.customerId}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[square-gift-card] link-customer threw (non-fatal) giftCardId=${giftCardId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return { giftCardId, gan, balanceCents: verifiedBalance };

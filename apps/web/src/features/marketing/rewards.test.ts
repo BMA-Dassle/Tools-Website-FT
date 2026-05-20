@@ -129,6 +129,8 @@ describe("issueReward — gift_card", () => {
       // Production catalog discount object id for "Gift Card - Guest Survey (500.088)"
       // (default unless SQUARE_SURVEY_DISCOUNT_CATALOG_ID is set).
       discountCatalogObjectId: expect.any(String),
+      // Wired through so the card lands on the customer's profile in Square.
+      customerId: "CUS_TEST",
     });
     expect(mockedInsertPromo).toHaveBeenCalledWith({
       code: "GS-7F2A",

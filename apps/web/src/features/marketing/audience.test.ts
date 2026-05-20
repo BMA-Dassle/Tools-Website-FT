@@ -82,6 +82,47 @@ describe("resolveAudienceMember", () => {
     vi.restoreAllMocks();
   });
 
+  it("prefers the loyalty-linked customer over a plain phone match", async () => {
+    // Two customers share the phone: a plain record (CUS_PLAIN) and a
+    // Rewards-enrolled one (CUS_REWARDS). The loyalty search runs first
+    // and returns CUS_REWARDS — resolveAudienceMember must use that one
+    // and NOT fall through to /customers/search.
+    sq.onLoyaltyAccountsSearch().reply({
+      loyalty_accounts: [{ id: "loy_1", customer_id: "CUS_REWARDS" }],
+    });
+    sq.onCustomerGet("CUS_REWARDS").reply({
+      customer: aSquareCustomer({
+        id: "CUS_REWARDS",
+        given_name: "Ada",
+        family_name: "Lovelace",
+        email_address: "ada@example.com",
+        phone_number: "+15551234567",
+      }),
+    });
+
+    const result = await resolveAudienceMember({ phone: "5551234567" });
+
+    expect(result.squareCustomerId).toBe("CUS_REWARDS");
+    expect(result.isNew).toBe(false);
+
+    // /customers/search must NOT have been called — loyalty took the win.
+    const phoneSearchCalls = sq
+      .allCalls()
+      .filter((c) => c.method === "POST" && c.url.endsWith("/customers/search"));
+    expect(phoneSearchCalls).toHaveLength(0);
+  });
+
+  it("falls back to /customers/search when no loyalty account matches", async () => {
+    sq.onLoyaltyAccountsSearch().reply({ loyalty_accounts: [] });
+    sq.onCustomerSearch().reply({
+      customers: [aSquareCustomer({ id: "CUS_PLAIN", phone_number: "+15551234567" })],
+    });
+
+    const result = await resolveAudienceMember({ phone: "5551234567" });
+
+    expect(result.squareCustomerId).toBe("CUS_PLAIN");
+  });
+
   it("returns an existing customer on phone match without creating", async () => {
     const existing = aSquareCustomer({
       id: "CUS_HIT",

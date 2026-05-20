@@ -133,6 +133,9 @@ async function issueGiftCardReward(input: IssueRewardInput): Promise<IssueReward
     amountCents: GIFT_CARD_AWARD_CENTS,
     baseKey: input.baseKey,
     discountCatalogObjectId: discountId,
+    // Link to the Square customer profile so ops can see the card under
+    // the customer's "Gift Cards" tab in the Square dashboard.
+    customerId: input.customerId,
   });
 
   // 3. Link the promo code → gift card → survey row. If this fails,

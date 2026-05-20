@@ -36,6 +36,8 @@ export interface SquareMockHandle {
   onCustomerSearch(): RouteBuilder;
   onCustomerCreate(): RouteBuilder;
   onCustomerPatch(customerId?: string): RouteBuilder;
+  onCustomerGet(customerId?: string): RouteBuilder;
+  onLoyaltyAccountsSearch(): RouteBuilder;
   reset(): void;
   /** All captured calls across every Square route. */
   allCalls(): Array<{ method: string; url: string; body: unknown }>;
@@ -146,6 +148,22 @@ export function installSquareMock(): SquareMockHandle {
         if (!isPut) return false;
         if (customerId) return url === `${SQUARE_BASE}/customers/${customerId}`;
         return url.startsWith(`${SQUARE_BASE}/customers/`) && !url.endsWith("/search");
+      });
+    },
+    onCustomerGet(customerId?: string) {
+      return buildRoute(routes, (url, init) => {
+        const isGet = (init?.method ?? "GET").toUpperCase() === "GET";
+        if (!isGet) return false;
+        if (customerId) return url === `${SQUARE_BASE}/customers/${customerId}`;
+        return url.startsWith(`${SQUARE_BASE}/customers/`) && !url.endsWith("/search");
+      });
+    },
+    onLoyaltyAccountsSearch() {
+      return buildRoute(routes, (url, init) => {
+        return (
+          url === `${SQUARE_BASE}/loyalty/accounts/search` &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        );
       });
     },
     reset() {

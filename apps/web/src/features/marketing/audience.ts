@@ -119,14 +119,25 @@ export async function resolveAudienceMember(
 ): Promise<AudienceMember> {
   const phoneE164 = normalizePhoneE164(input.phone);
 
-  // 1. Phone exact-match search
+  // 1. Loyalty-first: if a HeadPinz Rewards (Square Loyalty) account
+  //    exists for this phone, use ITS linked customer. This handles the
+  //    common case where a phone has both a plain customer record and a
+  //    separate Rewards-enrolled customer — we want the Rewards one so
+  //    purchases / cards land on the customer the loyalty engine knows.
+  const loyaltyMatch = await searchByPhoneViaLoyalty(phoneE164);
+  if (loyaltyMatch) {
+    await maybePatchMissingFields(loyaltyMatch, input);
+    return toAudienceMember(loyaltyMatch, phoneE164, false);
+  }
+
+  // 2. Phone exact-match search (non-rewards customer)
   const existing = await searchByPhone(phoneE164);
   if (existing) {
     await maybePatchMissingFields(existing, input);
     return toAudienceMember(existing, phoneE164, false);
   }
 
-  // 2. Name fallback (only if a name was supplied)
+  // 3. Name fallback (only if a name was supplied)
   if (input.firstName || input.lastName) {
     const byName = await searchByName({
       firstName: input.firstName,
@@ -142,7 +153,7 @@ export async function resolveAudienceMember(
     }
   }
 
-  // 3. Create
+  // 4. Create
   const created = await createCustomer({
     phoneE164,
     firstName: input.firstName,
@@ -169,6 +180,62 @@ async function searchByPhone(phoneE164: string): Promise<SquareCustomer | null> 
   }
   const data = (await res.json()) as { customers?: SquareCustomer[] };
   return data.customers?.[0] ?? null;
+}
+
+/**
+ * Look up a customer via the Loyalty mappings table.
+ *
+ * When a phone has BOTH a plain customer record and a separate
+ * Rewards-enrolled customer, the loyalty record is the canonical
+ * "this is the same person, with their points / earn history"
+ * identity. Preferring it over the raw /customers/search result keeps
+ * marketing touches and gift cards landing on the customer the
+ * Loyalty engine already knows.
+ *
+ * Square endpoint: POST /v2/loyalty/accounts/search
+ * Filter shape (Square 2024-12-18):
+ *   { query: { mappings: [{ phone_number: "+1..." }] } }
+ *
+ * Returns null on:
+ *   - no loyalty account matched
+ *   - matched but the linked customer fetch failed
+ *   - Square error (logged, not thrown — phone fallback handles it)
+ */
+async function searchByPhoneViaLoyalty(phoneE164: string): Promise<SquareCustomer | null> {
+  const searchRes = await fetch(`${SQUARE_BASE}/loyalty/accounts/search`, {
+    method: "POST",
+    headers: squareHeaders(),
+    body: JSON.stringify({
+      query: { mappings: [{ phone_number: phoneE164 }] },
+      limit: 1,
+    }),
+  });
+  if (!searchRes.ok) {
+    console.warn(
+      `[audience] loyalty search non-200 for ${phoneE164}: ${searchRes.status} — falling back to /customers/search`,
+    );
+    return null;
+  }
+  const data = (await searchRes.json().catch(() => ({}))) as {
+    loyalty_accounts?: Array<{ id?: string; customer_id?: string }>;
+  };
+  const loyaltyCustomerId = data.loyalty_accounts?.[0]?.customer_id;
+  if (!loyaltyCustomerId) return null;
+
+  // Fetch the full customer record so the rest of resolveAudienceMember
+  // gets the same shape it does from the phone-search path.
+  const custRes = await fetch(`${SQUARE_BASE}/customers/${loyaltyCustomerId}`, {
+    method: "GET",
+    headers: squareHeaders(),
+  });
+  if (!custRes.ok) {
+    console.warn(
+      `[audience] loyalty matched customerId=${loyaltyCustomerId} but customer fetch returned ${custRes.status}`,
+    );
+    return null;
+  }
+  const custData = (await custRes.json().catch(() => ({}))) as { customer?: SquareCustomer };
+  return custData.customer ?? null;
 }
 
 async function searchByName(opts: {

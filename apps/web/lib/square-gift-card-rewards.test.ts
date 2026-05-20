@@ -89,7 +89,39 @@ describe("mintDigitalGiftCard (order + discount pattern)", () => {
     );
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/gift-cards/activities`,
-      () => ({ status: 200, body: { gift_card_activity: { id: "act_1" } } }),
+      () => ({
+        status: 200,
+        body: {
+          gift_card_activity: {
+            id: "act_1",
+            gift_card_balance_money: { amount: 500, currency: "USD" },
+            activate_activity_details: {
+              amount_money: { amount: 500, currency: "USD" },
+              order_id: "ord_1",
+              line_item_uid: "li_1",
+            },
+          },
+        },
+      }),
+    );
+    // Verify-state GET after activate.
+    mock.when(
+      (c) => c.url === `${SQUARE_BASE}/gift-cards/gc_1` && c.method === "GET",
+      () => ({
+        status: 200,
+        body: {
+          gift_card: {
+            id: "gc_1",
+            state: "ACTIVE",
+            balance_money: { amount: 500, currency: "USD" },
+          },
+        },
+      }),
+    );
+    // Optional link-customer (only fires when customerId is passed).
+    mock.when(
+      (c) => c.url === `${SQUARE_BASE}/gift-cards/gc_1/link-customer`,
+      () => ({ status: 200, body: { gift_card: { id: "gc_1" } } }),
     );
     return mock;
   }

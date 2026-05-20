@@ -366,6 +366,66 @@ export async function getGuestSurveyByToken(token: string): Promise<GuestSurveyR
   return rows.length ? rowToSurvey(rows[0] as Record<string, unknown>) : null;
 }
 
+export interface GuestSurveyListItem extends GuestSurveyRow {
+  /** GS-XXXX promo code for gift-card rewards, null for Pinz/declined. */
+  promoCode: string | null;
+  /** Square gift card GAN for gift-card rewards, null otherwise. */
+  promoCodeGan: string | null;
+  /** Has the gift card been redeemed yet? */
+  promoCodeRedeemedAt: string | null;
+}
+
+/**
+ * List recent guest surveys with their gift-card promo codes joined.
+ *
+ * Used by the admin report endpoint. Read-only — no mutation.
+ *
+ * Filters:
+ *   - since: lower-bound on sent_at (ISO date or timestamp). Default = NULL (no lower bound).
+ *   - centerCode: exact-match filter.
+ *   - completedOnly: only rows where completed_at IS NOT NULL.
+ *   - limit: max rows returned. Default 50, caller caps at 500.
+ */
+export async function listGuestSurveys(opts: {
+  since?: string | null;
+  centerCode?: string | null;
+  completedOnly?: boolean;
+  limit?: number;
+}): Promise<GuestSurveyListItem[]> {
+  if (!isDbConfigured()) return [];
+  await ensureGuestSurveySchema();
+  const q = sql();
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+  // Build LEFT JOIN to surface promo code on gift-card rows. NULL params
+  // turn the filter into "IS NULL OR ..." so optional filters drop in
+  // cleanly without dynamic SQL string concat.
+  const rows = await q`
+    SELECT
+      s.*,
+      p.code              AS promo_code,
+      p.square_gift_card_gan AS promo_gan,
+      p.redeemed_at       AS promo_redeemed_at
+    FROM guest_surveys s
+    LEFT JOIN guest_survey_promo_codes p ON p.survey_id = s.id
+    WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.centerCode ?? null}::text IS NULL OR s.center_code = ${opts.centerCode ?? null})
+      AND (${opts.completedOnly ? "true" : "false"}::boolean = false OR s.completed_at IS NOT NULL)
+    ORDER BY s.sent_at DESC
+    LIMIT ${limit}
+  `;
+  return (rows as Record<string, unknown>[]).map((row) => {
+    const base = rowToSurvey(row);
+    return {
+      ...base,
+      promoCode: (row.promo_code as string) ?? null,
+      promoCodeGan: (row.promo_gan as string) ?? null,
+      promoCodeRedeemedAt: row.promo_redeemed_at
+        ? (row.promo_redeemed_at as Date).toISOString()
+        : null,
+    };
+  });
+}
+
 export async function getGuestSurveyByOriginRef(opts: {
   origin: SurveyOrigin;
   originRef: string;
