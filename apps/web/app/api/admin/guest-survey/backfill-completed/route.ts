@@ -4,6 +4,12 @@ import { getPhonesWithExistingSurveys } from "@/lib/guest-survey-db";
 import { enqueueBowlingSurvey } from "~/features/guest-survey";
 import { getConsent, normalizePhoneE164 } from "~/features/marketing";
 
+// Backfill needs more than the default 10s Hobby budget — bumped to
+// the Vercel Pro max so a single run can drain a meaningful chunk
+// (each enqueue does a Square customer resolve + Vox SMS + Neon
+// insert, roughly 1-2 sec per recipient).
+export const maxDuration = 300;
+
 /**
  * POST /api/admin/guest-survey/backfill-completed
  *
