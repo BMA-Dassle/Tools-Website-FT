@@ -459,7 +459,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/accessibility/") ||
     pathname === "/cancellation-policy" ||
     pathname.startsWith("/cancellation-policy/") ||
-    pathname.startsWith("/event/");
+    pathname.startsWith("/event/") ||
+    // Guest-survey landing pages (PR-GS2). Bowling surveys are HP-branded
+    // and racing surveys are FT-branded, but the page lives at /survey/*
+    // (not /hp/survey/* nor /ft/survey/*) — the route reads the center
+    // code from the row and picks the brand. Without this exclusion the
+    // /hp rewrite turns into a 404.
+    pathname.startsWith("/survey/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
