@@ -218,7 +218,19 @@ export async function processSquareBowlingRefund(opts: {
           type: "DEACTIVATE",
           location_id: locationId,
           gift_card_id: giftCardId,
-          deactivate_activity_details: { reason: "CHARGEBACK_DEACTIVATED" },
+          // Square's GiftCardActivityDeactivateReason enum lists
+          // UNKNOWN_REASON / SUSPICIOUS_ACTIVITY / CHARGEBACK_DEACTIVATE,
+          // but in practice Square only accepts SUSPICIOUS_ACTIVITY when
+          // creating a deactivate activity via the API — the others are
+          // reserved for Square's internal/dispute handling and return
+          // "Reason is not valid for creating a deactivate giftcard
+          // activity". Earlier code shipped "CHARGEBACK_DEACTIVATED"
+          // (extra "D") which threw INVALID_ENUM_VALUE; the call is
+          // try/catch non-fatal so refunds still landed but the staff
+          // eGift card stayed ACTIVE on the Square dashboard, which can
+          // mislead staff if a customer presents the GAN at the center
+          // after a refunded booking.
+          deactivate_activity_details: { reason: "SUSPICIOUS_ACTIVITY" },
         },
       }),
     });
