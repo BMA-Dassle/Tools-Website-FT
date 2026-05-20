@@ -21,6 +21,12 @@ import { setLanePlayers } from "@/lib/qamf-bowling";
 import { toLaneInsertName } from "@/lib/qamf-name";
 import redis from "@/lib/redis";
 import { shortenUrl } from "@/lib/short-url";
+import {
+  normalizePhoneE164,
+  recordOptIn,
+  resolveAudienceMember,
+  splitGuestName,
+} from "~/features/marketing";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -169,6 +175,9 @@ interface ReserveBody {
   rawItems?: RawLineItemRequest[];
   /** Square Web Payments SDK nonce. Required when any item has a charge. */
   squareToken?: string;
+  /** Square gift card nonce — optional. Multi-tender: GC covers up to
+   *  its balance, squareToken (card/wallet) covers the remainder. */
+  giftCardNonce?: string;
   squareCustomerId?: string;
   locationId?: string;
   notes?: string;
@@ -270,6 +279,59 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "webOfferId, bookedAt, players, and guest are required" },
       { status: 400 },
+    );
+  }
+
+  // ── Square customer resolution (audience link for marketing) ─────
+  // Every reservation gets a Square customer linked, even non-rewards
+  // bookings. Lets the post-visit survey flow (PR-GS2) find the customer
+  // by Square id rather than re-searching by phone. The client may pass
+  // squareCustomerId for logged-in rewards members; for everyone else we
+  // resolve by phone (+ name fallback). Failure is non-fatal — booking
+  // continues without it.
+  let resolvedSquareCustomerId: string | undefined = body.squareCustomerId;
+  let resolvedPhoneE164: string | undefined;
+  if (guest.phone) {
+    if (!resolvedSquareCustomerId) {
+      try {
+        const { firstName, lastName } = splitGuestName(guest.name);
+        const audience = await resolveAudienceMember({
+          phone: guest.phone,
+          firstName,
+          lastName,
+          email: guest.email || undefined,
+        });
+        resolvedSquareCustomerId = audience.squareCustomerId;
+        resolvedPhoneE164 = audience.phoneE164;
+      } catch (err) {
+        console.warn(
+          "[bowling/v2/reserve] audience resolve failed (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    // Fall back to a fresh normalize when the audience resolve didn't run
+    // (rewards-member path supplies squareCustomerId already).
+    if (!resolvedPhoneE164) {
+      try {
+        resolvedPhoneE164 = normalizePhoneE164(guest.phone);
+      } catch {
+        // Phone unparseable — skip marketing opt-in below.
+      }
+    }
+  }
+
+  // ── Marketing opt-in (mirrors transactional smsOptIn) ────────────
+  // When a customer agrees to SMS confirmation at booking, also enroll
+  // them in marketing. STOP replies (handled by the inbound SMS webhook
+  // in PR-GS6) flip them back out. Fire-and-forget; never blocks booking.
+  const smsOptInAtBooking = body.smsOptIn ?? true;
+  if (smsOptInAtBooking && resolvedPhoneE164) {
+    recordOptIn({
+      phoneE164: resolvedPhoneE164,
+      source: "booking_confirmation",
+    }).catch((err) =>
+      console.warn("[bowling/v2/reserve] marketing opt-in record failed (non-fatal):", err),
     );
   }
 
@@ -409,8 +471,11 @@ export async function POST(req: NextRequest) {
   // reward covers the entire deposit (client sends depositCents: 0).
   const needsPayment = preTaxTotalCents > 0;
   const effectiveClientDeposit = body.depositCents ?? preTaxTotalCents; // pre-tax fallback
-  if (needsPayment && effectiveClientDeposit > 0 && !body.squareToken) {
-    return NextResponse.json({ error: "squareToken required when deposit > 0" }, { status: 400 });
+  if (needsPayment && effectiveClientDeposit > 0 && !body.squareToken && !body.giftCardNonce) {
+    return NextResponse.json(
+      { error: "squareToken or giftCardNonce required when deposit > 0" },
+      { status: 400 },
+    );
   }
 
   // ── KBF: per-day redemption cap (2 free games = 1 session/day) ──
@@ -905,18 +970,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (actualDepositToCharge > 0 && body.squareToken) {
+    if (actualDepositToCharge > 0 && (body.squareToken || body.giftCardNonce)) {
       const origin = req.nextUrl.origin;
       const sqRes = await fetch(`${origin}/api/square/bowling-orders`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sourceId: body.squareToken,
+          giftCardNonce: body.giftCardNonce,
           idempotencyKey: randomUUID(),
           locationId: squareLocationId,
           depositPct: overallDepositPct,
           lineItems: sqLineItems,
-          squareCustomerId: body.squareCustomerId,
+          squareCustomerId: resolvedSquareCustomerId,
           note: `Deposit – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`,
           // Custom GAN so staff see "Gift Card HPFMX77012" instead of random digits
           giftCardGan: `${CENTER_GAN_PREFIX[centerCode] ?? "HP"}${qamfReservationId.replace(/[^A-Za-z0-9]/g, "")}`,
@@ -1007,7 +1073,7 @@ export async function POST(req: NextRequest) {
         squareDayofOrderId,
         squareGiftCardId,
         squareGiftCardGan,
-        squareCustomerId: body.squareCustomerId,
+        squareCustomerId: resolvedSquareCustomerId,
         squareLoyaltyRewardId: loyaltyRewardId,
         rewardDiscountCents,
         loyaltyAction: body.loyaltyAction,

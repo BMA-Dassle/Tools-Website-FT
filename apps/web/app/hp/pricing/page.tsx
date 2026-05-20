@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 /**
  * HeadPinz pricing page.
@@ -51,6 +53,7 @@ export const metadata: Metadata = {
       "Bowling from $12.99/person, laser tag $10, gel blasters $12. Two SWFL locations — book online.",
     type: "website",
     url: "https://headpinz.com/pricing",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/pricing",
@@ -206,6 +209,12 @@ const rateCards: RateCard[] = [
 export default function HeadPinzPricingPage() {
   return (
     <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Pricing", url: "https://headpinz.com/pricing" },
+        ]}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(pricingSchema) }}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import HeadPinzFooter from "@/components/headpinz/Footer";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Nemo's Sports Bistro | Happy Hour, Free Wings & Full Menu | Fort Myers & Naples",
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
     "bar Naples FL",
     "restaurant Fort Myers",
     "restaurant Naples FL",
-    "bowling alley food",
+    "bowling center food",
     "pizza Fort Myers",
     "burgers Fort Myers",
     "drink specials Fort Myers",
@@ -38,6 +39,7 @@ export const metadata: Metadata = {
       "Happy hour every day until 6PM — $0.99 wings, discounted drinks & apps. Free Wing Friday: 5 free wings with any purchase, 4-6PM. Fort Myers & Naples.",
     type: "website",
     url: "https://headpinz.com/menu",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/menu",

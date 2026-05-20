@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
 import { getGroupTicket, type GroupTicket } from "@/lib/race-tickets";
 import GroupETicketView, { type MemberInitialState } from "./GroupETicketView";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export async function generateMetadata({ params }: PageProps) {
         title: "E-Ticket — FastTrax",
         description: "Your FastTrax e-ticket",
         siteName: "FastTrax E-Ticket",
+        images: [...FASTTRAX_OG],
       },
       twitter: {
         card: "summary" as const,
@@ -36,7 +38,13 @@ export async function generateMetadata({ params }: PageProps) {
     title,
     description,
     robots: { index: false, follow: false },
-    openGraph: { title, description, siteName: "FastTrax E-Ticket", type: "website" as const },
+    openGraph: {
+      title,
+      description,
+      siteName: "FastTrax E-Ticket",
+      type: "website" as const,
+      images: [...FASTTRAX_OG],
+    },
     twitter: { card: "summary" as const, title, description },
   };
 }

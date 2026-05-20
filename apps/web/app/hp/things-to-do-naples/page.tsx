@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 /**
  * Things to Do in Naples — HeadPinz-side hub page targeting the high-
@@ -36,6 +37,7 @@ export const metadata: Metadata = {
     url: "https://headpinz.com/things-to-do-naples",
     siteName: "HeadPinz",
     type: "article",
+    images: [...HEADPINZ_OG],
   },
 };
 

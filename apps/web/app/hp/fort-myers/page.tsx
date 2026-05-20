@@ -3,17 +3,18 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
-import { HeadPinzFortMyersJsonLd } from "@/components/seo/JsonLd";
+import { BreadcrumbJsonLd, HeadPinzFortMyersJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Fort Myers | Best Bowling Alley, Laser Tag & Arcade",
+  title: "HeadPinz Fort Myers FL | Best Bowling Center, Laser Tag & Arcade",
   description:
-    "Fort Myers' best bowling alley — 24 lanes from $13.99, shoes included. Plus NEXUS laser tag, gel blasters, HyperBowling, NeoVerse, 40+ arcade games & Nemo's dining. Open late. Book now!",
+    "Fort Myers' best bowling center — 24 lanes from $13.99, shoes included. Plus NEXUS laser tag, gel blasters, HyperBowling, NeoVerse, 40+ arcade games & Nemo's dining. Open late. Book now!",
   keywords: [
     "HeadPinz Fort Myers",
     "bowling Fort Myers",
-    "bowling alley Fort Myers",
-    "best bowling alley Fort Myers",
+    "bowling center Fort Myers",
+    "best bowling center Fort Myers",
     "bowling near me Fort Myers",
     "laser tag Fort Myers",
     "gel blasters Fort Myers",
@@ -29,11 +30,12 @@ export const metadata: Metadata = {
     "Fun 4 Night Fort Myers",
   ],
   openGraph: {
-    title: "HeadPinz Fort Myers | Best Bowling, Laser Tag & Arcade",
+    title: "HeadPinz Fort Myers FL | Best Bowling, Laser Tag & Arcade",
     description:
       "24 bowling lanes from $13.99 (shoes included), NEXUS laser tag, gel blasters, 40+ arcade games & Nemo's dining. Fort Myers' top entertainment spot. Book now!",
     type: "website",
     url: "https://headpinz.com/fort-myers",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/fort-myers",
@@ -42,21 +44,7 @@ export const metadata: Metadata = {
 
 // Note: LocalBusiness schema now lives in components/seo/JsonLd.tsx
 // (HeadPinzFortMyersJsonLd) so it can ref the parent HeadPinz Organization
-// via @id. This file only keeps the breadcrumb + nav ItemList schemas.
-
-const breadcrumbJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  itemListElement: [
-    { "@type": "ListItem", position: 1, name: "HeadPinz", item: "https://headpinz.com" },
-    {
-      "@type": "ListItem",
-      position: 2,
-      name: "Fort Myers",
-      item: "https://headpinz.com/fort-myers",
-    },
-  ],
-};
+// via @id. Breadcrumb schema is emitted via <BreadcrumbJsonLd>.
 
 const navJsonLd = {
   "@context": "https://schema.org",
@@ -211,7 +199,7 @@ const specials = [
   },
   {
     name: "Late Night Madness",
-    when: "Fri-Sat 11PM-1AM",
+    when: "Fri-Sat 12AM-2AM",
     regular: "$11.99",
     vip: "$13.99",
     note: "2 hours unlimited",
@@ -238,14 +226,17 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a1628]">
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Fort Myers", url: "https://headpinz.com/fort-myers" },
+        ]}
+      />
       <HeadPinzFortMyersJsonLd />
-      {[breadcrumbJsonLd, navJsonLd].map((schema, i) => (
-        <script
-          key={i}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-        />
-      ))}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(navJsonLd) }}
+      />
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <video
@@ -294,7 +285,7 @@ export default function FortMyersPage() {
               textShadow: "0 0 40px rgba(253,91,86,0.35)",
             }}
           >
-            Fort Myers
+            HeadPinz Fort Myers
           </h1>
 
           <p

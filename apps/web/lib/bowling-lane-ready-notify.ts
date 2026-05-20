@@ -16,7 +16,11 @@ const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
 const SITE_URL = "https://headpinz.com";
 
-const CENTER_META: Record<string, { name: string; smsFrom: string }> = {
+/**
+ * Per-center display name + outbound SMS From number.
+ * Exported so other features (guest survey, etc.) can reuse without duplicating.
+ */
+export const CENTER_META: Record<string, { name: string; smsFrom: string }> = {
   TXBSQN0FEKQ11: { name: "HeadPinz Fort Myers", smsFrom: "+12393022155" },
   PPTR5G2N0QXF7: { name: "HeadPinz Naples", smsFrom: "+12394553755" },
 };

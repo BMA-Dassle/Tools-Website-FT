@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState, useMemo } from "react";
 import SubpageHero from "@/components/SubpageHero";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /* ── Types ── */
@@ -812,6 +813,12 @@ export default function LeagueStandingsPage() {
 
   return (
     <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Leagues", url: "https://fasttraxent.com/leagues" },
+        ]}
+      />
       <SubpageHero
         title="League Standings"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/qualifications-hero.webp"

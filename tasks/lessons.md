@@ -257,3 +257,96 @@ const isSharedTopLevelRoute =
 
 **Smell test:** if a new page uses `headers()` to switch on `host.includes("headpinz")`, the
 middleware update is mandatory. There is no scenario where one without the other is correct.
+
+## Square gift card mint pitfalls — read these before touching the survey/comp gift card path (2026-05-20)
+
+Spent the better part of a day chasing "card invalid or not activated" + 502s before
+getting an end-to-end merchant-comp gift card flow working. Four traps, none of them
+in Square's docs as a single page.
+
+### 1. ACTIVATE-by-order is the ONLY path that works for a merchant-comp card
+
+For a customer-purchase card you can `POST /gift-cards/activities` with
+`amount_money` + `buyer_payment_instrument_ids`. For a merchant-comp (no buyer),
+you MUST go through an Order:
+
+```
+1. POST /v2/orders                — eGiftCard line + catalog discount → $0 total
+2. POST /v2/orders/{id}/pay       — empty payment_ids (discount covered it)
+3. POST /v2/gift-cards            — { type: "DIGITAL" }
+4. POST /v2/gift-cards/activities — ACTIVATE with order_id + line_item_uid
+```
+
+Trying to pass `amount_money` alongside `order_id + line_item_uid` returns
+`"Provide either order_id and line_item_uid OR provide amount and
+buyer_payment_instrument_id"`. The two pairs are mutually exclusive.
+
+Square reads the load amount from the line item's `gross_sales_money`
+(base_price × qty), NOT `total_money`. So a $5 line with a 100% discount still
+activates the card with $5.
+
+### 2. FIXED_PERCENTAGE catalog discounts: omit `amount_money`
+
+Our `"Gift Card - Guest Survey (500.088)"` (`37C3SN4245TUCN3RF7XMNKPU`) is
+configured as FIXED_PERCENTAGE 100%. Including `amount_money` on the discount
+object is a 400: `"Do not provide a value for amount_money if you provide a
+catalog_object_id that references a fixed-percentage discount."`
+
+```ts
+discounts: [{ catalog_object_id: discountCatalogObjectId }]  // ✅
+discounts: [{ catalog_object_id: ..., amount_money: { ... } }]  // ❌ for FIXED_PERCENTAGE
+```
+
+Pandora_API passes `amountMoney` because its discount is FIXED_AMOUNT — don't
+copy-paste their pattern without checking the discount's `discount_type` first.
+
+### 3. `actRes.ok` is not enough — Square returns 200 with `errors[]` on idempotency replay
+
+The bowling-orders flow already accounts for this:
+
+```ts
+const data = await actRes.json();
+if (!actRes.ok || data.errors) { /* surface the error */ }
+```
+
+Our reward path was only checking `!actRes.ok` and silently passing through
+200-with-errors. Result: code returned a "success" with a GAN, but Square
+never recorded the ACTIVATE activity. The card stayed PENDING $0. Every
+survey-reward gift card minted today before `bda710b` ended up unusable.
+
+**Belt-and-suspenders:** after activate, GET `/gift-cards/{id}` and assert
+`state === "ACTIVE"` and `balance_money.amount > 0`. The extra round-trip is
+cheap insurance against any future silent-failure mode.
+
+### 4. Customer-facing URLs need the `gftc:` prefix STRIPPED
+
+Square's API returns the gift card id as `gftc:<hex>`. But the customer-facing
+balance and Apple Wallet URLs expect the hex only:
+
+```ts
+const giftCardIdShort = giftCardId.replace(/^gftc:/, "");
+const balanceUrl = `https://squareup.com/gift/balance/${giftCardIdShort}`;
+const walletUrl  = `https://squareup.com/apass/gc/download/personalized/${giftCardIdShort}?source=egift`;
+```
+
+Verified by curl on a known-ACTIVE $5 card:
+- `/apass/.../{stripped}`     → `HTTP 200 application/vnd.apple.pkpass` ✅
+- `/apass/.../gftc:{full}`    → `HTTP 404` ❌
+- `/gift/balance/{stripped}`  → real balance page (SPA-rendered) ✅
+- `/gift/balance/gftc:{full}` → Square's generic eGift landing page (looks like "invalid") ❌
+
+Same convention Pandora_API uses (`cardID.split(":")[1]` before building URLs).
+Both `app.squareup.com` and `squareup.com` work for `/gift/balance/`; Apple
+Wallet uses `squareup.com` only.
+
+### 5. The `state=ACTIVE` gift-cards LIST filter lags
+
+`GET /gift-cards?state=ACTIVE` is indexed and can lag minutes behind. A card
+that just activated may not appear in the list filter even though
+`GET /gift-cards/{id}` returns `state: "ACTIVE"` immediately. Always verify
+state by direct retrieve, never by absence from the LIST filter.
+
+### Where to look
+- [apps/web/lib/square-gift-card.ts](apps/web/lib/square-gift-card.ts) `mintDigitalGiftCard()` — canonical mint flow with defensive checks
+- [apps/web/app/api/square/bowling-orders/route.ts](apps/web/app/api/square/bowling-orders/route.ts) — pre-existing working flow that already had the `data.errors` check
+- `Pandora_API/src/utils/square.utils.ts` / `controllers/squareV2.controllers.ts.ts` — reference implementation for both mint and URL construction

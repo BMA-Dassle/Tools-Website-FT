@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
-import { RestaurantJsonLd } from "@/components/seo/JsonLd";
+import { BreadcrumbJsonLd, RestaurantJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Nemo's Trackside – Brick Oven Pizza & Trackside Dining | FastTrax Fort Myers",
@@ -31,6 +32,7 @@ export const metadata: Metadata = {
       "Wood-fired brick oven pizza, craft drinks & trackside dining. Watch live go-kart racing from your table.",
     type: "website",
     url: "https://fasttraxent.com/menu",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/menu",
@@ -42,6 +44,12 @@ const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 export default function MenuPage() {
   return (
     <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Menu", url: "https://fasttraxent.com/menu" },
+        ]}
+      />
       <RestaurantJsonLd />
       <SubpageHero
         title="Nemo's Trackside"

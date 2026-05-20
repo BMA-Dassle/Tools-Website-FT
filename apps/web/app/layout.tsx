@@ -11,7 +11,9 @@ import { LocalBusinessJsonLd, HeadPinzOrganizationJsonLd } from "@/components/se
 import AxeInit from "@/components/seo/AxeInit";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import MiniCart from "@/components/booking/MiniCart";
+import { FASTTRAX_OG, FASTTRAX_OG_IMAGE, HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 
 /* FastTrax fonts */
 const exo2 = Exo_2({
@@ -134,12 +136,14 @@ export async function generateMetadata(): Promise<Metadata> {
         siteName: "HeadPinz",
         url: "https://headpinz.com",
         locale: "en_US",
+        images: [...HEADPINZ_OG],
       },
       twitter: {
         card: "summary_large_image",
         title: "HeadPinz — Where Fun Comes Together",
         description:
           "Premier bowling, laser tag, gel blasters, arcade & dining. Fort Myers & Naples, FL.",
+        images: [HEADPINZ_OG_IMAGE],
       },
       robots,
       alternates: { canonical: "https://headpinz.com" },
@@ -194,12 +198,14 @@ export async function generateMetadata(): Promise<Metadata> {
       siteName: "FastTrax Entertainment",
       url: "https://fasttraxent.com",
       locale: "en_US",
+      images: [...FASTTRAX_OG],
     },
     twitter: {
       card: "summary_large_image",
       title: "FastTrax – Florida's Largest Indoor Racing Destination",
       description:
         "High-performance electric go-kart racing, arcade, bowling & trackside dining in Fort Myers. Book your heat now.",
+      images: [FASTTRAX_OG_IMAGE],
     },
     robots,
     alternates: { canonical: "https://fasttraxent.com" },
@@ -220,6 +226,13 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const noMobileBar = hdrs.get("x-no-mobile-bar") === "1";
   const showChrome = !isHeadPinz && !isAdmin;
   const showMobileBar = showChrome && !noMobileBar;
+  // GA4 measurement ID, brand-aware. Admin routes opt out (PII / staff
+  // tools). Falsy ID short-circuits the GoogleAnalytics component.
+  const gaId = isAdmin
+    ? undefined
+    : isHeadPinz
+      ? process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_HP
+      : process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_FT;
 
   return (
     <html
@@ -240,6 +253,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {showChrome && <ChatWidgetManager />}
         <SpeedInsights />
         <Analytics />
+        {gaId && <GoogleAnalytics gaId={gaId} />}
         <AxeInit />
         {showChrome && (
           <>

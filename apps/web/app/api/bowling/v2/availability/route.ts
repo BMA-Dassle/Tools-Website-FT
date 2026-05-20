@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchAvailability } from "@/lib/qamf-bowling";
-import { getBowlingExperiences } from "@/lib/bowling-db";
+import { getBowlingExperiences, type BowlingExperienceKind } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
+
+// Cold-start + 4-7 batches of 8 probes can exceed the default 10s budget
+// when QAMF auth is also cold. Other QAMF-touching routes use 30s; match
+// that so we don't 504 ourselves into a false "no slots" UX.
+export const maxDuration = 30;
 
 /**
  * GET /api/bowling/v2/availability
@@ -140,12 +145,33 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get("startDate");
   const hourStr = searchParams.get("hour");
   const minuteStr = searchParams.get("minute");
-  const kindStr = searchParams.get("kind") as "kbf" | "open" | "hourly" | null;
+  // `kind` accepts a single value ("kbf") or a comma-separated list
+  // ("open,hourly"). The open wizard sends both so KBF offers don't leak into
+  // its availability — KBF experiences are filtered client-side, so a slot
+  // whose webOfferId belongs to a KBF experience contributes to no tier and
+  // silently breaks the "next available" fallback.
+  const kindStr = searchParams.get("kind");
+  const validKindValues: BowlingExperienceKind[] = ["kbf", "open", "hourly"];
+  const kinds: BowlingExperienceKind[] = kindStr
+    ? (kindStr
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean) as BowlingExperienceKind[])
+    : [];
+  for (const k of kinds) {
+    if (!validKindValues.includes(k)) {
+      console.log(`[avail] EXIT: invalid kind value '${k}'`);
+      return NextResponse.json(
+        { error: `invalid kind: ${k}. Must be one of: ${validKindValues.join(", ")}` },
+        { status: 400 },
+      );
+    }
+  }
   const webOfferIdStr = searchParams.get("webOfferId");
   const durationMinStr = searchParams.get("durationMinutes");
 
   console.log(
-    `[avail] ENTRY params: centerId=${centerIdStr} players=${playersStr} date=${startDate} hour=${hourStr} min=${minuteStr} kind=${kindStr}`,
+    `[avail] ENTRY params: centerId=${centerIdStr} players=${playersStr} date=${startDate} hour=${hourStr} min=${minuteStr} kinds=[${kinds.join(",")}]`,
   );
 
   if (!centerIdStr || !playersStr || !startDate) {
@@ -175,11 +201,17 @@ export async function GET(req: NextRequest) {
 
   const dow = new Date(`${startDate}T12:00:00`).getDay(); // 0=Sun … 6=Sat
 
-  // Get experiences valid for this day-of-week
-  const allExperiences = await getBowlingExperiences(centerCode, kindStr ?? undefined);
+  // Get experiences valid for this day-of-week.
+  // DB function only filters by a single kind, so for multi-kind requests we
+  // fetch all and post-filter — cheaper than two separate DB round-trips.
+  const dbKind = kinds.length === 1 ? kinds[0] : undefined;
+  const allExperiences = await getBowlingExperiences(centerCode, dbKind);
   let validExperiences = allExperiences.filter(
     (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
   );
+  if (kinds.length > 1) {
+    validExperiences = validExperiences.filter((e) => kinds.includes(e.kind));
+  }
 
   console.log(
     `[avail] experiences: all=${allExperiences.length} valid=${validExperiences.length} dow=${dow} offerIds=[${validExperiences.map((e) => e.qamfWebOfferId).join(",")}]`,
@@ -269,54 +301,75 @@ export async function GET(req: NextRequest) {
   // per offer × time). We post-filter by validOfferIds afterward.
 
   try {
-    // Probe in batches of 8 to avoid QAMF rate limiting, with error tracking
+    // Probe in batches of 8 to avoid QAMF rate limiting, with error tracking.
+    // Each probe gets one retry on failure — cold Lambdas + cold Redis +
+    // cold QAMF auth on the first request after a deploy used to fail
+    // silently, producing { Availabilities: [] } and a false "no slots"
+    // UI. A single retry catches that transient blip without inflating
+    // latency on the warm path.
     let probeErrors = 0;
-    const results: Array<{
+    type ProbeResult = {
       Availabilities: Array<{
         TotalPlayers: number;
         BookedAt: string;
         WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] };
       }>;
-    }> = [];
+    };
+    const results: ProbeResult[] = [];
+    async function probeOne(bookedAt: string): Promise<ProbeResult> {
+      const call = () =>
+        searchAvailability(centerId, {
+          BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
+          TotalPlayers: players,
+          WebOffer: { Services: ["BookForLater"] },
+        });
+      try {
+        return await call();
+      } catch (err1) {
+        try {
+          return await call();
+        } catch (err2) {
+          probeErrors++;
+          if (probeErrors <= 3) {
+            console.warn(
+              `[avail] probe error at ${bookedAt} (after retry): ${err2 instanceof Error ? err2.message : String(err2)}`,
+            );
+          }
+          return { Availabilities: [] };
+        }
+      }
+    }
     for (let i = 0; i < probeTimes.length; i += 8) {
       const batch = probeTimes.slice(i, i + 8);
-      const batchResults = await Promise.all(
-        batch.map((bookedAt) =>
-          searchAvailability(centerId, {
-            BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
-            TotalPlayers: players,
-            WebOffer: { Services: ["BookForLater"] },
-          }).catch((err) => {
-            probeErrors++;
-            if (probeErrors <= 3) {
-              console.warn(
-                `[avail] probe error at ${bookedAt}: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
-            return {
-              Availabilities: [] as Array<{
-                TotalPlayers: number;
-                BookedAt: string;
-                WebOffer: {
-                  Id: string | number;
-                  Options: Record<string, unknown>;
-                  Services: string[];
-                };
-              }>,
-            };
-          }),
-        ),
-      );
+      const batchResults = await Promise.all(batch.map(probeOne));
       results.push(...batchResults);
     }
 
-    // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers
+    // When *every* probe failed even after retry, we have no signal —
+    // returning 200 + empty would be indistinguishable from "this day
+    // is sold out" and the client would render "No slots available."
+    // Surface a 502 so the wizard can show a retry-able banner instead
+    // of misleading the user.
+    if (probeErrors === probeTimes.length && probeTimes.length > 0) {
+      console.error(
+        `[avail] all ${probeTimes.length} probes failed for centerId=${centerId} date=${startDate}`,
+      );
+      return NextResponse.json(
+        { error: "Availability temporarily unavailable, please retry" },
+        { status: 502 },
+      );
+    }
+
+    // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers.
+    // QAMF's spec types WebOffer.Id as string | number and we've seen it flip
+    // per-center; normalize to number here so the client can use strict ===
+    // against DB-sourced numeric offer IDs without silent type-mismatch.
     const seen = new Set<string>();
     let availabilities = results
       .flatMap((r) => r.Availabilities)
+      .map((a) => ({ ...a, WebOffer: { ...a.WebOffer, Id: Number(a.WebOffer.Id) } }))
       .filter((a) => {
-        // Only keep offers we know about in the DB for this day
-        if (!validOfferIds.has(Number(a.WebOffer.Id))) return false;
+        if (!validOfferIds.has(a.WebOffer.Id)) return false;
         const key = `${a.BookedAt}::${a.WebOffer.Id}`;
         if (seen.has(key)) return false;
         seen.add(key);

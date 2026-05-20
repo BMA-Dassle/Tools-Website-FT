@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
+import { randomBytes } from "crypto";
+import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
 
 /**
  * POST /api/square/bowling-orders
@@ -33,7 +34,8 @@ import { randomUUID } from "crypto";
  *
  * Request body:
  * {
- *   sourceId:              string   — Square nonce from Web Payments SDK
+ *   sourceId?:             string   — Square card / wallet nonce. Optional when giftCardNonce covers full deposit.
+ *   giftCardNonce?:        string   — Square gift card nonce. Optional. Multi-tender: GC up to balance, sourceId for remainder.
  *   idempotencyKey?:       string   — caller-supplied UUID for dedup
  *   locationId:            string   — Square location ID (drives tax selection)
  *   depositPct?:           number   — deposit as % of tax-inclusive total (0–100, default 100)
@@ -52,14 +54,17 @@ import { randomUUID } from "crypto";
  *
  * Response (200):
  * {
- *   giftCardId:        string | null   — null for $0 bookings
- *   giftCardGan:       string | null
- *   depositPaymentId:  string | null
- *   depositOrderId:    string | null   — closed Square order for the deposit
- *   dayofOrderId:      string
- *   depositPaidCents:  number
- *   dayofTotalCents:   number
- *   remainingCents:    number
+ *   giftCardId:           string | null   — staff-facing deposit eGift card id; null for $0 bookings
+ *   giftCardGan:          string | null   — staff-facing deposit eGift card GAN (e.g. HPFMX77012)
+ *   depositPaymentId:     string | null   — primary deposit payment id (card if used, else GC)
+ *   depositOrderId:       string | null   — closed Square order for the deposit
+ *   dayofOrderId:         string
+ *   depositPaidCents:     number
+ *   dayofTotalCents:      number
+ *   remainingCents:       number
+ *   // Multi-tender (gift card payment by the customer) breakdown:
+ *   customerGiftCardAppliedCents: number   — amount paid by customer's gift card (0 if none)
+ *   paymentIds:           { gc: string | null, card: string | null }
  * }
  */
 
@@ -117,7 +122,8 @@ interface LineItemInput {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
-      sourceId: string;
+      sourceId?: string;
+      giftCardNonce?: string;
       idempotencyKey?: string;
       locationId: string;
       depositPct?: number;
@@ -145,11 +151,14 @@ export async function POST(req: NextRequest) {
       existingDepositCents?: number;
     };
 
-    const { sourceId, locationId, lineItems, squareCustomerId, note } = body;
+    const { sourceId, giftCardNonce, locationId, lineItems, squareCustomerId, note } = body;
     const depositPct = body.depositPct ?? 100;
 
-    if (!sourceId || !locationId) {
-      return NextResponse.json({ error: "sourceId and locationId required" }, { status: 400 });
+    if (!locationId) {
+      return NextResponse.json({ error: "locationId required" }, { status: 400 });
+    }
+    if (!sourceId && !giftCardNonce) {
+      return NextResponse.json({ error: "sourceId or giftCardNonce required" }, { status: 400 });
     }
     if (!lineItems?.length && !body.existingDayofOrderId) {
       return NextResponse.json({ error: "lineItems required" }, { status: 400 });
@@ -158,7 +167,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "depositPct must be 0–100" }, { status: 400 });
     }
 
-    const baseKey = body.idempotencyKey ?? randomUUID();
+    // 16-char hex baseKey leaves headroom for multi-tender idempotency
+    // prefixes (cancel-card- = 12 chars) within Square's 45-char limit:
+    // 12 + 1 + 16 = 29 < 45. Caller-supplied keys are honored.
+    const baseKey = body.idempotencyKey ?? randomBytes(8).toString("hex");
     const taxCatalogId = LOCATION_TAX[locationId];
     const orderTaxes = taxCatalogId
       ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
@@ -334,47 +346,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Deposit order returned no ID" }, { status: 500 });
     }
 
-    // ── Step 3: Charge card against deposit order ────────────────────────────
-    // order_id links the payment to the deposit order; autocomplete: true
-    // captures the charge immediately and closes the deposit order.
-    //
-    // Square Payments idempotency_key max = 45 chars.
-    // "pay-" (4) + UUID (36) = 40 — within limit.
-    const paymentBody: Record<string, unknown> = {
-      source_id: sourceId,
-      idempotency_key: `pay-${baseKey}`,
-      amount_money: { amount: depositCents, currency: "USD" },
-      location_id: locationId,
-      order_id: depositOrderId,
-      autocomplete: true,
-      note: note ?? "Bowling deposit",
-    };
-    if (squareCustomerId) paymentBody.customer_id = squareCustomerId;
-
-    const payRes = await fetch(`${SQUARE_BASE}/payments`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify(paymentBody),
-    });
-    const payData = await payRes.json();
-
-    if (!payRes.ok || payData.errors) {
-      const sqErr = payData.errors?.[0];
-      const code: string = sqErr?.code ?? "UNKNOWN";
-      const detail: string = sqErr?.detail ?? "Payment failed";
-      console.error("[square/bowling-orders] deposit payment failed:", code, detail);
-      return NextResponse.json(
-        {
-          error:
-            FRIENDLY_PAYMENT_ERRORS[code] ?? "Payment could not be processed. Please try again.",
-          code,
-          detail,
-        },
-        { status: 400 },
-      );
+    // ── Step 3: Charge tender(s) against deposit order ──────────────────────
+    // Multi-tender via authorizeMultiTender: gift card authorizes with
+    // accept_partial_authorization, card authorizes the remainder, both
+    // complete (or all cancelled on any failure). Customer is never charged
+    // if this throws.
+    let multiTender;
+    try {
+      multiTender = await authorizeMultiTender({
+        orderId: depositOrderId,
+        locationId,
+        totalCents: depositCents,
+        baseKey,
+        giftCardNonce,
+        cardSourceId: sourceId,
+        customerId: squareCustomerId,
+        note: note ?? "Bowling deposit",
+      });
+    } catch (err) {
+      if (err instanceof SquarePaymentError) {
+        const friendly =
+          FRIENDLY_PAYMENT_ERRORS[err.code] ??
+          err.message ??
+          "Payment could not be processed. Please try again.";
+        console.error("[square/bowling-orders] deposit payment failed:", err.code, err.message);
+        return NextResponse.json(
+          { error: friendly, code: err.code, detail: err.message },
+          { status: 400 },
+        );
+      }
+      throw err;
     }
 
-    const depositPaymentId: string = payData.payment?.id;
+    const { gcPaymentId, cardPaymentId, gcApprovedCents, cardApprovedCents } = multiTender;
+    // Primary deposit payment id (card if present, else GC) for
+    // back-compat with consumers that read `depositPaymentId`.
+    const depositPaymentId: string = (cardPaymentId || gcPaymentId) as string;
     if (!depositPaymentId) {
       return NextResponse.json({ error: "Payment succeeded but returned no ID" }, { status: 500 });
     }
@@ -439,8 +446,16 @@ export async function POST(req: NextRequest) {
           location_id: locationId,
           gift_card_id: giftCardId,
           activate_activity_details: {
+            // Staff-facing eGift card always holds the FULL deposit value,
+            // regardless of whether the customer paid with card, gift card,
+            // or a mix. The eGift card is the deposit credit instrument
+            // staff scan at the center — it is NOT the customer's tender.
             amount_money: { amount: depositCents, currency: "USD" },
-            buyer_payment_instrument_ids: [depositPaymentId],
+            // Include both paymentIds when present so Square's audit trail
+            // links the eGift card to every customer payment that funded it.
+            buyer_payment_instrument_ids: [gcPaymentId, cardPaymentId].filter((id): id is string =>
+              Boolean(id),
+            ),
           },
         },
       }),
@@ -457,6 +472,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log(
+      `[square/bowling-orders] success dayofOrderId=${dayofOrderId} deposit=${depositCents} gc=${gcApprovedCents} card=${cardApprovedCents} gcPaymentId=${gcPaymentId ?? "-"} cardPaymentId=${cardPaymentId ?? "-"}`,
+    );
+
     return NextResponse.json({
       giftCardId,
       giftCardGan,
@@ -466,6 +485,10 @@ export async function POST(req: NextRequest) {
       depositPaidCents: depositCents,
       dayofTotalCents,
       remainingCents: dayofTotalCents - depositCents,
+      // Multi-tender breakdown for sales-log + UI: how much of the
+      // customer's deposit was funded by their own gift card.
+      customerGiftCardAppliedCents: gcApprovedCents,
+      paymentIds: { gc: gcPaymentId ?? null, card: cardPaymentId ?? null },
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";

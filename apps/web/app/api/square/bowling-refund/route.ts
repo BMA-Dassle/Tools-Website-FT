@@ -11,6 +11,7 @@ import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
  * Request body:
  * {
  *   depositPaymentId: string
+ *   depositOrderId?:  string  // Required for multi-tender (split GC+card) refunds
  *   giftCardId:       string
  *   dayofOrderId?:    string
  *   locationId:       string
@@ -20,6 +21,7 @@ import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 export async function POST(req: NextRequest) {
   let body: {
     depositPaymentId?: string;
+    depositOrderId?: string;
     giftCardId?: string;
     dayofOrderId?: string;
     locationId?: string;
@@ -31,7 +33,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const { depositPaymentId, giftCardId, dayofOrderId, locationId, idempotencyKey } = body;
+  const { depositPaymentId, depositOrderId, giftCardId, dayofOrderId, locationId, idempotencyKey } =
+    body;
 
   if (!depositPaymentId || !giftCardId || !locationId || !idempotencyKey) {
     return NextResponse.json(
@@ -43,6 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await processSquareBowlingRefund({
       depositPaymentId,
+      depositOrderId,
       giftCardId,
       dayofOrderId,
       locationId,

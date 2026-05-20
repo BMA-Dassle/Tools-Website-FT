@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { trackBookingClick } from "@/lib/analytics";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
@@ -815,6 +816,12 @@ export default function LeaderboardsPage() {
 
   return (
     <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Leaderboards", url: "https://fasttraxent.com/leaderboards" },
+        ]}
+      />
       <SubpageHero
         title="Live Leaderboards & Standings"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/leaderboards-hero.webp"

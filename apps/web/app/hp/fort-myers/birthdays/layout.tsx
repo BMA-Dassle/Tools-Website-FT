@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Birthday Parties at HeadPinz Fort Myers | Bowling, Laser Tag & Arcade",
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
       "Bronze, Silver & VIP birthday packages with bowling, laser tag, gel blasters, arcade gaming & dedicated party ambassador.",
     type: "website",
     url: "https://headpinz.com/fort-myers/birthdays",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/fort-myers/birthdays",

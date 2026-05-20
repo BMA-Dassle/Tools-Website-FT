@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { listAlternatives } from "@/lib/alternatives-data";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Alternatives & Comparisons | HeadPinz Fort Myers & Naples",
@@ -15,6 +16,7 @@ export const metadata: Metadata = {
     url: "https://headpinz.com/alternatives",
     siteName: "HeadPinz",
     type: "website",
+    images: [...HEADPINZ_OG],
   },
 };
 

@@ -74,7 +74,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description:
-      "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk.",
+      "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk. Shoes not included.",
     features: [
       "Standard HeadPinz lanes",
       "Up to 6 bowlers per lane",
@@ -86,7 +86,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "Upgrade your free bowling to the VIP suite — same coupon, premium lanes with NeoVerse + HyperBowling.",
+      "Upgrade your free bowling to the VIP suite — same coupon, premium lanes with NeoVerse + HyperBowling. Shoes not included.",
     features: [
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
@@ -123,7 +123,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "regular-mon-thur": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description: "Reserve a lane by the hour — Monday through Thursday.",
+    description: "Reserve a lane by the hour — Monday through Thursday. Shoes not included.",
     features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
     perLane: true,
   },
@@ -131,7 +131,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "Premium hourly lane in the VIP suite — includes chips & salsa and NeoVerse technology.",
+      "Premium hourly lane in the VIP suite — includes chips & salsa and NeoVerse technology. Shoes not included.",
     features: [
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
@@ -143,7 +143,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "regular-fri-sun": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description: "Reserve a lane by the hour — Friday through Sunday.",
+    description: "Reserve a lane by the hour — Friday through Sunday. Shoes not included.",
     features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
     perLane: true,
   },
@@ -151,7 +151,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology.",
+      "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology. Shoes not included.",
     features: [
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
@@ -194,7 +194,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description:
-      "The Friday & Saturday night special — unlimited bowling all night long at one flat price per person!",
+      "The Friday & Saturday night special — unlimited bowling all night long at one flat price per person! Shoes not included.",
     features: [
       "Unlimited bowling",
       "Bowl all night",
@@ -206,7 +206,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "The ultimate weekend night out — unlimited VIP bowling all night with complimentary chips & salsa and NeoVerse technology!",
+      "The ultimate weekend night out — unlimited VIP bowling all night with complimentary chips & salsa and NeoVerse technology! Shoes not included.",
     features: [
       "Unlimited premium VIP bowling",
       "Bowl all night",
@@ -544,6 +544,48 @@ function centsToDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// ── Loading state ──────────────────────────────────────────────────────────
+
+const LOADING_MESSAGES = [
+  "Polishing the pins…",
+  "Waxing the lanes…",
+  "Checking with the pin chasers…",
+  "Counting open lanes…",
+  "Lining up the bumpers…",
+  "Asking the lane monitor…",
+];
+
+function LoadingPackages() {
+  const [idx, setIdx] = useState(0);
+  const [slow, setSlow] = useState(false);
+
+  useEffect(() => {
+    const rotate = setInterval(() => {
+      setIdx((i) => (i + 1) % LOADING_MESSAGES.length);
+    }, 2500);
+    const slowTimer = setTimeout(() => setSlow(true), 8000);
+    return () => {
+      clearInterval(rotate);
+      clearTimeout(slowTimer);
+    };
+  }, []);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
+      <div
+        className="w-10 h-10 border-2 border-white/15 rounded-full animate-spin mx-auto mb-4"
+        style={{ borderTopColor: CORAL }}
+      />
+      <p className="font-body text-white/70 text-sm">{LOADING_MESSAGES[idx]}</p>
+      {slow && (
+        <p className="font-body text-white/40 text-xs mt-2">
+          Still looking — this is taking longer than usual.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Props ──────────────────────────────────────────────────────────────────
 
 interface BowlingWizardProps {
@@ -596,11 +638,27 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // the offer step. The hold is extended every 8 min and released when
   // the user navigates back to offer or the wizard unmounts.
   // holdRef / holdTimerRef use refs to avoid stale closures in the timer.
+  //
+  // Hold lifetime is also gated by a 15-minute client-side countdown that
+  // resets on user activity (step changes, clicks, keypresses, scrolls).
+  // If the countdown reaches zero, the hold is released and the wizard
+  // reloads back to the start so the user can't accept a slot they no
+  // longer own.
+
+  const HOLD_MAX_MS = 15 * 60 * 1000;
+  // Throttle: only send a server-side extend PATCH at most once every 60s
+  // when activity resets the countdown. The 8-min keep-alive interval still
+  // covers the QAMF TTL independently — this just keeps the server in sync
+  // sooner when the user is actively interacting.
+  const HOLD_EXTEND_THROTTLE_MS = 60 * 1000;
 
   const holdRef = useRef<{ qamfId: string; centerId: number } | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdExpiresAtRef = useRef<number | null>(null);
+  const holdLastExtendRef = useRef<number>(0);
   const [holdBusy, setHoldBusy] = useState(false);
   const [holdActive, setHoldActive] = useState(false);
+  const [holdSecondsLeft, setHoldSecondsLeft] = useState(0);
   // Pending back-navigation that would release the hold — stored while
   // the "Release lane?" confirmation is visible.
   const [pendingRelease, setPendingRelease] = useState<Step | null>(null);
@@ -674,6 +732,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
   const [shoeProducts, setShoeProducts] = useState<BowlingSquareProduct[]>([]);
   const [shoeQty, setShoeQty] = useState<Record<number, number>>({});
+  const [showNoShoesModal, setShowNoShoesModal] = useState(false);
 
   // ── Pizza Bowl modifier selections ───────────────────────────────
   // Loaded from Square catalog once a pizza-bowl experience is selected.
@@ -1274,30 +1333,88 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         });
       }
 
-      try {
-        // Build URL — server handles daysOfWeek filtering via DB lookup.
-        // When hour+minute are provided, server probes only that time slot
-        // (1 QAMF call instead of 60+). Full-day mode omits them.
+      // Server handles daysOfWeek filtering via DB lookup.
+      // Targeted mode (hour+minute) probes a ±5h window — fast (~1 batch of 8
+      // QAMF calls) and the common path. Full-day mode probes every 15 min from
+      // open to close — slower but exhaustive. We fall back to full-day below
+      // when targeted returns no slot at the user's exact selected time.
+      async function probe(targeted: boolean): Promise<AvailabilitySlot[]> {
         let url = `/api/bowling/v2/availability?centerId=${center.qamfId}&players=${Math.max(count, 1)}&startDate=${date}`;
         // KBF wizard: scope to kbf offers only.
-        // Open bowling wizard: do NOT pass kind — it needs both 'open' (specials)
-        // AND 'hourly' (lane rentals) since the tier+offer steps show both.
+        // Open bowling wizard: pass kind=open,hourly so the server excludes KBF
+        // from validOfferIds. Without this, KBF-offer slots flow through but
+        // contribute to no tier (client filters kbf out of experiences[]),
+        // poisoning the "next available" fallback with phantom unmatched slots.
         if (kind === "kbf") url += `&kind=kbf`;
+        else url += `&kind=open,hourly`;
         if (opts?.webOfferId) url += `&webOfferId=${opts.webOfferId}`;
-        if (opts?.hour !== undefined && opts?.minute !== undefined) {
+        if (targeted && opts?.hour !== undefined && opts?.minute !== undefined) {
           url += `&hour=${opts.hour}&minute=${opts.minute}`;
         }
+        // First request after a deploy can hit a cold Lambda / cold QAMF
+        // auth and return 502 from the route's all-probes-failed guard.
+        // Vercel may also spin up additional cold instances under load, so
+        // subsequent requests can hit fresh cold workers — retry a few
+        // times with growing backoff to cover that case before surfacing
+        // a "no slots" UX that's actually an upstream blip.
+        const backoffs = [600, 1500, 2500];
+        let lastStatus = 0;
+        for (let attempt = 0; attempt < backoffs.length; attempt++) {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = (await res.json()) as { Availabilities?: RawSlot[]; error?: string };
+            return parseRaw(data.Availabilities ?? []);
+          }
+          lastStatus = res.status;
+          const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+          const last = attempt === backoffs.length - 1;
+          if (!retryable || last) break;
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
+        }
+        throw new Error(`Availability request failed: ${lastStatus}`);
+      }
 
-        const data = await fetch(url).then(
-          (r) => r.json() as Promise<{ Availabilities?: RawSlot[]; error?: string }>,
-        );
+      try {
+        const merged = await probe(true);
 
-        const merged = parseRaw(data.Availabilities ?? []);
+        // Widen to full-day if the targeted ±5h probe missed the user's exact
+        // selected time. Without this, the offer step renders "No more
+        // availability today" against a stale window — e.g. user picks 1 PM,
+        // window covers 8 AM–6 PM, real slots from 9 PM are invisible.
+        // Skip widen when no time was selected (probe was already full-day).
+        if (
+          opts?.hour !== undefined &&
+          opts?.minute !== undefined &&
+          !merged.some(
+            (s) =>
+              slotHourET(s.bookedAt, date) === opts.hour &&
+              slotMinuteET(s.bookedAt) === opts.minute,
+          )
+        ) {
+          try {
+            const fullDay = await probe(false);
+            const seen = new Set(merged.map((s) => `${s.bookedAt}::${s.webOfferId}`));
+            for (const s of fullDay) {
+              const k = `${s.bookedAt}::${s.webOfferId}`;
+              if (!seen.has(k)) {
+                merged.push(s);
+                seen.add(k);
+              }
+            }
+          } catch (err) {
+            // Keep targeted results — partial is better than nothing.
+            console.warn(
+              "[bowling-wizard] widen probe failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+
         setAvailableSlots(merged);
         lastFetchKey.current = `${date}:${count}:${opts?.hour ?? ""}:${opts?.minute ?? ""}`;
 
         if (merged.length === 0) {
-          setSlotsError("No slots available for this date and time. Try another time.");
+          setSlotsError("No slots available for this date. Try another date.");
         }
       } catch (err) {
         setSlotsError(err instanceof Error ? err.message : "Failed to load slots");
@@ -1321,6 +1438,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     setSelectedMinute(null);
     setAvailableSlots([]);
     setSlotsError(null);
+    // Drop the fetch cache key too — otherwise re-picking the same time
+    // after Back skips the fetch and renders against an empty slot list.
+    lastFetchKey.current = "";
 
     if (step === "reschedule") {
       void fetchSlots(selectedDate, { forPlayerCount: existingReservation?.playerCount ?? 1 });
@@ -1740,12 +1860,36 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       clearInterval(holdTimerRef.current);
       holdTimerRef.current = null;
     }
+    holdExpiresAtRef.current = null;
+    holdLastExtendRef.current = 0;
     setHoldActive(false);
+    setHoldSecondsLeft(0);
     void fetch(`/api/bowling/v2/reserve/hold/${qamfId}`, {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ centerId: hCenterId }),
     }).catch(() => {});
+  }, []);
+
+  // ── Hold: refresh countdown on activity ──────────────────────────
+  // Resets the 15-min countdown back to MAX, and (throttled) fires a
+  // server-side PATCH so the QAMF TTL is also kept fresh sooner than the
+  // 8-min keep-alive would. No-op when no hold is active.
+  const refreshHoldCountdown = useCallback(() => {
+    if (!holdRef.current) return;
+    const now = Date.now();
+    holdExpiresAtRef.current = now + HOLD_MAX_MS;
+    setHoldSecondsLeft(Math.ceil(HOLD_MAX_MS / 1000));
+    if (now - holdLastExtendRef.current > HOLD_EXTEND_THROTTLE_MS) {
+      holdLastExtendRef.current = now;
+      const { qamfId, centerId: hCenterId } = holdRef.current;
+      void fetch(`/api/bowling/v2/reserve/hold/${qamfId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ centerId: hCenterId }),
+      }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Hold: create + advance ───────────────────────────────────────
@@ -1759,9 +1903,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // Creates a QAMF Temporary hold for the given slot.
   // Called immediately when the user taps a time chip on the offer step
   // so the hold starts counting before they fill in their details.
-  // Non-fatal — submit falls back to fresh createReservation if this fails.
+  //
+  // Returns:
+  //   "ok"          — hold created, holdRef set, safe to advance
+  //   "unavailable" — slot was taken (409 LanesNotAvailable / "not available");
+  //                   caller MUST stay on the offer step or fall back to
+  //                   another slot. createHold has already cleared the
+  //                   selection, surfaced an inline error, and refetched
+  //                   availability for non-VIP callers.
+  //   "error"       — transient/network failure; caller may advance and
+  //                   let /reserve fall back to a fresh createReservation
+  //                   at submit time.
   const createHold = useCallback(
-    async (slot: AvailabilitySlot) => {
+    async (
+      slot: AvailabilitySlot,
+      opts?: { silent?: boolean },
+    ): Promise<"ok" | "unavailable" | "error"> => {
       // Release any in-flight hold before creating a new one
       releaseHold();
 
@@ -1782,9 +1939,31 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           }),
         });
         const data = (await res.json()) as { qamfReservationId?: string; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Hold failed");
+        if (!res.ok) {
+          const msg = data.error ?? "Hold failed";
+          const isLaneUnavailable = /LanesNotAvailable|not available|409|Conflict|sold\s*out/i.test(
+            msg,
+          );
+          if (isLaneUnavailable) {
+            // Slot was taken between availability fetch and hold attempt.
+            // When `silent` is set (VIP fallback path), the caller will
+            // handle messaging/refetch — don't trample its UI.
+            if (!opts?.silent) {
+              setSelectedSlot(null);
+              setError(
+                "That time was just taken. We've refreshed the available slots — pick another.",
+              );
+              void fetchSlots(selectedDate);
+            }
+            return "unavailable";
+          }
+          throw new Error(msg);
+        }
 
         holdRef.current = { qamfId: data.qamfReservationId!, centerId: center.qamfId };
+        holdExpiresAtRef.current = Date.now() + HOLD_MAX_MS;
+        holdLastExtendRef.current = Date.now();
+        setHoldSecondsLeft(Math.ceil(HOLD_MAX_MS / 1000));
         setHoldActive(true);
 
         // Extend every 8 min so the 10-min QAMF TTL never expires
@@ -1799,29 +1978,61 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           },
           8 * 60 * 1000,
         );
+        return "ok";
       } catch (err) {
         // Non-fatal — submit will fall back to fresh createReservation
         console.warn("[BowlingWizard] hold creation failed:", err);
+        return "error";
       } finally {
         setHoldBusy(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [center.qamfId, activePlayerCount, releaseHold],
+    [center.qamfId, activePlayerCount, releaseHold, fetchSlots, selectedDate],
   );
 
-  // Used by VIP upgrade modal — fires hold (non-blocking, non-fatal)
-  // and advances to next step immediately. The hold continues in the
-  // background — by the time the user fills in shoes + details + payment,
-  // it'll be long confirmed.
+  // Used by VIP upgrade modal — awaits hold creation, then advances only
+  // if the hold succeeded.
+  //
+  // When the primary slot is unavailable (e.g. someone snagged the VIP
+  // lane between the modal opening and the user tapping Upgrade), and a
+  // `fallbackSlot` is provided (the regular slot the user already had
+  // selected), we silently try the fallback and still advance. This
+  // matches the "VIP no longer available, just move on" UX.
+  //
+  // If no fallback is provided, or the fallback is also unavailable,
+  // createHold has cleared the selection / refetched / shown an inline
+  // error; we do NOT advance.
   const createHoldAndAdvance = useCallback(
-    (slot: AvailabilitySlot, incShoes: boolean, isPerLaneExp: boolean) => {
-      void createHold(slot);
-      if (isPerLaneExp) {
-        setStep("attractions");
-      } else {
-        setStep(incShoes ? "attractions" : "shoes");
+    async (
+      slot: AvailabilitySlot,
+      incShoes: boolean,
+      isPerLaneExp: boolean,
+      fallback?: {
+        slot: AvailabilitySlot;
+        incShoes: boolean;
+        isPerLaneExp: boolean;
+        onFallback?: () => void;
+      },
+    ) => {
+      let result = await createHold(slot);
+      let effectiveIncShoes = incShoes;
+
+      if (result === "unavailable" && fallback) {
+        // VIP slot gone — silently fall back to the regular slot the user
+        // had picked before opening the upgrade modal. createHold(silent)
+        // suppresses the "time was just taken" banner so the fallback is
+        // seamless.
+        fallback.onFallback?.();
+        result = await createHold(fallback.slot, { silent: true });
+        effectiveIncShoes = fallback.incShoes;
       }
+
+      if (result !== "ok") return;
+      // Per-lane experiences only skip the shoes step when shoes are actually
+      // included in the package (e.g. pizza-bowl). Hourly per-lane rentals
+      // still need the shoes step.
+      setStep(effectiveIncShoes ? "attractions" : "shoes");
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [createHold],
@@ -1842,6 +2053,51 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       }
     };
   }, []);
+
+  // ── Hold: refresh on step change ────────────────────────────────
+  // Advancing or going back is a strong "user is engaged" signal — reset
+  // the 15-min countdown so we don't expire someone mid-checkout.
+  useEffect(() => {
+    if (!holdActive) return;
+    refreshHoldCountdown();
+  }, [step, holdActive, refreshHoldCountdown]);
+
+  // ── Hold: refresh on user interaction ───────────────────────────
+  // Any pointer/key/scroll activity resets the countdown. Throttled
+  // server-side PATCH lives in refreshHoldCountdown.
+  useEffect(() => {
+    if (!holdActive) return;
+    const handler = () => refreshHoldCountdown();
+    window.addEventListener("pointerdown", handler, { passive: true });
+    window.addEventListener("keydown", handler);
+    window.addEventListener("scroll", handler, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", handler);
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("scroll", handler);
+    };
+  }, [holdActive, refreshHoldCountdown]);
+
+  // ── Hold: 1-second tick + auto-expire ───────────────────────────
+  // When the countdown hits zero we release the QAMF hold and reload the
+  // wizard back to the start — the user can't pay for a slot we no
+  // longer own.
+  useEffect(() => {
+    if (!holdActive) return;
+    const tick = setInterval(() => {
+      if (!holdExpiresAtRef.current) return;
+      const secs = Math.max(0, Math.ceil((holdExpiresAtRef.current - Date.now()) / 1000));
+      setHoldSecondsLeft(secs);
+      if (secs === 0) {
+        // Release hold and refresh the wizard back to the beginning
+        releaseHold();
+        if (typeof window !== "undefined") {
+          window.location.reload();
+        }
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [holdActive, releaseHold]);
 
   // ── HeadPinz Rewards helpers ────────────────────────────────────
 
@@ -2057,8 +2313,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // ── Submit ────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(
-    async (squareToken?: string) => {
+    async (tender?: { cardToken?: string; giftCardNonce?: string }) => {
       if (!selectedSlot) return;
+      const squareToken = tender?.cardToken;
+      const giftCardNonce = tender?.giftCardNonce;
       setBusy(true);
       setPaymentError(null);
       setStep("submitting");
@@ -2116,6 +2374,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             // Extra topping surcharge (1 free per lane, $1 each extra)
             ...(extraToppingsCents > 0 ? { extraToppingsCents } : {}),
             squareToken,
+            ...(giftCardNonce ? { giftCardNonce } : {}),
             locationId: center.squareCenterCode,
             notes,
             smsOptIn,
@@ -2301,7 +2560,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       className="w-1.5 h-1.5 rounded-full animate-pulse"
                       style={{ backgroundColor: GOLD }}
                     />
-                    Lane held
+                    Lane held ·{" "}
+                    <span className="tabular-nums">
+                      {Math.floor(holdSecondsLeft / 60)}:
+                      {(holdSecondsLeft % 60).toString().padStart(2, "0")}
+                    </span>
                   </div>
                 )}
               </div>
@@ -3762,30 +4025,72 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     on {dateLabel}
                   </p>
 
-                  {/* Loading state — shown while availability fetch is in flight.
-                    We advance to this step immediately when "See Packages" is
-                    tapped so the user sees forward motion instead of a frozen
-                    calendar screen. */}
-                  {slotsLoading ? (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
-                      <div
-                        className="w-10 h-10 border-2 border-white/15 rounded-full animate-spin mx-auto mb-4"
-                        style={{ borderTopColor: CORAL }}
-                      />
-                      <p className="font-body text-white/60 text-sm">Finding packages…</p>
-                    </div>
+                  {/* Loading state — shown while availability OR experiences
+                    fetch is in flight. Both must complete before tiersToShow
+                    can be evaluated honestly: experiences[] drives the filter,
+                    and if it's still empty we'd false-negative as "No packages
+                    available" on the first visit (race vs the availability
+                    fetch). We advance to this step immediately when "See
+                    Packages" is tapped so the user sees forward motion instead
+                    of a frozen calendar screen. */}
+                  {slotsLoading || experiencesLoading ? (
+                    <LoadingPackages />
                   ) : tiersToShow.length === 0 ? (
-                    <div className="text-center py-10">
-                      <p className="font-body text-white/50 text-sm">
-                        No packages available at the selected time.
+                    <div className="text-center py-10 space-y-4">
+                      <p className="font-body text-white/65 text-sm">
+                        {selectedHour !== null && selectedMinute !== null
+                          ? `No packages open at ${formatHourMinute(selectedHour, selectedMinute)} on ${dateLabel} at ${center.name}.`
+                          : `No packages open on ${dateLabel} at ${center.name}.`}
+                      </p>
+                      <p className="font-body text-white/45 text-xs">
+                        Try a different time or pick another date.
                       </p>
                       <button
                         type="button"
                         onClick={() => setStep("slots")}
-                        className="mt-4 font-body text-white/60 text-sm underline underline-offset-2"
+                        className="rounded-full px-5 py-2.5 font-body font-bold text-xs uppercase tracking-wider text-white transition-all hover:scale-[1.01]"
+                        style={{ backgroundColor: CORAL, boxShadow: `0 0 14px ${CORAL}40` }}
                       >
-                        ← Choose a different time
+                        Change time
                       </button>
+                    </div>
+                  ) : availableSlots.length === 0 ? (
+                    // Fetch finished with no data — either an upstream blip
+                    // (slotsError set, e.g. cold-Lambda retry exhausted) or
+                    // genuinely zero availability for this date. Either way,
+                    // render ONE coherent message + retry instead of N tier
+                    // cards each saying "No more availability today," which
+                    // misleadingly implies QAMF said the day is sold out.
+                    <div className="text-center py-10 space-y-4">
+                      <p className="font-body text-white/55 text-sm">
+                        {slotsError
+                          ? "We couldn't reach the bowling system. Please try again."
+                          : "No times available for this day. Try another date."}
+                      </p>
+                      <div className="flex gap-3 justify-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            lastFetchKey.current = "";
+                            void fetchSlots(selectedDate, {
+                              hour: selectedHour ?? undefined,
+                              minute: selectedMinute ?? undefined,
+                            });
+                          }}
+                          className="rounded-full px-5 py-2.5 font-body font-bold text-xs uppercase tracking-wider text-white transition-all hover:scale-[1.01]"
+                          style={{ backgroundColor: CORAL, boxShadow: `0 0 14px ${CORAL}40` }}
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStep("slots")}
+                          className="rounded-full px-5 py-2.5 font-body font-bold text-xs uppercase tracking-wider text-white/70 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
+                        >
+                          Change time
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -4411,10 +4716,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           return;
                         }
                         // Hold was already created when user tapped the time chip.
-                        // Just advance to the next step.
-                        if (selectedIsPerLane) {
-                          setStep("attractions");
-                        } else if (selectedIncludesShoes) {
+                        // Just advance to the next step. Per-lane experiences
+                        // don't include shoes unless explicitly flagged — only
+                        // skip the shoes step when the package actually
+                        // includes shoes.
+                        if (selectedIncludesShoes) {
                           setStep("attractions");
                         } else {
                           setStep("shoes");
@@ -4552,15 +4858,35 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         <button
                           type="button"
                           onClick={() => {
-                            // Switch to VIP slot and create hold on it
+                            // Switch to VIP slot and create hold on it.
+                            // If the VIP slot was just taken, silently fall
+                            // back to the regular slot the user already had
+                            // selected and advance — they don't lose their
+                            // session over a VIP availability blip.
                             setSelectedTier("vip");
                             setSelectedSlot(vipUpgradeSlot);
                             setShowVipUpgrade(false);
                             const vipIncludesShoes = vipDisplay.includesShoes ?? false;
+                            const regularFallbackSlot = selectedSlot;
                             void createHoldAndAdvance(
                               vipUpgradeSlot,
                               vipIncludesShoes,
                               vipIsPerLane,
+                              regularFallbackSlot
+                                ? {
+                                    slot: regularFallbackSlot,
+                                    incShoes: selectedIncludesShoes,
+                                    isPerLaneExp: selectedIsPerLane,
+                                    onFallback: () => {
+                                      // Revert UI back to the regular slot
+                                      setSelectedTier("regular");
+                                      setSelectedSlot(regularFallbackSlot);
+                                      setError(
+                                        "That VIP lane was just taken — keeping your regular lane.",
+                                      );
+                                    },
+                                  }
+                                : undefined,
                             );
                           }}
                           className="flex-1 py-3 rounded-full font-body font-bold text-sm uppercase tracking-wider text-[#0a1628] transition-all hover:scale-[1.02]"
@@ -4665,6 +4991,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   type="button"
                   onClick={() => {
                     setError(null);
+                    if (shoePreTaxTotal === 0) {
+                      setShowNoShoesModal(true);
+                      return;
+                    }
                     setStep("attractions");
                   }}
                   className="flex-1 rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
@@ -4675,6 +5005,57 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     : "Skip Shoes"}
                 </button>
               </div>
+
+              {/* ── No-shoes warning modal ───────────────────────────── */}
+              {showNoShoesModal && (
+                <div
+                  className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.65)",
+                    backdropFilter: "blur(4px)",
+                  }}
+                  {...modalBackdropProps(() => setShowNoShoesModal(false))}
+                >
+                  <div
+                    className="w-full sm:max-w-sm mx-0 sm:mx-4 rounded-t-2xl sm:rounded-2xl p-6 pb-8 sm:pb-6"
+                    style={{
+                      backgroundColor: "#0d1829",
+                      border: "1px solid rgba(255,255,255,0.10)",
+                    }}
+                  >
+                    <p className="font-heading uppercase tracking-widest text-white/50 text-xs mb-3">
+                      Bowling Shoes Required
+                    </p>
+                    <p className="font-body text-white text-base mb-1">
+                      You must have bowling shoes to bowl.
+                    </p>
+                    <p className="font-body text-white/55 text-sm mb-6">
+                      If you do not have your own bowling shoes, please add rentals now to avoid
+                      delays at check-in.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowNoShoesModal(false)}
+                        className="w-full rounded-full px-6 py-3 font-body font-bold text-sm uppercase tracking-wider text-white"
+                        style={{ backgroundColor: CORAL, boxShadow: `0 0 18px ${CORAL}40` }}
+                      >
+                        Add Shoes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNoShoesModal(false);
+                          setStep("attractions");
+                        }}
+                        className="w-full rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 border border-white/15"
+                      >
+                        I have my own shoes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -5474,7 +5855,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               originalDepositCents={rewardDiscountCents > 0 ? depositCents : undefined}
               rewardDiscountCents={rewardDiscountCents}
               onBack={() => setStep("details")}
-              onPay={(token) => void handleSubmit(token)}
+              onPay={(tender) => void handleSubmit(tender)}
             />
           )}
 

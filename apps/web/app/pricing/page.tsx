@@ -3,6 +3,8 @@ import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
 import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Go-Kart Racing Prices, Combos & Packages – FastTrax Fort Myers",
@@ -30,6 +32,7 @@ export const metadata: Metadata = {
       "Go-kart racing from $20.99/heat. Combo deals with gel blaster, bowling & arcade. Book online and save at Fort Myers' top entertainment venue.",
     type: "website",
     url: "https://fasttraxent.com/pricing",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/pricing",
@@ -41,6 +44,12 @@ const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 export default function PricingPage() {
   return (
     <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "FastTrax", url: "https://fasttraxent.com" },
+          { name: "Pricing", url: "https://fasttraxent.com/pricing" },
+        ]}
+      />
       <SubpageHero
         title="FastTrax Pricing & Combos"
         backgroundImage="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-hero.webp"

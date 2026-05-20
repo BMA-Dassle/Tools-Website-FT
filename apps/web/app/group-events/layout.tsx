@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Group Events, Birthday Parties & Corporate Team Building – FastTrax Fort Myers",
@@ -32,6 +33,7 @@ export const metadata: Metadata = {
       "Private racing, birthday parties & corporate team building for groups of 14 to 1,000+. VIP amenities, catering & dedicated coordinators at Fort Myers' largest indoor entertainment venue.",
     type: "website",
     url: "https://fasttraxent.com/group-events",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/group-events",

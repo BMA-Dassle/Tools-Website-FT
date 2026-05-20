@@ -33,6 +33,7 @@ export interface SmsLogEntry {
     | "bowling-confirm"
     | "bowling-pre-arrival"
     | "bowling-lane-ready"
+    | "guest-survey"
     | "other";
   /** Voxtelesys HTTP status, or null if we didn't reach the API */
   status: number | null;

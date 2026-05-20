@@ -1,6 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "HeadPinz – Bowling, Laser Tag, Arcade & Dining | Fort Myers & Naples FL",
@@ -31,6 +33,7 @@ export const metadata: Metadata = {
       "Bowling from $13.99, laser tag, gel blasters, 40+ arcade games & dining. Two Southwest Florida locations. Shoes included — book online!",
     type: "website",
     url: "https://headpinz.com",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com",
@@ -122,134 +125,141 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 
 export default function HeadPinzHome() {
   return (
-    <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
-      {jsonLdSchemas.map((schema, i) => (
-        <script
-          key={i}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-        />
-      ))}
-      {/* Video background — plays on all devices, poster as fallback */}
-      <video
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="metadata"
-        className="absolute inset-0 w-full h-full object-cover"
-        poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
-      >
-        <source
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4"
-          type="video/mp4"
-        />
-      </video>
-      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-[#0a1628]" />
-
-      {/* Content */}
-      <div className="relative z-10 flex flex-col items-center text-center px-4 py-20 w-full max-w-4xl mx-auto">
-        {/* Logo */}
-        <div
-          className="relative mb-6"
-          style={{ width: "clamp(160px, 30vw, 280px)", height: "clamp(50px, 9vw, 90px)" }}
-        >
-          <Image
-            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
-            alt="HeadPinz"
-            fill
-            className="object-contain"
-            sizes="280px"
-            unoptimized
-            priority
+    <>
+      <BreadcrumbJsonLd items={[{ name: "HeadPinz", url: "https://headpinz.com" }]} />
+      <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
+        {jsonLdSchemas.map((schema, i) => (
+          <script
+            key={i}
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
           />
-        </div>
-
-        {/* Headline */}
-        <h1
-          className="font-heading font-black uppercase text-white mb-3"
-          style={{ fontSize: "clamp(28px, 6vw, 64px)", lineHeight: "1.05", letterSpacing: "-1px" }}
+        ))}
+        {/* Video background — plays on all devices, poster as fallback */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 w-full h-full object-cover"
+          poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
         >
-          Your Destination for Fun
-        </h1>
+          <source
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4"
+            type="video/mp4"
+          />
+        </video>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-[#0a1628]" />
 
-        {/* Activities */}
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mb-10">
-          {activities.map((act, i) => (
-            <span key={act} className="flex items-center">
-              <span
-                className="font-body text-white/60 uppercase tracking-widest"
-                style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}
-              >
-                {act}
-              </span>
-              {i < activities.length - 1 && (
-                <span
-                  className="text-[#fd5b56] ml-3"
-                  style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}
-                >
-                  &bull;
-                </span>
-              )}
-            </span>
-          ))}
-        </div>
-
-        {/* Location selector — glass buttons */}
-        <p className="font-body text-white/30 text-xs uppercase tracking-[0.3em] mb-4">
-          Select Your Location
-        </p>
-
-        <div className="flex flex-col sm:flex-row gap-3 w-full max-w-lg">
-          {locations.map((loc) => (
-            <Link
-              key={loc.name}
-              href={loc.href}
-              className="group flex-1 flex items-center justify-between gap-4 px-6 py-5 rounded-2xl border border-[#123075]/40 hover:border-[#fd5b56]/50 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_24px_rgba(18,48,117,0.3)]"
-              style={{
-                backgroundColor: "rgba(255,255,255,0.06)",
-                backdropFilter: "blur(12px)",
-                WebkitBackdropFilter: "blur(12px)",
-              }}
-            >
-              <div>
-                <h2 className="font-heading font-black uppercase text-white text-lg tracking-wide">
-                  {loc.name}
-                </h2>
-                <p className="text-white/40 text-[13px] font-body">{loc.address}</p>
-              </div>
-              <div className="w-9 h-9 rounded-full bg-[#fd5b56] flex items-center justify-center shrink-0 group-hover:bg-[#ff7a77] group-hover:shadow-[0_0_16px_rgba(253,91,86,0.4)] transition-all">
-                <svg
-                  className="w-4 h-4 text-white transition-transform group-hover:translate-x-0.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={3}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </Link>
-          ))}
-        </div>
-
-        {/* 10yr badge */}
-        <div className="mt-10 flex items-center gap-2 opacity-30">
-          <div className="relative" style={{ width: 30, height: 30 }}>
+        {/* Content */}
+        <div className="relative z-10 flex flex-col items-center text-center px-4 py-20 w-full max-w-4xl mx-auto">
+          {/* Logo */}
+          <div
+            className="relative mb-6"
+            style={{ width: "clamp(160px, 30vw, 280px)", height: "clamp(50px, 9vw, 90px)" }}
+          >
             <Image
-              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/10yr-logo.png"
-              alt="10 Years"
+              src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
+              alt="HeadPinz"
               fill
               className="object-contain"
-              sizes="30px"
+              sizes="280px"
               unoptimized
+              priority
             />
           </div>
-          <span className="font-body text-white text-xs tracking-widest uppercase">
-            Celebrating 10 Years
-          </span>
+
+          {/* Headline */}
+          <h1
+            className="font-heading font-black uppercase text-white mb-3"
+            style={{
+              fontSize: "clamp(28px, 6vw, 64px)",
+              lineHeight: "1.05",
+              letterSpacing: "-1px",
+            }}
+          >
+            Your Destination for Fun
+          </h1>
+
+          {/* Activities */}
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mb-10">
+            {activities.map((act, i) => (
+              <span key={act} className="flex items-center">
+                <span
+                  className="font-body text-white/60 uppercase tracking-widest"
+                  style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}
+                >
+                  {act}
+                </span>
+                {i < activities.length - 1 && (
+                  <span
+                    className="text-[#fd5b56] ml-3"
+                    style={{ fontSize: "clamp(9px, 1.4vw, 13px)" }}
+                  >
+                    &bull;
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+
+          {/* Location selector — glass buttons */}
+          <p className="font-body text-white/30 text-xs uppercase tracking-[0.3em] mb-4">
+            Select Your Location
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3 w-full max-w-lg">
+            {locations.map((loc) => (
+              <Link
+                key={loc.name}
+                href={loc.href}
+                className="group flex-1 flex items-center justify-between gap-4 px-6 py-5 rounded-2xl border border-[#123075]/40 hover:border-[#fd5b56]/50 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_24px_rgba(18,48,117,0.3)]"
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.06)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                }}
+              >
+                <div>
+                  <h2 className="font-heading font-black uppercase text-white text-lg tracking-wide">
+                    {loc.name}
+                  </h2>
+                  <p className="text-white/40 text-[13px] font-body">{loc.address}</p>
+                </div>
+                <div className="w-9 h-9 rounded-full bg-[#fd5b56] flex items-center justify-center shrink-0 group-hover:bg-[#ff7a77] group-hover:shadow-[0_0_16px_rgba(253,91,86,0.4)] transition-all">
+                  <svg
+                    className="w-4 h-4 text-white transition-transform group-hover:translate-x-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* 10yr badge */}
+          <div className="mt-10 flex items-center gap-2 opacity-30">
+            <div className="relative" style={{ width: 30, height: 30 }}>
+              <Image
+                src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/10yr-logo.png"
+                alt="10 Years"
+                fill
+                className="object-contain"
+                sizes="30px"
+                unoptimized
+              />
+            </div>
+            <span className="font-body text-white text-xs tracking-widest uppercase">
+              Celebrating 10 Years
+            </span>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

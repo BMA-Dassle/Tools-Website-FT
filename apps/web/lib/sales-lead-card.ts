@@ -193,6 +193,50 @@ function notesBlock(state: SalesLeadState): Record<string, unknown> | null {
   };
 }
 
+/**
+ * Event-package minimum derived from the friendly event label. Kids birthday
+ * packages need 12+; everything else needs 20+. Matches the thresholds the
+ * SalesLeadForm warns against on step 1.
+ */
+function eventMinimum(friendlyEventType: string): number {
+  return friendlyEventType.toLowerCase().includes("kids birthday") ? 12 : 20;
+}
+
+/**
+ * Under-minimum disclosure banner. Only rendered when the guest submitted
+ * below the package minimum — by the time they reach the submit endpoint
+ * they've already cleared the modal warning that pricing will be billed at
+ * the minimum headcount, so this banner is a positive "guest acknowledged"
+ * confirmation for sales, not a problem flag.
+ */
+function underMinBanner(state: SalesLeadState): Record<string, unknown> | null {
+  const minimum = eventMinimum(state.lead.eventType);
+  if (state.lead.guestCount >= minimum) return null;
+  return {
+    type: "Container",
+    style: "warning",
+    bleed: true,
+    spacing: "Small",
+    items: [
+      {
+        type: "TextBlock",
+        text: `⚠️ UNDER MINIMUM · ${state.lead.guestCount} guests submitted`,
+        weight: "Bolder",
+        size: "Small",
+        spacing: "None",
+        wrap: true,
+      },
+      {
+        type: "TextBlock",
+        text: `Guest acknowledged pricing will be billed at the ${minimum}-guest package minimum.`,
+        size: "Small",
+        spacing: "None",
+        wrap: true,
+      },
+    ],
+  };
+}
+
 /** Compact one-line status banner (no bleed, no big container padding). */
 function statusBanner(
   actor: SalesLeadActor,
@@ -239,7 +283,10 @@ function baseCard(body: Array<Record<string, unknown>>): Record<string, unknown>
 
 /** Initial card — both Acknowledged + Contacted buttons active. */
 export function buildSalesLeadCard(state: SalesLeadState): Record<string, unknown> {
-  const body: Array<Record<string, unknown>> = [headerContainer(state), leadFactsSet(state)];
+  const body: Array<Record<string, unknown>> = [headerContainer(state)];
+  const underMin = underMinBanner(state);
+  if (underMin) body.push(underMin);
+  body.push(leadFactsSet(state));
   const notes = notesBlock(state);
   if (notes) body.push(notes);
   body.push(
@@ -263,8 +310,10 @@ export function buildSalesLeadCardAcked(state: SalesLeadState): Record<string, u
   const body: Array<Record<string, unknown>> = [
     headerContainer(state),
     statusBanner(state.ackedBy, "Acknowledged", "warning"),
-    leadFactsSet(state),
   ];
+  const underMinAcked = underMinBanner(state);
+  if (underMinAcked) body.push(underMinAcked);
+  body.push(leadFactsSet(state));
   const notes = notesBlock(state);
   if (notes) body.push(notes);
   body.push(
@@ -284,6 +333,8 @@ export function buildSalesLeadCardDone(state: SalesLeadState): Record<string, un
   const ack = state.ackedBy || state.contactedBy;
   if (ack) body.push(statusBanner(ack, "Acknowledged", "warning"));
   if (state.contactedBy) body.push(statusBanner(state.contactedBy, "Contacted", "good"));
+  const underMinDone = underMinBanner(state);
+  if (underMinDone) body.push(underMinDone);
   body.push(leadFactsSet(state));
   const notes = notesBlock(state);
   if (notes) body.push(notes);

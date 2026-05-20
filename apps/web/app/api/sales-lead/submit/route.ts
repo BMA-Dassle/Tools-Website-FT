@@ -239,6 +239,18 @@ function validateBody(body: SubmitBody): string[] {
  */
 function buildPandoraNotes(body: SubmitBody): string {
   const parts: string[] = [];
+  // Under-minimum disclosure rides at the top so it's the first thing a
+  // planner sees in BMI Office. The form gates step-1 advance behind a
+  // modal that spells out "billed at the minimum headcount regardless of
+  // actual count" — by the time we get here the customer has clicked
+  // through and accepted that pricing term.
+  const minimum = body.eventType === "birthday-kid" ? 12 : 20;
+  const guests = Number(body.guestCount) || 0;
+  if (guests > 0 && guests < minimum) {
+    parts.push(
+      `⚠️ UNDER MINIMUM — guest submitted ${guests} but acknowledged pricing will be billed at the ${minimum}-guest package minimum.`,
+    );
+  }
   if (body.packagePrefill?.trim()) {
     parts.push(`Package interested in: ${body.packagePrefill.trim()}`);
   }

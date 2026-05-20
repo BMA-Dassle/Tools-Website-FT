@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Have-A-Ball Bowling League | HeadPinz Fort Myers — 12 Weeks + Free Ball",
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
       "12-week bowling league with a new ball for every bowler. $20/week billed weekly. Starts May 26 at 6:30 PM.",
     type: "website",
     url: "https://headpinz.com/fort-myers/have-a-ball",
+    images: [...HEADPINZ_OG],
   },
   alternates: { canonical: "https://headpinz.com/fort-myers/have-a-ball" },
 };

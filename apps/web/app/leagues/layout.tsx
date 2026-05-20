@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "League Standings | FastTrax Entertainment",
@@ -18,6 +19,7 @@ export const metadata: Metadata = {
       "Racing league standings, driver rankings, and session results at FastTrax Fort Myers.",
     type: "website",
     url: "https://fasttraxent.com/leagues",
+    images: [...FASTTRAX_OG],
   },
   alternates: {
     canonical: "https://fasttraxent.com/leagues",

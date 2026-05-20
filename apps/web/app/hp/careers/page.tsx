@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Careers at HeadPinz | Now Hiring in Fort Myers & Naples FL",
@@ -11,7 +13,7 @@ export const metadata: Metadata = {
     "jobs Fort Myers",
     "jobs Naples FL",
     "entertainment jobs Fort Myers",
-    "bowling alley jobs",
+    "bowling center jobs",
     "part time jobs Fort Myers",
     "hospitality jobs Naples",
     "HeadPinz hiring",
@@ -23,6 +25,7 @@ export const metadata: Metadata = {
       "Join our team at HeadPinz! Positions available at Fort Myers and Naples locations. Apply now.",
     type: "website",
     url: "https://headpinz.com/careers",
+    images: [...HEADPINZ_OG],
   },
   alternates: { canonical: "https://headpinz.com/careers" },
 };
@@ -97,347 +100,363 @@ export default async function CareersPage() {
   const hasJobs = jobs.length > 0;
 
   return (
-    <main style={{ background: bg, minHeight: "100vh", color: "#fff", paddingBottom: "80px" }}>
-      <style>{`.career-card-link:hover .career-card{border-color:rgba(253,91,86,0.5)!important;background:rgba(255,255,255,0.07)!important}`}</style>
+    <>
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Careers", url: "https://headpinz.com/careers" },
+        ]}
+      />
+      <main style={{ background: bg, minHeight: "100vh", color: "#fff", paddingBottom: "80px" }}>
+        <style>{`.career-card-link:hover .career-card{border-color:rgba(253,91,86,0.5)!important;background:rgba(255,255,255,0.07)!important}`}</style>
 
-      {/* Hero */}
-      <section
-        style={{
-          paddingTop: "clamp(120px, 18vw, 180px)",
-          paddingBottom: "60px",
-          paddingLeft: "24px",
-          paddingRight: "24px",
-          textAlign: "center",
-          maxWidth: "800px",
-          margin: "0 auto",
-        }}
-      >
-        <p
+        {/* Hero */}
+        <section
           style={{
-            color: coral,
-            fontFamily: "var(--font-outfit)",
-            fontWeight: 700,
-            fontSize: "14px",
-            letterSpacing: "3px",
-            textTransform: "uppercase",
-            marginBottom: "16px",
-          }}
-        >
-          Now Hiring
-        </p>
-        <h1
-          style={{
-            fontFamily: "var(--font-outfit)",
-            fontWeight: 900,
-            fontSize: "clamp(2.5rem, 6vw, 4rem)",
-            lineHeight: 1.1,
-            marginBottom: "20px",
-          }}
-        >
-          Join the HeadPinz Team
-        </h1>
-        <p
-          style={{
-            fontFamily: "var(--font-dmsans)",
-            fontSize: "1.1rem",
-            color: "rgba(255,255,255,0.75)",
-            lineHeight: 1.7,
-            marginBottom: "36px",
-          }}
-        >
-          We&apos;re building the best entertainment team in Southwest Florida. If you love people,
-          thrive in a fast-paced environment, and want to come to work somewhere genuinely fun — we
-          want to hear from you. Positions available at our Fort Myers and Naples locations.
-        </p>
-        <a
-          href={APPLY_BASE}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            background: coral,
-            color: "#fff",
-            fontFamily: "var(--font-outfit)",
-            fontWeight: 700,
-            fontSize: "15px",
-            letterSpacing: "1px",
-            textTransform: "uppercase",
-            padding: "16px 36px",
-            borderRadius: "555px",
-            textDecoration: "none",
-          }}
-        >
-          View All Open Positions &amp; Apply
-        </a>
-      </section>
-
-      {/* Open positions */}
-      <section style={{ maxWidth: "900px", margin: "0 auto", padding: "0 24px" }}>
-        <h2
-          style={{
-            fontFamily: "var(--font-outfit)",
-            fontWeight: 800,
-            fontSize: "1.6rem",
-            marginBottom: "8px",
+            paddingTop: "clamp(120px, 18vw, 180px)",
+            paddingBottom: "60px",
+            paddingLeft: "24px",
+            paddingRight: "24px",
             textAlign: "center",
+            maxWidth: "800px",
+            margin: "0 auto",
           }}
         >
-          Open Positions
-        </h2>
-        <p
-          style={{
-            fontFamily: "var(--font-dmsans)",
-            color: "rgba(255,255,255,0.45)",
-            fontSize: "0.8rem",
-            textAlign: "center",
-            marginBottom: "32px",
-          }}
-        >
-          Updated live from our hiring portal
-        </p>
-
-        {hasJobs ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            {jobs.map((job, i) => {
-              const tc = typeColor(job.type);
-              const location = [job.city, job.state].filter(Boolean).join(", ");
-              return (
-                <a
-                  key={`${job.url}-${i}`}
-                  href={job.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`${job.title} at ${job.department} — apply on hiring portal`}
-                  className="career-card-link"
-                  style={{ textDecoration: "none", color: "inherit" }}
-                >
-                  <div
-                    className="career-card"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "16px",
-                      padding: "22px 26px",
-                      transition: "border-color 0.2s, background 0.2s",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        flexWrap: "wrap",
-                        gap: "10px",
-                        marginBottom: "10px",
-                      }}
-                    >
-                      <h3
-                        style={{
-                          fontFamily: "var(--font-outfit)",
-                          fontWeight: 700,
-                          fontSize: "1.1rem",
-                          margin: 0,
-                        }}
-                      >
-                        {job.title}
-                      </h3>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "8px",
-                          flexWrap: "wrap",
-                          alignItems: "center",
-                        }}
-                      >
-                        {job.type && (
-                          <span
-                            style={{
-                              background: tc.bg,
-                              color: tc.color,
-                              borderRadius: "555px",
-                              padding: "4px 12px",
-                              fontSize: "12px",
-                              fontFamily: "var(--font-dmsans)",
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {job.type}
-                          </span>
-                        )}
-                        {location && (
-                          <span
-                            style={{
-                              background: "rgba(18,48,117,0.4)",
-                              color: "#93b4ff",
-                              borderRadius: "555px",
-                              padding: "4px 12px",
-                              fontSize: "12px",
-                              fontFamily: "var(--font-dmsans)",
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {location}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                        gap: "8px",
-                      }}
-                    >
-                      {job.department && (
-                        <p
-                          style={{
-                            fontFamily: "var(--font-dmsans)",
-                            color: "rgba(255,255,255,0.5)",
-                            fontSize: "0.85rem",
-                            margin: 0,
-                          }}
-                        >
-                          {job.department}
-                        </p>
-                      )}
-                      <span
-                        style={{
-                          color: coral,
-                          fontFamily: "var(--font-outfit)",
-                          fontWeight: 700,
-                          fontSize: "13px",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        Apply →
-                      </span>
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
-          </div>
-        ) : (
-          <div
+          <p
             style={{
-              textAlign: "center",
-              padding: "48px 24px",
-              background: "rgba(255,255,255,0.03)",
-              borderRadius: "16px",
-              border: "1px solid rgba(255,255,255,0.08)",
+              color: coral,
+              fontFamily: "var(--font-outfit)",
+              fontWeight: 700,
+              fontSize: "14px",
+              letterSpacing: "3px",
+              textTransform: "uppercase",
+              marginBottom: "16px",
             }}
           >
-            <p
-              style={{
-                fontFamily: "var(--font-dmsans)",
-                color: "rgba(255,255,255,0.6)",
-                fontSize: "1rem",
-                marginBottom: "20px",
-              }}
-            >
-              View our current openings on our hiring portal.
-            </p>
-            <a
-              href={APPLY_BASE}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                background: coral,
-                color: "#fff",
-                fontFamily: "var(--font-outfit)",
-                fontWeight: 700,
-                fontSize: "14px",
-                letterSpacing: "1px",
-                textTransform: "uppercase",
-                padding: "14px 28px",
-                borderRadius: "555px",
-                textDecoration: "none",
-              }}
-            >
-              See Open Positions
-            </a>
-          </div>
-        )}
-      </section>
+            Now Hiring
+          </p>
+          <h1
+            style={{
+              fontFamily: "var(--font-outfit)",
+              fontWeight: 900,
+              fontSize: "clamp(2.5rem, 6vw, 4rem)",
+              lineHeight: 1.1,
+              marginBottom: "20px",
+            }}
+          >
+            Join the HeadPinz Team
+          </h1>
+          <p
+            style={{
+              fontFamily: "var(--font-dmsans)",
+              fontSize: "1.1rem",
+              color: "rgba(255,255,255,0.75)",
+              lineHeight: 1.7,
+              marginBottom: "36px",
+            }}
+          >
+            We&apos;re building the best entertainment team in Southwest Florida. If you love
+            people, thrive in a fast-paced environment, and want to come to work somewhere genuinely
+            fun — we want to hear from you. Positions available at our Fort Myers and Naples
+            locations.
+          </p>
+          <a
+            href={APPLY_BASE}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              background: coral,
+              color: "#fff",
+              fontFamily: "var(--font-outfit)",
+              fontWeight: 700,
+              fontSize: "15px",
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              padding: "16px 36px",
+              borderRadius: "555px",
+              textDecoration: "none",
+            }}
+          >
+            View All Open Positions &amp; Apply
+          </a>
+        </section>
 
-      {/* CTA */}
-      <section
-        style={{ maxWidth: "700px", margin: "64px auto 0", padding: "0 24px", textAlign: "center" }}
-      >
-        <div
-          style={{
-            background: `linear-gradient(135deg, ${purple} 0%, #1a3fa0 100%)`,
-            borderRadius: "24px",
-            padding: "48px 36px",
-          }}
-        >
+        {/* Open positions */}
+        <section style={{ maxWidth: "900px", margin: "0 auto", padding: "0 24px" }}>
           <h2
             style={{
               fontFamily: "var(--font-outfit)",
               fontWeight: 800,
-              fontSize: "1.8rem",
-              marginBottom: "16px",
+              fontSize: "1.6rem",
+              marginBottom: "8px",
+              textAlign: "center",
             }}
           >
-            Don&apos;t see your role?
+            Open Positions
           </h2>
           <p
             style={{
               fontFamily: "var(--font-dmsans)",
-              color: "rgba(255,255,255,0.8)",
-              fontSize: "1rem",
-              lineHeight: 1.7,
-              marginBottom: "28px",
+              color: "rgba(255,255,255,0.45)",
+              fontSize: "0.8rem",
+              textAlign: "center",
+              marginBottom: "32px",
             }}
           >
-            We&apos;re always looking for great people. Submit your application through our careers
-            portal and we&apos;ll be in touch.
+            Updated live from our hiring portal
           </p>
-          <div style={{ display: "flex", gap: "16px", justifyContent: "center", flexWrap: "wrap" }}>
-            <a
-              href={APPLY_BASE}
-              target="_blank"
-              rel="noopener noreferrer"
+
+          {hasJobs ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              {jobs.map((job, i) => {
+                const tc = typeColor(job.type);
+                const location = [job.city, job.state].filter(Boolean).join(", ");
+                return (
+                  <a
+                    key={`${job.url}-${i}`}
+                    href={job.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`${job.title} at ${job.department} — apply on hiring portal`}
+                    className="career-card-link"
+                    style={{ textDecoration: "none", color: "inherit" }}
+                  >
+                    <div
+                      className="career-card"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: "16px",
+                        padding: "22px 26px",
+                        transition: "border-color 0.2s, background 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          flexWrap: "wrap",
+                          gap: "10px",
+                          marginBottom: "10px",
+                        }}
+                      >
+                        <h3
+                          style={{
+                            fontFamily: "var(--font-outfit)",
+                            fontWeight: 700,
+                            fontSize: "1.1rem",
+                            margin: 0,
+                          }}
+                        >
+                          {job.title}
+                        </h3>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                          }}
+                        >
+                          {job.type && (
+                            <span
+                              style={{
+                                background: tc.bg,
+                                color: tc.color,
+                                borderRadius: "555px",
+                                padding: "4px 12px",
+                                fontSize: "12px",
+                                fontFamily: "var(--font-dmsans)",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {job.type}
+                            </span>
+                          )}
+                          {location && (
+                            <span
+                              style={{
+                                background: "rgba(18,48,117,0.4)",
+                                color: "#93b4ff",
+                                borderRadius: "555px",
+                                padding: "4px 12px",
+                                fontSize: "12px",
+                                fontFamily: "var(--font-dmsans)",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {location}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "8px",
+                        }}
+                      >
+                        {job.department && (
+                          <p
+                            style={{
+                              fontFamily: "var(--font-dmsans)",
+                              color: "rgba(255,255,255,0.5)",
+                              fontSize: "0.85rem",
+                              margin: 0,
+                            }}
+                          >
+                            {job.department}
+                          </p>
+                        )}
+                        <span
+                          style={{
+                            color: coral,
+                            fontFamily: "var(--font-outfit)",
+                            fontWeight: 700,
+                            fontSize: "13px",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          Apply →
+                        </span>
+                      </div>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          ) : (
+            <div
               style={{
-                background: coral,
-                color: "#fff",
-                fontFamily: "var(--font-outfit)",
-                fontWeight: 700,
-                fontSize: "14px",
-                letterSpacing: "1px",
-                textTransform: "uppercase",
-                padding: "14px 28px",
-                borderRadius: "555px",
-                textDecoration: "none",
+                textAlign: "center",
+                padding: "48px 24px",
+                background: "rgba(255,255,255,0.03)",
+                borderRadius: "16px",
+                border: "1px solid rgba(255,255,255,0.08)",
               }}
             >
-              Apply Now
-            </a>
-            <Link
-              href="/fort-myers"
+              <p
+                style={{
+                  fontFamily: "var(--font-dmsans)",
+                  color: "rgba(255,255,255,0.6)",
+                  fontSize: "1rem",
+                  marginBottom: "20px",
+                }}
+              >
+                View our current openings on our hiring portal.
+              </p>
+              <a
+                href={APPLY_BASE}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  background: coral,
+                  color: "#fff",
+                  fontFamily: "var(--font-outfit)",
+                  fontWeight: 700,
+                  fontSize: "14px",
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  padding: "14px 28px",
+                  borderRadius: "555px",
+                  textDecoration: "none",
+                }}
+              >
+                See Open Positions
+              </a>
+            </div>
+          )}
+        </section>
+
+        {/* CTA */}
+        <section
+          style={{
+            maxWidth: "700px",
+            margin: "64px auto 0",
+            padding: "0 24px",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              background: `linear-gradient(135deg, ${purple} 0%, #1a3fa0 100%)`,
+              borderRadius: "24px",
+              padding: "48px 36px",
+            }}
+          >
+            <h2
               style={{
-                background: "rgba(255,255,255,0.12)",
-                color: "#fff",
                 fontFamily: "var(--font-outfit)",
-                fontWeight: 700,
-                fontSize: "14px",
-                letterSpacing: "1px",
-                textTransform: "uppercase",
-                padding: "14px 28px",
-                borderRadius: "555px",
-                textDecoration: "none",
+                fontWeight: 800,
+                fontSize: "1.8rem",
+                marginBottom: "16px",
               }}
             >
-              Back to HeadPinz
-            </Link>
+              Don&apos;t see your role?
+            </h2>
+            <p
+              style={{
+                fontFamily: "var(--font-dmsans)",
+                color: "rgba(255,255,255,0.8)",
+                fontSize: "1rem",
+                lineHeight: 1.7,
+                marginBottom: "28px",
+              }}
+            >
+              We&apos;re always looking for great people. Submit your application through our
+              careers portal and we&apos;ll be in touch.
+            </p>
+            <div
+              style={{ display: "flex", gap: "16px", justifyContent: "center", flexWrap: "wrap" }}
+            >
+              <a
+                href={APPLY_BASE}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  background: coral,
+                  color: "#fff",
+                  fontFamily: "var(--font-outfit)",
+                  fontWeight: 700,
+                  fontSize: "14px",
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  padding: "14px 28px",
+                  borderRadius: "555px",
+                  textDecoration: "none",
+                }}
+              >
+                Apply Now
+              </a>
+              <Link
+                href="/fort-myers"
+                style={{
+                  background: "rgba(255,255,255,0.12)",
+                  color: "#fff",
+                  fontFamily: "var(--font-outfit)",
+                  fontWeight: 700,
+                  fontSize: "14px",
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  padding: "14px 28px",
+                  borderRadius: "555px",
+                  textDecoration: "none",
+                }}
+              >
+                Back to HeadPinz
+              </Link>
+            </div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </>
   );
 }

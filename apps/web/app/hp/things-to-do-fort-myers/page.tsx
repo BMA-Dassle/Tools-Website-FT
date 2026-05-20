@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 /**
  * Things to Do in Fort Myers — HeadPinz-side hub page. FastTrax has its
@@ -31,6 +32,7 @@ export const metadata: Metadata = {
     url: "https://headpinz.com/things-to-do-fort-myers",
     siteName: "HeadPinz",
     type: "article",
+    images: [...HEADPINZ_OG],
   },
 };
 

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { FASTTRAX_OG, HEADPINZ_OG } from "@/lib/seo";
 
 export async function generateMetadata(): Promise<Metadata> {
   const hdrs = await headers();
@@ -14,6 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
         title: "Book Online | HeadPinz",
         description: "Book bowling, laser tag, gel blasters, shuffleboard and more at HeadPinz.",
         type: "website",
+        images: [...HEADPINZ_OG],
       },
     };
   }
@@ -27,6 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description:
         "Book go-kart racing, duckpin bowling, shuffleboard and more at FastTrax Fort Myers.",
       type: "website",
+      images: [...FASTTRAX_OG],
     },
   };
 }

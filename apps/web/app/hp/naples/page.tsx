@@ -3,16 +3,17 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
-import { HeadPinzNaplesJsonLd } from "@/components/seo/JsonLd";
+import { BreadcrumbJsonLd, HeadPinzNaplesJsonLd } from "@/components/seo/JsonLd";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "HeadPinz Naples FL | Best Bowling Alley, Laser Tag & Arcade",
+  title: "HeadPinz Naples FL | Best Bowling Center, Laser Tag & Arcade",
   description:
-    "Naples' best bowling alley — lanes from $13.99, shoes included. Plus HyperBowling, NeoVerse, NEXUS laser tag, 40+ arcade games & Nemo's Sports Bistro at 8525 Radio Lane. Book online!",
+    "Naples' best bowling center — lanes from $13.99, shoes included. Plus HyperBowling, NeoVerse, NEXUS laser tag, 40+ arcade games & Nemo's Sports Bistro at 8525 Radio Lane. Book online!",
   keywords: [
     "HeadPinz Naples",
     "bowling Naples FL",
-    "bowling alley Naples Florida",
+    "bowling center Naples Florida",
     "best bowling Naples FL",
     "bowling near me Naples",
     "laser tag Naples",
@@ -33,6 +34,7 @@ export const metadata: Metadata = {
       "Bowling from $13.99 (shoes included), HyperBowling, NeoVerse, laser tag, 40+ arcade games & Nemo's dining at 8525 Radio Lane, Naples. Book now!",
     type: "website",
     url: "https://headpinz.com/naples",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/naples",
@@ -41,16 +43,7 @@ export const metadata: Metadata = {
 
 // Note: LocalBusiness schema now lives in components/seo/JsonLd.tsx
 // (HeadPinzNaplesJsonLd) so it can ref the parent HeadPinz Organization
-// via @id. This file only keeps the breadcrumb + nav ItemList schemas.
-
-const breadcrumbJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  itemListElement: [
-    { "@type": "ListItem", position: 1, name: "HeadPinz", item: "https://headpinz.com" },
-    { "@type": "ListItem", position: 2, name: "Naples", item: "https://headpinz.com/naples" },
-  ],
-};
+// via @id. Breadcrumb schema is emitted via <BreadcrumbJsonLd>.
 
 const navJsonLd = {
   "@context": "https://schema.org",
@@ -190,7 +183,7 @@ const specials = [
   },
   {
     name: "Late Night Madness",
-    when: "Fri-Sat 11PM-1AM",
+    when: "Fri-Sat 12AM-2AM",
     regular: "$11.99",
     vip: "$13.99",
     note: "2 hours unlimited",
@@ -217,14 +210,17 @@ const weeklyEvents = [
 export default function NaplesPage() {
   return (
     <div className="bg-[#0a1628]">
+      <BreadcrumbJsonLd
+        items={[
+          { name: "HeadPinz", url: "https://headpinz.com" },
+          { name: "Naples", url: "https://headpinz.com/naples" },
+        ]}
+      />
       <HeadPinzNaplesJsonLd />
-      {[breadcrumbJsonLd, navJsonLd].map((schema, i) => (
-        <script
-          key={i}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-        />
-      ))}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(navJsonLd) }}
+      />
       {/* ====== HERO — Video background ====== */}
       <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
         <video
@@ -272,7 +268,7 @@ export default function NaplesPage() {
               textShadow: "0 0 40px rgba(253,91,86,0.35)",
             }}
           >
-            Naples
+            HeadPinz Naples
           </h1>
 
           <p

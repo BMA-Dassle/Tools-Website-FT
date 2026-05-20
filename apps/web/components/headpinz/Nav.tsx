@@ -57,11 +57,15 @@ function getTodayHours() {
   return `${entry.day} ${entry.open} – ${entry.close}`;
 }
 
+type NavChild = { label: string; href: string };
+type NavItem = { label: string; href?: string; children?: NavChild[] };
+
 export default function HeadPinzNav() {
   const [open, setOpen] = useState(false);
   const [locOpen, setLocOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [todayHours, setTodayHours] = useState("");
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const pathname = usePathname();
 
   // Detect location from pathname, sessionStorage (booking flow), or default
@@ -75,17 +79,48 @@ export default function HeadPinzNav() {
     const bookingKey = pathLoc.key === "fort-myers" ? "headpinz" : pathLoc.key;
     setBookingLocation(bookingKey as LocationKey);
   }
-  const navLinks = [
+  // Mobile keeps the original flat list — no overflow there, dropdowns would just add taps.
+  const mobileLinks: NavChild[] = [
     { label: "Attractions", href: `${currentLoc.href}/attractions` },
     { label: "Birthdays", href: `${currentLoc.href}/birthdays` },
     { label: "Group Events", href: `${currentLoc.href}/group-events` },
     { label: "Specials", href: `${currentLoc.href}#specials` },
     { label: "Nemo's", href: "/menu" },
     { label: "Leagues", href: currentLoc.leagues },
-    // Have-A-Ball league is Fort Myers only
     ...(currentLoc.key === "fort-myers"
       ? [{ label: "Have-A-Ball", href: "/fort-myers/have-a-ball" }]
       : []),
+    { label: "Rewards", href: "/rewards" },
+    { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
+    { label: "Waiver", href: currentLoc.waiver },
+  ];
+
+  const navItems: NavItem[] = [
+    { label: "Attractions", href: `${currentLoc.href}/attractions` },
+    {
+      label: "Parties",
+      children: [
+        { label: "Birthdays", href: `${currentLoc.href}/birthdays` },
+        { label: "Group Events", href: `${currentLoc.href}/group-events` },
+      ],
+    },
+    { label: "Specials", href: `${currentLoc.href}#specials` },
+    { label: "Nemo's", href: "/menu" },
+    {
+      label: "Bowling",
+      children: [
+        {
+          label: "Book Now",
+          href:
+            currentLoc.key === "naples" ? "/hp/book/bowling?location=naples" : "/hp/book/bowling",
+        },
+        { label: "Leagues", href: currentLoc.leagues },
+        // Have-A-Ball league is Fort Myers only
+        ...(currentLoc.key === "fort-myers"
+          ? [{ label: "Have-A-Ball", href: "/fort-myers/have-a-ball" }]
+          : []),
+      ],
+    },
     { label: "Rewards", href: "/rewards" },
     { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
     { label: "Waiver", href: currentLoc.waiver },
@@ -101,20 +136,24 @@ export default function HeadPinzNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Close the mobile menu + location dropdown whenever we navigate.
+  // Close the mobile menu + location dropdown + any open nav group whenever we navigate.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     setOpen(false);
     setLocOpen(false);
+    setOpenGroup(null);
   }, [pathname]);
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
-      {/* Top bar — hours + location selector */}
+      {/* Top bar — hours + location selector. Use text-[10px] on the
+          narrowest viewports so the day name doesn't wrap to a second
+          line on long-name days (Wednesday, Saturday). Bumps up to
+          text-xs at sm+. */}
       <div
-        className={`text-xs text-white/60 px-4 py-1.5 flex items-center justify-between transition-colors duration-300 ${scrolled ? "bg-[#0a1628]" : "bg-transparent"}`}
+        className={`text-[10px] sm:text-xs text-white/60 px-3 sm:px-4 py-1.5 flex items-center justify-between whitespace-nowrap transition-colors duration-300 ${scrolled ? "bg-[#0a1628]" : "bg-transparent"}`}
       >
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <a
             href="https://www.facebook.com/HeadPinzFortMyers"
             target="_blank"
@@ -138,7 +177,7 @@ export default function HeadPinzNav() {
             </svg>
           </a>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Location selector */}
           <div className="relative">
             <button
@@ -236,35 +275,97 @@ export default function HeadPinzNav() {
 
           {/* Desktop links */}
           <div className="hidden lg:flex items-center gap-5">
-            {navLinks.map((l) =>
-              l.href.startsWith("http") ? (
+            {navItems.map((item) => {
+              if (item.children) {
+                const isOpen = openGroup === item.label;
+                return (
+                  <div
+                    key={item.label}
+                    className="relative"
+                    onMouseEnter={() => setOpenGroup(item.label)}
+                    onMouseLeave={() => setOpenGroup(null)}
+                  >
+                    <button
+                      type="button"
+                      aria-haspopup="menu"
+                      aria-expanded={isOpen}
+                      className="font-body font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white hover:text-[#fd5b56] flex items-center gap-1"
+                      style={{ fontSize: "14px" }}
+                    >
+                      {item.label}
+                      <svg
+                        className={`w-3 h-3 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {/* pt-2 gives a hover-buffer so the menu doesn't snap closed crossing the gap */}
+                    <div
+                      role="menu"
+                      className={`absolute left-1/2 -translate-x-1/2 top-full pt-2 z-[60] min-w-[180px] transition-opacity duration-150 ${isOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
+                    >
+                      <div className="bg-[#0a1628] border border-[#123075]/50 rounded-lg overflow-hidden shadow-xl">
+                        {item.children.map((child) =>
+                          child.href.startsWith("http") ? (
+                            <a
+                              key={child.label}
+                              href={child.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              role="menuitem"
+                              className="block px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                            >
+                              {child.label}
+                            </a>
+                          ) : (
+                            <Link
+                              key={child.label}
+                              href={child.href}
+                              role="menuitem"
+                              className="block px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                            >
+                              {child.label}
+                            </Link>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              const href = item.href!;
+              return href.startsWith("http") ? (
                 <a
-                  key={l.label}
-                  href={l.href}
+                  key={item.label}
+                  href={href}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-body font-semibold uppercase tracking-wider transition-colors whitespace-nowrap text-white hover:text-[#fd5b56]"
                   style={{ fontSize: "14px" }}
                 >
-                  {l.label}
+                  {item.label}
                 </a>
               ) : (
                 <Link
-                  key={l.label}
-                  href={l.href}
+                  key={item.label}
+                  href={href}
                   className="font-body font-semibold uppercase tracking-wider transition-colors whitespace-nowrap hover:text-[#fd5b56]"
                   style={{
                     fontSize: "14px",
                     color:
-                      pathname.includes(l.href.split("#")[0]) && !l.href.includes("#")
+                      pathname.includes(href.split("#")[0]) && !href.includes("#")
                         ? "#fd5b56"
                         : "rgb(255,255,255)",
                   }}
                 >
-                  {l.label}
+                  {item.label}
                 </Link>
-              ),
-            )}
+              );
+            })}
           </div>
 
           {/* Book Now + hamburger */}
@@ -312,7 +413,7 @@ export default function HeadPinzNav() {
                 </Link>
               ))}
             </div>
-            {navLinks.map((l) =>
+            {mobileLinks.map((l) =>
               l.href.startsWith("http") ? (
                 <a
                   key={l.label}
@@ -336,12 +437,6 @@ export default function HeadPinzNav() {
                 </Link>
               ),
             )}
-            <a
-              href={currentLoc.booking}
-              className="mt-2 bg-[#fd5b56] text-white font-body font-bold text-sm px-5 py-3 rounded-full text-center uppercase tracking-wider"
-            >
-              Book Now
-            </a>
           </div>
         </div>
       </nav>

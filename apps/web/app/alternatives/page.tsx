@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { listAlternatives } from "@/lib/alternatives-data";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Alternatives & Comparisons | FastTrax Fort Myers",
@@ -15,6 +16,7 @@ export const metadata: Metadata = {
     url: "https://fasttraxent.com/alternatives",
     siteName: "FastTrax Entertainment",
     type: "website",
+    images: [...FASTTRAX_OG],
   },
 };
 

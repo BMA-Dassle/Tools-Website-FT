@@ -1,0 +1,560 @@
+openapi: 3.0.3
+info:
+  title: Guest Survey & Marketing API
+  description: |
+    Admin API for the post-visit guest survey program at HeadPinz centers.
+    Powers portal reporting (sends, opens, completions, rewards) and the
+    one-shot backfill/wipe/consent tools.
+
+    Surveys are dispatched after a QAMF reservation closes (status →
+    `completed`). The customer receives an SMS short-link to
+    `/survey/{token}`; if SMS delivery fails AND a guestEmail is on file,
+    the system retries via SendGrid. The customer answers a small set of
+    questions (tagged `baseline` + `bowling` + `fnb_service` + `closing`),
+    then picks a reward: **500 Pinz** (Square Loyalty) or **$5 e-gift
+    card** (Square Gift Card minted via merchant-comp order).
+
+    **Auth:** every endpoint here is gated by the existing
+    `ADMIN_CAMERA_TOKEN` middleware — pass it as `x-admin-token` header
+    or `?token=` query.
+
+    **Centers:**
+    | Code | Location |
+    |------|----------|
+    | TXBSQN0FEKQ11 | HeadPinz Fort Myers |
+    | PPTR5G2N0QXF7 | HeadPinz Naples |
+
+    **Tags (question buckets):**
+    `baseline`, `bowling`, `fnb_service`, `food_drink`, `gel_blaster`,
+    `arcade`, `racing`, `closing`.
+
+    **Rewards:**
+    `pinz` (500 points), `gift_card` ($5), `declined` (guest opted out
+    of reward).
+  version: "1.0.0"
+
+servers:
+  - url: https://headpinz.com
+    description: Production
+
+security:
+  - AdminTokenHeader: []
+  - AdminTokenQuery: []
+
+components:
+  securitySchemes:
+    AdminTokenHeader:
+      type: apiKey
+      in: header
+      name: x-admin-token
+    AdminTokenQuery:
+      type: apiKey
+      in: query
+      name: token
+
+  parameters:
+    Since:
+      name: since
+      in: query
+      schema: { type: string, format: date-time }
+      description: Lower bound on `sent_at`. ISO date or full timestamp.
+    Until:
+      name: until
+      in: query
+      schema: { type: string, format: date-time }
+      description: Upper bound on `sent_at`. Inclusive of the day if a bare date.
+    CenterCode:
+      name: centerCode
+      in: query
+      schema:
+        type: string
+        enum: [TXBSQN0FEKQ11, PPTR5G2N0QXF7]
+    Origin:
+      name: origin
+      in: query
+      schema: { type: string, enum: [bowling, racing] }
+    Tag:
+      name: tag
+      in: query
+      schema:
+        type: string
+        enum: [baseline, bowling, fnb_service, food_drink, gel_blaster, arcade, racing, closing]
+
+  schemas:
+    SurveyQuestion:
+      type: object
+      properties:
+        id: { type: integer }
+        tag:
+          type: string
+          enum: [baseline, bowling, fnb_service, food_drink, gel_blaster, arcade, racing, closing]
+        ordinal: { type: integer }
+        question: { type: string }
+        kind: { type: string, enum: [rating_1_5, multi, text, yes_no] }
+        choices:
+          type: array
+          items: { type: string }
+          nullable: true
+        gateOrdinal: { type: integer, nullable: true }
+        gateAnswer: { type: string, nullable: true }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    SurveyRow:
+      type: object
+      description: A single guest_surveys row + joined gift-card promo code.
+      properties:
+        id: { type: string, format: uuid }
+        token: { type: string }
+        squareCustomerId: { type: string }
+        phoneE164: { type: string, example: "+12397762044" }
+        origin: { type: string, enum: [bowling, racing] }
+        originRef:
+          { type: string, description: "QAMF reservation id (bowling) or VT3 match id (racing)." }
+        centerCode: { type: string }
+        visitDate: { type: string, format: date }
+        context:
+          type: object
+          description: "Selected tags + center + origin + delivery channel."
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/SurveyQuestion" }
+        responses:
+          type: object
+          nullable: true
+          description: |
+            Map of `{ "<questionId>": "<answer>" }`. Null until the
+            guest submits. Answers are strings (rating_1_5 sends "1".."5";
+            yes_no sends "Yes"/"No"; multi sends the chosen choice text).
+        rewardKind: { type: string, enum: [pinz, gift_card, declined], nullable: true }
+        rewardRef:
+          type: string
+          nullable: true
+          description: |
+            For `pinz`: Square Loyalty event id. For `gift_card`: the
+            GS-XXXX promo code we issued.
+        rewardValue:
+          type: integer
+          nullable: true
+          description: "Cents (gift_card) or points (pinz)."
+        sentAt: { type: string, format: date-time }
+        openedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        promoCode: { type: string, nullable: true, example: "GS-7F2A" }
+        promoCodeGiftCardId:
+          type: string
+          nullable: true
+          example: "gftc:66537ef5474b473fb950e66c5bc3a759"
+          description: "Square Gift Card id (carries the `gftc:` prefix)."
+        promoCodeGan: { type: string, nullable: true, example: "7777111122223333" }
+        promoCodeRedeemedAt: { type: string, format: date-time, nullable: true }
+        squareDashboardUrl:
+          type: string
+          format: uri
+          description: "Square dashboard drill-down for this customer: `https://app.squareup.com/dashboard/customers/{squareCustomerId}`"
+        squareGiftCardDashboardUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: "Square dashboard drill-down for the issued gift card (null when reward is pinz/declined): `https://app.squareup.com/dashboard/gift-cards/{strippedId}`"
+        surveyResultUrl:
+          type: string
+          format: uri
+          description: "Customer-facing survey page (the same link the guest received). Operator can open it to see exactly what the customer sees: `https://headpinz.com/survey/{token}`"
+
+    ListResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        count: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        filters:
+          type: object
+          additionalProperties: true
+        surveys:
+          type: array
+          items: { $ref: "#/components/schemas/SurveyRow" }
+
+    StatsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        window:
+          type: object
+          properties:
+            since: { type: string, nullable: true }
+            until: { type: string, nullable: true }
+        filters:
+          type: object
+          properties:
+            centerCode: { type: string, nullable: true }
+            origin: { type: string, nullable: true }
+            tag: { type: string, nullable: true }
+        funnel:
+          type: object
+          properties:
+            sent: { type: integer }
+            opened: { type: integer }
+            completed: { type: integer }
+            openRate: { type: number, description: "opened / sent, 0..1" }
+            completionRate: { type: number, description: "completed / sent, 0..1" }
+        rewards:
+          type: object
+          properties:
+            pinz: { type: integer }
+            gift_card: { type: integer }
+            declined: { type: integer }
+            issued: { type: integer, description: "pinz + gift_card" }
+            redeemed: { type: integer, description: "gift cards with redeemed_at set" }
+        byTag:
+          type: array
+          items:
+            type: object
+            properties:
+              tag: { type: string }
+              sent: { type: integer }
+              completed: { type: integer }
+        byDay:
+          type: array
+          items:
+            type: object
+            properties:
+              day: { type: string, format: date, description: "ET date" }
+              sent: { type: integer }
+              opened: { type: integer }
+              completed: { type: integer }
+        byCenter:
+          type: array
+          items:
+            type: object
+            properties:
+              centerCode: { type: string }
+              sent: { type: integer }
+              completed: { type: integer }
+
+    QuestionStat:
+      type: object
+      properties:
+        questionId: { type: integer }
+        tag: { type: string }
+        ordinal: { type: integer }
+        question: { type: string }
+        kind: { type: string, enum: [rating_1_5, multi, text, yes_no] }
+        totalAnswered: { type: integer }
+        distribution:
+          type: object
+          additionalProperties: { type: integer }
+          description: "Answer histogram. Empty for `text` questions."
+        averageRating:
+          type: number
+          nullable: true
+          description: "Mean of numeric answers for `rating_1_5` only; null otherwise."
+        recentTextAnswers:
+          type: array
+          items: { type: string }
+          description: "Up to 25 most-recent answers for `text` questions; [] otherwise."
+
+    QuestionStatsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        window:
+          type: object
+          properties:
+            since: { type: string, nullable: true }
+            until: { type: string, nullable: true }
+        filters:
+          type: object
+          properties:
+            centerCode: { type: string, nullable: true }
+            origin: { type: string, nullable: true }
+        count: { type: integer }
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/QuestionStat" }
+
+    BackfillCompletedResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        dryRun: { type: boolean }
+        window:
+          type: object
+          properties:
+            startDate: { type: string, format: date }
+            endDate: { type: string, format: date }
+            days: { type: integer }
+        centerCode: { type: string, nullable: true }
+        counts:
+          type: object
+          properties:
+            reservationsScanned: { type: integer }
+            completedReservations: { type: integer }
+            skippedNoPhone: { type: integer }
+            skippedBadPhone: { type: integer }
+            skippedDuplicateInWindow: { type: integer }
+            uniquePhones: { type: integer }
+            sent: { type: integer }
+            skipped: { type: integer }
+            batchLimit: { type: integer }
+        sent:
+          type: array
+          items:
+            type: object
+            properties:
+              phone: { type: string }
+              reservationId: { type: integer }
+              guestName: { type: string }
+              surveyId: { type: string, format: uuid }
+              token: { type: string }
+        skipped:
+          type: array
+          items:
+            type: object
+            properties:
+              phone: { type: string }
+              reservationId: { type: integer }
+              guestName: { type: string }
+              reason: { type: string }
+
+paths:
+  /api/admin/guest-survey/list:
+    get:
+      summary: List surveys with filters + CSV export
+      description: |
+        Powers the recent-activity table and CSV exports. All filters
+        are optional and ANDed together.
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 500 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/CenterCode"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/Tag"
+        - {
+            in: query,
+            name: rewardKind,
+            schema: { type: string, enum: [pinz, gift_card, declined] },
+          }
+        - {
+            in: query,
+            name: hasResponses,
+            schema: { type: boolean },
+            description: "Only submitted surveys.",
+          }
+        - {
+            in: query,
+            name: hasReward,
+            schema: { type: boolean },
+            description: "Only surveys with a reward issued.",
+          }
+        - {
+            in: query,
+            name: phone,
+            schema: { type: string },
+            description: "Filter to one customer's history. Accepts any format; normalized to E.164.",
+          }
+        - {
+            in: query,
+            name: squareCustomerId,
+            schema: { type: string },
+            description: "Same purpose as `phone`, keyed by Square customer id instead.",
+          }
+        - {
+            in: query,
+            name: completedOnly,
+            schema: { type: boolean },
+            description: "Alias of hasResponses.",
+          }
+        - { in: query, name: format, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListResponse" }
+            text/csv:
+              schema: { type: string, format: binary }
+
+  /api/admin/guest-survey/stats:
+    get:
+      summary: Dashboard funnel + reward + tag + daily breakdowns
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/CenterCode"
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/Tag"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatsResponse" }
+
+  /api/admin/guest-survey/question-stats:
+    get:
+      summary: Per-question response distributions
+      description: |
+        For each active question, returns the answer histogram + a mean
+        rating (for `rating_1_5`) + up to 25 recent text answers (for
+        `text`). Only counts surveys that have been submitted
+        (`completed_at IS NOT NULL`).
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/CenterCode"
+        - $ref: "#/components/parameters/Origin"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestionStatsResponse" }
+
+  /api/admin/guest-survey/send-test:
+    post:
+      summary: Admin debug — fire one survey against a specific phone
+      description: |
+        Used by the operator to live-fire a single survey to an internal
+        phone, bypassing the QAMF webhook path. The 30-day cap and
+        (origin, origin_ref) uniqueness apply; `force: true` wipes prior
+        rows for the phone first so the same operator can re-test
+        repeatedly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, guestName, centerCode]
+              properties:
+                phone: { type: string, example: "+12397762044" }
+                guestName: { type: string, example: "Eric Osborn" }
+                guestEmail: { type: string, format: email }
+                centerCode: { type: string, enum: [TXBSQN0FEKQ11, PPTR5G2N0QXF7] }
+                reservationId:
+                  type: string
+                  description: "Override origin_ref. Defaults to admin-test-<phoneDigits>-<date>."
+                ensureOptIn:
+                  type: boolean
+                  default: true
+                  description: "Seed marketing_consent so the send isn't skipped."
+                force:
+                  type: boolean
+                  default: false
+                  description: "Wipe prior guest_surveys + marketing_touches rows for this phone first."
+      responses:
+        "200": { description: "Outcome shape from EnqueueOutcome." }
+
+  /api/admin/guest-survey/issue-reward-test:
+    post:
+      summary: Admin debug — fire one reward issuance (no survey row needed)
+      description: |
+        Verifies the reward path is healthy: resolves the Square customer
+        by phone, calls issueReward (Pinz Loyalty adjust OR Gift Card
+        merchant-comp mint). Returns the full IssueRewardResult including
+        the GAN (gift_card) or Square Loyalty event id (pinz).
+        Gift-card path requires `surveyId` so the promo code can link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, guestName, centerCode, kind]
+              properties:
+                phone: { type: string }
+                guestName: { type: string }
+                guestEmail: { type: string, format: email }
+                centerCode: { type: string }
+                kind: { type: string, enum: [pinz, gift_card] }
+                surveyId: { type: string, format: uuid }
+      responses:
+        "200": { description: "Result shape from IssueRewardResult." }
+
+  /api/admin/guest-survey/backfill-completed:
+    post:
+      summary: One-shot backfill — send surveys to recently completed reservations
+      description: |
+        Iterates `bowling_reservations.status='completed'` within the
+        last N days, dedupes by normalized phone (most-recent wins),
+        skips phones that already have any prior guest_surveys row,
+        and calls `enqueueBowlingSurvey` for each unique recipient.
+        Idempotent: re-running picks up where a prior run left off
+        (capped batches drain over multiple calls).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days: { type: integer, default: 5, maximum: 14 }
+                centerCode: { type: string }
+                dryRun: { type: boolean, default: false }
+                limit: { type: integer, default: 50, maximum: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackfillCompletedResponse" }
+
+  /api/admin/guest-survey/backfill-consent:
+    post:
+      summary: One-shot — write opt-in rows for upcoming reservations
+      description: |
+        Walks upcoming bowling reservations (today → today + N days),
+        deduplicates by phone, and calls `recordOptIn(source:
+        'booking_confirmation')` for each phone that lacks a
+        marketing_consent row. Never overrides an explicit STOP.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days: { type: integer, default: 14, maximum: 60 }
+                centerCode: { type: string }
+                dryRun: { type: boolean, default: false }
+      responses:
+        "200": { description: "Counts + the list of recorded / skipped phones." }
+
+  /api/admin/guest-survey/wipe-test-data:
+    post:
+      summary: Destructive — wipe admin-test rows
+      description: |
+        Deletes guest_surveys rows whose `origin_ref` starts with
+        `admin-test-`, plus their guest_survey_promo_codes and
+        guest_survey marketing_touches. Production-triggered rows are
+        untouched.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                completedOnly:
+                  type: boolean
+                  default: true
+                  description: "Only wipe rows where responses_json IS NOT NULL."
+                dryRun: { type: boolean, default: false }
+      responses:
+        "200": { description: "Counts of wiped surveys / promoCodes / touches." }
+
+  /api/admin/guest-survey/sync-questions:
+    post:
+      summary: Reconcile guest_survey_questions with the in-code seed
+      description: |
+        Idempotent upsert of the question pool. Compares the in-code
+        seed against the prod table; inserts missing, deactivates
+        questions that have been removed in code.
+      responses:
+        "200": { description: "Summary of inserts / updates / deactivations." }

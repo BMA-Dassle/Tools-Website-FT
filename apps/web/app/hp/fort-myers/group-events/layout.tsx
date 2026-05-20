@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: "Group Events & Corporate Team Building | HeadPinz Fort Myers",
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
       "Bowling, laser tag, gel blasters, arcade & full catering for groups of 10 to 500+ at HeadPinz Fort Myers.",
     type: "website",
     url: "https://headpinz.com/fort-myers/group-events",
+    images: [...HEADPINZ_OG],
   },
   alternates: {
     canonical: "https://headpinz.com/fort-myers/group-events",

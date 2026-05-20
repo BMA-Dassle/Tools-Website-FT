@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AlternativePage } from "@/components/AlternativePage";
 import { FT_ALTERNATIVES, listAlternatives } from "@/lib/alternatives-data";
+import { FASTTRAX_OG, FASTTRAX_OG_IMAGE } from "@/lib/seo";
 
 /**
  * FastTrax alternative comparison landing pages.
@@ -41,11 +42,13 @@ export async function generateMetadata({
       type: "article",
       url: canonicalUrl,
       siteName: "FastTrax Entertainment",
+      images: [...FASTTRAX_OG],
     },
     twitter: {
       card: "summary_large_image",
       title: `${title} | FastTrax`,
       description,
+      images: [FASTTRAX_OG_IMAGE],
     },
     keywords: [
       data.searchTerm,

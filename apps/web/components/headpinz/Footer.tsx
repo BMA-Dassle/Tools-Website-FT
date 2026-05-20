@@ -117,6 +117,23 @@ export default function HeadPinzFooter() {
           </a>
         </div>
 
+        {/* Sister brand callout — FastTrax shares the Fort Myers campus
+            (14501 Global Parkway, one building over). Cross-domain backlink
+            establishes the entity pair and passes authority to fasttraxent.com. */}
+        <div className="border-t border-white/10 pt-6 mb-6">
+          <p className="text-center text-sm text-white/60 font-body">
+            Looking for go-kart racing? Visit our sister venue{" "}
+            <a
+              href="https://fasttraxent.com"
+              className="text-[#fd5b56] hover:text-white transition-colors font-semibold"
+            >
+              FastTrax Entertainment
+            </a>{" "}
+            — Florida&apos;s largest indoor electric kart track, right next door at the Fort Myers
+            campus.
+          </p>
+        </div>
+
         {/* Copyright */}
         <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30 font-body">
           <p>&copy; 2026 Pinboyz LLC. All rights reserved.</p>

@@ -52,6 +52,11 @@ export function LocalBusinessJsonLd() {
     paymentAccepted: "Cash, Credit Card, Debit Card",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png",
     sameAs: ["https://www.facebook.com/FastTraxFM"],
+    // Sister brand on the same Fort Myers campus (14513 Global Parkway).
+    // Declaring HeadPinz as a relatedLink + the Organization's @id reference
+    // helps Google merge the two as an entity pair rather than competing
+    // duplicates. Adjacent address proximity is the SEO hook.
+    relatedLink: ["https://headpinz.com", "https://headpinz.com/fort-myers"],
     hasOfferCatalog: {
       "@type": "OfferCatalog",
       name: "FastTrax Activities",
@@ -216,6 +221,10 @@ export function HeadPinzOrganizationJsonLd() {
       { "@id": "https://headpinz.com/fort-myers/#localbusiness" },
       { "@id": "https://headpinz.com/naples/#localbusiness" },
     ],
+    // FastTrax shares the Fort Myers campus (14501 Global Parkway, the
+    // adjacent building). Cross-link in schema mirrors the footer link and
+    // establishes the entity pair for Google.
+    relatedLink: ["https://fasttraxent.com"],
   };
   return (
     <script

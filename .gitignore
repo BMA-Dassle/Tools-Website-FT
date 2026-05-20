@@ -45,3 +45,8 @@ yarn-error.log*
 
 # Husky regenerates the _/ directory on every `npm install` via the prepare script.
 .husky/_/
+
+# Per-user Claude Code state. settings.local.json holds machine-specific permission
+# grants that frequently include curl commands with bearer tokens / API keys.
+.claude/settings.local.json
+.claude/worktrees/

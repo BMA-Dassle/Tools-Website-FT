@@ -459,7 +459,16 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/accessibility/") ||
     pathname === "/cancellation-policy" ||
     pathname.startsWith("/cancellation-policy/") ||
-    pathname.startsWith("/event/");
+    pathname.startsWith("/event/") ||
+    // Guest-survey landing pages (PR-GS2). Bowling surveys are HP-branded
+    // and racing surveys are FT-branded, but the page lives at /survey/*
+    // (not /hp/survey/* nor /ft/survey/*) — the route reads the center
+    // code from the row and picks the brand. Without this exclusion the
+    // /hp rewrite turns into a 404.
+    pathname.startsWith("/survey/") ||
+    // Marketing unsubscribe page — linked from email footers, must work
+    // on both brand domains.
+    pathname.startsWith("/marketing/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
@@ -475,6 +484,29 @@ export async function middleware(request: NextRequest) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
+  }
+
+  // HeadPinz domain on a shared top-level route (e.g. /survey/, /event/) —
+  // skip the /hp rewrite but STILL flag the brand so the root layout
+  // suppresses the FastTrax Nav/Footer and the body picks up brand-headpinz
+  // (deep navy + HP fonts). Also suppress the mobile Book-Now bar so it
+  // doesn't overlap a focused customer-flow screen.
+  if (isHeadPinz && isSharedTopLevelRoute) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
+    if (pathname.startsWith("/survey/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // Survey routes on EITHER domain: suppress the mobile Book-Now bar so
+  // it doesn't sit on top of the survey content (FastTrax bowling visitor
+  // hitting fasttraxent.com/survey/* would otherwise get the FT MobileBookBar).
+  if (pathname.startsWith("/survey/")) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-no-mobile-bar", "1");
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // HeadPinz domain on shared routes (/book, /api):
