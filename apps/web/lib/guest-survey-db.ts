@@ -462,6 +462,8 @@ export interface GuestSurveyListItem extends GuestSurveyRow {
   promoCode: string | null;
   /** Square gift card GAN for gift-card rewards, null otherwise. */
   promoCodeGan: string | null;
+  /** Square Gift Card id (gftc:hex) for gift-card rewards, null otherwise. */
+  promoCodeGiftCardId: string | null;
   /** Has the gift card been redeemed yet? */
   promoCodeRedeemedAt: string | null;
 }
@@ -469,52 +471,358 @@ export interface GuestSurveyListItem extends GuestSurveyRow {
 /**
  * List recent guest surveys with their gift-card promo codes joined.
  *
- * Used by the admin report endpoint. Read-only — no mutation.
+ * Read-only — no mutation. All filters are optional and ANDed.
  *
  * Filters:
- *   - since: lower-bound on sent_at (ISO date or timestamp). Default = NULL (no lower bound).
- *   - centerCode: exact-match filter.
- *   - completedOnly: only rows where completed_at IS NOT NULL.
- *   - limit: max rows returned. Default 50, caller caps at 500.
+ *   - since        Lower-bound on sent_at (ISO date or timestamp).
+ *   - until        Upper-bound on sent_at (ISO date or timestamp; inclusive of the day).
+ *   - centerCode   Exact-match filter.
+ *   - origin       'bowling' | 'racing'.
+ *   - tag          Survey must include this tag in context_json.tags.
+ *   - rewardKind   Filter to surveys that issued this reward kind.
+ *   - hasResponses Only rows where responses_json IS NOT NULL (= submitted).
+ *   - hasReward    Only rows where reward_kind IS NOT NULL.
+ *   - completedOnly Alias of hasResponses (kept for back-compat).
+ *   - limit / offset for pagination. Defaults limit=50 (max 500), offset=0.
  */
-export async function listGuestSurveys(opts: {
+export interface ListGuestSurveysOpts {
   since?: string | null;
+  until?: string | null;
   centerCode?: string | null;
+  origin?: SurveyOrigin | null;
+  tag?: SurveyQuestionTag | string | null;
+  rewardKind?: SurveyRewardKind | null;
+  hasResponses?: boolean | null;
+  hasReward?: boolean | null;
+  /** E.164 phone (exact match). Use to pull one customer's history. */
+  phoneE164?: string | null;
+  /** Square customer id (exact match). Same purpose, different key. */
+  squareCustomerId?: string | null;
+  /** @deprecated use hasResponses */
   completedOnly?: boolean;
   limit?: number;
-}): Promise<GuestSurveyListItem[]> {
+  offset?: number;
+}
+
+export async function listGuestSurveys(opts: ListGuestSurveysOpts): Promise<GuestSurveyListItem[]> {
   if (!isDbConfigured()) return [];
   await ensureGuestSurveySchema();
   const q = sql();
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
-  // Build LEFT JOIN to surface promo code on gift-card rows. NULL params
-  // turn the filter into "IS NULL OR ..." so optional filters drop in
-  // cleanly without dynamic SQL string concat.
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const completedOnly = opts.hasResponses ?? opts.completedOnly ?? false;
+  // Each filter is ` ? IS NULL OR <predicate>` so optional filters drop in
+  // cleanly without dynamic SQL string concat. The `tag` filter uses
+  // jsonb `@>` containment against the {tags:[…]} array.
   const rows = await q`
     SELECT
       s.*,
-      p.code              AS promo_code,
-      p.square_gift_card_gan AS promo_gan,
-      p.redeemed_at       AS promo_redeemed_at
+      p.code                  AS promo_code,
+      p.square_gift_card_id   AS promo_gift_card_id,
+      p.square_gift_card_gan  AS promo_gan,
+      p.redeemed_at           AS promo_redeemed_at
     FROM guest_surveys s
     LEFT JOIN guest_survey_promo_codes p ON p.survey_id = s.id
     WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
       AND (${opts.centerCode ?? null}::text IS NULL OR s.center_code = ${opts.centerCode ?? null})
-      AND (${opts.completedOnly ? "true" : "false"}::boolean = false OR s.completed_at IS NOT NULL)
+      AND (${opts.origin ?? null}::text IS NULL OR s.origin = ${opts.origin ?? null})
+      AND (${opts.rewardKind ?? null}::text IS NULL OR s.reward_kind = ${opts.rewardKind ?? null})
+      AND (${opts.phoneE164 ?? null}::text IS NULL OR s.phone_e164 = ${opts.phoneE164 ?? null})
+      AND (${opts.squareCustomerId ?? null}::text IS NULL OR s.square_customer_id = ${opts.squareCustomerId ?? null})
+      AND (${opts.tag ?? null}::text IS NULL OR s.context_json @> jsonb_build_object('tags', jsonb_build_array(${opts.tag ?? null}::text)))
+      AND (${completedOnly ? "true" : "false"}::boolean = false OR s.completed_at IS NOT NULL)
+      AND (${opts.hasReward ? "true" : "false"}::boolean = false OR s.reward_kind IS NOT NULL)
     ORDER BY s.sent_at DESC
     LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return (rows as Record<string, unknown>[]).map((row) => {
     const base = rowToSurvey(row);
     return {
       ...base,
       promoCode: (row.promo_code as string) ?? null,
+      promoCodeGiftCardId: (row.promo_gift_card_id as string) ?? null,
       promoCodeGan: (row.promo_gan as string) ?? null,
       promoCodeRedeemedAt: row.promo_redeemed_at
         ? (row.promo_redeemed_at as Date).toISOString()
         : null,
     };
   });
+}
+
+/**
+ * Aggregate stats for the dashboard: funnel counts, reward breakdown,
+ * per-tag completion, daily time series. All filters mirror
+ * listGuestSurveys (date range, centerCode, origin, tag).
+ *
+ * Returns ONE row of summary numbers (no pagination).
+ */
+export interface GuestSurveyStats {
+  window: { since: string | null; until: string | null };
+  filters: { centerCode: string | null; origin: SurveyOrigin | null; tag: string | null };
+  funnel: {
+    sent: number;
+    opened: number;
+    completed: number;
+    openRate: number;
+    completionRate: number;
+  };
+  rewards: {
+    pinz: number;
+    gift_card: number;
+    declined: number;
+    issued: number; // pinz + gift_card
+    redeemed: number; // gift cards with redeemed_at set
+  };
+  byTag: Array<{ tag: string; sent: number; completed: number }>;
+  byDay: Array<{ day: string; sent: number; opened: number; completed: number }>;
+  byCenter: Array<{ centerCode: string; sent: number; completed: number }>;
+}
+
+export async function getGuestSurveyStats(opts: {
+  since?: string | null;
+  until?: string | null;
+  centerCode?: string | null;
+  origin?: SurveyOrigin | null;
+  tag?: string | null;
+}): Promise<GuestSurveyStats> {
+  const empty: GuestSurveyStats = {
+    window: { since: opts.since ?? null, until: opts.until ?? null },
+    filters: {
+      centerCode: opts.centerCode ?? null,
+      origin: opts.origin ?? null,
+      tag: opts.tag ?? null,
+    },
+    funnel: { sent: 0, opened: 0, completed: 0, openRate: 0, completionRate: 0 },
+    rewards: { pinz: 0, gift_card: 0, declined: 0, issued: 0, redeemed: 0 },
+    byTag: [],
+    byDay: [],
+    byCenter: [],
+  };
+  if (!isDbConfigured()) return empty;
+  await ensureGuestSurveySchema();
+  const q = sql();
+
+  // Funnel + reward counters in ONE pass using FILTER aggregates.
+  const funnelRows = await q`
+    SELECT
+      COUNT(*)::int                                                                AS sent,
+      COUNT(*) FILTER (WHERE opened_at IS NOT NULL)::int                           AS opened,
+      COUNT(*) FILTER (WHERE completed_at IS NOT NULL)::int                        AS completed,
+      COUNT(*) FILTER (WHERE reward_kind = 'pinz')::int                            AS reward_pinz,
+      COUNT(*) FILTER (WHERE reward_kind = 'gift_card')::int                       AS reward_gift_card,
+      COUNT(*) FILTER (WHERE reward_kind = 'declined')::int                        AS reward_declined
+    FROM guest_surveys s
+    WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
+      AND (${opts.centerCode ?? null}::text IS NULL OR s.center_code = ${opts.centerCode ?? null})
+      AND (${opts.origin ?? null}::text IS NULL OR s.origin = ${opts.origin ?? null})
+      AND (${opts.tag ?? null}::text IS NULL OR s.context_json @> jsonb_build_object('tags', jsonb_build_array(${opts.tag ?? null}::text)))
+  `;
+  const f = funnelRows[0] as Record<string, number>;
+
+  const redeemedRows = await q`
+    SELECT COUNT(DISTINCT p.code)::int AS redeemed
+    FROM guest_survey_promo_codes p
+    JOIN guest_surveys s ON s.id = p.survey_id
+    WHERE p.redeemed_at IS NOT NULL
+      AND (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
+      AND (${opts.centerCode ?? null}::text IS NULL OR s.center_code = ${opts.centerCode ?? null})
+      AND (${opts.origin ?? null}::text IS NULL OR s.origin = ${opts.origin ?? null})
+  `;
+  const redeemed = (redeemedRows[0] as { redeemed: number }).redeemed;
+
+  // By-tag: unnest the context_json.tags array and group.
+  const tagRows = await q`
+    SELECT
+      tag::text                                                              AS tag,
+      COUNT(*)::int                                                          AS sent,
+      COUNT(*) FILTER (WHERE s.completed_at IS NOT NULL)::int                AS completed
+    FROM guest_surveys s,
+         jsonb_array_elements_text(s.context_json -> 'tags') AS tag
+    WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
+      AND (${opts.centerCode ?? null}::text IS NULL OR s.center_code = ${opts.centerCode ?? null})
+      AND (${opts.origin ?? null}::text IS NULL OR s.origin = ${opts.origin ?? null})
+    GROUP BY tag
+    ORDER BY sent DESC
+  `;
+
+  // By-day: group by sent_at::date in America/New_York.
+  const dayRows = await q`
+    SELECT
+      (s.sent_at AT TIME ZONE 'America/New_York')::date::text                AS day,
+      COUNT(*)::int                                                          AS sent,
+      COUNT(*) FILTER (WHERE opened_at IS NOT NULL)::int                     AS opened,
+      COUNT(*) FILTER (WHERE completed_at IS NOT NULL)::int                  AS completed
+    FROM guest_surveys s
+    WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
+      AND (${opts.centerCode ?? null}::text IS NULL OR s.center_code = ${opts.centerCode ?? null})
+      AND (${opts.origin ?? null}::text IS NULL OR s.origin = ${opts.origin ?? null})
+      AND (${opts.tag ?? null}::text IS NULL OR s.context_json @> jsonb_build_object('tags', jsonb_build_array(${opts.tag ?? null}::text)))
+    GROUP BY day
+    ORDER BY day ASC
+  `;
+
+  // By-center: useful when no center filter applied.
+  const centerRows = await q`
+    SELECT
+      s.center_code                                                          AS center_code,
+      COUNT(*)::int                                                          AS sent,
+      COUNT(*) FILTER (WHERE s.completed_at IS NOT NULL)::int                AS completed
+    FROM guest_surveys s
+    WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
+      AND (${opts.origin ?? null}::text IS NULL OR s.origin = ${opts.origin ?? null})
+      AND (${opts.tag ?? null}::text IS NULL OR s.context_json @> jsonb_build_object('tags', jsonb_build_array(${opts.tag ?? null}::text)))
+    GROUP BY s.center_code
+    ORDER BY sent DESC
+  `;
+
+  const sent = f.sent ?? 0;
+  const opened = f.opened ?? 0;
+  const completed = f.completed ?? 0;
+  return {
+    window: { since: opts.since ?? null, until: opts.until ?? null },
+    filters: {
+      centerCode: opts.centerCode ?? null,
+      origin: opts.origin ?? null,
+      tag: opts.tag ?? null,
+    },
+    funnel: {
+      sent,
+      opened,
+      completed,
+      openRate: sent ? +(opened / sent).toFixed(4) : 0,
+      completionRate: sent ? +(completed / sent).toFixed(4) : 0,
+    },
+    rewards: {
+      pinz: f.reward_pinz ?? 0,
+      gift_card: f.reward_gift_card ?? 0,
+      declined: f.reward_declined ?? 0,
+      issued: (f.reward_pinz ?? 0) + (f.reward_gift_card ?? 0),
+      redeemed,
+    },
+    byTag: (tagRows as Array<{ tag: string; sent: number; completed: number }>).map((r) => ({
+      tag: r.tag,
+      sent: r.sent,
+      completed: r.completed,
+    })),
+    byDay: (dayRows as Array<{ day: string; sent: number; opened: number; completed: number }>).map(
+      (r) => ({ day: r.day, sent: r.sent, opened: r.opened, completed: r.completed }),
+    ),
+    byCenter: (centerRows as Array<{ center_code: string; sent: number; completed: number }>).map(
+      (r) => ({ centerCode: r.center_code, sent: r.sent, completed: r.completed }),
+    ),
+  };
+}
+
+/**
+ * Per-question response distribution. For rating_1_5 + yes_no + multi
+ * questions, returns the histogram of answers. Open-text questions
+ * return a count + the most-recent N answers (for spot-checking, not
+ * full export — the list endpoint covers that with format=csv).
+ */
+export interface QuestionStat {
+  questionId: number;
+  tag: string;
+  ordinal: number;
+  question: string;
+  kind: SurveyQuestionKind;
+  totalAnswered: number;
+  /** Histogram for rating_1_5 / yes_no / multi. Empty for text. */
+  distribution: Record<string, number>;
+  /** Numeric mean for rating_1_5 only. null otherwise. */
+  averageRating: number | null;
+  /** For 'text' questions: a sample of recent answers (max 25). */
+  recentTextAnswers: string[];
+}
+
+export async function getQuestionStats(opts: {
+  since?: string | null;
+  until?: string | null;
+  centerCode?: string | null;
+  origin?: SurveyOrigin | null;
+}): Promise<QuestionStat[]> {
+  if (!isDbConfigured()) return [];
+  await ensureGuestSurveySchema();
+  const q = sql();
+  // Pull the question pool (active OR referenced).
+  const questions = await q`
+    SELECT id, tag, ordinal, question, kind FROM guest_survey_questions
+    WHERE active = TRUE
+    ORDER BY tag, ordinal
+  `;
+  // Pull completed survey responses in the window.
+  const surveyRows = await q`
+    SELECT responses_json
+    FROM guest_surveys s
+    WHERE s.completed_at IS NOT NULL
+      AND (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
+      AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
+      AND (${opts.centerCode ?? null}::text IS NULL OR s.center_code = ${opts.centerCode ?? null})
+      AND (${opts.origin ?? null}::text IS NULL OR s.origin = ${opts.origin ?? null})
+    ORDER BY s.completed_at DESC
+  `;
+
+  // Aggregate per-question in memory.
+  const stats = new Map<number, QuestionStat>();
+  for (const qRow of questions as Array<Record<string, unknown>>) {
+    stats.set(qRow.id as number, {
+      questionId: qRow.id as number,
+      tag: qRow.tag as string,
+      ordinal: qRow.ordinal as number,
+      question: qRow.question as string,
+      kind: qRow.kind as SurveyQuestionKind,
+      totalAnswered: 0,
+      distribution: {},
+      averageRating: null,
+      recentTextAnswers: [],
+    });
+  }
+
+  const ratingSums = new Map<number, { sum: number; count: number }>();
+
+  for (const sRow of surveyRows as Array<Record<string, unknown>>) {
+    const responses = parseJsonb<Record<string, unknown>>(sRow.responses_json, {});
+    for (const [keyStr, answerRaw] of Object.entries(responses)) {
+      const qid = Number(keyStr);
+      if (!Number.isFinite(qid)) continue;
+      const stat = stats.get(qid);
+      if (!stat) continue;
+      if (answerRaw == null || answerRaw === "") continue;
+      stat.totalAnswered++;
+      const answer = typeof answerRaw === "string" ? answerRaw : String(answerRaw);
+      if (stat.kind === "rating_1_5") {
+        const n = Number(answer);
+        if (Number.isFinite(n)) {
+          const bucket = ratingSums.get(qid) ?? { sum: 0, count: 0 };
+          bucket.sum += n;
+          bucket.count += 1;
+          ratingSums.set(qid, bucket);
+        }
+        stat.distribution[answer] = (stat.distribution[answer] ?? 0) + 1;
+      } else if (stat.kind === "yes_no" || stat.kind === "multi") {
+        stat.distribution[answer] = (stat.distribution[answer] ?? 0) + 1;
+      } else if (stat.kind === "text") {
+        if (stat.recentTextAnswers.length < 25) {
+          stat.recentTextAnswers.push(answer);
+        }
+      }
+    }
+  }
+
+  for (const [qid, bucket] of ratingSums) {
+    const stat = stats.get(qid);
+    if (stat && bucket.count > 0) {
+      stat.averageRating = +(bucket.sum / bucket.count).toFixed(3);
+    }
+  }
+
+  return Array.from(stats.values());
 }
 
 /**
