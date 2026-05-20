@@ -619,7 +619,13 @@ export async function mintDigitalGiftCard(params: {
     );
   }
 
-  // ── 4. ACTIVATE by order → balance set from the line item ────────
+  // ── 4. ACTIVATE by order, with explicit amount ─────────────────
+  // Without amount_money, Square infers from the line item's
+  // total_money (NET after discounts). With our 100%-off catalog
+  // discount the net is $0 → card activates for $0 → Square's
+  // hosted balance page renders "invalid / not activated". We pass
+  // amount_money explicitly so the card loads at the gross amount
+  // ($5) regardless of the discount.
   const actRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
     method: "POST",
     headers: sqHeaders(),
@@ -632,6 +638,7 @@ export async function mintDigitalGiftCard(params: {
         activate_activity_details: {
           order_id: orderId,
           line_item_uid: lineItemUid,
+          amount_money: { amount: params.amountCents, currency: "USD" },
         },
       },
     }),
