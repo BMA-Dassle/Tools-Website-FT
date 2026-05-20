@@ -132,15 +132,15 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  // No safe-area-inset-top here — SurveyBrandBar (in page.tsx) is rendered
-  // ABOVE this Shell and absorbs the notch padding. Adding it again would
-  // double up and push the form down past the brand bar.
+  // pt-28 / sm:pt-36 clears the fixed HeadPinzNav rendered above — same
+  // offset booking pages use (apps/web/app/hp/book/page.tsx). Without
+  // this the nav overlaps the page heading "How was your visit?".
   return (
     <main
-      className="text-white font-body"
+      className="text-white font-body pt-28 sm:pt-36"
       style={{ backgroundColor: HP_BG, paddingBottom: "16px" }}
     >
-      <div className="w-full max-w-md mx-auto px-4 pt-2">{children}</div>
+      <div className="w-full max-w-md mx-auto px-4">{children}</div>
     </main>
   );
 }

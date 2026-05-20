@@ -1,5 +1,3 @@
-import Image from "next/image";
-import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import {
@@ -9,11 +7,11 @@ import {
 } from "@/lib/guest-survey-db";
 import { recordTouch } from "~/features/marketing";
 import { CENTER_META } from "@/lib/bowling-lane-ready-notify";
+import HeadPinzNav from "@/components/headpinz/Nav";
+import HeadPinzFooter from "@/components/headpinz/Footer";
 import { SurveyForm } from "./SurveyForm";
 
 const HP_BG = "#0a1628";
-const HP_LOGO_URL =
-  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp";
 
 export const dynamic = "force-dynamic";
 
@@ -78,75 +76,26 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
 }
 
 /**
- * Wraps the survey content in a minimal brand bar.
+ * Wraps the survey content in HP brand chrome.
  *
- * Earlier attempts mounted the full HeadPinzNav (location selector,
- * hours strip, hamburger menu, glass-blur overlay) — too much chrome
- * for a focused survey, and the glass overlay made the form content
- * underneath look broken (blurred text bleeding through). The right
- * answer for a single-purpose customer-flow page is brand identity
- * (logo) without the full site navigation.
+ * HeadPinzNav is FIXED at the top of the viewport — booking pages clear
+ * it by giving their content `pt-28 sm:pt-36` (112-144px). The survey
+ * page must do the same or the nav cuts off the first question. That
+ * padding lives on each shell (form Shell + terminal ShellWrap).
  *
- * For FastTrax (future racing surveys) the FT brand bar will follow
- * the same minimal pattern when PR-GS4 lands.
+ * For FastTrax (future racing surveys) we'll add a matching FT branch
+ * here when PR-GS4 lands.
  */
 function BrandShell({ isHeadPinz, children }: { isHeadPinz: boolean; children: React.ReactNode }) {
   if (!isHeadPinz) {
     return <>{children}</>;
   }
   return (
-    <>
-      <SurveyBrandBar />
+    <div style={{ backgroundColor: HP_BG }} className="min-h-screen">
+      <HeadPinzNav />
       {children}
-      <SurveyBrandFooter />
-    </>
-  );
-}
-
-function SurveyBrandBar() {
-  return (
-    <header
-      className="w-full"
-      style={{
-        backgroundColor: HP_BG,
-        paddingTop: "max(env(safe-area-inset-top), 12px)",
-      }}
-    >
-      <div className="w-full max-w-md mx-auto px-4 py-3 flex items-center justify-center">
-        <Link href="https://headpinz.com" aria-label="HeadPinz home" className="inline-flex">
-          <Image
-            src={HP_LOGO_URL}
-            alt="HeadPinz"
-            width={160}
-            height={48}
-            className="h-10 w-auto object-contain"
-            unoptimized
-            priority
-          />
-        </Link>
-      </div>
-    </header>
-  );
-}
-
-function SurveyBrandFooter() {
-  return (
-    <footer
-      className="w-full text-center text-xs"
-      style={{
-        backgroundColor: HP_BG,
-        color: "rgba(255,255,255,0.5)",
-        paddingTop: "16px",
-        paddingBottom: "max(env(safe-area-inset-bottom), 16px)",
-      }}
-    >
-      <p className="px-4">
-        HeadPinz Entertainment ·{" "}
-        <Link href="https://headpinz.com" className="underline hover:text-white">
-          headpinz.com
-        </Link>
-      </p>
-    </footer>
+      <HeadPinzFooter />
+    </div>
   );
 }
 
@@ -155,13 +104,15 @@ function SurveyBrandFooter() {
 // ─────────────────────────────────────────────────────────────────
 
 function ShellWrap({ children }: { children: React.ReactNode }) {
-  // BrandBar above handles notch padding — keep this lean.
+  // pt-28 / sm:pt-36 clears the fixed HeadPinzNav — same offset booking
+  // pages use (apps/web/app/hp/book/page.tsx). Without this the nav
+  // overlaps the page heading.
   return (
     <main
-      className="text-white font-body"
+      className="text-white font-body pt-28 sm:pt-36"
       style={{ backgroundColor: HP_BG, paddingBottom: "32px" }}
     >
-      <div className="w-full max-w-md mx-auto px-4 pt-4">{children}</div>
+      <div className="w-full max-w-md mx-auto px-4">{children}</div>
     </main>
   );
 }
