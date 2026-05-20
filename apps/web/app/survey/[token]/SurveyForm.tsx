@@ -1,12 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import type { GuestSurveyQuestion } from "@/lib/guest-survey-db";
 // Import gating from the leaf module (NOT the feature barrel) — the barrel
 // re-exports service.ts which transitively pulls ioredis into the client
 // bundle. ioredis uses Node-only modules (dns/fs/net/tls) and Turbopack
 // fails the build.
 import { visibleQuestions, type AnswerMap } from "~/features/guest-survey/gating";
+
+const HP_LOGO_URL =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp";
+const HP_BG = "#0a1628"; // matches body background set in root layout
+const HP_CARD = "rgba(7,16,39,0.95)"; // deep navy panel
+const HP_BORDER = "rgba(255,255,255,0.08)";
+const HP_BORDER_ACTIVE = "#fd5b56"; // coral accent
+const HP_TEXT_MUTED = "rgba(255,255,255,0.65)";
 
 interface SurveyFormProps {
   token: string;
@@ -21,7 +30,7 @@ type SubmitState =
   | { kind: "error"; message: string };
 
 /**
- * Mobile-first guest survey form.
+ * Mobile-first guest survey form, HeadPinz-branded.
  *
  * Renders all currently-visible questions in a single scrollable column.
  * Gating runs live as the user answers — fnb_service Q2-5 reveal once Q1=Yes.
@@ -69,8 +78,8 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
   if (submitState.kind === "done") {
     return (
       <Shell>
-        <h1 className="text-2xl font-semibold mb-2">Thanks!</h1>
-        <p className="text-neutral-300">
+        <h1 className="font-heading text-3xl font-bold mb-3">Thanks!</h1>
+        <p className="text-white/80 leading-relaxed">
           Your feedback helps us make {centerName} better. We&apos;ll be in touch shortly with your
           reward.
         </p>
@@ -80,15 +89,14 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
 
   return (
     <Shell>
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">How was your visit?</h1>
-        <p className="text-sm text-neutral-400 mt-1">
-          {centerName} • 60 seconds • {visible.length} question
-          {visible.length === 1 ? "" : "s"}
+      <header className="mb-7">
+        <h1 className="font-heading text-3xl font-bold leading-tight">How was your visit?</h1>
+        <p className="text-sm mt-2" style={{ color: HP_TEXT_MUTED }}>
+          {centerName} · 60 seconds · {visible.length} question{visible.length === 1 ? "" : "s"}
         </p>
       </header>
 
-      <form onSubmit={onSubmit} className="space-y-6">
+      <form onSubmit={onSubmit} className="space-y-5">
         {visible.map((q) => (
           <QuestionField
             key={q.id}
@@ -99,7 +107,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
         ))}
 
         {submitState.kind === "error" ? (
-          <p className="text-red-400 text-sm" role="alert">
+          <p className="text-sm" style={{ color: HP_BORDER_ACTIVE }} role="alert">
             {submitState.message}
           </p>
         ) : null}
@@ -107,7 +115,8 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
         <button
           type="submit"
           disabled={!canSubmit}
-          className="w-full rounded-md bg-yellow-500 text-neutral-900 font-semibold py-3 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full rounded-lg font-heading font-bold py-3.5 text-base text-white transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ backgroundColor: HP_BORDER_ACTIVE }}
         >
           {submitState.kind === "submitting" ? "Submitting…" : "Submit"}
         </button>
@@ -118,8 +127,26 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="min-h-screen bg-neutral-900 text-white px-4 py-8 flex flex-col items-center">
-      <div className="w-full max-w-md">{children}</div>
+    <main
+      className="min-h-screen text-white font-body"
+      style={{
+        backgroundColor: HP_BG,
+        paddingTop: "max(env(safe-area-inset-top), 16px)",
+        paddingBottom: "max(env(safe-area-inset-bottom), 24px)",
+      }}
+    >
+      <div className="px-4 pt-2 pb-6 flex justify-center">
+        <Image
+          src={HP_LOGO_URL}
+          alt="HeadPinz"
+          width={160}
+          height={48}
+          className="h-10 w-auto object-contain"
+          unoptimized
+          priority
+        />
+      </div>
+      <div className="w-full max-w-md mx-auto px-4">{children}</div>
     </main>
   );
 }
@@ -136,8 +163,13 @@ interface QuestionFieldProps {
 
 function QuestionField({ question, value, onChange }: QuestionFieldProps) {
   return (
-    <fieldset className="space-y-2">
-      <legend className="text-base font-medium">{question.question}</legend>
+    <fieldset
+      className="rounded-xl p-4 space-y-3"
+      style={{ backgroundColor: HP_CARD, border: `1px solid ${HP_BORDER}` }}
+    >
+      <legend className="font-heading font-semibold text-base leading-snug px-1">
+        {question.question}
+      </legend>
       {question.kind === "rating_1_5" ? (
         <Rating1to5 value={value} onChange={onChange} />
       ) : question.kind === "yes_no" ? (
@@ -149,6 +181,21 @@ function QuestionField({ question, value, onChange }: QuestionFieldProps) {
       )}
     </fieldset>
   );
+}
+
+function pillClass(selected: boolean): string {
+  return [
+    "flex-1 py-3 rounded-lg font-heading font-semibold text-base",
+    "transition-colors duration-150",
+    selected ? "text-white" : "text-white/80",
+  ].join(" ");
+}
+
+function pillStyle(selected: boolean): React.CSSProperties {
+  return {
+    border: `2px solid ${selected ? HP_BORDER_ACTIVE : "rgba(255,255,255,0.18)"}`,
+    backgroundColor: selected ? "rgba(253,91,86,0.18)" : "transparent",
+  };
 }
 
 function Rating1to5({
@@ -169,11 +216,8 @@ function Rating1to5({
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(n)}
-            className={`flex-1 py-3 rounded-md border-2 ${
-              selected
-                ? "bg-yellow-500 border-yellow-500 text-neutral-900 font-semibold"
-                : "border-neutral-700 text-neutral-200"
-            }`}
+            className={pillClass(selected)}
+            style={pillStyle(selected)}
           >
             {n}
           </button>
@@ -195,11 +239,8 @@ function YesNo({ value, onChange }: { value: AnswerMap[string]; onChange: (v: st
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(label)}
-            className={`flex-1 py-3 rounded-md border-2 ${
-              selected
-                ? "bg-yellow-500 border-yellow-500 text-neutral-900 font-semibold"
-                : "border-neutral-700 text-neutral-200"
-            }`}
+            className={pillClass(selected)}
+            style={pillStyle(selected)}
           >
             {label}
           </button>
@@ -229,11 +270,12 @@ function MultiChoice({
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(choice)}
-            className={`w-full text-left px-4 py-3 rounded-md border-2 ${
-              selected
-                ? "bg-yellow-500 border-yellow-500 text-neutral-900 font-semibold"
-                : "border-neutral-700 text-neutral-200"
-            }`}
+            className={[
+              "w-full text-left px-4 py-3 rounded-lg font-body text-base",
+              "transition-colors duration-150",
+              selected ? "text-white font-semibold" : "text-white/80",
+            ].join(" ")}
+            style={pillStyle(selected)}
           >
             {choice}
           </button>
@@ -255,7 +297,17 @@ function TextInput({
       value={typeof value === "string" ? value : ""}
       onChange={(e) => onChange(e.target.value)}
       rows={3}
-      className="w-full rounded-md bg-neutral-800 border-2 border-neutral-700 px-3 py-2 text-base focus:border-yellow-500 focus:outline-none"
+      className="w-full rounded-lg px-3 py-2 text-base text-white placeholder-white/40 outline-none transition-colors"
+      style={{
+        backgroundColor: "rgba(255,255,255,0.04)",
+        border: `2px solid rgba(255,255,255,0.18)`,
+      }}
+      onFocus={(e) => {
+        e.currentTarget.style.borderColor = HP_BORDER_ACTIVE;
+      }}
+      onBlur={(e) => {
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)";
+      }}
     />
   );
 }
