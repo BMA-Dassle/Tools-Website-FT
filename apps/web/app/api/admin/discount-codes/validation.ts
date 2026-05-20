@@ -89,6 +89,15 @@ export function validateInput(body: unknown): ParseResult {
 
   const active = b.active == null ? true : Boolean(b.active);
 
+  const squareDisplayName = optionalShortString(b.squareDisplayName, 200);
+  if (squareDisplayName === "ERR") {
+    return { ok: false, error: "squareDisplayName must be a string up to 200 chars" };
+  }
+  const marketingAccount = optionalShortString(b.marketingAccount, 40);
+  if (marketingAccount === "ERR") {
+    return { ok: false, error: "marketingAccount must be a string up to 40 chars" };
+  }
+
   return {
     ok: true,
     value: {
@@ -102,6 +111,8 @@ export function validateInput(body: unknown): ParseResult {
       allowedWeekdays,
       allowedLocations,
       scopes: scopes.value,
+      squareDisplayName,
+      marketingAccount,
       maxUses,
       maxUsesPerCustomer,
       active,
@@ -120,6 +131,15 @@ function optionalNonNegInt(v: unknown): number | null | "ERR" {
   if (v == null) return null;
   if (typeof v !== "number" || !Number.isInteger(v) || v < 0) return "ERR";
   return v;
+}
+
+function optionalShortString(v: unknown, maxLen: number): string | null | "ERR" {
+  if (v == null) return null;
+  if (typeof v !== "string") return "ERR";
+  const trimmed = v.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > maxLen) return "ERR";
+  return trimmed;
 }
 
 function parseScopes(

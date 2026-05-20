@@ -18,6 +18,8 @@ function makeRow(over: Partial<DiscountCodeRow> = {}): DiscountCodeRow {
     scopes: { bowling: { experienceSlugs: null } },
     squareCatalogId: "SQ-CAT-123",
     squareCatalogType: "discount",
+    squareDisplayName: null,
+    marketingAccount: null,
     bmiPromoRef: null,
     maxUses: null,
     maxUsesPerCustomer: null,

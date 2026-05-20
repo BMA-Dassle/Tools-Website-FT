@@ -39,6 +39,8 @@ const DOMAINS: Array<{ key: keyof DiscountScopes; label: string; slugsKey: strin
 interface DraftForm {
   code: string;
   description: string;
+  squareDisplayName: string;
+  marketingAccount: string;
   mechanic: DiscountMechanic;
   amountPct: string;
   amountCents: string;
@@ -62,6 +64,8 @@ function emptyDraft(): DraftForm {
   return {
     code: "",
     description: "",
+    squareDisplayName: "",
+    marketingAccount: "",
     mechanic: "percent",
     // Default mirrors the current weekday promo (25% off Mon–Thu).
     // Bump this when the next campaign launches at a different rate.
@@ -96,6 +100,8 @@ function rowToDraft(r: DiscountCodeRow): DraftForm {
   return {
     code: r.code,
     description: r.description ?? "",
+    squareDisplayName: r.squareDisplayName ?? "",
+    marketingAccount: r.marketingAccount ?? "",
     mechanic: r.mechanic,
     amountPct: r.amountPct?.toString() ?? "",
     amountCents: r.amountCents?.toString() ?? "",
@@ -143,6 +149,8 @@ function draftToInput(
     input: {
       code,
       description: d.description.trim() || undefined,
+      squareDisplayName: d.squareDisplayName.trim() || null,
+      marketingAccount: d.marketingAccount.trim() || null,
       mechanic: d.mechanic,
       amountPct: d.mechanic === "percent" ? Number(d.amountPct) : null,
       amountCents: d.mechanic === "fixed" ? Number(d.amountCents) : null,
@@ -510,6 +518,28 @@ function DraftEditor({
             value={draft.description}
             onChange={(e) => update("description", e.target.value)}
             placeholder="May weekday 20% off"
+            style={input}
+          />
+        </Row>
+        <Row label="Square display name">
+          <input
+            type="text"
+            value={draft.squareDisplayName}
+            onChange={(e) => update("squareDisplayName", e.target.value)}
+            placeholder="May Bowling 25%"
+            style={input}
+          />
+          <div style={{ color: "#94a3b8", fontSize: "0.7rem", marginTop: 4 }}>
+            Shown on Square reports. Marketing account is appended in parens — e.g. “May Bowling 25%
+            (500.02)”. Leave blank to fall back to the description.
+          </div>
+        </Row>
+        <Row label="Marketing account">
+          <input
+            type="text"
+            value={draft.marketingAccount}
+            onChange={(e) => update("marketingAccount", e.target.value)}
+            placeholder="500.02"
             style={input}
           />
         </Row>

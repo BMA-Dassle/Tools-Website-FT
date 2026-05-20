@@ -171,7 +171,13 @@ export async function provisionSquareDiscount(row: DiscountCodeRow): Promise<{
     throw new Error(`provisionSquareDiscount does not support mechanic=${row.mechanic}`);
   }
 
-  const friendlyName = `${row.description ?? row.code} (${row.code})`.slice(0, 255);
+  // Match ops convention: "<Display Name> (<accounting code>)" e.g. "May Bowling 25% (500.02)".
+  // Admin-supplied `squareDisplayName` wins; falls back to description, then the raw code.
+  // The trailing parens carry the marketing/accounting reference if set, otherwise the
+  // discount code itself so it's still cross-referenceable from the Square dashboard.
+  const baseName = row.squareDisplayName ?? row.description ?? row.code;
+  const refTag = row.marketingAccount ?? row.code;
+  const friendlyName = `${baseName} (${refTag})`.slice(0, 255);
 
   const discount_data: Record<string, unknown> = {
     name: friendlyName,

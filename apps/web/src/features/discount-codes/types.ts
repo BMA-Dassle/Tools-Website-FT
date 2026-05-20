@@ -51,6 +51,17 @@ export interface DiscountCodeRow {
   scopes: DiscountScopes;
   squareCatalogId: string | null;
   squareCatalogType: SquareCatalogType | null;
+  /**
+   * Display name written to Square's catalog. Composed with `marketingAccount`
+   * at provision time to match the in-house convention ("May Bowling 25% (500.02)").
+   * Falls back to `description` then `code` when not set.
+   */
+  squareDisplayName: string | null;
+  /**
+   * Accounting code shown in parentheses on the Square name (e.g. "500.02").
+   * Free-form string — ops decides the numbering scheme.
+   */
+  marketingAccount: string | null;
   bmiPromoRef: string | null;
   maxUses: number | null;
   maxUsesPerCustomer: number | null;
@@ -73,6 +84,8 @@ export interface DiscountCodeInput {
   allowedWeekdays?: number[] | null;
   allowedLocations?: string[] | null;
   scopes: DiscountScopes;
+  squareDisplayName?: string | null;
+  marketingAccount?: string | null;
   maxUses?: number | null;
   maxUsesPerCustomer?: number | null;
   active?: boolean;

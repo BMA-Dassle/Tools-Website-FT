@@ -48,6 +48,8 @@ export async function ensureDiscountCodesSchema(): Promise<void> {
       scopes                  JSONB   NOT NULL DEFAULT '{}'::JSONB,
       square_catalog_id       TEXT,
       square_catalog_type     TEXT,
+      square_display_name     TEXT,
+      marketing_account       TEXT,
       bmi_promo_ref           TEXT,
       max_uses                INTEGER,
       max_uses_per_customer   INTEGER,
@@ -57,6 +59,9 @@ export async function ensureDiscountCodesSchema(): Promise<void> {
       created_by              TEXT
     )
   `;
+  // Idempotent ALTERs for rows created before the columns existed.
+  await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS square_display_name TEXT`;
+  await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS marketing_account TEXT`;
   await q`CREATE INDEX IF NOT EXISTS dc_active_window ON discount_codes(starts_at, expires_at) WHERE active = TRUE`;
   // Case-insensitive uniqueness — codes are uppercased on write but defend anyway.
   await q`CREATE UNIQUE INDEX IF NOT EXISTS dc_code_upper ON discount_codes(UPPER(code))`;
@@ -100,6 +105,8 @@ type RawDiscountRow = {
   scopes: DiscountScopes | null;
   square_catalog_id: string | null;
   square_catalog_type: string | null;
+  square_display_name: string | null;
+  marketing_account: string | null;
   bmi_promo_ref: string | null;
   max_uses: number | null;
   max_uses_per_customer: number | null;
@@ -129,6 +136,8 @@ function decodeRow(r: RawDiscountRow): DiscountCodeRow {
     scopes: r.scopes ?? {},
     squareCatalogId: r.square_catalog_id,
     squareCatalogType: r.square_catalog_type as SquareCatalogType | null,
+    squareDisplayName: r.square_display_name,
+    marketingAccount: r.marketing_account,
     bmiPromoRef: r.bmi_promo_ref,
     maxUses: r.max_uses,
     maxUsesPerCustomer: r.max_uses_per_customer,
@@ -180,6 +189,7 @@ export async function insertDiscountCode(
     INSERT INTO discount_codes (
       code, description, mechanic, amount_pct, amount_cents, mechanic_config,
       starts_at, expires_at, allowed_weekdays, allowed_locations, scopes,
+      square_display_name, marketing_account,
       max_uses, max_uses_per_customer, active, created_by
     ) VALUES (
       ${input.code.toUpperCase()},
@@ -193,6 +203,8 @@ export async function insertDiscountCode(
       ${input.allowedWeekdays ?? null},
       ${input.allowedLocations ?? null},
       ${scopesJson}::jsonb,
+      ${input.squareDisplayName ?? null},
+      ${input.marketingAccount ?? null},
       ${input.maxUses ?? null},
       ${input.maxUsesPerCustomer ?? null},
       ${input.active ?? true},
@@ -224,6 +236,8 @@ export async function updateDiscountCode(
       allowed_weekdays = ${input.allowedWeekdays ?? null},
       allowed_locations = ${input.allowedLocations ?? null},
       scopes = ${scopesJson}::jsonb,
+      square_display_name = ${input.squareDisplayName ?? null},
+      marketing_account = ${input.marketingAccount ?? null},
       max_uses = ${input.maxUses ?? null},
       max_uses_per_customer = ${input.maxUsesPerCustomer ?? null},
       active = ${input.active ?? true}

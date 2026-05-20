@@ -877,6 +877,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [quoteDepositCents, setQuoteDepositCents] = useState(0);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  /**
+   * Discount amount applied by Square at the order level (cents, pre-tax).
+   * Sourced from the quote endpoint's `appliedDiscount.amountOffCents`, which
+   * mirrors `order.total_discount_money` returned by Square. Surfaced as a
+   * dedicated line in the review summary so customers see the savings.
+   */
+  const [quoteDiscountOffCents, setQuoteDiscountOffCents] = useState(0);
+  const [quoteDiscountCode, setQuoteDiscountCode] = useState<string | null>(null);
 
   // ── Discount code (open bowling only) ───────────────────────────
   // The slots step shows an inline input; URL `?code=` is auto-applied on
@@ -1372,6 +1380,32 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     return true;
   }
 
+  /**
+   * True when an applied discount has zero bookable days left in the next
+   * 30-day window. Surface as a banner so the user understands why every
+   * day is greyed out, instead of staring at a blank calendar wondering
+   * what they did wrong.
+   */
+  const discountHasNoEligibleDays = (() => {
+    if (!appliedDiscount) return false;
+    if (kind === "kbf") return false; // KBF has its own bookable-date logic; discounts don't apply
+    const start = effectiveToday();
+    for (let i = 0; i <= 30; i++) {
+      const d = addDays(start, i);
+      if (
+        dateMatchesDiscount(
+          d,
+          appliedDiscount.allowedWeekdays,
+          appliedDiscount.expiresAt,
+          appliedDiscount.startsAt,
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  })();
+
   function getFilteredHours(dateStr: string): number[] {
     // Derive open/close from HP_LOCATIONS for this center + day-of-week.
     // e.g. Sun-Thu → 11 AM–midnight (11–23), Fri-Sat → 11 AM–2 AM (11–25).
@@ -1722,6 +1756,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       setQuoteDayofOrderId(null);
       setQuoteTotalCents(0);
       setQuoteDepositCents(0);
+      setQuoteDiscountOffCents(0);
+      setQuoteDiscountCode(null);
       setQuoteError(null);
       return;
     }
@@ -1836,6 +1872,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         setQuoteDayofOrderId(data.dayofOrderId ?? null);
         setQuoteTotalCents(data.dayofTotalCents ?? 0);
         setQuoteDepositCents(data.depositCents ?? 0);
+        setQuoteDiscountOffCents(data.appliedDiscount?.amountOffCents ?? 0);
+        setQuoteDiscountCode(data.appliedDiscount?.code ?? null);
         // If the server tells us the discount stopped applying since the user
         // entered it (date drifted past expiry, code deactivated, etc.) drop
         // the applied chip so the displayed price matches reality.
@@ -3865,6 +3903,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                         </span>
                       </>
                     )}
+                    {appliedDiscount?.amountPct != null && (
+                      <>
+                        <span className="text-white/20">·</span>
+                        <span style={{ color: "#22c55e" }}>
+                          💸 Saving {appliedDiscount.amountPct}% at checkout
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   {/* Discount code — open bowling only.
@@ -3955,6 +4001,19 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       )}
                       {discountError && (
                         <p className="mt-2 text-xs text-red-400">{discountError}</p>
+                      )}
+                      {appliedDiscount && discountHasNoEligibleDays && (
+                        <div
+                          className="mt-2 rounded-lg px-3 py-2 text-xs"
+                          style={{
+                            background: "rgba(245,158,11,0.12)",
+                            border: "1px solid rgba(245,158,11,0.35)",
+                            color: "#f59e0b",
+                          }}
+                        >
+                          This code has no eligible dates remaining — its window has ended or falls
+                          outside the next 30 days. Remove the code to see the regular calendar.
+                        </div>
                       )}
                     </div>
                   )}
@@ -5735,12 +5794,34 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   </div>
                 )}
 
+                {/* Discount line — shown when the Square quote returned an
+                    order-level discount. Sourced from the server response,
+                    not a UI estimate, so the displayed savings match what
+                    Square actually computed. */}
+                {quoteDiscountOffCents > 0 && !quoteLoading && (
+                  <div
+                    className="flex justify-between text-sm rounded-lg px-2 py-1.5"
+                    style={{ backgroundColor: "rgba(34,197,94,0.10)" }}
+                  >
+                    <span className="font-body" style={{ color: "#22c55e" }}>
+                      Discount{quoteDiscountCode ? ` (${quoteDiscountCode})` : ""}
+                      {appliedDiscount?.amountPct != null && (
+                        <span className="text-white/45"> · {appliedDiscount.amountPct}% off</span>
+                      )}
+                    </span>
+                    <span className="font-body font-bold" style={{ color: "#22c55e" }}>
+                      −{centsToDollars(quoteDiscountOffCents)}
+                    </span>
+                  </div>
+                )}
+
                 {/* Tax line */}
-                {quoteTotalCents > preTaxTotalCents && !quoteLoading && (
+                {quoteTotalCents > preTaxTotalCents - quoteDiscountOffCents && !quoteLoading && (
                   <div className="flex justify-between text-xs">
                     <span className="font-body text-white/35">Incl. sales tax</span>
                     <span className="font-body text-white/35">
-                      +{centsToDollars(quoteTotalCents - preTaxTotalCents)}
+                      +
+                      {centsToDollars(quoteTotalCents - (preTaxTotalCents - quoteDiscountOffCents))}
                     </span>
                   </div>
                 )}
