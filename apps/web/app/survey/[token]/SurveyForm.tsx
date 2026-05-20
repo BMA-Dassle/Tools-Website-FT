@@ -132,16 +132,15 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
+  // No safe-area-inset-top here — SurveyBrandBar (in page.tsx) is rendered
+  // ABOVE this Shell and absorbs the notch padding. Adding it again would
+  // double up and push the form down past the brand bar.
   return (
     <main
-      className="min-h-screen text-white font-body"
-      style={{
-        backgroundColor: HP_BG,
-        paddingTop: "max(env(safe-area-inset-top), 24px)",
-        paddingBottom: "max(env(safe-area-inset-bottom), 24px)",
-      }}
+      className="text-white font-body"
+      style={{ backgroundColor: HP_BG, paddingBottom: "16px" }}
     >
-      <div className="w-full max-w-md mx-auto px-4 pt-6">{children}</div>
+      <div className="w-full max-w-md mx-auto px-4 pt-2">{children}</div>
     </main>
   );
 }
