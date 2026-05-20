@@ -27,6 +27,7 @@ import {
   resolveAudienceMember,
   splitGuestName,
 } from "~/features/marketing";
+import { evaluateCode, getDiscountCodeByCode, recordRedemption } from "~/features/discount-codes";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -152,6 +153,15 @@ interface RawLineItemRequest {
 }
 
 interface ReserveBody {
+  /**
+   * Discount code applied during the booking flow (uppercased).
+   * The Square day-of order created at the quote step already has the
+   * matching catalog discount attached — this field is here so the reserve
+   * route can re-validate and log a redemption row + bump uses_count.
+   */
+  discountCode?: string;
+  /** YYYY-MM-DD of the booking date — needed for weekday-gated codes. */
+  bookingDate?: string;
   /** QAMF center ID. Exactly one of centerId / centerCode must be provided. */
   centerId?: number;
   centerCode?: string;
@@ -1137,6 +1147,62 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       // Non-fatal — player rows are convenience data
       console.error("[bowling/v2/reserve] insertReservationPlayers failed:", err);
+    }
+
+    // ── Discount-code redemption log ────────────────────────────────
+    // The Square day-of order was created with the discount attached at the
+    // quote step, so the customer is already paying the discounted amount.
+    // We're just logging the redemption + bumping uses_count for reporting
+    // and abuse caps.
+    //
+    // Failure modes are deliberately soft: if the code lost validity between
+    // quote and reserve (e.g. ops deactivated it just now) we log a warning
+    // but don't fail the booking — the discount is already locked into the
+    // Square order. The counter being off by one is recoverable; refusing
+    // to confirm a paid booking is not.
+    if (body.discountCode) {
+      try {
+        const codeRow = await getDiscountCodeByCode(body.discountCode);
+        const evald = evaluateCode(codeRow, {
+          code: body.discountCode,
+          domain: "bowling",
+          locationId: centerCode,
+          bookingDate: body.bookingDate,
+        });
+        if (!evald.valid) {
+          console.warn(
+            `[bowling/v2/reserve] discount code ${body.discountCode} drifted ` +
+              `between quote and reserve: ${evald.reason}. Customer still received ` +
+              `the Square discount; redemption not logged.`,
+          );
+        } else if (codeRow && squareDayofOrderId) {
+          // external_ref is the day-of order id — the bowling-refund path
+          // looks it up by the same ref to decrement uses_count on refund.
+          const amountOff =
+            evald.amountPct != null && totalCents > 0
+              ? Math.round((totalCents * evald.amountPct) / 100)
+              : (evald.amountCents ?? 0);
+          const { alreadyRedeemed } = await recordRedemption({
+            codeId: codeRow.id,
+            domain: "bowling",
+            externalRef: squareDayofOrderId,
+            amountOffCents: amountOff,
+            squareCustomerId: resolvedSquareCustomerId ?? null,
+          });
+          if (alreadyRedeemed) {
+            console.log(
+              `[bowling/v2/reserve] discount ${body.discountCode} already redeemed for order ${squareDayofOrderId} (idempotent retry)`,
+            );
+          } else {
+            console.log(
+              `[bowling/v2/reserve] discount ${body.discountCode} redeemed ` +
+                `(neonId=${neonId} order=${squareDayofOrderId} off=$${(amountOff / 100).toFixed(2)})`,
+            );
+          }
+        }
+      } catch (err) {
+        console.error("[bowling/v2/reserve] redemption logging failed (non-fatal):", err);
+      }
     }
   } catch (err) {
     console.error("[bowling/v2/reserve] Neon insert failed:", err);

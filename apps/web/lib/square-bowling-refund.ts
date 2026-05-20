@@ -1,3 +1,5 @@
+import { refundRedemption } from "~/features/discount-codes";
+
 /**
  * Square-side bowling cancellation / refund — shared logic.
  *
@@ -203,6 +205,20 @@ export async function processSquareBowlingRefund(opts: {
       }
     } catch {
       // Non-fatal
+    }
+  }
+
+  // ── 3.5. Decrement discount-code uses_count, if a code was redeemed ───
+  // Idempotent + non-fatal: if no redemption row matches, returns false.
+  // Counter never drops below 0.
+  if (dayofOrderId) {
+    try {
+      const decremented = await refundRedemption("bowling", dayofOrderId);
+      if (decremented) {
+        console.log(`[bowling-refund] discount redemption refunded for order ${dayofOrderId}`);
+      }
+    } catch (err) {
+      console.warn("[bowling-refund] refundRedemption failed (non-fatal):", err);
     }
   }
 

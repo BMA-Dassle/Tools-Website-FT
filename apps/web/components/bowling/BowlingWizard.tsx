@@ -620,6 +620,32 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── URL-seeded discount code (open bowling only) ────────────────
+  // Marketing can share links like /book/bowling-open?code=MAY20WEEKDAY and the
+  // wizard auto-validates + applies the code on mount. The param is stripped
+  // from the URL after consumption so a refresh doesn't re-toast and the
+  // shareable URL doesn't leak the code afterward. Silent on failure — a bad
+  // URL code shouldn't show an error chrome before the user even interacts.
+  const discountSeededRef = useRef(false);
+  useEffect(() => {
+    if (kind === "kbf") return;
+    if (discountSeededRef.current) return;
+    const fromUrl = searchParams.get("code");
+    if (!fromUrl) return;
+    discountSeededRef.current = true;
+    void applyDiscountCode(fromUrl, { silentOnFail: true });
+    // Strip ?code= from the address bar without a navigation. Use URL API on
+    // window.location since router.replace would force a Next-managed nav.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("code");
+      window.history.replaceState({}, "", url.toString());
+    } catch {
+      /* non-fatal */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Wizard core ──────────────────────────────────────────────────
 
   const [step, setStep] = useState<Step>("location");
@@ -851,6 +877,139 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [quoteDepositCents, setQuoteDepositCents] = useState(0);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+
+  // ── Discount code (open bowling only) ───────────────────────────
+  // The slots step shows an inline input; URL `?code=` is auto-applied on
+  // mount. State is intentionally minimal — the server is the source of
+  // truth at quote + reserve time. The chip + calendar filter are pure UX.
+  interface AppliedDiscount {
+    code: string;
+    description: string | null;
+    amountPct: number | null;
+    amountCents: number | null;
+    /** Allowed weekdays 0–6 (Sun=0). `null` means any weekday. */
+    allowedWeekdays: number[] | null;
+    /** ISO timestamps bounding the date window. */
+    startsAt: string;
+    expiresAt: string;
+  }
+  const [appliedDiscount, setAppliedDiscount] = useState<AppliedDiscount | null>(null);
+  const [discountInput, setDiscountInput] = useState("");
+  const [discountChecking, setDiscountChecking] = useState(false);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+
+  /** Map a validate-endpoint failure reason to a customer-friendly message. */
+  function discountReasonMessage(reason: string, code: string): string {
+    switch (reason) {
+      case "expired":
+        return `Code ${code} has expired.`;
+      case "not_yet_active":
+        return `Code ${code} isn't active yet.`;
+      case "exhausted":
+        return `Code ${code} has been fully redeemed.`;
+      case "wrong_location":
+        return `Code ${code} isn't valid at this center.`;
+      case "wrong_domain":
+        return `Code ${code} isn't valid for bowling reservations.`;
+      case "wrong_product":
+        return `Code ${code} isn't valid for the selected package.`;
+      case "rate_limited":
+        return "Too many code attempts — please try again in a few minutes.";
+      case "inactive":
+      case "unsupported_mechanic":
+      case "unknown":
+      default:
+        return `Code ${code} is not valid.`;
+    }
+  }
+
+  async function applyDiscountCode(rawCode: string, opts: { silentOnFail?: boolean } = {}) {
+    const code = rawCode.trim().toUpperCase();
+    if (!code) return;
+    setDiscountChecking(true);
+    setDiscountError(null);
+    try {
+      const res = await fetch("/api/discount-codes/validate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code,
+          domain: "bowling",
+          locationId: center.squareCenterCode,
+        }),
+      });
+      const data = (await res.json()) as
+        | {
+            valid: true;
+            code: string;
+            description: string | null;
+            amountPct: number | null;
+            amountCents: number | null;
+            allowedWeekdays: number[] | null;
+            startsAt: string;
+            expiresAt: string;
+          }
+        | { valid: false; reason: string };
+      if (!data || !("valid" in data) || !data.valid) {
+        const reason = data && "reason" in data ? data.reason : "unknown";
+        if (!opts.silentOnFail) setDiscountError(discountReasonMessage(reason, code));
+        return;
+      }
+      setAppliedDiscount({
+        code: data.code,
+        description: data.description,
+        amountPct: data.amountPct,
+        amountCents: data.amountCents,
+        allowedWeekdays: data.allowedWeekdays,
+        startsAt: data.startsAt,
+        expiresAt: data.expiresAt,
+      });
+      setDiscountInput("");
+      setDiscountError(null);
+      // If the currently-selected date is now disallowed, clear it so the user
+      // re-picks. Cheaper than silently leaving them on an invalid date.
+      if (
+        selectedDate &&
+        !dateMatchesDiscount(selectedDate, data.allowedWeekdays, data.expiresAt, data.startsAt)
+      ) {
+        setSelectedDate("");
+        setSelectedHour(null);
+        setSelectedMinute(null);
+      }
+    } catch (err) {
+      console.warn("[discount] validate failed:", err);
+      if (!opts.silentOnFail) setDiscountError("Couldn't validate that code. Try again.");
+    } finally {
+      setDiscountChecking(false);
+    }
+  }
+
+  function clearDiscountCode() {
+    setAppliedDiscount(null);
+    setDiscountError(null);
+  }
+
+  /** Returns true when `ymd` falls inside the discount's window AND on an allowed weekday. */
+  function dateMatchesDiscount(
+    ymd: string,
+    allowedWeekdays: number[] | null,
+    expiresAtIso: string,
+    startsAtIso: string,
+  ): boolean {
+    // Compare dates as the YYYY-MM-DD of the discount window in ET. Bowling
+    // dates are already ET-local YYYY-MM-DD strings, so we slice the same
+    // prefix off the discount window — avoids any UTC/ET roll-over surprises.
+    const minDate = startsAtIso.slice(0, 10);
+    const maxDate = expiresAtIso.slice(0, 10);
+    if (ymd < minDate || ymd > maxDate) return false;
+    if (allowedWeekdays && allowedWeekdays.length > 0) {
+      // Day-of-week in ET. The wizard's date strings are already ET-local.
+      const [y, m, d] = ymd.split("-").map(Number);
+      const wd = new Date(y, m - 1, d, 12).getDay();
+      if (!allowedWeekdays.includes(wd)) return false;
+    }
+    return true;
+  }
 
   // ── Guest details ────────────────────────────────────────────────
 
@@ -1196,7 +1355,21 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     if (kind === "kbf") return isKbfBookableDate(dateStr);
     const earliest = effectiveToday();
     const max = addDays(todayYmd(), 30);
-    return dateStr >= earliest && dateStr <= max;
+    if (dateStr < earliest || dateStr > max) return false;
+    // Layer the discount-code's date window + weekday filter on top of the
+    // normal booking window. When no code is applied this is a no-op.
+    if (
+      appliedDiscount &&
+      !dateMatchesDiscount(
+        dateStr,
+        appliedDiscount.allowedWeekdays,
+        appliedDiscount.expiresAt,
+        appliedDiscount.startsAt,
+      )
+    ) {
+      return false;
+    }
+    return true;
   }
 
   function getFilteredHours(dateStr: string): number[] {
@@ -1643,18 +1816,33 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             depositPct,
             // Attach loyalty customer so the day-of order has customer_id from creation
             ...(loyaltyCustomer?.id ? { squareCustomerId: loyaltyCustomer.id } : {}),
+            // Discount code (server re-validates and tells Square; the % off
+            // is reflected in the dayofTotal Square returns, NOT something
+            // we compute client-side).
+            ...(appliedDiscount && selectedDate
+              ? { discountCode: appliedDiscount.code, bookingDate: selectedDate }
+              : {}),
           }),
         });
         const data = (await res.json()) as {
           dayofOrderId?: string;
           dayofTotalCents?: number;
           depositCents?: number;
+          appliedDiscount?: { code: string; amountOffCents: number };
+          discountError?: string;
           error?: string;
         };
         if (!res.ok) throw new Error(data.error ?? "Failed to get price");
         setQuoteDayofOrderId(data.dayofOrderId ?? null);
         setQuoteTotalCents(data.dayofTotalCents ?? 0);
         setQuoteDepositCents(data.depositCents ?? 0);
+        // If the server tells us the discount stopped applying since the user
+        // entered it (date drifted past expiry, code deactivated, etc.) drop
+        // the applied chip so the displayed price matches reality.
+        if (data.discountError && appliedDiscount) {
+          setAppliedDiscount(null);
+          setDiscountError(discountReasonMessage(data.discountError, appliedDiscount.code));
+        }
       } catch (err) {
         setQuoteError(err instanceof Error ? err.message : "Failed to load price");
       } finally {
@@ -2419,6 +2607,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   // Send the reduced deposit so bowling-orders charges the right amount
                   depositCents: Math.max(0, (quoteDepositCents ?? 0) - rewardDiscountCents),
                 }
+              : {}),
+            // Discount code carried through to reserve for final re-validation
+            // and redemption logging. The dayofOrder already has the Square
+            // discount attached from the quote step; this lets the server
+            // hard-fail if the code became invalid between quote and submit.
+            ...(appliedDiscount && selectedDate
+              ? { discountCode: appliedDiscount.code, bookingDate: selectedDate }
               : {}),
           }),
         });
@@ -3671,6 +3866,98 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       </>
                     )}
                   </div>
+
+                  {/* Discount code — open bowling only.
+                      KBF reservations are free, so a percent discount is a no-op.
+                      Server is the source of truth: this UI shows the chip + filters
+                      the calendar, but the quote/reserve endpoints re-validate the
+                      same code at every step. */}
+                  {kind !== "kbf" && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                      {appliedDiscount ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span
+                              style={{ background: "rgba(34,197,94,0.18)", color: "#22c55e" }}
+                              className="rounded-full px-2.5 py-1 text-xs font-bold tracking-wider"
+                            >
+                              ✓ {appliedDiscount.code}
+                            </span>
+                            <span className="text-white/70 text-xs">
+                              {appliedDiscount.amountPct != null
+                                ? `${appliedDiscount.amountPct}% off`
+                                : appliedDiscount.amountCents != null
+                                  ? `$${(appliedDiscount.amountCents / 100).toFixed(2)} off`
+                                  : "Discount applied"}
+                              {appliedDiscount.allowedWeekdays &&
+                                appliedDiscount.allowedWeekdays.length > 0 && (
+                                  <>
+                                    {" · "}
+                                    valid{" "}
+                                    {appliedDiscount.allowedWeekdays
+                                      .slice()
+                                      .sort()
+                                      .map(
+                                        (n) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][n],
+                                      )
+                                      .join("/")}
+                                  </>
+                                )}
+                              {" · "}
+                              thru{" "}
+                              {new Date(appliedDiscount.expiresAt).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={clearDiscountCode}
+                            className="text-xs uppercase tracking-wider text-white/40 hover:text-white/80 transition-colors"
+                          >
+                            ✕ Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                            <span className="text-xs uppercase tracking-wider text-white/40 shrink-0">
+                              Discount code
+                            </span>
+                            <input
+                              type="text"
+                              value={discountInput}
+                              onChange={(e) => setDiscountInput(e.target.value.toUpperCase())}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void applyDiscountCode(discountInput);
+                                }
+                              }}
+                              placeholder="Have a code?"
+                              autoCapitalize="characters"
+                              autoCorrect="off"
+                              spellCheck={false}
+                              className="flex-1 bg-white/[0.04] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-white/30 focus:border-white/25 focus:outline-none"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            disabled={!discountInput || discountChecking}
+                            onClick={() => void applyDiscountCode(discountInput)}
+                            className="rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-40"
+                            style={{ backgroundColor: "rgba(34,197,94,0.18)", color: "#22c55e" }}
+                          >
+                            {discountChecking ? "Checking…" : "Apply"}
+                          </button>
+                        </div>
+                      )}
+                      {discountError && (
+                        <p className="mt-2 text-xs text-red-400">{discountError}</p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Calendar */}
