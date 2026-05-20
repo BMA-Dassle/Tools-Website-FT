@@ -527,12 +527,15 @@ export async function mintDigitalGiftCard(params: {
             base_price_money: { amount: params.amountCents, currency: "USD" },
           },
         ],
-        discounts: [
-          {
-            amount_money: { amount: params.amountCents, currency: "USD" },
-            catalog_object_id: params.discountCatalogObjectId,
-          },
-        ],
+        // NOTE: do NOT include amount_money when the catalog_object_id
+        // references a FIXED_PERCENTAGE discount (Square errors out:
+        // "Do not provide a value for amount_money if you provide a
+        // catalog_object_id that references a fixed-percentage
+        // discount"). Square computes the amount from the line item's
+        // base_price_money × the discount percentage. Our prod discount
+        // (37C3SN4245TUCN3RF7XMNKPU "Gift Card - Guest Survey (500.088)")
+        // is 100% off so the line zeroes out cleanly.
+        discounts: [{ catalog_object_id: params.discountCatalogObjectId }],
       },
     }),
   });

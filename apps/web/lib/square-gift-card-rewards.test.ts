@@ -124,12 +124,7 @@ describe("mintDigitalGiftCard (order + discount pattern)", () => {
             base_price_money: { amount: 500, currency: "USD" },
           },
         ],
-        discounts: [
-          {
-            amount_money: { amount: 500, currency: "USD" },
-            catalog_object_id: "DISC_ID_TEST",
-          },
-        ],
+        discounts: [{ catalog_object_id: "DISC_ID_TEST" }],
       },
     });
 
