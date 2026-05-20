@@ -124,6 +124,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
       : renderGiftCardAwardSms({
           gan: formatGan((issued.meta as { gan: string }).gan),
           promoCode: (issued.meta as { promoCode: string }).promoCode,
+          giftCardId: (issued.meta as { giftCardId: string }).giftCardId,
           brand,
         });
 

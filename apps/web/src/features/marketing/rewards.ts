@@ -30,6 +30,14 @@ export type RewardKind = "pinz" | "gift_card";
 export const PINZ_AWARD_POINTS = 500;
 export const GIFT_CARD_AWARD_CENTS = 500;
 
+/**
+ * Square catalog discount object id used to zero out the merchant-comp
+ * gift-card order. Default points at the production "Gift Card - Guest
+ * Survey (500.088)" discount (id captured 2026-05-20). Override via
+ * env if Square ever re-keys it.
+ */
+const SQUARE_SURVEY_DISCOUNT_DEFAULT = "37C3SN4245TUCN3RF7XMNKPU";
+
 export interface IssueRewardInput {
   /** Square customer id — assumed already resolved via resolveAudienceMember. */
   customerId: string;
@@ -116,12 +124,15 @@ async function issueGiftCardReward(input: IssueRewardInput): Promise<IssueReward
   // 1. Generate the promo code first — cheap, no Square mutation.
   const promoCode = await ensureUniquePromoCode();
 
-  // 2. Mint the Square Gift Card. If this fails, no DB rows were
-  //    written so no cleanup needed.
+  // 2. Mint via merchant-comp order + catalog discount. Env override
+  //    lets ops swap the discount object id without a redeploy.
+  const discountId =
+    process.env.SQUARE_SURVEY_DISCOUNT_CATALOG_ID || SQUARE_SURVEY_DISCOUNT_DEFAULT;
   const card = await mintDigitalGiftCard({
     locationId: input.locationId,
     amountCents: GIFT_CARD_AWARD_CENTS,
     baseKey: input.baseKey,
+    discountCatalogObjectId: discountId,
   });
 
   // 3. Link the promo code → gift card → survey row. If this fails,
@@ -172,19 +183,24 @@ export function renderPinzAwardSms(opts: {
 
 /**
  * "Your $5 e-gift card" SMS — sent immediately after the customer picks
- * gift card on the survey page. Approved Draft A (2026-05-20):
+ * gift card on the survey page.
  *
- *   Your $5 e-gift card from HeadPinz!
- *   Show this at checkout:
- *   Card 1234-5678-9012-3456
- *   Code GS-7F2A
- *   Thanks for the feedback!
+ * Pandora_API delivers the same pattern (see src/utils/sendgrid.utils.ts
+ * sendCardPhone): card details + Square-hosted balance URL + Apple
+ * Wallet "add to wallet" link. No PKPass file is generated locally —
+ * Square's hosted endpoint handles the Wallet pass and Google Pay both.
+ *
+ * Square endpoints (verified in Pandora's prod traffic):
+ *   - Balance check:    https://app.squareup.com/gift/balance/{cardId}
+ *   - Apple Wallet add: https://squareup.com/apass/gc/download/personalized/{cardId}?source=egift
+ *                        (also serves Google Pay on Android — auto-detects)
  *
  * No expiration line — per user's "no expiration" decision.
  */
 export function renderGiftCardAwardSms(opts: {
   gan: string;
   promoCode: string;
+  giftCardId: string;
   brand: "HeadPinz" | "FastTrax";
 }): string {
   return (
@@ -192,6 +208,10 @@ export function renderGiftCardAwardSms(opts: {
     `Show this at checkout:\n` +
     `Card ${opts.gan}\n` +
     `Code ${opts.promoCode}\n` +
+    `\n` +
+    `Add to Apple Wallet: https://squareup.com/apass/gc/download/personalized/${opts.giftCardId}?source=egift\n` +
+    `View balance: https://app.squareup.com/gift/balance/${opts.giftCardId}\n` +
+    `\n` +
     `Thanks for the feedback!`
   );
 }

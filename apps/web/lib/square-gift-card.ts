@@ -473,44 +473,116 @@ export interface MintGiftCardResult {
 }
 
 /**
- * Mint a new DIGITAL Square Gift Card funded by the merchant (no customer
- * payment) and return its GAN + id.
+ * Mint a new DIGITAL Square Gift Card via the merchant-comp **Order +
+ * Discount** pattern (the only one Square actually accepts — confirmed
+ * after a live 502 on the simpler ACTIVATE-with-amount approach: Square
+ * returns "Provide either order_id and line_item_uid OR provide amount
+ * and buyer_payment_instrument_id"):
  *
- * Square pattern for merchant-comp / promotional gift cards (see Square
- * docs "Issue promotional gift cards"):
- *   1. POST /v2/gift-cards                — create PENDING card, balance 0
- *   2. POST /v2/gift-cards/activities     — ACTIVATE with amount=0 to flip
- *                                            PENDING → ACTIVE (no buyer
- *                                            payment ids needed when amount=0)
- *   3. POST /v2/gift-cards/activities     — ADJUST_INCREMENT with the actual
- *                                            promo amount + a `reason` field.
- *                                            This records the comp as a
- *                                            merchant expense.
+ *   1. POST /v2/orders                  — create an order with a $X eGiftCard
+ *                                          line item + a $X catalog discount
+ *                                          (net total = $0). The discount
+ *                                          books the comp against GL 500.088
+ *                                          via the "Gift Card - Guest Survey
+ *                                          (500.088)" catalog discount object.
+ *   2. POST /v2/orders/{id}/pay         — pay the $0 order with empty
+ *                                          payment_ids. Square closes it.
+ *   3. POST /v2/gift-cards              — create the DIGITAL gift card.
+ *   4. POST /v2/gift-cards/activities   — ACTIVATE with activate_activity_details
+ *                                          referencing order_id + line_item_uid.
+ *                                          Square sets the balance to the line
+ *                                          item's base price; the discount is
+ *                                          a merchant accounting trick — gift
+ *                                          card still activates at full value.
  *
- * Customer-purchase activation (which the bowling-orders flow uses) bundles
- * fund + activate into one ACTIVATE call with `buyer_payment_instrument_ids`
- * — that's the WRONG pattern here because there's no customer tender.
- *
- * Note also: the path is `/gift-cards/activities` (no card id) — the id
- * lives in `gift_card_activity.gift_card_id`. The bowling-orders flow
- * confirmed this works in prod.
+ * Pandora_API uses this exact pattern in prod (see src/utils/square.utils.ts
+ * createGiftCardOrder / activateGiftCardByOrder + the createTracked
+ * orchestration in squareV2.controllers.ts).
  *
  * Per business decision (2026-05-20): no expiration set — Square Gift
  * Cards default to never expire and we keep that.
- *
- * Idempotency: each step uses a distinct prefix on `baseKey` so retries
- * hit Square's idempotency cache cleanly.
  */
 export async function mintDigitalGiftCard(params: {
   locationId: string;
   amountCents: number;
   baseKey: string;
-  /** Free-text reason logged on the adjust-increment activity (Square
-   *  dashboard shows this on the card's history). Defaults to
-   *  "MARKETING_PROMOTION". */
-  reason?: string;
+  /** Catalog id of the merchant-comp discount object that zeroes the
+   *  order (e.g. "Gift Card - Guest Survey (500.088)"). Must be a real
+   *  catalog discount, not ad-hoc, so the GL booking lands correctly. */
+  discountCatalogObjectId: string;
 }): Promise<MintGiftCardResult> {
-  // ── 1. Create the gift card (PENDING, balance 0) ─────────────────
+  // ── 1. Create order: $X eGiftCard line + $X catalog discount → $0 ─
+  const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `gc-order-${params.baseKey}`,
+      order: {
+        location_id: params.locationId,
+        line_items: [
+          {
+            name: "eGiftCard",
+            quantity: "1",
+            item_type: "GIFT_CARD",
+            base_price_money: { amount: params.amountCents, currency: "USD" },
+          },
+        ],
+        discounts: [
+          {
+            amount_money: { amount: params.amountCents, currency: "USD" },
+            catalog_object_id: params.discountCatalogObjectId,
+          },
+        ],
+      },
+    }),
+  });
+  if (!orderRes.ok) {
+    const data = await orderRes.json().catch(() => ({}));
+    const code = data.errors?.[0]?.code || "GIFT_CARD_ORDER_FAILED";
+    const detail = data.errors?.[0]?.detail || `status ${orderRes.status}`;
+    console.error("[square-gift-card] mint order failed:", {
+      code,
+      detail,
+      status: orderRes.status,
+    });
+    throw new SquarePaymentError(code, detail, orderRes.status);
+  }
+  const orderData = (await orderRes.json()) as {
+    order?: { id?: string; line_items?: Array<{ uid?: string }> };
+  };
+  const orderId = orderData.order?.id;
+  const lineItemUid = orderData.order?.line_items?.[0]?.uid;
+  if (!orderId || !lineItemUid) {
+    throw new SquarePaymentError(
+      "GIFT_CARD_ORDER_INCOMPLETE",
+      "Square returned no order.id or line_items[0].uid",
+      500,
+    );
+  }
+
+  // ── 2. Pay the $0 order (empty payment_ids — discount covered it) ─
+  const payRes = await fetch(`${SQUARE_BASE}/orders/${orderId}/pay`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `gc-pay-${params.baseKey}`,
+      payment_ids: [],
+    }),
+  });
+  if (!payRes.ok) {
+    const data = await payRes.json().catch(() => ({}));
+    const code = data.errors?.[0]?.code || "GIFT_CARD_PAY_FAILED";
+    const detail = data.errors?.[0]?.detail || `status ${payRes.status}`;
+    console.error("[square-gift-card] mint pay-order failed:", {
+      code,
+      detail,
+      status: payRes.status,
+      orderId,
+    });
+    throw new SquarePaymentError(code, detail, payRes.status);
+  }
+
+  // ── 3. Create the DIGITAL gift card (PENDING, balance 0) ─────────
   const createRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
     method: "POST",
     headers: sqHeaders(),
@@ -544,10 +616,7 @@ export async function mintDigitalGiftCard(params: {
     );
   }
 
-  // ── 2. ACTIVATE with amount=0 to flip state PENDING → ACTIVE ─────
-  // Square requires ACTIVATE before any other activity can run on the
-  // card. amount=0 + omitted buyer_payment_instrument_ids is the
-  // documented "merchant-comp" entry point.
+  // ── 4. ACTIVATE by order → balance set from the line item ────────
   const actRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
     method: "POST",
     headers: sqHeaders(),
@@ -558,7 +627,8 @@ export async function mintDigitalGiftCard(params: {
         location_id: params.locationId,
         gift_card_id: giftCardId,
         activate_activity_details: {
-          amount_money: { amount: 0, currency: "USD" },
+          order_id: orderId,
+          line_item_uid: lineItemUid,
         },
       },
     }),
@@ -572,39 +642,10 @@ export async function mintDigitalGiftCard(params: {
       detail,
       status: actRes.status,
       giftCardId,
+      orderId,
+      lineItemUid,
     });
     throw new SquarePaymentError(code, detail, actRes.status);
-  }
-
-  // ── 3. ADJUST_INCREMENT to fund the card from merchant comp ──────
-  const reason = params.reason ?? "MARKETING_PROMOTION";
-  const adjRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: `gc-adj-${params.baseKey}`,
-      gift_card_activity: {
-        type: "ADJUST_INCREMENT",
-        location_id: params.locationId,
-        gift_card_id: giftCardId,
-        adjust_increment_activity_details: {
-          amount_money: { amount: params.amountCents, currency: "USD" },
-          reason,
-        },
-      },
-    }),
-  });
-  if (!adjRes.ok) {
-    const data = await adjRes.json().catch(() => ({}));
-    const code = data.errors?.[0]?.code || "GIFT_CARD_FUND_FAILED";
-    const detail = data.errors?.[0]?.detail || `status ${adjRes.status}`;
-    console.error("[square-gift-card] mint adjust-increment failed:", {
-      code,
-      detail,
-      status: adjRes.status,
-      giftCardId,
-    });
-    throw new SquarePaymentError(code, detail, adjRes.status);
   }
 
   return { giftCardId, gan, balanceCents: params.amountCents };

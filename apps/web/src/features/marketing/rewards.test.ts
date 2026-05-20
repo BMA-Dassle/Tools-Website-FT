@@ -126,6 +126,9 @@ describe("issueReward — gift_card", () => {
       locationId: "TXBSQN0FEKQ11",
       amountCents: GIFT_CARD_AWARD_CENTS,
       baseKey: "abc123",
+      // Production catalog discount object id for "Gift Card - Guest Survey (500.088)"
+      // (default unless SQUARE_SURVEY_DISCOUNT_CATALOG_ID is set).
+      discountCatalogObjectId: expect.any(String),
     });
     expect(mockedInsertPromo).toHaveBeenCalledWith({
       code: "GS-7F2A",
@@ -171,21 +174,21 @@ describe("renderPinzAwardSms / renderGiftCardAwardSms", () => {
     expect(body).toContain("1500");
   });
 
-  it("Gift-card SMS matches approved Draft A shape — no expiration line", () => {
+  it("Gift-card SMS includes Apple Wallet + balance links, no expiration", () => {
     const body = renderGiftCardAwardSms({
       gan: "1234-5678-9012-3456",
       promoCode: "GS-7F2A",
+      giftCardId: "gc_test_abc",
       brand: "HeadPinz",
     });
-    expect(body).toBe(
-      [
-        "Your $5 e-gift card from HeadPinz!",
-        "Show this at checkout:",
-        "Card 1234-5678-9012-3456",
-        "Code GS-7F2A",
-        "Thanks for the feedback!",
-      ].join("\n"),
+    expect(body).toContain("Your $5 e-gift card from HeadPinz!");
+    expect(body).toContain("Card 1234-5678-9012-3456");
+    expect(body).toContain("Code GS-7F2A");
+    expect(body).toContain(
+      "Add to Apple Wallet: https://squareup.com/apass/gc/download/personalized/gc_test_abc?source=egift",
     );
+    expect(body).toContain("View balance: https://app.squareup.com/gift/balance/gc_test_abc");
+    expect(body).toContain("Thanks for the feedback!");
     expect(body.toLowerCase()).not.toContain("expir");
   });
 });

@@ -36,8 +36,8 @@ vi.mock("~/features/marketing", () => ({
       `HeadPinz: ${points} Pinz added. Balance: ${newBalance}`,
   ),
   renderGiftCardAwardSms: vi.fn(
-    ({ gan, promoCode }: { gan: string; promoCode: string }) =>
-      `HeadPinz: $5 e-gift card ${gan} ${promoCode}`,
+    ({ gan, promoCode, giftCardId }: { gan: string; promoCode: string; giftCardId: string }) =>
+      `HeadPinz: $5 e-gift card ${gan} ${promoCode} (id ${giftCardId})`,
   ),
 }));
 
