@@ -296,9 +296,12 @@ export interface MultiTenderResult {
 
 export class SquarePaymentError extends Error {
   code: string;
-  constructor(code: string, detail: string) {
+  /** HTTP status from Square, when the error came from a 4xx/5xx response. */
+  status?: number;
+  constructor(code: string, detail: string, status?: number) {
     super(detail);
     this.code = code;
+    if (status != null) this.status = status;
   }
 }
 
@@ -451,4 +454,343 @@ export async function authorizeMultiTender(params: {
     cardApprovedCents,
     gcGan,
   };
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Reward issuance helpers (PR-GS3: guest survey reward picker)
+//
+// The helpers below mint gift cards and credit Loyalty points outbound
+// to customers as marketing rewards. They are NOT used by the customer
+// payment flows above — those flows REDEEM gift cards customers already
+// own. These flows ISSUE new gift cards / points the customer hasn't
+// paid for.
+// ═════════════════════════════════════════════════════════════════════
+
+export interface MintGiftCardResult {
+  giftCardId: string;
+  gan: string;
+  balanceCents: number;
+}
+
+/**
+ * Mint a new DIGITAL Square Gift Card and load it with an initial amount.
+ *
+ * Two-step:
+ *   1. POST /v2/gift-cards            → creates PENDING card, balance 0
+ *   2. POST /v2/gift-cards/{id}/activities (ACTIVATE) → loads amount
+ *
+ * Used for survey reward issuance. The returned GAN goes out via SMS;
+ * the customer presents it at POS, and Square treats the redemption as
+ * any other gift-card tender.
+ *
+ * Per business decision (2026-05-20): no expiration set — Square Gift
+ * Cards default to never expire and we keep that.
+ *
+ * Idempotency: each call uses a distinct baseKey so retries collide on
+ * Square's idempotency cache and return the original card.
+ */
+export async function mintDigitalGiftCard(params: {
+  locationId: string;
+  amountCents: number;
+  baseKey: string;
+}): Promise<MintGiftCardResult> {
+  // 1. Create the gift card (PENDING, balance 0)
+  const createRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `gc-mint-${params.baseKey}`,
+      location_id: params.locationId,
+      gift_card: { type: "DIGITAL" },
+    }),
+  });
+  if (!createRes.ok) {
+    const data = await createRes.json().catch(() => ({}));
+    const code = data.errors?.[0]?.code || "GIFT_CARD_CREATE_FAILED";
+    const detail = data.errors?.[0]?.detail || `status ${createRes.status}`;
+    throw new SquarePaymentError(code, detail, createRes.status);
+  }
+  const createData = (await createRes.json()) as {
+    gift_card?: { id?: string; gan?: string };
+  };
+  const giftCardId = createData.gift_card?.id;
+  const gan = createData.gift_card?.gan;
+  if (!giftCardId || !gan) {
+    throw new SquarePaymentError(
+      "GIFT_CARD_CREATE_INCOMPLETE",
+      "Square returned no gift_card.id or .gan",
+      500,
+    );
+  }
+
+  // 2. Activate with the initial load amount
+  const actRes = await fetch(`${SQUARE_BASE}/gift-cards/${giftCardId}/activities`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `gc-act-${params.baseKey}`,
+      gift_card_activity: {
+        type: "ACTIVATE",
+        location_id: params.locationId,
+        gift_card_id: giftCardId,
+        activate_activity_details: {
+          amount_money: { amount: params.amountCents, currency: "USD" },
+        },
+      },
+    }),
+  });
+  if (!actRes.ok) {
+    const data = await actRes.json().catch(() => ({}));
+    const code = data.errors?.[0]?.code || "GIFT_CARD_ACTIVATE_FAILED";
+    const detail = data.errors?.[0]?.detail || `status ${actRes.status}`;
+    throw new SquarePaymentError(code, detail, actRes.status);
+  }
+
+  return { giftCardId, gan, balanceCents: params.amountCents };
+}
+
+export interface LoyaltyAccountSummary {
+  accountId: string;
+  customerId: string | null;
+  balance: number;
+  lifetimePoints: number;
+}
+
+/**
+ * Look up the loyalty account for a Square customer.
+ * Returns null if no account exists.
+ */
+export async function findLoyaltyAccount(
+  customerId: string,
+): Promise<LoyaltyAccountSummary | null> {
+  const res = await fetch(`${SQUARE_BASE}/loyalty/accounts/search`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      query: { customer_ids: [customerId] },
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const code = data.errors?.[0]?.code || "LOYALTY_SEARCH_FAILED";
+    const detail = data.errors?.[0]?.detail || `status ${res.status}`;
+    throw new SquarePaymentError(code, detail, res.status);
+  }
+  const data = (await res.json()) as {
+    loyalty_accounts?: Array<{
+      id?: string;
+      customer_id?: string;
+      balance?: number;
+      lifetime_points?: number;
+    }>;
+  };
+  const acct = data.loyalty_accounts?.[0];
+  if (!acct?.id) return null;
+  return {
+    accountId: acct.id,
+    customerId: acct.customer_id ?? null,
+    balance: acct.balance ?? 0,
+    lifetimePoints: acct.lifetime_points ?? 0,
+  };
+}
+
+interface LoyaltyProgramCache {
+  programId: string;
+  fetchedAt: number;
+}
+let cachedLoyaltyProgram: LoyaltyProgramCache | null = null;
+const LOYALTY_PROGRAM_TTL_MS = 60 * 60 * 1000; // 1h
+
+async function getLoyaltyProgramId(): Promise<string> {
+  const now = Date.now();
+  if (cachedLoyaltyProgram && now - cachedLoyaltyProgram.fetchedAt < LOYALTY_PROGRAM_TTL_MS) {
+    return cachedLoyaltyProgram.programId;
+  }
+  const res = await fetch(`${SQUARE_BASE}/loyalty/programs/main`, {
+    method: "GET",
+    headers: sqHeaders(),
+  });
+  if (!res.ok) {
+    throw new SquarePaymentError(
+      "LOYALTY_PROGRAM_FETCH_FAILED",
+      `status ${res.status}`,
+      res.status,
+    );
+  }
+  const data = (await res.json()) as { program?: { id?: string } };
+  const programId = data.program?.id;
+  if (!programId) {
+    throw new SquarePaymentError(
+      "LOYALTY_PROGRAM_MISSING",
+      "No 'main' loyalty program returned",
+      500,
+    );
+  }
+  cachedLoyaltyProgram = { programId, fetchedAt: now };
+  return programId;
+}
+
+/**
+ * Get a customer's loyalty account, enrolling them if none exists.
+ * The enrollment maps the customer's phone to the loyalty program — same
+ * pattern as /api/square/loyalty/enroll.
+ */
+export async function ensureLoyaltyEnrollment(params: {
+  customerId: string;
+  phoneE164: string;
+  baseKey: string;
+}): Promise<LoyaltyAccountSummary> {
+  const existing = await findLoyaltyAccount(params.customerId);
+  if (existing) return existing;
+
+  const programId = await getLoyaltyProgramId();
+
+  const res = await fetch(`${SQUARE_BASE}/loyalty/accounts`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `loy-enroll-${params.baseKey}`,
+      loyalty_account: {
+        program_id: programId,
+        mapping: { phone_number: params.phoneE164 },
+      },
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const code = data.errors?.[0]?.code || "LOYALTY_ENROLL_FAILED";
+    const detail = data.errors?.[0]?.detail || `status ${res.status}`;
+    throw new SquarePaymentError(code, detail, res.status);
+  }
+  const data = (await res.json()) as {
+    loyalty_account?: {
+      id?: string;
+      customer_id?: string;
+      balance?: number;
+      lifetime_points?: number;
+    };
+  };
+  const acct = data.loyalty_account;
+  if (!acct?.id) {
+    throw new SquarePaymentError(
+      "LOYALTY_ENROLL_INCOMPLETE",
+      "Square returned no loyalty_account.id",
+      500,
+    );
+  }
+  return {
+    accountId: acct.id,
+    customerId: acct.customer_id ?? params.customerId,
+    balance: acct.balance ?? 0,
+    lifetimePoints: acct.lifetime_points ?? 0,
+  };
+}
+
+export interface CreditLoyaltyResult {
+  eventId: string;
+  newBalance: number;
+}
+
+/**
+ * Add points to a loyalty account using Square's adjust endpoint.
+ * Returns the adjustment event id (for audit) + the post-adjust balance.
+ *
+ * `reason` is a free-text label shown in the Square dashboard's loyalty
+ * activity log. Keep it short and descriptive — e.g. "Guest Survey Reward".
+ */
+export async function creditLoyaltyPoints(params: {
+  accountId: string;
+  points: number;
+  reason: string;
+  baseKey: string;
+}): Promise<CreditLoyaltyResult> {
+  if (params.points <= 0) {
+    throw new SquarePaymentError(
+      "LOYALTY_INVALID_POINTS",
+      `points must be > 0 (got ${params.points})`,
+      400,
+    );
+  }
+  const res = await fetch(`${SQUARE_BASE}/loyalty/accounts/${params.accountId}/adjust`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `loy-adj-${params.baseKey}`,
+      adjust_points: {
+        points: params.points,
+        reason: params.reason,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const code = data.errors?.[0]?.code || "LOYALTY_ADJUST_FAILED";
+    const detail = data.errors?.[0]?.detail || `status ${res.status}`;
+    throw new SquarePaymentError(code, detail, res.status);
+  }
+  const data = (await res.json()) as {
+    event?: { id?: string; loyalty_account_id?: string };
+  };
+  const eventId = data.event?.id;
+  if (!eventId) {
+    throw new SquarePaymentError(
+      "LOYALTY_ADJUST_INCOMPLETE",
+      "Square returned no event.id from adjust",
+      500,
+    );
+  }
+
+  // Re-fetch the account to get the new balance (the adjust response
+  // doesn't include it).
+  let newBalance = 0;
+  try {
+    const acctRes = await fetch(`${SQUARE_BASE}/loyalty/accounts/${params.accountId}`, {
+      method: "GET",
+      headers: sqHeaders(),
+    });
+    if (acctRes.ok) {
+      const acctData = (await acctRes.json()) as { loyalty_account?: { balance?: number } };
+      newBalance = acctData.loyalty_account?.balance ?? 0;
+    }
+  } catch {
+    // Non-fatal — balance is a nice-to-have for the confirmation SMS.
+  }
+
+  return { eventId, newBalance };
+}
+
+/**
+ * Append a line to the Square customer's free-text note field.
+ *
+ * Square's PUT /v2/customers/{id} replaces the note wholesale, so we
+ * fetch the current value first and prepend the new line. Fail-soft:
+ * note updates are nice-to-have for ops visibility, not transactional.
+ */
+export async function appendCustomerNote(params: {
+  customerId: string;
+  line: string;
+}): Promise<void> {
+  const getRes = await fetch(`${SQUARE_BASE}/customers/${params.customerId}`, {
+    headers: sqHeaders(),
+  });
+  if (!getRes.ok) {
+    throw new SquarePaymentError("CUSTOMER_GET_FAILED", `status ${getRes.status}`, getRes.status);
+  }
+  const getData = (await getRes.json()) as { customer?: { note?: string } };
+  const existing = getData.customer?.note ?? "";
+  const newNote = existing ? `${params.line}\n${existing}` : params.line;
+
+  const putRes = await fetch(`${SQUARE_BASE}/customers/${params.customerId}`, {
+    method: "PUT",
+    headers: sqHeaders(),
+    body: JSON.stringify({ note: newNote }),
+  });
+  if (!putRes.ok) {
+    throw new SquarePaymentError("CUSTOMER_PUT_FAILED", `status ${putRes.status}`, putRes.status);
+  }
+}
+
+/** Reset the in-process loyalty-program cache. Test-only. @internal */
+export function _resetLoyaltyProgramCache(): void {
+  cachedLoyaltyProgram = null;
 }
