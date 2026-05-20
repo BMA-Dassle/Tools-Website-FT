@@ -186,13 +186,15 @@ describe("activities-catalog", () => {
       squareCatalogId: null,
     };
 
-    it("null promo passes through to allOfferings", () => {
+    it("null promo returns the full catalog", () => {
       expect(initialOfferingsFor(null)).toEqual([...allOfferings()]);
     });
 
-    it("bowling-only promo filters to bowling + kbf only", () => {
-      const slugs = initialOfferingsFor(bowlingOnly).map((o) => o.slug);
-      expect(slugs).toEqual(["bowling", "kbf"]);
+    it("promo-applied returns the full catalog too (filtering is now highlighting-only, handled in the UI)", () => {
+      // Landing pattern as of rev 2.5: show everything; UI marks the
+      // ones in `isOfferingInPromoScope`. The customer can still click
+      // a non-eligible tile.
+      expect(initialOfferingsFor(bowlingOnly)).toEqual([...allOfferings()]);
     });
   });
 

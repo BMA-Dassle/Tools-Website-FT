@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import {
-  allOfferings,
-  initialOfferingsFor,
-  type ActivityOffering,
-  type Brand,
-} from "~/features/booking";
+import { allOfferings, type ActivityOffering, type Brand } from "~/features/booking";
 import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-codes";
 import { PromoLanding } from "./PromoLanding";
 
@@ -13,19 +8,16 @@ import { PromoLanding } from "./PromoLanding";
  * Promo-aware booking landing — `/book/v2`.
  *
  * Server component. Reads optional `?code=X` URL seed, resolves the
- * promo, and pre-computes the offering tiles the client island
- * renders. Without a code (or with an invalid one), shows all
- * offerings — the customer can either enter / fix the code or click
- * a tile to go direct.
- *
- * This is a different page from the chooser we deleted in commit 1 of
- * PR-B2. That one filtered by brand only. This one filters by promo
- * scope and is the canonical promo-led entry point.
+ * promo, and renders the v1-HP-book-hub-style activity grid. The
+ * landing ALWAYS shows the full catalog of offerings; when a code is
+ * applied, eligible tiles are highlighted (badge + accent border) but
+ * non-eligible tiles stay clickable — the code just won't activate
+ * for them. Per the rev 2.5 "highlight, don't filter" design rule.
  *
  * Direct slug entry (`/book/race/v2`, `/book/bowling/v2`, etc.) still
  * works without going through this page. Customers who hit a slug URL
  * with a `?code=` that doesn't apply to that activity get
- * server-side-redirected here.
+ * server-side-redirected here so they can see what IS valid.
  */
 
 async function readEntryBrand(): Promise<Brand> {
@@ -44,12 +36,12 @@ export async function generateMetadata({
   if (code) {
     return {
       title: `Book online · code ${code.toUpperCase()}`,
-      description: `Apply your code to see eligible activities and dates.`,
+      description: "Apply your code to see eligible experiences.",
     };
   }
   return {
     title: "Book online",
-    description: "Pick your activity to get started.",
+    description: "Pick your experience to get started.",
   };
 }
 
@@ -64,8 +56,9 @@ export default async function BookV2LandingPage({
 
   const entryBrand = await readEntryBrand();
 
-  // Server-side resolve so the first paint already has the filtered list
-  // (no flash of all-offerings before the code applies).
+  // Server-side resolve so the first paint already shows the applied
+  // chip + the per-tile eligibility highlight (no flash of un-highlighted
+  // before the code applies).
   let seededPromo: AppliedPromo | null = null;
   let seedRejected = false;
   if (seedCode) {
@@ -73,9 +66,7 @@ export default async function BookV2LandingPage({
     if (!seededPromo) seedRejected = true;
   }
 
-  const initialOfferings: ActivityOffering[] = seededPromo
-    ? initialOfferingsFor(seededPromo)
-    : allOfferings().slice();
+  const initialOfferings: ActivityOffering[] = allOfferings().slice();
 
   return (
     <PromoLanding
@@ -84,7 +75,7 @@ export default async function BookV2LandingPage({
       seededPromo={seededPromo}
       seedRejected={seedRejected}
       initialOfferings={initialOfferings}
-      allOfferings={allOfferings().slice()}
+      allOfferings={initialOfferings}
     />
   );
 }

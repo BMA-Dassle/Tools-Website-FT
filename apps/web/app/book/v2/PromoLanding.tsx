@@ -1,32 +1,48 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ActivityOffering, Brand } from "~/features/booking";
+import { isOfferingInPromoScope, type ActivityOffering, type Brand } from "~/features/booking";
 import type { AppliedPromo } from "~/features/discount-codes";
 
 /**
- * Promo-aware booking landing — client island.
+ * v2 booking landing — promo-aware activity picker.
  *
- * Server component (`page.tsx`) does the initial code resolution +
- * tile filtering. This island handles:
- *   - Manual code input (when no `?code=` URL seed)
- *   - Re-validate on submit (calls `/api/booking/v2/promo`)
- *   - "Continue without code" toggle to show full offerings list
- *   - Routing to `/book/<slug>/v2` (with `?code=` carried through)
+ * Visual pattern lifted from v1 HeadPinz book hub (`app/hp/book/page.tsx`)
+ * so v1 + v2 stay visually consistent for the customer:
+ *   - Eyebrow tag in brand-accent color
+ *   - Italic uppercase heading (font-display)
+ *   - Subtitle in white/60
+ *   - 3-col grid of rich attraction cards with hero image, location +
+ *     duration badges, attraction-colored CTA + color bar at bottom
  *
- * Visual styling matches the dark booking theme set in
- * `app/globals.css` (#000418 body bg + cyan #00E2E5 CTAs + bg-white/N
- * card chrome). Brand-aware font cascade via the `brand-fasttrax` /
- * `brand-headpinz` class wrapper.
+ * Brand-aware accent:
+ *   - FastTrax entry → CYAN (#00E2E5)
+ *   - HeadPinz entry → CORAL (#fd5b56) + gold accents for promo highlight
+ *
+ * Promo behavior (rev 2.5):
+ *   - All offerings are shown regardless of code applied.
+ *   - When a code is applied + valid for an offering, that card gets a
+ *     coral / cyan "✨ Code applies" badge + accent border so the
+ *     customer can tell at a glance what their code covers.
+ *   - Customer can still click a non-eligible tile; the code just won't
+ *     activate for it. Per user rule.
  */
+
+const FT_ACCENT = "#00E2E5"; // FastTrax cyan
+const HP_ACCENT = "#fd5b56"; // HeadPinz coral
+const HP_GOLD = "#FFD700";
+
 export interface PromoLandingProps {
   entryBrand: Brand;
   seedCode: string;
   seededPromo: AppliedPromo | null;
   seedRejected: boolean;
+  /** Always the full catalog (per rev 2.5). Kept on props for parity with the server pre-resolve. */
   initialOfferings: ActivityOffering[];
+  /** Identical to `initialOfferings` today; retained so a future feature can pass a different set. */
   allOfferings: ActivityOffering[];
 }
 
@@ -36,19 +52,15 @@ export function PromoLanding({
   seededPromo,
   seedRejected,
   initialOfferings,
-  allOfferings,
 }: PromoLandingProps) {
   const router = useRouter();
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
+  const accent = entryBrand === "fasttrax" ? FT_ACCENT : HP_ACCENT;
 
   const [input, setInput] = useState(seedCode);
   const [applied, setApplied] = useState<AppliedPromo | null>(seededPromo);
-  const [offerings, setOfferings] = useState<ActivityOffering[]>(initialOfferings);
   const [rejected, setRejected] = useState(seedRejected);
-  const [showAll, setShowAll] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  const visibleOfferings = showAll ? allOfferings : offerings;
 
   async function submitCode(e?: React.FormEvent) {
     e?.preventDefault();
@@ -56,7 +68,7 @@ export function PromoLanding({
     if (!code) {
       setApplied(null);
       setRejected(false);
-      setOfferings(allOfferings);
+      router.replace("/book/v2");
       return;
     }
     setSubmitting(true);
@@ -68,15 +80,8 @@ export function PromoLanding({
       });
       const data = await res.json();
       if (data.valid && data.promo) {
-        const promo: AppliedPromo = data.promo;
-        setApplied(promo);
+        setApplied(data.promo as AppliedPromo);
         setRejected(false);
-        setShowAll(false);
-        // Filter offerings client-side using the catalog helper would
-        // require a server round-trip; the server-supplied initialOfferings
-        // matches what the server would compute. For client-side recompute
-        // we'd inline the filter — kept simple by re-fetching once via the
-        // server: just push to /book/v2?code=X to refresh the tile list.
         router.replace(`/book/v2?code=${encodeURIComponent(code)}`);
       } else {
         setApplied(null);
@@ -95,8 +100,6 @@ export function PromoLanding({
     setInput("");
     setApplied(null);
     setRejected(false);
-    setShowAll(false);
-    setOfferings(allOfferings);
     router.replace("/book/v2");
   }
 
@@ -107,111 +110,252 @@ export function PromoLanding({
   }
 
   return (
-    <section className={`${brandClass} mx-auto max-w-3xl p-4 sm:p-6`}>
-      <div className="text-center">
-        <h1 className="font-display text-3xl uppercase tracking-widest text-white sm:text-4xl">
-          What are we booking?
-        </h1>
-        <p className="mt-2 text-sm text-white/50">
-          Pick an activity to get started. Have a promo code? Drop it below first.
-        </p>
-      </div>
+    <div className={`${brandClass} min-h-screen`}>
+      {/* Hero */}
+      <section className="px-4 pb-8 sm:pb-10">
+        <div className="mx-auto max-w-5xl text-center">
+          <div
+            className="mb-3 font-bold uppercase"
+            style={{ color: accent, fontSize: "12px", letterSpacing: "3px" }}
+          >
+            Book Online
+          </div>
+          <h1
+            className="font-display font-black uppercase italic text-white"
+            style={{
+              fontSize: "clamp(28px, 6vw, 56px)",
+              lineHeight: 1.05,
+              letterSpacing: "-0.6px",
+              marginBottom: "16px",
+            }}
+          >
+            Pick your experience
+          </h1>
+          <p
+            className="font-body mx-auto text-white/60"
+            style={{ fontSize: "clamp(14px, 1.8vw, 18px)", lineHeight: 1.6, maxWidth: "52ch" }}
+          >
+            Choose your activity to get started. Have a promo code? Drop it in first and we&apos;ll
+            mark which experiences it&apos;s good for.
+          </p>
+        </div>
+      </section>
 
       {/* Promo input */}
-      <form
-        onSubmit={submitCode}
-        className="mx-auto mt-6 flex w-full max-w-md flex-wrap items-end gap-2"
-      >
-        <label className="min-w-[10rem] flex-1">
-          <span className="block text-xs uppercase tracking-wider text-white/40">Promo code</span>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value.toUpperCase())}
-            placeholder="MAY20WEEKDAY"
-            autoComplete="off"
-            className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm uppercase text-white placeholder-white/30 tracking-wider focus:border-[#00E2E5]/60 focus:bg-white/10 focus:outline-none"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={submitting || input.trim() === (applied?.code ?? "")}
-          className="rounded-xl bg-[#00E2E5] px-5 py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {submitting ? "…" : applied ? "Update" : "Apply"}
-        </button>
-      </form>
+      <section className="px-4 pb-6 sm:pb-8">
+        <div className="mx-auto max-w-md">
+          <form onSubmit={submitCode} className="flex flex-wrap items-end gap-2">
+            <label className="min-w-40 flex-1">
+              <span
+                className="block font-bold uppercase text-white/40"
+                style={{ fontSize: "11px", letterSpacing: "2.5px" }}
+              >
+                Promo code
+              </span>
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value.toUpperCase())}
+                placeholder="MAY20WEEKDAY"
+                autoComplete="off"
+                className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm uppercase tracking-wider text-white placeholder-white/30 focus:bg-white/8 focus:outline-none"
+                style={{ borderColor: applied ? `${accent}55` : undefined }}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={submitting || input.trim() === (applied?.code ?? "")}
+              className="rounded-full px-6 py-3 font-body text-sm font-bold uppercase tracking-wider transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+              style={{ backgroundColor: accent, color: "#0a1628" }}
+            >
+              {submitting ? "…" : applied ? "Update" : "Apply"}
+            </button>
+          </form>
 
-      {/* Applied / rejected feedback */}
-      {applied && (
-        <div className="mx-auto mt-3 flex max-w-md items-center justify-between gap-3 rounded-lg border border-[#00E2E5]/30 bg-[#00E2E5]/10 px-4 py-2 text-sm">
-          <div className="text-[#00E2E5]">
-            <span className="font-semibold">{applied.code}</span> applied —{" "}
-            {applied.mechanic === "percent" && applied.amountPct != null
-              ? `${applied.amountPct}% off`
-              : applied.mechanic === "fixed" && applied.amountCents != null
-                ? `$${(applied.amountCents / 100).toFixed(2)} off`
-                : ""}
-          </div>
-          <button
-            type="button"
-            onClick={clearCode}
-            className="text-xs text-[#00E2E5]/70 transition-colors hover:text-[#00E2E5]"
-          >
-            Clear
-          </button>
+          {applied && (
+            <div
+              className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
+              style={{ borderColor: `${accent}40`, backgroundColor: `${accent}12` }}
+            >
+              <div className="text-sm" style={{ color: accent }}>
+                <span className="font-bold">{applied.code}</span> applied —{" "}
+                {applied.mechanic === "percent" && applied.amountPct != null
+                  ? `${applied.amountPct}% off`
+                  : applied.mechanic === "fixed" && applied.amountCents != null
+                    ? `$${(applied.amountCents / 100).toFixed(2)} off`
+                    : ""}{" "}
+                <span className="text-white/50">— eligible experiences marked below.</span>
+              </div>
+              <button
+                type="button"
+                onClick={clearCode}
+                className="text-xs text-white/50 transition-colors hover:text-white"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          {rejected && !applied && (
+            <p className="mt-3 text-center text-sm text-amber-400/80">
+              We couldn&apos;t apply that code. It may be expired, fully used, or not yet active.
+              Pick an activity below to continue without it.
+            </p>
+          )}
         </div>
-      )}
-      {rejected && !applied && (
-        <p className="mx-auto mt-3 max-w-md text-center text-sm text-amber-400/80">
-          We couldn&apos;t apply that code. It may be expired, fully used, or for a different
-          activity. Pick an option below to continue without it.
-        </p>
-      )}
+      </section>
 
-      {/* Offerings */}
-      <div className="mt-8">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-[#00E2E5]">
-          {applied ? "Eligible activities" : "Pick an activity"}
-        </h2>
-        {visibleOfferings.length === 0 ? (
-          <p className="mt-4 rounded-xl border border-white/10 bg-white/3 p-6 text-center text-sm text-white/50">
-            Your code doesn&apos;t match any of our current activities.
-          </p>
-        ) : (
-          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-            {visibleOfferings.map((o) => (
-              <li key={o.slug}>
-                <Link
-                  href={tileHref(o.slug)}
-                  className="block rounded-lg border border-white/10 bg-white/3 p-4 transition-all hover:border-white/20 hover:bg-white/6"
-                >
-                  <div className="text-sm font-semibold text-white">{o.displayName}</div>
-                  <div className="mt-0.5 text-xs text-white/40">{o.blurb}</div>
-                </Link>
-              </li>
+      {/* Attraction grid */}
+      <section className="px-4 pb-12 sm:pb-20">
+        <div className="mx-auto max-w-5xl">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+            {initialOfferings.map((o) => (
+              <AttractionCard
+                key={o.slug}
+                offering={o}
+                href={tileHref(o.slug)}
+                applied={applied}
+                accent={accent}
+                gold={HP_GOLD}
+              />
             ))}
-          </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AttractionCard({
+  offering,
+  href,
+  applied,
+  accent,
+  gold,
+}: {
+  offering: ActivityOffering;
+  href: string;
+  applied: AppliedPromo | null;
+  accent: string;
+  gold: string;
+}) {
+  const inScope = applied ? isOfferingInPromoScope(offering, applied) : false;
+  // Multi-center offerings show a generic label; single-center pin to the actual complex.
+  const locationLabel =
+    offering.centers.length > 1
+      ? "Fort Myers & Naples"
+      : offering.centers[0] === "naples"
+        ? "HeadPinz Naples"
+        : "Fort Myers";
+
+  const cardColor = offering.accentColor ?? accent;
+
+  return (
+    <Link
+      href={href}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6"
+      style={{
+        borderColor: inScope ? `${gold}55` : "rgba(255,255,255,0.10)",
+        boxShadow: inScope ? `0 0 24px ${gold}1a` : undefined,
+      }}
+    >
+      {/* Hero image */}
+      <div className="relative aspect-16/10 overflow-hidden">
+        {offering.heroImage && (
+          <Image
+            src={offering.heroImage}
+            alt={offering.displayName}
+            fill
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          />
         )}
-        {applied && !showAll && (
-          <button
-            type="button"
-            onClick={() => setShowAll(true)}
-            className="mt-4 text-xs text-white/40 underline-offset-4 transition-colors hover:text-white/70 hover:underline"
-          >
-            Browse everything instead — your code stays applied where it&apos;s valid.
-          </button>
-        )}
-        {applied && showAll && (
-          <button
-            type="button"
-            onClick={() => setShowAll(false)}
-            className="mt-4 text-xs text-white/40 underline-offset-4 transition-colors hover:text-white/70 hover:underline"
-          >
-            Show only eligible activities
-          </button>
-        )}
+        <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
+
+        {/* Location pill */}
+        <div className="absolute left-3 top-3">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-xs font-medium text-white/70 backdrop-blur-sm">
+            <svg
+              className="h-3 w-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+            {locationLabel}
+          </span>
+        </div>
+
+        {/* Duration OR promo eligibility badge — eligibility wins when applied */}
+        <div className="absolute right-3 top-3">
+          {inScope ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider backdrop-blur-sm"
+              style={{ backgroundColor: `${gold}`, color: "#0a1628" }}
+            >
+              <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
+              </svg>
+              Code applies
+            </span>
+          ) : (
+            offering.durationLabel && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-xs font-medium text-white/70 backdrop-blur-sm">
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path strokeLinecap="round" d="M12 6v6l4 2" />
+                </svg>
+                {offering.durationLabel}
+              </span>
+            )
+          )}
+        </div>
       </div>
-    </section>
+
+      {/* Content */}
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
+          {offering.displayName}
+        </h3>
+        <p className="font-body mb-4 flex-1 text-sm leading-relaxed text-white/50">
+          {offering.blurb}
+        </p>
+
+        <div
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
+          style={{ backgroundColor: cardColor, color: "#ffffff" }}
+        >
+          Book Now
+          <svg
+            className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </div>
+      </div>
+
+      {/* Bottom color bar */}
+      <div className="h-0.5 w-full" style={{ backgroundColor: cardColor }} />
+    </Link>
   );
 }

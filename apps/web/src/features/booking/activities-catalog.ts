@@ -55,6 +55,10 @@ export interface ActivityOffering {
   /** Cross-sell tile copy. */
   displayName: string;
   blurb: string;
+  /** Tile display fields — used by `/book/v2` landing + future cards. Values mirror v1 `lib/attractions-data.ts` so the visual stays consistent across v1 / v2 surfaces. */
+  heroImage?: string;
+  accentColor?: string;
+  durationLabel?: string;
 }
 
 const CATALOG: ActivityOffering[] = [
@@ -63,8 +67,12 @@ const CATALOG: ActivityOffering[] = [
     kind: "race",
     brand: "fasttrax",
     centers: ["fort-myers"],
-    displayName: "Go-kart racing",
-    blurb: "Indoor electric karts on three FastTrax tracks.",
+    displayName: "High-Speed Electric Racing",
+    blurb: "Florida's largest indoor go-kart racing on 3 unique tracks.",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+    accentColor: "#E41C1D",
+    durationLabel: "Single races & packs",
   },
   {
     slug: "duck-pin",
@@ -72,8 +80,12 @@ const CATALOG: ActivityOffering[] = [
     attractionSlug: "duck-pin",
     brand: "fasttrax",
     centers: ["fort-myers"],
-    displayName: "Duckpin bowling",
-    blurb: "Modern duckpin — smaller pins, lighter balls, fast turns.",
+    displayName: "FastTrax Duckpin Bowling",
+    blurb: "Modern duckpin — smaller pins, lighter balls, nonstop fun.",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
+    accentColor: "#F59E0B",
+    durationLabel: "30 min or 1 hour",
   },
   {
     slug: "shuffly",
@@ -81,16 +93,24 @@ const CATALOG: ActivityOffering[] = [
     attractionSlug: "shuffly",
     brand: "auto",
     centers: ["fort-myers"],
-    displayName: "Shuffly",
-    blurb: "AR-powered shuffleboard with dynamic LED lighting.",
+    displayName: "Shuffle Showdown",
+    blurb: "AR-powered shuffleboard with dynamic LED lighting and automatic scoring.",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
+    accentColor: "#10B981",
+    durationLabel: "30 min or 1 hour",
   },
   {
     slug: "bowling",
     kind: "bowling",
     brand: "headpinz",
     centers: ["fort-myers", "naples"],
-    displayName: "Bowling",
+    displayName: "HeadPinz Bowling",
     blurb: "Classic & VIP bowling with NeoVerse and HyperBowling.",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    accentColor: "#fd5b56",
+    durationLabel: "1-2 hours",
   },
   {
     slug: "kbf",
@@ -98,7 +118,11 @@ const CATALOG: ActivityOffering[] = [
     brand: "headpinz",
     centers: ["fort-myers", "naples"],
     displayName: "Kids Bowl Free",
-    blurb: "Free summer bowling for registered kids — Mon–Fri.",
+    blurb: "Free bowling for registered kids — Mon–Fri.",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
+    accentColor: "#FFD700",
+    durationLabel: "Mon–Fri only",
   },
   {
     slug: "gel-blaster",
@@ -106,8 +130,12 @@ const CATALOG: ActivityOffering[] = [
     attractionSlug: "gel-blaster",
     brand: "headpinz",
     centers: ["fort-myers", "naples"],
-    displayName: "Gel blasters",
+    displayName: "Nexus Gel Blaster",
     blurb: "High-tech gel blaster battles in an immersive glowing arena.",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
+    accentColor: "#00E2E5",
+    durationLabel: "15 min session",
   },
   {
     slug: "laser-tag",
@@ -115,8 +143,12 @@ const CATALOG: ActivityOffering[] = [
     attractionSlug: "laser-tag",
     brand: "headpinz",
     centers: ["fort-myers", "naples"],
-    displayName: "Laser tag",
+    displayName: "Nexus Laser Tag",
     blurb: "Multi-level laser tag with haptic vests and immersive lighting.",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
+    accentColor: "#8652FF",
+    durationLabel: "15 min session",
   },
 ];
 
@@ -234,21 +266,20 @@ function domainForOffering(offering: ActivityOffering): "racing" | "bowling" | "
 }
 
 /**
- * Offerings to show on the PROMO-AWARE LANDING page (`/book/v2`).
+ * Offerings to show on the booking landing (`/book/v2`).
  *
- *   - When `promo` is null, behaves like `allOfferings()` (passthrough).
- *   - When `promo` is set, filters to offerings in the promo's scope.
+ * Always returns the full catalog. When a promo is applied, the landing
+ * does NOT filter — it shows all activities and visually highlights the
+ * ones the code applies to (badge + accent border on the card). Customers
+ * can still click a non-eligible tile; the promo just doesn't activate
+ * for it.
  *
- * Filter by `session.center` is intentionally NOT applied here: the
- * landing is the first screen, before the customer has picked a center.
- * The activity tiles handle center selection downstream (each activity's
- * own catalog knows which centers it's available at).
- *
- * Cart cross-sell uses `crossSellFor(session)` — that helper IGNORES
- * promo per the booking_v2_promo_integration.md rules. They are NOT
- * interchangeable.
+ * Originally (commit 8.5) this helper filtered by promo scope. Per the
+ * 2026-05-21 rev 2.5 design clarification, "highlight, don't filter" is
+ * the correct behavior. The helper is preserved as the LANDING's entry
+ * point so future filtering (location, etc.) can plug in here without
+ * surfacing more imports in the landing component.
  */
-export function initialOfferingsFor(promo: AppliedPromo | null): ActivityOffering[] {
-  if (!promo) return allOfferings().slice();
-  return CATALOG.filter((o) => isOfferingInPromoScope(o, promo));
+export function initialOfferingsFor(_promo: AppliedPromo | null): ActivityOffering[] {
+  return allOfferings().slice();
 }
