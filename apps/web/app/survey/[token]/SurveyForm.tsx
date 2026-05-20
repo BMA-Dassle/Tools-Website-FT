@@ -2,7 +2,11 @@
 
 import { useMemo, useState } from "react";
 import type { GuestSurveyQuestion } from "@/lib/guest-survey-db";
-import { visibleQuestions, type AnswerMap } from "~/features/guest-survey";
+// Import gating from the leaf module (NOT the feature barrel) — the barrel
+// re-exports service.ts which transitively pulls ioredis into the client
+// bundle. ioredis uses Node-only modules (dns/fs/net/tls) and Turbopack
+// fails the build.
+import { visibleQuestions, type AnswerMap } from "~/features/guest-survey/gating";
 
 interface SurveyFormProps {
   token: string;
