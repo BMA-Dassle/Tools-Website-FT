@@ -5028,8 +5028,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               onAddonsChange={setAttractionAddons}
               onContinue={() => setStep(isPizzaBowl ? "food" : "review")}
               onBack={() => {
-                if (selectedIncludesShoes) {
-                  // Shoes were skipped — go back to offer (with hold-release guard)
+                if (selectedIncludesShoes || selectedIsPerLane) {
+                  // Shoes step was skipped — mirror the forward logic and go
+                  // back to offer (with hold-release guard).
                   if (holdActive) {
                     setPendingRelease("offer");
                   } else {
