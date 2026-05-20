@@ -23,8 +23,20 @@ interface SurveyFormProps {
 type SubmitState =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "done" }
+  | { kind: "picking_reward" } // survey submitted, waiting on the user's reward pick
+  | { kind: "issuing_reward"; kind2: RewardKind }
+  | { kind: "reward_issued"; reward: RewardSummary }
   | { kind: "error"; message: string };
+
+type RewardKind = "pinz" | "gift_card";
+
+interface RewardSummary {
+  kind: RewardKind;
+  value: number;
+  displayText: string;
+  promoCode?: string;
+  newBalance?: number;
+}
 
 /**
  * Mobile-first guest survey form, HeadPinz-branded.
@@ -37,14 +49,51 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
 
-  // Scroll to top whenever the page transitions into a terminal state so the
-  // user sees "Thanks!" instead of being stuck at the bottom near the submit
-  // button after a long-scrolling form.
+  // Scroll to top on every step transition past the form (reward picker,
+  // reward issued, error) so the user sees the new screen.
   useEffect(() => {
-    if (submitState.kind === "done") {
+    if (
+      submitState.kind === "picking_reward" ||
+      submitState.kind === "reward_issued" ||
+      submitState.kind === "error"
+    ) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [submitState.kind]);
+
+  async function pickReward(kind: RewardKind) {
+    setSubmitState({ kind: "issuing_reward", kind2: kind });
+    try {
+      const res = await fetch(`/api/surveys/${encodeURIComponent(token)}/reward`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        setSubmitState({
+          kind: "error",
+          message: errBody.error || `Reward request failed (${res.status})`,
+        });
+        return;
+      }
+      const data = (await res.json()) as {
+        reward: {
+          kind: RewardKind;
+          value: number;
+          displayText: string;
+          promoCode?: string;
+          newBalance?: number;
+        };
+      };
+      setSubmitState({ kind: "reward_issued", reward: data.reward });
+    } catch (err) {
+      setSubmitState({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Network error",
+      });
+    }
+  }
 
   const visible = useMemo(() => visibleQuestions(questions, answers), [questions, answers]);
   const answeredCount = visible.filter((q) => answers[String(q.id)] != null).length;
@@ -56,7 +105,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (submitState.kind === "submitting" || submitState.kind === "done") return;
+    if (submitState.kind !== "idle" && submitState.kind !== "error") return;
     setSubmitState({ kind: "submitting" });
     try {
       const res = await fetch(`/api/surveys/${encodeURIComponent(token)}/submit`, {
@@ -72,7 +121,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
         });
         return;
       }
-      setSubmitState({ kind: "done" });
+      setSubmitState({ kind: "picking_reward" });
     } catch (err) {
       setSubmitState({
         kind: "error",
@@ -81,14 +130,23 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
     }
   }
 
-  if (submitState.kind === "done") {
+  if (submitState.kind === "picking_reward" || submitState.kind === "issuing_reward") {
     return (
       <Shell>
-        <h1 className="font-heading text-3xl font-bold mb-3">Thanks!</h1>
-        <p className="text-white/80 leading-relaxed">
-          Your feedback helps us make {centerName} better. We&apos;ll be in touch shortly with your
-          reward.
-        </p>
+        <RewardPicker
+          centerName={centerName}
+          loading={submitState.kind === "issuing_reward"}
+          loadingKind={submitState.kind === "issuing_reward" ? submitState.kind2 : null}
+          onPick={pickReward}
+        />
+      </Shell>
+    );
+  }
+
+  if (submitState.kind === "reward_issued") {
+    return (
+      <Shell>
+        <RewardConfirmation reward={submitState.reward} centerName={centerName} />
       </Shell>
     );
   }
@@ -303,5 +361,143 @@ function TextInput({
         e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)";
       }}
     />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Reward picker (PR-GS3) — replaces the old "Thanks!" panel after submit
+// ─────────────────────────────────────────────────────────────────
+
+interface RewardPickerProps {
+  centerName: string;
+  loading: boolean;
+  loadingKind: RewardKind | null;
+  onPick: (kind: RewardKind) => void;
+}
+
+function RewardPicker({ centerName, loading, loadingKind, onPick }: RewardPickerProps) {
+  return (
+    <div>
+      <header className="mb-6">
+        <h1 className="font-heading text-3xl font-bold leading-tight">Thanks for your feedback!</h1>
+        <p className="text-sm mt-2" style={{ color: HP_TEXT_MUTED }}>
+          Pick your reward — we&apos;ll send it as soon as you tap.
+        </p>
+      </header>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <RewardCard
+          title="500 Pinz"
+          body="~$5 toward your next visit"
+          subBody="We'll enroll you in HeadPinz Rewards if you're not already a member."
+          disabled={loading}
+          loading={loadingKind === "pinz"}
+          onClick={() => onPick("pinz")}
+        />
+        <RewardCard
+          title="$5 e-gift card"
+          body="Redeem at the bar or front desk"
+          subBody=" "
+          disabled={loading}
+          loading={loadingKind === "gift_card"}
+          onClick={() => onPick("gift_card")}
+        />
+      </div>
+
+      <p className="text-xs mt-6 text-center" style={{ color: HP_TEXT_MUTED }}>
+        See you at {centerName} soon.
+      </p>
+    </div>
+  );
+}
+
+function RewardCard(props: {
+  title: string;
+  body: string;
+  subBody: string;
+  disabled: boolean;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={props.disabled}
+      onClick={props.onClick}
+      className="w-full text-left rounded-xl p-5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      style={{
+        backgroundColor: HP_CARD,
+        border: `2px solid ${props.loading ? HP_BORDER_ACTIVE : "rgba(255,255,255,0.12)"}`,
+      }}
+    >
+      <div className="font-heading text-xl font-bold mb-1">{props.title}</div>
+      <div className="text-sm text-white/85 leading-snug">{props.body}</div>
+      {props.subBody.trim() ? (
+        <div className="text-xs mt-3 leading-snug" style={{ color: HP_TEXT_MUTED }}>
+          {props.subBody}
+        </div>
+      ) : null}
+      {props.loading ? (
+        <div
+          className="text-xs mt-3 font-semibold"
+          style={{ color: HP_BORDER_ACTIVE }}
+          role="status"
+        >
+          Sending…
+        </div>
+      ) : null}
+    </button>
+  );
+}
+
+interface RewardConfirmationProps {
+  reward: RewardSummary;
+  centerName: string;
+}
+
+function RewardConfirmation({ reward, centerName }: RewardConfirmationProps) {
+  if (reward.kind === "pinz") {
+    return (
+      <div>
+        <h1 className="font-heading text-3xl font-bold mb-3">You got Pinz!</h1>
+        <p className="text-white/85 leading-relaxed mb-2">
+          <strong>{reward.value} Pinz</strong> added to your HeadPinz Rewards account.
+        </p>
+        {typeof reward.newBalance === "number" ? (
+          <p className="text-white/70 text-sm">
+            New balance: <strong className="text-white">{reward.newBalance} Pinz</strong>
+          </p>
+        ) : null}
+        <p className="text-white/70 text-sm mt-4">
+          Use them on a future visit at {centerName}. Thanks for the feedback!
+        </p>
+      </div>
+    );
+  }
+  // gift_card
+  return (
+    <div>
+      <h1 className="font-heading text-3xl font-bold mb-3">Your $5 e-gift card is on its way</h1>
+      <p className="text-white/85 leading-relaxed mb-3">
+        We just texted the card number and code to your phone — show it at the bar or front desk at{" "}
+        {centerName}.
+      </p>
+      {reward.promoCode ? (
+        <div
+          className="rounded-lg p-4 text-center"
+          style={{ backgroundColor: HP_CARD, border: `1px solid ${HP_BORDER_ACTIVE}` }}
+        >
+          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: HP_TEXT_MUTED }}>
+            Your reward code
+          </div>
+          <div
+            className="font-heading text-2xl font-bold tracking-widest"
+            style={{ color: HP_BORDER_ACTIVE }}
+          >
+            {reward.promoCode}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
