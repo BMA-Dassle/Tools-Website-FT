@@ -1974,7 +1974,6 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     ) => {
       let result = await createHold(slot);
       let effectiveIncShoes = incShoes;
-      let effectiveIsPerLane = isPerLaneExp;
 
       if (result === "unavailable" && fallback) {
         // VIP slot gone — silently fall back to the regular slot the user
@@ -1984,15 +1983,13 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         fallback.onFallback?.();
         result = await createHold(fallback.slot, { silent: true });
         effectiveIncShoes = fallback.incShoes;
-        effectiveIsPerLane = fallback.isPerLaneExp;
       }
 
       if (result !== "ok") return;
-      if (effectiveIsPerLane) {
-        setStep("attractions");
-      } else {
-        setStep(effectiveIncShoes ? "attractions" : "shoes");
-      }
+      // Per-lane experiences only skip the shoes step when shoes are actually
+      // included in the package (e.g. pizza-bowl). Hourly per-lane rentals
+      // still need the shoes step.
+      setStep(effectiveIncShoes ? "attractions" : "shoes");
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [createHold],
@@ -4673,10 +4670,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           return;
                         }
                         // Hold was already created when user tapped the time chip.
-                        // Just advance to the next step.
-                        if (selectedIsPerLane) {
-                          setStep("attractions");
-                        } else if (selectedIncludesShoes) {
+                        // Just advance to the next step. Per-lane experiences
+                        // don't include shoes unless explicitly flagged — only
+                        // skip the shoes step when the package actually
+                        // includes shoes.
+                        if (selectedIncludesShoes) {
                           setStep("attractions");
                         } else {
                           setStep("shoes");
@@ -5028,9 +5026,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               onAddonsChange={setAttractionAddons}
               onContinue={() => setStep(isPizzaBowl ? "food" : "review")}
               onBack={() => {
-                if (selectedIncludesShoes || selectedIsPerLane) {
-                  // Shoes step was skipped — mirror the forward logic and go
-                  // back to offer (with hold-release guard).
+                if (selectedIncludesShoes) {
+                  // Shoes were skipped — go back to offer (with hold-release guard)
                   if (holdActive) {
                     setPendingRelease("offer");
                   } else {
