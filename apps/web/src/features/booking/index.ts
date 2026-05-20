@@ -7,19 +7,31 @@
  */
 export type { Activity, Brand, CenterCode, ContactInfo, BookingStatus } from "./types";
 
-export { emptySession, getActiveItem, getItem, newItem } from "./state/types";
+export {
+  emptySession,
+  getActiveItem,
+  getItem,
+  getPartyMember,
+  hasKbfItem,
+  newItem,
+  newKbfIdentity,
+  newPartyMember,
+} from "./state/types";
 export type {
+  AttractionItem,
   BookingItem,
   BookingSession,
-  RaceItem,
-  AttractionItem,
   BowlingItem,
+  KbfIdentityState,
   KbfItem,
+  PartyMember,
+  RaceHeatAssignment,
+  RaceItem,
   SessionItem,
 } from "./state/types";
 
 export { EMPTY_ENTRY_CONTEXT } from "./state/entry-context";
-export type { EntryContext, PartyMember, PromoContext } from "./state/entry-context";
+export type { EntryContext, KnownPartyMember, PromoContext } from "./state/entry-context";
 
 export { reducer } from "./state/machine";
 export type { Action } from "./state/machine";

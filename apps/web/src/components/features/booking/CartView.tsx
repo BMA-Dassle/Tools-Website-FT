@@ -103,20 +103,43 @@ function itemTitle(item: SessionItem): string {
 
 function itemSummary(item: SessionItem): string {
   switch (item.kind) {
-    case "race":
-      return [item.date, item.partySize ? `party of ${item.partySize}` : null]
+    case "race": {
+      // Heats are a flat list of (heat, assignedTo) tuples — show count
+      // of heats + count of unique racers assigned, plus the date of the
+      // first heat as a quick label. Empty state during wizard build is OK.
+      const heatCount = item.heats.length;
+      const racers = new Set(item.heats.map((h) => h.assignedTo).filter(Boolean));
+      const firstDate = item.heats.find((h) => h.date)?.date ?? null;
+      return [
+        firstDate,
+        heatCount > 0 ? `${heatCount} heat${heatCount === 1 ? "" : "s"}` : null,
+        racers.size > 0 ? `${racers.size} racer${racers.size === 1 ? "" : "s"}` : null,
+      ]
         .filter(Boolean)
         .join(" · ");
+    }
     case "attraction":
-      return [item.date, item.slot, `qty ${item.qty}`].filter(Boolean).join(" · ");
+      return [
+        item.date,
+        item.slot,
+        `qty ${item.qty}`,
+        item.assignedTo.length > 0 ? `${item.assignedTo.length} assigned` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
     case "bowling":
-      return [item.date, item.hour != null ? `${item.hour}:00` : null, `${item.laneCount} lane(s)`]
+      return [
+        item.date,
+        item.hour != null ? `${item.hour}:00` : null,
+        `${item.laneCount} lane(s)`,
+        item.assignedTo.length > 0 ? `${item.assignedTo.length} players` : null,
+      ]
         .filter(Boolean)
         .join(" · ");
     case "kbf":
       return [
         item.slot,
-        `${item.bowlers.length} bowlers`,
+        `${item.bowlers.length} bowler${item.bowlers.length === 1 ? "" : "s"}`,
         item.paidAdults > 0 ? `${item.paidAdults} adult(s)` : null,
       ]
         .filter(Boolean)

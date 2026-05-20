@@ -16,8 +16,15 @@
  */
 import type { ContactInfo } from "../types";
 
-/** A single party member known to be coming along. */
-export interface PartyMember {
+/**
+ * A party member HINT — pre-known info carried in via deep link / member
+ * portal / etc. NOT the live roster type — the wizard's party step uses
+ * these as seeds and produces full `PartyMember`s in `state/types.ts`.
+ *
+ * Renamed from `PartyMember` (2026-05-21) to disambiguate from the live
+ * roster type that lives at session.party[].
+ */
+export interface KnownPartyMember {
   firstName: string;
   lastName: string;
   /** Member id from whatever directory system supplied them, when known. */
@@ -43,7 +50,7 @@ export interface EntryContext {
   /** Contact fields to seed the session contact with. */
   prefilledContact?: Partial<ContactInfo>;
   /** Known party members (racers, bowlers) attached to the member. */
-  partyMembers?: PartyMember[];
+  partyMembers?: KnownPartyMember[];
   /** Promo code applied via URL or referral. */
   promo?: PromoContext;
   /** Marketing attribution / referrer label (free-form). */

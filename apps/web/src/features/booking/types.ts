@@ -29,10 +29,16 @@ export type BookingStatus = "pending" | "vendor_booked" | "paid" | "failed" | "c
 /**
  * Minimal contact info collected during checkout. Always required at payment
  * time; some activities populate it earlier (e.g. KBF identity step).
+ *
+ * Lives at `session.contact` — the BILLING customer (one per session). May or
+ * may not also be a party member; the wizard's party step prompts them to add
+ * themselves if they're participating. `smsOptIn` is a session-level choice
+ * (controls the SMS confirmation send), not per-activity.
  */
 export interface ContactInfo {
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
+  smsOptIn: boolean;
 }
