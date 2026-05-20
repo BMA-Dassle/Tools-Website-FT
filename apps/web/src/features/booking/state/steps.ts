@@ -12,19 +12,30 @@
  * land in commit 8 of PR-B2; attraction / bowling / kbf get their
  * implementations in PR-B3 / B5 / B6 respectively.
  */
-import type { ComponentType } from "react";
+import type { ComponentType, Dispatch } from "react";
+import type { Action } from "./machine";
 import type { BookingItem, BookingSession, SessionItem } from "./types";
 
+/**
+ * Props a step component receives:
+ *   - item    — the currently active BookingItem (typed to the step's kind).
+ *   - session — the whole session (for reading party roster, kbfIdentity, etc.).
+ *   - onChange — shallow-merges a patch into the active item (the common case).
+ *   - dispatch — the reducer dispatcher. Use this when the step needs to write
+ *                SESSION-LEVEL state (party roster, kbfIdentity, contact, etc.)
+ *                instead of mutating the active item. Steps should prefer
+ *                onChange for per-item patches.
+ */
 export interface StepDef<I extends BookingItem = BookingItem> {
   /** Stable id for breadcrumb + URL hash sync. */
   id: string;
   /** User-facing title. */
   title: string;
-  /** Component reads the active item + session, dispatches via onChange. */
   Component: ComponentType<{
     item: I;
     session: BookingSession;
     onChange: (patch: Partial<I>) => void;
+    dispatch: Dispatch<Action>;
   }>;
   /** Hide the step entirely when this returns false. */
   isVisible: (item: I, session: BookingSession) => boolean;
@@ -46,17 +57,25 @@ function makePlaceholder<I extends BookingItem>(id: string, title: string): Step
   };
 }
 
+// Real race step components — PR-B2 commit 9a ships Date + Party; commit 9b
+// fills in Product / HeatPicker / License / Review.
+import { RaceDateStep } from "~/components/features/booking/steps/race/RaceDateStep";
+import { RacePartyStep } from "~/components/features/booking/steps/race/RacePartyStep";
+
 /**
- * Default per-kind step lists. Real lists per PR-B2..B6 will replace
- * these placeholders with typed step components.
+ * Default per-kind step lists. Real race components live in
+ * `components/features/booking/steps/race/`; non-race kinds use
+ * placeholders until their PR ships (PR-B3 attractions, PR-B5 bowling,
+ * PR-B6 kbf).
  */
 export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [
-    makePlaceholder("date", "Date"),
-    makePlaceholder("party", "Party"),
-    makePlaceholder("product", "Product"),
-    makePlaceholder("heat", "Heat"),
-    makePlaceholder("review", "Review"),
+    RaceDateStep as StepDef,
+    RacePartyStep as StepDef,
+    makePlaceholder("race-product", "Product"),
+    makePlaceholder("race-heat", "Heat"),
+    makePlaceholder("race-license", "License"),
+    makePlaceholder("race-review", "Review"),
   ],
   attraction: [
     makePlaceholder("date", "Date"),

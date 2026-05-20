@@ -27,7 +27,6 @@ function makeMember(args: Partial<PartyMember> = {}): PartyMember {
 }
 
 const heat = (overrides: Partial<RaceHeatAssignment> = {}): RaceHeatAssignment => ({
-  date: "2026-06-01",
   productId: "24960859",
   track: "Red",
   heatId: null,
@@ -179,7 +178,7 @@ describe("reducer — race heat assignments", () => {
     const s1 = reducer(s0, {
       type: "addHeat",
       itemId: race.id,
-      heat: heat({ date: "2026-06-01" }),
+      heat: heat({ track: "Red" }),
     });
     expect((s1.items[0] as RaceItem).heats).toHaveLength(1);
   });

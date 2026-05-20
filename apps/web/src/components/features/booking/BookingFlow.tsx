@@ -111,6 +111,7 @@ export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlo
           item={activeItem}
           session={session}
           onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
+          dispatch={dispatch}
         />
         <p className="mt-4 text-xs text-white/30">
           PR-B2 scaffold — step body lands later this PR ({activeItem.kind}).

@@ -105,13 +105,12 @@ function itemSummary(item: SessionItem): string {
   switch (item.kind) {
     case "race": {
       // Heats are a flat list of (heat, assignedTo) tuples — show count
-      // of heats + count of unique racers assigned, plus the date of the
-      // first heat as a quick label. Empty state during wizard build is OK.
+      // of heats + count of unique racers assigned, with the race day
+      // (RaceItem.date) as a quick label. Empty state during wizard build is OK.
       const heatCount = item.heats.length;
       const racers = new Set(item.heats.map((h) => h.assignedTo).filter(Boolean));
-      const firstDate = item.heats.find((h) => h.date)?.date ?? null;
       return [
-        firstDate,
+        item.date,
         heatCount > 0 ? `${heatCount} heat${heatCount === 1 ? "" : "s"}` : null,
         racers.size > 0 ? `${racers.size} racer${racers.size === 1 ? "" : "s"}` : null,
       ]

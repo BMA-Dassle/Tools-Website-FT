@@ -79,9 +79,12 @@ interface BookingItemBase {
 
 /** A single race-heat assignment on the combined BMI bill. */
 export interface RaceHeatAssignment {
-  /** YYYY-MM-DD — the calendar day this heat falls on. */
-  date: string | null;
-  /** BMI productId for this heat (resolved from race-products registry). */
+  /**
+   * BMI productId for this specific heat. Same as the parent RaceItem's
+   * productId for single-tier picks; differs in mixed-track 3-packs
+   * where each heat picks a track (via race-products `trackProducts`
+   * map → Red product vs Blue product).
+   */
   productId: string | null;
   /** "Red" | "Blue" | "Mega" | null. */
   track: "Red" | "Blue" | "Mega" | null;
@@ -96,9 +99,24 @@ export interface RaceHeatAssignment {
 export interface RaceItem extends BookingItemBase {
   kind: "race";
   /**
-   * Flat list of (heat, racer) tuples. N racers × M heats = N*M entries.
-   * 3-pack day-of products require 3 heats per assignedTo party member.
-   * Heat-conflict validation runs per-assignedTo within the array.
+   * YYYY-MM-DD — the race day. All heats[] fall on this date. The wizard's
+   * Date step writes this; subsequent steps (Product, HeatPicker) filter
+   * BMI availability by it.
+   */
+  date: string | null;
+  /**
+   * Customer-picked product. For single-tier picks (Starter Red, Pro Mega,
+   * etc.) every heat books against this productId. For mixed-track 3-packs
+   * (Intermediate Weekday 3-Pack: Red + Blue), this points at the PARENT
+   * pack id; each heat's heats[i].productId resolves via the registry's
+   * trackProducts map at book time.
+   */
+  productId: string | null;
+  /**
+   * Flat list of (heat block, racer) tuples. N racers × M heats per racer
+   * = N*M entries on the combined BMI bill. 3-pack day-of products require
+   * 3 heats per assignedTo party member. Heat-conflict validation runs
+   * per-assignedTo within the array.
    */
   heats: RaceHeatAssignment[];
 }
@@ -230,7 +248,7 @@ export function newItem(activity: Activity): SessionItem {
   const id = newItemId();
   switch (activity) {
     case "race":
-      return { id, kind: "race", heats: [] };
+      return { id, kind: "race", date: null, productId: null, heats: [] };
     case "attraction":
       return {
         id,
