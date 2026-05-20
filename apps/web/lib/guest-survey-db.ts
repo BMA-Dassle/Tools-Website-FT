@@ -321,6 +321,22 @@ export async function deleteGuestSurveyByToken(token: string): Promise<boolean> 
   return rows.length > 0;
 }
 
+/**
+ * Hard-delete ALL guest_surveys rows for a phone. Test-only — used by the
+ * admin debug endpoint to clear prior failed sends so a force-retry can
+ * re-fire without colliding with the (origin, origin_ref) unique index.
+ * Returns the count deleted.
+ */
+export async function deleteGuestSurveysByPhone(phoneE164: string): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  await ensureGuestSurveySchema();
+  const q = sql();
+  const rows = await q`
+    DELETE FROM guest_surveys WHERE phone_e164 = ${phoneE164} RETURNING id
+  `;
+  return rows.length;
+}
+
 export async function getGuestSurveyByToken(token: string): Promise<GuestSurveyRow | null> {
   if (!isDbConfigured()) return null;
   await ensureGuestSurveySchema();

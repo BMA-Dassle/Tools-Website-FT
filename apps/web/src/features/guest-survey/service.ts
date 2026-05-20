@@ -8,6 +8,7 @@ import {
   deleteGuestSurveyByToken,
   getGuestSurveyByOriginRef,
   insertGuestSurvey,
+  seedGuestSurveyQuestionsIfEmpty,
 } from "@/lib/guest-survey-db";
 import {
   canSend,
@@ -53,6 +54,15 @@ export async function enqueueBowlingSurvey(
   if (!isDbConfigured()) {
     return { status: "skipped", reason: "no_db" };
   }
+
+  // ── Self-heal: seed the question pool on first use ────────────────
+  // The seed is idempotent (no-op when rows exist) but its absence at
+  // first-fire ships an empty survey to the customer — which is what
+  // happened to Eric on 2026-05-20. Run it here so the very first
+  // enqueue on a fresh DB still picks real questions.
+  await seedGuestSurveyQuestionsIfEmpty().catch((err) =>
+    console.warn("[guest-survey] auto-seed failed (non-fatal):", err),
+  );
 
   // ── Step 3: idempotency on (origin, origin_ref) ───────────────────
   const existing = await getGuestSurveyByOriginRef({

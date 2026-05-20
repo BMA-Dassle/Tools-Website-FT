@@ -30,6 +30,8 @@ vi.mock("@/lib/guest-survey-db", () => ({
   deleteGuestSurveyByToken: vi.fn().mockResolvedValue(true),
   // pickQuestions() (via ./questions) calls getActiveQuestionsForTags
   getActiveQuestionsForTags: vi.fn().mockResolvedValue([]),
+  // service.ts auto-seeds questions on first call (idempotent in prod)
+  seedGuestSurveyQuestionsIfEmpty: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock("~/features/marketing", () => ({
@@ -49,6 +51,7 @@ import {
   deleteGuestSurveyByToken,
   getGuestSurveyByOriginRef,
   insertGuestSurvey,
+  seedGuestSurveyQuestionsIfEmpty,
 } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
 import {
@@ -64,6 +67,7 @@ const mockedIsDbConfigured = vi.mocked(isDbConfigured);
 const mockedGetExisting = vi.mocked(getGuestSurveyByOriginRef);
 const mockedInsert = vi.mocked(insertGuestSurvey);
 const mockedDelete = vi.mocked(deleteGuestSurveyByToken);
+const mockedSeed = vi.mocked(seedGuestSurveyQuestionsIfEmpty);
 const mockedShorten = vi.mocked(shortenUrl);
 const mockedResolve = vi.mocked(resolveAudienceMember);
 const mockedConsent = vi.mocked(hasMarketingOptIn);
@@ -92,6 +96,7 @@ function defaultsHappyPath(): void {
   // vi.clearAllMocks (+ afterEach restoreAllMocks) wipe implementations
   // assigned in vi.mock declarations on cleanup — re-assert every test.
   mockedDelete.mockResolvedValue(true);
+  mockedSeed.mockResolvedValue(0);
   mockedRecordTouch.mockResolvedValue({
     id: "touch-uuid",
     customerId: "x",

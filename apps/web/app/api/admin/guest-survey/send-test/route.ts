@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enqueueBowlingSurvey } from "~/features/guest-survey";
+import { deleteGuestSurveysByPhone } from "@/lib/guest-survey-db";
+import { deleteMarketingTouchesByPhone } from "@/lib/marketing-db";
 import { normalizePhoneE164, recordOptIn } from "~/features/marketing";
 
 /**
@@ -37,6 +39,10 @@ export async function POST(req: NextRequest) {
     centerCode?: string;
     reservationId?: string;
     ensureOptIn?: boolean;
+    /** Force-retry: wipe prior guest_surveys + marketing_touches rows for this
+     *  phone before enqueuing. Used to re-test the same phone within the
+     *  30-day cap window. Destructive — admin only. */
+    force?: boolean;
   };
   try {
     body = await req.json();
@@ -58,6 +64,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "invalid phone" },
       { status: 400 },
+    );
+  }
+
+  // Force-retry: clear any prior survey row + sent touches for this phone
+  // so the 30-day cap and (origin, origin_ref) uniqueness don't block.
+  // Destructive — only here on the admin debug path.
+  let wiped: { surveys: number; touches: number } | undefined;
+  if (body.force === true) {
+    const surveys = await deleteGuestSurveysByPhone(phoneE164);
+    const touches = await deleteMarketingTouchesByPhone({
+      phoneE164,
+      campaign: "guest_survey",
+    });
+    wiped = { surveys, touches };
+    console.log(
+      `[admin-debug] force-retry: wiped ${surveys} survey(s) and ${touches} touch(es) for ${phoneE164}`,
     );
   }
 
@@ -99,5 +121,5 @@ export async function POST(req: NextRequest) {
 
   console.log(`[admin-debug] send-test outcome=${JSON.stringify(outcome)}`);
 
-  return NextResponse.json({ ok: true, outcome });
+  return NextResponse.json({ ok: true, outcome, ...(wiped ? { wiped } : {}) });
 }

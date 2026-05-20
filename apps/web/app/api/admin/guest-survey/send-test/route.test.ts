@@ -13,13 +13,25 @@ vi.mock("~/features/marketing", () => ({
   recordOptIn: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/guest-survey-db", () => ({
+  deleteGuestSurveysByPhone: vi.fn().mockResolvedValue(0),
+}));
+
+vi.mock("@/lib/marketing-db", () => ({
+  deleteMarketingTouchesByPhone: vi.fn().mockResolvedValue(0),
+}));
+
 import { NextRequest } from "next/server";
 import { enqueueBowlingSurvey } from "~/features/guest-survey";
 import { recordOptIn } from "~/features/marketing";
+import { deleteGuestSurveysByPhone } from "@/lib/guest-survey-db";
+import { deleteMarketingTouchesByPhone } from "@/lib/marketing-db";
 import { POST } from "./route";
 
 const mockedEnqueue = vi.mocked(enqueueBowlingSurvey);
 const mockedRecordOptIn = vi.mocked(recordOptIn);
+const mockedDeleteSurveys = vi.mocked(deleteGuestSurveysByPhone);
+const mockedDeleteTouches = vi.mocked(deleteMarketingTouchesByPhone);
 
 function makeReq(body: unknown): NextRequest {
   return new NextRequest("http://x/api/admin/guest-survey/send-test", {
@@ -32,6 +44,8 @@ function makeReq(body: unknown): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockedRecordOptIn.mockResolvedValue(undefined);
+  mockedDeleteSurveys.mockResolvedValue(0);
+  mockedDeleteTouches.mockResolvedValue(0);
   mockedEnqueue.mockResolvedValue({
     status: "sent",
     surveyId: "survey-uuid-1",
@@ -117,6 +131,40 @@ describe("POST /api/admin/guest-survey/send-test", () => {
       }),
     );
     expect(mockedEnqueue.mock.calls[0][0].reservationId).toBe("custom-ref-42");
+  });
+
+  it("does NOT wipe rows when force is missing or false", async () => {
+    await POST(
+      makeReq({
+        phone: "5551234567",
+        guestName: "Eric Osborn",
+        centerCode: "TXBSQN0FEKQ11",
+      }),
+    );
+    expect(mockedDeleteSurveys).not.toHaveBeenCalled();
+    expect(mockedDeleteTouches).not.toHaveBeenCalled();
+  });
+
+  it("wipes prior surveys + touches when force=true and reports the counts", async () => {
+    mockedDeleteSurveys.mockResolvedValue(1);
+    mockedDeleteTouches.mockResolvedValue(2);
+
+    const res = await POST(
+      makeReq({
+        phone: "5551234567",
+        guestName: "Eric Osborn",
+        centerCode: "TXBSQN0FEKQ11",
+        force: true,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockedDeleteSurveys).toHaveBeenCalledWith("+15551234567");
+    expect(mockedDeleteTouches).toHaveBeenCalledWith({
+      phoneE164: "+15551234567",
+      campaign: "guest_survey",
+    });
+    const body = await res.json();
+    expect(body.wiped).toEqual({ surveys: 1, touches: 2 });
   });
 
   it("forwards the skipped outcome (e.g. 30-day cap) verbatim", async () => {

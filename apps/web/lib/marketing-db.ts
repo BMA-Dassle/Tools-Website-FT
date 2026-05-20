@@ -208,6 +208,28 @@ export async function recordMarketingTouch(input: MarketingTouchInput): Promise<
 }
 
 /**
+ * Hard-delete ALL marketing_touches rows for a phone within one campaign.
+ * Test-only — used by the admin debug endpoint to clear prior 'sent'
+ * touches so a force-retry isn't blocked by the 30-day cap.
+ * Returns the count deleted.
+ */
+export async function deleteMarketingTouchesByPhone(opts: {
+  phoneE164: string;
+  campaign: string;
+}): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  await ensureMarketingSchema();
+  const q = sql();
+  const rows = await q`
+    DELETE FROM marketing_touches
+    WHERE phone_e164 = ${opts.phoneE164}
+      AND campaign   = ${opts.campaign}
+    RETURNING id
+  `;
+  return rows.length;
+}
+
+/**
  * Most-recent `sent` touch for (customer, campaign), or null if never sent.
  * Used by the frequency-cap check.
  */
