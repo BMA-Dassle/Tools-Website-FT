@@ -235,19 +235,39 @@ export function isOfferingInPromoScope(offering: ActivityOffering, promo: Applie
   const domain = domainForOffering(offering);
   if (!promo.domains.includes(domain)) return false;
 
-  // Per-domain product allowlist. Some offerings live under attractions but
-  // the discount scopes use the slug array under that domain key.
+  // The admin's slug vocabulary (per
+  // `app/api/admin/discount-codes/product-catalog/route.ts`) does NOT line
+  // up with v2's offering slugs for racing or bowling:
+  //
+  //   - Racing admin slugs are hardcoded: "adult-arrive-drive",
+  //     "junior-arrive-drive", "race-pack". v2 currently has a single
+  //     "race" offering.
+  //   - Bowling admin slugs come from `bowling_experiences.slug`:
+  //     "regular-mon-thur", "kbf-regular", "fun-4-all", etc. v2 splits this
+  //     into two offerings ("bowling" + "kbf"), and `bowling_experiences.kind`
+  //     ("hourly" | "open" | "kbf") decides which side a slug belongs to —
+  //     but the AppliedPromo only carries slugs, not the kind.
+  //   - Attractions admin slugs DO match v2 offering slugs (gel-blaster,
+  //     laser-tag, duck-pin, shuffly).
+  //
+  // So we match looser where the vocabularies diverge:
+  //   - racing scope present → highlight the race tile (no per-product
+  //     split in v2 yet; race-pack is PR-B4 territory).
+  //   - bowling scope null → highlight BOTH bowling + kbf tiles.
+  //     bowling scope present → use the "kbf" slug-prefix heuristic
+  //     (seed values are "kbf-regular" / "kbf-vip"; any added later
+  //     follow the same naming) to decide which tile is in scope.
+  //   - attractions scope → exact slug match.
   switch (domain) {
-    case "racing": {
-      const allowed = promo.scopes.racing?.productSlugs;
-      if (allowed == null) return true;
-      return allowed.includes(offering.slug);
-    }
+    case "racing":
+      return true;
     case "bowling": {
       const allowed = promo.scopes.bowling?.experienceSlugs;
       if (allowed == null) return true;
-      // KBF + bowling both live under the bowling domain. Match by slug.
-      return allowed.includes(offering.slug);
+      if (offering.slug === "kbf") {
+        return allowed.some((s) => s.toLowerCase().startsWith("kbf"));
+      }
+      return allowed.some((s) => !s.toLowerCase().startsWith("kbf"));
     }
     case "attractions": {
       const allowed = promo.scopes.attractions?.slugs;

@@ -140,11 +140,28 @@ describe("activities-catalog", () => {
       amountCents: null,
       squareCatalogId: null,
     };
-    const bowlingOnly: AppliedPromo = {
+    const racingSpecific: AppliedPromo = {
+      ...racingOnly,
+      code: "RACE25-PACK",
+      scopes: { racing: { productSlugs: ["race-pack"] } },
+    };
+    const bowlingAll: AppliedPromo = {
       ...racingOnly,
       code: "BOWL10",
       domains: ["bowling"],
       scopes: { bowling: { experienceSlugs: null } },
+    };
+    const bowlingKbfOnly: AppliedPromo = {
+      ...bowlingAll,
+      code: "KBF-FREE",
+      // Admin bowling_experiences slugs use "kbf-*" for KBF rows.
+      scopes: { bowling: { experienceSlugs: ["kbf-regular", "kbf-vip"] } },
+    };
+    const bowlingHourlyOnly: AppliedPromo = {
+      ...bowlingAll,
+      code: "BOWL-MON",
+      // Admin slugs for regular bowling experiences (no "kbf" prefix).
+      scopes: { bowling: { experienceSlugs: ["regular-mon-thur", "vip-mon-thur"] } },
     };
     const gelBlasterOnly: AppliedPromo = {
       ...racingOnly,
@@ -153,16 +170,30 @@ describe("activities-catalog", () => {
       scopes: { attractions: { slugs: ["gel-blaster"] } },
     };
 
-    it("racing-scoped promo matches race only", () => {
+    it("racing-scoped promo highlights race tile (admin slug vocab differs; domain match wins)", () => {
       expect(isOfferingInPromoScope(findOffering("race")!, racingOnly)).toBe(true);
+      // Even with a specific productSlugs allowlist that doesn't include
+      // "race", the race tile still highlights — admin slugs like
+      // "race-pack" / "adult-arrive-drive" are not v2 catalog slugs.
+      expect(isOfferingInPromoScope(findOffering("race")!, racingSpecific)).toBe(true);
       expect(isOfferingInPromoScope(findOffering("bowling")!, racingOnly)).toBe(false);
       expect(isOfferingInPromoScope(findOffering("gel-blaster")!, racingOnly)).toBe(false);
     });
 
-    it("bowling-scoped promo matches bowling AND kbf (kbf rides under bowling domain)", () => {
-      expect(isOfferingInPromoScope(findOffering("bowling")!, bowlingOnly)).toBe(true);
-      expect(isOfferingInPromoScope(findOffering("kbf")!, bowlingOnly)).toBe(true);
-      expect(isOfferingInPromoScope(findOffering("race")!, bowlingOnly)).toBe(false);
+    it("bowling scope with null allowlist highlights both bowling AND kbf tiles", () => {
+      expect(isOfferingInPromoScope(findOffering("bowling")!, bowlingAll)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("kbf")!, bowlingAll)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("race")!, bowlingAll)).toBe(false);
+    });
+
+    it("bowling scope with only kbf-prefixed experience slugs highlights ONLY kbf", () => {
+      expect(isOfferingInPromoScope(findOffering("kbf")!, bowlingKbfOnly)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("bowling")!, bowlingKbfOnly)).toBe(false);
+    });
+
+    it("bowling scope with only non-kbf experience slugs highlights ONLY bowling", () => {
+      expect(isOfferingInPromoScope(findOffering("bowling")!, bowlingHourlyOnly)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("kbf")!, bowlingHourlyOnly)).toBe(false);
     });
 
     it("attractions promo with a specific slug only matches that slug", () => {
