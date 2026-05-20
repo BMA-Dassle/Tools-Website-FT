@@ -914,6 +914,37 @@ export type BowlingReservationWithLines = BowlingReservation & {
 };
 
 /**
+ * Bulk lookup: given a list of bowling_reservations IDs (as strings or
+ * numbers), return a Map keyed by stringified ID → reservation row.
+ * Designed for the survey-list portal endpoint that needs to attach
+ * lane / time / Square-order context to each survey result.
+ *
+ * No lines join — keeps the payload light. Caller can hit
+ * `getBowlingReservation(id)` if they need line items per row.
+ */
+export async function getBowlingReservationsByIds(
+  ids: Array<string | number>,
+): Promise<Map<string, BowlingReservation>> {
+  const out = new Map<string, BowlingReservation>();
+  if (!isDbConfigured() || ids.length === 0) return out;
+  await ensureBowlingSchema();
+  const q = sql();
+  // Coerce to number[] — bowling_reservations.id is bigint. Skip
+  // anything non-numeric (e.g. admin-test-* origin_refs).
+  const numericIds = ids.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0);
+  if (numericIds.length === 0) return out;
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE id = ANY(${numericIds}::bigint[])
+  `;
+  for (const r of rows as Array<Record<string, unknown>>) {
+    const res = rowToReservation(r);
+    out.set(String(res.id), res);
+  }
+  return out;
+}
+
+/**
  * List bowling reservations filtered by booked_at date range.
  * Used by the admin reservations board. Includes order lines.
  */
