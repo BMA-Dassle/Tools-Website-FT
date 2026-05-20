@@ -163,6 +163,73 @@ components:
           type: string
           format: uri
           description: "Customer-facing survey page (the same link the guest received). Operator can open it to see exactly what the customer sees: `https://headpinz.com/survey/{token}`"
+        reservation:
+          allOf:
+            - { $ref: "#/components/schemas/ReservationContext" }
+          nullable: true
+          description: |
+            Bowling reservation context joined by `(origin='bowling',
+            origin_ref=bowling_reservations.id::text)`. Null for racing
+            surveys (PR-GS4) and for admin-test rows whose origin_ref is
+            non-numeric. Carries lane, booked-at time, Square order +
+            payment ids, and ready-to-render Square dashboard drill-down
+            URLs.
+
+    ReservationContext:
+      type: object
+      properties:
+        id: { type: integer, description: "bowling_reservations.id" }
+        productKind: { type: string, enum: [open, kbf] }
+        bookedAt: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [confirmed, confirm_pending, confirm_failed, arrived, completed, cancelled]
+        playerCount: { type: integer, nullable: true }
+        lane:
+          type: string
+          nullable: true
+          description: "Comma-separated lane numbers assigned at lane-open (e.g. `12` or `12,13`)."
+        bookingSource:
+          type: string
+          nullable: true
+          description: "`web` | `kiosk` | `conqueror` | `admin`."
+        depositCents: { type: integer, description: "Amount paid at booking (in cents)." }
+        totalCents: { type: integer, description: "Total package value (in cents)." }
+        refundCents: { type: integer, description: "Amount refunded if cancelled (0 otherwise)." }
+        squareDepositOrderId: { type: string, nullable: true }
+        squareDayofOrderId:
+          {
+            type: string,
+            nullable: true,
+            description: "Day-of POS order (left open for staff to add to at the center).",
+          }
+        squareDepositPaymentId: { type: string, nullable: true }
+        dayofPaymentId:
+          { type: string, nullable: true, description: "Day-of gift-card-tender payment." }
+        squareGiftCardGan:
+          {
+            type: string,
+            nullable: true,
+            description: "Internal staff-deposit eGift card GAN (e.g. `DEPX77012`).",
+          }
+        shortCode: { type: string, nullable: true }
+        squareDepositOrderUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: "`https://app.squareup.com/dashboard/orders/overview?orderId={id}`"
+        squareDayofOrderUrl: { type: string, format: uri, nullable: true }
+        squareDepositPaymentUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: "`https://app.squareup.com/dashboard/sales/transactions/{id}`"
+        dayofPaymentUrl: { type: string, format: uri, nullable: true }
+        bowlingConfirmationUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: "Customer's original booking confirmation page (`/hp/book/.../confirmation?neonId={id}`)."
 
     ListResponse:
       type: object

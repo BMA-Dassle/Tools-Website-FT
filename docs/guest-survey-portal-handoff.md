@@ -80,6 +80,45 @@ The portal gets three pre-built URLs per survey so you can render direct
 
 Per-customer history is one fetch: `GET /api/admin/guest-survey/list?phone=+12397762044`.
 
+### Reservation context
+
+Every bowling survey row carries a `reservation` object joined from
+`bowling_reservations` by `origin_ref`. This lets the portal show **what the
+guest actually did** — lane, time, Square orders, total — without a second
+fetch:
+
+```jsonc
+"reservation": {
+  "id": 1454,
+  "productKind": "open",                              // open | kbf
+  "bookedAt": "2026-05-20T16:05:00.000Z",
+  "status": "completed",
+  "playerCount": 4,
+  "lane": "12,13",                                    // comma-joined lane numbers
+  "bookingSource": "web",                             // web | kiosk | conqueror | admin
+  "depositCents": 7782,
+  "totalCents": 11442,
+  "refundCents": 0,
+  "squareDepositOrderId": "abc...",
+  "squareDayofOrderId": "def...",                     // day-of POS order (left open at center)
+  "squareDepositPaymentId": "pmt_xyz...",
+  "dayofPaymentId": "pmt_dayof...",                   // gift-card-tender payment at the center
+  "squareGiftCardGan": "DEPX77012",                   // internal staff-deposit eGift GAN
+  "shortCode": "ab12cd",
+  "squareDepositOrderUrl":   "https://app.squareup.com/dashboard/orders/overview?orderId=abc...",
+  "squareDayofOrderUrl":     "https://app.squareup.com/dashboard/orders/overview?orderId=def...",
+  "squareDepositPaymentUrl": "https://app.squareup.com/dashboard/sales/transactions/pmt_xyz...",
+  "dayofPaymentUrl":         "https://app.squareup.com/dashboard/sales/transactions/pmt_dayof...",
+  "bowlingConfirmationUrl":  "https://headpinz.com/hp/book/bowling/confirmation?neonId=1454"
+}
+```
+
+`reservation` is **null** when:
+
+- Racing surveys (PR-GS4 — not built yet)
+- Admin-test rows (`origin_ref` doesn't map to a real reservation)
+- Any survey whose `origin_ref` isn't a valid `bowling_reservations.id`
+
 ### Example — completed bowling surveys with a Pinz reward, last 30 days
 
 ```
@@ -137,7 +176,30 @@ GET /api/admin/guest-survey/list
       "promoCodeRedeemedAt": null,                // ISO when the GC was used at POS
       "squareDashboardUrl": "https://app.squareup.com/dashboard/customers/MAM5YPC3YGEJPTTVRBFPJ307RM",
       "squareGiftCardDashboardUrl": null,         // only on gift_card rewards
-      "surveyResultUrl": "https://headpinz.com/survey/6d2e7b6b-2e32-4f4b-99d4-cddf09edf4f7"
+      "surveyResultUrl": "https://headpinz.com/survey/6d2e7b6b-2e32-4f4b-99d4-cddf09edf4f7",
+      "reservation": {                            // see "Reservation context" below — null for non-bowling
+        "id": 1454,
+        "productKind": "open",
+        "bookedAt": "2026-05-20T16:05:00.000Z",
+        "status": "completed",
+        "playerCount": 4,
+        "lane": "12,13",
+        "bookingSource": "web",
+        "depositCents": 7782,
+        "totalCents": 11442,
+        "refundCents": 0,
+        "squareDepositOrderId": "abc...",
+        "squareDayofOrderId": "def...",
+        "squareDepositPaymentId": "pmt_xyz...",
+        "dayofPaymentId": "pmt_dayof...",
+        "squareGiftCardGan": "DEPX77012",
+        "shortCode": "ab12cd",
+        "squareDepositOrderUrl":   "https://app.squareup.com/dashboard/orders/overview?orderId=abc...",
+        "squareDayofOrderUrl":     "https://app.squareup.com/dashboard/orders/overview?orderId=def...",
+        "squareDepositPaymentUrl": "https://app.squareup.com/dashboard/sales/transactions/pmt_xyz...",
+        "dayofPaymentUrl":         "https://app.squareup.com/dashboard/sales/transactions/pmt_dayof...",
+        "bowlingConfirmationUrl":  "https://headpinz.com/hp/book/bowling/confirmation?neonId=1454"
+      }
     }
   ]
 }
@@ -327,6 +389,13 @@ phone_e164,square_customer_id,square_dashboard_url,
 reward_kind,reward_value,reward_ref,
 promo_code,promo_gift_card_id,promo_gan,promo_redeemed_at,
 square_gift_card_dashboard_url,survey_result_url,
+reservation_id,reservation_status,reservation_booked_at,
+reservation_lane,reservation_player_count,reservation_product_kind,
+reservation_booking_source,reservation_deposit_cents,reservation_total_cents,
+reservation_refund_cents,
+square_deposit_order_url,square_dayof_order_url,
+square_deposit_payment_url,square_dayof_payment_url,
+bowling_confirmation_url,
 questions_json,responses_json,context_json
 ```
 

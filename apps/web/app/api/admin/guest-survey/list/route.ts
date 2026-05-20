@@ -5,6 +5,7 @@ import {
   type SurveyOrigin,
   type SurveyRewardKind,
 } from "@/lib/guest-survey-db";
+import { getBowlingReservationsByIds, type BowlingReservation } from "@/lib/bowling-db";
 import { normalizePhoneE164 } from "~/features/marketing";
 
 /**
@@ -87,15 +88,26 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const enriched = rows.map((r) => ({
-    ...r,
-    // Drill-down links the portal can render directly.
-    squareDashboardUrl: `https://app.squareup.com/dashboard/customers/${r.squareCustomerId}`,
-    surveyResultUrl: `https://headpinz.com/survey/${r.token}`,
-    squareGiftCardDashboardUrl: r.promoCodeGiftCardId
-      ? `https://app.squareup.com/dashboard/gift-cards/${r.promoCodeGiftCardId.replace(/^gftc:/, "")}`
-      : null,
-  }));
+  // Batch-attach bowling reservation context for `origin='bowling'`
+  // rows so the portal can show lane / time / Square order ids / etc.
+  // without making N follow-up calls. admin-test-* origin_refs are
+  // non-numeric and naturally drop out in the helper.
+  const bowlingRefs = rows.filter((r) => r.origin === "bowling").map((r) => r.originRef);
+  const reservationMap = await getBowlingReservationsByIds(bowlingRefs);
+
+  const enriched = rows.map((r) => {
+    const reservation = r.origin === "bowling" ? (reservationMap.get(r.originRef) ?? null) : null;
+    return {
+      ...r,
+      // Drill-down links the portal can render directly.
+      squareDashboardUrl: `https://app.squareup.com/dashboard/customers/${r.squareCustomerId}`,
+      surveyResultUrl: `https://headpinz.com/survey/${r.token}`,
+      squareGiftCardDashboardUrl: r.promoCodeGiftCardId
+        ? `https://app.squareup.com/dashboard/gift-cards/${r.promoCodeGiftCardId.replace(/^gftc:/, "")}`
+        : null,
+      reservation: reservation ? toReservationContext(reservation) : null,
+    };
+  });
 
   if (format === "csv") {
     const csv = toCsv(enriched);
@@ -154,15 +166,107 @@ const CSV_COLUMNS: Array<{ header: string; pick: (r: EnrichedRow) => unknown }> 
   { header: "promo_redeemed_at", pick: (r) => r.promoCodeRedeemedAt },
   { header: "square_gift_card_dashboard_url", pick: (r) => r.squareGiftCardDashboardUrl },
   { header: "survey_result_url", pick: (r) => r.surveyResultUrl },
+  // Reservation context — null for non-bowling rows or admin-test rows.
+  { header: "reservation_id", pick: (r) => r.reservation?.id ?? null },
+  { header: "reservation_status", pick: (r) => r.reservation?.status ?? null },
+  { header: "reservation_booked_at", pick: (r) => r.reservation?.bookedAt ?? null },
+  { header: "reservation_lane", pick: (r) => r.reservation?.lane ?? null },
+  { header: "reservation_player_count", pick: (r) => r.reservation?.playerCount ?? null },
+  { header: "reservation_product_kind", pick: (r) => r.reservation?.productKind ?? null },
+  { header: "reservation_booking_source", pick: (r) => r.reservation?.bookingSource ?? null },
+  { header: "reservation_deposit_cents", pick: (r) => r.reservation?.depositCents ?? null },
+  { header: "reservation_total_cents", pick: (r) => r.reservation?.totalCents ?? null },
+  { header: "reservation_refund_cents", pick: (r) => r.reservation?.refundCents ?? null },
+  {
+    header: "square_deposit_order_url",
+    pick: (r) => r.reservation?.squareDepositOrderUrl ?? null,
+  },
+  { header: "square_dayof_order_url", pick: (r) => r.reservation?.squareDayofOrderUrl ?? null },
+  {
+    header: "square_deposit_payment_url",
+    pick: (r) => r.reservation?.squareDepositPaymentUrl ?? null,
+  },
+  { header: "square_dayof_payment_url", pick: (r) => r.reservation?.dayofPaymentUrl ?? null },
+  {
+    header: "bowling_confirmation_url",
+    pick: (r) => r.reservation?.bowlingConfirmationUrl ?? null,
+  },
   { header: "questions_json", pick: (r) => JSON.stringify(r.questions) },
   { header: "responses_json", pick: (r) => (r.responses ? JSON.stringify(r.responses) : null) },
   { header: "context_json", pick: (r) => JSON.stringify(r.context) },
 ];
 
+/**
+ * Compact reservation context attached to each survey row.
+ * Subset of BowlingReservation — just the fields the portal needs
+ * to render lane/time/Square-order drill-downs without extra calls.
+ */
+interface ReservationContext {
+  id: number;
+  productKind: "open" | "kbf";
+  bookedAt: string;
+  status: BowlingReservation["status"];
+  playerCount: number | null;
+  /** Comma-separated lane numbers assigned at lane-open (e.g. "12" or "12,13"). */
+  lane: string | null;
+  bookingSource: string | null;
+  depositCents: number;
+  totalCents: number;
+  refundCents: number;
+  squareDepositOrderId: string | null;
+  squareDayofOrderId: string | null;
+  squareDepositPaymentId: string | null;
+  dayofPaymentId: string | null;
+  squareGiftCardGan: string | null;
+  shortCode: string | null;
+  /** Deep links into the Square Seller dashboard. Null when the underlying id is null. */
+  squareDepositOrderUrl: string | null;
+  squareDayofOrderUrl: string | null;
+  squareDepositPaymentUrl: string | null;
+  dayofPaymentUrl: string | null;
+  /** /hp/book/.../confirmation?neonId=… for the original booking confirmation page. */
+  bowlingConfirmationUrl: string | null;
+}
+
+function toReservationContext(r: BowlingReservation): ReservationContext {
+  const orderUrl = (id?: string) =>
+    id ? `https://app.squareup.com/dashboard/orders/overview?orderId=${id}` : null;
+  const paymentUrl = (id?: string) =>
+    id ? `https://app.squareup.com/dashboard/sales/transactions/${id}` : null;
+  const confirmBase =
+    r.productKind === "kbf"
+      ? "/hp/book/kids-bowl-free/confirmation"
+      : "/hp/book/bowling/confirmation";
+  return {
+    id: r.id,
+    productKind: r.productKind,
+    bookedAt: r.bookedAt,
+    status: r.status,
+    playerCount: r.playerCount ?? null,
+    lane: r.dayofOrderLane ?? null,
+    bookingSource: r.bookingSource ?? null,
+    depositCents: r.depositCents,
+    totalCents: r.totalCents,
+    refundCents: r.refundCents,
+    squareDepositOrderId: r.squareDepositOrderId ?? null,
+    squareDayofOrderId: r.squareDayofOrderId ?? null,
+    squareDepositPaymentId: r.squareDepositPaymentId ?? null,
+    dayofPaymentId: r.dayofPaymentId ?? null,
+    squareGiftCardGan: r.squareGiftCardGan ?? null,
+    shortCode: r.shortCode ?? null,
+    squareDepositOrderUrl: orderUrl(r.squareDepositOrderId),
+    squareDayofOrderUrl: orderUrl(r.squareDayofOrderId),
+    squareDepositPaymentUrl: paymentUrl(r.squareDepositPaymentId),
+    dayofPaymentUrl: paymentUrl(r.dayofPaymentId),
+    bowlingConfirmationUrl: `https://headpinz.com${confirmBase}?neonId=${r.id}`,
+  };
+}
+
 type EnrichedRow = GuestSurveyListItem & {
   squareDashboardUrl: string;
   surveyResultUrl: string;
   squareGiftCardDashboardUrl: string | null;
+  reservation: ReservationContext | null;
 };
 
 function toCsv(rows: EnrichedRow[]): string {
