@@ -123,8 +123,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "regular-mon-thur": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description:
-      "Reserve a lane by the hour — Monday through Thursday. Shoes not included.",
+    description: "Reserve a lane by the hour — Monday through Thursday. Shoes not included.",
     features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
     perLane: true,
   },
@@ -144,8 +143,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "regular-fri-sun": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description:
-      "Reserve a lane by the hour — Friday through Sunday. Shoes not included.",
+    description: "Reserve a lane by the hour — Friday through Sunday. Shoes not included.",
     features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
     perLane: true,
   },
@@ -544,6 +542,48 @@ function centerHoursForDate(hpSlug: string, dateStr: string): { open: number; cl
 
 function centsToDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+// ── Loading state ──────────────────────────────────────────────────────────
+
+const LOADING_MESSAGES = [
+  "Polishing the pins…",
+  "Waxing the lanes…",
+  "Checking with the pin chasers…",
+  "Counting open lanes…",
+  "Lining up the bumpers…",
+  "Asking the lane monitor…",
+];
+
+function LoadingPackages() {
+  const [idx, setIdx] = useState(0);
+  const [slow, setSlow] = useState(false);
+
+  useEffect(() => {
+    const rotate = setInterval(() => {
+      setIdx((i) => (i + 1) % LOADING_MESSAGES.length);
+    }, 2500);
+    const slowTimer = setTimeout(() => setSlow(true), 8000);
+    return () => {
+      clearInterval(rotate);
+      clearTimeout(slowTimer);
+    };
+  }, []);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
+      <div
+        className="w-10 h-10 border-2 border-white/15 rounded-full animate-spin mx-auto mb-4"
+        style={{ borderTopColor: CORAL }}
+      />
+      <p className="font-body text-white/70 text-sm">{LOADING_MESSAGES[idx]}</p>
+      {slow && (
+        <p className="font-body text-white/40 text-xs mt-2">
+          Still looking — this is taking longer than usual.
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ── Props ──────────────────────────────────────────────────────────────────
@@ -1901,8 +1941,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
         const data = (await res.json()) as { qamfReservationId?: string; error?: string };
         if (!res.ok) {
           const msg = data.error ?? "Hold failed";
-          const isLaneUnavailable =
-            /LanesNotAvailable|not available|409|Conflict|sold\s*out/i.test(msg);
+          const isLaneUnavailable = /LanesNotAvailable|not available|409|Conflict|sold\s*out/i.test(
+            msg,
+          );
           if (isLaneUnavailable) {
             // Slot was taken between availability fetch and hold attempt.
             // When `silent` is set (VIP fallback path), the caller will
@@ -3993,24 +4034,24 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                     Packages" is tapped so the user sees forward motion instead
                     of a frozen calendar screen. */}
                   {slotsLoading || experiencesLoading ? (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
-                      <div
-                        className="w-10 h-10 border-2 border-white/15 rounded-full animate-spin mx-auto mb-4"
-                        style={{ borderTopColor: CORAL }}
-                      />
-                      <p className="font-body text-white/60 text-sm">Finding packages…</p>
-                    </div>
+                    <LoadingPackages />
                   ) : tiersToShow.length === 0 ? (
-                    <div className="text-center py-10">
-                      <p className="font-body text-white/50 text-sm">
-                        No packages available at the selected time.
+                    <div className="text-center py-10 space-y-4">
+                      <p className="font-body text-white/65 text-sm">
+                        {selectedHour !== null && selectedMinute !== null
+                          ? `No packages open at ${formatHourMinute(selectedHour, selectedMinute)} on ${dateLabel} at ${center.name}.`
+                          : `No packages open on ${dateLabel} at ${center.name}.`}
+                      </p>
+                      <p className="font-body text-white/45 text-xs">
+                        Try a different time or pick another date.
                       </p>
                       <button
                         type="button"
                         onClick={() => setStep("slots")}
-                        className="mt-4 font-body text-white/60 text-sm underline underline-offset-2"
+                        className="rounded-full px-5 py-2.5 font-body font-bold text-xs uppercase tracking-wider text-white transition-all hover:scale-[1.01]"
+                        style={{ backgroundColor: CORAL, boxShadow: `0 0 14px ${CORAL}40` }}
                       >
-                        ← Choose a different time
+                        Change time
                       </button>
                     </div>
                   ) : availableSlots.length === 0 ? (
