@@ -619,13 +619,21 @@ export async function mintDigitalGiftCard(params: {
     );
   }
 
-  // ── 4. ACTIVATE by order, with explicit amount ─────────────────
-  // Without amount_money, Square infers from the line item's
-  // total_money (NET after discounts). With our 100%-off catalog
-  // discount the net is $0 → card activates for $0 → Square's
-  // hosted balance page renders "invalid / not activated". We pass
-  // amount_money explicitly so the card loads at the gross amount
-  // ($5) regardless of the discount.
+  // ── 4. ACTIVATE by order → balance set from the line item ───────
+  // Square rejects both order_id+line_item_uid AND amount_money in
+  // the same activate_activity_details: "Provide either order_id
+  // and line_item_uid OR provide amount and buyer_payment_instrument_id".
+  // The activation amount is read off the line item's gross_sales_money
+  // (base_price × qty), NOT total_money. With base_price_money $5 the
+  // card loads $5 regardless of the 100% catalog discount.
+  //
+  // Defensive parsing matches the proven bowling-orders flow:
+  // Square will sometimes return HTTP 200 with `errors` populated in
+  // the body (e.g. when an idempotency key replays a failure), so
+  // checking `!actRes.ok` alone is not enough — we miss those and
+  // return a "success" with a PENDING $0 card. Also verify the
+  // response's gift_card_balance_money is non-zero, else surface as
+  // an error rather than persisting an unusable card.
   const actRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
     method: "POST",
     headers: sqHeaders(),
@@ -638,15 +646,20 @@ export async function mintDigitalGiftCard(params: {
         activate_activity_details: {
           order_id: orderId,
           line_item_uid: lineItemUid,
-          amount_money: { amount: params.amountCents, currency: "USD" },
         },
       },
     }),
   });
-  if (!actRes.ok) {
-    const data = await actRes.json().catch(() => ({}));
-    const code = data.errors?.[0]?.code || "GIFT_CARD_ACTIVATE_FAILED";
-    const detail = data.errors?.[0]?.detail || `status ${actRes.status}`;
+  const actData = (await actRes.json().catch(() => ({}))) as {
+    gift_card_activity?: {
+      gift_card_balance_money?: { amount?: number };
+      activate_activity_details?: { amount_money?: { amount?: number } };
+    };
+    errors?: Array<{ code?: string; detail?: string }>;
+  };
+  if (!actRes.ok || actData.errors?.length) {
+    const code = actData.errors?.[0]?.code || "GIFT_CARD_ACTIVATE_FAILED";
+    const detail = actData.errors?.[0]?.detail || `status ${actRes.status}`;
     console.error("[square-gift-card] mint activate failed:", {
       code,
       detail,
@@ -654,11 +667,62 @@ export async function mintDigitalGiftCard(params: {
       giftCardId,
       orderId,
       lineItemUid,
+      response: actData,
     });
     throw new SquarePaymentError(code, detail, actRes.status);
   }
+  const loadedAmount =
+    actData.gift_card_activity?.gift_card_balance_money?.amount ??
+    actData.gift_card_activity?.activate_activity_details?.amount_money?.amount ??
+    0;
+  if (loadedAmount === 0) {
+    console.error("[square-gift-card] mint activate returned zero balance:", {
+      giftCardId,
+      orderId,
+      lineItemUid,
+      response: actData,
+    });
+    throw new SquarePaymentError(
+      "GIFT_CARD_ACTIVATE_ZERO_BALANCE",
+      "Square activated the card with a $0 balance",
+      500,
+    );
+  }
+  console.log(
+    `[square-gift-card] mint activated giftCardId=${giftCardId} gan=${gan} loaded=${loadedAmount}`,
+  );
 
-  return { giftCardId, gan, balanceCents: params.amountCents };
+  // ── 5. Verify state via retrieve. Belt-and-suspenders: if Square's
+  //    activate response looked OK but the card is still PENDING,
+  //    fail loudly here instead of returning a broken card to the
+  //    customer. The retrieve is a cheap read and protects against
+  //    any future silent-failure mode.
+  const verifyRes = await fetch(`${SQUARE_BASE}/gift-cards/${giftCardId}`, {
+    method: "GET",
+    headers: sqHeaders(),
+  });
+  const verifyData = (await verifyRes.json().catch(() => ({}))) as {
+    gift_card?: { state?: string; balance_money?: { amount?: number } };
+    errors?: Array<{ code?: string; detail?: string }>;
+  };
+  const verifiedState = verifyData.gift_card?.state;
+  const verifiedBalance = verifyData.gift_card?.balance_money?.amount ?? 0;
+  if (verifiedState !== "ACTIVE" || verifiedBalance <= 0) {
+    console.error("[square-gift-card] mint verify failed:", {
+      giftCardId,
+      gan,
+      state: verifiedState,
+      balance: verifiedBalance,
+      response: verifyData,
+    });
+    throw new SquarePaymentError(
+      "GIFT_CARD_VERIFY_FAILED",
+      `Card is ${verifiedState ?? "unknown"} with balance ${verifiedBalance}`,
+      500,
+    );
+  }
+
+  return { giftCardId, gan, balanceCents: verifiedBalance };
 }
 
 export interface LoyaltyAccountSummary {
