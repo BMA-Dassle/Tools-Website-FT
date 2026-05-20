@@ -655,9 +655,11 @@ async function processEvent(
     // ── Guest survey enqueue on Completed transition ──────────────────
     // Fire-and-forget so the webhook stays under SLA. The service is
     // idempotent on (origin='bowling', origin_ref=reservation.id) — a
-    // duplicate Completed event will skip cleanly. Flag-gated until ops
-    // signoff is complete.
-    if (neonAction === "completed" && process.env.GUEST_SURVEY_ENABLED === "true") {
+    // duplicate Completed event will skip cleanly. The 30-day cap
+    // (in the service) prevents re-spamming the same customer.
+    // Kill-switch: set GUEST_SURVEY_DISABLED=true in Vercel env to
+    // pause sends without a redeploy.
+    if (neonAction === "completed" && process.env.GUEST_SURVEY_DISABLED !== "true") {
       // Bind to const so TS narrowing carries into the .catch closure
       // (reservation is declared `let` and reassigned earlier in the flow).
       const completedReservation = reservation;
