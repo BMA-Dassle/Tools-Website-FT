@@ -438,6 +438,25 @@ export async function getSurveysForReservations(
   return out;
 }
 
+/**
+ * Bulk lookup: given a list of normalized phone numbers, return the
+ * set of phones that already have AT LEAST ONE guest_surveys row
+ * (any origin). Used by the manual backfill to never send a second
+ * survey to a phone that's already been surveyed.
+ */
+export async function getPhonesWithExistingSurveys(phones: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!isDbConfigured() || phones.length === 0) return out;
+  await ensureGuestSurveySchema();
+  const q = sql();
+  const rows = await q`
+    SELECT DISTINCT phone_e164 FROM guest_surveys
+    WHERE phone_e164 = ANY(${phones}::text[])
+  `;
+  for (const r of rows as Array<{ phone_e164: string }>) out.add(r.phone_e164);
+  return out;
+}
+
 export interface GuestSurveyListItem extends GuestSurveyRow {
   /** GS-XXXX promo code for gift-card rewards, null for Pinz/declined. */
   promoCode: string | null;
