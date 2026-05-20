@@ -83,7 +83,14 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/book/gel-blaster)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/book)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(xargs grep -l \"redis\\\\|Redis\")",
+      "Bash(xargs grep -l \"attraction\\\\|activity\\\\|enabled\\\\|config\\\\|setting\")",
+      "Bash(npx turbo *)",
+      "Bash(git push *)",
+      "Bash(where.exe gh *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\git\\\\Tools-Website-FT\\\\apps\\\\web\" -Recurse -Filter \"tailwind.config.*\")",
+      "Bash(Select-Object FullName)"
     ]
   }
 }
