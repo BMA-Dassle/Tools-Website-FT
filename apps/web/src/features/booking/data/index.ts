@@ -11,12 +11,31 @@
  * the reference pattern. Local dev defaults to mocks for vendors without
  * sandbox accounts; production always uses the real impl.
  *
- * PR-B1 ships:
- *   - The stub-mode primitive (mock-mode.ts).
- *   - One worked example adapter (square.ts) demonstrating the pattern.
+ * Ships so far:
+ *   - mock-mode.ts (the toggle primitive)
+ *   - square.ts (Square Order adapter — DRAFT/CREATE/GET/CANCEL)
+ *   - bmi.ts (BMI adapter — getAvailability, bookHeat, removeBookingLine,
+ *     confirmPayment, getOrderOverview, createPerson; raw-ID-safe via
+ *     @ft/db.stringifyWithRawIds)
  *
- * PR-B2..B6 add the other adapters (bmi, conq, pandora, kbf) as each
- * activity needs them.
+ * Conq (bowling) + Pandora + KBF land in PR-B5 / B6.
  */
 export { isMockMode } from "./mock-mode";
 export { squareAdapter, type SquareAdapter } from "./square";
+
+export { bmiAdapter, type BmiAdapter } from "./bmi";
+export type {
+  BmiAvailabilityResponse,
+  BmiBlock,
+  BmiBookResult,
+  BmiOrderOverview,
+  BmiPrice,
+  BmiProposal,
+  BmiProposalBlock,
+  BookHeatArgs,
+  ConfirmPaymentArgs,
+  CreatePersonArgs,
+  GetAvailabilityArgs,
+  GetOrderOverviewArgs,
+  RemoveBookingLineArgs,
+} from "./bmi";
