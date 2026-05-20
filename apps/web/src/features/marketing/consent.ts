@@ -20,7 +20,8 @@ export type MarketingConsentSource =
   | "survey_completion"
   | "admin"
   | "inbound_sms_start"
-  | "inbound_sms_stop";
+  | "inbound_sms_stop"
+  | "email_unsubscribe";
 
 export async function hasMarketingOptIn(phoneE164: string): Promise<boolean> {
   const row = await getMarketingConsent(phoneE164);

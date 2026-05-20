@@ -3,18 +3,21 @@ import { isDbConfigured } from "@ft/db";
 import { voxSend } from "@/lib/sms-retry";
 import { logSms } from "@/lib/sms-log";
 import { shortenUrl } from "@/lib/short-url";
+import { sendEmail } from "@/lib/sendgrid";
 import { CENTER_META } from "@/lib/bowling-lane-ready-notify";
 import {
   deleteGuestSurveyByToken,
   getGuestSurveyByOriginRef,
   insertGuestSurvey,
   seedGuestSurveyQuestionsIfEmpty,
+  updateGuestSurveyContext,
 } from "@/lib/guest-survey-db";
 import {
   canSend,
   getConsent,
   recordTouch,
   renderBowlingSurveyInvite,
+  renderBowlingSurveyInviteEmail,
   resolveAudienceMember,
   splitGuestName,
 } from "~/features/marketing";
@@ -196,7 +199,44 @@ export async function enqueueBowlingSurvey(
     smsError = err instanceof Error ? err.message : String(err);
   }
 
-  if (!smsOk) {
+  // ── Step 10b: email fallback if SMS failed and we have an email ──
+  // Vox failover already exercises Twilio inside voxSend. If both
+  // providers come back ok=false (carrier reject, A2P throttle, bad
+  // phone), don't drop the customer on the floor when we have a
+  // confirmed email on the reservation. Render the email-version of
+  // the invite + send via SendGrid. Successful email delivery is
+  // recorded as a sent touch with channel='email' so reports show
+  // which channel actually reached the guest.
+  let deliveredChannel: "sms" | "email" | null = smsOk ? "sms" : null;
+  let emailError: string | undefined;
+  let emailStatus: number | null = null;
+  if (!smsOk && input.guestEmail) {
+    const email = renderBowlingSurveyInviteEmail({
+      code: shortCode,
+      guestName: input.guestName,
+      brand: input.centerCode in CENTER_META ? "HeadPinz" : "FastTrax",
+      phoneE164,
+    });
+    const guestDisplayName = input.guestName?.trim() || undefined;
+    const result = await sendEmail({
+      to: input.guestEmail,
+      toName: guestDisplayName,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+    });
+    emailStatus = result.status;
+    emailError = result.error;
+    if (result.ok) {
+      deliveredChannel = "email";
+      await updateGuestSurveyContext({ token, patch: { channel: "email" } }).catch((err) =>
+        console.warn(`[guest-survey] context update (email channel) failed for ${token}:`, err),
+      );
+    }
+  }
+
+  if (!deliveredChannel) {
+    // Neither SMS nor email delivered (or no email on file) — roll back.
     await deleteGuestSurveyByToken(token).catch((delErr) =>
       console.warn(`[guest-survey] rollback delete failed for ${token} (non-fatal):`, delErr),
     );
@@ -204,34 +244,45 @@ export async function enqueueBowlingSurvey(
       customerId: squareCustomerId,
       phoneE164,
       reservationId: input.reservationId,
-      reason: "audience_resolve_failed", // again closest reason; detail captures the truth
-      meta: { smsError, smsStatus },
+      reason: "audience_resolve_failed", // closest existing reason; detail captures the truth
+      meta: {
+        smsError,
+        smsStatus,
+        emailAttempted: Boolean(input.guestEmail),
+        emailError,
+        emailStatus,
+      },
     });
     return {
       status: "skipped",
       reason: "audience_resolve_failed",
-      detail: `sms send failed: ${smsError ?? "unknown"}`,
+      detail: input.guestEmail
+        ? `sms + email failed: sms=${smsError ?? "?"} email=${emailError ?? "?"}`
+        : `sms send failed: ${smsError ?? "unknown"}`,
     };
   }
 
-  // ── Step 11: log SMS + record sent touch ─────────────────────────
-  await logSms({
-    ts: new Date().toISOString(),
-    phone: phoneE164,
-    source: "guest-survey",
-    status: smsStatus,
-    ok: true,
-    provider: smsProvider,
-    failedOver: smsFailedOver,
-    shortCode,
-    body,
-    providerMessageId,
-  });
+  // ── Step 11: log SMS (if SMS path) + record sent touch with channel
+  if (deliveredChannel === "sms") {
+    await logSms({
+      ts: new Date().toISOString(),
+      phone: phoneE164,
+      source: "guest-survey",
+      status: smsStatus,
+      ok: true,
+      provider: smsProvider,
+      failedOver: smsFailedOver,
+      shortCode,
+      body,
+      providerMessageId,
+    });
+  }
 
   await recordTouch({
     customerId: squareCustomerId,
     phoneE164,
     campaign: "guest_survey",
+    channel: deliveredChannel,
     event: "sent",
     refId: token,
     meta: {
@@ -240,8 +291,9 @@ export async function enqueueBowlingSurvey(
       visitDate: input.visitDate,
       tags,
       shortCode,
-      provider: smsProvider,
-      failedOver: smsFailedOver,
+      provider: deliveredChannel === "sms" ? smsProvider : "sendgrid",
+      failedOver: deliveredChannel === "email" ? true : smsFailedOver,
+      ...(deliveredChannel === "email" && smsError ? { smsErrorBeforeEmail: smsError } : {}),
     },
   });
 

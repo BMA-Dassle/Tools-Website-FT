@@ -465,7 +465,10 @@ export async function middleware(request: NextRequest) {
     // (not /hp/survey/* nor /ft/survey/*) — the route reads the center
     // code from the row and picks the brand. Without this exclusion the
     // /hp rewrite turns into a 404.
-    pathname.startsWith("/survey/");
+    pathname.startsWith("/survey/") ||
+    // Marketing unsubscribe page — linked from email footers, must work
+    // on both brand domains.
+    pathname.startsWith("/marketing/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&

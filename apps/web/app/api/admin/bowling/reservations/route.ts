@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listBowlingReservations, updateBowlingReservationShortCode } from "@/lib/bowling-db";
+import { getSurveysForReservations } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
 
 /**
@@ -55,7 +56,15 @@ export async function GET(req: NextRequest) {
       }),
     );
 
-    return NextResponse.json({ reservations: withCodes });
+    // Attach guest-survey snapshot per reservation (one batch query, no
+    // N+1). Reservations without a survey row return `survey: null`.
+    const surveyMap = await getSurveysForReservations(withCodes.map((r) => r.id));
+    const enriched = withCodes.map((r) => ({
+      ...r,
+      survey: surveyMap.get(String(r.id)) ?? null,
+    }));
+
+    return NextResponse.json({ reservations: enriched });
   } catch (err) {
     console.error("[admin/bowling/reservations]", err);
     return NextResponse.json({ error: "Failed to load reservations" }, { status: 500 });

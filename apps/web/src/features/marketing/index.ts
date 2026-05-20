@@ -35,6 +35,7 @@ export {
 export {
   assertGsm7Safe,
   renderBowlingSurveyInvite,
+  renderBowlingSurveyInviteEmail,
   TEMPLATE_KEYS,
   type BowlingSurveyInviteVars,
   type TemplateKey,

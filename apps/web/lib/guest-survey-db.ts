@@ -366,6 +366,78 @@ export async function getGuestSurveyByToken(token: string): Promise<GuestSurveyR
   return rows.length ? rowToSurvey(rows[0] as Record<string, unknown>) : null;
 }
 
+/**
+ * Per-reservation survey snapshot used by the admin reservation list to
+ * render a "Survey: sent / opened / completed" chip without forcing the
+ * UI to know about every column on guest_surveys.
+ */
+export interface ReservationSurveySnapshot {
+  token: string;
+  /** Funnel stage. Derived from sent_at / opened_at / completed_at. */
+  status: "sent" | "opened" | "completed";
+  rewardKind: SurveyRewardKind | null;
+  /** Cents (gift_card) or points (pinz). */
+  rewardValue: number | null;
+  sentAt: string;
+  openedAt: string | null;
+  completedAt: string | null;
+  /** SMS body channel used for the send — 'sms' or 'email' fallback. */
+  channel: "sms" | "email" | null;
+}
+
+/**
+ * Bulk lookup: given a list of bowling reservation IDs, return a map
+ * keyed by reservation_id → most-recent survey snapshot. Reservations
+ * with no survey row are omitted from the map (caller treats absent
+ * as "no survey sent yet").
+ *
+ * One query, indexed on (origin, origin_ref). Designed to be called
+ * once per admin-reservations page render — no N+1.
+ */
+export async function getSurveysForReservations(
+  reservationIds: Array<string | number>,
+): Promise<Map<string, ReservationSurveySnapshot>> {
+  const out = new Map<string, ReservationSurveySnapshot>();
+  if (!isDbConfigured() || reservationIds.length === 0) return out;
+  await ensureGuestSurveySchema();
+  const q = sql();
+  const stringIds = reservationIds.map((id) => String(id));
+  // Latest survey per origin_ref (defensive — there should only ever be
+  // one per (origin, origin_ref) thanks to the unique index, but JOIN
+  // semantics make this clear).
+  const rows = await q`
+    SELECT origin_ref, token, reward_kind, reward_value,
+           sent_at, opened_at, completed_at,
+           context_json
+    FROM guest_surveys
+    WHERE origin = 'bowling'
+      AND origin_ref = ANY(${stringIds}::text[])
+  `;
+  for (const r of rows as Record<string, unknown>[]) {
+    const sentAt = (r.sent_at as Date).toISOString();
+    const openedAt = r.opened_at ? (r.opened_at as Date).toISOString() : null;
+    const completedAt = r.completed_at ? (r.completed_at as Date).toISOString() : null;
+    const status: "sent" | "opened" | "completed" = completedAt
+      ? "completed"
+      : openedAt
+        ? "opened"
+        : "sent";
+    const ctx = parseJsonb<Record<string, unknown>>(r.context_json, {});
+    const channel = (ctx.channel as "sms" | "email" | undefined) ?? null;
+    out.set(r.origin_ref as string, {
+      token: r.token as string,
+      status,
+      rewardKind: (r.reward_kind as SurveyRewardKind) ?? null,
+      rewardValue: (r.reward_value as number) ?? null,
+      sentAt,
+      openedAt,
+      completedAt,
+      channel,
+    });
+  }
+  return out;
+}
+
 export interface GuestSurveyListItem extends GuestSurveyRow {
   /** GS-XXXX promo code for gift-card rewards, null for Pinz/declined. */
   promoCode: string | null;
@@ -424,6 +496,26 @@ export async function listGuestSurveys(opts: {
         : null,
     };
   });
+}
+
+/**
+ * Merge a partial patch into `context_json` for a survey identified by
+ * token. Used by the SMS→email fallback path to stamp the channel that
+ * actually delivered, so the admin chip can show "via email".
+ */
+export async function updateGuestSurveyContext(opts: {
+  token: string;
+  patch: Record<string, unknown>;
+}): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureGuestSurveySchema();
+  const q = sql();
+  // jsonb || jsonb merges keys; right-hand wins on collision.
+  await q`
+    UPDATE guest_surveys
+    SET context_json = COALESCE(context_json, '{}'::jsonb) || ${JSON.stringify(opts.patch)}::jsonb
+    WHERE token = ${opts.token}
+  `;
 }
 
 export async function getGuestSurveyByOriginRef(opts: {

@@ -17,6 +17,10 @@ vi.mock("@/lib/short-url", () => ({
   shortenUrl: vi.fn(),
 }));
 
+vi.mock("@/lib/sendgrid", () => ({
+  sendEmail: vi.fn(),
+}));
+
 vi.mock("@/lib/bowling-lane-ready-notify", () => ({
   CENTER_META: {
     TXBSQN0FEKQ11: { name: "HeadPinz Fort Myers", smsFrom: "+12393022155" },
@@ -32,6 +36,8 @@ vi.mock("@/lib/guest-survey-db", () => ({
   getActiveQuestionsForTags: vi.fn().mockResolvedValue([]),
   // service.ts auto-seeds questions on first call (idempotent in prod)
   seedGuestSurveyQuestionsIfEmpty: vi.fn().mockResolvedValue(0),
+  // email-fallback path patches the channel into context_json
+  updateGuestSurveyContext: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("~/features/marketing", () => ({
@@ -39,6 +45,11 @@ vi.mock("~/features/marketing", () => ({
   getConsent: vi.fn(),
   recordTouch: vi.fn(),
   renderBowlingSurveyInvite: vi.fn(({ code }: { code: string }) => `MOCK SMS BODY /s/${code}`),
+  renderBowlingSurveyInviteEmail: vi.fn(({ code }: { code: string }) => ({
+    subject: "How was your visit?",
+    html: `<a href="/s/${code}">survey</a>`,
+    text: `Take the survey: /s/${code}`,
+  })),
   resolveAudienceMember: vi.fn(),
   splitGuestName: vi.fn((name: string) => ({
     firstName: name.split(" ")[0] ?? "",
@@ -53,8 +64,10 @@ import {
   getGuestSurveyByOriginRef,
   insertGuestSurvey,
   seedGuestSurveyQuestionsIfEmpty,
+  updateGuestSurveyContext,
 } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
+import { sendEmail } from "@/lib/sendgrid";
 import { canSend, getConsent, recordTouch, resolveAudienceMember } from "~/features/marketing";
 import * as smsMock from "~/test/mocks/sms";
 import { enqueueBowlingSurvey } from "./service";
@@ -70,6 +83,8 @@ const mockedResolve = vi.mocked(resolveAudienceMember);
 const mockedConsent = vi.mocked(getConsent);
 const mockedCanSend = vi.mocked(canSend);
 const mockedRecordTouch = vi.mocked(recordTouch);
+const mockedSendEmail = vi.mocked(sendEmail);
+const mockedUpdateContext = vi.mocked(updateGuestSurveyContext);
 
 const RESERVATION_ID = "42";
 const PHONE_INPUT = "5551234567";
@@ -119,6 +134,11 @@ function defaultsHappyPath(): void {
   mockedConsent.mockResolvedValue(null);
   mockedCanSend.mockResolvedValue({ allowed: true, lastSentAt: null });
   mockedShorten.mockResolvedValue("abc123");
+  // Default sendEmail: ok=false (so existing tests that expect SMS-failure
+  // rollback still see rollback even though guestEmail is in baseInput).
+  // Tests for the email-fallback success path opt-in by overriding.
+  mockedSendEmail.mockResolvedValue({ ok: false, status: 500, error: "default-mock" });
+  mockedUpdateContext.mockResolvedValue(undefined);
   mockedInsert.mockResolvedValue({
     id: "survey-uuid-1",
     token: "tok-1",
@@ -347,6 +367,89 @@ describe("enqueueBowlingSurvey — SMS failure rollback", () => {
     const result = await enqueueBowlingSurvey(baseInput());
 
     expect(result.status).toBe("skipped");
+    expect(mockedDelete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("enqueueBowlingSurvey — email fallback when SMS fails", () => {
+  it("falls back to email when SMS fails and guestEmail is present", async () => {
+    // SMS fails …
+    smsMock.voxSend.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: "voxtelesys 500",
+      provider: "vox" as const,
+    }));
+    // … but the email send succeeds.
+    mockedSendEmail.mockResolvedValueOnce({ ok: true, status: 202 });
+
+    const result = await enqueueBowlingSurvey(baseInput());
+
+    expect(result.status).toBe("sent");
+    if (result.status !== "sent") return;
+    expect(result.surveyId).toBe("survey-uuid-1");
+
+    // sendEmail was called with the right shape
+    expect(mockedSendEmail).toHaveBeenCalledTimes(1);
+    const sendArg = mockedSendEmail.mock.calls[0][0];
+    expect(sendArg.to).toBe("ada@example.com");
+    expect(sendArg.subject).toContain("visit");
+    expect(sendArg.html).toContain("/s/abc123");
+
+    // Survey row NOT deleted — email kept it alive
+    expect(mockedDelete).not.toHaveBeenCalled();
+
+    // Context patched to record channel='email'
+    expect(mockedUpdateContext).toHaveBeenCalledWith({
+      token: expect.any(String),
+      patch: { channel: "email" },
+    });
+
+    // 'sent' touch carries channel='email' + provider='sendgrid'
+    const sentTouch = mockedRecordTouch.mock.calls.find((c) => c[0].event === "sent");
+    expect(sentTouch?.[0]).toMatchObject({
+      campaign: "guest_survey",
+      channel: "email",
+      event: "sent",
+    });
+    expect(sentTouch?.[0].meta).toMatchObject({ provider: "sendgrid", failedOver: true });
+  });
+
+  it("rolls back when both SMS and email fail", async () => {
+    smsMock.voxSend.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: "voxtelesys 500",
+      provider: "vox" as const,
+    }));
+    mockedSendEmail.mockResolvedValueOnce({ ok: false, status: 500, error: "sendgrid 500" });
+
+    const result = await enqueueBowlingSurvey(baseInput());
+
+    expect(result.status).toBe("skipped");
+    if (result.status !== "skipped") return;
+    expect(result.detail).toContain("sms + email failed");
+    expect(mockedDelete).toHaveBeenCalledTimes(1);
+
+    const skippedTouch = mockedRecordTouch.mock.calls.find((c) => c[0].event === "skipped");
+    expect(skippedTouch?.[0].meta).toMatchObject({
+      emailAttempted: true,
+      emailError: "sendgrid 500",
+    });
+  });
+
+  it("does NOT attempt email when guestEmail is missing", async () => {
+    smsMock.voxSend.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: "voxtelesys 500",
+      provider: "vox" as const,
+    }));
+
+    const result = await enqueueBowlingSurvey({ ...baseInput(), guestEmail: undefined });
+
+    expect(result.status).toBe("skipped");
+    expect(mockedSendEmail).not.toHaveBeenCalled();
     expect(mockedDelete).toHaveBeenCalledTimes(1);
   });
 });
