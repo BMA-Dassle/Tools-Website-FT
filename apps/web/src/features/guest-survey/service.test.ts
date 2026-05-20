@@ -49,6 +49,7 @@ vi.mock("~/features/marketing", () => ({
 import { isDbConfigured } from "@ft/db";
 import {
   deleteGuestSurveyByToken,
+  getActiveQuestionsForTags,
   getGuestSurveyByOriginRef,
   insertGuestSurvey,
   seedGuestSurveyQuestionsIfEmpty,
@@ -68,6 +69,7 @@ const mockedGetExisting = vi.mocked(getGuestSurveyByOriginRef);
 const mockedInsert = vi.mocked(insertGuestSurvey);
 const mockedDelete = vi.mocked(deleteGuestSurveyByToken);
 const mockedSeed = vi.mocked(seedGuestSurveyQuestionsIfEmpty);
+const mockedGetActive = vi.mocked(getActiveQuestionsForTags);
 const mockedShorten = vi.mocked(shortenUrl);
 const mockedResolve = vi.mocked(resolveAudienceMember);
 const mockedConsent = vi.mocked(hasMarketingOptIn);
@@ -97,6 +99,7 @@ function defaultsHappyPath(): void {
   // assigned in vi.mock declarations on cleanup — re-assert every test.
   mockedDelete.mockResolvedValue(true);
   mockedSeed.mockResolvedValue(0);
+  mockedGetActive.mockResolvedValue([]);
   mockedRecordTouch.mockResolvedValue({
     id: "touch-uuid",
     customerId: "x",
@@ -160,7 +163,7 @@ describe("enqueueBowlingSurvey — happy path", () => {
     if (result.status !== "sent") return;
 
     expect(result.surveyId).toBe("survey-uuid-1");
-    expect(result.tags).toEqual(["baseline", "bowling", "fnb_service"]);
+    expect(result.tags).toEqual(["baseline", "bowling", "fnb_service", "closing"]);
 
     // Audience resolve was called with phone + split name
     expect(mockedResolve).toHaveBeenCalledWith({
@@ -181,6 +184,7 @@ describe("enqueueBowlingSurvey — happy path", () => {
       "baseline",
       "bowling",
       "fnb_service",
+      "closing",
     ]);
 
     // SMS sent via voxSend with the center's smsFrom

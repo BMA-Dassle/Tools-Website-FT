@@ -142,7 +142,12 @@ export type SurveyQuestionTag =
   | "food_drink"
   | "gel_blaster"
   | "arcade"
-  | "racing";
+  | "racing"
+  // 'closing' tag: universal "wrap-up" questions shown at the END of every
+  // survey regardless of visit type — Team Member Fist Bump + open
+  // comments. The picker treats this as always-included and sorts it last
+  // via TAG_PRIORITY, bypassing the alphabetical default.
+  | "closing";
 
 export interface GuestSurveyQuestion {
   id: number;
@@ -475,6 +480,72 @@ export async function insertGuestSurveyQuestion(input: {
  *
  * Returns the number of rows inserted (0 if table was already populated).
  */
+/**
+ * Sync the prod questions table to match the in-code GUEST_SURVEY_QUESTIONS_SEED.
+ *
+ * Unlike `seedGuestSurveyQuestionsIfEmpty` (which only runs against an empty
+ * table), this is the *destructive update* path used by the admin sync
+ * endpoint when the seed constant has been edited:
+ *
+ *   - Upserts every (tag, ordinal) tuple in the current seed, OVERWRITING
+ *     question text / kind / choices / gating fields and setting active=TRUE.
+ *   - Deactivates any (tag, ordinal) currently in the DB that is NOT in the
+ *     current seed — soft delete via active=FALSE so historical responses
+ *     keep their foreign key.
+ *
+ * Returns counts for ops visibility.
+ */
+export async function syncGuestSurveyQuestions(): Promise<{
+  upserted: number;
+  deactivated: number;
+}> {
+  if (!isDbConfigured()) return { upserted: 0, deactivated: 0 };
+  await ensureGuestSurveySchema();
+  const q = sql();
+
+  let upserted = 0;
+  for (const row of GUEST_SURVEY_QUESTIONS_SEED) {
+    await q`
+      INSERT INTO guest_survey_questions
+        (tag, ordinal, question, kind, choices_json, gate_ordinal, gate_answer, active)
+      VALUES (
+        ${row.tag},
+        ${row.ordinal},
+        ${row.question},
+        ${row.kind},
+        ${row.choices ? JSON.stringify(row.choices) : null}::jsonb,
+        ${row.gateOrdinal ?? null},
+        ${row.gateAnswer ?? null},
+        TRUE
+      )
+      ON CONFLICT (tag, ordinal) DO UPDATE SET
+        question     = EXCLUDED.question,
+        kind         = EXCLUDED.kind,
+        choices_json = EXCLUDED.choices_json,
+        gate_ordinal = EXCLUDED.gate_ordinal,
+        gate_answer  = EXCLUDED.gate_answer,
+        active       = TRUE
+    `;
+    upserted += 1;
+  }
+
+  // Deactivate any (tag, ordinal) not in the current seed.
+  // Build the "keep" list as parallel arrays so we can ANY/ANY-compare.
+  const keepTags = GUEST_SURVEY_QUESTIONS_SEED.map((r) => r.tag);
+  const keepOrdinals = GUEST_SURVEY_QUESTIONS_SEED.map((r) => r.ordinal);
+  const deactivated = await q`
+    UPDATE guest_survey_questions
+    SET active = FALSE
+    WHERE active = TRUE
+      AND (tag, ordinal) NOT IN (
+        SELECT UNNEST(${keepTags}::text[]) AS tag, UNNEST(${keepOrdinals}::int[]) AS ordinal
+      )
+    RETURNING id
+  `;
+
+  return { upserted, deactivated: deactivated.length };
+}
+
 export async function seedGuestSurveyQuestionsIfEmpty(): Promise<number> {
   if (!isDbConfigured()) return 0;
   await ensureGuestSurveySchema();
@@ -532,6 +603,7 @@ export const GUEST_SURVEY_QUESTIONS_SEED: SeedQuestion[] = [
   },
 
   // ── bowling ─────────────────────────────────────────────────────
+  // (Ordinal 3 "Did your lane open on time?" was removed 2026-05-20.)
   {
     tag: "bowling",
     ordinal: 1,
@@ -545,7 +617,6 @@ export const GUEST_SURVEY_QUESTIONS_SEED: SeedQuestion[] = [
     kind: "multi",
     choices: ["Spotless", "Clean", "OK", "Could be better", "Dirty"],
   },
-  { tag: "bowling", ordinal: 3, question: "Did your lane open on time?", kind: "yes_no" },
 
   // ── fnb_service ─────────────────────────────────────────────────
   // Q1 is the gate; Q2-5 are conditional on Q1 = "Yes".
@@ -643,6 +714,21 @@ export const GUEST_SURVEY_QUESTIONS_SEED: SeedQuestion[] = [
     ordinal: 3,
     question: "Was Guest Services quick at check-in?",
     kind: "yes_no",
+  },
+
+  // ── closing (universal — always rendered last) ──────────────────
+  {
+    tag: "closing",
+    ordinal: 1,
+    question:
+      "Team Member Fist Bump — do you know the name of a team member who made your visit exceptional?",
+    kind: "text",
+  },
+  {
+    tag: "closing",
+    ordinal: 2,
+    question: "Anything else you'd like to share?",
+    kind: "text",
   },
 ];
 

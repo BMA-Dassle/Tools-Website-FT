@@ -14,14 +14,17 @@ const ALL_TAGS: SurveyQuestionTag[] = [
   "gel_blaster",
   "arcade",
   "racing",
+  "closing",
 ];
 
 describe("GUEST_SURVEY_QUESTIONS_SEED", () => {
-  it("has 21 questions in total (matches the user-approved spec)", () => {
-    expect(GUEST_SURVEY_QUESTIONS_SEED).toHaveLength(21);
+  it("has the expected total question count", () => {
+    // 2 baseline + 2 bowling + 6 fnb_service + 3 food_drink + 2 gel_blaster
+    // + 2 arcade + 3 racing + 2 closing = 22
+    expect(GUEST_SURVEY_QUESTIONS_SEED).toHaveLength(22);
   });
 
-  it("covers exactly the 7 approved tags — no axe, no surprises", () => {
+  it("covers exactly the 8 approved tags — no axe, no surprises", () => {
     const tags = new Set(GUEST_SURVEY_QUESTIONS_SEED.map((q) => q.tag));
     expect(tags).toEqual(new Set(ALL_TAGS));
     expect(tags.has("axe" as SurveyQuestionTag)).toBe(false);
@@ -45,13 +48,29 @@ describe("GUEST_SURVEY_QUESTIONS_SEED", () => {
     );
     expect(countByTag).toEqual({
       baseline: 2,
-      bowling: 3,
+      bowling: 2,
       fnb_service: 6,
       food_drink: 3,
       gel_blaster: 2,
       arcade: 2,
       racing: 3,
+      closing: 2,
     });
+  });
+
+  it("does NOT include the removed 'lane open on time' question", () => {
+    const hits = GUEST_SURVEY_QUESTIONS_SEED.filter((q) =>
+      q.question.toLowerCase().includes("lane open"),
+    );
+    expect(hits).toHaveLength(0);
+  });
+
+  it("closing tag includes Team Member Fist Bump and an open comments box", () => {
+    const closing = GUEST_SURVEY_QUESTIONS_SEED.filter((q) => q.tag === "closing");
+    expect(closing).toHaveLength(2);
+    expect(closing[0].question.toLowerCase()).toContain("team member fist bump");
+    expect(closing[0].kind).toBe("text");
+    expect(closing[1].kind).toBe("text");
   });
 
   it("uses only valid kinds", () => {
