@@ -49,8 +49,11 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ token: st
     );
   }
 
-  const balanceUrl = `https://app.squareup.com/gift/balance/${promo.squareGiftCardId}`;
-  const walletUrl = `https://squareup.com/apass/gc/download/personalized/${promo.squareGiftCardId}?source=egift`;
+  // Strip "gftc:" — Square's customer-facing /gift/balance and /apass
+  // URLs expect the hex id only. See reward/route.ts for the same fix.
+  const giftCardIdShort = promo.squareGiftCardId.replace(/^gftc:/, "");
+  const balanceUrl = `https://squareup.com/gift/balance/${giftCardIdShort}`;
+  const walletUrl = `https://squareup.com/apass/gc/download/personalized/${giftCardIdShort}?source=egift`;
 
   // Short-link the Apple Wallet URL so the body fits in 1 segment.
   let walletShort = walletUrl;

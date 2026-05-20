@@ -169,8 +169,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   //    confirmation page renders everything inline; the SMS is opt-in.
   if (issued.kind === "gift_card") {
     const meta = issued.meta as { giftCardId: string; gan: string; promoCode: string };
-    const balanceUrl = `https://app.squareup.com/gift/balance/${meta.giftCardId}`;
-    const walletUrl = `https://squareup.com/apass/gc/download/personalized/${meta.giftCardId}?source=egift`;
+    // Strip the "gftc:" prefix — Square's customer-facing balance and
+    // Apple Wallet URLs expect the hex id only. Including the prefix
+    // renders Square's "invalid or not activated" page even when the
+    // card is ACTIVE. Same pattern Pandora_API uses (see
+    // Pandora_API/src/controllers/squareV2.controllers.ts.ts:174 — they
+    // `cardID.split(":")[1]` before building URLs).
+    const giftCardIdShort = meta.giftCardId.replace(/^gftc:/, "");
+    const balanceUrl = `https://squareup.com/gift/balance/${giftCardIdShort}`;
+    const walletUrl = `https://squareup.com/apass/gc/download/personalized/${giftCardIdShort}?source=egift`;
 
     // Server-side QR render (`qrcode` package) — encodes the Square
     // balance URL so a phone camera scan opens the balance page.
