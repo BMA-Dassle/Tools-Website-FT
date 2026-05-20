@@ -34,8 +34,15 @@ interface RewardSummary {
   kind: RewardKind;
   value: number;
   displayText: string;
-  promoCode?: string;
+  // Pinz path
   newBalance?: number;
+  // Gift-card path
+  promoCode?: string;
+  gan?: string;
+  balanceUrl?: string;
+  walletUrl?: string;
+  walletShortUrl?: string;
+  qrDataUrl?: string;
 }
 
 /**
@@ -79,15 +86,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
         });
         return;
       }
-      const data = (await res.json()) as {
-        reward: {
-          kind: RewardKind;
-          value: number;
-          displayText: string;
-          promoCode?: string;
-          newBalance?: number;
-        };
-      };
+      const data = (await res.json()) as { reward: RewardSummary };
       setSubmitState({ kind: "reward_issued", reward: data.reward });
     } catch (err) {
       setSubmitState({
@@ -151,7 +150,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
   if (submitState.kind === "reward_issued") {
     return (
       <Shell>
-        <RewardConfirmation reward={submitState.reward} centerName={centerName} />
+        <RewardConfirmation reward={submitState.reward} centerName={centerName} token={token} />
       </Shell>
     );
   }
@@ -488,9 +487,10 @@ function RewardCard(props: {
 interface RewardConfirmationProps {
   reward: RewardSummary;
   centerName: string;
+  token: string;
 }
 
-function RewardConfirmation({ reward, centerName }: RewardConfirmationProps) {
+function RewardConfirmation({ reward, centerName, token }: RewardConfirmationProps) {
   if (reward.kind === "pinz") {
     return (
       <div>
@@ -510,20 +510,109 @@ function RewardConfirmation({ reward, centerName }: RewardConfirmationProps) {
     );
   }
   // gift_card
+  return <GiftCardConfirmation reward={reward} centerName={centerName} token={token} />;
+}
+
+function GiftCardConfirmation({
+  reward,
+  centerName,
+  token,
+}: {
+  reward: RewardSummary;
+  centerName: string;
+  token: string;
+}) {
+  const [smsState, setSmsState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [smsError, setSmsError] = useState<string | undefined>();
+
+  async function textMe() {
+    if (smsState === "sending" || smsState === "sent") return;
+    setSmsState("sending");
+    setSmsError(undefined);
+    try {
+      const res = await fetch(`/api/surveys/${encodeURIComponent(token)}/reward/send-sms`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        setSmsError(errBody.error || `Send failed (${res.status})`);
+        setSmsState("error");
+        return;
+      }
+      setSmsState("sent");
+    } catch (err) {
+      setSmsError(err instanceof Error ? err.message : "Network error");
+      setSmsState("error");
+    }
+  }
+
   return (
     <div>
-      <h1 className="font-heading text-3xl font-bold mb-3">Your $5 e-gift card is on its way</h1>
-      <p className="text-white/85 leading-relaxed mb-3">
-        We just texted the card number and code to your phone — show it at the bar or front desk at{" "}
-        {centerName}.
+      <h1 className="font-heading text-3xl font-bold mb-2">Your $5 e-gift card</h1>
+      <p className="text-white/70 text-sm mb-5">
+        Show this at the bar or front desk at {centerName}. We&apos;ll keep it on file too —
+        screenshot, add to Wallet, or text it to yourself below.
       </p>
+
+      {/* QR + GAN — bundled in one card so the GAN sits directly under
+          the QR (cashier scans QR for balance check, or hand-enters the
+          GAN below it at POS). */}
+      {reward.qrDataUrl || reward.gan ? (
+        <div
+          className="rounded-xl p-5 mb-4 flex flex-col items-center"
+          style={{ backgroundColor: HP_CARD, border: `1px solid ${HP_BORDER}` }}
+        >
+          {reward.qrDataUrl ? (
+            <>
+              <div
+                className="text-[10px] uppercase tracking-[0.2em] mb-3"
+                style={{ color: HP_TEXT_MUTED }}
+              >
+                Scan to view balance
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={reward.qrDataUrl}
+                alt="Gift card QR code"
+                width={224}
+                height={224}
+                className="rounded-md bg-white p-2"
+              />
+            </>
+          ) : null}
+          {reward.gan ? (
+            <div
+              className="w-full mt-4 pt-4 text-center"
+              style={{ borderTop: `1px solid ${HP_BORDER}` }}
+            >
+              <div
+                className="text-[10px] uppercase tracking-[0.2em] mb-2"
+                style={{ color: HP_TEXT_MUTED }}
+              >
+                Gift card number
+              </div>
+              <div className="font-mono text-xl sm:text-2xl font-semibold tracking-wider text-white">
+                {reward.gan}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Promo code */}
       {reward.promoCode ? (
         <div
-          className="rounded-lg p-4 text-center"
-          style={{ backgroundColor: HP_CARD, border: `1px solid ${HP_BORDER_ACTIVE}` }}
+          className="rounded-xl p-4 mb-4 text-center"
+          style={{
+            backgroundColor: "rgba(253,91,86,0.08)",
+            border: `1px solid ${HP_BORDER_ACTIVE}`,
+          }}
         >
-          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: HP_TEXT_MUTED }}>
-            Your reward code
+          <div
+            className="text-[10px] uppercase tracking-[0.2em] mb-1"
+            style={{ color: HP_TEXT_MUTED }}
+          >
+            Reward code
           </div>
           <div
             className="font-heading text-2xl font-bold tracking-widest"
@@ -532,6 +621,57 @@ function RewardConfirmation({ reward, centerName }: RewardConfirmationProps) {
             {reward.promoCode}
           </div>
         </div>
+      ) : null}
+
+      {/* Action buttons */}
+      <div className="space-y-3">
+        {reward.walletUrl ? (
+          <a
+            href={reward.walletUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full rounded-lg font-heading font-bold py-3.5 text-base text-center text-white"
+            style={{ backgroundColor: HP_BORDER_ACTIVE }}
+          >
+            Add to Apple Wallet
+          </a>
+        ) : null}
+        <button
+          type="button"
+          onClick={textMe}
+          disabled={smsState === "sending" || smsState === "sent"}
+          className="block w-full rounded-lg font-heading font-bold py-3.5 text-base text-center text-white disabled:opacity-60"
+          style={{
+            backgroundColor: "transparent",
+            border: `2px solid ${smsState === "sent" ? "rgba(120,200,140,0.6)" : "rgba(255,255,255,0.25)"}`,
+            color: smsState === "sent" ? "rgb(160,220,170)" : "white",
+          }}
+        >
+          {smsState === "sending"
+            ? "Sending…"
+            : smsState === "sent"
+              ? "Sent — check your texts ✓"
+              : "Text this to my phone"}
+        </button>
+        {smsError ? (
+          <p className="text-sm text-center" style={{ color: HP_BORDER_ACTIVE }} role="alert">
+            {smsError}
+          </p>
+        ) : null}
+      </div>
+
+      {reward.balanceUrl ? (
+        <p className="text-xs text-center mt-5" style={{ color: HP_TEXT_MUTED }}>
+          Or check balance later at{" "}
+          <a
+            href={reward.balanceUrl}
+            className="underline hover:text-white"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            squareup.com
+          </a>
+        </p>
       ) : null}
     </div>
   );

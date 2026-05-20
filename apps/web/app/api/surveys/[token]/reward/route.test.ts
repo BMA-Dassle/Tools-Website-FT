@@ -18,6 +18,10 @@ vi.mock("@/lib/bowling-lane-ready-notify", () => ({
 vi.mock("@/lib/sms-retry", () => import("~/test/mocks/sms"));
 vi.mock("@/lib/sms-log", () => import("~/test/mocks/sms"));
 
+vi.mock("@/lib/short-url", () => ({
+  shortenUrl: vi.fn().mockResolvedValue("abc123"),
+}));
+
 vi.mock("~/features/marketing", () => ({
   issueReward: vi.fn(),
   recordTouch: vi.fn().mockResolvedValue({
@@ -35,15 +39,12 @@ vi.mock("~/features/marketing", () => ({
     ({ points, newBalance }: { points: number; newBalance: number }) =>
       `HeadPinz: ${points} Pinz added. Balance: ${newBalance}`,
   ),
-  renderGiftCardAwardSms: vi.fn(
-    ({ gan, promoCode, giftCardId }: { gan: string; promoCode: string; giftCardId: string }) =>
-      `HeadPinz: $5 e-gift card ${gan} ${promoCode} (id ${giftCardId})`,
-  ),
 }));
 
 import { NextRequest } from "next/server";
 import { getGuestSurveyByToken, saveGuestSurveyReward } from "@/lib/guest-survey-db";
 import { appendCustomerNote } from "@/lib/square-gift-card";
+import { shortenUrl } from "@/lib/short-url";
 import { issueReward, recordTouch } from "~/features/marketing";
 import * as smsMock from "~/test/mocks/sms";
 import { aGuestSurvey } from "~/test/builders/survey";
@@ -54,6 +55,7 @@ const mockedSave = vi.mocked(saveGuestSurveyReward);
 const mockedIssue = vi.mocked(issueReward);
 const mockedNote = vi.mocked(appendCustomerNote);
 const mockedTouch = vi.mocked(recordTouch);
+const mockedShorten = vi.mocked(shortenUrl);
 
 const TOKEN = "abcdef1234567890";
 
@@ -74,6 +76,7 @@ beforeEach(() => {
   smsMock.resetSmsCaptures();
   mockedSave.mockResolvedValue(undefined);
   mockedNote.mockResolvedValue(undefined);
+  mockedShorten.mockResolvedValue("abc123");
   mockedTouch.mockResolvedValue({
     id: "touch",
     customerId: "x",
@@ -225,7 +228,7 @@ describe("POST /api/surveys/[token]/reward — gift card path", () => {
     );
   });
 
-  it("mints + saves + sends GAN+code SMS + returns promoCode (no GAN)", async () => {
+  it("mints + saves + returns rich payload (GAN, QR, wallet URLs) but does NOT auto-send SMS", async () => {
     mockedIssue.mockResolvedValue({
       kind: "gift_card",
       ref: "GS-7F2A",
@@ -243,19 +246,22 @@ describe("POST /api/surveys/[token]/reward — gift card path", () => {
     const body = await res.json();
     expect(body.reward.kind).toBe("gift_card");
     expect(body.reward.promoCode).toBe("GS-7F2A");
-    // GAN should NOT be in the JSON response — only in the SMS body.
-    expect(body.reward.gan).toBeUndefined();
-    expect(JSON.stringify(body)).not.toContain("7777111122223333");
+    // GAN is now part of the response (the page renders it; SMS is opt-in)
+    expect(body.reward.gan).toBe("7777-1111-2222-3333");
+    expect(body.reward.balanceUrl).toContain("gc_1");
+    expect(body.reward.walletUrl).toContain("gc_1");
+    expect(body.reward.walletShortUrl).toMatch(/\/s\/abc123$/);
+    expect(typeof body.reward.qrDataUrl).toBe("string");
+    expect(body.reward.qrDataUrl).toMatch(/^data:image\/png;base64,/);
 
     await new Promise((r) => setTimeout(r, 0));
 
-    // SMS body contains the GAN (formatted 4-4-4-4) and the promo code
-    const send = smsMock.lastSend();
-    expect(send?.to).toBe("+12397762044");
-    expect(send?.body).toContain("GS-7F2A");
-    expect(send?.body).toContain("7777-1111-2222-3333");
+    // CRITICAL change: no SMS sent on the issuance path — the user opts
+    // in via the "Text it to my phone" button which hits the send-sms
+    // endpoint.
+    expect(smsMock.allSends()).toHaveLength(0);
 
-    // converted touch carries the promo code
+    // converted touch still recorded
     const convertedTouch = mockedTouch.mock.calls.find(
       (c) => c[0].event === "converted" && c[0].meta?.stage === "reward_issued",
     );

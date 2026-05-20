@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import QRCode from "qrcode";
 import { NextRequest, NextResponse } from "next/server";
 import { appendCustomerNote, type LoyaltyAccountSummary } from "@/lib/square-gift-card";
 import {
@@ -7,14 +8,12 @@ import {
   type SurveyRewardKind,
 } from "@/lib/guest-survey-db";
 import { CENTER_META } from "@/lib/bowling-lane-ready-notify";
+import { shortenUrl } from "@/lib/short-url";
 import { voxSend } from "@/lib/sms-retry";
 import { logSms } from "@/lib/sms-log";
-import {
-  issueReward,
-  recordTouch,
-  renderGiftCardAwardSms,
-  renderPinzAwardSms,
-} from "~/features/marketing";
+import { issueReward, recordTouch, renderPinzAwardSms } from "~/features/marketing";
+
+const SHORT_LINK_BASE = process.env.NEXT_PUBLIC_HEADPINZ_SITE_URL || "https://headpinz.com";
 
 /**
  * POST /api/surveys/[token]/reward
@@ -111,39 +110,34 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     rewardValue: issued.value,
   });
 
-  // Confirmation SMS — best-effort. Failures here don't roll back the
-  // reward (it's already in Square / Loyalty).
   const brand = pickBrand(survey.centerCode);
-  const smsBody =
-    issued.kind === "pinz"
-      ? renderPinzAwardSms({
-          points: issued.value,
-          newBalance: (issued.meta as { newBalance: number }).newBalance,
-          brand,
-        })
-      : renderGiftCardAwardSms({
-          gan: formatGan((issued.meta as { gan: string }).gan),
-          promoCode: (issued.meta as { promoCode: string }).promoCode,
-          giftCardId: (issued.meta as { giftCardId: string }).giftCardId,
-          brand,
-        });
 
-  const centerFrom = CENTER_META[survey.centerCode]?.smsFrom;
-  voxSend(survey.phoneE164, smsBody, { fromOverride: centerFrom })
-    .then((r) =>
-      logSms({
-        ts: new Date().toISOString(),
-        phone: survey.phoneE164,
-        source: "guest-survey",
-        status: r.status ?? null,
-        ok: r.ok,
-        provider: r.provider ?? "vox",
-        failedOver: r.failedOver ?? false,
-        body: smsBody,
-        providerMessageId: r.voxId ?? r.twilioSid,
-      }),
-    )
-    .catch((err) => console.warn(`[surveys/${token}/reward] confirmation SMS failed:`, err));
+  // ── Pinz path: auto-SMS the new balance (it's just a balance update,
+  //    no need for a backup-link flow). Gift cards SKIP this and rely on
+  //    the page-render + on-demand "Text me" button (PR-GS3.6).
+  if (issued.kind === "pinz") {
+    const smsBody = renderPinzAwardSms({
+      points: issued.value,
+      newBalance: (issued.meta as { newBalance: number }).newBalance,
+      brand,
+    });
+    const centerFrom = CENTER_META[survey.centerCode]?.smsFrom;
+    voxSend(survey.phoneE164, smsBody, { fromOverride: centerFrom })
+      .then((r) =>
+        logSms({
+          ts: new Date().toISOString(),
+          phone: survey.phoneE164,
+          source: "guest-survey",
+          status: r.status ?? null,
+          ok: r.ok,
+          provider: r.provider ?? "vox",
+          failedOver: r.failedOver ?? false,
+          body: smsBody,
+          providerMessageId: r.voxId ?? r.twilioSid,
+        }),
+      )
+      .catch((err) => console.warn(`[surveys/${token}/reward] Pinz confirmation SMS failed:`, err));
+  }
 
   // Square customer note — ops visibility, fire-and-forget.
   const noteLine = `[${new Date().toISOString().slice(0, 10)}] Guest survey reward — ${issued.displayText}`;
@@ -169,20 +163,64 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     },
   }).catch((err) => console.warn(`[surveys/${token}/reward] recordTouch failed:`, err));
 
+  // ── For gift_card: bundle the rich payload the confirmation page needs
+  //    (formatted GAN, QR data URL of the balance link, short-link wrapped
+  //    Apple Wallet URL so the SMS-trigger endpoint can use it). The
+  //    confirmation page renders everything inline; the SMS is opt-in.
+  if (issued.kind === "gift_card") {
+    const meta = issued.meta as { giftCardId: string; gan: string; promoCode: string };
+    const balanceUrl = `https://app.squareup.com/gift/balance/${meta.giftCardId}`;
+    const walletUrl = `https://squareup.com/apass/gc/download/personalized/${meta.giftCardId}?source=egift`;
+
+    // Server-side QR render (`qrcode` package) — encodes the Square
+    // balance URL so a phone camera scan opens the balance page.
+    // Pandora_API uses the same encoding (see images.utils.ts createQR).
+    let qrDataUrl: string | undefined;
+    try {
+      qrDataUrl = await QRCode.toDataURL(balanceUrl, {
+        errorCorrectionLevel: "M",
+        margin: 1,
+        width: 256,
+        color: { dark: "#0a1628", light: "#ffffff" },
+      });
+    } catch (err) {
+      console.warn(`[surveys/${token}/reward] QR render failed (non-fatal):`, err);
+    }
+
+    // Short-link the Apple Wallet URL so a future SMS can fit in one
+    // segment. /s/{walletShortCode} → 302 to Square's hosted wallet page.
+    let walletShortUrl: string | undefined;
+    try {
+      const code = await shortenUrl(walletUrl);
+      walletShortUrl = `${SHORT_LINK_BASE}/s/${code}`;
+    } catch (err) {
+      console.warn(`[surveys/${token}/reward] short link failed (non-fatal):`, err);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      reward: {
+        kind: "gift_card" as const,
+        value: issued.value,
+        displayText: issued.displayText,
+        promoCode: meta.promoCode,
+        gan: formatGan(meta.gan),
+        balanceUrl,
+        walletUrl,
+        walletShortUrl,
+        qrDataUrl,
+      },
+    });
+  }
+
+  // Pinz path — minimal shape (SMS already sent above).
   return NextResponse.json({
     ok: true,
     reward: {
-      kind: issued.kind,
+      kind: "pinz" as const,
       value: issued.value,
       displayText: issued.displayText,
-      // For gift card: expose the promo code so the page can show it; the
-      // full GAN is in the SMS only, not the page.
-      ...(issued.kind === "gift_card"
-        ? { promoCode: (issued.meta as { promoCode: string }).promoCode }
-        : {}),
-      ...(issued.kind === "pinz"
-        ? { newBalance: (issued.meta as { newBalance: number }).newBalance }
-        : {}),
+      newBalance: (issued.meta as { newBalance: number }).newBalance,
     },
   });
 }
