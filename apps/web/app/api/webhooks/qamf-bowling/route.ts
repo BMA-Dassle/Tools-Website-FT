@@ -17,6 +17,32 @@ import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
 import { shortenUrl } from "@/lib/short-url";
+import { enqueueBowlingSurvey } from "~/features/guest-survey";
+
+/**
+ * Map a bowling_reservations row to the enqueueBowlingSurvey input shape.
+ * Visit date is computed in the center's local timezone (America/New_York
+ * for both current HP centers) so cross-day Square order lookups (PR-GS4)
+ * land in the right window. Returns null when phone is missing.
+ */
+async function enqueueBowlingSurveyForReservation(reservation: BowlingReservation): Promise<void> {
+  if (!reservation.guestPhone) return;
+  const visitDate = new Date(reservation.bookedAt).toLocaleDateString("en-CA", {
+    timeZone: "America/New_York",
+  });
+  const outcome = await enqueueBowlingSurvey({
+    reservationId: String(reservation.id),
+    phone: reservation.guestPhone,
+    guestName: reservation.guestName,
+    guestEmail: reservation.guestEmail,
+    centerCode: reservation.centerCode,
+    visitDate,
+  });
+  console.log(
+    `[qamf-bowling] guest-survey enqueue neonId=${reservation.id} outcome=${outcome.status}` +
+      (outcome.status === "skipped" ? ` reason=${outcome.reason}` : ""),
+  );
+}
 
 /**
  * QubicaAMF bowling reservation + lane webhook receiver.
@@ -625,6 +651,24 @@ async function processEvent(
     console.log(
       `[qamf-bowling] neonId=${reservation.id} qamfId=${qamfId} status ${current} → ${neonAction}`,
     );
+
+    // ── Guest survey enqueue on Completed transition ──────────────────
+    // Fire-and-forget so the webhook stays under SLA. The service is
+    // idempotent on (origin='bowling', origin_ref=reservation.id) — a
+    // duplicate Completed event will skip cleanly. Flag-gated until ops
+    // signoff is complete.
+    if (neonAction === "completed" && process.env.GUEST_SURVEY_ENABLED === "true") {
+      // Bind to const so TS narrowing carries into the .catch closure
+      // (reservation is declared `let` and reassigned earlier in the flow).
+      const completedReservation = reservation;
+      enqueueBowlingSurveyForReservation(completedReservation).catch((err) =>
+        console.warn(
+          `[qamf-bowling] enqueueBowlingSurvey failed neonId=${completedReservation.id} (non-fatal):`,
+          err instanceof Error ? err.message : err,
+        ),
+      );
+    }
+
     return { kind: "updated", from: current, to: neonAction, laneOpenAction };
   }
 
