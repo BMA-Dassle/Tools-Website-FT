@@ -2272,8 +2272,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   // ── Submit ────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(
-    async (squareToken?: string) => {
+    async (tender?: { cardToken?: string; giftCardNonce?: string }) => {
       if (!selectedSlot) return;
+      const squareToken = tender?.cardToken;
+      const giftCardNonce = tender?.giftCardNonce;
       setBusy(true);
       setPaymentError(null);
       setStep("submitting");
@@ -2331,6 +2333,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             // Extra topping surcharge (1 free per lane, $1 each extra)
             ...(extraToppingsCents > 0 ? { extraToppingsCents } : {}),
             squareToken,
+            ...(giftCardNonce ? { giftCardNonce } : {}),
             locationId: center.squareCenterCode,
             notes,
             smsOptIn,
@@ -5811,7 +5814,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               originalDepositCents={rewardDiscountCents > 0 ? depositCents : undefined}
               rewardDiscountCents={rewardDiscountCents}
               onBack={() => setStep("details")}
-              onPay={(token) => void handleSubmit(token)}
+              onPay={(tender) => void handleSubmit(tender)}
             />
           )}
 

@@ -169,6 +169,9 @@ interface ReserveBody {
   rawItems?: RawLineItemRequest[];
   /** Square Web Payments SDK nonce. Required when any item has a charge. */
   squareToken?: string;
+  /** Square gift card nonce — optional. Multi-tender: GC covers up to
+   *  its balance, squareToken (card/wallet) covers the remainder. */
+  giftCardNonce?: string;
   squareCustomerId?: string;
   locationId?: string;
   notes?: string;
@@ -409,8 +412,11 @@ export async function POST(req: NextRequest) {
   // reward covers the entire deposit (client sends depositCents: 0).
   const needsPayment = preTaxTotalCents > 0;
   const effectiveClientDeposit = body.depositCents ?? preTaxTotalCents; // pre-tax fallback
-  if (needsPayment && effectiveClientDeposit > 0 && !body.squareToken) {
-    return NextResponse.json({ error: "squareToken required when deposit > 0" }, { status: 400 });
+  if (needsPayment && effectiveClientDeposit > 0 && !body.squareToken && !body.giftCardNonce) {
+    return NextResponse.json(
+      { error: "squareToken or giftCardNonce required when deposit > 0" },
+      { status: 400 },
+    );
   }
 
   // ── KBF: per-day redemption cap (2 free games = 1 session/day) ──
@@ -905,13 +911,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (actualDepositToCharge > 0 && body.squareToken) {
+    if (actualDepositToCharge > 0 && (body.squareToken || body.giftCardNonce)) {
       const origin = req.nextUrl.origin;
       const sqRes = await fetch(`${origin}/api/square/bowling-orders`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sourceId: body.squareToken,
+          giftCardNonce: body.giftCardNonce,
           idempotencyKey: randomUUID(),
           locationId: squareLocationId,
           depositPct: overallDepositPct,

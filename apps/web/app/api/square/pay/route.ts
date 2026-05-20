@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { addDeposit } from "@/lib/pandora-deposits";
 import { logSale } from "@/lib/sales-log";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
+import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -43,12 +44,9 @@ interface LineItemSpec {
  * between the two can't strand the customer (charged, but no
  * credit / no booking).
  *
- * Currently only `addDeposit` — used by the race-packs Square +
- * Pandora-deposit workaround. If addDeposit fails after Square
- * charged, we still write the sales-log row (flagged
- * `depositCreditPending: true`) and return success on payment but
- * `depositCreditFailed: true` in the response so the UI can surface
- * "charged but credit pending" to the customer + admin can retry.
+ * With multi-tender support, this hook fires ONCE after BOTH
+ * tenders settle — the customer gets their full credit regardless
+ * of how the bill was split between gift card and card.
  */
 interface PostPaymentAction {
   kind: "addDeposit";
@@ -70,21 +68,30 @@ interface PostPaymentAction {
 }
 
 /**
- * Process a payment using a tokenized card nonce or saved card ID.
+ * Process a payment using a tokenized card nonce or saved card ID
+ * and/or a Square gift card nonce.
  *
  * POST body: {
- *   token: string,           // From card.tokenize() — OR savedCardId
- *   useSavedCard: boolean,
+ *   token?: string,             // From card.tokenize() — OR savedCardId, OR omitted (GC-only)
+ *   useSavedCard?: boolean,
  *   savedCardId?: string,
- *   amount: number,          // Dollar amount (e.g. 49.99)
+ *   giftCardNonce?: string,     // From payments.giftCard().tokenize() — optional
+ *   amount: number,             // Dollar amount (e.g. 49.99)
  *   billId: string,
- *   itemName: string,        // Line item description
+ *   itemName: string,           // Line item description
  *   contact: { firstName, lastName, email, phone },
- *   saveCard: boolean,
+ *   saveCard?: boolean,
  *   squareCustomerId?: string,
- *   lineItem?: { name?, catalogObjectId? },  // Optional Square catalog reference
- *   postPaymentAction?: { kind: "addDeposit", ... },  // Optional server-side hook
+ *   lineItem?: { name?, catalogObjectId? },
+ *   postPaymentAction?: { kind: "addDeposit", ... },
  * }
+ *
+ * Multi-tender behavior:
+ *   - GC alone: GC must cover the full amount or 400 is returned.
+ *   - Card alone: card pays the full amount (unchanged behavior).
+ *   - GC + card: GC authorizes up to its balance, card covers the
+ *     remainder. If either auth fails, both are cancelled — no
+ *     customer charge.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -93,6 +100,7 @@ export async function POST(req: NextRequest) {
       token,
       useSavedCard,
       savedCardId,
+      giftCardNonce,
       amount,
       billId,
       itemName,
@@ -106,6 +114,7 @@ export async function POST(req: NextRequest) {
       token?: string;
       useSavedCard?: boolean;
       savedCardId?: string;
+      giftCardNonce?: string;
       amount?: number;
       billId?: string;
       itemName?: string;
@@ -123,15 +132,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "amount and billId required" }, { status: 400 });
     }
 
-    const sourceId = useSavedCard && savedCardId ? savedCardId : token;
-    if (!sourceId) {
-      return NextResponse.json({ error: "token or savedCardId required" }, { status: 400 });
+    const cardSourceId = useSavedCard && savedCardId ? savedCardId : token;
+    if (!cardSourceId && !giftCardNonce) {
+      return NextResponse.json(
+        { error: "token, savedCardId, or giftCardNonce required" },
+        { status: 400 },
+      );
     }
 
-    const idempotencyKey = randomUUID();
+    // 16-char hex baseKey leaves headroom for our longest
+    // idempotency prefix (`cancel-card-` = 12) within Square's
+    // 45-char limit: 12 + 1 + 16 = 29 < 45.
+    const baseKey = randomBytes(8).toString("hex");
     const amountCents = Math.round(amount * 100);
 
-    // Step 1: Create Square order
+    // ── Step 1: Create the Square order ───────────────────────────────
     //
     // When `lineItem.catalogObjectId` is provided we attach the
     // catalog ref + override the display name (race packs share one
@@ -153,7 +168,7 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: sqHeaders(),
       body: JSON.stringify({
-        idempotency_key: `order-${idempotencyKey}`,
+        idempotency_key: `order-${baseKey}`,
         order: {
           location_id: SQUARE_LOCATION,
           line_items: [lineItemPayload],
@@ -169,66 +184,97 @@ export async function POST(req: NextRequest) {
 
     const squareOrderId = orderData.order?.id;
 
-    // Step 2: Process payment
-    const paymentBody: Record<string, unknown> = {
-      source_id: sourceId,
-      idempotency_key: idempotencyKey,
-      amount_money: { amount: amountCents, currency: "USD" },
-      order_id: squareOrderId,
-      location_id: SQUARE_LOCATION,
-      autocomplete: true,
-      note: `FastTrax - ${itemName || "Booking"} | Ref: ${billId}`,
-    };
-
-    if (contact?.email) paymentBody.buyer_email_address = contact.email;
-    if (squareCustomerId) paymentBody.customer_id = squareCustomerId;
-
-    const payRes = await fetch(`${SQUARE_BASE}/payments`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify(paymentBody),
-    });
-    const payData = await payRes.json();
-
-    if (!payRes.ok || payData.errors) {
-      const sqError = payData.errors?.[0];
-      const code = sqError?.code || "UNKNOWN";
-      const detail = sqError?.detail || "Payment failed";
-      console.error("[square/pay] payment failed:", code, detail);
-
-      // Map Square error codes to user-friendly messages
-      const messages: Record<string, string> = {
-        INSUFFICIENT_FUNDS: "Card declined — insufficient funds. Try a different card.",
-        GENERIC_DECLINE: "Card declined. Please try a different card.",
-        INVALID_EXPIRATION: "Card expired. Please use a different card.",
-        CVV_FAILURE: "CVV check failed. Please re-enter your card details.",
-        CARD_EXPIRED: "Card expired. Please use a different card.",
-        CARD_DECLINED: "Card declined. Please try a different card.",
-        CARD_DECLINED_VERIFICATION_REQUIRED: "Additional verification required. Please try again.",
-      };
-
-      return NextResponse.json(
-        {
-          error: messages[code] || "Payment could not be processed. Please try again.",
-          code,
-          detail,
-        },
-        { status: 400 },
-      );
+    // ── Step 2: Authorize tender(s) ───────────────────────────────────
+    // authorizeMultiTender re-validates GAN (blocks internal deposit
+    // cards), authorizes GC with accept_partial_authorization,
+    // authorizes the card for the remainder, completes both, or cancels
+    // everything on any failure. Never leaves a customer charged on throw.
+    let multiTender;
+    try {
+      multiTender = await authorizeMultiTender({
+        orderId: squareOrderId,
+        locationId: SQUARE_LOCATION,
+        totalCents: amountCents,
+        baseKey,
+        giftCardNonce,
+        cardSourceId,
+        customerId: squareCustomerId,
+        buyerEmail: contact?.email,
+        note: `FastTrax - ${itemName || "Booking"} | Ref: ${billId}`,
+      });
+    } catch (err) {
+      if (err instanceof SquarePaymentError) {
+        const messages: Record<string, string> = {
+          INSUFFICIENT_FUNDS: "Card declined — insufficient funds. Try a different card.",
+          GENERIC_DECLINE: "Card declined. Please try a different card.",
+          INVALID_EXPIRATION: "Card expired. Please use a different card.",
+          CVV_FAILURE: "CVV check failed. Please re-enter your card details.",
+          CARD_EXPIRED: "Card expired. Please use a different card.",
+          CARD_DECLINED: "Card declined. Please try a different card.",
+          CARD_DECLINED_VERIFICATION_REQUIRED:
+            "Additional verification required. Please try again.",
+        };
+        const userMessage = messages[err.code] || err.message;
+        console.error(`[square/pay] tender failed: ${err.code} ${err.message}`);
+        return NextResponse.json(
+          { error: userMessage, code: err.code, detail: err.message },
+          { status: 400 },
+        );
+      }
+      throw err;
     }
 
-    const payment = payData.payment;
-    const cardDetails = payment?.card_details;
+    const { gcPaymentId, cardPaymentId, gcApprovedCents, cardApprovedCents, gcGan } = multiTender;
 
-    // Step 3: Save card on file (if requested + customer exists)
+    // For back-compat with existing PaymentResult consumers: the
+    // primary paymentId is the card payment when present, else the GC.
+    const primaryPaymentId = cardPaymentId || gcPaymentId;
+
+    // Fetch payment details for the card brand / last4 the UI shows
+    // on the receipt screen. Only needed when a card actually ran.
+    let cardBrand: string | null = null;
+    let cardLast4: string | null = null;
+    let receiptUrl: string | null = null;
+    if (cardPaymentId) {
+      try {
+        const pRes = await fetch(`${SQUARE_BASE}/payments/${cardPaymentId}`, {
+          headers: sqHeaders(),
+        });
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          cardBrand = pData.payment?.card_details?.card?.card_brand ?? null;
+          cardLast4 = pData.payment?.card_details?.card?.last_4 ?? null;
+          receiptUrl = pData.payment?.receipt_url ?? null;
+        }
+      } catch {
+        /* non-fatal — UI uses fallback */
+      }
+    } else if (gcPaymentId) {
+      // GC-only — receipt url from the GC payment for completeness.
+      try {
+        const pRes = await fetch(`${SQUARE_BASE}/payments/${gcPaymentId}`, {
+          headers: sqHeaders(),
+        });
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          receiptUrl = pData.payment?.receipt_url ?? null;
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    // ── Step 3: Save card on file (if requested + customer exists) ────
+    // Only runs when an actual card was used and the customer wanted
+    // to save it. GC-only payments produce no saveable instrument.
     let savedNewCardId: string | null = null;
-    if (saveCard && squareCustomerId && !useSavedCard && token) {
+    if (saveCard && squareCustomerId && !useSavedCard && token && cardPaymentId) {
       try {
         const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
           method: "POST",
           headers: sqHeaders(),
           body: JSON.stringify({
-            idempotency_key: `card-${idempotencyKey}`,
+            idempotency_key: `card-${baseKey}`,
             source_id: token,
             card: {
               customer_id: squareCustomerId,
@@ -245,19 +291,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Step 4: Post-payment action (currently: addDeposit for the
-    // race-packs Square+Pandora workaround). Runs server-side so a
-    // tab close between charge + credit can't leave the customer
-    // stranded — every code path here writes a sales-log row, so
-    // admin always sees the charge regardless of credit outcome.
+    // ── Step 4: Post-payment action ──────────────────────────────────
+    // Runs once after all tenders settle. With multi-tender,
+    // `paymentId` no longer uniquely identifies the charge — we use
+    // billId for the retry queue's sourceRef and stash both Square
+    // paymentIds in notes for human auditability.
     let depositResult: { depositId?: string; failed?: boolean; error?: string } | null = null;
     if (postPaymentAction?.kind === "addDeposit") {
       const action = postPaymentAction;
       const packLabel = action.packLabel || itemName || "Race Pack";
+      const tenderTrail =
+        gcPaymentId && cardPaymentId
+          ? `Multi-tender: gc=${gcPaymentId} card=${cardPaymentId}`
+          : gcPaymentId
+            ? `Single-tender gift card: gc=${gcPaymentId}`
+            : `Single-tender card: card=${cardPaymentId}`;
 
-      // Common sales-log fields (filled in below per outcome). The
-      // sales board indexes on `via_deposit` + `deposit_credit_pending`
-      // so admin can audit / retry from one place.
       const salesLogBase = {
         ts: new Date().toISOString(),
         billId,
@@ -292,26 +341,16 @@ export async function POST(req: NextRequest) {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : "addDeposit failed";
-        // Square already charged — write a pending row so admin can
-        // reconcile from the sales board. Do NOT surface this as a
-        // payment error to the customer — they paid, we just need
-        // the credit to land separately.
         await logSale({ ...salesLogBase, depositCreditPending: true });
-        // Durable retry queue: deposit-retry-sweep cron picks this
-        // up every 5 min and retries until it lands. Without this
-        // the only "retry" was a human watching the sales board.
-        // The Pandora locationID for race packs is hardcoded to
-        // FastTrax in addDeposit() (race packs are a FastTrax SKU)
-        // so we use the same constant here for the retry row.
         await enqueueDepositFailure({
           source: "race-pack-square",
-          sourceRef: billId || payment?.id || randomUUID(),
+          sourceRef: billId || randomUUID(),
           locationId: "LAB52GY480CJF",
           personId: String(action.personId),
           depositKindId: String(action.depositKindId),
           amount: action.amount,
           initialError: msg,
-          notes: `Pack: ${packLabel}. Square charge: $${amount}.`,
+          notes: `Pack: ${packLabel}. Charge: $${amount}. ${tenderTrail}.`,
         });
         depositResult = { failed: true, error: msg };
         console.error(
@@ -320,17 +359,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log(
+      `[square/pay] success billId=${billId} amount=${amount} gc=${gcApprovedCents} card=${cardApprovedCents} gcPaymentId=${gcPaymentId ?? "-"} cardPaymentId=${cardPaymentId ?? "-"}`,
+    );
+
     return NextResponse.json({
       success: true,
-      paymentId: payment?.id,
+      paymentId: primaryPaymentId,
       orderId: squareOrderId,
-      receiptUrl: payment?.receipt_url || null,
-      cardBrand: cardDetails?.card?.card_brand || null,
-      cardLast4: cardDetails?.card?.last_4 || null,
+      receiptUrl,
+      cardBrand,
+      cardLast4,
       amount,
       savedCardId: savedNewCardId,
-      // Only present when postPaymentAction ran. UI uses this to
-      // show "credits added" vs. "charged but credit pending".
+      // Multi-tender breakdown for UI display.
+      giftCardAppliedCents: gcApprovedCents,
+      giftCardLast4: gcGan ? gcGan.slice(-4) : null,
+      paymentIds: { gc: gcPaymentId ?? null, card: cardPaymentId ?? null },
+      // Post-payment hook fields (race packs).
       depositId: depositResult?.depositId,
       depositCreditFailed: depositResult?.failed === true ? true : undefined,
       depositError: depositResult?.error,

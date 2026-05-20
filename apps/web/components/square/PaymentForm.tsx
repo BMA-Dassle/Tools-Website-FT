@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import SavedCardSelector from "./SavedCardSelector";
 import type { SavedCard } from "./SavedCardSelector";
+import GiftCardCapture, { type GiftCardCaptureHandle } from "./GiftCardCapture";
 
 declare global {
   interface Window {
@@ -16,6 +17,7 @@ interface SquarePayments {
   card: (options?: Record<string, unknown>) => Promise<SquareCard>;
   applePay: (request: unknown) => Promise<SquareDigitalWallet>;
   googlePay: (request: unknown) => Promise<SquareDigitalWallet>;
+  giftCard: (options?: Record<string, unknown>) => Promise<unknown>;
   paymentRequest: (config: {
     countryCode: string;
     currencyCode: string;
@@ -51,6 +53,11 @@ export interface PaymentResult {
   depositCreditFailed?: boolean;
   /** Server-side error string when depositCreditFailed. */
   depositError?: string;
+  /** Amount (USD cents) that the customer's gift card covered. 0 when
+   *  no gift card was used. */
+  giftCardAppliedCents?: number;
+  /** Last 4 of the gift card GAN, when a GC was used. */
+  giftCardLast4?: string | null;
 }
 
 /** Optional Square catalog reference for the order line item. Lets
@@ -168,6 +175,21 @@ export default function PaymentForm({
   const applePayRef = useRef<SquareDigitalWallet | null>(null);
   const googlePayRef = useRef<SquareDigitalWallet | null>(null);
   const initRef = useRef(false);
+  const giftCardCaptureRef = useRef<GiftCardCaptureHandle | null>(null);
+  // Live Square `payments` instance so GiftCardCapture can call
+  // payments.giftCard() without spinning up a second SDK instance.
+  const [paymentsInstance, setPaymentsInstance] = useState<SquarePayments | null>(null);
+  // Applied gift card state. Null = no GC applied.
+  const [giftCardNonce, setGiftCardNonce] = useState<string | null>(null);
+  const [giftCardBalanceCents, setGiftCardBalanceCents] = useState<number>(0);
+  const [giftCardLast4, setGiftCardLast4] = useState<string | null>(null);
+
+  // Cents math for the GC math + split UI. We do math in cents to avoid
+  // floating-point drift, then format dollars for display.
+  const amountCents = Math.round(amount * 100);
+  const gcAppliedCents = Math.min(amountCents, giftCardBalanceCents);
+  const remainingCents = Math.max(0, amountCents - gcAppliedCents);
+  const remainingDollars = remainingCents / 100;
 
   // Load Square SDK and initialize card form
   useEffect(() => {
@@ -194,6 +216,7 @@ export default function PaymentForm({
         if (!window.Square) throw new Error("Square SDK not available");
 
         const payments = await window.Square.payments(SQUARE_APP_ID, squareLocationId);
+        setPaymentsInstance(payments);
 
         // Initialize card form
         const card = await payments.card();
@@ -282,19 +305,23 @@ export default function PaymentForm({
     }
   }
 
-  async function processPayment(token: string, usingSavedCard: boolean) {
+  async function processPayment(token: string | null, usingSavedCard: boolean) {
+    // `token` may be null when the gift card fully covers the bill —
+    // no card tokenization needed. The backend authorizes only the GC
+    // and skips the card path entirely.
     const res = await fetch("/api/square/pay", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        token: usingSavedCard ? undefined : token,
+        token: usingSavedCard ? undefined : token ?? undefined,
         useSavedCard: usingSavedCard,
         savedCardId: usingSavedCard ? token : undefined,
+        giftCardNonce: giftCardNonce ?? undefined,
         amount,
         billId,
         itemName,
         contact,
-        saveCard: saveCard && !!squareCustomerId && !usingSavedCard,
+        saveCard: saveCard && !!squareCustomerId && !usingSavedCard && token != null,
         squareCustomerId,
         locationId:
           locationIdProp ||
@@ -322,6 +349,8 @@ export default function PaymentForm({
         depositId: data.depositId,
         depositCreditFailed: data.depositCreditFailed,
         depositError: data.depositError,
+        giftCardAppliedCents: data.giftCardAppliedCents,
+        giftCardLast4: data.giftCardLast4,
       });
     }, 1500);
   }
@@ -332,6 +361,12 @@ export default function PaymentForm({
     setErrorMessage(null);
 
     try {
+      // GC fully covers — no card needed. Send null token; the backend
+      // authorizes the GC alone.
+      if (giftCardNonce && remainingCents === 0) {
+        await processPayment(null, false);
+        return;
+      }
       if (selectedCardId) {
         await processPayment(selectedCardId, true);
       } else {
@@ -382,8 +417,48 @@ export default function PaymentForm({
         <p className="text-white/50 text-sm">{itemName}</p>
       </div>
 
-      {/* Saved cards */}
-      {savedCards.length > 0 && (
+      {/* Gift card capture / applied summary */}
+      {giftCardNonce ? (
+        <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 flex items-start justify-between gap-3">
+          <div className="text-sm">
+            <p className="text-emerald-200 font-semibold">
+              Gift card •••• {giftCardLast4 ?? ""}
+            </p>
+            <p className="text-emerald-200/80 text-xs mt-0.5">
+              ${(gcAppliedCents / 100).toFixed(2)} of $
+              {(giftCardBalanceCents / 100).toFixed(2)} balance applied
+              {remainingCents > 0 ? ` · $${remainingDollars.toFixed(2)} due on card` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setGiftCardNonce(null);
+              setGiftCardBalanceCents(0);
+              setGiftCardLast4(null);
+              giftCardCaptureRef.current?.reset();
+            }}
+            disabled={status === "processing"}
+            className="text-xs text-white/60 hover:text-white underline disabled:opacity-40"
+          >
+            Remove
+          </button>
+        </div>
+      ) : (
+        <GiftCardCapture
+          ref={giftCardCaptureRef}
+          payments={paymentsInstance}
+          disabled={status === "processing"}
+          onApply={({ nonce, balanceCents, last4 }) => {
+            setGiftCardNonce(nonce);
+            setGiftCardBalanceCents(balanceCents);
+            setGiftCardLast4(last4);
+          }}
+        />
+      )}
+
+      {/* Saved cards (hidden when GC fully covers the bill) */}
+      {savedCards.length > 0 && remainingCents > 0 && (
         <SavedCardSelector
           cards={savedCards}
           selectedCardId={selectedCardId}
@@ -391,9 +466,13 @@ export default function PaymentForm({
         />
       )}
 
-      {/* Digital wallets */}
+      {/* Digital wallets — hidden when GC applied (v1 mutual exclusion) */}
       <div
-        className={!selectedCardId && (applePayReady || googlePayReady) ? "space-y-3" : "hidden"}
+        className={
+          !giftCardNonce && !selectedCardId && (applePayReady || googlePayReady)
+            ? "space-y-3"
+            : "hidden"
+        }
       >
         {applePayReady && (
           <button
@@ -413,7 +492,7 @@ export default function PaymentForm({
         />
       </div>
       <div id="sq-apple-pay" className="hidden" />
-      {!selectedCardId && (applePayReady || googlePayReady) && (
+      {!giftCardNonce && !selectedCardId && (applePayReady || googlePayReady) && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-white/30 text-xs uppercase tracking-wider">or pay with card</span>
@@ -421,8 +500,8 @@ export default function PaymentForm({
         </div>
       )}
 
-      {/* Card form (hidden when using saved card) */}
-      <div className={selectedCardId ? "hidden" : ""}>
+      {/* Card form (hidden when using saved card OR when GC fully covers) */}
+      <div className={selectedCardId || remainingCents === 0 ? "hidden" : ""}>
         <div
           id="sq-card-container"
           className="min-h-[100px] rounded-xl"
@@ -436,8 +515,9 @@ export default function PaymentForm({
         )}
       </div>
 
-      {/* Save card checkbox (OTP-verified returning racers only) */}
-      {allowSaveCard && squareCustomerId && !selectedCardId && (
+      {/* Save card checkbox (OTP-verified returning racers only). Hidden
+          when GC fully covers — no card is being entered. */}
+      {allowSaveCard && squareCustomerId && !selectedCardId && remainingCents > 0 && (
         <label className="flex items-center gap-3 cursor-pointer group">
           <input
             type="checkbox"
@@ -469,6 +549,10 @@ export default function PaymentForm({
             <div className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
             Processing...
           </span>
+        ) : giftCardNonce && remainingCents === 0 ? (
+          `Pay $${amount.toFixed(2)} with gift card`
+        ) : giftCardNonce ? (
+          `Pay $${(gcAppliedCents / 100).toFixed(2)} GC + $${remainingDollars.toFixed(2)} card`
         ) : (
           `Pay $${amount.toFixed(2)}`
         )}

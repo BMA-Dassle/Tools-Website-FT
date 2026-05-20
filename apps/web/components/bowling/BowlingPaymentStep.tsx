@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import CardCaptureForm, { type CardCaptureHandle } from "@/components/square/CardCaptureForm";
+import GiftCardCapture, { type GiftCardCaptureHandle } from "@/components/square/GiftCardCapture";
 
 /**
  * Shared payment step used by Kids Bowl Free V2 and Open Bowling wizards.
@@ -75,11 +76,18 @@ interface BowlingPaymentStepProps {
   /** Called when the user clicks Back. */
   onBack: () => void;
   /**
-   * Called with the Square nonce AFTER tokenize completes successfully.
-   * The card widget is still mounted when this is called — safe to change
-   * step / call the reserve API from here.
+   * Called AFTER tender(s) are tokenized successfully. The parent
+   * forwards the tokens to the reserve API.
+   *
+   * - `cardToken` is set when the user paid with card / Apple Pay /
+   *   Google Pay. Undefined when a gift card covered the full deposit.
+   * - `giftCardNonce` is set when a gift card was applied. Undefined
+   *   when no gift card was used.
+   *
+   * Multi-tender (split) emits BOTH. The reserve API forwards both
+   * to /api/square/bowling-orders.
    */
-  onPay: (token: string) => void;
+  onPay: (tender: { cardToken?: string; giftCardNonce?: string }) => void;
   /**
    * Optional content rendered between CardCaptureForm and the pay button.
    * Use for ClickwrapCheckbox or other flow-specific elements.
@@ -92,6 +100,12 @@ interface SquareDigitalWallet {
   attach: (selector: string) => Promise<void>;
   tokenize: () => Promise<{ status: string; token?: string }>;
   destroy: () => void;
+}
+
+/** Subset of the Square `payments` instance we pass to GiftCardCapture.
+ *  Matches the interface that component expects (giftCard only). */
+interface SquarePaymentsLike {
+  giftCard: (options?: Record<string, unknown>) => Promise<unknown>;
 }
 
 export default function BowlingPaymentStep({
@@ -118,6 +132,18 @@ export default function BowlingPaymentStep({
   const [applePayReady, setApplePayReady] = useState(false);
   const applePayRef = useRef<SquareDigitalWallet | null>(null);
   const walletInitRef = useRef(false);
+
+  // ── Gift card state ──────────────────────────────────────────────
+  // Live Square `payments` instance, exposed so GiftCardCapture can
+  // attach `payments.giftCard()` without spinning up its own SDK init.
+  const [paymentsInstance, setPaymentsInstance] = useState<SquarePaymentsLike | null>(null);
+  const [giftCardNonce, setGiftCardNonce] = useState<string | null>(null);
+  const [giftCardBalanceCents, setGiftCardBalanceCents] = useState<number>(0);
+  const [giftCardLast4, setGiftCardLast4] = useState<string | null>(null);
+  const giftCardCaptureRef = useRef<GiftCardCaptureHandle | null>(null);
+
+  const gcAppliedCents = Math.min(depositCents, giftCardBalanceCents);
+  const remainderCents = Math.max(0, depositCents - gcAppliedCents);
 
   const remaining = totalCents - depositCents;
   const effectivePayLabel = payLabel ?? `Pay ${centsToDollars(depositCents)}`;
@@ -154,6 +180,7 @@ export default function BowlingPaymentStep({
 
         const locId = resolveLocationId(locationId);
         const payments = await window.Square.payments(SQUARE_APP_ID, locId);
+        if (!cancelled) setPaymentsInstance(payments as unknown as SquarePaymentsLike);
         const amountStr = (depositCents / 100).toFixed(2);
 
         // Apple Pay
@@ -203,7 +230,7 @@ export default function BowlingPaymentStep({
       if (result.status !== "OK" || !result.token) {
         throw new Error("Apple Pay cancelled or failed");
       }
-      onPay(result.token);
+      onPay({ cardToken: result.token });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Apple Pay failed";
       setTokenizeError(msg);
@@ -211,9 +238,17 @@ export default function BowlingPaymentStep({
     }
   }
 
-  // ── Card Pay handler ────────────────────────────────────────────
+  // ── Card / Gift card Pay handler ───────────────────────────────
   async function handlePay() {
     if (isProcessing || payDisabled) return;
+
+    // Gift card fully covers the deposit — skip card tokenization.
+    if (giftCardNonce && remainderCents === 0) {
+      setTokenizeError(null);
+      onPay({ giftCardNonce });
+      return;
+    }
+
     if (!cardRef.current) {
       setTokenizeError("Card form not ready. Please refresh and try again.");
       return;
@@ -230,7 +265,10 @@ export default function BowlingPaymentStep({
       return;
     }
 
-    onPay(result.token);
+    onPay({
+      cardToken: result.token,
+      ...(giftCardNonce ? { giftCardNonce } : {}),
+    });
   }
 
   return (
@@ -273,8 +311,50 @@ export default function BowlingPaymentStep({
         </p>
       )}
 
-      {/* ── Apple Pay ──────────────────────────────────────────── */}
-      {applePayReady && (
+      {/* ── Gift card capture / applied summary ────────────────── */}
+      {giftCardNonce ? (
+        <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 flex items-start justify-between gap-3">
+          <div className="text-sm">
+            <p className="text-emerald-200 font-semibold">
+              Gift card •••• {giftCardLast4 ?? ""}
+            </p>
+            <p className="text-emerald-200/80 text-xs mt-0.5">
+              {centsToDollars(gcAppliedCents)} of{" "}
+              {centsToDollars(giftCardBalanceCents)} balance applied
+              {remainderCents > 0
+                ? ` · ${centsToDollars(remainderCents)} due on card`
+                : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setGiftCardNonce(null);
+              setGiftCardBalanceCents(0);
+              setGiftCardLast4(null);
+              giftCardCaptureRef.current?.reset();
+            }}
+            disabled={isProcessing}
+            className="text-xs text-white/60 hover:text-white underline disabled:opacity-40"
+          >
+            Remove
+          </button>
+        </div>
+      ) : (
+        <GiftCardCapture
+          ref={giftCardCaptureRef}
+          payments={paymentsInstance}
+          disabled={isProcessing}
+          onApply={({ nonce, balanceCents, last4 }) => {
+            setGiftCardNonce(nonce);
+            setGiftCardBalanceCents(balanceCents);
+            setGiftCardLast4(last4);
+          }}
+        />
+      )}
+
+      {/* ── Apple Pay (hidden when a gift card is applied — v1 mutual exclusion) ─ */}
+      {applePayReady && !giftCardNonce && (
         <button
           type="button"
           onClick={() => void handleApplePay()}
@@ -289,7 +369,7 @@ export default function BowlingPaymentStep({
       )}
 
       {/* Divider between Apple Pay and card */}
-      {applePayReady && (
+      {applePayReady && !giftCardNonce && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-white/30 text-xs uppercase tracking-wider font-body">
@@ -299,8 +379,10 @@ export default function BowlingPaymentStep({
         </div>
       )}
 
-      {/* Card form — owned by this component, never exposed via ref */}
-      <CardCaptureForm ref={cardRef} locationId={locationId} />
+      {/* Card form — hidden when GC fully covers the deposit */}
+      {remainderCents > 0 && (
+        <CardCaptureForm ref={cardRef} locationId={locationId} />
+      )}
 
       {/* Tokenize error (card validation failed before API call) */}
       {tokenizeError && (
@@ -341,7 +423,13 @@ export default function BowlingPaymentStep({
         className="w-full py-3.5 rounded-full font-body font-bold text-sm uppercase tracking-wider text-white transition-all hover:scale-[1.01] disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ backgroundColor: CORAL }}
       >
-        {isProcessing ? "Processing…" : effectivePayLabel}
+        {isProcessing
+          ? "Processing…"
+          : giftCardNonce && remainderCents === 0
+            ? `Pay ${centsToDollars(depositCents)} with gift card`
+            : giftCardNonce
+              ? `Pay ${centsToDollars(gcAppliedCents)} GC + ${centsToDollars(remainderCents)} card`
+              : effectivePayLabel}
       </button>
 
       {/* Back button */}
