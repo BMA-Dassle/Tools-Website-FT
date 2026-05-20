@@ -180,6 +180,7 @@ async function handleCancellation(
       const idempotencyKey = `qamf-cancel-${webhookId}`;
       const result = await processSquareBowlingRefund({
         depositPaymentId: reservation.squareDepositPaymentId,
+        depositOrderId: reservation.squareDepositOrderId,
         giftCardId: reservation.squareGiftCardId,
         dayofOrderId: reservation.squareDayofOrderId,
         locationId: reservation.centerCode,

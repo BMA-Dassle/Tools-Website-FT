@@ -76,6 +76,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     try {
       const result = await processSquareBowlingRefund({
         depositPaymentId: reservation.squareDepositPaymentId,
+        depositOrderId: reservation.squareDepositOrderId,
         giftCardId: reservation.squareGiftCardId,
         dayofOrderId: reservation.squareDayofOrderId,
         locationId: reservation.centerCode,
