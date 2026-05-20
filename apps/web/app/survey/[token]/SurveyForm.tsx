@@ -195,7 +195,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   // this the nav overlaps the page heading "How was your visit?".
   return (
     <main
-      className="text-white font-body pt-28 sm:pt-36"
+      className="text-white font-body pt-36 sm:pt-44"
       style={{ backgroundColor: HP_BG, paddingBottom: "16px" }}
     >
       <div className="w-full max-w-md mx-auto px-4">{children}</div>

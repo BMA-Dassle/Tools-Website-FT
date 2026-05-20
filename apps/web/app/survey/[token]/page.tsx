@@ -109,7 +109,7 @@ function ShellWrap({ children }: { children: React.ReactNode }) {
   // overlaps the page heading.
   return (
     <main
-      className="text-white font-body pt-28 sm:pt-36"
+      className="text-white font-body pt-36 sm:pt-44"
       style={{ backgroundColor: HP_BG, paddingBottom: "32px" }}
     >
       <div className="w-full max-w-md mx-auto px-4">{children}</div>
