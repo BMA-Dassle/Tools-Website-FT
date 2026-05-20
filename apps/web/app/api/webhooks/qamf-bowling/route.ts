@@ -26,7 +26,15 @@ import { enqueueBowlingSurvey } from "~/features/guest-survey";
  * land in the right window. Returns null when phone is missing.
  */
 async function enqueueBowlingSurveyForReservation(reservation: BowlingReservation): Promise<void> {
-  if (!reservation.guestPhone) return;
+  if (!reservation.guestPhone) {
+    // Silent skip was hiding the most common skip reason — log it so
+    // ops can spot whether the reservation pipeline is failing to
+    // capture phones at booking time.
+    console.log(
+      `[qamf-bowling] guest-survey skipped neonId=${reservation.id} reason=no-phone-on-reservation`,
+    );
+    return;
+  }
   const visitDate = new Date(reservation.bookedAt).toLocaleDateString("en-CA", {
     timeZone: "America/New_York",
   });
@@ -659,6 +667,13 @@ async function processEvent(
     // (in the service) prevents re-spamming the same customer.
     // Kill-switch: set GUEST_SURVEY_DISABLED=true in Vercel env to
     // pause sends without a redeploy.
+    if (neonAction === "completed") {
+      console.log(
+        `[qamf-bowling] guest-survey trigger neonId=${reservation.id}` +
+          ` disabled=${process.env.GUEST_SURVEY_DISABLED === "true" ? "yes" : "no"}` +
+          ` phone=${reservation.guestPhone ? "yes" : "no"}`,
+      );
+    }
     if (neonAction === "completed" && process.env.GUEST_SURVEY_DISABLED !== "true") {
       // Bind to const so TS narrowing carries into the .catch closure
       // (reservation is declared `let` and reassigned earlier in the flow).

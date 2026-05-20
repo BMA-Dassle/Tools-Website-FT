@@ -12,7 +12,7 @@ import {
 } from "@/lib/guest-survey-db";
 import {
   canSend,
-  hasMarketingOptIn,
+  getConsent,
   recordTouch,
   renderBowlingSurveyInvite,
   resolveAudienceMember,
@@ -96,9 +96,15 @@ export async function enqueueBowlingSurvey(
   }
   const { squareCustomerId, phoneE164 } = audience;
 
-  // ── Step 5: marketing consent ─────────────────────────────────────
-  const optedIn = await hasMarketingOptIn(phoneE164);
-  if (!optedIn) {
+  // ── Step 5: marketing consent (implicit-via-transactional for bowling)
+  // The customer is on a bowling reservation we already confirmed via
+  // SMS (the booking flow opt-in covers transactional contact), so a
+  // single post-visit survey is treated as covered by that consent.
+  // Only an EXPLICIT STOP (consent row with opted_in=false) blocks.
+  // Cold campaigns that aren't gated by a prior transactional touch
+  // must keep using hasMarketingOptIn for full default-deny.
+  const consent = await getConsent(phoneE164);
+  if (consent && consent.optedIn === false) {
     await recordSkipTouch({
       customerId: squareCustomerId,
       phoneE164,

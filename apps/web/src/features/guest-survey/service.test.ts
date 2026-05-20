@@ -36,7 +36,7 @@ vi.mock("@/lib/guest-survey-db", () => ({
 
 vi.mock("~/features/marketing", () => ({
   canSend: vi.fn(),
-  hasMarketingOptIn: vi.fn(),
+  getConsent: vi.fn(),
   recordTouch: vi.fn(),
   renderBowlingSurveyInvite: vi.fn(({ code }: { code: string }) => `MOCK SMS BODY /s/${code}`),
   resolveAudienceMember: vi.fn(),
@@ -55,12 +55,7 @@ import {
   seedGuestSurveyQuestionsIfEmpty,
 } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
-import {
-  canSend,
-  hasMarketingOptIn,
-  recordTouch,
-  resolveAudienceMember,
-} from "~/features/marketing";
+import { canSend, getConsent, recordTouch, resolveAudienceMember } from "~/features/marketing";
 import * as smsMock from "~/test/mocks/sms";
 import { enqueueBowlingSurvey } from "./service";
 
@@ -72,7 +67,7 @@ const mockedSeed = vi.mocked(seedGuestSurveyQuestionsIfEmpty);
 const mockedGetActive = vi.mocked(getActiveQuestionsForTags);
 const mockedShorten = vi.mocked(shortenUrl);
 const mockedResolve = vi.mocked(resolveAudienceMember);
-const mockedConsent = vi.mocked(hasMarketingOptIn);
+const mockedConsent = vi.mocked(getConsent);
 const mockedCanSend = vi.mocked(canSend);
 const mockedRecordTouch = vi.mocked(recordTouch);
 
@@ -119,7 +114,9 @@ function defaultsHappyPath(): void {
     email: "ada@example.com",
     isNew: false,
   });
-  mockedConsent.mockResolvedValue(true);
+  // Happy path: no row at all → treated as implicit opt-in for bowling
+  // (the customer accepted transactional SMS at booking).
+  mockedConsent.mockResolvedValue(null);
   mockedCanSend.mockResolvedValue({ allowed: true, lastSentAt: null });
   mockedShorten.mockResolvedValue("abc123");
   mockedInsert.mockResolvedValue({
@@ -264,8 +261,16 @@ describe("enqueueBowlingSurvey — guard skips (no touch recorded)", () => {
 });
 
 describe("enqueueBowlingSurvey — consent / frequency skips (touch recorded)", () => {
-  it("skips 'no_marketing_consent' and writes a skipped touch", async () => {
-    mockedConsent.mockResolvedValue(false);
+  it("skips 'no_marketing_consent' when the customer has an explicit STOP on file", async () => {
+    // Only an explicit opted_in=false (STOP) blocks the bowling survey
+    // now — a missing row is treated as implicit transactional consent.
+    mockedConsent.mockResolvedValue({
+      phoneE164: PHONE_E164,
+      optedIn: false,
+      source: "inbound_sms_stop",
+      reason: "STOP",
+      updatedAt: "2026-05-19T00:00:00.000Z",
+    });
 
     const result = await enqueueBowlingSurvey(baseInput());
 
