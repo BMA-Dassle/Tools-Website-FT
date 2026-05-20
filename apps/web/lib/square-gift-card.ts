@@ -217,6 +217,43 @@ export async function completeSquarePayment(
   }
 }
 
+/**
+ * Atomically capture all authorized payments attached to an order.
+ *
+ * This is the correct primitive for multi-tender: Square's per-payment
+ * `CompletePayment` validates that each payment's amount is enough to
+ * cover the remaining order balance — so completing only the gift card
+ * on a card+GC order fails (the order still owes the card's portion).
+ * `PayOrder` settles all listed payments together and closes the order
+ * in one transaction.
+ *
+ * Works equally well for single-tender (one payment_id in the list).
+ *
+ * Endpoint: POST /v2/orders/{orderId}/pay
+ */
+export async function payOrder(params: {
+  orderId: string;
+  paymentIds: string[];
+  baseKey: string;
+}): Promise<void> {
+  const res = await fetch(`${SQUARE_BASE}/orders/${params.orderId}/pay`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `payorder-${params.baseKey}`,
+      payment_ids: params.paymentIds,
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const e = data.errors?.[0];
+    throw new SquarePaymentError(
+      e?.code || "PAY_ORDER_FAILED",
+      e?.detail || "Order payment capture failed",
+    );
+  }
+}
+
 export async function cancelSquarePayment(
   paymentId: string,
   baseKey: string,
@@ -389,19 +426,19 @@ export async function authorizeMultiTender(params: {
     }
   }
 
-  // ── Step C: Complete both authorizations ──────────────────────────
-  // If either complete fails, cancel everything still cancellable.
-  // (A completed payment can no longer be cancelled — would need a
-  // refund. With autocomplete: false and an explicit complete step,
-  // failures here are rare; we treat them as auth failures.)
+  // ── Step C: Capture all authorizations atomically via PayOrder ────
+  // Per-payment CompletePayment validates each payment against the
+  // remaining order balance, so capturing only the gift card on a
+  // GC+card order fails (the order still owes the card's portion).
+  // PayOrder settles every listed payment and closes the order in one
+  // transaction. Works for single-tender too.
+  const paymentIds = [gcPaymentId, cardPaymentId].filter((id): id is string => Boolean(id));
   try {
-    if (gcPaymentId) await completeSquarePayment(gcPaymentId, baseKey, "gc");
-    if (cardPaymentId) await completeSquarePayment(cardPaymentId, baseKey, "card");
+    await payOrder({ orderId, paymentIds, baseKey });
   } catch (err) {
-    // Best-effort cleanup. Auths that haven't completed can still be
-    // cancelled. Any payment that already completed will silently fail
-    // here — Square returns 4xx on cancel-after-complete and we
-    // already swallow those in cancelSquarePayment.
+    // Best-effort cleanup. Any auth that wasn't captured is still
+    // voidable; the swallowed cancel failures cover the
+    // already-captured case (Square returns 4xx on cancel-after-capture).
     if (gcPaymentId) await cancelSquarePayment(gcPaymentId, baseKey, "gc");
     if (cardPaymentId) await cancelSquarePayment(cardPaymentId, baseKey, "card");
     throw err;
