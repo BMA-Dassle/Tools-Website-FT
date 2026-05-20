@@ -132,7 +132,8 @@ const GiftCardCapture = forwardRef<GiftCardCaptureHandle, Props>(function GiftCa
 
     const tokResult = await gcRef.current.tokenize();
     if (tokResult.status !== "OK" || !tokResult.token) {
-      const msg = tokResult.errors?.[0]?.message || "Could not read gift card. Please re-enter the number.";
+      const msg =
+        tokResult.errors?.[0]?.message || "Could not read gift card. Please re-enter the number.";
       setErrorMessage(msg);
       setStatus("ready");
       return;
@@ -177,18 +178,26 @@ const GiftCardCapture = forwardRef<GiftCardCaptureHandle, Props>(function GiftCa
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-white/60">Gift card</span>
+        <span className="text-sm font-semibold text-white/85">
+          Have a gift card? Enter the number
+        </span>
         {busy && (
           <span className="text-xs text-white/40">
             {status === "tokenizing" ? "Reading…" : "Looking up balance…"}
           </span>
         )}
       </div>
+      {/* Square's gift card iframe has no built-in placeholder (unlike the
+          card widget below). The hint text on top is the user's only cue
+          that this is a number-entry field. */}
       <div
         id={CONTAINER_ID}
-        className="rounded-lg border border-white/15 bg-white/5 p-3"
-        style={{ minHeight: 56 }}
+        className="rounded-lg border border-white/15 bg-white/5 px-3 py-2"
+        style={{ minHeight: 48 }}
       />
+      <p className="text-white/40 text-xs">
+        Look for the 16-digit code on the back of your gift card.
+      </p>
       {errorMessage && (
         <p className="text-red-400 text-xs" role="alert">
           {errorMessage}
