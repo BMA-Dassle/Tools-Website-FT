@@ -330,12 +330,28 @@ export async function deleteGuestSurveyByToken(token: string): Promise<boolean> 
  * Hard-delete ALL guest_surveys rows for a phone. Test-only — used by the
  * admin debug endpoint to clear prior failed sends so a force-retry can
  * re-fire without colliding with the (origin, origin_ref) unique index.
- * Returns the count deleted.
+ *
+ * Cascades to guest_survey_promo_codes first (the table has a FK on
+ * survey_id that would otherwise block the delete with 23503).
+ *
+ * Note: this does NOT touch the underlying Square gift cards. Any minted
+ * card stays funded in Square; only the DB linkage is removed. That's the
+ * right behavior for test cleanup but means operator must reconcile real
+ * promo codes manually.
+ *
+ * Returns the count of guest_surveys rows deleted.
  */
 export async function deleteGuestSurveysByPhone(phoneE164: string): Promise<number> {
   if (!isDbConfigured()) return 0;
   await ensureGuestSurveySchema();
   const q = sql();
+  // First drop dependent promo codes (FK guard).
+  await q`
+    DELETE FROM guest_survey_promo_codes
+    WHERE survey_id IN (
+      SELECT id FROM guest_surveys WHERE phone_e164 = ${phoneE164}
+    )
+  `;
   const rows = await q`
     DELETE FROM guest_surveys WHERE phone_e164 = ${phoneE164} RETURNING id
   `;
