@@ -39,3 +39,14 @@ export {
   type BowlingSurveyInviteVars,
   type TemplateKey,
 } from "./templates";
+
+export {
+  issueReward,
+  renderPinzAwardSms,
+  renderGiftCardAwardSms,
+  PINZ_AWARD_POINTS,
+  GIFT_CARD_AWARD_CENTS,
+  type RewardKind,
+  type IssueRewardInput,
+  type IssueRewardResult,
+} from "./rewards";
