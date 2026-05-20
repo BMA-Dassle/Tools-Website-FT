@@ -95,8 +95,18 @@ export async function retrieveGiftCardFromNonce(nonce: string): Promise<GiftCard
 
 /**
  * Authorize a payment against an order using a Square gift card nonce.
- * Uses `accept_partial_authorization: true` so Square deducts up to the
- * available balance and reports the actual amount via `approved_money`.
+ *
+ * IMPORTANT: caller passes the EXACT amount to charge against the GC
+ * (i.e. `min(balanceCents, totalCents)`), NOT the order total. This
+ * keeps the GC payment's `amount_money` aligned with what Square will
+ * actually settle, so the order's payment-total reconciliation works
+ * (otherwise: ORDER_TOTAL_MISMATCH on complete).
+ *
+ * We deliberately do NOT use `accept_partial_authorization` because
+ * Square keeps `payment.amount_money` at the requested amount for
+ * order-total math even when `approved_money` is lower, breaking
+ * multi-tender. Since we already retrieved the GC balance before this
+ * call, we can request the exact amount up-front.
  *
  * `autocomplete: false` — the auth is held until `completePayment` or
  * `cancelPayment` lands.
@@ -105,17 +115,17 @@ export async function authorizeGiftCardPayment(params: {
   orderId: string;
   locationId: string;
   nonce: string;
-  totalCents: number;
+  /** Exact cents to charge against the GC (≤ available balance). */
+  amountCents: number;
   baseKey: string;
 }): Promise<{ paymentId: string; approvedCents: number }> {
   const body = {
     source_id: params.nonce,
     idempotency_key: `pay-gc-${params.baseKey}`,
-    amount_money: { amount: params.totalCents, currency: "USD" },
+    amount_money: { amount: params.amountCents, currency: "USD" },
     order_id: params.orderId,
     location_id: params.locationId,
     autocomplete: false,
-    accept_partial_authorization: true,
   };
   const res = await fetch(`${SQUARE_BASE}/payments`, {
     method: "POST",
@@ -125,10 +135,16 @@ export async function authorizeGiftCardPayment(params: {
   const data = await res.json();
   if (!res.ok || data.errors) {
     const e = data.errors?.[0];
-    throw new SquarePaymentError(e?.code || "GIFT_CARD_AUTH_FAILED", e?.detail || "Gift card could not be charged.");
+    throw new SquarePaymentError(
+      e?.code || "GIFT_CARD_AUTH_FAILED",
+      e?.detail || "Gift card could not be charged.",
+    );
   }
   const paymentId: string = data.payment?.id;
-  const approvedCents: number = data.payment?.approved_money?.amount ?? data.payment?.amount_money?.amount ?? 0;
+  // With the exact-amount approach, amount_money == approved_money ==
+  // total_money. Read amount_money as the canonical settled amount.
+  const approvedCents: number =
+    data.payment?.amount_money?.amount ?? data.payment?.approved_money?.amount ?? 0;
   if (!paymentId) {
     throw new SquarePaymentError("MISSING_PAYMENT_ID", "Gift card authorize returned no paymentId");
   }
@@ -169,7 +185,10 @@ export async function authorizeCardPayment(params: {
   const data = await res.json();
   if (!res.ok || data.errors) {
     const e = data.errors?.[0];
-    throw new SquarePaymentError(e?.code || "CARD_AUTH_FAILED", e?.detail || "Card could not be charged.");
+    throw new SquarePaymentError(
+      e?.code || "CARD_AUTH_FAILED",
+      e?.detail || "Card could not be charged.",
+    );
   }
   const paymentId: string = data.payment?.id;
   if (!paymentId) {
@@ -178,7 +197,11 @@ export async function authorizeCardPayment(params: {
   return { paymentId };
 }
 
-export async function completeSquarePayment(paymentId: string, baseKey: string, kind: "gc" | "card"): Promise<void> {
+export async function completeSquarePayment(
+  paymentId: string,
+  baseKey: string,
+  kind: "gc" | "card",
+): Promise<void> {
   const res = await fetch(`${SQUARE_BASE}/payments/${paymentId}/complete`, {
     method: "POST",
     headers: sqHeaders(),
@@ -187,11 +210,18 @@ export async function completeSquarePayment(paymentId: string, baseKey: string, 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const e = data.errors?.[0];
-    throw new SquarePaymentError(e?.code || "COMPLETE_FAILED", e?.detail || "Payment completion failed");
+    throw new SquarePaymentError(
+      e?.code || "COMPLETE_FAILED",
+      e?.detail || "Payment completion failed",
+    );
   }
 }
 
-export async function cancelSquarePayment(paymentId: string, baseKey: string, kind: "gc" | "card"): Promise<void> {
+export async function cancelSquarePayment(
+  paymentId: string,
+  baseKey: string,
+  kind: "gc" | "card",
+): Promise<void> {
   // /payments/{id}/cancel with an idempotency key. Errors are logged
   // but not thrown — if cancel itself fails Square auto-voids
   // unsettled auths after ~6 days; we don't want a cancel failure
@@ -204,7 +234,10 @@ export async function cancelSquarePayment(paymentId: string, baseKey: string, ki
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      console.warn(`[square-gift-card] cancel-${kind} failed for ${paymentId}:`, data.errors || data);
+      console.warn(
+        `[square-gift-card] cancel-${kind} failed for ${paymentId}:`,
+        data.errors || data,
+      );
     }
   } catch (err) {
     console.warn(`[square-gift-card] cancel-${kind} threw for ${paymentId}:`, err);
@@ -291,24 +324,23 @@ export async function authorizeMultiTender(params: {
       );
     }
     if (gcInfo.state !== "ACTIVE") {
-      throw new SquarePaymentError(
-        "GIFT_CARD_INACTIVE",
-        "This gift card is not active.",
-      );
+      throw new SquarePaymentError("GIFT_CARD_INACTIVE", "This gift card is not active.");
     }
     if (gcInfo.balanceCents <= 0) {
-      throw new SquarePaymentError(
-        "GIFT_CARD_EMPTY",
-        "This gift card has no balance available.",
-      );
+      throw new SquarePaymentError("GIFT_CARD_EMPTY", "This gift card has no balance available.");
     }
     gcGan = gcInfo.gan;
+
+    // Authorize for the exact amount the GC can cover (capped at the
+    // order total). Pre-computing here avoids the partial-auth-vs-order-
+    // total mismatch that Square otherwise throws on complete.
+    const gcAmountCents = Math.min(gcInfo.balanceCents, totalCents);
 
     const gcAuth = await authorizeGiftCardPayment({
       orderId,
       locationId,
       nonce: giftCardNonce,
-      totalCents,
+      amountCents: gcAmountCents,
       baseKey,
     });
     gcPaymentId = gcAuth.paymentId;
