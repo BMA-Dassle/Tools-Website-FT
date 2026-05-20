@@ -21,6 +21,7 @@ import { setLanePlayers } from "@/lib/qamf-bowling";
 import { toLaneInsertName } from "@/lib/qamf-name";
 import redis from "@/lib/redis";
 import { shortenUrl } from "@/lib/short-url";
+import { resolveAudienceMember, splitGuestName } from "~/features/marketing";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -274,6 +275,32 @@ export async function POST(req: NextRequest) {
       { error: "webOfferId, bookedAt, players, and guest are required" },
       { status: 400 },
     );
+  }
+
+  // ── Square customer resolution (audience link for marketing) ─────
+  // Every reservation gets a Square customer linked, even non-rewards
+  // bookings. Lets the post-visit survey flow (PR-GS2) find the customer
+  // by Square id rather than re-searching by phone. The client may pass
+  // squareCustomerId for logged-in rewards members; for everyone else we
+  // resolve by phone (+ name fallback). Failure is non-fatal — booking
+  // continues without it.
+  let resolvedSquareCustomerId: string | undefined = body.squareCustomerId;
+  if (!resolvedSquareCustomerId && guest.phone) {
+    try {
+      const { firstName, lastName } = splitGuestName(guest.name);
+      const audience = await resolveAudienceMember({
+        phone: guest.phone,
+        firstName,
+        lastName,
+        email: guest.email || undefined,
+      });
+      resolvedSquareCustomerId = audience.squareCustomerId;
+    } catch (err) {
+      console.warn(
+        "[bowling/v2/reserve] audience resolve failed (non-fatal):",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // ── Load Square products + compute subtotals ────────────────────
@@ -923,7 +950,7 @@ export async function POST(req: NextRequest) {
           locationId: squareLocationId,
           depositPct: overallDepositPct,
           lineItems: sqLineItems,
-          squareCustomerId: body.squareCustomerId,
+          squareCustomerId: resolvedSquareCustomerId,
           note: `Deposit – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`,
           // Custom GAN so staff see "Gift Card HPFMX77012" instead of random digits
           giftCardGan: `${CENTER_GAN_PREFIX[centerCode] ?? "HP"}${qamfReservationId.replace(/[^A-Za-z0-9]/g, "")}`,
@@ -1014,7 +1041,7 @@ export async function POST(req: NextRequest) {
         squareDayofOrderId,
         squareGiftCardId,
         squareGiftCardGan,
-        squareCustomerId: body.squareCustomerId,
+        squareCustomerId: resolvedSquareCustomerId,
         squareLoyaltyRewardId: loyaltyRewardId,
         rewardDiscountCents,
         loyaltyAction: body.loyaltyAction,

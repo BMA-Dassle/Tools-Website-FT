@@ -32,6 +32,22 @@ function squareHeaders(): HeadersInit {
 }
 
 /**
+ * Split a single "First Last" display name into first/last parts.
+ * Rules:
+ *   - Empty input → both fields empty strings
+ *   - Single token → firstName only ("Madonna" → { firstName: "Madonna", lastName: "" })
+ *   - Multi-token → first token = firstName, rest joined = lastName
+ *     ("Mary Jane Watson" → { firstName: "Mary", lastName: "Jane Watson" })
+ */
+export function splitGuestName(name: string): { firstName: string; lastName: string } {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return { firstName: "", lastName: "" };
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+/**
  * Normalize a phone number to E.164 (US default).
  * Accepts: "5551234567", "(555) 123-4567", "+15551234567", "15551234567"
  * Rejects: empty / non-numeric input → throws.

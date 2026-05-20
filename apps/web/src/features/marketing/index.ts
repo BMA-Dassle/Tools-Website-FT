@@ -9,6 +9,7 @@
 export {
   resolveAudienceMember,
   normalizePhoneE164,
+  splitGuestName,
   type AudienceMember,
   type ResolveAudienceMemberInput,
 } from "./audience";

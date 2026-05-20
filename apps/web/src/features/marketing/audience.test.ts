@@ -1,7 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSquareMock, type SquareMockHandle } from "~/test/mocks/square";
 import { aSquareCustomer } from "~/test/builders/survey";
-import { normalizePhoneE164, resolveAudienceMember } from "./audience";
+import { normalizePhoneE164, resolveAudienceMember, splitGuestName } from "./audience";
+
+describe("splitGuestName", () => {
+  it("splits a simple two-token name", () => {
+    expect(splitGuestName("Ada Lovelace")).toEqual({
+      firstName: "Ada",
+      lastName: "Lovelace",
+    });
+  });
+
+  it("treats a single token as firstName only", () => {
+    expect(splitGuestName("Madonna")).toEqual({ firstName: "Madonna", lastName: "" });
+  });
+
+  it("joins everything after the first token as lastName", () => {
+    expect(splitGuestName("Mary Jane Watson")).toEqual({
+      firstName: "Mary",
+      lastName: "Jane Watson",
+    });
+  });
+
+  it("collapses multiple internal spaces", () => {
+    expect(splitGuestName("Ada    Lovelace")).toEqual({
+      firstName: "Ada",
+      lastName: "Lovelace",
+    });
+  });
+
+  it("trims leading/trailing whitespace", () => {
+    expect(splitGuestName("  Ada Lovelace  ")).toEqual({
+      firstName: "Ada",
+      lastName: "Lovelace",
+    });
+  });
+
+  it("returns empty strings for empty/whitespace input", () => {
+    expect(splitGuestName("")).toEqual({ firstName: "", lastName: "" });
+    expect(splitGuestName("   ")).toEqual({ firstName: "", lastName: "" });
+  });
+});
 
 describe("normalizePhoneE164", () => {
   it("prefixes 10-digit US numbers with +1", () => {
