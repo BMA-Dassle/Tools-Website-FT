@@ -74,7 +74,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description:
-      "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk.",
+      "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk. Shoes not included.",
     features: [
       "Standard HeadPinz lanes",
       "Up to 6 bowlers per lane",
@@ -86,7 +86,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "Upgrade your free bowling to the VIP suite — same coupon, premium lanes with NeoVerse + HyperBowling.",
+      "Upgrade your free bowling to the VIP suite — same coupon, premium lanes with NeoVerse + HyperBowling. Shoes not included.",
     features: [
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
@@ -123,7 +123,8 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "regular-mon-thur": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description: "Reserve a lane by the hour — Monday through Thursday.",
+    description:
+      "Reserve a lane by the hour — Monday through Thursday. Shoes not included.",
     features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
     perLane: true,
   },
@@ -131,7 +132,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "Premium hourly lane in the VIP suite — includes chips & salsa and NeoVerse technology.",
+      "Premium hourly lane in the VIP suite — includes chips & salsa and NeoVerse technology. Shoes not included.",
     features: [
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
@@ -143,7 +144,8 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
   "regular-fri-sun": {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
-    description: "Reserve a lane by the hour — Friday through Sunday.",
+    description:
+      "Reserve a lane by the hour — Friday through Sunday. Shoes not included.",
     features: ["Standard HeadPinz lanes", "Up to 6 bowlers per lane", "Flexible hourly rate"],
     perLane: true,
   },
@@ -151,7 +153,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology.",
+      "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology. Shoes not included.",
     features: [
       "VIP lounge & dedicated lanes",
       "NeoVerse video walls",
@@ -194,7 +196,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-bowling.mp4`,
     accent: CORAL,
     description:
-      "The Friday & Saturday night special — unlimited bowling all night long at one flat price per person!",
+      "The Friday & Saturday night special — unlimited bowling all night long at one flat price per person! Shoes not included.",
     features: [
       "Unlimited bowling",
       "Bowl all night",
@@ -206,7 +208,7 @@ const EXPERIENCE_DISPLAY: Record<string, ExperienceDisplay> = {
     videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
     accent: GOLD,
     description:
-      "The ultimate weekend night out — unlimited VIP bowling all night with complimentary chips & salsa and NeoVerse technology!",
+      "The ultimate weekend night out — unlimited VIP bowling all night with complimentary chips & salsa and NeoVerse technology! Shoes not included.",
     features: [
       "Unlimited premium VIP bowling",
       "Bowl all night",
