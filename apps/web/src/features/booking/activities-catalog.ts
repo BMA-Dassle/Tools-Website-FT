@@ -31,6 +31,7 @@
  *   different physical buildings at the Fort Myers complex with separate
  *   BMI product sets.
  */
+import type { AppliedPromo } from "~/features/discount-codes";
 import type { Activity, Brand, CenterCode } from "./types";
 import type { BookingSession } from "./state/types";
 
@@ -184,4 +185,70 @@ export function squareBookingActivity(offering: ActivityOffering, entryBrand: Br
 /** Resolve the effective brand for theming an offering's tile / chrome. */
 export function effectiveBrand(offering: ActivityOffering, entryBrand: Brand): Brand {
   return offering.brand === "auto" ? entryBrand : offering.brand;
+}
+
+/**
+ * Does this offering fall inside a promo's scope?
+ *
+ *   - Returns `true` when the offering's underlying domain
+ *     (race → "racing", bowling → "bowling", attraction → "attractions",
+ *     kbf → "bowling" since KBF is a bowling sub-product) appears in the
+ *     promo's `scopes`, AND either the per-domain allowlist is `null`
+ *     (= all products) or includes the offering's slug.
+ *   - KBF maps to the bowling domain because the discount-codes feature
+ *     models it that way (`DiscountScopes.bowling.experienceSlugs`). KBF
+ *     pass redemption is bowling-vendored in v1.
+ */
+export function isOfferingInPromoScope(offering: ActivityOffering, promo: AppliedPromo): boolean {
+  const domain = domainForOffering(offering);
+  if (!promo.domains.includes(domain)) return false;
+
+  // Per-domain product allowlist. Some offerings live under attractions but
+  // the discount scopes use the slug array under that domain key.
+  switch (domain) {
+    case "racing": {
+      const allowed = promo.scopes.racing?.productSlugs;
+      if (allowed == null) return true;
+      return allowed.includes(offering.slug);
+    }
+    case "bowling": {
+      const allowed = promo.scopes.bowling?.experienceSlugs;
+      if (allowed == null) return true;
+      // KBF + bowling both live under the bowling domain. Match by slug.
+      return allowed.includes(offering.slug);
+    }
+    case "attractions": {
+      const allowed = promo.scopes.attractions?.slugs;
+      if (allowed == null) return true;
+      const matchSlug = offering.attractionSlug ?? offering.slug;
+      return allowed.includes(matchSlug);
+    }
+  }
+}
+
+/** Map a v2 activity offering to the discount-codes domain string. */
+function domainForOffering(offering: ActivityOffering): "racing" | "bowling" | "attractions" {
+  if (offering.kind === "race") return "racing";
+  if (offering.kind === "bowling" || offering.kind === "kbf") return "bowling";
+  return "attractions";
+}
+
+/**
+ * Offerings to show on the PROMO-AWARE LANDING page (`/book/v2`).
+ *
+ *   - When `promo` is null, behaves like `allOfferings()` (passthrough).
+ *   - When `promo` is set, filters to offerings in the promo's scope.
+ *
+ * Filter by `session.center` is intentionally NOT applied here: the
+ * landing is the first screen, before the customer has picked a center.
+ * The activity tiles handle center selection downstream (each activity's
+ * own catalog knows which centers it's available at).
+ *
+ * Cart cross-sell uses `crossSellFor(session)` — that helper IGNORES
+ * promo per the booking_v2_promo_integration.md rules. They are NOT
+ * interchangeable.
+ */
+export function initialOfferingsFor(promo: AppliedPromo | null): ActivityOffering[] {
+  if (!promo) return allOfferings().slice();
+  return CATALOG.filter((o) => isOfferingInPromoScope(o, promo));
 }

@@ -1,7 +1,9 @@
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { BookingFlow } from "~/components/features/booking";
-import type { EntryContext } from "~/features/booking";
+import { findOffering, isOfferingInPromoScope, type EntryContext } from "~/features/booking";
 import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
+import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-codes";
 
 export const metadata: Metadata = {
   title: "Kids Bowl Free — Reserve a lane (v2)",
@@ -17,6 +19,10 @@ export const metadata: Metadata = {
  *     first step of the kbf item rather than threading through generic UI.
  *
  * entryBrand is pinned to "headpinz" — there is no FastTrax KBF.
+ *
+ * Promo `?code=` handling mirrors the `[attraction]/v2` page — see
+ * memory: booking_v2_promo_integration.md. KBF lives under the "bowling"
+ * discount domain in the discount-codes schema.
  */
 export default async function KbfV2Page({
   searchParams,
@@ -25,5 +31,28 @@ export default async function KbfV2Page({
 }) {
   const sp = await searchParams;
   const initialContext: EntryContext = parseEntryContextFromSearchParams(sp);
-  return <BookingFlow activity="kbf" entryBrand="headpinz" initialContext={initialContext} />;
+
+  const codeRaw = sp.code;
+  const code = typeof codeRaw === "string" ? codeRaw.trim().toUpperCase() : "";
+  let initialPromo: AppliedPromo | null = null;
+  if (code) {
+    const promo = await resolveAppliedPromo(code);
+    if (promo) {
+      const offering = findOffering("kbf");
+      if (offering && isOfferingInPromoScope(offering, promo)) {
+        initialPromo = promo;
+      } else {
+        redirect(`/book/v2?code=${encodeURIComponent(code)}`);
+      }
+    }
+  }
+
+  return (
+    <BookingFlow
+      activity="kbf"
+      entryBrand="headpinz"
+      initialContext={initialContext}
+      initialPromo={initialPromo}
+    />
+  );
 }

@@ -13,6 +13,7 @@
  * KbfItem auto-initializes session.kbfIdentity to its lookup phase if
  * absent; removing the last KbfItem clears it.
  */
+import type { AppliedPromo } from "~/features/discount-codes";
 import type { CenterCode, ContactInfo } from "../types";
 import {
   hasKbfItem,
@@ -76,7 +77,14 @@ export type Action =
   /** Stash the combined BMI bill id once first BMI line books. */
   | { type: "setBmiBillId"; id: string | null }
   /** Merge fields into session.kbfIdentity. Auto-initializes if absent. */
-  | { type: "setKbfIdentity"; patch: Partial<KbfIdentityState> };
+  | { type: "setKbfIdentity"; patch: Partial<KbfIdentityState> }
+  /**
+   * Capture (or clear) the session-level promo. Intended to fire ONCE at
+   * session start. The reducer doesn't enforce that constraint — call sites
+   * (the `/book/v2` landing + activity page seeding) are responsible for
+   * not mutating mid-flow.
+   */
+  | { type: "applyPromo"; promo: AppliedPromo | null };
 
 export function reducer(state: BookingSession, action: Action): BookingSession {
   switch (action.type) {
@@ -242,5 +250,8 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
         ...state,
         kbfIdentity: { ...(state.kbfIdentity ?? newKbfIdentity()), ...action.patch },
       };
+
+    case "applyPromo":
+      return { ...state, appliedPromo: action.promo };
   }
 }

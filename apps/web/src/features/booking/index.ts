@@ -51,7 +51,9 @@ export {
   crossSellFor,
   effectiveBrand,
   findOffering,
+  initialOfferingsFor,
   intersectCenters,
+  isOfferingInPromoScope,
   offeringsAt,
   squareBookingActivity,
 } from "./activities-catalog";

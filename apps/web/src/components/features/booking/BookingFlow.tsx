@@ -12,6 +12,7 @@ import {
   type EntryContext,
   type StepDef,
 } from "~/features/booking";
+import type { AppliedPromo } from "~/features/discount-codes";
 import { CartView } from "./CartView";
 
 /**
@@ -31,12 +32,22 @@ export interface BookingFlowProps {
   activity: Activity;
   entryBrand: Brand;
   initialContext?: EntryContext;
+  /**
+   * Promo captured at session start — from the `/book/v2` landing or a
+   * `?code=` URL seed on this slug's page. Once seeded it never mutates.
+   */
+  initialPromo?: AppliedPromo | null;
 }
 
-export function BookingFlow({ activity, entryBrand, initialContext }: BookingFlowProps) {
+export function BookingFlow({
+  activity,
+  entryBrand,
+  initialContext,
+  initialPromo,
+}: BookingFlowProps) {
   const initial = useMemo(
-    () => emptySession({ entryBrand, context: initialContext }),
-    [entryBrand, initialContext],
+    () => emptySession({ entryBrand, context: initialContext, appliedPromo: initialPromo ?? null }),
+    [entryBrand, initialContext, initialPromo],
   );
   const [session, dispatch] = useReducer(reducer, initial);
 

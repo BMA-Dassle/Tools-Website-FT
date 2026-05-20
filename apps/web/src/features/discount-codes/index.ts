@@ -21,9 +21,16 @@ export {
   refundRedemption,
 } from "./data";
 
-export { evaluateCode, provisionSquareDiscount, etWeekday } from "./service";
+export {
+  evaluateCode,
+  provisionSquareDiscount,
+  etWeekday,
+  domainsFromScopes,
+  resolveAppliedPromo,
+} from "./service";
 
 export type {
+  AppliedPromo,
   DiscountCodeRow,
   DiscountCodeInput,
   DiscountDomain,

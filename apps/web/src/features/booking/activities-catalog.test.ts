@@ -4,11 +4,14 @@ import {
   crossSellFor,
   effectiveBrand,
   findOffering,
+  initialOfferingsFor,
+  isOfferingInPromoScope,
   offeringsAt,
   squareBookingActivity,
 } from "./activities-catalog";
 import { emptySession, newItem } from "./state/types";
 import type { BookingSession, AttractionItem } from "./state/types";
+import type { AppliedPromo } from "~/features/discount-codes";
 
 function sessionWithItems(args: {
   center?: BookingSession["center"];
@@ -121,6 +124,75 @@ describe("activities-catalog", () => {
       expect(squareBookingActivity(findOffering("race")!, "fasttrax")).toBe("race");
       expect(squareBookingActivity(findOffering("bowling")!, "headpinz")).toBe("bowling");
       expect(squareBookingActivity(findOffering("gel-blaster")!, "fasttrax")).toBe("gel-blaster");
+    });
+  });
+
+  describe("isOfferingInPromoScope", () => {
+    const racingOnly: AppliedPromo = {
+      code: "RACE25",
+      domains: ["racing"],
+      scopes: { racing: { productSlugs: null } },
+      startsAt: "2026-05-01T00:00:00Z",
+      expiresAt: "2026-06-01T00:00:00Z",
+      allowedWeekdays: null,
+      mechanic: "percent",
+      amountPct: 25,
+      amountCents: null,
+      squareCatalogId: null,
+    };
+    const bowlingOnly: AppliedPromo = {
+      ...racingOnly,
+      code: "BOWL10",
+      domains: ["bowling"],
+      scopes: { bowling: { experienceSlugs: null } },
+    };
+    const gelBlasterOnly: AppliedPromo = {
+      ...racingOnly,
+      code: "GEL5",
+      domains: ["attractions"],
+      scopes: { attractions: { slugs: ["gel-blaster"] } },
+    };
+
+    it("racing-scoped promo matches race only", () => {
+      expect(isOfferingInPromoScope(findOffering("race")!, racingOnly)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("bowling")!, racingOnly)).toBe(false);
+      expect(isOfferingInPromoScope(findOffering("gel-blaster")!, racingOnly)).toBe(false);
+    });
+
+    it("bowling-scoped promo matches bowling AND kbf (kbf rides under bowling domain)", () => {
+      expect(isOfferingInPromoScope(findOffering("bowling")!, bowlingOnly)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("kbf")!, bowlingOnly)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("race")!, bowlingOnly)).toBe(false);
+    });
+
+    it("attractions promo with a specific slug only matches that slug", () => {
+      expect(isOfferingInPromoScope(findOffering("gel-blaster")!, gelBlasterOnly)).toBe(true);
+      expect(isOfferingInPromoScope(findOffering("laser-tag")!, gelBlasterOnly)).toBe(false);
+      expect(isOfferingInPromoScope(findOffering("duck-pin")!, gelBlasterOnly)).toBe(false);
+    });
+  });
+
+  describe("initialOfferingsFor", () => {
+    const bowlingOnly: AppliedPromo = {
+      code: "BOWL10",
+      domains: ["bowling"],
+      scopes: { bowling: { experienceSlugs: null } },
+      startsAt: "2026-05-01T00:00:00Z",
+      expiresAt: "2026-06-01T00:00:00Z",
+      allowedWeekdays: null,
+      mechanic: "percent",
+      amountPct: 10,
+      amountCents: null,
+      squareCatalogId: null,
+    };
+
+    it("null promo passes through to allOfferings", () => {
+      expect(initialOfferingsFor(null)).toEqual([...allOfferings()]);
+    });
+
+    it("bowling-only promo filters to bowling + kbf only", () => {
+      const slugs = initialOfferingsFor(bowlingOnly).map((o) => o.slug);
+      expect(slugs).toEqual(["bowling", "kbf"]);
     });
   });
 

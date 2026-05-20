@@ -40,6 +40,7 @@
  * session; subsequent KbfItems reuse the verified pass. Cleared when
  * the last KbfItem leaves the cart.
  */
+import type { AppliedPromo } from "~/features/discount-codes";
 import type { Activity, Brand, CenterCode, ContactInfo } from "../types";
 import type { EntryContext } from "./entry-context";
 
@@ -203,6 +204,16 @@ export interface BookingSession {
   /** Prefilled data carried in via URL params, cookies, auth. */
   context: EntryContext;
   /**
+   * Promo code captured at session start. Set ONCE via the `/book/v2`
+   * landing or a `?code=X` URL seed on direct-slug entry; never mutates.
+   * Drives the initial offerings filter, first-activity date / product
+   * filter, and the checkout discount application.
+   *
+   * Cart cross-sell (`crossSellFor`) IGNORES this — see
+   * memory: booking_v2_promo_integration.md.
+   */
+  appliedPromo: AppliedPromo | null;
+  /**
    * Roster of party members doing activities. May be empty (e.g. the
    * customer hasn't reached the party step yet). The billing customer
    * is in here if they're participating (with `isBillingCustomer: true`).
@@ -228,7 +239,12 @@ export interface BookingSession {
 /* ───────────────────────── factories ───────────────────────────── */
 
 /** Build a fresh session given the entry brand and any prefilled context. */
-export function emptySession(args: { entryBrand: Brand; context?: EntryContext }): BookingSession {
+export function emptySession(args: {
+  entryBrand: Brand;
+  context?: EntryContext;
+  /** Promo captured at the landing page or via ?code= on direct slug entry. */
+  appliedPromo?: AppliedPromo | null;
+}): BookingSession {
   return {
     squareOrderId: null,
     bmiBillId: null,
@@ -236,6 +252,7 @@ export function emptySession(args: { entryBrand: Brand; context?: EntryContext }
     center: null,
     contact: args.context?.prefilledContact ?? {},
     context: args.context ?? {},
+    appliedPromo: args.appliedPromo ?? null,
     party: [],
     items: [],
     activeItemId: null,

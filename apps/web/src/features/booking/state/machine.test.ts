@@ -231,6 +231,33 @@ describe("reducer — session-wide", () => {
     expect(s.bmiBillId).toBe("63000000000021716");
   });
 
+  it("applyPromo captures a session-level promo and can clear it", () => {
+    const s0 = seedSession();
+    expect(s0.appliedPromo).toBeNull();
+    const promo = {
+      code: "MAY20",
+      domains: ["racing"] as const,
+      scopes: { racing: { productSlugs: null } },
+      startsAt: "2026-05-01T00:00:00Z",
+      expiresAt: "2026-06-01T00:00:00Z",
+      allowedWeekdays: null,
+      mechanic: "percent" as const,
+      amountPct: 20,
+      amountCents: null,
+      squareCatalogId: "SQ_DISC_1",
+    };
+    const s1 = reducer(s0, {
+      type: "applyPromo",
+      promo: {
+        ...promo,
+        domains: [...promo.domains],
+      },
+    });
+    expect(s1.appliedPromo?.code).toBe("MAY20");
+    const s2 = reducer(s1, { type: "applyPromo", promo: null });
+    expect(s2.appliedPromo).toBeNull();
+  });
+
   it("setCenter to the SAME center is a no-op (no cart clear)", () => {
     const race = newItem("race");
     const s0 = reducer(seedSession(), { type: "setCenter", center: "fort-myers" });
