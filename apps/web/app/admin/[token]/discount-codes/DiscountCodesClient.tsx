@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 import type {
   DiscountCodeInput,
   DiscountCodeRow,
@@ -323,7 +324,7 @@ export default function DiscountCodesClient({ token }: { token: string }) {
               <th style={th}>Uses</th>
               <th style={th}>Square</th>
               <th style={th}>Status</th>
-              <th style={th}></th>
+              <th style={th} aria-label="Row actions"></th>
             </tr>
           </thead>
           <tbody>
@@ -476,10 +477,12 @@ function DraftEditor({
         justifyContent: "center",
         zIndex: 50,
       }}
-      onClick={onCancel}
+      {...modalBackdropProps(onCancel)}
     >
+      {/* Inner panel does NOT need its own onClick — the backdrop only fires
+          onCancel when target === currentTarget, so clicks inside this div
+          never reach it. */}
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
           background: "#0f1f3a",
           padding: "1.5rem",
