@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import {
   getGuestSurveyByToken,
@@ -6,6 +7,8 @@ import {
 } from "@/lib/guest-survey-db";
 import { recordTouch } from "~/features/marketing";
 import { CENTER_META } from "@/lib/bowling-lane-ready-notify";
+import HeadPinzNav from "@/components/headpinz/Nav";
+import HeadPinzFooter from "@/components/headpinz/Footer";
 import { SurveyForm } from "./SurveyForm";
 
 const HP_BG = "#0a1628";
@@ -28,12 +31,22 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   if (!survey) notFound();
 
   const centerName = CENTER_META[survey.centerCode]?.name ?? "HeadPinz";
+  const hdrs = await headers();
+  const isHeadPinz = hdrs.get("x-brand") === "headpinz";
 
   if (survey.completedAt) {
-    return <ThanksAlreadyPanel centerName={centerName} />;
+    return (
+      <BrandShell isHeadPinz={isHeadPinz}>
+        <ThanksAlreadyPanel centerName={centerName} />
+      </BrandShell>
+    );
   }
   if (new Date(survey.expiresAt) <= new Date()) {
-    return <ExpiredPanel centerName={centerName} />;
+    return (
+      <BrandShell isHeadPinz={isHeadPinz}>
+        <ExpiredPanel centerName={centerName} />
+      </BrandShell>
+    );
   }
 
   // First-open: stamp + record touch (best-effort, mirrors API GET behavior
@@ -52,11 +65,39 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   }
 
   return (
-    <SurveyForm
-      token={token}
-      centerName={centerName}
-      questions={survey.questions as GuestSurveyQuestion[]}
-    />
+    <BrandShell isHeadPinz={isHeadPinz}>
+      <SurveyForm
+        token={token}
+        centerName={centerName}
+        questions={survey.questions as GuestSurveyQuestion[]}
+      />
+    </BrandShell>
+  );
+}
+
+/**
+ * Wraps the survey content in the right brand chrome.
+ *
+ * For HeadPinz visitors we render HeadPinzNav + HeadPinzFooter here because
+ * the survey page lives at /survey/[token] (a shared top-level route, NOT
+ * under /hp/) — so /hp/layout.tsx never gets the chance to render the HP
+ * chrome. The root layout sees x-brand=headpinz (set in middleware) and
+ * correctly suppresses the FastTrax Nav, but then there's nothing left
+ * unless we add it explicitly here.
+ *
+ * For FastTrax (future racing surveys), the root layout already renders
+ * the FT chrome — we just return children as-is.
+ */
+function BrandShell({ isHeadPinz, children }: { isHeadPinz: boolean; children: React.ReactNode }) {
+  if (!isHeadPinz) {
+    return <>{children}</>;
+  }
+  return (
+    <>
+      <HeadPinzNav />
+      {children}
+      <HeadPinzFooter />
+    </>
   );
 }
 
