@@ -233,6 +233,13 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     : isHeadPinz
       ? process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_HP
       : process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_FT;
+  // Google Ads conversion tag — FastTrax only (the HP campaigns run separately
+  // from a different account, and admin routes always opt out of tracking).
+  // Lives alongside GA4: both use gtag.js, but configured for different
+  // products. Loading gtag.js twice is the canonical Google "multiple
+  // products" pattern — the script is idempotent on dataLayer.
+  // Env: NEXT_PUBLIC_GOOGLE_ADS_ID_FT, e.g. "AW-18178586532".
+  const adsId = isAdmin || isHeadPinz ? undefined : process.env.NEXT_PUBLIC_GOOGLE_ADS_ID_FT;
 
   return (
     <html
@@ -254,6 +261,21 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <SpeedInsights />
         <Analytics />
         {gaId && <GoogleAnalytics gaId={gaId} />}
+        {adsId && (
+          <>
+            <Script
+              id="google-ads-loader"
+              src={`https://www.googletagmanager.com/gtag/js?id=${adsId}`}
+              strategy="afterInteractive"
+            />
+            <Script id="google-ads-config" strategy="afterInteractive">
+              {`window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${adsId}');`}
+            </Script>
+          </>
+        )}
         <AxeInit />
         {showChrome && (
           <>
