@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FAQJsonLd } from "@/components/seo/JsonLd";
+import { FAQJsonLd, MegaTrackTuesdayJsonLd } from "@/components/seo/JsonLd";
 import { FASTTRAX_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -158,6 +158,7 @@ export default function RacingLayout({ children }: { children: React.ReactNode }
   return (
     <>
       <FAQJsonLd faqs={racingFaqs} />
+      <MegaTrackTuesdayJsonLd />
       {children}
     </>
   );

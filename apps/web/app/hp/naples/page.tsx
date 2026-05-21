@@ -3,7 +3,11 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
-import { BreadcrumbJsonLd, HeadPinzNaplesJsonLd } from "@/components/seo/JsonLd";
+import {
+  BreadcrumbJsonLd,
+  HeadPinzNaplesJsonLd,
+  MidnightMadnessJsonLd,
+} from "@/components/seo/JsonLd";
 import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -217,6 +221,7 @@ export default function NaplesPage() {
         ]}
       />
       <HeadPinzNaplesJsonLd />
+      <MidnightMadnessJsonLd />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(navJsonLd) }}
