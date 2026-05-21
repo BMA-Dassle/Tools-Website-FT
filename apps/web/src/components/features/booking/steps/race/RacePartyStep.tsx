@@ -92,6 +92,12 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
             + Add party member
           </button>
         </div>
+
+        <p className="pt-3 text-xs text-white/40">
+          Raced with us before? Returning-racer lookup is coming in the next update — for now
+          everyone is treated as new. Your account&apos;s race tier will unlock additional product
+          options once we wire the BMI verification flow.
+        </p>
       </div>
     </div>
   );
@@ -136,18 +142,14 @@ function PartyMemberRow({
           value={member.category ?? "adult"}
           onChange={(category) => onUpdate({ category })}
         />
-        <label className="flex items-center gap-2 text-white/60">
-          <input
-            type="checkbox"
-            checked={member.isNewRacer}
-            onChange={(e) => onUpdate({ isNewRacer: e.target.checked })}
-            className="h-4 w-4 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
-          />
-          First-time racer
-        </label>
         {member.isBillingCustomer && (
           <span className="rounded-full bg-[#00E2E5]/15 px-2 py-0.5 text-xs font-semibold text-[#00E2E5]">
             Paying
+          </span>
+        )}
+        {member.bmiPersonId && (
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+            ✓ Returning racer
           </span>
         )}
         <button

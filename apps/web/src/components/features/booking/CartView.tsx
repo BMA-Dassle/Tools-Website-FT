@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { BookingSession, SessionItem } from "~/features/booking";
 import { findOffering } from "~/features/booking";
 import { AdditionalActivities } from "./AdditionalActivities";
@@ -17,13 +18,33 @@ import { AdditionalActivities } from "./AdditionalActivities";
  */
 export interface CartViewProps {
   session: BookingSession;
+  /**
+   * Raw URL `?code=` value, used as a fallback for the back-to-landing
+   * link when the code wasn't applied to the session (e.g. wrong-domain
+   * code typed at a slug URL). Pass through from `BookingFlow`.
+   */
+  urlCode?: string | null;
   onEditItem: (id: string) => void;
   onRemoveItem: (id: string) => void;
 }
 
-export function CartView({ session, onEditItem, onRemoveItem }: CartViewProps) {
+export function CartView({ session, urlCode, onEditItem, onRemoveItem }: CartViewProps) {
+  // Back-to-landing prefers the validated `appliedPromo.code` (set when the
+  // code resolved + matched scope), falls back to the raw `?code=` from
+  // the URL so a wrong-domain attempt still travels back to the landing.
+  const backCode = session.appliedPromo?.code ?? urlCode ?? null;
+  const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
+
   return (
     <section className="mx-auto max-w-2xl p-4 sm:p-6">
+      <div className="mb-4">
+        <Link
+          href={backToLandingHref}
+          className="inline-flex items-center gap-1 text-xs text-white/40 transition-colors hover:text-white/80"
+        >
+          ← All activities
+        </Link>
+      </div>
       <h1 className="text-2xl font-semibold text-white sm:text-3xl">Your cart</h1>
 
       {session.items.length === 0 ? (

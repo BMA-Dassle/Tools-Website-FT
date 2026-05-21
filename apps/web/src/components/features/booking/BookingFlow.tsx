@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useReducer } from "react";
+import Link from "next/link";
 import {
   emptySession,
   getActiveItem,
@@ -37,6 +38,12 @@ export interface BookingFlowProps {
    * `?code=` URL seed on this slug's page. Once seeded it never mutates.
    */
   initialPromo?: AppliedPromo | null;
+  /**
+   * The raw `?code=` value from the URL, REGARDLESS of whether it
+   * resolved into `initialPromo` (a wrong-domain code on this activity
+   * still arrives here so back-to-landing carries it through).
+   */
+  urlCode?: string | null;
 }
 
 export function BookingFlow({
@@ -44,6 +51,7 @@ export function BookingFlow({
   entryBrand,
   initialContext,
   initialPromo,
+  urlCode,
 }: BookingFlowProps) {
   const initial = useMemo(
     () => emptySession({ entryBrand, context: initialContext, appliedPromo: initialPromo ?? null }),
@@ -70,6 +78,7 @@ export function BookingFlow({
       <div className={brandClass}>
         <CartView
           session={session}
+          urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
           onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
         />
@@ -88,6 +97,7 @@ export function BookingFlow({
       <div className={brandClass}>
         <CartView
           session={session}
+          urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
           onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
         />
@@ -112,8 +122,24 @@ export function BookingFlow({
     }
   };
 
+  // Back-to-landing carries the customer's `?code=` even when the code
+  // wasn't applied to THIS activity (e.g. a bowling-only code typed at a
+  // /book/race/v2 URL). Prefer the validated `appliedPromo.code` when
+  // it's set, else fall back to whatever the URL had so the landing's
+  // chip + tile highlights are restored on return.
+  const backCode = session.appliedPromo?.code ?? urlCode ?? null;
+  const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
+
   return (
     <section className={`${brandClass} mx-auto max-w-2xl p-4 sm:p-6`}>
+      <div className="mb-4">
+        <Link
+          href={backToLandingHref}
+          className="inline-flex items-center gap-1 text-xs text-white/40 transition-colors hover:text-white/80"
+        >
+          ← All activities
+        </Link>
+      </div>
       <StepIndicator steps={steps} stepIndex={stepIndex} />
 
       <div className="rounded-2xl border border-white/10 bg-white/3 p-4 sm:p-8">

@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { BookingFlow } from "~/components/features/booking";
 import { findOffering, isOfferingInPromoScope, type EntryContext } from "~/features/booking";
@@ -41,9 +40,9 @@ export default async function KbfV2Page({
       const offering = findOffering("kbf");
       if (offering && isOfferingInPromoScope(offering, promo)) {
         initialPromo = promo;
-      } else {
-        redirect(`/book/v2?code=${encodeURIComponent(code)}`);
       }
+      // Wrong-domain / unusable codes: render KBF without the promo
+      // applied. No redirect (removed 2026-05-21 — unclear flow).
     }
   }
 
@@ -53,6 +52,7 @@ export default async function KbfV2Page({
       entryBrand="headpinz"
       initialContext={initialContext}
       initialPromo={initialPromo}
+      urlCode={code || null}
     />
   );
 }

@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { BookingFlow } from "~/components/features/booking";
 import {
@@ -35,14 +35,17 @@ import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-code
  * URL params (?member, ?firstName, ...) are parsed into EntryContext and
  * seeded into the session for prefill.
  *
- * Promo `?code=` handling (per memory: booking_v2_promo_integration.md):
- *   1. Resolve via `resolveAppliedPromo` server-side.
- *   2. If the resulting promo is NOT in this activity's scope, redirect
- *      to `/book/v2?code=X` so the customer sees what IS valid.
- *   3. If valid + in scope, seed `BookingFlow` with `initialPromo`.
- *   4. If the code is unusable (unknown/expired/exhausted/etc.), continue
- *      rendering the activity without a promo — direct-slug entry without
- *      a working code is still a valid booking, just without discount.
+ * Promo `?code=` handling:
+ *   - Resolve via `resolveAppliedPromo` server-side.
+ *   - If the resulting promo IS valid for this activity (scope match),
+ *     seed `BookingFlow` with `initialPromo`.
+ *   - If the code is unusable for any reason — unknown, expired,
+ *     exhausted, OR scoped to a different activity — render the wizard
+ *     WITHOUT applying the code. The customer arrived at a specific URL
+ *     on purpose; we don't bounce them somewhere else. (Earlier rev
+ *     redirected to `/book/v2?code=X` on a wrong-domain mismatch; the
+ *     redirect was removed 2026-05-21 because it created an unclear
+ *     flow from the customer's perspective.)
  */
 
 const ATTRACTION_SLUGS = new Set(["gel-blaster", "laser-tag", "duck-pin", "shuffly"]);
@@ -100,16 +103,13 @@ export default async function BookActivityV2Page({
     if (promo) {
       const offering = findOffering(slug);
       if (offering && isOfferingInPromoScope(offering, promo)) {
+        // Code is valid for this activity → seed it into the session.
         initialPromo = promo;
-      } else {
-        // Wrong-domain (or wrong-product) — send the customer to the
-        // landing where they can see what IS valid. Carry the code through.
-        redirect(`/book/v2?code=${encodeURIComponent(code)}`);
       }
+      // Wrong-domain / wrong-product → render the wizard WITHOUT the
+      // promo. No redirect (removed 2026-05-21 — see file-level doc).
     }
-    // Unusable code (unknown/expired/etc.) falls through — render the
-    // activity without a promo. Don't redirect to the landing for those:
-    // the customer arrived at a specific URL on purpose.
+    // Unusable code (unknown/expired/etc.) falls through the same way.
   }
 
   return (
@@ -118,6 +118,7 @@ export default async function BookActivityV2Page({
       entryBrand={entryBrand}
       initialContext={initialContext}
       initialPromo={initialPromo}
+      urlCode={code || null}
     />
   );
 }
