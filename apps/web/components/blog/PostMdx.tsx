@@ -1,16 +1,21 @@
-import { MDXRemote } from "next-mdx-remote/rsc";
 import Link from "next/link";
 import type { ComponentProps } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 /**
- * MDX component overrides for blog post bodies.
+ * Markdown renderer for blog post bodies.
  *
- * Two things this map fixes that default MDX rendering doesn't:
- * 1. Links — convert relative MDX hrefs to next/link so they prefetch and
- *    don't full-page-reload (`[Kids Bowl Free](/kids-bowl-free)` → <Link>).
- * 2. Typography — match the HP visual system (Outfit headings, DM Sans body,
- *    coral H2 underline, navy bg). Pulled inline so a marketing edit to the
- *    MDX never needs a separate CSS file touch.
+ * Posts use plain Markdown (no embedded React components yet), so we render
+ * with react-markdown — RSC-native, React 19/Next 16 compatible. If we ever
+ * need to embed components inside post bodies, swap this for an MDX pipeline
+ * that compiles at build time (next-mdx-remote@6 + RSC was unstable as of
+ * 2026-05 — its rendered tree triggered "React Element from..." at request
+ * time on Vercel even when local builds passed).
+ *
+ * remark-gfm adds GitHub-flavored markdown (tables, strikethrough, autolinks,
+ * task lists) so authors can write more expressive content without thinking
+ * about the dialect.
  */
 
 function Heading2({ children, ...props }: ComponentProps<"h2">) {
@@ -109,13 +114,14 @@ function Blockquote({ children, ...props }: ComponentProps<"blockquote">) {
   );
 }
 
-function MdxLink({ href = "", children, ...props }: ComponentProps<"a">) {
-  const isInternal = href.startsWith("/");
-  const isAnchor = href.startsWith("#");
+function MdLink({ href = "", children }: ComponentProps<"a">) {
+  const target = typeof href === "string" ? href : "";
+  const isInternal = target.startsWith("/");
+  const isAnchor = target.startsWith("#");
   if (isInternal && !isAnchor) {
     return (
       <Link
-        href={href}
+        href={target}
         style={{ color: "#fd5b56", textDecoration: "underline", textUnderlineOffset: "3px" }}
       >
         {children}
@@ -124,27 +130,31 @@ function MdxLink({ href = "", children, ...props }: ComponentProps<"a">) {
   }
   return (
     <a
-      href={href}
+      href={target}
       style={{ color: "#fd5b56", textDecoration: "underline", textUnderlineOffset: "3px" }}
       target={isAnchor ? undefined : "_blank"}
       rel={isAnchor ? undefined : "noopener noreferrer"}
-      {...props}
     >
       {children}
     </a>
   );
 }
 
-const components = {
-  h2: Heading2,
-  h3: Heading3,
-  p: Paragraph,
-  ul: UnorderedList,
-  li: ListItem,
-  blockquote: Blockquote,
-  a: MdxLink,
-};
-
 export function PostMdx({ source }: { source: string }) {
-  return <MDXRemote source={source} components={components} />;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h2: Heading2,
+        h3: Heading3,
+        p: Paragraph,
+        ul: UnorderedList,
+        li: ListItem,
+        blockquote: Blockquote,
+        a: MdLink,
+      }}
+    >
+      {source}
+    </ReactMarkdown>
+  );
 }
