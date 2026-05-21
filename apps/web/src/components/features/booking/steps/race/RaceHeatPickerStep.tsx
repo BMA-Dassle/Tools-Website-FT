@@ -17,6 +17,14 @@ import {
   heatsConflict,
 } from "~/features/booking/service/conflict";
 import { RacerSelectorModal } from "./RacerSelectorModal";
+import { getGroupEventForDate } from "@/lib/group-events";
+
+/** Lead time required before a heat for new racers (Guest Services
+ *  check-in). v1 page.tsx:2287 — 75 min for everyone unless ALL
+ *  racers have a verified Pandora waiver (express lane), in which
+ *  case 0. v2 doesn't have verification data yet, so we apply 75
+ *  whenever ANY racer in the category is new. */
+const NEW_RACER_LEAD_MINUTES = 75;
 
 /**
  * Race step — pick heats for ONE category (adult or junior).
@@ -190,7 +198,19 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const product = useMemo(() => getRaceProductById(productId), [productId]);
     const heatsNeeded = product?.raceCount ?? 1;
 
-    const fetchPlan = useMemo(() => (product ? buildFetchPlan(product) : []), [product]);
+    // For multi-track packs where the customer locked a track in the
+    // Product step (TrackPickerModal → productTrackAdult/Junior), narrow
+    // the fetch + display to ONLY that track. v1 ProductPicker behaves
+    // the same: once Red is picked, the heat picker only shows Red heats.
+    const lockedTrack = category === "adult" ? item.productTrackAdult : item.productTrackJunior;
+    const fetchPlan = useMemo(() => {
+      if (!product) return [];
+      const full = buildFetchPlan(product);
+      if (lockedTrack && full.some((f) => f.track === lockedTrack)) {
+        return full.filter((f) => f.track === lockedTrack);
+      }
+      return full;
+    }, [product, lockedTrack]);
 
     const queries = useQueries({
       queries: fetchPlan.map(({ productId: pid, pageId }) => ({
@@ -234,6 +254,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const pickedSet = new Set(pickedBlocks.map((p) => p.heatId));
     const atCap = pickedBlocks.length >= heatsNeeded;
 
+    // New-racer guard: when ANY racer in this category is new, filter
+    // out heats starting within NEW_RACER_LEAD_MINUTES of "now" so the
+    // customer can't pick a heat they wouldn't reach Guest Services in
+    // time for. Mirrors v1 HeatPicker:159-166.
+    const anyNewInCategory = racers.some((r) => r.isNewRacer);
+    const leadCutoffMs = anyNewInCategory ? Date.now() + NEW_RACER_LEAD_MINUTES * 60_000 : 0;
+
     // Merged + time-sorted proposal list across all tracks for this product.
     const allProposals = useMemo<TrackedProposal[]>(() => {
       const list: TrackedProposal[] = [];
@@ -243,6 +270,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         for (const p of q.data.proposals) {
           const block = p.blocks?.[0]?.block;
           if (!block) continue;
+          if (leadCutoffMs > 0 && parseLocal(block.start).getTime() < leadCutoffMs) continue;
           list.push({ proposal: p, block, productId: fp.productId, track: fp.track });
         }
       });
@@ -250,7 +278,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         (a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime(),
       );
       return list;
-    }, [queries, fetchPlan]);
+    }, [queries, fetchPlan, leadCutoffMs]);
 
     const handleClickBlock = (tp: TrackedProposal) => {
       const blockId = tp.block.start;
@@ -313,6 +341,35 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       return (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 text-sm text-amber-300">
           Pick a {category} race first.
+        </div>
+      );
+    }
+
+    // Private event safety net — even though RaceDateStep already greys
+    // group-event dates, a customer could deep-link or back into a
+    // stale `item.date`. Render the v1 "Private Event" full-screen
+    // block so they can't book against a buyout. (v1 HeatPicker:211-237.)
+    const groupEventBlock = getGroupEventForDate(item.date);
+    if (groupEventBlock) {
+      const displayDate = new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      });
+      return (
+        <div className="space-y-6">
+          <div className="text-center">
+            <h2 className="font-display mb-1 text-2xl tracking-widest text-white uppercase">
+              Private Event
+            </h2>
+            <p className="text-sm text-white/50">{displayDate}</p>
+          </div>
+          <div className="bg-amber-500/8 mx-auto max-w-sm space-y-3 rounded-xl border border-amber-500/30 p-6 text-center">
+            <p className="text-sm font-semibold text-amber-300">
+              This date is reserved for a private event and is not available for public booking.
+            </p>
+            <p className="text-xs text-white/40">Please choose a different date.</p>
+          </div>
         </div>
       );
     }
@@ -468,6 +525,21 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             })}
           </div>
         )}
+
+        {/* Reminders pane — v1 HeatPicker:469-479 verbatim. License
+            line only renders when the category has at least one new
+            racer (mirrors v1's `packageMode` gate). */}
+        <div className="bg-white/3 space-y-1 rounded-xl border border-white/8 p-4 text-xs text-white/40">
+          <p>
+            · Arrive <strong className="text-white/60">30 minutes early</strong> for check-in.
+          </p>
+          {anyNewInCategory && (
+            <p>
+              · A <strong className="text-white/60">$4.99 license fee</strong> per first-time driver
+              applies at check-in.
+            </p>
+          )}
+        </div>
 
         {pendingHeat && (
           <RacerSelectorModal
