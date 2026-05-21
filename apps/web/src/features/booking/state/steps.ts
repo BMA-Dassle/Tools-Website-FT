@@ -61,6 +61,7 @@ function makePlaceholder<I extends BookingItem>(id: string, title: string): Step
 // fills in Product / HeatPicker / License / Review.
 import { RaceDateStep } from "~/components/features/booking/steps/race/RaceDateStep";
 import { RacePartyStep } from "~/components/features/booking/steps/race/RacePartyStep";
+import { RaceProductStep } from "~/components/features/booking/steps/race/RaceProductStep";
 
 /**
  * Default per-kind step lists. Real race components live in
@@ -72,7 +73,7 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [
     RaceDateStep as StepDef,
     RacePartyStep as StepDef,
-    makePlaceholder("race-product", "Product"),
+    RaceProductStep as StepDef,
     makePlaceholder("race-heat", "Heat"),
     makePlaceholder("race-license", "License"),
     makePlaceholder("race-review", "Review"),
