@@ -371,6 +371,54 @@ export function HeadPinzNaplesJsonLd() {
   );
 }
 
+// ── Article (BlogPosting) ────────────────────────────────────────────────────
+
+export function ArticleJsonLd({
+  url,
+  headline,
+  description,
+  image,
+  datePublished,
+  dateModified,
+  authorName,
+  publisherName,
+  publisherLogo,
+}: {
+  url: string;
+  headline: string;
+  description: string;
+  image: string;
+  datePublished: string;
+  dateModified?: string;
+  authorName: string;
+  publisherName: string;
+  publisherLogo: string;
+}) {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    url,
+    headline,
+    description,
+    image: [image],
+    datePublished,
+    dateModified: dateModified ?? datePublished,
+    author: { "@type": "Organization", name: authorName },
+    publisher: {
+      "@type": "Organization",
+      name: publisherName,
+      logo: { "@type": "ImageObject", url: publisherLogo },
+    },
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
 export function FAQJsonLd({ faqs }: { faqs: { question: string; answer: string }[] }) {
   const schema = {
     "@context": "https://schema.org",
