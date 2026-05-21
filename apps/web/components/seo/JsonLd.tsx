@@ -495,22 +495,55 @@ export function TriviaTuesdayJsonLd() {
   );
 }
 
-export function MidnightMadnessJsonLd() {
-  const schema = recurringEventSchema({
-    name: "Midnight Madness at HeadPinz Naples",
-    description:
-      "Late-night unlimited bowling at HeadPinz Naples every Friday and Saturday from 11:59 PM to 2 AM. Cosmic lighting, music, full bar.",
+// Midnight Madness runs at BOTH HeadPinz centers (Fort Myers + Naples) on the
+// same nights. Schema.org Event entries with multi-location are awkward in
+// rich results — Google prefers one Event per venue. So we expose a
+// `location` prop and emit one Event per page (rendered on the matching
+// /fort-myers and /naples landing pages).
+type HeadPinzLocation = "fort-myers" | "naples";
+
+const MIDNIGHT_MADNESS_VENUES: Record<
+  HeadPinzLocation,
+  {
+    locationName: string;
+    streetAddress: string;
+    addressLocality: string;
+    postalCode: string;
+    url: string;
+  }
+> = {
+  "fort-myers": {
+    locationName: "HeadPinz Fort Myers",
+    streetAddress: "14513 Global Parkway",
+    addressLocality: "Fort Myers",
+    postalCode: "33913",
+    url: "https://headpinz.com/fort-myers",
+  },
+  naples: {
+    locationName: "HeadPinz Naples",
+    streetAddress: "8525 Radio Lane",
+    addressLocality: "Naples",
+    postalCode: "34104",
     url: "https://headpinz.com/naples",
+  },
+};
+
+export function MidnightMadnessJsonLd({ location }: { location: HeadPinzLocation }) {
+  const venue = MIDNIGHT_MADNESS_VENUES[location];
+  const schema = recurringEventSchema({
+    name: `Midnight Madness at ${venue.locationName}`,
+    description: `Late-night unlimited bowling at ${venue.locationName} every Friday and Saturday from 11:59 PM to 2 AM. Cosmic lighting, music, full bar.`,
+    url: venue.url,
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     byDay: ["Friday", "Saturday"],
     startTime: "23:59:00",
     endTime: "02:00:00",
-    locationName: "HeadPinz Naples",
-    streetAddress: "8525 Radio Lane",
-    addressLocality: "Naples",
+    locationName: venue.locationName,
+    streetAddress: venue.streetAddress,
+    addressLocality: venue.addressLocality,
     addressRegion: "FL",
-    postalCode: "34104",
+    postalCode: venue.postalCode,
     organizerName: "HeadPinz",
     organizerUrl: "https://headpinz.com",
     // Price varies (regular vs. VIP lanes) — omit `price` so Google doesn't

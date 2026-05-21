@@ -221,7 +221,7 @@ export default function NaplesPage() {
         ]}
       />
       <HeadPinzNaplesJsonLd />
-      <MidnightMadnessJsonLd />
+      <MidnightMadnessJsonLd location="naples" />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(navJsonLd) }}

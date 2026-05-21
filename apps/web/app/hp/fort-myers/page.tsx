@@ -6,6 +6,7 @@ import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import {
   BreadcrumbJsonLd,
   HeadPinzFortMyersJsonLd,
+  MidnightMadnessJsonLd,
   TriviaTuesdayJsonLd,
 } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG } from "@/lib/seo";
@@ -238,6 +239,7 @@ export default function FortMyersPage() {
       />
       <HeadPinzFortMyersJsonLd />
       <TriviaTuesdayJsonLd />
+      <MidnightMadnessJsonLd location="fort-myers" />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(navJsonLd) }}
