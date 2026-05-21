@@ -106,18 +106,28 @@ export interface RaceItem extends BookingItemBase {
    */
   date: string | null;
   /**
-   * Customer-picked product. For single-tier picks (Starter Red, Pro Mega,
-   * etc.) every heat books against this productId. For mixed-track 3-packs
-   * (Intermediate Weekday 3-Pack: Red + Blue), this points at the PARENT
-   * pack id; each heat's heats[i].productId resolves via the registry's
-   * trackProducts map at book time.
+   * Picked product for the ADULT category — when the party has adults.
+   * Single-tier picks (Starter Red, Pro Mega, etc.) book every adult heat
+   * against this productId. Mixed-track 3-packs (Intermediate Weekday
+   * 3-Pack: Red + Blue) point at the PARENT pack id; each heat's
+   * heats[i].productId resolves via the registry's trackProducts map at
+   * book time.
+   *
+   * v1 parity: race v1 cycles adult product → adult heats → junior product
+   * → junior heats. v2 mirrors that with two separate product fields +
+   * isVisible-gated step variants.
    */
-  productId: string | null;
+  productIdAdult: string | null;
+  /** Picked product for the JUNIOR category — when the party has juniors. */
+  productIdJunior: string | null;
   /**
-   * Flat list of (heat block, racer) tuples. N racers × M heats per racer
-   * = N*M entries on the combined BMI bill. 3-pack day-of products require
-   * 3 heats per assignedTo party member. Heat-conflict validation runs
-   * per-assignedTo within the array.
+   * Flat list of (heat block, racer) tuples. Each entry corresponds to ONE
+   * BMI bill line: heatId is the block start ISO, productId determines
+   * which category bill the line lands on, assignedTo is the racer who
+   * carries that line. Multiple racers on the same heat share heatId but
+   * have distinct entries (one per racer). 3-pack day-of products require
+   * raceCount heats per category. Heat-conflict validation runs per
+   * category + per racer.
    */
   heats: RaceHeatAssignment[];
 }
@@ -265,7 +275,14 @@ export function newItem(activity: Activity): SessionItem {
   const id = newItemId();
   switch (activity) {
     case "race":
-      return { id, kind: "race", date: null, productId: null, heats: [] };
+      return {
+        id,
+        kind: "race",
+        date: null,
+        productIdAdult: null,
+        productIdJunior: null,
+        heats: [],
+      };
     case "attraction":
       return {
         id,

@@ -86,8 +86,14 @@ export function BookingFlow({
     );
   }
 
-  const steps = STEP_REGISTRY[activeItem.kind];
-  const stepIndex = session.cursors[activeItem.id] ?? 0;
+  // STEP_REGISTRY entries opt into per-item visibility via `isVisible`
+  // (e.g. race v2 has Product-Adult / Heat-Adult vs Product-Junior /
+  // Heat-Junior — only the categories present in the party render).
+  // Cursor indexes into the visible subset so Back/Next skip hidden steps.
+  const allSteps = STEP_REGISTRY[activeItem.kind];
+  const steps = allSteps.filter((s) => s.isVisible(activeItem, session));
+  const rawCursor = session.cursors[activeItem.id] ?? 0;
+  const stepIndex = Math.min(rawCursor, Math.max(0, steps.length - 1));
   const currentStep = steps[stepIndex];
   const isLastStep = stepIndex >= steps.length - 1;
 

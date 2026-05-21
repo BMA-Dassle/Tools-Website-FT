@@ -61,7 +61,14 @@ function makePlaceholder<I extends BookingItem>(id: string, title: string): Step
 // fills in Product / HeatPicker / License / Review.
 import { RaceDateStep } from "~/components/features/booking/steps/race/RaceDateStep";
 import { RacePartyStep } from "~/components/features/booking/steps/race/RacePartyStep";
-import { RaceProductStep } from "~/components/features/booking/steps/race/RaceProductStep";
+import {
+  RaceProductStepAdult,
+  RaceProductStepJunior,
+} from "~/components/features/booking/steps/race/RaceProductStep";
+import {
+  RaceHeatPickerStepAdult,
+  RaceHeatPickerStepJunior,
+} from "~/components/features/booking/steps/race/RaceHeatPickerStep";
 
 /**
  * Default per-kind step lists. Real race components live in
@@ -71,12 +78,24 @@ import { RaceProductStep } from "~/components/features/booking/steps/race/RacePr
  */
 export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [
-    RaceDateStep as StepDef,
+    // v1 parity: v1's race wizard order is
+    //   experience → party → date → product → heat → pov → addons → contact → summary
+    // v2 collapses `experience` into the per-member roster inside RacePartyStep
+    // (party members carry isNewRacer themselves) and moves contact + summary
+    // out to session-level steps launched from CartView at checkout time.
+    // Product + Heat split into Adult/Junior variants gated by isVisible so a
+    // single-category party only sees its own pair — same UX outcome as v1's
+    // internal bookingCategory cycling.
     RacePartyStep as StepDef,
-    RaceProductStep as StepDef,
-    makePlaceholder("race-heat", "Heat"),
-    makePlaceholder("race-license", "License"),
-    makePlaceholder("race-review", "Review"),
+    RaceDateStep as StepDef,
+    RaceProductStepAdult as StepDef,
+    RaceHeatPickerStepAdult as StepDef,
+    RaceProductStepJunior as StepDef,
+    RaceHeatPickerStepJunior as StepDef,
+    // POV step lands in commit 9b 3/7.
+    // Addons step lands in commit 9b 4/7.
+    // License (auto-sold during BMI bookHeat) + Contact + Pay are NOT per-item
+    // steps — they live at checkout (commit 10).
   ],
   attraction: [
     makePlaceholder("date", "Date"),

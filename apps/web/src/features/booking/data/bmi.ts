@@ -117,6 +117,8 @@ export interface GetAvailabilityArgs {
   date: string;
   /** BMI productId (digit string). */
   productId: string;
+  /** BMI pageId (digit string). Required by BMI for `/availability` POST. */
+  pageId: string;
   /** Per-pack: number of seats / racers requested. Defaults to 1. */
   quantity?: number;
   clientKey?: string;
@@ -207,9 +209,14 @@ function extractRawField(text: string, field: string): string | null {
 async function callBmi(
   endpoint: string,
   body: string,
+  extraParams: Record<string, string> | undefined,
   clientKey: string | undefined,
 ): Promise<Response> {
-  const qs = new URLSearchParams({ endpoint, ...(clientKey ? { clientKey } : {}) });
+  const qs = new URLSearchParams({
+    endpoint,
+    ...(extraParams ?? {}),
+    ...(clientKey ? { clientKey } : {}),
+  });
   return fetch(`${BMI_ENDPOINT}?${qs.toString()}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -218,11 +225,22 @@ async function callBmi(
 }
 
 const realBmiAdapter: BmiAdapter = {
-  async getAvailability({ date, productId, quantity = 1, clientKey }) {
-    const payload = { date, productId, quantity };
-    const res = await callBmi("availability", JSON.stringify(payload), clientKey);
+  async getAvailability({ date, productId, pageId, quantity = 1, clientKey }) {
+    // BMI `/availability` POST takes PascalCase body + date as URL query.
+    // Returns ALL heats for the day in one response (verified 2026-04-27
+    // against SMS-Timing dayplanner — see v1 HeatPicker.tsx comment).
+    const payload = {
+      ProductId: Number(productId),
+      PageId: Number(pageId),
+      Quantity: quantity,
+      OrderId: null,
+      PersonId: null,
+      DynamicLines: [],
+    };
+    const res = await callBmi("availability", JSON.stringify(payload), { date }, clientKey);
     if (!res.ok) {
-      throw new Error(`BMI availability ${res.status}`);
+      const text = await res.text();
+      throw new Error(`BMI availability ${res.status}: ${text.slice(0, 200)}`);
     }
     return (await res.json()) as BmiAvailabilityResponse;
   },
@@ -252,7 +270,7 @@ const realBmiAdapter: BmiAdapter = {
     if (personId) rawIds.personId = personId;
 
     const body = stringifyWithRawIds(payload, { rawIds });
-    const res = await callBmi("booking/book", body, clientKey);
+    const res = await callBmi("booking/book", body, undefined, clientKey);
     const text = await res.text();
 
     let parsed: BmiBookResult["result"];
@@ -283,7 +301,7 @@ const realBmiAdapter: BmiAdapter = {
 
   async removeBookingLine({ orderId, billLineId, clientKey }) {
     const body = stringifyWithRawIds({}, { rawIds: { orderId, orderItemId: billLineId } });
-    const res = await callBmi("booking/removeItem", body, clientKey);
+    const res = await callBmi("booking/removeItem", body, undefined, clientKey);
     if (!res.ok) {
       return { success: false };
     }
@@ -293,7 +311,7 @@ const realBmiAdapter: BmiAdapter = {
 
   async confirmPayment({ orderId, clientKey }) {
     const body = stringifyWithRawIds({}, { rawIds: { orderId } });
-    const res = await callBmi("payment/confirm", body, clientKey);
+    const res = await callBmi("payment/confirm", body, undefined, clientKey);
     const text = await res.text();
     if (!res.ok) {
       throw new Error(`BMI payment/confirm ${res.status}: ${text.substring(0, 100)}`);
@@ -329,7 +347,7 @@ const realBmiAdapter: BmiAdapter = {
 
   async createPerson({ firstName, lastName, email, phone, clientKey }) {
     const payload = { firstName, lastName, email, phone };
-    const res = await callBmi("person/create", JSON.stringify(payload), clientKey);
+    const res = await callBmi("person/create", JSON.stringify(payload), undefined, clientKey);
     const text = await res.text();
     if (!res.ok) {
       throw new Error(`BMI person/create ${res.status}: ${text.substring(0, 100)}`);
