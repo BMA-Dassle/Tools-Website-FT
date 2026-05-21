@@ -121,6 +121,15 @@ export interface RaceItem extends BookingItemBase {
   /** Picked product for the JUNIOR category — when the party has juniors. */
   productIdJunior: string | null;
   /**
+   * For multi-track packs (where the parent product carries a `trackProducts`
+   * map), the customer's chosen track lives here. Single-track products
+   * leave this null. v1 parity: ProductPicker's TrackPickerModal forces a
+   * track choice for multi-track 3-packs; v2 stores the choice here so the
+   * HeatPicker resolves `trackProducts[productTrack*]` for BMI booking.
+   */
+  productTrackAdult: string | null;
+  productTrackJunior: string | null;
+  /**
    * Flat list of (heat block, racer) tuples. Each entry corresponds to ONE
    * BMI bill line: heatId is the block start ISO, productId determines
    * which category bill the line lands on, assignedTo is the racer who
@@ -281,6 +290,8 @@ export function newItem(activity: Activity): SessionItem {
         date: null,
         productIdAdult: null,
         productIdJunior: null,
+        productTrackAdult: null,
+        productTrackJunior: null,
         heats: [],
       };
     case "attraction":
