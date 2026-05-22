@@ -147,6 +147,22 @@ export interface RaceItem extends BookingItemBase {
    */
   povRacerIds: string[];
   /**
+   * Race-day add-ons (Shuffly, Duckpin, Gel Blaster, Laser Tag). Each
+   * entry carries the BMI productId, customer-picked quantity, and the
+   * chosen time slot (ISO start). v1 AddOnsPage parity: per-person
+   * add-ons store qty = racer count; per-group add-ons (Shuffly,
+   * Duckpin) toggle qty 0/1. Checkout (commit 10) sells one BMI line
+   * per entry against the combined session bill.
+   */
+  addons: Array<{
+    id: string;
+    qty: number;
+    selectedTime: string | null;
+    /** Set after BMI `booking/sell` returns; lets the checkout retry path
+     *  detect already-billed add-ons + skip duplicates. */
+    bmiLineId: string | null;
+  }>;
+  /**
    * Rookie Pack opt-in for new racers (only meaningful when at least one
    * racer in `session.party` has `isNewRacer: true`). `true` = bundle
    * (license + POV + free Nemo's appetizer code on confirmation); `false`
@@ -310,6 +326,7 @@ export function newItem(activity: Activity): SessionItem {
         heats: [],
         povRacerIds: [],
         rookiePack: null,
+        addons: [],
       };
     case "attraction":
       return {
