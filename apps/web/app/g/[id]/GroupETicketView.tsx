@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { checkinQrDataUrl } from "@/lib/qr-checkin";
 import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
 import {
   CheckingInCard,
@@ -244,6 +245,79 @@ export default function GroupETicketView({ group, initial }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.id, group.locationId]);
 
+  const [qrByMember, setQrByMember] = useState<Record<string, string>>({});
+  const [fullscreenQrKey, setFullscreenQrKey] = useState<string | null>(null);
+  const qrGenerated = useRef(false);
+  const [headsockByPerson, setHeadsockByPerson] = useState<Record<string, number>>({});
+  const headsockChecked = useRef(false);
+  useEffect(() => {
+    if (qrGenerated.current) return;
+    qrGenerated.current = true;
+    const targets: { key: string; pid: string; sid: string }[] = [];
+    for (const m of group.members) {
+      const pid = String(m.personId ?? "").trim();
+      const sid = String(m.sessionId ?? "").trim();
+      if (!pid || !sid || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) continue;
+      targets.push({ key: memberKey(m), pid, sid });
+    }
+    Promise.all(
+      targets.map(async (t) => {
+        try {
+          const url = await checkinQrDataUrl(t.pid, t.sid);
+          return { key: t.key, url };
+        } catch {
+          return null;
+        }
+      }),
+    ).then((results) => {
+      const out: Record<string, string> = {};
+      for (const r of results) if (r) out[r.key] = r.url;
+      setQrByMember(out);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.id]);
+
+  useEffect(() => {
+    if (headsockChecked.current) return;
+    headsockChecked.current = true;
+    const hsKindId = "48069703";
+    const seen = new Set<string>();
+    const targets: string[] = [];
+    for (const m of group.members) {
+      const pid = String(m.personId ?? "").trim();
+      if (!pid || !/^\d+$/.test(pid) || seen.has(pid)) continue;
+      seen.add(pid);
+      targets.push(pid);
+    }
+    const ac = new AbortController();
+    Promise.all(
+      targets.map(async (pid) => {
+        try {
+          const res = await fetch(
+            `/api/pandora/deposits/${encodeURIComponent(pid)}?locationId=${encodeURIComponent(group.locationId)}`,
+            { cache: "no-store", signal: ac.signal },
+          );
+          if (!res.ok) return null;
+          const json = await res.json();
+          const rows = Array.isArray(json?.data) ? json.data : [];
+          const row = rows.find(
+            (r: { OUT_DPK_ID: number | string }) => String(r.OUT_DPK_ID) === hsKindId,
+          );
+          if (row && row.OUT_DPS_AMOUNT > 0) return { pid, balance: row.OUT_DPS_AMOUNT };
+          return null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((results) => {
+      const out: Record<string, number> = {};
+      for (const r of results) if (r) out[r.pid] = r.balance;
+      setHeadsockByPerson(out);
+    });
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.id, group.locationId]);
+
   const racerCount = group.members.length;
   const distinctHeats = new Set(group.members.map((m) => String(m.sessionId))).size;
   const earliest = earliestStart(group.members);
@@ -366,6 +440,47 @@ export default function GroupETicketView({ group, initial }: Props) {
                             />
                           </div>
                         )}
+                        {!isPast && s.onSession && qrByMember[key] && (
+                          <button
+                            type="button"
+                            onClick={() => setFullscreenQrKey(key)}
+                            className="mt-3 w-full flex items-center justify-center gap-3 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 active:scale-[0.99] transition-all"
+                          >
+                            <div className="bg-white rounded-lg p-1">
+                              <img
+                                src={qrByMember[key]}
+                                alt={`QR for ${m.firstName}`}
+                                data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
+                                width={56}
+                                height={56}
+                                className="block"
+                              />
+                            </div>
+                            <span className="text-white/50 text-xs">
+                              {m.firstName}&apos;s Check-In QR
+                            </span>
+                          </button>
+                        )}
+                        {!isPast &&
+                          s.onSession &&
+                          (headsockByPerson[String(m.personId)] ?? 0) > 0 && (
+                            <div className="mt-2 flex justify-center">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs font-semibold">
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                                Headsock Credit
+                              </span>
+                            </div>
+                          )}
                       </div>
                     );
                   })}
@@ -414,6 +529,33 @@ export default function GroupETicketView({ group, initial }: Props) {
           </p>
         </div>
       </div>
+
+      {fullscreenQrKey &&
+        qrByMember[fullscreenQrKey] &&
+        (() => {
+          const m = group.members.find((m) => memberKey(m) === fullscreenQrKey);
+          if (!m) return null;
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center px-6"
+              onClick={() => setFullscreenQrKey(null)}
+            >
+              <img
+                src={qrByMember[fullscreenQrKey]}
+                alt="Check-in QR"
+                className="block"
+                style={{ width: "min(280px, 70vw)", height: "min(280px, 70vw)" }}
+              />
+              <p className="mt-4 text-black font-bold text-2xl sm:text-3xl text-center">
+                {m.firstName} {m.lastName}
+              </p>
+              <p className="mt-1 text-black/60 text-sm uppercase tracking-wider">
+                Scan at Check-In
+              </p>
+              <p className="mt-6 text-black/30 text-xs">Tap anywhere to close</p>
+            </div>
+          );
+        })()}
     </div>
   );
 }

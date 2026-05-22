@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { RaceTicket } from "@/lib/race-tickets";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { checkinQrDataUrl } from "@/lib/qr-checkin";
 import {
   CheckingInCard,
   InvalidCard,
@@ -69,6 +70,11 @@ export default function ETicketView({
    *  round-trips. StrictMode in dev double-invokes the effect; the
    *  ref short-circuits the second pass. */
   const povClaimAttempted = useRef(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [fullscreenQr, setFullscreenQr] = useState(false);
+  const qrGenerated = useRef(false);
+  const [headsockCredit, setHeadsockCredit] = useState(0);
+  const headsockChecked = useRef(false);
 
   const mins = minutesUntil(ticket.scheduledStart);
   // Hard fallback for tickets viewed long after the heat with no called signal.
@@ -180,6 +186,44 @@ export default function ETicketView({
     return () => ac.abort();
   }, [ticket.personId, ticket.sessionId, ticket.locationId]);
 
+  useEffect(() => {
+    if (qrGenerated.current) return;
+    qrGenerated.current = true;
+    const pid = String(ticket.personId ?? "").trim();
+    const sid = String(ticket.sessionId ?? "").trim();
+    if (!pid || !sid || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) return;
+    checkinQrDataUrl(pid, sid)
+      .then(setQrDataUrl)
+      .catch(() => {});
+  }, [ticket.personId, ticket.sessionId]);
+
+  useEffect(() => {
+    if (headsockChecked.current) return;
+    headsockChecked.current = true;
+    const pid = String(ticket.personId ?? "").trim();
+    if (!pid || !/^\d+$/.test(pid)) return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/pandora/deposits/${encodeURIComponent(pid)}?locationId=${encodeURIComponent(ticket.locationId)}`,
+          { cache: "no-store", signal: ac.signal },
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        const rows = Array.isArray(json?.data) ? json.data : [];
+        const hsKindId = "48069703";
+        const row = rows.find(
+          (r: { OUT_DPK_ID: number | string }) => String(r.OUT_DPK_ID) === hsKindId,
+        );
+        if (row && row.OUT_DPS_AMOUNT > 0) setHeadsockCredit(row.OUT_DPS_AMOUNT);
+      } catch {
+        /* silent */
+      }
+    })();
+    return () => ac.abort();
+  }, [ticket.personId, ticket.locationId]);
+
   return (
     <div className="min-h-screen bg-[#010A20] flex items-start justify-center px-4 pt-28 sm:pt-32 pb-8">
       <style>{TICKET_PULSE_CSS}</style>
@@ -243,13 +287,43 @@ export default function ETicketView({
           </button>
         )}
 
-        {/* ViewPoint POV voucher block — between the e-ticket card
-            and the live track status feed. Renders only when the
-            participant had ViewPoint Credit on file at first open
-            (auto-claimed via /api/pov-codes?action=claim-from-credit).
-            Hidden on past tickets so a finished race doesn't show
-            "claim your codes" — the email/SMS heads-up has already
-            fired by then and the block would be confusing. */}
+        {/* Check-in QR code — staff scans this at the kiosk to check
+            the guest into their race session. */}
+        {!isPast && onSession && qrDataUrl && (
+          <button
+            type="button"
+            onClick={() => setFullscreenQr(true)}
+            className="mt-4 w-full flex flex-col items-center gap-2 py-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 active:scale-[0.99] transition-all"
+          >
+            <div className="bg-white rounded-lg p-1.5">
+              <img
+                src={qrDataUrl}
+                alt="Check-in QR"
+                data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
+                width={90}
+                height={90}
+                className="block"
+              />
+            </div>
+            <p className="text-white/50 text-xs">Tap to enlarge &middot; Scan at Check-In</p>
+          </button>
+        )}
+
+        {!isPast && onSession && headsockCredit > 0 && (
+          <div className="mt-3 flex justify-center">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs font-semibold">
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              Headsock Credit on File
+            </span>
+          </div>
+        )}
+
         {!isPast && povCodes.length > 0 && (
           <div className="mt-6">
             <PovVoucherBlock codes={povCodes} cached={povCached} />
@@ -280,6 +354,25 @@ export default function ETicketView({
           }}
           onClose={() => setFullScreen(false)}
         />
+      )}
+
+      {fullscreenQr && qrDataUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center px-6"
+          onClick={() => setFullscreenQr(false)}
+        >
+          <img
+            src={qrDataUrl}
+            alt="Check-in QR"
+            className="block"
+            style={{ width: "min(280px, 70vw)", height: "min(280px, 70vw)" }}
+          />
+          <p className="mt-4 text-black font-bold text-2xl sm:text-3xl text-center">
+            {ticket.firstName} {ticket.lastName}
+          </p>
+          <p className="mt-1 text-black/60 text-sm uppercase tracking-wider">Scan at Check-In</p>
+          <p className="mt-6 text-black/30 text-xs">Tap anywhere to close</p>
+        </div>
       )}
     </div>
   );

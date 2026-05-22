@@ -44,6 +44,9 @@ export const DEPOSIT_KIND = {
   LICENSE: "32442585",
   /** Test kind — handy for round-trip verification, never charge against this. */
   TEST: "39228454",
+  /** Headsock rental credit — detected at kiosk check-in, deducted on scan.
+   *  Discovered 2026-05-22 via DPS_OVERVIEW for personId 15963378. */
+  HEADSOCK: "48069703",
 } as const;
 
 export type DepositKindId = (typeof DEPOSIT_KIND)[keyof typeof DEPOSIT_KIND] | string;

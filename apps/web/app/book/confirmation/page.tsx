@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import QRCode from "qrcode";
+import { checkinQrDataUrl } from "@/lib/qr-checkin";
 import {
   getBookingLocation,
   getBookingClientKey,
@@ -244,11 +245,13 @@ export default function ConfirmationPage() {
       heatStart: string;
       heatName: string;
       racers: string[];
+      racerDetails: { name: string; personId?: string; sessionId?: string | number | null }[];
       resNumber: string;
       resCode: string;
       billId: string;
     }[]
   >([]);
+  const [checkinQrByPerson, setCheckinQrByPerson] = useState<Record<string, string>>({});
   /** Rookie Pack opt-in flag from the booking record. When true, we
    *  render the "Free Appetizer at Nemo's — code RACEAPP" card on
    *  the confirmation page. Set in OrderSummary at booking time.
@@ -590,6 +593,11 @@ export default function ConfirmationPage() {
               heatStart: string;
               heatName: string;
               racers: string[];
+              racerDetails: {
+                name: string;
+                personId?: string;
+                sessionId?: string | number | null;
+              }[];
             }
           >();
           for (const r of recRacers) {
@@ -601,9 +609,15 @@ export default function ConfirmationPage() {
                 heatStart: r.heatStart || "",
                 heatName: r.heatName || "",
                 racers: [],
+                racerDetails: [],
               });
             }
-            groupMap.get(key)!.racers.push(r.racerName || "Racer");
+            const g = groupMap.get(key)!;
+            g.racers.push(r.racerName || "Racer");
+            g.racerDetails.push({
+              name: r.racerName || "Racer",
+              personId: r.personId,
+            });
           }
 
           const groups = [...groupMap.values()].map((g) => ({
@@ -628,6 +642,9 @@ export default function ConfirmationPage() {
                 heatStart: line.scheduledTime.start,
                 heatName: line.name,
                 racers: Array.from({ length: line.quantity || 1 }, (_, i) => `Racer ${i + 1}`),
+                racerDetails: Array.from({ length: line.quantity || 1 }, (_, i) => ({
+                  name: `Racer ${i + 1}`,
+                })),
                 resNumber: primary.resNumber,
                 resCode: primary.resCode,
                 billId: primary.billId,
@@ -716,6 +733,28 @@ export default function ConfirmationPage() {
                         racers: racersWithSession,
                       }),
                     }).catch(() => {});
+                    // Generate check-in QR codes for racers with sessionIds
+                    type RacerWithIds = { personId?: string; sessionId?: string | number | null };
+                    const qrTargets = (racersWithSession as RacerWithIds[]).filter(
+                      (r): r is RacerWithIds & { personId: string; sessionId: string | number } =>
+                        !!r.personId &&
+                        !!r.sessionId &&
+                        /^\d+$/.test(String(r.personId)) &&
+                        /^\d+$/.test(String(r.sessionId)),
+                    );
+                    const qrEntries = await Promise.all(
+                      qrTargets.map(async (r) => {
+                        try {
+                          const url = await checkinQrDataUrl(r.personId, String(r.sessionId));
+                          return { pid: r.personId, url };
+                        } catch {
+                          return null;
+                        }
+                      }),
+                    );
+                    const qrMap: Record<string, string> = {};
+                    for (const e of qrEntries) if (e) qrMap[e.pid] = e.url;
+                    setCheckinQrByPerson(qrMap);
                   }
                 })
                 .catch(() => {});
@@ -1367,7 +1406,7 @@ export default function ConfirmationPage() {
                             </p>
                           </div>
 
-                          {/* QR (non-express only) */}
+                          {/* QR (non-express: reservation QR, express: check-in QR per racer) */}
                           {qr && !expressLane && (
                             <div className="border-t border-white/[0.06] px-5 py-4 flex justify-center">
                               <button
@@ -1392,6 +1431,43 @@ export default function ConfirmationPage() {
                               </button>
                             </div>
                           )}
+
+                          {/* Express lane: check-in QR per racer */}
+                          {expressLane &&
+                            group.racerDetails.some(
+                              (r) => r.personId && checkinQrByPerson[r.personId],
+                            ) && (
+                              <div className="border-t border-emerald-400/20 px-5 py-4">
+                                <p className="text-emerald-400/60 text-xs font-bold uppercase tracking-wider text-center mb-3">
+                                  Check-In QR
+                                </p>
+                                <div className="flex justify-center gap-4 flex-wrap">
+                                  {group.racerDetails.map((rd, ri) => {
+                                    const qrUrl = rd.personId
+                                      ? checkinQrByPerson[rd.personId]
+                                      : null;
+                                    if (!qrUrl) return null;
+                                    return (
+                                      <div key={ri} className="flex flex-col items-center gap-1">
+                                        <div className="rounded-lg bg-white p-1.5">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={qrUrl}
+                                            alt={`QR ${rd.name}`}
+                                            width={80}
+                                            height={80}
+                                            className="w-[70px] h-[70px]"
+                                          />
+                                        </div>
+                                        <p className="text-white/40 text-xs text-center">
+                                          {rd.name}
+                                        </p>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                         </div>
                       );
                     });
