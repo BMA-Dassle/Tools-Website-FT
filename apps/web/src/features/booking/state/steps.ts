@@ -69,6 +69,7 @@ import {
   RaceHeatPickerStepAdult,
   RaceHeatPickerStepJunior,
 } from "~/components/features/booking/steps/race/RaceHeatPickerStep";
+import { RacePovStep } from "~/components/features/booking/steps/race/RacePovStep";
 
 /**
  * Default per-kind step lists. Real race components live in
@@ -92,7 +93,7 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     RaceHeatPickerStepAdult as StepDef,
     RaceProductStepJunior as StepDef,
     RaceHeatPickerStepJunior as StepDef,
-    // POV step lands in commit 9b 3/7.
+    RacePovStep as StepDef,
     // Addons step lands in commit 9b 4/7.
     // License (auto-sold during BMI bookHeat) + Contact + Pay are NOT per-item
     // steps — they live at checkout (commit 10).

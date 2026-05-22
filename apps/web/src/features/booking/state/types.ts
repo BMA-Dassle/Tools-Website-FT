@@ -139,6 +139,21 @@ export interface RaceItem extends BookingItemBase {
    * category + per racer.
    */
   heats: RaceHeatAssignment[];
+  /**
+   * Party-member ids who get a POV camera ($5/racer pre-pay; $7 at
+   * check-in). For new racers in the Rookie Pack flow, this contains
+   * every new racer's id. For existing racers, this is the customer's
+   * per-racer pick from the POV step. Empty = no POV.
+   */
+  povRacerIds: string[];
+  /**
+   * Rookie Pack opt-in for new racers (only meaningful when at least one
+   * racer in `session.party` has `isNewRacer: true`). `true` = bundle
+   * (license + POV + free Nemo's appetizer code on confirmation); `false`
+   * = License only (offered but opted out); `null` = not yet asked /
+   * not applicable. Drives the appetizer card on the confirmation page.
+   */
+  rookiePack: boolean | null;
 }
 
 export interface AttractionItem extends BookingItemBase {
@@ -293,6 +308,8 @@ export function newItem(activity: Activity): SessionItem {
         productTrackAdult: null,
         productTrackJunior: null,
         heats: [],
+        povRacerIds: [],
+        rookiePack: null,
       };
     case "attraction":
       return {
