@@ -1,36 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
+import { useState } from "react";
+import type { RaceItem, StepDef } from "~/features/booking";
 
 /**
  * Race step — POV camera upsell + Rookie Pack chooser.
  *
- * v1 parity: full port of `apps/web/app/book/race/components/PovUpsell.tsx`.
+ * v1 parity: strict port of `apps/web/app/book/race/components/PovUpsell.tsx`.
  *
- * Two flows in one step:
+ * Two flows in one step (same gating as v1):
  *
  * 1. **Rookie Pack flow** — when ALL of:
- *    - feature flag `NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1"`
+ *    - `NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1"`
  *    - session.party has at least one new racer
- *    The customer sees two radio cards: "Rookie Pack" (default, recommended)
- *    bundles license + POV + free Nemo's appetizer code; "License only"
- *    opts out of POV/appetizer. Pack picks POV for EVERY new racer.
+ *    Two radio cards: "Rookie Pack" (default, recommended) bundles license +
+ *    POV + free Nemo's appetizer code; "License only" opts out of POV.
+ *    Pack picks POV for every new racer in the party.
  *
- * 2. **Per-racer POV picker** — existing-racer flow (no Rookie chooser).
- *    Each racer in the party gets a checkbox; "Add for all" + "Clear"
- *    helpers. $5/racer pre-pay vs $7 at check-in.
+ * 2. **Per-racer qty stepper** — existing-racer flow (no Rookie chooser).
+ *    qty=0 state: "Add for all N racers — $X" primary button.
+ *    qty>0 state: -/+ stepper + count + total + "Set to all" helper.
+ *    Identical UI to v1 PovUpsell:235-283.
  *
  * State written to RaceItem:
- *   - `povRacerIds: string[]` — party member ids who get POV
- *   - `rookiePack: boolean | null` — true (pack), false (opted out of pack),
- *     null (not asked / no new racers)
+ *   - `povQuantity: number` — number of POV cameras (BMI sells qty, not per-racer)
+ *   - `rookiePack: boolean | null` — true (pack), false (opted out), null (n/a)
  *
- * BMI product id `43746981` is the POV camera SKU (per v1 PovUpsell.tsx:297);
- * commit 10's checkout orchestrator sells one line per id in povRacerIds.
+ * BMI product id `43746981` (per v1 PovUpsell:297) — commit 10's checkout
+ * sells a single line with quantity = povQuantity.
  */
 
-// POV video preview — verbatim Vercel blob URL from v1 PovUpsell:6.
+// POV video preview URL — verbatim from v1 PovUpsell:6.
 const POV_VIDEO =
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/viewpoint-pov-suJzzax08ZbSJpcdNKQvT9nNvWlgFc.mp4";
 const LICENSE_PRICE = 4.99;
@@ -38,21 +38,14 @@ const POV_PRICE = 5;
 const POV_CHECKIN_PRICE = 7;
 
 function isRookiePackEnabled(): boolean {
-  // Same env-var key + truthy check v1 uses (PovUpsell:21).
   return process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1";
 }
 
-function newRacersInParty(party: PartyMember[]): PartyMember[] {
-  return party.filter((m) => m.isNewRacer);
-}
-
 const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
-  const allRacers = session.party;
-  const racerCount = allRacers.length;
-  const newRacers = useMemo(() => newRacersInParty(allRacers), [allRacers]);
-  const showRookieFlow = isRookiePackEnabled() && newRacers.length > 0;
+  const racerCount = Math.max(1, session.party.length);
+  const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
+  const showRookieFlow = isRookiePackEnabled() && newRacerCount > 0;
 
-  // Local UI mirror — write-through to RaceItem so back-nav rehydrates.
   type RookieChoice = "pack" | "license-only";
   const initialRookieChoice: RookieChoice = item.rookiePack === false ? "license-only" : "pack";
   const [rookieChoice, setRookieChoice] = useState<RookieChoice>(initialRookieChoice);
@@ -60,41 +53,21 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
   const handlePackChoice = (choice: RookieChoice) => {
     setRookieChoice(choice);
     if (choice === "pack") {
-      // Every new racer gets POV; preserve any existing-racer POV picks too.
-      const existingRacerWithPov = item.povRacerIds.filter(
-        (id) => !newRacers.some((n) => n.id === id),
-      );
-      const newRacerIds = newRacers.map((r) => r.id);
-      onChange({
-        povRacerIds: [...new Set([...newRacerIds, ...existingRacerWithPov])],
-        rookiePack: true,
-      });
+      onChange({ povQuantity: newRacerCount, rookiePack: true });
     } else {
-      // Strip POV for new racers; keep any existing-racer POV picks.
-      const keep = item.povRacerIds.filter((id) => !newRacers.some((n) => n.id === id));
-      onChange({ povRacerIds: keep, rookiePack: false });
+      onChange({ povQuantity: 0, rookiePack: false });
     }
   };
 
-  const toggleRacerPov = (racerId: string) => {
-    const has = item.povRacerIds.includes(racerId);
-    const next = has
-      ? item.povRacerIds.filter((id) => id !== racerId)
-      : [...item.povRacerIds, racerId];
-    onChange({ povRacerIds: next });
+  const setQty = (next: number) => {
+    onChange({ povQuantity: Math.max(0, next) });
   };
 
-  const addPovForAll = () => onChange({ povRacerIds: allRacers.map((r) => r.id) });
-  const clearAllPov = () =>
-    onChange({
-      povRacerIds: showRookieFlow ? newRacers.map((r) => r.id) : [],
-    });
-
-  const totalPovCount = item.povRacerIds.length;
-  const newRacerCount = newRacers.length;
+  const qty = item.povQuantity;
 
   return (
     <div className="mx-auto max-w-xl space-y-8">
+      {/* Header — v1 PovUpsell:75-85 */}
       <div className="space-y-2 text-center">
         <p className="text-xs font-bold tracking-widest text-[#00E2E5] uppercase">
           Exclusive Online Add-On
@@ -107,6 +80,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
         <p className="text-sm text-white/40">Save $2 per camera when you pre-pay online</p>
       </div>
 
+      {/* Rookie Pack chooser — v1 PovUpsell:89-203 */}
       {showRookieFlow && (
         <div className="space-y-3">
           <div className="space-y-1 text-center">
@@ -122,7 +96,6 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
             </p>
           </div>
 
-          {/* Rookie Pack option */}
           <button
             type="button"
             onClick={() => handlePackChoice("pack")}
@@ -161,9 +134,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
                     <span className="text-emerald-400">✓</span>
                     <span>
                       Racing License{" "}
-                      <span className="text-white/40">
-                        (required, ${LICENSE_PRICE.toFixed(2)} per racer)
-                      </span>
+                      <span className="text-white/40">(required, ${LICENSE_PRICE} per racer)</span>
                     </span>
                   </li>
                   <li className="flex items-baseline gap-2">
@@ -190,7 +161,6 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
             </div>
           </button>
 
-          {/* License-only option */}
           <button
             type="button"
             onClick={() => handlePackChoice("license-only")}
@@ -230,6 +200,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
         </div>
       )}
 
+      {/* Video — v1 PovUpsell:206-215 */}
       <div className="overflow-hidden rounded-2xl border border-white/10 shadow-2xl shadow-[#00E2E5]/10">
         <video
           src={POV_VIDEO}
@@ -241,6 +212,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
         />
       </div>
 
+      {/* Description — v1 PovUpsell:218-231 */}
       <div className="space-y-3 text-center">
         <h3 className="text-lg font-bold text-white">ViewPoint POV Camera</h3>
         <p className="mx-auto max-w-md text-sm leading-relaxed text-white/50">
@@ -258,68 +230,57 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
         </div>
       </div>
 
-      {!showRookieFlow && racerCount > 0 && (
-        <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold tracking-wider text-white/60 uppercase">
-              Pick who gets a POV
-            </p>
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                type="button"
-                onClick={addPovForAll}
-                className="rounded-lg border border-white/15 px-2.5 py-1 text-white/60 transition-colors hover:border-white/30 hover:text-white"
-              >
-                All {racerCount}
-              </button>
-              <button
-                type="button"
-                onClick={clearAllPov}
-                className="rounded-lg border border-white/15 px-2.5 py-1 text-white/60 transition-colors hover:border-white/30 hover:text-white"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-          <ul className="space-y-2">
-            {allRacers.map((r) => {
-              const has = item.povRacerIds.includes(r.id);
-              return (
-                <li key={r.id}>
-                  <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 transition-colors hover:bg-white/[0.05]">
-                    <input
-                      type="checkbox"
-                      checked={has}
-                      onChange={() => toggleRacerPov(r.id)}
-                      className="h-4 w-4 rounded border-white/30 bg-white/5 accent-[#00E2E5]"
-                    />
-                    <span className="flex-1 text-sm text-white/80">
-                      {r.firstName}
-                      {r.lastName ? ` ${r.lastName}` : ""}
-                    </span>
-                    <span className="text-xs text-white/40">${POV_PRICE.toFixed(2)}</span>
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm">
-            <span className="text-white/60">
-              {totalPovCount} camera{totalPovCount === 1 ? "" : "s"} · ${POV_PRICE} each
-            </span>
-            <span className="font-bold text-[#00E2E5]">
-              ${(POV_PRICE * totalPovCount).toFixed(2)}
-            </span>
-          </div>
+      {/* Add / Qty stepper — v1 PovUpsell:235-283 (hidden in Rookie flow) */}
+      {!showRookieFlow && (
+        <div className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          {qty === 0 ? (
+            <button
+              type="button"
+              onClick={() => setQty(racerCount)}
+              className="w-full rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/15 py-3.5 text-sm font-bold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/25"
+            >
+              Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — $
+              {(POV_PRICE * racerCount).toFixed(2)}
+            </button>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setQty(qty - 1)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 text-lg text-white/50 transition-colors hover:border-white/40 hover:text-white"
+                  >
+                    -
+                  </button>
+                  <span className="w-6 text-center text-sm font-bold text-white">{qty}</span>
+                  <button
+                    type="button"
+                    onClick={() => setQty(qty + 1)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 text-lg text-white/50 transition-colors hover:border-white/40 hover:text-white"
+                  >
+                    +
+                  </button>
+                  <span className="text-xs text-white/30">
+                    {qty} camera{qty !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <span className="text-lg font-bold text-[#00E2E5]">
+                  ${(POV_PRICE * qty).toFixed(2)}
+                </span>
+              </div>
+              {qty !== racerCount && (
+                <button
+                  type="button"
+                  onClick={() => setQty(racerCount)}
+                  className="w-full rounded-lg py-2 text-xs font-semibold text-[#00E2E5]/70 transition-colors hover:text-[#00E2E5]"
+                >
+                  Set to all {racerCount} racers
+                </button>
+              )}
+            </>
+          )}
         </div>
-      )}
-
-      {showRookieFlow && (
-        <p className="text-center text-xs text-white/40">
-          {rookieChoice === "pack"
-            ? `Rookie Pack applied to ${newRacerCount} first-time racer${newRacerCount === 1 ? "" : "s"} · $${((LICENSE_PRICE + POV_PRICE) * newRacerCount).toFixed(2)} total`
-            : `License only for ${newRacerCount} first-time racer${newRacerCount === 1 ? "" : "s"} · $${(LICENSE_PRICE * newRacerCount).toFixed(2)} total`}
-        </p>
       )}
     </div>
   );
@@ -330,8 +291,5 @@ export const RacePovStep: StepDef<RaceItem> = {
   title: "POV & Pack",
   Component: RacePovStepComponent,
   isVisible: (_item, session) => session.party.length > 0,
-  // POV is always optional — customer can skip with zero cameras. The
-  // rookie chooser starts on "pack" by default so the state is never
-  // stuck; canAdvance is unconditional.
   canAdvance: () => true,
 };

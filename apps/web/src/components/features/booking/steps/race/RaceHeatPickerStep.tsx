@@ -19,41 +19,36 @@ import {
 import { RacerSelectorModal } from "./RacerSelectorModal";
 import { getGroupEventForDate } from "@/lib/group-events";
 
-/** Lead time required before a heat for new racers (Guest Services
- *  check-in). v1 page.tsx:2287 — 75 min for everyone unless ALL
- *  racers have a verified Pandora waiver (express lane), in which
- *  case 0. v2 doesn't have verification data yet, so we apply 75
- *  whenever ANY racer in the category is new. */
-const NEW_RACER_LEAD_MINUTES = 75;
-
 /**
  * Race step — pick heats for ONE category (adult or junior).
  *
- * v1 parity: race v1's flow is product-adult → heat-adult → product-junior
- * → heat-junior. v2 mirrors that with separate StepDef variants
- * (`RaceHeatPickerStepAdult` / `RaceHeatPickerStepJunior`); each opts into
- * visibility via isVisible checking party composition.
+ * v1 parity: strict port of `apps/web/app/book/race/components/HeatPicker.tsx`.
+ * Identical visual: uniform `border-white/10 bg-white/5` cards, cyan ring on
+ * selection, opacity 40 on disabled. Start time + arrow + stop time + heat
+ * name + status line + capacity bar — same as v1.
  *
- * Per-racer assignment (v1 page.tsx:1214-1232): when ANY returning racer
- * (party member with `bmiPersonId`) is in the current category, clicking
- * a time block opens RacerSelectorModal — the customer picks WHICH
- * returning racers go in this heat, then each becomes its own BMI bill
- * line (one bookHeat call per selected racer). If no returning racers
- * are in the category, the click books the whole category's group as
- * one BMI line with quantity = racerCount (also matches v1).
+ * v2 architectural divergences (forced, cannot mirror v1 literally):
+ *   - Per-category split into `RaceHeatPickerStepAdult` / `Junior` (v2 wizard
+ *     runs ONE StepDef at a time; v1's bookingCategory cycling is a single
+ *     component switching internally)
+ *   - No inline "Continue" CTA pane — v2's BookingFlow owns Next at the wizard
+ *     footer. v1's CTA pane is a duplicate primary action.
+ *   - Click-to-toggle (multi-heat 3-Pack aware) replaces v1's confirm-then-
+ *     advance flow. Picked heats are visible from the cyan ring on each card.
+ *   - Per-racer assignment via RacerSelectorModal when ANY returning racer is
+ *     in the category — `item.heats` carries one entry per (block × racer)
+ *     so BMI bookHeat (commit 10) lands one bill line per racer with the
+ *     right `bmiPersonId`.
  *
- * State shape: `item.heats[]` carries ONE RaceHeatAssignment per (block ×
- * racer) so book time has the per-line racer attribution. The picker
- * dedupes by heatId for display. Each entry's `productId` resolves back
- * to its category via `getRaceProductById`.
- *
- * Conflict gating via service/conflict.ts: per-racer same-track adjacency
- * (Red 13 min, Blue 16 min, Mega 13 min) + cross-track 30 min walk
- * buffer. Different racers can race the same block simultaneously.
+ * Lead time: when any racer in the category is new, heats starting within
+ * 75 min of "now" are filtered out (v1 HeatPicker:159-166 + page.tsx:2280-
+ * 2288). Private event guard: full-screen "Private Event" block when the
+ * date is a buyout (v1 HeatPicker:211-237).
  */
 
-type Category = "adult" | "junior";
+const NEW_RACER_LEAD_MINUTES = 75;
 
+type Category = "adult" | "junior";
 type Track = "Red" | "Blue" | "Mega";
 type TrackOrNull = Track | null;
 
@@ -69,39 +64,6 @@ interface TrackedProposal {
   productId: string;
   track: TrackOrNull;
 }
-
-const TRACK_BADGE: Record<Track, { bg: string; text: string }> = {
-  Red: { bg: "bg-red-500/20", text: "text-red-300" },
-  Blue: { bg: "bg-blue-500/20", text: "text-blue-300" },
-  Mega: { bg: "bg-purple-500/20", text: "text-purple-300" },
-};
-
-const TRACK_CARD: Record<Track, { base: string; baseHover: string; selected: string }> = {
-  Red: {
-    base: "border-red-500/60 bg-red-500/[0.14]",
-    baseHover: "hover:border-red-400 hover:bg-red-500/20",
-    selected: "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
-  },
-  Blue: {
-    base: "border-blue-500/60 bg-blue-500/[0.14]",
-    baseHover: "hover:border-blue-400 hover:bg-blue-500/20",
-    selected: "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
-  },
-  Mega: {
-    base: "border-white/10 bg-white/5",
-    baseHover: "hover:border-white/25 hover:bg-white/10",
-    selected: "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50",
-  },
-};
-
-const NEUTRAL_CARD = {
-  base: "border-white/10 bg-white/5",
-  baseHover: "hover:border-[#00E2E5]/40 hover:bg-[#00E2E5]/10",
-  selected: "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50",
-};
-
-const DISABLED_CARD =
-  "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
 
 function buildFetchPlan(product: RaceProduct): FetchPlanItem[] {
   if (product.trackProducts) {
@@ -155,25 +117,6 @@ function heatsForCategory(item: RaceItem, productIds: Set<string>): RaceHeatAssi
   return item.heats.filter((h) => h.productId && productIds.has(h.productId));
 }
 
-/** Dedup heats[] to one entry per distinct heatId — UI works on blocks,
- *  data layer multiplies by racers at book time. */
-function dedupeByHeatId(
-  heats: RaceHeatAssignment[],
-): Array<{ heatId: string; track: TrackOrNull; productId: string | null }> {
-  const seen = new Map<string, { heatId: string; track: TrackOrNull; productId: string | null }>();
-  for (const h of heats) {
-    if (!h.heatId) continue;
-    if (!seen.has(h.heatId)) {
-      seen.set(h.heatId, { heatId: h.heatId, track: h.track, productId: h.productId });
-    }
-  }
-  return Array.from(seen.values()).sort(
-    (a, b) => parseLocal(a.heatId).getTime() - parseLocal(b.heatId).getTime(),
-  );
-}
-
-/** One RaceHeatAssignment per (block × racer) — so BMI bookHeat lands one
- *  bill line per racer carrying their bmiPersonId at commit time. */
 function entriesForPick(
   block: BmiBlock,
   productId: string,
@@ -198,10 +141,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const product = useMemo(() => getRaceProductById(productId), [productId]);
     const heatsNeeded = product?.raceCount ?? 1;
 
-    // For multi-track packs where the customer locked a track in the
-    // Product step (TrackPickerModal → productTrackAdult/Junior), narrow
-    // the fetch + display to ONLY that track. v1 ProductPicker behaves
-    // the same: once Red is picked, the heat picker only shows Red heats.
+    // Locked-track filter: when ProductStep TrackPickerModal set
+    // productTrackAdult/Junior, only fetch that track. Mirrors v1's
+    // post-modal-pick behavior where HeatPicker receives a single
+    // ClassifiedProduct already narrowed to the chosen track.
     const lockedTrack = category === "adult" ? item.productTrackAdult : item.productTrackJunior;
     const fetchPlan = useMemo(() => {
       if (!product) return [];
@@ -231,17 +174,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       })),
     });
 
-    // Returning racers in this category = those with a bmiPersonId.
-    // v1 page.tsx:1223 — modal opens when ANY returning racer is present.
     const returningRacers = useMemo(() => racers.filter((r) => !!r.bmiPersonId), [racers]);
     const hasReturning = returningRacers.length > 0;
 
-    // Modal state — pending heat awaits the customer's per-racer pick.
     const [pendingHeat, setPendingHeat] = useState<TrackedProposal | null>(null);
 
-    // Heats belonging to THIS category — keyed by productIds in the
-    // fetch plan (covers mixed-track packs whose heats[].productId
-    // differs from the parent product.productId).
     const categoryProductIds = useMemo(
       () => new Set(fetchPlan.map((f) => f.productId)),
       [fetchPlan],
@@ -250,18 +187,22 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       () => heatsForCategory(item, categoryProductIds),
       [item.heats, categoryProductIds],
     );
-    const pickedBlocks = useMemo(() => dedupeByHeatId(categoryHeats), [categoryHeats]);
+    const pickedBlocks = useMemo(() => {
+      const seen = new Set<string>();
+      const out: Array<{ heatId: string; track: TrackOrNull }> = [];
+      for (const h of categoryHeats) {
+        if (!h.heatId || seen.has(h.heatId)) continue;
+        seen.add(h.heatId);
+        out.push({ heatId: h.heatId, track: h.track as TrackOrNull });
+      }
+      return out;
+    }, [categoryHeats]);
     const pickedSet = new Set(pickedBlocks.map((p) => p.heatId));
     const atCap = pickedBlocks.length >= heatsNeeded;
 
-    // New-racer guard: when ANY racer in this category is new, filter
-    // out heats starting within NEW_RACER_LEAD_MINUTES of "now" so the
-    // customer can't pick a heat they wouldn't reach Guest Services in
-    // time for. Mirrors v1 HeatPicker:159-166.
     const anyNewInCategory = racers.some((r) => r.isNewRacer);
     const leadCutoffMs = anyNewInCategory ? Date.now() + NEW_RACER_LEAD_MINUTES * 60_000 : 0;
 
-    // Merged + time-sorted proposal list across all tracks for this product.
     const allProposals = useMemo<TrackedProposal[]>(() => {
       const list: TrackedProposal[] = [];
       queries.forEach((q, qi) => {
@@ -282,7 +223,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     const handleClickBlock = (tp: TrackedProposal) => {
       const blockId = tp.block.start;
-      // Toggle off: clear all heats[] entries for this block in this category.
       if (pickedSet.has(blockId)) {
         onChange({
           heats: item.heats.filter(
@@ -292,9 +232,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         return;
       }
       if (atCap) return;
-      // v1 split:
-      //  - any returning racer present → open modal (per-racer subset pick)
-      //  - else → book group (all racers in category, one entry each)
       if (hasReturning) {
         setPendingHeat(tp);
         return;
@@ -305,10 +242,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     const handleRacerSelectorConfirm = (selected: PartyMember[]) => {
       if (!pendingHeat) return;
-      // Returning racers go as INDIVIDUAL bill lines (one per selected).
-      // Any new racers in the category still go as a group at the same
-      // block (one entry per new racer too — at book time the BMI bill
-      // adds a group line for them).
       const selectedReturning = selected.filter((r) => !!r.bmiPersonId);
       const newRacersInCategory = racers.filter((r) => !r.bmiPersonId);
       const racersForThisLine = [...selectedReturning, ...newRacersInCategory];
@@ -325,30 +258,27 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     // Early returns
     if (!item.date) {
       return (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 text-sm text-amber-300">
+        <div className="bg-amber-500/8 rounded-xl border border-amber-500/30 p-4 text-sm text-amber-300">
           Pick a date first.
         </div>
       );
     }
     if (partySize === 0) {
       return (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 text-sm text-amber-300">
+        <div className="bg-amber-500/8 rounded-xl border border-amber-500/30 p-4 text-sm text-amber-300">
           No {category} racers in this party.
         </div>
       );
     }
     if (!product) {
       return (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4 text-sm text-amber-300">
+        <div className="bg-amber-500/8 rounded-xl border border-amber-500/30 p-4 text-sm text-amber-300">
           Pick a {category} race first.
         </div>
       );
     }
 
-    // Private event safety net — even though RaceDateStep already greys
-    // group-event dates, a customer could deep-link or back into a
-    // stale `item.date`. Render the v1 "Private Event" full-screen
-    // block so they can't book against a buyout. (v1 HeatPicker:211-237.)
+    // Private event guard — v1 HeatPicker:211-237
     const groupEventBlock = getGroupEventForDate(item.date);
     if (groupEventBlock) {
       const displayDate = new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
@@ -376,39 +306,33 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     const isLoading = queries.some((q) => q.isLoading);
     const hasError = queries.some((q) => q.isError);
-    const showTrackBadge = !!product.trackProducts;
     const displayDate = new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
       weekday: "long",
       month: "long",
       day: "numeric",
     });
-    const categoryLabel = category === "adult" ? "Adult" : "Junior";
 
     return (
       <div className="space-y-6">
+        {/* Header — v1 HeatPicker:241-248 */}
         <div className="text-center">
-          <p className="text-xs uppercase tracking-widest text-white/40">
-            {categoryLabel} · {product.name}
+          <h2 className="font-display mb-1 text-2xl tracking-widest text-white uppercase">
+            Pick a Heat
+          </h2>
+          <p className="text-sm text-white/50">
+            <span className="text-white/80">{product.name}</span> · {displayDate}
           </p>
-          <p className="mt-1 text-sm text-white/60">{displayDate}</p>
         </div>
 
-        <div className="mx-auto max-w-sm rounded-xl border border-white/10 bg-white/3 p-3 text-center">
+        {/* Racer count summary — v1 HeatPicker:251-258 */}
+        <div className="bg-white/3 mx-auto max-w-sm rounded-xl border border-white/8 p-3 text-center">
           <p className="text-xs text-white/50">
             Booking for{" "}
             <span className="font-semibold text-white">
-              {partySize} {categoryLabel.toLowerCase()} racer{partySize !== 1 ? "s" : ""}
+              {partySize} racer{partySize !== 1 ? "s" : ""}
             </span>
-            {heatsNeeded > 1 && (
-              <>
-                {" · "}
-                <span className="text-white/70">{heatsNeeded} heats each</span>
-              </>
-            )}
           </p>
         </div>
-
-        {heatsNeeded > 1 && <ProgressDots current={pickedBlocks.length} total={heatsNeeded} />}
 
         {isLoading ? (
           <div className="flex h-48 items-center justify-center">
@@ -419,10 +343,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             Couldn’t load time slots. Refresh and try again.
           </div>
         ) : allProposals.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/3 p-4 text-center text-sm text-white/50">
+          <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
             No heats available for this date.
           </div>
         ) : (
+          // Heat grid — v1 HeatPicker:280-412
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
             {allProposals.map((tp, idx) => {
               const block = tp.block;
@@ -435,58 +360,57 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 );
               const isLowCap = block.freeSpots < partySize;
               const isCapped = atCap && !isSelected;
-              const isDisabled = isLowCap || isConflict || isCapped;
-
-              const status = isConflict
-                ? { text: "text-amber-400", label: "Too close to picked heat" }
+              const isFull = isLowCap || isConflict || isCapped;
+              const statusLabel = isConflict
+                ? "Too close to picked heat"
                 : isLowCap
-                  ? {
-                      text: "text-red-400",
-                      label: `Need ${partySize}, only ${block.freeSpots} left`,
-                    }
+                  ? `Need ${partySize}, only ${block.freeSpots} left`
                   : isCapped
-                    ? { text: "text-white/40", label: "Unselect a picked heat to change" }
-                    : spotsLabel(block.freeSpots, block.capacity);
-
-              const trackTheme = tp.track ? TRACK_CARD[tp.track] : NEUTRAL_CARD;
-              const cardClass = isSelected
-                ? trackTheme.selected
-                : isDisabled
-                  ? DISABLED_CARD
-                  : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
-              const badge = tp.track ? TRACK_BADGE[tp.track] : null;
+                    ? "Unselect a picked heat to change"
+                    : spotsLabel(block.freeSpots, block.capacity).label;
+              const statusClass = isConflict
+                ? "text-amber-400"
+                : isLowCap
+                  ? "text-red-400"
+                  : isCapped
+                    ? "text-white/40"
+                    : spotsLabel(block.freeSpots, block.capacity).text;
 
               return (
                 <button
                   key={`${block.start}-${tp.productId}-${idx}`}
                   type="button"
-                  onClick={() => !isDisabled && handleClickBlock(tp)}
-                  disabled={isDisabled}
+                  onClick={() => !isFull && handleClickBlock(tp)}
+                  disabled={isFull}
                   title={isConflict ? HEAT_CONFLICT_TOOLTIP : undefined}
-                  className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
+                  className={`rounded-xl border p-3 text-left transition-all duration-150 ${
+                    isSelected
+                      ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
+                      : isFull
+                        ? "bg-white/3 cursor-not-allowed border-white/5 opacity-40"
+                        : "cursor-pointer border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10"
+                  }`}
                 >
-                  {showTrackBadge && badge && tp.track && (
-                    <div
-                      className={`mb-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase ${badge.bg} ${badge.text}`}
-                    >
-                      {tp.track}
-                    </div>
-                  )}
-                  <div className="mb-2 text-base font-bold text-white">
+                  <div className="mb-0.5 text-base font-bold text-white">
                     {formatTime(block.start)}
                   </div>
+                  <div className="mb-2 text-xs text-white/40">→ {formatTime(block.stop)}</div>
                   <div className="mb-1 text-xs font-medium text-white/60">{block.name}</div>
-                  <div className={`text-[13px] font-medium ${status.text}`}>{status.label}</div>
+                  <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
                   <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
                     <div
                       className={`h-full rounded-full ${
                         isLowCap
                           ? "bg-red-500"
-                          : block.freeSpots / block.capacity <= 0.3
-                            ? "bg-amber-400"
-                            : "bg-emerald-400"
+                          : isConflict
+                            ? "bg-amber-400/50"
+                            : block.freeSpots / block.capacity <= 0.3
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
                       }`}
-                      style={{ width: `${(block.freeSpots / block.capacity) * 100}%` }}
+                      style={{
+                        width: isConflict ? "100%" : `${(block.freeSpots / block.capacity) * 100}%`,
+                      }}
                     />
                   </div>
                 </button>
@@ -495,40 +419,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           </div>
         )}
 
-        {pickedBlocks.length > 0 && (
-          <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4">
-            <p className="mb-2 text-xs font-semibold tracking-wider text-green-400 uppercase">
-              Heats Selected
-            </p>
-            {pickedBlocks.map((p, i) => {
-              const assigned = categoryHeats
-                .filter((h) => h.heatId === p.heatId)
-                .map((h) => allRacers.find((r) => r.id === h.assignedTo)?.firstName)
-                .filter((name): name is string => !!name);
-              return (
-                <div
-                  key={p.heatId}
-                  className="flex items-center justify-between gap-2 text-sm text-white/70"
-                >
-                  <span>
-                    Race {i + 1}
-                    {p.track ? ` — ${p.track} Track` : ""}
-                  </span>
-                  <span className="flex items-center gap-2">
-                    {assigned.length > 0 && (
-                      <span className="text-xs text-white/40">{assigned.join(", ")}</span>
-                    )}
-                    <span className="text-white/40">{formatTime(p.heatId)}</span>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Reminders pane — v1 HeatPicker:469-479 verbatim. License
-            line only renders when the category has at least one new
-            racer (mirrors v1's `packageMode` gate). */}
+        {/* Reminders pane — v1 HeatPicker:469-479 */}
         <div className="bg-white/3 space-y-1 rounded-xl border border-white/8 p-4 text-xs text-white/40">
           <p>
             · Arrive <strong className="text-white/60">30 minutes early</strong> for check-in.
@@ -558,25 +449,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
   return Component;
 }
 
-function ProgressDots({ current, total }: { current: number; total: number }) {
-  return (
-    <div className="flex items-center justify-center gap-2">
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className={`h-2.5 w-2.5 rounded-full transition-colors ${
-            i < current
-              ? "bg-green-400"
-              : i === current
-                ? "bg-[#00E2E5] ring-2 ring-[#00E2E5]/30"
-                : "bg-white/15"
-          }`}
-        />
-      ))}
-    </div>
-  );
-}
-
 function hasCategory(session: { party: PartyMember[] }, category: Category): boolean {
   return session.party.some((m) => (m.category ?? "adult") === category);
 }
@@ -599,7 +471,6 @@ function canAdvanceFor(
     const remaining = heatsNeeded - distinctBlocks.size;
     return { reason: `Pick ${remaining} more ${category} heat${remaining === 1 ? "" : "s"}` };
   }
-  // Per-racer conflict check across this category's heats.
   const byMember = new Map<string, Array<{ start: string; track: string | null }>>();
   for (const h of categoryHeats) {
     if (!h.assignedTo || !h.heatId) continue;

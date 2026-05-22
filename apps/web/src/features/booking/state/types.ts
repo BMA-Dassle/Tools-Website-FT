@@ -140,12 +140,13 @@ export interface RaceItem extends BookingItemBase {
    */
   heats: RaceHeatAssignment[];
   /**
-   * Party-member ids who get a POV camera ($5/racer pre-pay; $7 at
-   * check-in). For new racers in the Rookie Pack flow, this contains
-   * every new racer's id. For existing racers, this is the customer's
-   * per-racer pick from the POV step. Empty = no POV.
+   * Number of POV cameras to pre-pay ($5/each online vs $7 at check-in).
+   * BMI sells POV as a flat qty SKU (productId 43746981), no per-racer
+   * attribution. For new racers in the Rookie Pack flow, this equals the
+   * count of new racers. For existing-racer flow, the qty stepper sets
+   * this directly. 0 = no POV.
    */
-  povRacerIds: string[];
+  povQuantity: number;
   /**
    * Race-day add-ons (Shuffly, Duckpin, Gel Blaster, Laser Tag). Each
    * entry carries the BMI productId, customer-picked quantity, and the
@@ -324,7 +325,7 @@ export function newItem(activity: Activity): SessionItem {
         productTrackAdult: null,
         productTrackJunior: null,
         heats: [],
-        povRacerIds: [],
+        povQuantity: 0,
         rookiePack: null,
         addons: [],
       };

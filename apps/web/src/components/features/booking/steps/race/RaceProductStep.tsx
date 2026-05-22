@@ -193,19 +193,14 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     return (
       <div className="space-y-6">
         <div className="space-y-2 text-center">
+          {/* v1 ProductPicker:121-130 verbatim — same titles for adult + junior */}
           <h3 className="font-display text-2xl tracking-widest text-white uppercase">
-            {racerType === "new"
-              ? category === "adult"
-                ? "Pick Your Starter Race"
-                : "Pick Your Junior Starter Race"
-              : category === "adult"
-                ? "Choose Your Race"
-                : "Choose Your Junior Race"}
+            {racerType === "new" ? "Pick Your Starter Race" : "Choose Your Race"}
           </h3>
           <p className="mx-auto max-w-md text-sm text-white/40">
             {racerType === "new"
-              ? `All first-time ${category}s start here. Pick the race that fits your group.`
-              : `Select a race your ${category}s have qualified for.`}
+              ? "All first-time racers start here. Pick the race that fits your group."
+              : "Select from races you've qualified for."}
           </p>
         </div>
 
@@ -308,10 +303,6 @@ function ProductCard({
       <p className="mt-1 text-xs leading-relaxed text-white/40">{tierDesc}</p>
 
       {displayTrack && <p className="mt-1 text-xs text-white/30">{displayTrack} Track</p>}
-
-      {isMulti && !isSelected && (
-        <p className="mt-1 text-xs text-amber-400/70">Choose Red or Blue track →</p>
-      )}
 
       {showNewBreakdown && (
         <div className="mt-3 space-y-1 text-xs">

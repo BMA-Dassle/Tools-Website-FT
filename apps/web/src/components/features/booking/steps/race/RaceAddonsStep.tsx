@@ -483,25 +483,35 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                     </div>
                   )}
 
-                  {/* Time slot picker — appears when addon is selected */}
-                  {isSelected && (
-                    <SlotPicker
-                      addon={addon}
-                      slots={timeSlots[addon.id]}
-                      loading={!!loadingSlots[addon.id]}
-                      selectedTime={entryById.get(addon.id)?.selectedTime ?? null}
-                      bookedHeats={bookedHeats}
-                      otherSelections={item.addons
+                  {/* Time slot picker — inlined per v1 AddOnsPage:470-597. */}
+                  {isSelected &&
+                    (() => {
+                      if (loadingSlots[addon.id]) {
+                        return (
+                          <div className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3 text-xs text-white/40">
+                            <div className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white/80" />
+                            Loading available times…
+                          </div>
+                        );
+                      }
+                      const slots = timeSlots[addon.id] ?? [];
+                      if (slots.length === 0) {
+                        return (
+                          <div className="mt-3 border-t border-white/10 pt-3">
+                            <p className="text-xs text-amber-400/70">
+                              No times available on this date
+                            </p>
+                          </div>
+                        );
+                      }
+                      const selectedTime = entryById.get(addon.id)?.selectedTime ?? null;
+                      const otherSelections = item.addons
                         .filter((a) => a.id !== addon.id && a.qty > 0 && a.selectedTime)
                         .map((a) => {
                           const def = ADD_ONS.find((x) => x.id === a.id)!;
                           const slot = timeSlots[a.id]?.find((s) => s.start === a.selectedTime);
                           return slot
-                            ? {
-                                start: slot.start,
-                                stop: slot.stop,
-                                location: def.location,
-                              }
+                            ? { start: slot.start, stop: slot.stop, location: def.location }
                             : null;
                         })
                         .filter(
@@ -509,10 +519,102 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                             x,
                           ): x is { start: string; stop: string; location: AddonDef["location"] } =>
                             !!x,
-                        )}
-                      onPick={(start) => writeEntry(addon.id, { selectedTime: start })}
-                    />
-                  )}
+                        );
+                      type Pill =
+                        | { kind: "slot"; data: TimeSlot }
+                        | { kind: "race"; start: string; trackColor: string };
+                      const pills: Pill[] = [
+                        ...slots.map((s): Pill => ({ kind: "slot", data: s })),
+                        ...bookedHeats.map((h): Pill => {
+                          const color =
+                            h.track === "Red"
+                              ? "#E53935"
+                              : h.track === "Blue"
+                                ? "#004AAD"
+                                : h.track === "Mega"
+                                  ? "#A855F7"
+                                  : "#00E2E5";
+                          return { kind: "race", start: h.start, trackColor: color };
+                        }),
+                      ];
+                      pills.sort((a, b) => {
+                        const at = a.kind === "slot" ? a.data.start : a.start;
+                        const bt = b.kind === "slot" ? b.data.start : b.start;
+                        return at.localeCompare(bt);
+                      });
+                      return (
+                        <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+                          <p className="text-xs font-semibold tracking-wider text-white/50 uppercase">
+                            Select a time
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {pills.map((p, i) => {
+                              if (p.kind === "race") {
+                                return (
+                                  <span
+                                    key={`race-${i}`}
+                                    className="cursor-not-allowed rounded-lg border-2 px-3 py-1.5 text-xs font-bold opacity-70"
+                                    style={{
+                                      borderColor: p.trackColor,
+                                      color: p.trackColor,
+                                      backgroundColor: `${p.trackColor}15`,
+                                    }}
+                                    title="Your race"
+                                  >
+                                    {formatTime(p.start)} 🏎️
+                                  </span>
+                                );
+                              }
+                              const slot = p.data;
+                              const isChosen = selectedTime === slot.start;
+                              const slotStartMs = parseLocal(slot.start).getTime();
+                              const slotStopMs = parseLocal(slot.stop).getTime();
+                              const conflictsWithOther = otherSelections.some((o) => {
+                                const buffer =
+                                  o.location === addon.location ? 0 : CROSS_BUILDING_BUFFER_MS;
+                                const oStart = parseLocal(o.start).getTime();
+                                const oStop = parseLocal(o.stop).getTime();
+                                return slotStartMs < oStop + buffer && slotStopMs > oStart - buffer;
+                              });
+                              if (conflictsWithOther) {
+                                return (
+                                  <span
+                                    key={`slot-${slot.start}`}
+                                    className="bg-white/3 cursor-not-allowed rounded-lg border border-white/5 px-3 py-1.5 text-xs font-semibold text-white/15"
+                                    title="Conflicts with another activity"
+                                  >
+                                    {formatTime(slot.start)}
+                                  </span>
+                                );
+                              }
+                              return (
+                                <button
+                                  key={`slot-${slot.start}`}
+                                  type="button"
+                                  onClick={() => writeEntry(addon.id, { selectedTime: slot.start })}
+                                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                                    isChosen
+                                      ? "bg-[#00E2E5] text-[#000418]"
+                                      : "border border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
+                                  }`}
+                                >
+                                  {formatTime(slot.start)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {selectedTime &&
+                            (() => {
+                              const s = slots.find((x) => x.start === selectedTime);
+                              return s ? (
+                                <p className="text-xs text-white/30">
+                                  {formatTime(s.start)} — {formatTime(s.stop)}
+                                </p>
+                              ) : null;
+                            })()}
+                        </div>
+                      );
+                    })()}
                 </div>
               </div>
             </div>
@@ -539,134 +641,6 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
     </div>
   );
 };
-
-function SlotPicker({
-  addon,
-  slots,
-  loading,
-  selectedTime,
-  bookedHeats,
-  otherSelections,
-  onPick,
-}: {
-  addon: AddonDef;
-  slots: TimeSlot[] | undefined;
-  loading: boolean;
-  selectedTime: string | null;
-  bookedHeats: Array<{ start: string; stop: string; track: string | null }>;
-  otherSelections: Array<{ start: string; stop: string; location: AddonDef["location"] }>;
-  onPick: (start: string) => void;
-}) {
-  if (loading) {
-    return (
-      <div className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3 text-xs text-white/40">
-        <div className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white/80" />
-        Loading available times…
-      </div>
-    );
-  }
-  const list = slots ?? [];
-  if (list.length === 0) {
-    return (
-      <div className="mt-3 border-t border-white/10 pt-3">
-        <p className="text-xs text-amber-400/70">No times available on this date</p>
-      </div>
-    );
-  }
-
-  // Merge race heats into the timeline display.
-  type Pill =
-    | { kind: "slot"; data: TimeSlot }
-    | { kind: "race"; start: string; trackColor: string };
-  const pills: Pill[] = [
-    ...list.map((s): Pill => ({ kind: "slot", data: s })),
-    ...bookedHeats.map((h): Pill => {
-      const color =
-        h.track === "Red"
-          ? "#E53935"
-          : h.track === "Blue"
-            ? "#004AAD"
-            : h.track === "Mega"
-              ? "#A855F7"
-              : "#00E2E5";
-      return { kind: "race", start: h.start, trackColor: color };
-    }),
-  ];
-  pills.sort((a, b) => {
-    const aTime = a.kind === "slot" ? a.data.start : a.start;
-    const bTime = b.kind === "slot" ? b.data.start : b.start;
-    return aTime.localeCompare(bTime);
-  });
-
-  return (
-    <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
-      <p className="text-xs font-semibold tracking-wider text-white/50 uppercase">Select a time</p>
-      <div className="flex flex-wrap gap-1.5">
-        {pills.map((p, i) => {
-          if (p.kind === "race") {
-            return (
-              <span
-                key={`race-${i}`}
-                className="cursor-not-allowed rounded-lg border-2 px-3 py-1.5 text-xs font-bold opacity-70"
-                style={{
-                  borderColor: p.trackColor,
-                  color: p.trackColor,
-                  backgroundColor: `${p.trackColor}15`,
-                }}
-                title="Your race"
-              >
-                {formatTime(p.start)} 🏎️
-              </span>
-            );
-          }
-          const slot = p.data;
-          const isChosen = selectedTime === slot.start;
-          const slotStartMs = parseLocal(slot.start).getTime();
-          const slotStopMs = parseLocal(slot.stop).getTime();
-          const conflictsWithOther = otherSelections.some((o) => {
-            const buffer = o.location === addon.location ? 0 : CROSS_BUILDING_BUFFER_MS;
-            const oStart = parseLocal(o.start).getTime();
-            const oStop = parseLocal(o.stop).getTime();
-            return slotStartMs < oStop + buffer && slotStopMs > oStart - buffer;
-          });
-          if (conflictsWithOther) {
-            return (
-              <span
-                key={`slot-${slot.start}`}
-                className="bg-white/3 cursor-not-allowed rounded-lg border border-white/5 px-3 py-1.5 text-xs font-semibold text-white/15"
-                title="Conflicts with another activity"
-              >
-                {formatTime(slot.start)}
-              </span>
-            );
-          }
-          return (
-            <button
-              key={`slot-${slot.start}`}
-              type="button"
-              onClick={() => onPick(slot.start)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                isChosen
-                  ? "bg-[#00E2E5] text-[#000418]"
-                  : "border border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              {formatTime(slot.start)}
-            </button>
-          );
-        })}
-      </div>
-      {selectedTime && (
-        <p className="text-xs text-white/30">
-          {(() => {
-            const s = list.find((x) => x.start === selectedTime);
-            return s ? `${formatTime(s.start)} — ${formatTime(s.stop)}` : null;
-          })()}
-        </p>
-      )}
-    </div>
-  );
-}
 
 export const RaceAddonsStep: StepDef<RaceItem> = {
   id: "race-addons",
