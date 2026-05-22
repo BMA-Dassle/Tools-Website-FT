@@ -109,18 +109,12 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
         const lastDay = daysInMonth(year, month);
         const dateTill = `${year}-${pad(month + 1)}-${pad(lastDay)}`;
 
-        // BMI's GET /availability date-level can mark today as status:1 even
-        // when slots exist — POST /availability is authoritative. Force today
-        // into the available set when it falls in the viewed month; HeatPicker
-        // is the real "is anything bookable?" gate. (v1 DatePicker.tsx:84.)
-        const forceToday = todayStr >= dateFrom && todayStr <= dateTill ? [todayStr] : [];
-
         const [megaDays, ...regularResults] = await Promise.all([
           fetchCalendarDays(MEGA_PRODUCT_ID, dateFrom, dateTill),
           ...REGULAR_PRODUCT_IDS.map((id) => fetchCalendarDays(id, dateFrom, dateTill)),
         ]);
 
-        const allDates = new Set<string>([...megaDays, ...regularResults.flat(), ...forceToday]);
+        const allDates = new Set<string>([...megaDays, ...regularResults.flat()]);
         setAvailableDates(allDates);
         setMegaDates(new Set(megaDays));
         return { all: [...allDates], mega: megaDays };
@@ -282,7 +276,7 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
                           ? isMega
                             ? "cursor-pointer bg-[#A855F7]/20 text-[#C084FC] hover:bg-[#A855F7]/35"
                             : "cursor-pointer bg-[#00E2E5]/15 text-[#00E2E5] hover:bg-[#00E2E5]/30"
-                          : "cursor-not-allowed text-white/20") +
+                          : "cursor-not-allowed text-white/8") +
                     (isToday && !isSelected && !groupEvent ? " ring-1 ring-white/30" : "")
                   }
                 >

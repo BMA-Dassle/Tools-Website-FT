@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
+import { getRaceProductById } from "~/features/booking/service/race-products";
 
 /**
  * Race step — race-day add-ons (Shuffly, Duckpin, Gel Blaster, Laser Tag).
@@ -26,9 +27,6 @@ import type { RaceItem, StepDef } from "~/features/booking";
  * Checkout (commit 10) iterates entries with qty > 0 and BMI sells each
  * line on the combined bill.
  */
-
-const HEADPINZ_LOGO =
-  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo-9aUwk9v1Z8LcHZP5chi50PnSbDWpSg.png";
 
 type AddonDef = {
   id: string;
@@ -145,18 +143,20 @@ function formatTime(iso: string): string {
 
 function bookedHeatsFromItem(
   item: RaceItem,
-): Array<{ start: string; stop: string; track: string | null }> {
-  // Dedup by heatId (v2 stores one entry per racer × heat).
+): Array<{ start: string; stop: string; track: string | null; label: string }> {
   const seen = new Set<string>();
-  const out: Array<{ start: string; stop: string; track: string | null }> = [];
+  const out: Array<{ start: string; stop: string; track: string | null; label: string }> = [];
   for (const h of item.heats) {
     if (!h.heatId || seen.has(h.heatId)) continue;
     seen.add(h.heatId);
     const startMs = parseLocal(h.heatId).getTime();
+    const product = h.productId ? getRaceProductById(h.productId) : null;
+    const label = product ? product.name : (h.track ?? "Race");
     out.push({
       start: h.heatId,
       stop: new Date(startMs + HEAT_DURATION_MS).toISOString().replace(/\.\d{3}Z$/, ""),
       track: h.track,
+      label,
     });
   }
   return out;
@@ -332,14 +332,13 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                     : h.track === "Mega"
                       ? "#A855F7"
                       : "#00E2E5";
-              const display = h.track ?? "Race";
               return (
                 <span
                   key={i}
                   className="rounded-full border px-3 py-1 text-xs font-semibold"
                   style={{ borderColor: color, color, backgroundColor: `${color}15` }}
                 >
-                  🏎️ {formatTime(h.start)} — {display}
+                  🏎️ {formatTime(h.start)} — {h.label}
                 </span>
               );
             })}
@@ -410,13 +409,24 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                     )}
                     {addon.location === "headpinz" && (
                       <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-amber-400/80">
-                        <Image
-                          src={HEADPINZ_LOGO}
-                          alt=""
-                          width={12}
-                          height={12}
-                          className="h-3 w-3"
-                        />
+                        <svg
+                          className="h-3 w-3 shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                        </svg>
                         Located at HeadPinz — right next door to FastTrax
                       </p>
                     )}
@@ -439,7 +449,7 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                           <button
                             type="button"
                             onClick={() => setQty(addon, qty - 1)}
-                            className="flex h-7 w-7 items-center justify-center rounded border border-white/20 text-sm text-white/50 transition-colors hover:border-white/40 hover:text-white"
+                            className="flex h-8 w-8 items-center justify-center rounded border border-white/20 text-sm text-white/50 transition-colors hover:border-white/40 hover:text-white"
                           >
                             -
                           </button>
@@ -449,7 +459,7 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                           <button
                             type="button"
                             onClick={() => setQty(addon, qty + 1)}
-                            className="flex h-7 w-7 items-center justify-center rounded border border-white/20 text-sm text-white/50 transition-colors hover:border-white/40 hover:text-white"
+                            className="flex h-8 w-8 items-center justify-center rounded border border-white/20 text-sm text-white/50 transition-colors hover:border-white/40 hover:text-white"
                           >
                             +
                           </button>
@@ -522,7 +532,7 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                         );
                       type Pill =
                         | { kind: "slot"; data: TimeSlot }
-                        | { kind: "race"; start: string; trackColor: string };
+                        | { kind: "race"; start: string; trackColor: string; label: string };
                       const pills: Pill[] = [
                         ...slots.map((s): Pill => ({ kind: "slot", data: s })),
                         ...bookedHeats.map((h): Pill => {
@@ -534,7 +544,12 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                                 : h.track === "Mega"
                                   ? "#A855F7"
                                   : "#00E2E5";
-                          return { kind: "race", start: h.start, trackColor: color };
+                          return {
+                            kind: "race",
+                            start: h.start,
+                            trackColor: color,
+                            label: h.label,
+                          };
                         }),
                       ];
                       pills.sort((a, b) => {
@@ -553,7 +568,7 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                                 return (
                                   <span
                                     key={`race-${i}`}
-                                    className="cursor-not-allowed rounded-lg border-2 px-3 py-1.5 text-xs font-bold opacity-70"
+                                    className="cursor-not-allowed rounded-lg border-2 px-3 py-1.5 text-xs font-bold"
                                     style={{
                                       borderColor: p.trackColor,
                                       color: p.trackColor,
@@ -561,7 +576,7 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                                     }}
                                     title="Your race"
                                   >
-                                    {formatTime(p.start)} 🏎️
+                                    🏎️ {formatTime(p.start)} — {p.label}
                                   </span>
                                 );
                               }
@@ -580,7 +595,7 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
                                 return (
                                   <span
                                     key={`slot-${slot.start}`}
-                                    className="bg-white/3 cursor-not-allowed rounded-lg border border-white/5 px-3 py-1.5 text-xs font-semibold text-white/15"
+                                    className="cursor-not-allowed rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/30 line-through"
                                     title="Conflicts with another activity"
                                   >
                                     {formatTime(slot.start)}
@@ -635,7 +650,12 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
             <p className="text-lg font-bold text-[#00E2E5]">+${totalCost.toFixed(2)}</p>
           </div>
         ) : (
-          <p className="text-center text-sm text-white/30">No add-ons selected</p>
+          <div className="text-center">
+            <p className="text-sm text-white/30">No add-ons selected</p>
+            <p className="mt-1 text-xs text-white/20">
+              Add-ons are optional — tap Next to continue without them.
+            </p>
+          </div>
         )}
       </div>
     </div>

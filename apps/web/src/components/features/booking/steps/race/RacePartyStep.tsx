@@ -1,30 +1,36 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
+import { tierFromMemberships } from "~/features/booking/service/race-products";
+import { ExperiencePicker } from "./ExperiencePicker";
+import { ReturningRacerLookup, type PersonData } from "./ReturningRacerLookup";
 
-/**
- * Race step — build the party roster.
- *
- * Writes to SESSION.party (not the active RaceItem) via dispatch. The
- * step's "Add me" button copies the billing customer's contact info
- * (collected at the checkout step in commit 10) into the party with
- * `isBillingCustomer: true`. Without contact, that quick-add is hidden.
- *
- * Each member carries: firstName, optional lastName, isNewRacer (drives
- * Starter-only filter + license fee), category (adult/junior — drives
- * race product eligibility).
- *
- * canAdvance requires at least one member because heat assignments
- * downstream need someone to assign to.
- */
+const TIER_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  pro: { bg: "bg-[#E53935]/15", text: "text-[#E53935]", label: "Pro" },
+  intermediate: { bg: "bg-[#8652FF]/15", text: "text-[#8652FF]", label: "Intermediate" },
+  starter: { bg: "bg-[#00E2E5]/15", text: "text-[#00E2E5]", label: "Starter" },
+};
+
+interface LinkedPerson {
+  id: string;
+  firstName: string;
+  lastName: string;
+  birthdate: string | null;
+}
 
 const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispatch }) => {
+  const [experienceType, setExperienceType] = useState<"new" | "existing" | null>(null);
+  const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
+  const [linkedPersons, setLinkedPersons] = useState<LinkedPerson[]>([]);
+  const [linkedLoading, setLinkedLoading] = useState(false);
+
   const billingFirstName = session.contact.firstName?.trim();
   const billingLastName = session.contact.lastName?.trim();
   const billingAlreadyAdded = session.party.some((m) => m.isBillingCustomer);
 
-  const addBlankMember = () => {
+  const addNewMember = () => {
     dispatch({
       type: "addPartyMember",
       member: newPartyMember({ firstName: "", isNewRacer: true, category: "adult" }),
@@ -38,12 +44,165 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
       member: newPartyMember({
         firstName: billingFirstName,
         lastName: billingLastName,
-        isNewRacer: true,
+        isNewRacer: experienceType !== "existing",
         category: "adult",
         isBillingCustomer: true,
       }),
     });
   };
+
+  function handlePersonVerified(person: PersonData) {
+    setVerifiedPerson(person);
+
+    const age = person.birthDate
+      ? Math.floor(
+          (Date.now() - new Date(person.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000),
+        )
+      : null;
+    const category: "adult" | "junior" = age !== null && age < 13 ? "junior" : "adult";
+
+    dispatch({
+      type: "addPartyMember",
+      member: newPartyMember({
+        firstName: person.fullName.split(" ")[0] || person.fullName,
+        lastName: person.fullName.split(" ").slice(1).join(" ") || undefined,
+        bmiPersonId: person.personId,
+        isNewRacer: false,
+        category,
+        isBillingCustomer: true,
+      }),
+    });
+
+    dispatch({
+      type: "setContact",
+      patch: {
+        firstName: person.fullName.split(" ")[0] || "",
+        lastName: person.fullName.split(" ").slice(1).join(" ") || "",
+        email: person.email || undefined,
+        phone: person.phone || undefined,
+      },
+    });
+
+    // Fetch linked family members from Pandora
+    fetchLinkedPersons(person.personId);
+  }
+
+  async function fetchLinkedPersons(personId: string) {
+    setLinkedLoading(true);
+    try {
+      const res = await fetch(`/api/pandora?personId=${personId}&picture=false`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const rawRelated: unknown[] = data.related || [];
+      if (rawRelated.length === 0) return;
+      // Pandora may return plain string IDs or objects with an id field
+      const relatedIds: string[] = rawRelated
+        .map((r) => (typeof r === "string" ? r : ((r as { id?: string })?.id ?? "")))
+        .filter(Boolean);
+
+      const details = await Promise.all(
+        relatedIds.map(async (rid: string) => {
+          try {
+            const r = await fetch(`/api/pandora?personId=${rid}&picture=false`);
+            if (!r.ok) return null;
+            const p = await r.json();
+            const first = p.firstName || "";
+            const last = p.lastName || "";
+            if (!first && !last) return null;
+            return {
+              id: rid,
+              firstName: first,
+              lastName: last,
+              birthdate: p.birthdate || null,
+            } satisfies LinkedPerson;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setLinkedPersons(details.filter((p): p is LinkedPerson => p !== null));
+    } catch {
+      /* non-fatal */
+    } finally {
+      setLinkedLoading(false);
+    }
+  }
+
+  async function handleAddLinkedRacer(lp: LinkedPerson) {
+    const age = lp.birthdate
+      ? Math.floor((Date.now() - new Date(lp.birthdate).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+      : null;
+    const category: "adult" | "junior" = age !== null && age < 13 ? "junior" : "adult";
+
+    // Look up BMI person details for this linked Pandora ID
+    let bmiPersonId: string | undefined;
+    try {
+      const searchRes = await fetch(
+        `/api/bmi-office?action=search&q=${encodeURIComponent(lp.id)}&max=5`,
+      );
+      const results = (await searchRes.json()) as Array<{ localId: string }>;
+      if (results.length > 0) {
+        const detailRes = await fetch(`/api/bmi-office?action=person&id=${results[0].localId}`);
+        const p = await detailRes.json();
+        bmiPersonId = String(p.id);
+      }
+    } catch {
+      /* non-fatal — add without BMI ID */
+    }
+
+    dispatch({
+      type: "addPartyMember",
+      member: newPartyMember({
+        firstName: lp.firstName,
+        lastName: lp.lastName || undefined,
+        bmiPersonId,
+        isNewRacer: false,
+        category,
+      }),
+    });
+  }
+
+  // ── Experience picker (first screen) ──────────────────────
+
+  if (experienceType === null) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <h3 className="font-display text-2xl uppercase tracking-widest text-white">
+            Welcome to FastTrax
+          </h3>
+          <p className="mt-1 text-sm text-white/50">Have you raced with us before?</p>
+        </div>
+        <ExperiencePicker selected={null} onSelect={setExperienceType} />
+      </div>
+    );
+  }
+
+  // ── Returning racer lookup ────────────────────────────────
+
+  if (experienceType === "existing" && !verifiedPerson) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <h3 className="font-display text-2xl uppercase tracking-widest text-white">
+            Find Your Account
+          </h3>
+          <p className="mt-1 text-sm text-white/50">
+            Log in to unlock your earned speeds and saved cards
+          </p>
+        </div>
+        <ReturningRacerLookup
+          onVerified={handlePersonVerified}
+          onSwitchToNew={() => setExperienceType("new")}
+        />
+      </div>
+    );
+  }
+
+  // ── Party roster ──────────────────────────────────────────
+
+  const alreadyAddedIds = new Set(session.party.map((m) => m.bmiPersonId).filter(Boolean));
+  const availableLinked = linkedPersons.filter((lp) => !alreadyAddedIds.has(lp.id));
 
   return (
     <div className="space-y-6">
@@ -67,6 +226,11 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
               <PartyMemberRow
                 key={member.id}
                 member={member}
+                verifiedPerson={
+                  member.bmiPersonId && verifiedPerson?.personId === member.bmiPersonId
+                    ? verifiedPerson
+                    : null
+                }
                 onUpdate={(patch) => dispatch({ type: "updatePartyMember", id: member.id, patch })}
                 onRemove={() => dispatch({ type: "removePartyMember", id: member.id })}
               />
@@ -74,6 +238,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
           </ul>
         )}
 
+        {/* Add member buttons */}
         <div className="flex flex-wrap gap-2 pt-2">
           {billingFirstName && !billingAlreadyAdded && (
             <button
@@ -86,18 +251,56 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
           )}
           <button
             type="button"
-            onClick={addBlankMember}
+            onClick={addNewMember}
             className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
           >
-            + Add party member
+            + Add new racer
           </button>
         </div>
 
-        <p className="pt-3 text-xs text-white/40">
-          Raced with us before? Returning-racer lookup is coming in the next update — for now
-          everyone is treated as new. Your account&apos;s race tier will unlock additional product
-          options once we wire the BMI verification flow.
-        </p>
+        {/* Linked family members from Pandora */}
+        {linkedLoading && (
+          <div className="flex items-center gap-2 pt-2 text-xs text-white/40">
+            <div className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white/80" />
+            Loading linked racers…
+          </div>
+        )}
+        {availableLinked.length > 0 && (
+          <div className="pt-2">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+              Linked Racers — tap to add
+            </p>
+            <div className="space-y-2">
+              {availableLinked.map((lp) => {
+                const displayName =
+                  [lp.firstName, lp.lastName].filter(Boolean).join(" ") || "Unknown";
+                const age = lp.birthdate
+                  ? Math.floor(
+                      (Date.now() - new Date(lp.birthdate).getTime()) /
+                        (365.25 * 24 * 60 * 60 * 1000),
+                    )
+                  : null;
+                return (
+                  <button
+                    key={lp.id}
+                    type="button"
+                    onClick={() => handleAddLinkedRacer(lp)}
+                    className="flex w-full items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/8 p-3 text-left transition-colors hover:border-emerald-500/50 hover:bg-emerald-500/15"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-white">{displayName}</p>
+                      <p className="text-xs text-white/40">
+                        {age !== null ? `Age ${age}` : "Returning racer"}
+                        {age !== null && age < 13 ? " · Junior" : ""}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs font-bold text-emerald-400">+ Add</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -105,17 +308,24 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
 
 function PartyMemberRow({
   member,
+  verifiedPerson,
   onUpdate,
   onRemove,
 }: {
   member: PartyMember;
+  verifiedPerson: PersonData | null;
   onUpdate: (patch: Partial<PartyMember>) => void;
   onRemove: () => void;
 }) {
+  const tier = verifiedPerson
+    ? tierFromMemberships(verifiedPerson.memberships).toLowerCase()
+    : null;
+  const tierInfo = tier ? TIER_BADGE[tier] : null;
+
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex-1 min-w-[8rem]">
+        <label className="min-w-32 flex-1">
           <span className="block text-xs uppercase tracking-wider text-white/40">First name</span>
           <input
             type="text"
@@ -125,7 +335,7 @@ function PartyMemberRow({
             placeholder="Alex"
           />
         </label>
-        <label className="flex-1 min-w-[8rem]">
+        <label className="min-w-32 flex-1">
           <span className="block text-xs uppercase tracking-wider text-white/40">Last name</span>
           <input
             type="text"
@@ -137,11 +347,16 @@ function PartyMemberRow({
         </label>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
         <CategoryToggle
           value={member.category ?? "adult"}
           onChange={(category) => onUpdate({ category })}
         />
+        {member.isNewRacer && (
+          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-400">
+            New
+          </span>
+        )}
         {member.isBillingCustomer && (
           <span className="rounded-full bg-[#00E2E5]/15 px-2 py-0.5 text-xs font-semibold text-[#00E2E5]">
             Paying
@@ -149,7 +364,24 @@ function PartyMemberRow({
         )}
         {member.bmiPersonId && (
           <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
-            ✓ Returning racer
+            ✓ Returning
+          </span>
+        )}
+        {tierInfo && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tierInfo.bg} ${tierInfo.text}`}
+          >
+            {tierInfo.label}
+          </span>
+        )}
+        {verifiedPerson?.waiverValid && (
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+            Express Lane
+          </span>
+        )}
+        {verifiedPerson?.creditBalances && verifiedPerson.creditBalances.length > 0 && (
+          <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs text-green-400">
+            {verifiedPerson.creditBalances.map((c) => `${c.balance} ${c.kind}`).join(", ")}
           </span>
         )}
         <button

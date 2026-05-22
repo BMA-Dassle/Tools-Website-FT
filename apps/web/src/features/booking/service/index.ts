@@ -47,6 +47,8 @@ export interface BookingService {
  * fail loudly in dev rather than silently 200.
  */
 export function getService(activity: Activity): BookingService {
+  if (activity === "race") return raceService;
+
   const notYet = (op: string) => (): Promise<never> => {
     throw new Error(`booking.${activity}.${op}() not implemented (PR-B1 scaffold)`);
   };
@@ -57,3 +59,32 @@ export function getService(activity: Activity): BookingService {
     cancel: notYet("cancel"),
   };
 }
+
+// ── Race service (PR-B2) ────────────────────────────────────────────────
+
+import { holdRaceItem, confirmRaceOrder, cancelRaceOrder } from "./race";
+
+const raceService: BookingService = {
+  quote: () => {
+    throw new Error("race.quote() not needed — checkout uses bill overview");
+  },
+  hold: (input) => {
+    const { session, item, dispatch } = input as {
+      session: import("../state/types").BookingSession;
+      item: import("../state/types").RaceItem;
+      dispatch: import("react").Dispatch<import("../state/machine").Action>;
+    };
+    return holdRaceItem(session, item, dispatch).then((r) => ({
+      holdId: r.bmiBillId,
+      squareOrderId: "",
+    }));
+  },
+  confirm: async (input) => {
+    await confirmRaceOrder(input.holdId);
+    return { ok: true as const };
+  },
+  cancel: async (input) => {
+    await cancelRaceOrder(input.holdId);
+    return { ok: true as const };
+  },
+};

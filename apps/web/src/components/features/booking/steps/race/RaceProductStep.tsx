@@ -11,6 +11,8 @@ import {
   type RacerType,
 } from "~/features/booking/service/race-products";
 import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-pricing";
+import { eligiblePackages, type PackageDefinition } from "~/features/booking/service/packages";
+import { PackageCard } from "./PackageCard";
 
 /**
  * Race step — pick the product for ONE category (adult or junior).
@@ -82,6 +84,12 @@ const TIER_DESCRIPTIONS: Record<RaceTier, string> = {
 
 const TIER_ORDER: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
 
+const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
+  Red: { bg: "bg-red-500/20", text: "text-red-400" },
+  Blue: { bg: "bg-blue-500/20", text: "text-blue-400" },
+  Mega: { bg: "bg-[#A855F7]/20", text: "text-[#C084FC]" },
+};
+
 // Track image + copy used inside TrackPickerModal — verbatim port from v1.
 const TRACK_INFO: Record<
   string,
@@ -120,6 +128,16 @@ function racersOfCategory(
 
 function isMultiTrack(product: RaceProduct): boolean {
   return !!product.trackProducts && Object.keys(product.trackProducts).length > 1;
+}
+
+function groupByTier(products: RaceProduct[]): [RaceTier, RaceProduct[]][] {
+  const groups = new Map<RaceTier, RaceProduct[]>();
+  for (const p of products) {
+    const list = groups.get(p.tier) ?? [];
+    list.push(p);
+    groups.set(p.tier, list);
+  }
+  return [...groups.entries()].sort(([a], [b]) => TIER_ORDER[a] - TIER_ORDER[b]);
 }
 
 function makeProductStepComponent(category: Category): StepDef<RaceItem>["Component"] {
@@ -161,6 +179,13 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       if (ta !== tb) return ta - tb;
       return (a.raceCount ?? 1) - (b.raceCount ?? 1);
     });
+
+    const packages = useMemo(() => {
+      const schedule = scheduleForDate(item.date as string);
+      return eligiblePackages({ racerType, schedule, category });
+    }, [item.date, racerType]);
+
+    const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
     const selectedTrack = category === "adult" ? item.productTrackAdult : item.productTrackJunior;
@@ -204,17 +229,57 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
           </p>
         </div>
 
-        <div className="grid gap-3">
-          {sorted.map((product) => (
-            <ProductCard
-              key={product.productId}
-              product={product}
-              isSelected={selectedProductId === product.productId}
-              selectedTrack={selectedTrack}
-              onSelect={() => handleCardClick(product)}
-              racerType={racerType}
-              racerCount={racerCount}
-            />
+        {packages.length > 0 && (
+          <div className="space-y-3">
+            {packages.map((pkg) => (
+              <PackageCard
+                key={pkg.id}
+                pkg={pkg}
+                racerCount={racerCount}
+                date={item.date}
+                isSelected={selectedPackageId === pkg.id}
+                onSelect={() => {
+                  setSelectedPackageId(pkg.id);
+                  // Clear individual product pick when selecting a package
+                  setProductWithTrack("", null);
+                }}
+              />
+            ))}
+            <div className="flex items-center gap-3 py-2">
+              <div className="h-px flex-1 bg-white/10" />
+              <span className="text-xs uppercase tracking-wider text-white/30">
+                or pick a single race
+              </span>
+              <div className="h-px flex-1 bg-white/10" />
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-6">
+          {groupByTier(sorted).map(([tier, tierProducts]) => (
+            <div key={tier}>
+              <div className="mb-2 flex items-center gap-2">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${TIER_COLOR[tier].badge}`}
+                >
+                  {TIER_LABEL[tier]}
+                </span>
+                <div className="h-px flex-1 bg-white/10" />
+              </div>
+              <div className="grid gap-3">
+                {tierProducts.map((product) => (
+                  <ProductCard
+                    key={product.productId}
+                    product={product}
+                    isSelected={selectedProductId === product.productId}
+                    selectedTrack={selectedTrack}
+                    onSelect={() => handleCardClick(product)}
+                    racerType={racerType}
+                    racerCount={racerCount}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
 
@@ -262,21 +327,29 @@ function ProductCard({
   const perRacerTotal = product.price + licensePerRacer;
   const groupTotal = perRacerTotal * racers;
 
+  // Display track: for multi-track packs after a choice has been made,
+  // show the chosen track inline (matches v1 ProductPicker:283 behavior).
+  const displayTrack = isMulti && isSelected ? selectedTrack : product.track;
+
+  const trackAccent: Record<string, string> = {
+    Red: "#E53935",
+    Blue: "#2196F3",
+    Mega: "#A855F7",
+  };
+  const leftBorderColor = displayTrack ? trackAccent[displayTrack] : undefined;
+
   const baseClasses = "text-left rounded-xl border p-4 transition-all duration-200 w-full";
   const selectedClasses = `${c.border} ${c.bg} ring-2 ring-offset-2 ring-offset-[#010A20]`;
   const packClasses =
     "border-amber-500/20 bg-amber-500/5 hover:border-amber-500/40 hover:bg-amber-500/10";
   const regularClasses = "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/8";
 
-  // Display track: for multi-track packs after a choice has been made,
-  // show the chosen track inline (matches v1 ProductPicker:283 behavior).
-  const displayTrack = isMulti && isSelected ? selectedTrack : product.track;
-
   return (
     <button
       type="button"
       onClick={onSelect}
       className={`${baseClasses} ${isSelected ? selectedClasses : isPack ? packClasses : regularClasses}`}
+      style={leftBorderColor ? { borderLeftWidth: 4, borderLeftColor: leftBorderColor } : undefined}
     >
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -287,6 +360,13 @@ function ProductCard({
           {isPack && (
             <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-400">
               {product.raceCount}-Race Pack
+            </span>
+          )}
+          {displayTrack && TRACK_BADGE[displayTrack] && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-bold ${TRACK_BADGE[displayTrack].bg} ${TRACK_BADGE[displayTrack].text}`}
+            >
+              {displayTrack} Track
             </span>
           )}
         </div>
@@ -301,8 +381,6 @@ function ProductCard({
       </div>
 
       <p className="mt-1 text-xs leading-relaxed text-white/40">{tierDesc}</p>
-
-      {displayTrack && <p className="mt-1 text-xs text-white/30">{displayTrack} Track</p>}
 
       {showNewBreakdown && (
         <div className="mt-3 space-y-1 text-xs">

@@ -339,8 +339,15 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
           </div>
         ) : hasError ? (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-center text-sm text-red-300">
-            Couldn’t load time slots. Refresh and try again.
+          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-center">
+            <p className="text-sm text-red-300">Couldn&apos;t load time slots.</p>
+            <button
+              type="button"
+              onClick={() => queries.forEach((q) => q.refetch())}
+              className="mt-2 rounded-lg border border-white/15 px-4 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+            >
+              Retry
+            </button>
           </div>
         ) : allProposals.length === 0 ? (
           <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import Link from "next/link";
 import {
   emptySession,
@@ -15,34 +15,16 @@ import {
 } from "~/features/booking";
 import type { AppliedPromo } from "~/features/discount-codes";
 import { CartView } from "./CartView";
+import { CheckoutStep } from "./steps/checkout/CheckoutStep";
+import { HeightAgeConfirmModal } from "./steps/race/HeightAgeConfirmModal";
+import { bookHeatsOnAdvance } from "~/features/booking/service/race";
+import { ReservationTimer } from "./ReservationTimer";
 
-/**
- * BookingFlow — orchestrator shell for the unified v2 booking session.
- *
- * The customer enters via an activity-specific URL (/book/race/v2,
- * /book/bowling/v2, etc.). BookingFlow creates a fresh session with the
- * entry brand + any prefilled context, seeds the first item for the
- * requested activity, and drives that item's step list.
- *
- * Styling tracks v1's dark booking theme: navy body bg (from globals.css),
- * cyan #00E2E5 primary CTAs, `bg-white/5` cards with `border-white/10`
- * borders, numbered step circles with cyan glow on active. The .brand-*
- * class on the root cascades the brand font (Exo2 / Outfit) from globals.css.
- */
 export interface BookingFlowProps {
   activity: Activity;
   entryBrand: Brand;
   initialContext?: EntryContext;
-  /**
-   * Promo captured at session start — from the `/book/v2` landing or a
-   * `?code=` URL seed on this slug's page. Once seeded it never mutates.
-   */
   initialPromo?: AppliedPromo | null;
-  /**
-   * The raw `?code=` value from the URL, REGARDLESS of whether it
-   * resolved into `initialPromo` (a wrong-domain code on this activity
-   * still arrives here so back-to-landing carries it through).
-   */
   urlCode?: string | null;
 }
 
@@ -58,22 +40,45 @@ export function BookingFlow({
     [entryBrand, initialContext, initialPromo],
   );
   const [session, dispatch] = useReducer(reducer, initial);
+  const [checkoutActive, setCheckoutActive] = useState(false);
+  const [showHeightConfirm, setShowHeightConfirm] = useState(false);
+  const [bookingHeats, setBookingHeats] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const prevCursorRef = useRef<number | null>(null);
 
-  // Seed an initial item for the entry activity on first mount. The reducer
-  // owns the item id and step cursor; we just kick it off here.
   useEffect(() => {
     if (session.items.length === 0) {
       dispatch({ type: "addItem", item: newItem(activity) });
     }
-    // We only want this to fire once per BookingFlow mount; subsequent
-    // session edits don't need to re-seed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
   const activeItem = getActiveItem(session);
 
+  // Auto-scroll to top on step change (v1 parity: page.tsx:263).
+  const currentCursor = activeItem ? (session.cursors[activeItem.id] ?? 0) : null;
+  useEffect(() => {
+    if (prevCursorRef.current !== null && currentCursor !== prevCursorRef.current) {
+      contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    prevCursorRef.current = currentCursor;
+  }, [currentCursor]);
+
   if (!activeItem) {
+    if (checkoutActive) {
+      return (
+        <div className={brandClass}>
+          <div className="mx-auto max-w-4xl px-4 py-8">
+            <CheckoutStep
+              session={session}
+              dispatch={dispatch}
+              onBack={() => setCheckoutActive(false)}
+            />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={brandClass}>
         <CartView
@@ -81,15 +86,12 @@ export function BookingFlow({
           urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
           onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+          onCheckout={() => setCheckoutActive(true)}
         />
       </div>
     );
   }
 
-  // STEP_REGISTRY entries opt into per-item visibility via `isVisible`
-  // (e.g. race v2 has Product-Adult / Heat-Adult vs Product-Junior /
-  // Heat-Junior — only the categories present in the party render).
-  // Cursor indexes into the visible subset so Back/Next skip hidden steps.
   const allSteps = STEP_REGISTRY[activeItem.kind];
   const steps = allSteps.filter((s) => s.isVisible(activeItem, session));
   const rawCursor = session.cursors[activeItem.id] ?? 0;
@@ -97,7 +99,6 @@ export function BookingFlow({
   const currentStep = steps[stepIndex];
   const isLastStep = stepIndex >= steps.length - 1;
 
-  // Defensive: if the cursor is somehow past the end, snap back to cart.
   if (!currentStep) {
     return (
       <div className={brandClass}>
@@ -106,21 +107,17 @@ export function BookingFlow({
           urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
           onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+          onCheckout={() => setCheckoutActive(true)}
         />
       </div>
     );
   }
 
-  // canAdvance is item-typed at definition; the registry's union erases
-  // that, but the runtime guarantee holds because the step list is
-  // selected by item.kind.
   const stepUntyped = currentStep as StepDef;
   const canAdvance = stepUntyped.canAdvance(activeItem, session);
   const advanceOk = canAdvance === true;
 
-  // Last step's "Next" returns to the cart view rather than advancing
-  // into oblivion.
-  const handleNext = () => {
+  const advanceToNextStep = () => {
     if (isLastStep) {
       dispatch({ type: "setActiveItem", id: null });
     } else {
@@ -128,91 +125,153 @@ export function BookingFlow({
     }
   };
 
-  // Back-to-landing carries the customer's `?code=` even when the code
-  // wasn't applied to THIS activity (e.g. a bowling-only code typed at a
-  // /book/race/v2 URL). Prefer the validated `appliedPromo.code` when
-  // it's set, else fall back to whatever the URL had so the landing's
-  // chip + tile highlights are restored on return.
+  const handleNext = async () => {
+    // HeightAgeConfirmModal: intercept party→date transition for race items
+    // when the party has any new racers (v1 parity: page.tsx:789-792).
+    if (
+      currentStep.id === "race-party" &&
+      activeItem.kind === "race" &&
+      session.party.some((m) => m.isNewRacer)
+    ) {
+      setShowHeightConfirm(true);
+      return;
+    }
+
+    // Book heats with BMI when advancing past a heat picker step.
+    // Heats are picked locally (no BMI call); the actual BMI booking
+    // happens here so the customer's spots are held before they move
+    // on to POV/addons/other activities.
+    if (
+      (currentStep.id === "race-heat-adult" || currentStep.id === "race-heat-junior") &&
+      activeItem.kind === "race"
+    ) {
+      const raceItem = activeItem as import("~/features/booking").RaceItem;
+      const hasUnbooked = raceItem.heats.some((h) => h.heatId && !h.bmiLineId);
+      if (hasUnbooked) {
+        setBookingHeats(true);
+        try {
+          await bookHeatsOnAdvance(session, raceItem, dispatch);
+          advanceToNextStep();
+        } catch (err) {
+          alert(
+            err instanceof Error
+              ? `Failed to reserve heats: ${err.message}`
+              : "Failed to reserve heats. Please try again.",
+          );
+        } finally {
+          setBookingHeats(false);
+        }
+        return;
+      }
+    }
+
+    advanceToNextStep();
+  };
+
+  const handleGoToStep = (index: number) => {
+    if (index < stepIndex) {
+      dispatch({ type: "goto", index });
+    }
+  };
+
   const backCode = session.appliedPromo?.code ?? urlCode ?? null;
   const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
 
   return (
-    <section className={`${brandClass} mx-auto max-w-2xl p-4 sm:p-6`}>
-      <div className="mb-4">
-        <Link
-          href={backToLandingHref}
-          className="inline-flex items-center gap-1 text-xs text-white/40 transition-colors hover:text-white/80"
-        >
-          ← All activities
-        </Link>
+    <div className={brandClass}>
+      {/* Sticky step indicator — matches v1: sticky below fixed nav */}
+      <div className="sticky top-18 z-30 border-b border-white/8 bg-[#000418] sm:top-20">
+        <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto">
+            {steps.map((s, i) => {
+              const isActive = i === stepIndex;
+              const isComplete = i < stepIndex;
+              const isFuture = i > stepIndex;
+              return (
+                <div key={s.id} className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => handleGoToStep(i)}
+                    disabled={isFuture}
+                    className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 transition-colors ${
+                      isActive
+                        ? "text-[#00E2E5]"
+                        : isComplete
+                          ? "cursor-pointer text-white/50 hover:text-white/80"
+                          : "cursor-default text-white/20"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
+                        isActive
+                          ? "bg-[#00E2E5] text-[#000418]"
+                          : isComplete
+                            ? "bg-white/20 text-white/60"
+                            : "border border-white/20 text-white/30"
+                      }`}
+                    >
+                      {isComplete ? "✓" : i + 1}
+                    </span>
+                    <span className="hidden text-sm sm:inline">{s.title}</span>
+                  </button>
+                  {i < steps.length - 1 && <span className="mx-0.5 text-white/15">›</span>}
+                </div>
+              );
+            })}
+          </div>
+          <ReservationTimer bmiBillId={session.bmiBillId} />
+        </div>
       </div>
-      <StepIndicator steps={steps} stepIndex={stepIndex} />
 
-      <div className="rounded-2xl border border-white/10 bg-white/3 p-4 sm:p-8">
-        <h2 className="mb-4 text-xl font-semibold text-white">{currentStep.title}</h2>
+      {/* Main content — v1: max-w-4xl mx-auto px-4 py-8, no card wrapper */}
+      <div ref={contentRef} className="scroll-mt-45 mx-auto max-w-4xl px-4 py-8">
+        <div className="mb-6">
+          <Link
+            href={backToLandingHref}
+            className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/60 transition-colors hover:border-white/30 hover:text-white"
+          >
+            ← All activities
+          </Link>
+        </div>
+
         <stepUntyped.Component
           item={activeItem}
           session={session}
           onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
           dispatch={dispatch}
         />
-        <p className="mt-4 text-xs text-white/30">
-          PR-B2 scaffold — step body lands later this PR ({activeItem.kind}).
-        </p>
+
+        {bookingHeats && (
+          <div className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/5 p-6">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+            <span className="text-sm text-white/60">Reserving your heats…</span>
+          </div>
+        )}
+
+        <NavigationButtons
+          stepIndex={stepIndex}
+          canAdvance={advanceOk && !bookingHeats}
+          reason={bookingHeats ? "Booking in progress…" : advanceOk ? undefined : canAdvance.reason}
+          nextLabel={isLastStep ? "Add to cart" : "Next"}
+          onBack={() => dispatch({ type: "back" })}
+          onNext={handleNext}
+        />
       </div>
 
-      <NavigationButtons
-        stepIndex={stepIndex}
-        canAdvance={advanceOk}
-        reason={advanceOk ? undefined : canAdvance.reason}
-        nextLabel={isLastStep ? "Add to cart" : "Next"}
-        onBack={() => dispatch({ type: "back" })}
-        onNext={handleNext}
-      />
-    </section>
-  );
-}
-
-/**
- * Numbered step circles with connecting lines. Mirrors v1's StepIndicator
- * shape (8x8 circles, cyan glow for active, checkmark hint for complete).
- * Horizontal-scroll on overflow because step lists can be long.
- */
-function StepIndicator({ steps, stepIndex }: { steps: StepDef[]; stepIndex: number }) {
-  return (
-    <ol className="mb-6 flex items-center gap-2 overflow-x-auto pb-2 text-xs sm:text-sm">
-      {steps.map((s, i) => {
-        const isActive = i === stepIndex;
-        const isComplete = i < stepIndex;
-        return (
-          <li key={s.id} className="flex shrink-0 items-center gap-2">
-            <span
-              className={
-                isActive
-                  ? "flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#00E2E5] bg-[#00E2E5] text-sm font-bold text-[#000418] shadow-[0_0_20px_rgba(0,226,229,0.4)]"
-                  : isComplete
-                    ? "flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/20 bg-white/20 text-sm font-bold text-white/60"
-                    : "flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/20 text-sm font-bold text-white/40"
-              }
-            >
-              {isComplete ? "✓" : i + 1}
-            </span>
-            <span
-              className={
-                isActive
-                  ? "font-semibold text-white"
-                  : isComplete
-                    ? "text-white/60"
-                    : "text-white/30"
-              }
-            >
-              {s.title}
-            </span>
-            {i < steps.length - 1 && <span className="mx-1 h-px w-6 bg-white/10" />}
-          </li>
-        );
-      })}
-    </ol>
+      {showHeightConfirm && (
+        <HeightAgeConfirmModal
+          adults={
+            session.party.filter((m) => (m.category ?? "adult") === "adult" && m.isNewRacer).length
+          }
+          juniors={session.party.filter((m) => m.category === "junior" && m.isNewRacer).length}
+          onConfirm={() => {
+            setShowHeightConfirm(false);
+            advanceToNextStep();
+          }}
+          onChangeParty={() => setShowHeightConfirm(false)}
+        />
+      )}
+    </div>
   );
 }
 
