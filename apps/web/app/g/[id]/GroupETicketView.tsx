@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { checkinQrDataUrl } from "@/lib/qr-checkin";
+import { modalBackdropProps } from "@/lib/a11y";
 import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
 import {
   CheckingInCard,
@@ -525,7 +526,7 @@ export default function GroupETicketView({ group, initial }: Props) {
         <div className="mt-6 text-center">
           <p className="text-white/30 text-xs">14501 Global Parkway, Fort Myers, FL 33913</p>
           <p className="text-white/20 text-[11px] mt-1">
-            Show this screen at check-in · No paper ticket needed
+            Please have your e-ticket open and ready at check-in
           </p>
         </div>
       </div>
@@ -538,7 +539,7 @@ export default function GroupETicketView({ group, initial }: Props) {
           return (
             <div
               className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center px-6"
-              onClick={() => setFullscreenQrKey(null)}
+              {...modalBackdropProps(() => setFullscreenQrKey(null))}
             >
               <img
                 src={qrByMember[fullscreenQrKey]}

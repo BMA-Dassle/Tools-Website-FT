@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 
 // --------------- Types ---------------
 
@@ -308,12 +309,12 @@ export default function CheckInClient({ token, version }: Props) {
       <div
         className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 transition-colors"
         style={{ backgroundColor: bg }}
-        onClick={() => {
+        {...modalBackdropProps(() => {
           setScanState("idle");
           setLastResult(null);
           setLastError("");
           if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-        }}
+        })}
       >
         {/* Headsock banner */}
         {hasHeadsock && (
@@ -449,6 +450,7 @@ export default function CheckInClient({ token, version }: Props) {
           </button>
           <button
             type="button"
+            aria-label="Settings"
             onClick={() => setShowSettings(!showSettings)}
             className="p-2 rounded-lg border border-white/20 text-white/60 hover:bg-white/5"
           >
@@ -477,7 +479,7 @@ export default function CheckInClient({ token, version }: Props) {
       {/* Settings dropdown */}
       {showSettings && (
         <div className="px-6 py-4 border-b border-white/10 bg-white/5">
-          <label className="block text-white/60 text-xs mb-2">Baud Rate</label>
+          <p className="block text-white/60 text-xs mb-2">Baud Rate</p>
           <div className="flex gap-2">
             {BAUD_RATES.map((rate) => (
               <button
@@ -657,12 +659,9 @@ export default function CheckInClient({ token, version }: Props) {
       {showSelfTest && selfTestResult && (
         <div
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center px-6"
-          onClick={() => setShowSelfTest(false)}
+          {...modalBackdropProps(() => setShowSelfTest(false))}
         >
-          <div
-            className="bg-[#1A1A1A] rounded-2xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="bg-[#1A1A1A] rounded-2xl p-6 max-w-md w-full">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-white font-bold text-lg">Self-Test Results</h2>
               <span

@@ -1246,7 +1246,8 @@ export default function ConfirmationPage() {
                       </p>
                     </div>
                     <p className="text-white/50 text-sm">
-                      1st Floor — Arrive 5 min before your race. Have this page ready on your phone.
+                      1st Floor — Arrive 5 min before your race. Please have your e-ticket open and
+                      ready.
                     </p>
                   </div>
                 </div>
