@@ -204,29 +204,85 @@ export async function POST(req: NextRequest) {
   let sessionId = body.sessionId;
 
   if (body.raw) {
-    const parsed = parseCheckinQr(body.raw);
-    if (!parsed) {
+    const raw = body.raw.trim();
+    const parsed = parseCheckinQr(raw);
+    if (parsed) {
+      personId = parsed.personId;
+      sessionId = parsed.sessionId;
+    } else if (/^\d+$/.test(raw)) {
+      // Bare number — paper QR with just the participant ID.
+      // Search active sessions to find which one they're on.
+      personId = raw;
+      sessionId = undefined;
+    } else {
       return NextResponse.json(
         { error: "invalid QR", detail: "Could not parse barcode data" },
         { status: 400 },
       );
     }
-    personId = parsed.personId;
-    sessionId = parsed.sessionId;
   }
 
-  if (!personId || !sessionId || !/^\d+$/.test(personId) || !/^\d+$/.test(sessionId)) {
+  if (!personId || !/^\d+$/.test(personId)) {
     return NextResponse.json(
-      { error: "invalid input", detail: "personId and sessionId must be digit strings" },
+      { error: "invalid input", detail: "personId must be a digit string" },
       { status: 400 },
     );
   }
 
-  // Fast path: Redis guest lookup + cached races-current (both <20ms)
-  const [guestResult, current] = await Promise.all([
-    lookupGuest(sessionId, personId),
-    fetchCurrentRaces(req),
-  ]);
+  // Get races-current first (needed for both e-ticket QR and paper QR paths)
+  const current = await fetchCurrentRaces(req);
+
+  // Paper QR path: no sessionId — search active sessions for this participant
+  if (!sessionId) {
+    const activeSessionIds: {
+      sid: string;
+      track: string;
+      raceType: string;
+      heatNumber: number;
+      scheduledStart: string;
+    }[] = [];
+    for (const [track, data] of Object.entries(current)) {
+      if (!data) continue;
+      const d = data as {
+        sessionId?: number | string;
+        raceType?: string;
+        heatNumber?: number;
+        scheduledStart?: string;
+      };
+      if (!d.sessionId) continue;
+      activeSessionIds.push({
+        sid: String(d.sessionId),
+        track,
+        raceType: d.raceType ?? "",
+        heatNumber: d.heatNumber ?? 0,
+        scheduledStart: d.scheduledStart ?? "",
+      });
+    }
+    // Search each active session's participant cache for this personId
+    for (const active of activeSessionIds) {
+      const result = await lookupGuest(active.sid, personId);
+      if (result.participant) {
+        sessionId = active.sid;
+        break;
+      }
+    }
+  }
+
+  // If we still don't have a sessionId (paper QR not found in active sessions),
+  // return a yellow warning — we can't check them in without knowing the session
+  if (!sessionId || !/^\d+$/.test(sessionId)) {
+    return NextResponse.json({
+      success: false,
+      guest: null,
+      session: { track: null, raceType: null, heatNumber: null, scheduledStart: null },
+      currentlyCheckingIn: false,
+      headsock: { detected: false, deducted: false, balance: 0 },
+      detail: "Participant not found in any active session",
+    });
+  }
+
+  // Standard path: we have both personId and sessionId
+  const guestResult = await lookupGuest(sessionId, personId);
 
   const sessionMatch = findSessionInCurrent(current, sessionId);
   const currentlyCheckingIn = !!sessionMatch;
