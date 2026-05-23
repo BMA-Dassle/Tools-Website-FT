@@ -414,12 +414,11 @@ export default function GroupETicketView({ group, initial }: Props) {
                         ) : isPast ? (
                           <PastCard details={m} />
                         ) : s.checkingIn ? (
-                          <>
-                            <CheckingInCard details={m} />
+                          <CheckingInCard details={m}>
                             {s.onSession && qrByMember[key] && (
-                              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border-2 border-t-0 border-[#E41C1D]/40 bg-white/[0.03]">
+                              <>
                                 {(headsockByPerson[String(m.personId)] ?? 0) > 0 && (
-                                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
                                     <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
                                       Headsock Credit
                                     </p>
@@ -428,7 +427,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                                 <button
                                   type="button"
                                   onClick={() => setFullscreenQrKey(key)}
-                                  className="w-full flex flex-col items-center gap-2 py-4 hover:bg-white/5 active:scale-[0.99] transition-all"
+                                  className="w-full flex flex-col items-center gap-2 py-4 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
                                 >
                                   <div className="bg-white rounded-lg p-1.5">
                                     <img
@@ -442,16 +441,15 @@ export default function GroupETicketView({ group, initial }: Props) {
                                   </div>
                                   <p className="text-white/50 text-xs">Tap to open full screen</p>
                                 </button>
-                              </div>
+                              </>
                             )}
-                          </>
+                          </CheckingInCard>
                         ) : (
-                          <>
-                            <PreRaceCard details={m} loadingStatus={loadingStatus} />
+                          <PreRaceCard details={m} loadingStatus={loadingStatus}>
                             {s.onSession && qrByMember[key] && (
-                              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border border-t-0 border-[#00E2E5]/40 bg-white/[0.03]">
+                              <>
                                 {(headsockByPerson[String(m.personId)] ?? 0) > 0 && (
-                                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
                                     <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
                                       Headsock Credit
                                     </p>
@@ -460,7 +458,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                                 <button
                                   type="button"
                                   onClick={() => setFullscreenQrKey(key)}
-                                  className="w-full flex flex-col items-center gap-2 py-4 hover:bg-white/5 active:scale-[0.99] transition-all"
+                                  className="w-full flex flex-col items-center gap-2 py-4 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
                                 >
                                   <div className="bg-white rounded-lg p-1.5">
                                     <img
@@ -474,9 +472,9 @@ export default function GroupETicketView({ group, initial }: Props) {
                                   </div>
                                   <p className="text-white/50 text-xs">Tap to open full screen</p>
                                 </button>
-                              </div>
+                              </>
                             )}
-                          </>
+                          </PreRaceCard>
                         )}
                         {!isPast && memberPov && memberPov.codes.length > 0 && (
                           <div className="mt-3">

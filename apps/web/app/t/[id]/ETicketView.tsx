@@ -269,13 +269,11 @@ export default function ETicketView({
         ) : isPast ? (
           <PastCard details={ticket} />
         ) : checkingIn ? (
-          <>
-            <CheckingInCard details={ticket} />
-            {/* QR + headsock inside the checking-in state */}
+          <CheckingInCard details={ticket}>
             {onSession && qrDataUrl && (
-              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border-2 border-t-0 border-[#E41C1D]/40 bg-white/[0.03]">
+              <>
                 {headsockCredit > 0 && (
-                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
                     <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
                       Headsock Credit on File
                     </p>
@@ -284,7 +282,7 @@ export default function ETicketView({
                 <button
                   type="button"
                   onClick={() => setFullscreenQr(true)}
-                  className="w-full flex flex-col items-center gap-2 py-5 hover:bg-white/5 active:scale-[0.99] transition-all"
+                  className="w-full flex flex-col items-center gap-2 py-5 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
                 >
                   <div className="bg-white rounded-lg p-2">
                     <img
@@ -300,17 +298,15 @@ export default function ETicketView({
                     Tap to open full screen &middot; Scan at Check-In
                   </p>
                 </button>
-              </div>
+              </>
             )}
-          </>
+          </CheckingInCard>
         ) : (
-          <>
-            <PreRaceCard details={ticket} loadingStatus={loadingStatus} />
-            {/* QR + headsock inside the pre-race state */}
+          <PreRaceCard details={ticket} loadingStatus={loadingStatus}>
             {onSession && qrDataUrl && (
-              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border border-t-0 border-[#00E2E5]/40 bg-white/[0.03]">
+              <>
                 {headsockCredit > 0 && (
-                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
                     <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
                       Headsock Credit on File
                     </p>
@@ -319,7 +315,7 @@ export default function ETicketView({
                 <button
                   type="button"
                   onClick={() => setFullscreenQr(true)}
-                  className="w-full flex flex-col items-center gap-2 py-5 hover:bg-white/5 active:scale-[0.99] transition-all"
+                  className="w-full flex flex-col items-center gap-2 py-5 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
                 >
                   <div className="bg-white rounded-lg p-2">
                     <img
@@ -335,9 +331,9 @@ export default function ETicketView({
                     Tap to open full screen &middot; Scan at Check-In
                   </p>
                 </button>
-              </div>
+              </>
             )}
-          </>
+          </PreRaceCard>
         )}
 
         {!isPast && povCodes.length > 0 && (
