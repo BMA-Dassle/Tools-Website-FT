@@ -274,11 +274,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fire Pandora check-in in background
-    checkInViaPandora(personId, sessionId).catch(() => {});
+    // Await Pandora check-in — returns guest photo as base64
+    const checkinResult = await checkInViaPandora(personId, sessionId);
+    const checkinGuest = checkinResult.guest;
+
+    const guestResponse = {
+      firstName: checkinGuest?.firstName || guest?.firstName || "",
+      lastName: checkinGuest?.lastName || guest?.lastName || "",
+      pictureUrl: checkinGuest?.pic ?? null,
+    };
+
+    return NextResponse.json({
+      success: checkinResult.success,
+      guest: guestResponse,
+      session: { track, raceType, heatNumber, scheduledStart },
+      currentlyCheckingIn,
+      headsock,
+    });
   }
 
-  // Guest info from Redis cache (check-in response is fire-and-forget)
+  // Session not checking in — no Pandora call, just return guest info from cache
   const guestResponse = guest
     ? {
         firstName: guest.firstName,
