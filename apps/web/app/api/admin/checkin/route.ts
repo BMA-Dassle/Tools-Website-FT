@@ -232,10 +232,33 @@ export async function POST(req: NextRequest) {
   const currentlyCheckingIn = !!sessionMatch;
 
   const guest = guestResult.participant;
-  const track = sessionMatch?.track ?? null;
-  const raceType = sessionMatch?.raceType ?? null;
-  const heatNumber = sessionMatch?.heatNumber ?? null;
-  const scheduledStart = sessionMatch?.scheduledStart ?? null;
+  let track = sessionMatch?.track ?? null;
+  let raceType = sessionMatch?.raceType ?? null;
+  let heatNumber = sessionMatch?.heatNumber ?? null;
+  let scheduledStart = sessionMatch?.scheduledStart ?? null;
+
+  // When session is NOT currently checking in, fetch session metadata
+  // from Pandora so we can tell staff what session this guest is booked for
+  if (!currentlyCheckingIn) {
+    try {
+      const sessRes = await fetch(
+        `${PANDORA_BASE}/v2/bmi/session/${FASTTRAX_LOCATION_ID}/${sessionId}`,
+        { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(3000) },
+      );
+      if (sessRes.ok) {
+        const sessData = await sessRes.json();
+        const sess = sessData?.data;
+        if (sess) {
+          track = sess.trackName?.toLowerCase() ?? track;
+          raceType = sess.raceType ?? raceType;
+          heatNumber = sess.heatNumber ?? heatNumber;
+          scheduledStart = sess.scheduledStart ?? scheduledStart;
+        }
+      }
+    } catch {
+      // Pandora session lookup failed — proceed with whatever we have
+    }
+  }
 
   // Headsock + Pandora check-in only when session IS currently checking in.
   // Yellow "are you sure?" scans should not deduct headsock or call check-in.
@@ -321,6 +344,62 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   if (!auth(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // Session stats — returns checked-in counts for active sessions
+  const action = req.nextUrl.searchParams.get("action");
+  if (action === "session-stats") {
+    try {
+      const current = await fetchCurrentRaces(req);
+      const sessions: {
+        track: string;
+        raceType: string;
+        heatNumber: number;
+        sessionId: number;
+        scheduledStart: string;
+        checkedIn: number;
+        total: number;
+      }[] = [];
+      for (const [track, data] of Object.entries(current)) {
+        if (!data || typeof data !== "object") continue;
+        const d = data as {
+          sessionId?: number;
+          raceType?: string;
+          heatNumber?: number;
+          scheduledStart?: string;
+        };
+        if (!d.sessionId) continue;
+        sessions.push({
+          track,
+          raceType: d.raceType ?? "",
+          heatNumber: d.heatNumber ?? 0,
+          sessionId: d.sessionId,
+          scheduledStart: d.scheduledStart ?? "",
+          checkedIn: 0,
+          total: 0,
+        });
+      }
+      await Promise.all(
+        sessions.map(async (s) => {
+          try {
+            const pRes = await fetch(
+              `${PANDORA_BASE}/v2/bmi/session/${FASTTRAX_LOCATION_ID}/${s.sessionId}/participants?excludeRemoved=true`,
+              { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(5000) },
+            );
+            if (!pRes.ok) return;
+            const pData = await pRes.json();
+            const list = Array.isArray(pData?.data) ? pData.data : [];
+            s.total = list.length;
+            s.checkedIn = list.filter((p: { checkedIn?: string | null }) => !!p.checkedIn).length;
+          } catch {
+            /* silent */
+          }
+        }),
+      );
+      return NextResponse.json({ sessions });
+    } catch {
+      return NextResponse.json({ sessions: [] });
+    }
   }
 
   const selftest = req.nextUrl.searchParams.get("selftest");

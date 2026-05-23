@@ -76,12 +76,13 @@ export default function CheckInClient({ token, version }: Props) {
   } | null>(null);
   const [showSelfTest, setShowSelfTest] = useState(false);
 
-  // Live session status — polled every 10s for track display + check-in counts
+  // Live session status — polled every 10s via admin endpoint (calls Pandora directly for checkedIn counts)
   interface TrackSession {
     track: string;
     raceType: string;
     heatNumber: number;
     sessionId: number;
+    scheduledStart: string;
     checkedIn: number;
     total: number;
   }
@@ -91,42 +92,13 @@ export default function CheckInClient({ token, version }: Props) {
     let mounted = true;
     async function poll() {
       try {
-        const res = await fetch("/api/pandora/races-current?cacheOnly=1", { cache: "no-store" });
-        if (!res.ok || !mounted) return;
-        const races = await res.json();
-        const sessions: TrackSession[] = [];
-        for (const [track, data] of Object.entries(races)) {
-          if (!data || typeof data !== "object") continue;
-          const d = data as { sessionId?: number; raceType?: string; heatNumber?: number };
-          if (!d.sessionId) continue;
-          sessions.push({
-            track,
-            raceType: d.raceType ?? "",
-            heatNumber: d.heatNumber ?? 0,
-            sessionId: d.sessionId,
-            checkedIn: 0,
-            total: 0,
-          });
-        }
-        // Fetch participant counts for each active session
-        await Promise.all(
-          sessions.map(async (s) => {
-            try {
-              const pRes = await fetch(
-                `/api/pandora/session-participants?locationId=LAB52GY480CJF&sessionId=${s.sessionId}&excludeRemoved=true`,
-                { cache: "no-store" },
-              );
-              if (!pRes.ok) return;
-              const pData = await pRes.json();
-              const list = Array.isArray(pData?.data) ? pData.data : [];
-              s.total = list.length;
-              s.checkedIn = list.filter((p: { checkedIn?: string | null }) => !!p.checkedIn).length;
-            } catch {
-              /* silent */
-            }
-          }),
+        const res = await fetch(
+          `/api/admin/checkin?token=${encodeURIComponent(token)}&action=session-stats`,
+          { cache: "no-store" },
         );
-        if (mounted) setActiveSessions(sessions);
+        if (!res.ok || !mounted) return;
+        const data = await res.json();
+        if (mounted && Array.isArray(data?.sessions)) setActiveSessions(data.sessions);
       } catch {
         /* silent */
       }
@@ -137,7 +109,7 @@ export default function CheckInClient({ token, version }: Props) {
       mounted = false;
       clearInterval(iv);
     };
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -400,12 +372,27 @@ export default function CheckInClient({ token, version }: Props) {
           </div>
         )}
 
-        {/* Warning banner for wrong session */}
+        {/* Warning banner — session not checking in, show their booked session so staff can redirect */}
         {isWarning && !lastError && lastResult?.guest && (
-          <div className="absolute top-0 left-0 right-0 bg-amber-500 py-3 px-6 text-center">
-            <p className="text-black font-bold text-lg uppercase">
-              Session not currently checking in
-            </p>
+          <div className="absolute top-0 left-0 right-0 bg-amber-500 py-4 px-6 text-center">
+            <p className="text-black font-bold text-lg uppercase">Not checking in yet</p>
+            {lastResult.session.track && (
+              <p className="text-black/80 text-base font-semibold mt-1">
+                Their session: {lastResult.session.track} {lastResult.session.raceType}{" "}
+                {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
+                {lastResult.session.scheduledStart && (
+                  <>
+                    {" "}
+                    —{" "}
+                    {new Date(lastResult.session.scheduledStart).toLocaleTimeString("en-US", {
+                      hour: "numeric",
+                      minute: "2-digit",
+                      timeZone: "America/New_York",
+                    })}
+                  </>
+                )}
+              </p>
+            )}
           </div>
         )}
 
@@ -561,6 +548,15 @@ export default function CheckInClient({ token, version }: Props) {
                   <p className="text-xs font-bold uppercase" style={{ color }}>
                     {s.track} {s.raceType} {s.heatNumber ? `#${s.heatNumber}` : ""}
                   </p>
+                  {s.scheduledStart && (
+                    <p className="text-white/40 text-[10px]">
+                      {new Date(s.scheduledStart).toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                        timeZone: "America/New_York",
+                      })}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className="text-white font-black text-xl leading-none">
