@@ -93,12 +93,14 @@ interface CurrentRaces {
   } | null;
 }
 
-async function fetchCurrentRaces(): Promise<CurrentRaces> {
+async function fetchCurrentRaces(req: NextRequest): Promise<CurrentRaces> {
   try {
-    const res = await fetch(`${PANDORA_BASE}/v2/bmi/races/current/${FASTTRAX_LOCATION_ID}`, {
-      headers: pandoraHeaders(),
+    // Use the internal cached route (Redis, ~5-20ms) instead of hitting
+    // Pandora live (1-5s). The cron warms Redis every minute.
+    const origin = req.nextUrl.origin;
+    const res = await fetch(`${origin}/api/pandora/races-current?cacheOnly=1`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return {};
     return (await res.json()) as CurrentRaces;
@@ -220,9 +222,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Fast path: Redis guest lookup + cached races-current (both <20ms)
   const [guestResult, current] = await Promise.all([
     lookupGuest(sessionId, personId),
-    fetchCurrentRaces(),
+    fetchCurrentRaces(req),
   ]);
 
   const sessionMatch = findSessionInCurrent(current, sessionId);
@@ -234,7 +237,7 @@ export async function POST(req: NextRequest) {
   const heatNumber = sessionMatch?.heatNumber ?? null;
   const scheduledStart = sessionMatch?.scheduledStart ?? null;
 
-  // Headsock credit detection
+  // Headsock credit detection (Pandora deposits, ~200ms)
   let headsock: { detected: boolean; deducted: boolean; balance: number } = {
     detected: false,
     deducted: false,
@@ -247,54 +250,48 @@ export async function POST(req: NextRequest) {
       if (hs) {
         headsock.detected = true;
         headsock.balance = hs.balance;
-        try {
-          await addDeposit({
-            personId,
-            depositKindId: hs.depositKindId,
-            amount: -1,
-            locationId: FASTTRAX_LOCATION_ID,
+        // Fire deduct in background — don't block the response
+        addDeposit({
+          personId,
+          depositKindId: hs.depositKindId,
+          amount: -1,
+          locationId: FASTTRAX_LOCATION_ID,
+        })
+          .then(() => {
+            headsock.deducted = true;
+            headsock.balance = hs.balance - 1;
+          })
+          .catch((e) => {
+            enqueueDepositFailure({
+              source: "headsock-checkin",
+              sourceRef: `${personId}-${sessionId}`,
+              locationId: FASTTRAX_LOCATION_ID,
+              personId,
+              depositKindId: hs.depositKindId,
+              amount: -1,
+              initialError: e instanceof Error ? e.message : "Unknown",
+            }).catch(() => {});
           });
-          headsock.deducted = true;
-          headsock.balance = hs.balance - 1;
-        } catch (e) {
-          await enqueueDepositFailure({
-            source: "headsock-checkin",
-            sourceRef: `${personId}-${sessionId}`,
-            locationId: FASTTRAX_LOCATION_ID,
-            personId,
-            depositKindId: hs.depositKindId,
-            amount: -1,
-            initialError: e instanceof Error ? e.message : "Unknown",
-          }).catch(() => {});
-        }
       }
     } catch {
       // Deposit read failed — don't block check-in
     }
   }
 
-  // Call Pandora check-in — response includes guest name + base64 photo
-  const checkinResult = await checkInViaPandora(personId, sessionId);
+  // Fire Pandora check-in in background — don't block the flash response
+  checkInViaPandora(personId, sessionId).catch(() => {});
 
-  // Prefer guest info from the check-in response (includes photo), fall back to Redis cache
-  const checkinGuest = checkinResult.guest;
-  const guestResponse = checkinGuest
+  // Guest info from Redis cache (check-in response is fire-and-forget)
+  const guestResponse = guest
     ? {
-        firstName: checkinGuest.firstName || guest?.firstName || "",
-        lastName: checkinGuest.lastName || guest?.lastName || "",
-        pictureUrl: checkinGuest.pic,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
+        pictureUrl: null,
       }
-    : guest
-      ? {
-          firstName: guest.firstName,
-          lastName: guest.lastName,
-          pictureUrl: null,
-        }
-      : null;
+    : null;
 
   return NextResponse.json({
-    success: checkinResult.success,
-    checkinError: checkinResult.error ?? null,
+    success: true,
     guest: guestResponse,
     session: {
       track,
@@ -341,7 +338,7 @@ export async function GET(req: NextRequest) {
   {
     const start = Date.now();
     try {
-      const current = await fetchCurrentRaces();
+      const current = await fetchCurrentRaces(req);
       const tracks = Object.entries(current)
         .filter(([, v]) => v)
         .map(([k, v]) => `${k}: sid ${v?.sessionId ?? "?"}`)

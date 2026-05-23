@@ -76,6 +76,62 @@ export default function CheckInClient({ token, version }: Props) {
   } | null>(null);
   const [showSelfTest, setShowSelfTest] = useState(false);
 
+  // Live session status — polled every 10s for track display + check-in counts
+  interface TrackSession {
+    track: string;
+    raceType: string;
+    heatNumber: number;
+    sessionId: number;
+    checkedIn: number;
+    total: number;
+  }
+  const [activeSessions, setActiveSessions] = useState<TrackSession[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function poll() {
+      try {
+        const res = await fetch("/api/pandora/races-current?cacheOnly=1", { cache: "no-store" });
+        if (!res.ok || !mounted) return;
+        const races = await res.json();
+        const sessions: TrackSession[] = [];
+        for (const [track, data] of Object.entries(races)) {
+          if (!data || typeof data !== "object") continue;
+          const d = data as { sessionId?: number; raceType?: string; heatNumber?: number };
+          if (!d.sessionId) continue;
+          sessions.push({
+            track,
+            raceType: d.raceType ?? "",
+            heatNumber: d.heatNumber ?? 0,
+            sessionId: d.sessionId,
+            checkedIn: 0,
+            total: 0,
+          });
+        }
+        // Fetch participant counts for each active session
+        await Promise.all(
+          sessions.map(async (s) => {
+            try {
+              const pRes = await fetch(
+                `/api/pandora/session-participants?locationId=LAB52GY480CJF&sessionId=${s.sessionId}&excludeRemoved=true`,
+                { cache: "no-store" },
+              );
+              if (!pRes.ok) return;
+              const pData = await pRes.json();
+              const list = Array.isArray(pData?.data) ? pData.data : [];
+              s.total = list.length;
+              s.checkedIn = list.filter((p: { kartNumber?: string | number | null }) => !!p.kartNumber).length;
+            } catch { /* silent */ }
+          }),
+        );
+        if (mounted) setActiveSessions(sessions);
+      } catch { /* silent */ }
+    }
+    poll();
+    const iv = setInterval(poll, 10_000);
+    return () => { mounted = false; clearInterval(iv); };
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("test") === "1") setTestMode(true);
@@ -316,16 +372,17 @@ export default function CheckInClient({ token, version }: Props) {
           if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
         })}
       >
-        {/* Headsock banner */}
+        {/* Headsock banner — full-width, impossible to miss */}
         {hasHeadsock && (
-          <div className="absolute top-0 left-0 right-0 bg-amber-400 py-4 px-6 text-center">
-            <p className="text-black font-black text-2xl sm:text-3xl uppercase tracking-wider">
+          <div className="absolute top-0 left-0 right-0 bg-amber-400 py-6 sm:py-8 px-6 text-center border-b-4 border-amber-600">
+            <p
+              className="text-black font-black uppercase tracking-wider leading-none"
+              style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
+            >
               Headsock Due
             </p>
-            <p className="text-black/70 text-sm mt-1">
-              {lastResult?.headsock.deducted
-                ? `Deducted 1 credit (${lastResult.headsock.balance} remaining)`
-                : "Deduction queued for retry"}
+            <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
+              Hand guest a headsock
             </p>
           </div>
         )}
@@ -475,6 +532,34 @@ export default function CheckInClient({ token, version }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Active sessions — check-in counts */}
+      {activeSessions.length > 0 && (
+        <div className="flex gap-3 px-6 py-3 border-b border-white/10 overflow-x-auto">
+          {activeSessions.map((s) => {
+            const color = TRACK_COLORS[s.track] ?? "#00E2E5";
+            return (
+              <div
+                key={s.sessionId}
+                className="flex items-center gap-3 rounded-xl px-4 py-2.5 shrink-0"
+                style={{ backgroundColor: `${color}15`, border: `1px solid ${color}40` }}
+              >
+                <div>
+                  <p className="text-xs font-bold uppercase" style={{ color }}>
+                    {s.track} {s.raceType} {s.heatNumber ? `#${s.heatNumber}` : ""}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-white font-black text-xl leading-none">
+                    {s.checkedIn}<span className="text-white/40 text-sm font-normal">/{s.total}</span>
+                  </p>
+                  <p className="text-white/40 text-[10px] uppercase">checked in</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Settings dropdown */}
       {showSettings && (
