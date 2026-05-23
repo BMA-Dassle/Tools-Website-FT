@@ -524,8 +524,9 @@ function buildSingleSmsBody(
     `FastTrax: NOW CHECKING IN`,
     `${race.raceType} Heat ${race.heatNumber} | ${timeET(race.scheduledStart)}`,
     racerLabel(member),
-    `Head to Karting (1st Floor) now: ${shortUrl}`,
-    `Have your e-ticket open and ready for check-in`,
+    `Head to Karting (1st Floor) now:`,
+    shortUrl,
+    `Have this open for check-in`,
   ].join("\n");
 }
 
@@ -547,8 +548,9 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     );
     for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
-  lines.push(`Head to Karting (1st Floor) now: ${shortUrl}`);
-  lines.push(`Have your e-ticket open and ready for check-in`);
+  lines.push(`Head to Karting (1st Floor) now:`);
+  lines.push(shortUrl);
+  lines.push(`Have this open for check-in`);
   return lines.join("\n");
 }
 
@@ -560,9 +562,10 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
 function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
   return [
     `FastTrax: NOW CHECKING IN`,
-    `Your racer's heat is up - head to Karting (1st Floor) now: ${shortUrl}`,
+    `Your racer's heat is up - head to Karting (1st Floor) now:`,
+    shortUrl,
+    `Have this open for check-in`,
     `${racerLabel(member)} | ${member.track} Heat ${member.heatNumber} | ${timeET(member.scheduledStart)}`,
-    `Have your e-ticket open and ready for check-in`,
   ].join("\n");
 }
 
@@ -577,12 +580,13 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   );
   const lines: string[] = [
     `FastTrax: NOW CHECKING IN`,
-    `Your racers are up - head to Karting (1st Floor) now: ${shortUrl}`,
+    `Your racers are up - head to Karting (1st Floor) now:`,
+    shortUrl,
+    `Have this open for check-in`,
   ];
   for (const m of sorted) {
     lines.push(`${racerLabel(m)} | ${m.track} Heat ${m.heatNumber} | ${timeET(m.scheduledStart)}`);
   }
-  lines.push(`Have your e-tickets open and ready for check-in`);
   return lines.join("\n");
 }
 
