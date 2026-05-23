@@ -237,31 +237,27 @@ export async function POST(req: NextRequest) {
   const heatNumber = sessionMatch?.heatNumber ?? null;
   const scheduledStart = sessionMatch?.scheduledStart ?? null;
 
-  // Headsock credit detection (Pandora deposits, ~200ms)
+  // Headsock + Pandora check-in only when session IS currently checking in.
+  // Yellow "are you sure?" scans should not deduct headsock or call check-in.
   let headsock: { detected: boolean; deducted: boolean; balance: number } = {
     detected: false,
     deducted: false,
     balance: 0,
   };
-  if (HEADSOCK_DEPOSIT_KIND_ID) {
-    try {
-      const deposits = await getDepositOverview(personId, FASTTRAX_LOCATION_ID);
-      const hs = findHeadsockCredit(deposits);
-      if (hs) {
-        headsock.detected = true;
-        headsock.balance = hs.balance;
-        // Fire deduct in background — don't block the response
-        addDeposit({
-          personId,
-          depositKindId: hs.depositKindId,
-          amount: -1,
-          locationId: FASTTRAX_LOCATION_ID,
-        })
-          .then(() => {
-            headsock.deducted = true;
-            headsock.balance = hs.balance - 1;
-          })
-          .catch((e) => {
+  if (currentlyCheckingIn) {
+    if (HEADSOCK_DEPOSIT_KIND_ID) {
+      try {
+        const deposits = await getDepositOverview(personId, FASTTRAX_LOCATION_ID);
+        const hs = findHeadsockCredit(deposits);
+        if (hs) {
+          headsock.detected = true;
+          headsock.balance = hs.balance;
+          addDeposit({
+            personId,
+            depositKindId: hs.depositKindId,
+            amount: -1,
+            locationId: FASTTRAX_LOCATION_ID,
+          }).catch((e) => {
             enqueueDepositFailure({
               source: "headsock-checkin",
               sourceRef: `${personId}-${sessionId}`,
@@ -272,14 +268,15 @@ export async function POST(req: NextRequest) {
               initialError: e instanceof Error ? e.message : "Unknown",
             }).catch(() => {});
           });
+        }
+      } catch {
+        // Deposit read failed — don't block check-in
       }
-    } catch {
-      // Deposit read failed — don't block check-in
     }
-  }
 
-  // Fire Pandora check-in in background — don't block the flash response
-  checkInViaPandora(personId, sessionId).catch(() => {});
+    // Fire Pandora check-in in background
+    checkInViaPandora(personId, sessionId).catch(() => {});
+  }
 
   // Guest info from Redis cache (check-in response is fire-and-forget)
   const guestResponse = guest

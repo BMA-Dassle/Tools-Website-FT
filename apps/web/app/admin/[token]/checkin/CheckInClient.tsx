@@ -120,16 +120,23 @@ export default function CheckInClient({ token, version }: Props) {
               const pData = await pRes.json();
               const list = Array.isArray(pData?.data) ? pData.data : [];
               s.total = list.length;
-              s.checkedIn = list.filter((p: { kartNumber?: string | number | null }) => !!p.kartNumber).length;
-            } catch { /* silent */ }
+              s.checkedIn = list.filter((p: { checkedIn?: string | null }) => !!p.checkedIn).length;
+            } catch {
+              /* silent */
+            }
           }),
         );
         if (mounted) setActiveSessions(sessions);
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
     }
     poll();
     const iv = setInterval(poll, 10_000);
-    return () => { mounted = false; clearInterval(iv); };
+    return () => {
+      mounted = false;
+      clearInterval(iv);
+    };
   }, []);
 
   useEffect(() => {
@@ -346,12 +353,18 @@ export default function CheckInClient({ token, version }: Props) {
 
   // --------------- Flash Color ---------------
 
+  const SUCCESS_COLOR = "#16A34A";
+
   function getFlashColor(): string {
     if (lastError) return ERROR_COLOR;
     if (!lastResult) return ERROR_COLOR;
     if (!lastResult.currentlyCheckingIn) return WARNING_COLOR;
-    const track = lastResult.session.track?.toLowerCase() ?? "";
-    return TRACK_COLORS[track] ?? WARNING_COLOR;
+    return SUCCESS_COLOR;
+  }
+
+  function getTrackTextColor(): string {
+    const track = lastResult?.session.track?.toLowerCase() ?? "";
+    return TRACK_COLORS[track] ?? "#FFFFFF";
   }
 
   // --------------- Render: Flash Result ---------------
@@ -444,11 +457,11 @@ export default function CheckInClient({ token, version }: Props) {
               {lastResult.guest.firstName} {lastResult.guest.lastName}
             </p>
 
-            {/* Session info */}
+            {/* Session info — track color text */}
             {lastResult.session.track && (
               <p
-                className="text-white/80 font-bold uppercase text-center mt-2"
-                style={{ fontSize: "clamp(28px, 6vw, 44px)" }}
+                className="font-bold uppercase text-center mt-2"
+                style={{ fontSize: "clamp(28px, 6vw, 44px)", color: getTrackTextColor() }}
               >
                 {lastResult.session.track} {lastResult.session.raceType}{" "}
                 {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
@@ -551,7 +564,8 @@ export default function CheckInClient({ token, version }: Props) {
                 </div>
                 <div className="text-right">
                   <p className="text-white font-black text-xl leading-none">
-                    {s.checkedIn}<span className="text-white/40 text-sm font-normal">/{s.total}</span>
+                    {s.checkedIn}
+                    <span className="text-white/40 text-sm font-normal">/{s.total}</span>
                   </p>
                   <p className="text-white/40 text-[10px] uppercase">checked in</p>
                 </div>
