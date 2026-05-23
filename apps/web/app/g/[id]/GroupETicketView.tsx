@@ -414,16 +414,70 @@ export default function GroupETicketView({ group, initial }: Props) {
                         ) : isPast ? (
                           <PastCard details={m} />
                         ) : s.checkingIn ? (
-                          <CheckingInCard details={m} />
+                          <>
+                            <CheckingInCard details={m} />
+                            {s.onSession && qrByMember[key] && (
+                              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border-2 border-t-0 border-[#E41C1D]/40 bg-white/[0.03]">
+                                {(headsockByPerson[String(m.personId)] ?? 0) > 0 && (
+                                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                                      Headsock Credit
+                                    </p>
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setFullscreenQrKey(key)}
+                                  className="w-full flex flex-col items-center gap-2 py-4 hover:bg-white/5 active:scale-[0.99] transition-all"
+                                >
+                                  <div className="bg-white rounded-lg p-1.5">
+                                    <img
+                                      src={qrByMember[key]}
+                                      alt={`QR for ${m.firstName}`}
+                                      data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
+                                      width={100}
+                                      height={100}
+                                      className="block"
+                                    />
+                                  </div>
+                                  <p className="text-white/50 text-xs">Tap to open full screen</p>
+                                </button>
+                              </div>
+                            )}
+                          </>
                         ) : (
-                          <PreRaceCard details={m} loadingStatus={loadingStatus} />
+                          <>
+                            <PreRaceCard details={m} loadingStatus={loadingStatus} />
+                            {s.onSession && qrByMember[key] && (
+                              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border border-t-0 border-[#00E2E5]/40 bg-white/[0.03]">
+                                {(headsockByPerson[String(m.personId)] ?? 0) > 0 && (
+                                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                                      Headsock Credit
+                                    </p>
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setFullscreenQrKey(key)}
+                                  className="w-full flex flex-col items-center gap-2 py-4 hover:bg-white/5 active:scale-[0.99] transition-all"
+                                >
+                                  <div className="bg-white rounded-lg p-1.5">
+                                    <img
+                                      src={qrByMember[key]}
+                                      alt={`QR for ${m.firstName}`}
+                                      data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
+                                      width={100}
+                                      height={100}
+                                      className="block"
+                                    />
+                                  </div>
+                                  <p className="text-white/50 text-xs">Tap to open full screen</p>
+                                </button>
+                              </div>
+                            )}
+                          </>
                         )}
-                        {/* Per-member ViewPoint voucher block — sits
-                            directly under the member's ticket card so
-                            it's clearly THEIR codes (not the
-                            household's). Hidden on past heats; the
-                            heads-up email/SMS has already fired by
-                            then. */}
                         {!isPast && memberPov && memberPov.codes.length > 0 && (
                           <div className="mt-3">
                             <PovVoucherBlock
@@ -441,47 +495,6 @@ export default function GroupETicketView({ group, initial }: Props) {
                             />
                           </div>
                         )}
-                        {!isPast && s.onSession && qrByMember[key] && (
-                          <button
-                            type="button"
-                            onClick={() => setFullscreenQrKey(key)}
-                            className="mt-3 w-full flex items-center justify-center gap-3 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 active:scale-[0.99] transition-all"
-                          >
-                            <div className="bg-white rounded-lg p-1">
-                              <img
-                                src={qrByMember[key]}
-                                alt={`QR for ${m.firstName}`}
-                                data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
-                                width={56}
-                                height={56}
-                                className="block"
-                              />
-                            </div>
-                            <span className="text-white/50 text-xs">
-                              {m.firstName}&apos;s Check-In QR
-                            </span>
-                          </button>
-                        )}
-                        {!isPast &&
-                          s.onSession &&
-                          (headsockByPerson[String(m.personId)] ?? 0) > 0 && (
-                            <div className="mt-2 flex justify-center">
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs font-semibold">
-                                <svg
-                                  className="w-3.5 h-3.5"
-                                  fill="currentColor"
-                                  viewBox="0 0 20 20"
-                                >
-                                  <path
-                                    fillRule="evenodd"
-                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-                                    clipRule="evenodd"
-                                  />
-                                </svg>
-                                Headsock Credit
-                              </span>
-                            </div>
-                          )}
                       </div>
                     );
                   })}

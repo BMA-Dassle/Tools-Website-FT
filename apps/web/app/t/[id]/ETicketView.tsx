@@ -269,60 +269,75 @@ export default function ETicketView({
         ) : isPast ? (
           <PastCard details={ticket} />
         ) : checkingIn ? (
-          <CheckingInCard details={ticket} />
+          <>
+            <CheckingInCard details={ticket} />
+            {/* QR + headsock inside the checking-in state */}
+            {onSession && qrDataUrl && (
+              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border-2 border-t-0 border-[#E41C1D]/40 bg-white/[0.03]">
+                {headsockCredit > 0 && (
+                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                      Headsock Credit on File
+                    </p>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFullscreenQr(true)}
+                  className="w-full flex flex-col items-center gap-2 py-5 hover:bg-white/5 active:scale-[0.99] transition-all"
+                >
+                  <div className="bg-white rounded-lg p-2">
+                    <img
+                      src={qrDataUrl}
+                      alt="Check-in QR"
+                      data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
+                      width={140}
+                      height={140}
+                      className="block"
+                    />
+                  </div>
+                  <p className="text-white/50 text-xs">
+                    Tap to open full screen &middot; Scan at Check-In
+                  </p>
+                </button>
+              </div>
+            )}
+          </>
         ) : (
-          <PreRaceCard details={ticket} loadingStatus={loadingStatus} />
-        )}
-
-        {/* Full-screen "Open Full Screen" button — TABLED for now.
-            Keeping the FullScreenTicket component + state in place so
-            we can re-enable with a one-line change once the UX is
-            finalized. */}
-        {false && !isPast && onSession && (
-          <button
-            type="button"
-            onClick={() => setFullScreen(true)}
-            className="mt-3 w-full py-3 rounded-xl border border-[#00E2E5]/40 bg-[#00E2E5]/10 text-[#00E2E5] font-bold uppercase tracking-wider text-sm hover:bg-[#00E2E5]/15 active:scale-[0.99] transition-all"
-          >
-            Open Full Screen
-          </button>
-        )}
-
-        {/* Check-in QR code — staff scans this at the kiosk to check
-            the guest into their race session. */}
-        {!isPast && onSession && qrDataUrl && (
-          <button
-            type="button"
-            onClick={() => setFullscreenQr(true)}
-            className="mt-4 w-full flex flex-col items-center gap-2 py-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 active:scale-[0.99] transition-all"
-          >
-            <div className="bg-white rounded-lg p-1.5">
-              <img
-                src={qrDataUrl}
-                alt="Check-in QR"
-                data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
-                width={90}
-                height={90}
-                className="block"
-              />
-            </div>
-            <p className="text-white/50 text-xs">Tap to enlarge &middot; Scan at Check-In</p>
-          </button>
-        )}
-
-        {!isPast && onSession && headsockCredit > 0 && (
-          <div className="mt-3 flex justify-center">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs font-semibold">
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              Headsock Credit on File
-            </span>
-          </div>
+          <>
+            <PreRaceCard details={ticket} loadingStatus={loadingStatus} />
+            {/* QR + headsock inside the pre-race state */}
+            {onSession && qrDataUrl && (
+              <div className="mt-[-1px] rounded-b-2xl overflow-hidden border border-t-0 border-[#00E2E5]/40 bg-white/[0.03]">
+                {headsockCredit > 0 && (
+                  <div className="bg-amber-500/15 border-b border-amber-400/30 px-4 py-2.5 text-center">
+                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                      Headsock Credit on File
+                    </p>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFullscreenQr(true)}
+                  className="w-full flex flex-col items-center gap-2 py-5 hover:bg-white/5 active:scale-[0.99] transition-all"
+                >
+                  <div className="bg-white rounded-lg p-2">
+                    <img
+                      src={qrDataUrl}
+                      alt="Check-in QR"
+                      data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
+                      width={140}
+                      height={140}
+                      className="block"
+                    />
+                  </div>
+                  <p className="text-white/50 text-xs">
+                    Tap to open full screen &middot; Scan at Check-In
+                  </p>
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {!isPast && povCodes.length > 0 && (
