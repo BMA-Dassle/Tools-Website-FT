@@ -24,7 +24,7 @@ function pandoraHeaders(): HeadersInit {
 
 interface Participant {
   personId: string | number;
-  participateId?: string | number | null;
+  participantId?: string | number | null;
   firstName: string;
   lastName: string;
   email?: string | null;
@@ -70,7 +70,7 @@ async function lookupGuest(
   };
 }
 
-async function lookupByParticipateId(
+async function lookupByParticipantId(
   sessionId: string,
   participateId: string,
 ): Promise<Participant | null> {
@@ -84,7 +84,7 @@ async function lookupByParticipateId(
     return null;
   }
   return (
-    participants.find((p) => p.participateId && String(p.participateId) === participateId) ?? null
+    participants.find((p) => p.participantId && String(p.participantId) === participateId) ?? null
   );
 }
 
@@ -255,9 +255,9 @@ export async function POST(req: NextRequest) {
 
   // Paper QR path: bare participateId — search active sessions by participateId
   // (field added by Pandora; gracefully returns "not found" until it ships)
-  let paperQrParticipateId: string | null = null;
+  let paperQrParticipantId: string | null = null;
   if (!sessionId) {
-    paperQrParticipateId = personId ?? "";
+    paperQrParticipantId = personId ?? "";
     personId = "";
 
     const activeSessionIds: { sid: string }[] = [];
@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
       activeSessionIds.push({ sid: String(d.sessionId) });
     }
     for (const active of activeSessionIds) {
-      const match = await lookupByParticipateId(active.sid, paperQrParticipateId);
+      const match = await lookupByParticipantId(active.sid, paperQrParticipantId);
       if (match) {
         sessionId = active.sid;
         personId = String(match.personId);
