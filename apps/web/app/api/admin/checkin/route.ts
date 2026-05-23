@@ -24,6 +24,7 @@ function pandoraHeaders(): HeadersInit {
 
 interface Participant {
   personId: string | number;
+  participateId?: string | number | null;
   firstName: string;
   lastName: string;
   email?: string | null;
@@ -67,6 +68,24 @@ async function lookupGuest(
     raceType: null,
     heatNumber: null,
   };
+}
+
+async function lookupByParticipateId(
+  sessionId: string,
+  participateId: string,
+): Promise<Participant | null> {
+  const cacheKey = `pandora:participants:${FASTTRAX_LOCATION_ID}:${sessionId}:R1`;
+  const cached = await redis.get(cacheKey);
+  if (!cached) return null;
+  let participants: Participant[];
+  try {
+    participants = JSON.parse(cached) as Participant[];
+  } catch {
+    return null;
+  }
+  return (
+    participants.find((p) => p.participateId && String(p.participateId) === participateId) ?? null
+  );
 }
 
 interface CurrentRaces {
@@ -222,7 +241,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (!personId || !/^\d+$/.test(personId)) {
+  // For e-ticket QR: validate personId now. For paper QR: personId is
+  // undefined at this point (filled after participateId search below).
+  if (sessionId && (!personId || !/^\d+$/.test(personId))) {
     return NextResponse.json(
       { error: "invalid input", detail: "personId must be a digit string" },
       { status: 400 },
@@ -232,45 +253,33 @@ export async function POST(req: NextRequest) {
   // Get races-current first (needed for both e-ticket QR and paper QR paths)
   const current = await fetchCurrentRaces(req);
 
-  // Paper QR path: no sessionId — search active sessions for this participant
+  // Paper QR path: bare participateId — search active sessions by participateId
+  // (field added by Pandora; gracefully returns "not found" until it ships)
+  let paperQrParticipateId: string | null = null;
   if (!sessionId) {
-    const activeSessionIds: {
-      sid: string;
-      track: string;
-      raceType: string;
-      heatNumber: number;
-      scheduledStart: string;
-    }[] = [];
-    for (const [track, data] of Object.entries(current)) {
+    paperQrParticipateId = personId ?? "";
+    personId = "";
+
+    const activeSessionIds: { sid: string }[] = [];
+    for (const [, data] of Object.entries(current)) {
       if (!data) continue;
-      const d = data as {
-        sessionId?: number | string;
-        raceType?: string;
-        heatNumber?: number;
-        scheduledStart?: string;
-      };
+      const d = data as { sessionId?: number | string };
       if (!d.sessionId) continue;
-      activeSessionIds.push({
-        sid: String(d.sessionId),
-        track,
-        raceType: d.raceType ?? "",
-        heatNumber: d.heatNumber ?? 0,
-        scheduledStart: d.scheduledStart ?? "",
-      });
+      activeSessionIds.push({ sid: String(d.sessionId) });
     }
-    // Search each active session's participant cache for this personId
     for (const active of activeSessionIds) {
-      const result = await lookupGuest(active.sid, personId);
-      if (result.participant) {
+      const match = await lookupByParticipateId(active.sid, paperQrParticipateId);
+      if (match) {
         sessionId = active.sid;
+        personId = String(match.personId);
         break;
       }
     }
   }
 
-  // If we still don't have a sessionId (paper QR not found in active sessions),
+  // If we still don't have a sessionId or personId (paper QR not found in active sessions),
   // return a yellow warning — we can't check them in without knowing the session
-  if (!sessionId || !/^\d+$/.test(sessionId)) {
+  if (!sessionId || !personId || !/^\d+$/.test(sessionId) || !/^\d+$/.test(personId)) {
     return NextResponse.json({
       success: false,
       guest: null,
