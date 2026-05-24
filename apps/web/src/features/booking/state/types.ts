@@ -68,6 +68,13 @@ export interface PartyMember {
   category?: "adult" | "junior";
   /** True when this member is also session.contact (the paying customer). */
   isBillingCustomer?: boolean;
+  /**
+   * BMI membership name strings (e.g. ["Intermediate License", "Pro License"]).
+   * Populated by `ReturningRacerLookup.handlePersonVerified` when a returning
+   * racer is identified. Drives tier filtering in `filterProducts` — without
+   * this, even verified Pro racers see Starter-only products.
+   */
+  memberships?: string[];
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */
@@ -368,6 +375,7 @@ export function newPartyMember(args: {
   isNewRacer?: boolean;
   category?: "adult" | "junior";
   isBillingCustomer?: boolean;
+  memberships?: string[];
 }): PartyMember {
   return {
     id: newItemId(),
@@ -377,6 +385,7 @@ export function newPartyMember(args: {
     isNewRacer: args.isNewRacer ?? true,
     category: args.category,
     isBillingCustomer: args.isBillingCustomer,
+    memberships: args.memberships,
   };
 }
 

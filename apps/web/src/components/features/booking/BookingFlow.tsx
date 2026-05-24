@@ -43,6 +43,7 @@ export function BookingFlow({
   const [checkoutActive, setCheckoutActive] = useState(false);
   const [showHeightConfirm, setShowHeightConfirm] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
+  const [bookingHeatsProgress, setBookingHeatsProgress] = useState<string>("Reserving your heats…");
   const contentRef = useRef<HTMLDivElement>(null);
   const prevCursorRef = useRef<number | null>(null);
 
@@ -148,9 +149,10 @@ export function BookingFlow({
       const raceItem = activeItem as import("~/features/booking").RaceItem;
       const hasUnbooked = raceItem.heats.some((h) => h.heatId && !h.bmiLineId);
       if (hasUnbooked) {
+        setBookingHeatsProgress("Reserving your heats…");
         setBookingHeats(true);
         try {
-          await bookHeatsOnAdvance(session, raceItem, dispatch);
+          await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
           advanceToNextStep();
         } catch (err) {
           alert(
@@ -242,9 +244,9 @@ export function BookingFlow({
         />
 
         {bookingHeats && (
-          <div className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/5 p-6">
+          <div className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-6">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
-            <span className="text-sm text-white/60">Reserving your heats…</span>
+            <span className="text-sm font-medium text-white/80">{bookingHeatsProgress}</span>
           </div>
         )}
 

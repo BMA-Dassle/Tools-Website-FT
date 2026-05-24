@@ -21,7 +21,15 @@ interface LinkedPerson {
 }
 
 const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispatch }) => {
-  const [experienceType, setExperienceType] = useState<"new" | "existing" | null>(null);
+  // Derive initial state from session.party so Back-nav into this step
+  // doesn't reset everything. If the party already has a returning racer
+  // (bmiPersonId), we know experience=existing + lookup is already done.
+  // If party has any new racer, experience=new. Empty party → show picker.
+  const [experienceType, setExperienceType] = useState<"new" | "existing" | null>(() => {
+    if (session.party.some((m) => m.bmiPersonId)) return "existing";
+    if (session.party.length > 0) return "new";
+    return null;
+  });
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   const [linkedPersons, setLinkedPersons] = useState<LinkedPerson[]>([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
@@ -70,6 +78,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
         isNewRacer: false,
         category,
         isBillingCustomer: true,
+        memberships: person.memberships,
       }),
     });
 
@@ -134,8 +143,12 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
       : null;
     const category: "adult" | "junior" = age !== null && age < 13 ? "junior" : "adult";
 
-    // Look up BMI person details for this linked Pandora ID
+    // Look up BMI person details for this linked Pandora ID. The
+    // memberships array gates tier filtering in filterProducts — pull
+    // it here so Intermediate/Pro returning racers see their higher
+    // tier products on the race step.
     let bmiPersonId: string | undefined;
+    let memberships: string[] | undefined;
     try {
       const searchRes = await fetch(
         `/api/bmi-office?action=search&q=${encodeURIComponent(lp.id)}&max=5`,
@@ -143,11 +156,22 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
       const results = (await searchRes.json()) as Array<{ localId: string }>;
       if (results.length > 0) {
         const detailRes = await fetch(`/api/bmi-office?action=person&id=${results[0].localId}`);
-        const p = await detailRes.json();
+        const p = (await detailRes.json()) as { id: string | number; memberships?: unknown[] };
         bmiPersonId = String(p.id);
+        memberships = Array.isArray(p.memberships)
+          ? p.memberships
+              .map((m) =>
+                typeof m === "string"
+                  ? m
+                  : typeof (m as { name?: string })?.name === "string"
+                    ? (m as { name: string }).name
+                    : "",
+              )
+              .filter(Boolean)
+          : undefined;
       }
     } catch {
-      /* non-fatal — add without BMI ID */
+      /* non-fatal — add without BMI ID / memberships */
     }
 
     dispatch({
@@ -158,6 +182,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
         bmiPersonId,
         isNewRacer: false,
         category,
+        memberships,
       }),
     });
   }
@@ -179,8 +204,13 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
   }
 
   // ── Returning racer lookup ────────────────────────────────
+  // Show lookup only when the customer chose "existing" and hasn't
+  // verified anyone yet. After back-nav, `verifiedPerson` resets to
+  // null but session.party survives — fall through to the roster if
+  // any party member already has a bmiPersonId.
+  const hasVerifiedMember = session.party.some((m) => m.bmiPersonId);
 
-  if (experienceType === "existing" && !verifiedPerson) {
+  if (experienceType === "existing" && !verifiedPerson && !hasVerifiedMember) {
     return (
       <div className="space-y-6">
         <div className="text-center">

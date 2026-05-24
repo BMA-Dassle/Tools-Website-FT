@@ -461,7 +461,13 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
 
   if (phase === "sms-sent") {
     return (
-      <div className="mx-auto max-w-sm space-y-4 text-center">
+      <form
+        className="mx-auto max-w-sm space-y-4 text-center"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (smsCode.length === 6) handleSmsVerify();
+        }}
+      >
         <p className="text-sm text-white/60">
           We sent a 6-digit code to your {mode === "phone" ? "phone" : "email"}
         </p>
@@ -472,12 +478,12 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
           value={smsCode}
           onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
           placeholder="000000"
+          autoFocus
           className="mx-auto block w-40 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white placeholder-white/20 outline-none focus:border-[#00E2E5]/50"
         />
         {smsError && <p className="text-xs text-red-400">{smsError}</p>}
         <button
-          type="button"
-          onClick={handleSmsVerify}
+          type="submit"
           disabled={smsCode.length !== 6}
           className="rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:opacity-40"
         >
@@ -504,7 +510,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
             Start over
           </button>
         </div>
-      </div>
+      </form>
     );
   }
 
@@ -513,7 +519,13 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
   return (
     <div className="mx-auto max-w-sm space-y-4">
       {mode === "phone" && (
-        <>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (phone.replace(/\D/g, "").length >= 10) handlePhoneLookup();
+          }}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-white/50">Phone number</span>
             <input
@@ -521,23 +533,29 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
               value={phone}
               onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
               placeholder="(555) 555-1234"
+              autoFocus
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00E2E5]/50"
             />
           </label>
           {smsError && <p className="text-xs text-red-400">{smsError}</p>}
           <button
-            type="button"
-            onClick={handlePhoneLookup}
+            type="submit"
             disabled={phone.replace(/\D/g, "").length < 10}
             className="w-full rounded-xl bg-[#00E2E5] py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:opacity-40"
           >
             Look Up
           </button>
-        </>
+        </form>
       )}
 
       {mode === "email" && (
-        <>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (email.includes("@")) handleEmailLookup();
+          }}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-white/50">Email address</span>
             <input
@@ -545,23 +563,29 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email@example.com"
+              autoFocus
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00E2E5]/50"
             />
           </label>
           {smsError && <p className="text-xs text-red-400">{smsError}</p>}
           <button
-            type="button"
-            onClick={handleEmailLookup}
+            type="submit"
             disabled={!email.includes("@")}
             className="w-full rounded-xl bg-[#00E2E5] py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:opacity-40"
           >
             Look Up
           </button>
-        </>
+        </form>
       )}
 
       {mode === "code" && (
-        <>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (code.trim()) handleCodeVerify();
+          }}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-white/50">Login code</span>
             <input
@@ -569,19 +593,19 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="Your code from email"
+              autoFocus
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00E2E5]/50"
             />
           </label>
           {codeError && <p className="text-xs text-red-400">{codeError}</p>}
           <button
-            type="button"
-            onClick={() => handleCodeVerify()}
+            type="submit"
             disabled={!code.trim()}
             className="w-full rounded-xl bg-[#00E2E5] py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:opacity-40"
           >
             Verify
           </button>
-        </>
+        </form>
       )}
 
       <button

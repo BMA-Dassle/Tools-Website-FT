@@ -32,7 +32,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - Confirmation page renders with QR per racer + heat schedule
 - SMS + email received (if `SMS_TO_TEST` / `EMAIL_TO_TEST` env are set)
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Modify__  Notes: __Wording needs to match V1. Also make enter submit the lookup fields. Heat reservations takes forever to draft. Cart at the end of flow has 1 heat and 1 with nothing. No pricing or person info either for who is in those races. Going back to the Party screen resets it all and does not show current state.__
 
 ---
 
@@ -54,7 +54,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - 75-min lead-time cutoff does NOT apply (returning racer, presumed waiver valid)
 - Express Lane badge appears if waiver is valid
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Done__  Notes: ____
 
 ---
 
@@ -74,7 +74,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - 2 license sales auto-added (one per new racer)
 - Each line carries the correct `bmiPersonId` (null for new racers — BMI creates them at book time)
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Done__  Notes: __Need clearer text on which race is adult/junior.__
 
 ---
 
@@ -93,7 +93,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - 3 heats chain on one BMI orderId (visible in BMI bill if you inspect)
 - Conflict rule enforces ≥16-min Blue gap
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Modify__  Notes: __Only shows Starter race products.__
 
 ---
 
@@ -112,7 +112,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - Each component's heat books against its component productId
 - Bundled price applied at checkout
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Bad__  Notes: __Does not show at all.__
 
 ---
 
@@ -133,7 +133,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - Cross-building add-on conflicts: 30 min buffer
 - Each add-on sells via BMI `booking/sell` (one line per add-on entry)
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __N/A__  Notes: ____
 
 ---
 
@@ -151,7 +151,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - Session captures `appliedPromo` (visible by inspecting React DevTools if needed)
 - Checkout passes the promo to Square; Square Order has `applied_discounts` array referencing the catalog discount id
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Done__  Notes: ____
 
 ---
 
@@ -169,7 +169,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - All checkboxes required before submission
 - Modal does NOT appear for returning racers (waiver on file)
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Done__  Notes: ____
 
 ---
 
@@ -186,7 +186,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - Click blocked
 - Tooltip shows company name
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Done__  Notes: ____
 
 ---
 
@@ -204,7 +204,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - Next button disabled while date+junior conflict exists
 - Banner CTA clears the date
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Done__  Notes: ____
 
 ---
 
@@ -222,7 +222,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - Refresh fetches updated bill state without losing UI state
 - On expiry: behavior TBD — note what happens
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __Done but needs to stay refreshed whenever they are working with the reservation.__  Notes: ____
 
 ---
 
@@ -240,7 +240,7 @@ Mark each row with ✅ / ⚠️ (works with caveats) / ❌. Note bugs inline.
 - "Retry" button re-invokes `runCheckout`
 - After re-connecting + clicking retry → flow proceeds normally
 
-**Result:** ☐ Status: ____  Notes: ____
+**Result:** ☐ Status: __N/A__  Notes: ____
 
 ---
 

@@ -27,13 +27,26 @@ export async function bookHeatsOnAdvance(
   session: BookingSession,
   item: RaceItem,
   dispatch: Dispatch<Action>,
+  onProgress?: (msg: string) => void,
 ): Promise<void> {
   let billId = session.bmiBillId;
+
+  // Pre-count remaining heats so progress reads "Reserving heat 1 of N"
+  // for the customer's mental model, not "1 of all-heats-including-
+  // already-booked-ones".
+  const unbooked = item.heats.filter((h) => !h.bmiLineId && h.heatId && h.productId);
+  let bookedCount = 0;
+  const totalToBook = unbooked.length;
 
   for (let i = 0; i < item.heats.length; i++) {
     const heat = item.heats[i];
     if (heat.bmiLineId) continue;
     if (!heat.heatId || !heat.productId) continue;
+
+    bookedCount += 1;
+    onProgress?.(
+      totalToBook > 1 ? `Reserving heat ${bookedCount} of ${totalToBook}…` : "Reserving your heat…",
+    );
 
     const personId = heat.assignedTo
       ? (session.party.find((m) => m.id === heat.assignedTo)?.bmiPersonId ?? null)

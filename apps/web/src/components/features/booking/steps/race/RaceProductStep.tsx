@@ -120,9 +120,9 @@ const TRACK_INFO: Record<
 };
 
 function racersOfCategory(
-  party: { category?: Category; isNewRacer: boolean }[],
+  party: { category?: Category; isNewRacer: boolean; memberships?: string[] }[],
   category: Category,
-): { category?: Category; isNewRacer: boolean }[] {
+): { category?: Category; isNewRacer: boolean; memberships?: string[] }[] {
   return party.filter((m) => (m.category ?? "adult") === category);
 }
 
@@ -163,6 +163,14 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     const anyNew = racersInCategory.some((m) => m.isNewRacer);
     const racerType: RacerType = anyNew ? "new" : "existing";
 
+    // Aggregate memberships across this category's verified racers. v1
+    // `filterProducts` gates Intermediate/Pro tier visibility on whether
+    // the party has any member with that membership — so we pass the
+    // union of every category racer's memberships. Without this, the
+    // returning-racer flow defaults to Starter-only, hiding 3-Packs
+    // and higher-tier products.
+    const memberships = racersInCategory.flatMap((m) => m.memberships ?? []);
+
     const products = useMemo(() => {
       const schedule = scheduleForDate(item.date as string);
       const all = productsForSchedule(schedule, racerType);
@@ -170,8 +178,10 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
         racerType,
         adultCount: category === "adult" ? racerCount : 0,
         juniorCount: category === "junior" ? racerCount : 0,
+        memberships,
       }).filter((p) => p.category === category);
-    }, [item.date, racerType, racerCount]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [item.date, racerType, racerCount, memberships.join("|")]);
 
     const sorted = [...products].sort((a, b) => {
       const ta = TIER_ORDER[a.tier];
@@ -215,8 +225,39 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       );
     }
 
+    // Show category banner when the party spans BOTH adults + juniors
+    // so the customer knows which side of the wizard they're on. v1
+    // surfaces this same banner (page.tsx:2107-2138) above ProductPicker;
+    // we dropped it during the strict-parity reverts but it's needed
+    // when there's any chance of category confusion.
+    const hasAdults = session.party.some((m) => (m.category ?? "adult") === "adult");
+    const hasJuniors = session.party.some((m) => m.category === "junior");
+    const showCategoryBanner = hasAdults && hasJuniors;
+
     return (
       <div className="space-y-6">
+        {showCategoryBanner && (
+          <div
+            className={`rounded-xl border-2 p-4 text-center ${
+              category === "adult"
+                ? "border-[#00E2E5]/50 bg-[#00E2E5]/10"
+                : "border-amber-400/50 bg-amber-400/10"
+            }`}
+          >
+            <p
+              className={`font-display text-xl uppercase tracking-widest ${
+                category === "adult" ? "text-[#00E2E5]" : "text-amber-400"
+              }`}
+            >
+              {category === "adult" ? "Adult Races" : "Junior Races"}
+            </p>
+            <p className="mt-1 text-sm text-white/50">
+              Pick a race for your {racerCount} {category}
+              {racerCount !== 1 ? " racers" : " racer"}
+            </p>
+          </div>
+        )}
+
         <div className="space-y-2 text-center">
           {/* v1 ProductPicker:121-130 verbatim — same titles for adult + junior */}
           <h3 className="font-display text-2xl tracking-widest text-white uppercase">

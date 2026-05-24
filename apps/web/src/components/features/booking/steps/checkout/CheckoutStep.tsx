@@ -261,6 +261,23 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
   if (phase.step === "review") {
     const { overview, bmiBillId } = phase;
+    // Build a heatId -> [racer names] map from session.items so we can
+    // append "— Alex, Sarah" to each race line in the review pane.
+    // Without this the cart shows just "Starter Race Red x 1" with no
+    // indication of WHICH party member is racing that heat.
+    const heatRacers = new Map<string, string[]>();
+    for (const it of session.items) {
+      if (it.kind !== "race") continue;
+      for (const h of it.heats) {
+        if (!h.heatId) continue;
+        const member = session.party.find((m) => m.id === h.assignedTo);
+        const name = member ? [member.firstName, member.lastName].filter(Boolean).join(" ") : null;
+        if (!name) continue;
+        const list = heatRacers.get(h.heatId) ?? [];
+        if (!list.includes(name)) list.push(name);
+        heatRacers.set(h.heatId, list);
+      }
+    }
     return (
       <div className="mx-auto max-w-lg space-y-6">
         <div className="text-center">
@@ -286,17 +303,28 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
         {/* Line items */}
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-4">
-          {overview.lines.map((line, i) => (
-            <div key={i} className="flex justify-between text-sm">
-              <div className="text-white/60">
-                {line.name} x {line.quantity}
-                {line.time && <span className="ml-1 text-white/30">{formatTime(line.time)}</span>}
+          {overview.lines.map((line, i) => {
+            const racers = line.time ? heatRacers.get(line.time) : undefined;
+            return (
+              <div key={i} className="flex justify-between gap-3 text-sm">
+                <div className="min-w-0 flex-1 text-white/60">
+                  <div>
+                    {line.name}
+                    {line.quantity > 1 && <span> x {line.quantity}</span>}
+                    {line.time && (
+                      <span className="ml-1 text-white/30">{formatTime(line.time)}</span>
+                    )}
+                  </div>
+                  {racers && racers.length > 0 && (
+                    <div className="mt-0.5 text-xs text-white/40">{racers.join(", ")}</div>
+                  )}
+                </div>
+                <span className="shrink-0 text-white">
+                  {line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}
+                </span>
               </div>
-              <span className="text-white">
-                {line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}
-              </span>
-            </div>
-          ))}
+            );
+          })}
 
           <div className="space-y-1 border-t border-white/10 pt-2">
             <div className="flex justify-between text-sm">

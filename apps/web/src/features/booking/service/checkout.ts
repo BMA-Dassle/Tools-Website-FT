@@ -183,6 +183,11 @@ export async function fetchBillOverview(billId: string): Promise<BillOverview> {
       tax -= memTax;
       continue;
     }
+    // Skip ghost / sub-lines BMI sometimes returns with name="" or null
+    // (parent/child entries for the same heat). Surfacing them in the
+    // review panel renders an empty row with no info, which looks broken.
+    // Their price is already rolled into BMI's subtotal/tax (pulled above).
+    if (!l.name || !String(l.name).trim()) continue;
     const cashPrice = l.totalPrice?.find((p: { depositKind: number }) => p.depositKind === 0);
     lines.push({
       name: l.name,
@@ -377,9 +382,7 @@ export async function confirmCreditOrder(billId: string): Promise<void> {
 
 // ── Square customer lookup ──────────────────────────────────────────────
 
-export async function resolveSquareCustomer(
-  contact: Partial<ContactInfo>,
-): Promise<{
+export async function resolveSquareCustomer(contact: Partial<ContactInfo>): Promise<{
   customerId?: string;
   cards?: import("@/components/square/SavedCardSelector").SavedCard[];
 }> {
