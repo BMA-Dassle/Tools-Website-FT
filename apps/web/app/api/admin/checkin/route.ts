@@ -114,12 +114,13 @@ interface CurrentRaces {
 
 async function fetchCurrentRaces(req: NextRequest): Promise<CurrentRaces> {
   try {
-    // Use the internal cached route (Redis, ~5-20ms) instead of hitting
-    // Pandora live (1-5s). The cron warms Redis every minute.
+    // Hit Pandora live (with 5s upstream timeout + fallback to Redis on
+    // failure). The checkin page needs fresh race data — operators can't
+    // wait 60s for the cron to warm Redis.
     const origin = req.nextUrl.origin;
-    const res = await fetch(`${origin}/api/pandora/races-current?cacheOnly=1`, {
+    const res = await fetch(`${origin}/api/pandora/races-current`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return {};
     return (await res.json()) as CurrentRaces;

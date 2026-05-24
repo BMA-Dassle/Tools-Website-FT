@@ -76,7 +76,7 @@ export default function CheckInClient({ token, version }: Props) {
   } | null>(null);
   const [showSelfTest, setShowSelfTest] = useState(false);
 
-  // Live session status — polled every 10s via admin endpoint (calls Pandora directly for checkedIn counts)
+  // Live session status — polled every 5s via admin endpoint (calls Pandora directly for checkedIn counts)
   interface TrackSession {
     track: string;
     raceType: string;
@@ -104,7 +104,7 @@ export default function CheckInClient({ token, version }: Props) {
       }
     }
     poll();
-    const iv = setInterval(poll, 10_000);
+    const iv = setInterval(poll, 5_000);
     return () => {
       mounted = false;
       clearInterval(iv);
