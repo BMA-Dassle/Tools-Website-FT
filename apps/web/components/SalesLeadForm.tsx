@@ -595,8 +595,8 @@ export function SalesLeadForm({
                       style={{ fontSize: "11px", lineHeight: 1.4 }}
                     >
                       Event minimum is {guestMinimum} guests
-                      {eventType === "birthday-kid" ? "" : " (12 for kids birthdays)"}.
-                      Smaller groups can book online (opens 45 days out).
+                      {eventType === "birthday-kid" ? "" : " (12 for kids birthdays)"}. Smaller
+                      groups can book online (opens 45 days out).
                     </p>
                   )}
                 </Field>
@@ -1134,8 +1134,8 @@ export function SalesLeadForm({
                 <p>
                   If your event is further out, or you&apos;d still like our event team to
                   coordinate, our{" "}
-                  <strong className="text-white">group minimums are required</strong> — pricing
-                  will be billed at 20 guests (or 12 for kids birthdays) regardless of your actual
+                  <strong className="text-white">group minimums are required</strong> — pricing will
+                  be billed at 20 guests (or 12 for kids birthdays) regardless of your actual
                   headcount. You&apos;ll pay the same as a full-size group.
                 </p>
               </div>

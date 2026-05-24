@@ -39,8 +39,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Book HeadPinz Online — Pick Your Experience",
-    description:
-      "Reserve bowling, laser tag, gel blasters & more at HeadPinz Fort Myers & Naples.",
+    description: "Reserve bowling, laser tag, gel blasters & more at HeadPinz Fort Myers & Naples.",
     images: [HEADPINZ_OG_IMAGE],
   },
   alternates: { canonical: "https://headpinz.com/book" },
@@ -82,8 +81,7 @@ const bookingItemList = {
       item: {
         "@type": "Service",
         name: "NEXUS Laser Tag",
-        description:
-          "Two-story glow arena with haptic vests. 15-minute objective-based missions.",
+        description: "Two-story glow arena with haptic vests. 15-minute objective-based missions.",
         provider: { "@type": "Organization", name: "HeadPinz" },
         url: "https://headpinz.com/book/laser-tag",
       },
@@ -96,8 +94,7 @@ const bookingItemList = {
       item: {
         "@type": "Service",
         name: "NEXUS Gel Blasters",
-        description:
-          "Zero-mess combat with eco-friendly gellets and haptic vests.",
+        description: "Zero-mess combat with eco-friendly gellets and haptic vests.",
         provider: { "@type": "Organization", name: "HeadPinz" },
         url: "https://headpinz.com/book/gel-blaster",
       },
@@ -123,8 +120,7 @@ const bookingItemList = {
       item: {
         "@type": "Service",
         name: "Kids Bowl Free Summer Program",
-        description:
-          "Free summer bowling for registered kids. Two games per day, all summer long.",
+        description: "Free summer bowling for registered kids. Two games per day, all summer long.",
         provider: { "@type": "Organization", name: "HeadPinz" },
         url: "https://headpinz.com/book/kids-bowl-free",
       },

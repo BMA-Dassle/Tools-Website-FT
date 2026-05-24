@@ -32,8 +32,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
   return {
     name: "FastTrax Entertainment",
     short_name: "FastTrax",
-    description:
-      "Florida's largest indoor go-kart racing destination. Fort Myers, FL.",
+    description: "Florida's largest indoor go-kart racing destination. Fort Myers, FL.",
     start_url: "/",
     display: "standalone",
     background_color: "#000418",

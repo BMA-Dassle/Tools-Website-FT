@@ -313,7 +313,7 @@ export default function PaymentForm({
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        token: usingSavedCard ? undefined : token ?? undefined,
+        token: usingSavedCard ? undefined : (token ?? undefined),
         useSavedCard: usingSavedCard,
         savedCardId: usingSavedCard ? token : undefined,
         giftCardNonce: giftCardNonce ?? undefined,
@@ -421,12 +421,10 @@ export default function PaymentForm({
       {giftCardNonce ? (
         <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 flex items-start justify-between gap-3">
           <div className="text-sm">
-            <p className="text-emerald-200 font-semibold">
-              Gift card •••• {giftCardLast4 ?? ""}
-            </p>
+            <p className="text-emerald-200 font-semibold">Gift card •••• {giftCardLast4 ?? ""}</p>
             <p className="text-emerald-200/80 text-xs mt-0.5">
-              ${(gcAppliedCents / 100).toFixed(2)} of $
-              {(giftCardBalanceCents / 100).toFixed(2)} balance applied
+              ${(gcAppliedCents / 100).toFixed(2)} of ${(giftCardBalanceCents / 100).toFixed(2)}{" "}
+              balance applied
               {remainingCents > 0 ? ` · $${remainingDollars.toFixed(2)} due on card` : ""}
             </p>
           </div>

@@ -153,7 +153,10 @@ export async function GET(req: NextRequest) {
   const kindStr = searchParams.get("kind");
   const validKindValues: BowlingExperienceKind[] = ["kbf", "open", "hourly"];
   const kinds: BowlingExperienceKind[] = kindStr
-    ? (kindStr.split(",").map((k) => k.trim()).filter(Boolean) as BowlingExperienceKind[])
+    ? (kindStr
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean) as BowlingExperienceKind[])
     : [];
   for (const k of kinds) {
     if (!validKindValues.includes(k)) {

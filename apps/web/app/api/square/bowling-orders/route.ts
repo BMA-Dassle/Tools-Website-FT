@@ -158,10 +158,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "locationId required" }, { status: 400 });
     }
     if (!sourceId && !giftCardNonce) {
-      return NextResponse.json(
-        { error: "sourceId or giftCardNonce required" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "sourceId or giftCardNonce required" }, { status: 400 });
     }
     if (!lineItems?.length && !body.existingDayofOrderId) {
       return NextResponse.json({ error: "lineItems required" }, { status: 400 });
@@ -369,7 +366,9 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       if (err instanceof SquarePaymentError) {
         const friendly =
-          FRIENDLY_PAYMENT_ERRORS[err.code] ?? err.message ?? "Payment could not be processed. Please try again.";
+          FRIENDLY_PAYMENT_ERRORS[err.code] ??
+          err.message ??
+          "Payment could not be processed. Please try again.";
         console.error("[square/bowling-orders] deposit payment failed:", err.code, err.message);
         return NextResponse.json(
           { error: friendly, code: err.code, detail: err.message },
@@ -454,8 +453,8 @@ export async function POST(req: NextRequest) {
             amount_money: { amount: depositCents, currency: "USD" },
             // Include both paymentIds when present so Square's audit trail
             // links the eGift card to every customer payment that funded it.
-            buyer_payment_instrument_ids: [gcPaymentId, cardPaymentId].filter(
-              (id): id is string => Boolean(id),
+            buyer_payment_instrument_ids: [gcPaymentId, cardPaymentId].filter((id): id is string =>
+              Boolean(id),
             ),
           },
         },

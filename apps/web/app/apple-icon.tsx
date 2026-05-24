@@ -22,25 +22,23 @@ export default async function AppleIcon() {
   const label = isHeadPinz ? "HP" : "FT";
 
   return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: bg,
-          color: fg,
-          fontSize: 96,
-          fontWeight: 900,
-          letterSpacing: -2,
-          fontFamily: "system-ui, sans-serif",
-        }}
-      >
-        {label}
-      </div>
-    ),
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: bg,
+        color: fg,
+        fontSize: 96,
+        fontWeight: 900,
+        letterSpacing: -2,
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      {label}
+    </div>,
     { ...size },
   );
 }

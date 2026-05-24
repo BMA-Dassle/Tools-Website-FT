@@ -10,21 +10,21 @@ Site: **FastTrax (site `992`)** on `sys.vt3.io`.
 
 ## Endpoints we hit
 
-| Method | Path                                | Purpose                                       |
-| ------ | ----------------------------------- | --------------------------------------------- |
-| POST   | `/auth/local`                       | Service-account login → JWT (7d).             |
-| GET    | `/videos/events` (SSE)              | **Primary** — always-on stream of video lifecycle events. |
-| POST   | `/sse/{sessionId}/ack`              | One-time session ACK on connect.              |
-| POST   | `/videos`                           | Backstop poll, body `{_start, _limit, _sort:"id:desc", site_in:[992]}`. |
-| POST   | `/reporting/video-report`           | Occasional health / breakage report.          |
+| Method | Path                      | Purpose                                                                 |
+| ------ | ------------------------- | ----------------------------------------------------------------------- |
+| POST   | `/auth/local`             | Service-account login → JWT (7d).                                       |
+| GET    | `/videos/events` (SSE)    | **Primary** — always-on stream of video lifecycle events.               |
+| POST   | `/sse/{sessionId}/ack`    | One-time session ACK on connect.                                        |
+| POST   | `/videos`                 | Backstop poll, body `{_start, _limit, _sort:"id:desc", site_in:[992]}`. |
+| POST   | `/reporting/video-report` | Occasional health / breakage report.                                    |
 
 ---
 
 ## SSE events we consume
 
-| `event:` | Payload                                                                  | What we do                  |
-| -------- | ------------------------------------------------------------------------ | --------------------------- |
-| `connected` | bare UUID string (session id)                                          | Capture, send ACK, ignore.  |
+| `event:`    | Payload                                                                                | What we do                    |
+| ----------- | -------------------------------------------------------------------------------------- | ----------------------------- |
+| `connected` | bare UUID string (session id)                                                          | Capture, send ACK, ignore.    |
 | `message`   | JSON video record. Inner `data.eventType` is `"video-updated"` or `"sample-uploaded"`. | Match + ready-check pipeline. |
 
 ---

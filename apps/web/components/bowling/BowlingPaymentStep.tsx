@@ -315,15 +315,11 @@ export default function BowlingPaymentStep({
       {giftCardNonce ? (
         <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 flex items-start justify-between gap-3">
           <div className="text-sm">
-            <p className="text-emerald-200 font-semibold">
-              Gift card •••• {giftCardLast4 ?? ""}
-            </p>
+            <p className="text-emerald-200 font-semibold">Gift card •••• {giftCardLast4 ?? ""}</p>
             <p className="text-emerald-200/80 text-xs mt-0.5">
-              {centsToDollars(gcAppliedCents)} of{" "}
-              {centsToDollars(giftCardBalanceCents)} balance applied
-              {remainderCents > 0
-                ? ` · ${centsToDollars(remainderCents)} due on card`
-                : ""}
+              {centsToDollars(gcAppliedCents)} of {centsToDollars(giftCardBalanceCents)} balance
+              applied
+              {remainderCents > 0 ? ` · ${centsToDollars(remainderCents)} due on card` : ""}
             </p>
           </div>
           <button
@@ -380,9 +376,7 @@ export default function BowlingPaymentStep({
       )}
 
       {/* Card form — hidden when GC fully covers the deposit */}
-      {remainderCents > 0 && (
-        <CardCaptureForm ref={cardRef} locationId={locationId} />
-      )}
+      {remainderCents > 0 && <CardCaptureForm ref={cardRef} locationId={locationId} />}
 
       {/* Tokenize error (card validation failed before API call) */}
       {tokenizeError && (

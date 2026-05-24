@@ -132,8 +132,7 @@ export default function Footer() {
           >
             HeadPinz Fort Myers
           </a>{" "}
-          — bowling, laser tag, gel blasters &amp; arcade. Same campus, different building.
-          Also in{" "}
+          — bowling, laser tag, gel blasters &amp; arcade. Same campus, different building. Also in{" "}
           <a
             href="https://headpinz.com/naples"
             className="text-[#00E2E5] hover:text-white transition-colors font-semibold"
