@@ -420,8 +420,8 @@ export default function CheckInClient({ token, version }: Props) {
           <>
             {/* Guest picture placeholder */}
             <div
-              className="rounded-full border-4 border-white/30 bg-white/10 flex items-center justify-center mb-6"
-              style={{ width: 120, height: 120 }}
+              className="rounded-full border-4 border-white/30 bg-white/10 flex items-center justify-center mb-6 overflow-hidden"
+              style={{ width: 360, height: 360 }}
             >
               {lastResult.guest.pictureUrl ? (
                 <img
