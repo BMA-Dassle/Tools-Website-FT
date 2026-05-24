@@ -191,13 +191,14 @@ async function checkInViaPandora(personId: string, sessionId: string): Promise<C
       const text = await res.text().catch(() => "");
       return { success: false, error: `Pandora ${res.status}: ${text.slice(0, 200)}` };
     }
-    const data = await res.json();
+    const json = await res.json();
+    const guest = json?.data ?? json;
     return {
       success: true,
       guest: {
-        firstName: data?.firstName ?? "",
-        lastName: data?.lastName ?? "",
-        pic: data?.pic ? `data:image/jpeg;base64,${data.pic}` : null,
+        firstName: guest?.firstName ?? "",
+        lastName: guest?.lastName ?? "",
+        pic: guest?.pic ? `data:image/jpeg;base64,${guest.pic}` : null,
       },
     };
   } catch (e) {
