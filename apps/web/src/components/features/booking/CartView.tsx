@@ -12,6 +12,7 @@ import type {
 import { findOffering } from "~/features/booking";
 import { getRaceProductById, type RaceProduct } from "~/features/booking/service/race-products";
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
+import { modalBackdropProps } from "@/lib/a11y";
 import { AdditionalActivities } from "./AdditionalActivities";
 
 /**
@@ -125,9 +126,7 @@ export function LeaveConfirmModal({
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
+      {...modalBackdropProps(onCancel)}
       role="dialog"
       aria-modal="true"
     >

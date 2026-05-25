@@ -113,7 +113,9 @@ const ADDON_PAGE_ID = "42730172";
 // stores heatId (block.start), so we approximate. 30 min is wider than any
 // real heat (Red 12 / Blue 15 / Mega 24) so conflict detection errs safe.
 const HEAT_DURATION_MS = 30 * 60_000;
-const RACE_CONFLICT_BUFFER_MS = 30 * 60_000;
+// Race tracks are all at FastTrax. Cross-building addons (HeadPinz) get a
+// 30-min travel buffer; same-building addons need no extra buffer beyond
+// the already-generous HEAT_DURATION_MS estimate.
 const CROSS_BUILDING_BUFFER_MS = 30 * 60_000;
 
 interface TimeSlot {
@@ -166,13 +168,15 @@ function conflictsWithRace(
   slotStart: string,
   slotStop: string,
   heats: { start: string; stop: string }[],
+  addonLocation: "fasttrax" | "headpinz",
 ): boolean {
+  const buffer = addonLocation === "fasttrax" ? 0 : CROSS_BUILDING_BUFFER_MS;
   const sStart = parseLocal(slotStart).getTime();
   const sStop = parseLocal(slotStop).getTime();
   return heats.some((h) => {
     const hStart = parseLocal(h.start).getTime();
     const hStop = parseLocal(h.stop).getTime();
-    return sStart < hStop + RACE_CONFLICT_BUFFER_MS && sStop > hStart - RACE_CONFLICT_BUFFER_MS;
+    return sStart < hStop + buffer && sStop > hStart - buffer;
   });
 }
 
@@ -213,6 +217,8 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
   const fetchTimeSlots = useCallback(
     async (productId: string, qty: number) => {
       if (!item.date) return;
+      const addonDef = ADD_ONS.find((a) => a.id === productId);
+      const addonLocation = addonDef?.location ?? "headpinz";
       setLoadingSlots((p) => ({ ...p, [productId]: true }));
       try {
         const dateOnly = item.date.split("T")[0];
@@ -245,7 +251,7 @@ const RaceAddonsStepComponent: StepDef<RaceItem>["Component"] = ({ item, session
               if (!block) continue;
               if (seen.has(block.start)) continue;
               seen.add(block.start);
-              if (conflictsWithRace(block.start, block.stop, bookedHeats)) continue;
+              if (conflictsWithRace(block.start, block.stop, bookedHeats, addonLocation)) continue;
               allSlots.push(block);
             }
           } catch {

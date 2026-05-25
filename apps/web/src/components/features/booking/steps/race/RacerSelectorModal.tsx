@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { PartyMember } from "~/features/booking";
+import { modalBackdropProps } from "@/lib/a11y";
 
 /**
  * RacerSelectorModal — pick which returning racers go in a single heat.
@@ -75,15 +76,12 @@ export function RacerSelectorModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onCancel}
+      {...modalBackdropProps(onCancel)}
       role="dialog"
       aria-modal="true"
       aria-label="Select racers for this heat"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-[#000418] p-6 shadow-2xl"
-      >
+      <div className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-[#000418] p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-display text-lg uppercase tracking-wider text-white">

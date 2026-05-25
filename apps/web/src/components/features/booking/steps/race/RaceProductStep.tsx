@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { modalBackdropProps } from "@/lib/a11y";
 import { useEffect, useMemo, useState } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import {
@@ -534,9 +535,7 @@ function TrackPickerModal({
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-4"
       style={{ height: "100dvh" }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      {...modalBackdropProps(onClose)}
       role="dialog"
       aria-modal="true"
     >

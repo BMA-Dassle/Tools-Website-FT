@@ -478,6 +478,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
           value={smsCode}
           onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
           placeholder="000000"
+          // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
           className="mx-auto block w-40 rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white placeholder-white/20 outline-none focus:border-[#00E2E5]/50"
         />
@@ -533,6 +534,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
               value={phone}
               onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
               placeholder="(555) 555-1234"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00E2E5]/50"
             />
@@ -563,6 +565,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email@example.com"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00E2E5]/50"
             />
@@ -593,6 +596,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="Your code from email"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#00E2E5]/50"
             />

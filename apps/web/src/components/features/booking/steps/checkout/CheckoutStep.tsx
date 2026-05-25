@@ -175,8 +175,14 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-white/50">First name</label>
+              <label
+                htmlFor="checkout-first-name"
+                className="mb-1 block text-xs font-semibold text-white/50"
+              >
+                First name
+              </label>
               <input
+                id="checkout-first-name"
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
@@ -185,8 +191,14 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-white/50">Last name</label>
+              <label
+                htmlFor="checkout-last-name"
+                className="mb-1 block text-xs font-semibold text-white/50"
+              >
+                Last name
+              </label>
               <input
+                id="checkout-last-name"
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
@@ -196,8 +208,14 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-white/50">Email</label>
+            <label
+              htmlFor="checkout-email"
+              className="mb-1 block text-xs font-semibold text-white/50"
+            >
+              Email
+            </label>
             <input
+              id="checkout-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -206,8 +224,14 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-white/50">Phone</label>
+            <label
+              htmlFor="checkout-phone"
+              className="mb-1 block text-xs font-semibold text-white/50"
+            >
+              Phone
+            </label>
             <input
+              id="checkout-phone"
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
