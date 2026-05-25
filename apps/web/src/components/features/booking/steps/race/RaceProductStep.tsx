@@ -195,7 +195,10 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       return eligiblePackages({ racerType, schedule, category });
     }, [item.date, racerType]);
 
-    const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+    // Package selection lives on item.packageId so back-nav doesn't lose it
+    // AND so saveBookingDetails can write it to /api/booking-record (which
+    // feeds sales_log.package_id via the v1 confirmation page).
+    const selectedPackageId = item.packageId;
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
     const selectedTrack = category === "adult" ? item.productTrackAdult : item.productTrackJunior;
@@ -280,9 +283,24 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                 date={item.date}
                 isSelected={selectedPackageId === pkg.id}
                 onSelect={() => {
-                  setSelectedPackageId(pkg.id);
-                  // Clear individual product pick when selecting a package
-                  setProductWithTrack("", null);
+                  // Persist the package pick on item state so back-nav
+                  // doesn't lose it + so saveBookingDetails forwards it
+                  // to the booking-record (drives sales_log.package_id).
+                  // Clearing individual product pick keeps the cart shape
+                  // consistent — package picks own their own race selections.
+                  onChange(
+                    category === "adult"
+                      ? {
+                          packageId: pkg.id,
+                          productIdAdult: null,
+                          productTrackAdult: null,
+                        }
+                      : {
+                          packageId: pkg.id,
+                          productIdJunior: null,
+                          productTrackJunior: null,
+                        },
+                  );
                 }}
               />
             ))}

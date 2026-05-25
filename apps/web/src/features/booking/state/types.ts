@@ -147,6 +147,16 @@ export interface RaceItem extends BookingItemBase {
    */
   heats: RaceHeatAssignment[];
   /**
+   * Premium Package selection (id from `lib/packages.ts` registry, e.g.
+   * "rookie-pack-weekday", "ultimate-qualifier-mega"). null when the
+   * customer picked individual races instead of a package. Persisted on
+   * the item so back-nav doesn't lose the selection AND so saveBookingDetails
+   * can write it to /api/booking-record; v1's confirmation page forwards
+   * it to /api/notifications/booking-confirmation which writes it to
+   * `sales_log.package_id` for the sales dashboard's package breakdowns.
+   */
+  packageId: string | null;
+  /**
    * Number of POV cameras to pre-pay ($5/each online vs $7 at check-in).
    * BMI sells POV as a flat qty SKU (productId 43746981), no per-racer
    * attribution. For new racers in the Rookie Pack flow, this equals the
@@ -332,6 +342,7 @@ export function newItem(activity: Activity): SessionItem {
         productTrackAdult: null,
         productTrackJunior: null,
         heats: [],
+        packageId: null,
         povQuantity: 0,
         rookiePack: null,
         addons: [],
