@@ -433,8 +433,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           </p>
           {anyNewInCategory && (
             <p>
-              · A <strong className="text-white/60">$4.99 license fee</strong> per first-time driver
-              applies at check-in.
+              · A <strong className="text-white/60">$4.99 license fee</strong> per driver applies at
+              first check-in.
             </p>
           )}
         </div>

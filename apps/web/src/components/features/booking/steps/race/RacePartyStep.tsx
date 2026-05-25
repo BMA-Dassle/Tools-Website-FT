@@ -190,17 +190,9 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
   // ── Experience picker (first screen) ──────────────────────
 
   if (experienceType === null) {
-    return (
-      <div className="space-y-6">
-        <div className="text-center">
-          <h3 className="font-display text-2xl uppercase tracking-widest text-white">
-            Welcome to FastTrax
-          </h3>
-          <p className="mt-1 text-sm text-white/50">Have you raced with us before?</p>
-        </div>
-        <ExperiencePicker selected={null} onSelect={setExperienceType} />
-      </div>
-    );
+    // ExperiencePicker owns its own heading per v1 (race/components/
+    // ExperiencePicker.tsx:14). No outer wrapper.
+    return <ExperiencePicker selected={null} onSelect={setExperienceType} />;
   }
 
   // ── Returning racer lookup ────────────────────────────────

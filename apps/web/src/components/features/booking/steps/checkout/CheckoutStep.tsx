@@ -167,10 +167,9 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     return (
       <div className="mx-auto max-w-lg space-y-6">
         <div className="text-center">
-          <h2 className="font-display text-2xl tracking-widest text-white uppercase">
-            Contact Info
-          </h2>
-          <p className="mt-1 text-sm text-white/50">Who should we send the confirmation to?</p>
+          {/* v1 parity — apps/web/app/book/checkout/page.tsx:84-86 verbatim. */}
+          <h2 className="font-display text-2xl tracking-widest text-white uppercase">Checkout</h2>
+          <p className="mt-1 text-sm text-white/40">Enter your details to complete booking.</p>
         </div>
 
         <div className="space-y-4">
@@ -371,8 +370,8 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           {session.party.some((m) => m.isNewRacer) &&
             !overview.lines.some((l) => l.name.toLowerCase().includes("license")) && (
               <p>
-                &middot; A <strong className="text-white/60">$4.99 license fee</strong> per
-                first-time driver applies at check-in.
+                &middot; A <strong className="text-white/60">$4.99 license fee</strong> per driver
+                applies at first check-in.
               </p>
             )}
         </div>
