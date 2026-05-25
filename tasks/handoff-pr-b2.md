@@ -1,11 +1,11 @@
-# PR-B2 (Race v2) — Handoff · 2026-05-24
+# PR-B2 (Race v2) — Handoff · 2026-05-25
 
-**Status:** Functionally complete. End-to-end checkout works (Square sandbox + real BMI bookings). Awaiting final user retest before flipping PR Draft → Ready for Review.
+**Status:** Functionally complete. End-to-end checkout works (Square sandbox + real BMI bookings). PR-B2.5 (session persistence + cross-sell + timer expiry + floating cart) landed. Awaiting final user retest before flipping PR Draft → Ready for Review.
 
-**Branch:** `feat/booking-b2-race` @ `8a280dba` · pushed to origin
+**Branch:** `feat/booking-b2-race` @ `d120b614` · pushed to origin
 **Base:** `feat/booking2`
-**Commits ahead of `origin/main`:** ~36
-**Typecheck:** clean · **Tests:** 313/313 passing · **Build:** not yet re-verified post-last-commit
+**Commits ahead of `origin/main`:** ~38
+**Typecheck:** clean · **Tests:** 313/313 passing · **Build:** not yet re-verified post-B2.5 commit
 
 If you're picking up the broader booking-v2 scope (attractions, bowling, KBF, race-pack), read [`handoff-booking-v2.md`](handoff-booking-v2.md) next — this doc is racing-specific.
 
@@ -53,6 +53,8 @@ From `tasks/pr-b2-e2e-verification-2026-05-24.md` (Phase A walkthrough):
 
 | Commit | What |
 |---|---|
+| `d120b614` | **PR-B2.5: session persistence, cross-sell nav, timer expiry, floating cart** — `usePersistedReducer` hook wraps useReducer with sessionStorage (SSR-safe: starts with fallback, hydrates via `useEffect` + `restoreSession` action, returns `[session, dispatch, hydrated]`). Cross-sell: BookingFlow detects incoming activity not in cart and adds it on hydrated mount. ReservationTimer exposes `refresh()` via forwardRef/useImperativeHandle; new ReservationExpiredModal (blocking modal with Extend/Start Over). MiniCartV2 floating cart button on `/book/v2` landing page reads sessionStorage. CartView LeaveConfirmModal no longer clears session — copy updated to "progress is saved." CheckoutStep calls `clearBookingSession()` before redirects. |
+| `9d3e3b66` | **a11y fixes + non-compounding cross-building buffer** — postbuild a11y gate passing, conflict buffer fix |
 | `8a280dba` | **v1 wording parity** — ExperiencePicker port (heading, longer descriptions, "What to expect" callout), drop duplicate "Welcome to FastTrax" wrapper, license reminder verbatim ("per driver applies at first check-in"), Checkout heading "Checkout" + "Enter your details to complete booking." |
 | `acddc026` | **packageId tracking** — `RaceItem.packageId` persists Premium Package selection; saveBookingDetails forwards under `package` key to `/api/booking-record`; v1 confirmation page passes it to `/api/notifications/booking-confirmation` → `sales_log.package_id`. Also fixed back-nav state loss for package picks. |
 | `3dae7b53` | **Rich cart preview + leave-confirmation modal** — CartView shows real product name + track + per-heat racer assignments + extras + estimated total (was "High-Speed Electric Racing" generic placeholder). LeaveConfirmModal on "All activities" link in CartView + BookingFlow when cart has items. Wizard header gets "Step N of M · Next: <step>" hint. |
@@ -89,7 +91,7 @@ From `tasks/pr-b2-e2e-verification-2026-05-24.md` (Phase A walkthrough):
 |---|---|---|
 | POV Pandora session linking (8s post-confirm scheduling) | Scope decision §2 | "Race video features" PR |
 | BMI office notes (`appendPrivateNote` buffer) | Scope decision §6 — v1 endpoint pending confirmation | TBD |
-| Cross-session navigation (cart joins existing session) | Out of scope; v2 polish | PR-B2.5 |
+| Cross-session navigation (cart joins existing session) | **DONE** in `d120b614` | Landed in PR-B2.5 |
 | Race-pack credit purchases | Different model (credit not booking) | PR-B4 |
 | Square Orders + Catalog adapter wiring (`data/square.ts`, `data/square-catalog.ts`) | Racing doesn't need them; checkout calls `/api/square/pay` directly. Bowling + attractions WILL need the catalog reader for `BMI Item ID` resolution | PR-B3 prerequisite |
 
@@ -112,6 +114,9 @@ From `tasks/pr-b2-e2e-verification-2026-05-24.md` (Phase A walkthrough):
 | `apps/web/src/features/booking/data/bmi.ts` | BMI adapter — getAvailability (PascalCase + date URL param + pageId), bookHeat, createPerson, removeBookingLine, confirmPayment, getOrderOverview |
 | `apps/web/src/features/booking/state/types.ts` | RaceItem, PartyMember, BookingSession definitions |
 | `apps/web/src/features/booking/state/machine.ts` | Reducer (preserves state on back-nav by design) |
+| `apps/web/src/features/booking/hooks/usePersistedReducer.ts` | sessionStorage persistence hook (SSR-safe, returns `[session, dispatch, hydrated]`) |
+| `apps/web/src/components/features/booking/ReservationExpiredModal.tsx` | Blocking modal on timer expiry (Extend / Start Over) |
+| `apps/web/src/components/features/booking/MiniCartV2.tsx` | Floating cart button on `/book/v2` landing page |
 | `apps/web/src/features/booking/state/steps.ts` | STEP_REGISTRY for race / attraction / bowling / kbf |
 | `apps/web/app/api/bmi/route.ts` | Shared BMI proxy — **do not modify**, v1 + v2 both use it |
 | `apps/web/app/api/sms/route.ts` | Shared SMS-Timing proxy — used by RaceAddonsStep for dayplanner |
@@ -166,12 +171,20 @@ Invoke-WebRequest -Uri "http://localhost:3000/api/bmi?endpoint=availability&date
 8. **packageId persists on item** — for back-nav AND for sales_log via booking-record
 9. **License auto-sells during BMI bookHeat** for new racers — no separate license picker step
 10. **Cart line racer attribution** — heatId → party member name map built at render time in CheckoutStep review
-11. **"All activities" link is confirmation-gated** when cart has items (LeaveConfirmModal)
+11. **"All activities" link is confirmation-gated** when cart has items (LeaveConfirmModal). Leaving does NOT clear session — progress is saved.
 12. **Booking-store key is `booking:${billId}`** (colon) — diverges from v1's `booking_{billId}` underscore. Compat with shared confirmation page is item 2 in § 3 to verify.
+13. **Session persists in sessionStorage** — `usePersistedReducer` hook, SSR-safe hydration via `restoreSession` action. Survives tab close, refresh, cross-sell navigation. Cleared on checkout success and timer "Start Over."
+14. **MiniCartV2 on landing page** — floating cart button reads sessionStorage, only visible on `/book/v2` when session has items
 
 ---
 
-## 7. Known v1 parity gaps deferred (will be in PR description)
+## 7. Known bugs (PR-B2.5)
+
+| Bug | Severity | Details |
+|---|---|---|
+| **New racers can remove license from cart** | Medium | License auto-sells at checkout for `isNewRacer` members, but the cart UI's remove button lets customers delete the license line item. Need: guard cart remove for required/mandatory items, or hide the remove button on license lines. |
+
+## 7b. Known v1 parity gaps deferred (will be in PR description)
 
 | Gap | Where it lives in v1 | Why deferred |
 |---|---|---|
@@ -184,7 +197,7 @@ Invoke-WebRequest -Uri "http://localhost:3000/api/bmi?endpoint=availability&date
 ## 8. Quick architectural reference
 
 - **Race wizard step order:** Party → Date → Adult Race → Adult Heats → Junior Race → Junior Heats → POV & Pack → Extras. Adult/Junior steps gated by `isVisible` based on party composition.
-- **State machine:** `useReducer` in `BookingFlow.tsx`. All cart state in-memory React. Sessions don't survive a hard refresh (intentional for now; persistence is a separate v2 polish PR).
+- **State machine:** `usePersistedReducer` in `BookingFlow.tsx`. Session state persisted to sessionStorage via `usePersistedReducer` hook (SSR-safe: hydrates post-mount via `restoreSession` action). Sessions survive tab close / refresh. `clearBookingSession()` wipes on checkout success or timer "Start Over."
 - **Back-nav preservation:** the reducer NEVER destroys data on `back` — only the step cursor moves. Any state loss on back-nav is a step component bug (using `useState` instead of deriving from session) — see commit 007bc58c for the fix pattern.
 - **Heat booking:** happens on Next from the heat-picker step (not at checkout). BMI orderId chains all heats. The reservation timer (10 min) ticks on the BMI bill once created.
 - **Checkout:** `service/checkout.ts:runCheckout` orchestrates contact registration → bill overview → review → payment via shared `PaymentForm` (which calls `/api/square/pay`) → clickwrap → window.location to `/book/confirmation`.
