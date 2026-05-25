@@ -84,7 +84,8 @@ export type Action =
    * (the `/book/v2` landing + activity page seeding) are responsible for
    * not mutating mid-flow.
    */
-  | { type: "applyPromo"; promo: AppliedPromo | null };
+  | { type: "applyPromo"; promo: AppliedPromo | null }
+  | { type: "restoreSession"; session: BookingSession };
 
 export function reducer(state: BookingSession, action: Action): BookingSession {
   switch (action.type) {
@@ -253,5 +254,8 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
 
     case "applyPromo":
       return { ...state, appliedPromo: action.promo };
+
+    case "restoreSession":
+      return action.session;
   }
 }

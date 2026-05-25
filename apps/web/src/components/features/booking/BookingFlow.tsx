@@ -1,27 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   emptySession,
   getActiveItem,
   newItem,
-  reducer,
   STEP_REGISTRY,
   type Activity,
+  type AttractionItem,
   type Brand,
   type EntryContext,
   type StepDef,
 } from "~/features/booking";
+import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
 import type { AppliedPromo } from "~/features/discount-codes";
 import { CartView, LeaveConfirmModal } from "./CartView";
 import { CheckoutStep } from "./steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "./steps/race/HeightAgeConfirmModal";
-import { bookHeatsOnAdvance } from "~/features/booking/service/race";
-import { ReservationTimer } from "./ReservationTimer";
+import { bookHeatsOnAdvance, cancelRaceOrder } from "~/features/booking/service/race";
+import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTimer";
+import { ReservationExpiredModal } from "./ReservationExpiredModal";
 
 export interface BookingFlowProps {
   activity: Activity;
+  slug?: string;
   entryBrand: Brand;
   initialContext?: EntryContext;
   initialPromo?: AppliedPromo | null;
@@ -30,6 +33,7 @@ export interface BookingFlowProps {
 
 export function BookingFlow({
   activity,
+  slug,
   entryBrand,
   initialContext,
   initialPromo,
@@ -39,24 +43,60 @@ export function BookingFlow({
     () => emptySession({ entryBrand, context: initialContext, appliedPromo: initialPromo ?? null }),
     [entryBrand, initialContext, initialPromo],
   );
-  const [session, dispatch] = useReducer(reducer, initial);
+  const [session, dispatch, hydrated] = usePersistedReducer(initial);
   const [checkoutActive, setCheckoutActive] = useState(false);
   const [showHeightConfirm, setShowHeightConfirm] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState<string>("Reserving your heats…");
   const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const [reservationExpired, setReservationExpired] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const prevCursorRef = useRef<number | null>(null);
+  const timerRef = useRef<ReservationTimerHandle>(null);
 
+  // Seed first item or detect cross-sell arrival — runs after storage hydration
   useEffect(() => {
+    if (!hydrated) return;
     if (session.items.length === 0) {
       dispatch({ type: "addItem", item: newItem(activity) });
+    } else {
+      const alreadyInCart = session.items.some((i) => {
+        if (i.kind !== activity) return false;
+        if (i.kind === "attraction") return (i as AttractionItem).slug === slug;
+        return true;
+      });
+      if (!alreadyInCart) {
+        const item = newItem(activity);
+        if (item.kind === "attraction" && slug) {
+          (item as AttractionItem).slug = slug;
+        }
+        dispatch({ type: "addItem", item });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hydrated]);
 
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
   const activeItem = getActiveItem(session);
+
+  const backCode = session.appliedPromo?.code ?? urlCode ?? null;
+  const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
+
+  const handleReservationExpired = useCallback(() => {
+    setReservationExpired(true);
+  }, []);
+
+  const handleExtendReservation = useCallback(async (): Promise<boolean> => {
+    const ok = await timerRef.current?.refresh();
+    if (ok) setReservationExpired(false);
+    return !!ok;
+  }, []);
+
+  const handleStartOver = useCallback(() => {
+    if (session.bmiBillId) cancelRaceOrder(session.bmiBillId);
+    clearBookingSession();
+    window.location.href = backToLandingHref;
+  }, [session.bmiBillId, backToLandingHref]);
 
   // Auto-scroll to top on step change (v1 parity: page.tsx:263).
   const currentCursor = activeItem ? (session.cursors[activeItem.id] ?? 0) : null;
@@ -177,9 +217,6 @@ export function BookingFlow({
     }
   };
 
-  const backCode = session.appliedPromo?.code ?? urlCode ?? null;
-  const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
-
   return (
     <div className={brandClass}>
       {/* Sticky step indicator — matches v1: sticky below fixed nav */}
@@ -222,16 +259,17 @@ export function BookingFlow({
               );
             })}
           </div>
-          <ReservationTimer bmiBillId={session.bmiBillId} />
+          <ReservationTimer
+            ref={timerRef}
+            bmiBillId={session.bmiBillId}
+            onExpired={handleReservationExpired}
+          />
         </div>
       </div>
 
       {/* Main content — v1: max-w-4xl mx-auto px-4 py-8, no card wrapper */}
       <div ref={contentRef} className="scroll-mt-45 mx-auto max-w-4xl px-4 py-8">
         <div className="mb-6 flex items-center justify-between gap-3">
-          {/* Confirm before navigation — the wizard session is in-memory
-              React state, so clicking through to the landing destroys
-              everything the customer picked. Modal first, then leave. */}
           <button
             type="button"
             onClick={() => setLeaveConfirm(true)}
@@ -290,6 +328,10 @@ export function BookingFlow({
           }}
           onChangeParty={() => setShowHeightConfirm(false)}
         />
+      )}
+
+      {reservationExpired && session.bmiBillId && (
+        <ReservationExpiredModal onExtend={handleExtendReservation} onStartOver={handleStartOver} />
       )}
     </div>
   );

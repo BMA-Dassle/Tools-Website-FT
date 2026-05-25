@@ -14,6 +14,7 @@ import {
   buildConfirmationUrl,
   type BillOverview,
 } from "~/features/booking/service/checkout";
+import { clearBookingSession } from "~/features/booking/hooks";
 import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm";
 import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
@@ -104,6 +105,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
       setPhase({ step: "confirming", bmiBillId });
       try {
         await confirmCreditOrder(bmiBillId);
+        clearBookingSession();
         window.location.href = buildConfirmationUrl(session, bmiBillId);
       } catch (err) {
         setPhase({
@@ -158,6 +160,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
       cardBrand: result.cardBrand ?? undefined,
     });
 
+    clearBookingSession();
     window.location.href = buildConfirmationUrl(session, bmiBillId);
   }
 

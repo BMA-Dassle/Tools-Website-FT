@@ -115,6 +115,7 @@ export default async function BookActivityV2Page({
   return (
     <BookingFlow
       activity={activity}
+      slug={slug}
       entryBrand={entryBrand}
       initialContext={initialContext}
       initialPromo={initialPromo}

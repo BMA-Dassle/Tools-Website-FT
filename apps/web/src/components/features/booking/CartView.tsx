@@ -138,7 +138,7 @@ export function LeaveConfirmModal({
           Leave your booking?
         </h3>
         <p className="mt-2 text-sm text-white/60">
-          You&apos;ll lose the items in your cart. Your session won&apos;t be saved.
+          Your progress is saved. You can come back to finish your booking.
         </p>
         <div className="mt-5 flex gap-3">
           <button
