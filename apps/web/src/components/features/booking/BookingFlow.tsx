@@ -14,7 +14,7 @@ import {
   type StepDef,
 } from "~/features/booking";
 import type { AppliedPromo } from "~/features/discount-codes";
-import { CartView } from "./CartView";
+import { CartView, LeaveConfirmModal } from "./CartView";
 import { CheckoutStep } from "./steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "./steps/race/HeightAgeConfirmModal";
 import { bookHeatsOnAdvance } from "~/features/booking/service/race";
@@ -44,6 +44,7 @@ export function BookingFlow({
   const [showHeightConfirm, setShowHeightConfirm] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState<string>("Reserving your heats…");
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const prevCursorRef = useRef<number | null>(null);
 
@@ -227,13 +228,26 @@ export function BookingFlow({
 
       {/* Main content — v1: max-w-4xl mx-auto px-4 py-8, no card wrapper */}
       <div ref={contentRef} className="scroll-mt-45 mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-6">
-          <Link
-            href={backToLandingHref}
+        <div className="mb-6 flex items-center justify-between gap-3">
+          {/* Confirm before navigation — the wizard session is in-memory
+              React state, so clicking through to the landing destroys
+              everything the customer picked. Modal first, then leave. */}
+          <button
+            type="button"
+            onClick={() => setLeaveConfirm(true)}
             className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/60 transition-colors hover:border-white/30 hover:text-white"
           >
             ← All activities
-          </Link>
+          </button>
+          {/* Progress hint — keeps "where am I / how much more" visible.
+              The sticky step bar shows numbered steps; this adds the
+              human-readable next-step name + count for scanability. */}
+          <p className="hidden text-xs text-white/40 sm:block">
+            Step <span className="text-white/70">{stepIndex + 1}</span> of {steps.length}
+            {!isLastStep && steps[stepIndex + 1] && (
+              <span> · Next: {steps[stepIndex + 1].title}</span>
+            )}
+          </p>
         </div>
 
         <stepUntyped.Component
@@ -259,6 +273,10 @@ export function BookingFlow({
           onNext={handleNext}
         />
       </div>
+
+      {leaveConfirm && (
+        <LeaveConfirmModal backHref={backToLandingHref} onCancel={() => setLeaveConfirm(false)} />
+      )}
 
       {showHeightConfirm && (
         <HeightAgeConfirmModal
