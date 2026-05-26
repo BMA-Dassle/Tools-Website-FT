@@ -166,7 +166,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
               racers.map((r) => ({
                 productId: pick.productId,
-                track: pick.track,
+                track: pick.track as RaceHeatAssignment["track"],
                 heatId: pick.block.start,
                 bmiLineId: null,
                 assignedTo: r.id,
