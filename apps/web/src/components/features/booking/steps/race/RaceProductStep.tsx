@@ -631,10 +631,8 @@ export const RaceProductStepAdult: StepDef<RaceItem> = {
   isVisible: (_item, session) => hasCategory(session, "adult"),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "adult")) return true;
+    if (item.packageId) return true;
     if (!item.productIdAdult) return { reason: "Pick an adult race to continue." };
-    // Multi-track packs require a track choice via TrackPickerModal.
-    // (The reducer writes productIdAdult + productTrackAdult atomically
-    // when the modal confirms, so this is belt-and-suspenders.)
     return true;
   },
 };
@@ -646,6 +644,7 @@ export const RaceProductStepJunior: StepDef<RaceItem> = {
   isVisible: (_item, session) => hasCategory(session, "junior"),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "junior")) return true;
+    if (item.packageId) return true;
     if (!item.productIdJunior) return { reason: "Pick a junior race to continue." };
     return true;
   },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
@@ -21,10 +21,6 @@ interface LinkedPerson {
 }
 
 const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispatch }) => {
-  // Derive initial state from session.party so Back-nav into this step
-  // doesn't reset everything. If the party already has a returning racer
-  // (bmiPersonId), we know experience=existing + lookup is already done.
-  // If party has any new racer, experience=new. Empty party → show picker.
   const [experienceType, setExperienceType] = useState<"new" | "existing" | null>(() => {
     if (session.party.some((m) => m.bmiPersonId)) return "existing";
     if (session.party.length > 0) return "new";
@@ -38,6 +34,30 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
   const billingLastName = session.contact.lastName?.trim();
   const billingAlreadyAdded = session.party.some((m) => m.isBillingCustomer);
 
+  // ── New-racer quantity helpers ─────────────────────────────
+  const newAdults = session.party.filter(
+    (m) => m.isNewRacer && (m.category ?? "adult") === "adult",
+  );
+  const newJuniors = session.party.filter((m) => m.isNewRacer && m.category === "junior");
+
+  const setNewRacerCount = (category: "adult" | "junior", target: number) => {
+    const current = category === "adult" ? newAdults : newJuniors;
+    if (target > current.length) {
+      for (let i = current.length; i < target; i++) {
+        const label = category === "adult" ? `Adult ${i + 1}` : `Junior ${i + 1}`;
+        dispatch({
+          type: "addPartyMember",
+          member: newPartyMember({ firstName: label, isNewRacer: true, category }),
+        });
+      }
+    } else if (target < current.length) {
+      for (let i = current.length - 1; i >= target; i--) {
+        dispatch({ type: "removePartyMember", id: current[i].id });
+      }
+    }
+  };
+
+  // ── Returning-racer helpers ────────────────────────────────
   const addNewMember = () => {
     dispatch({
       type: "addPartyMember",
@@ -221,7 +241,58 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
     );
   }
 
-  // ── Party roster ──────────────────────────────────────────
+  // ── New racer: quantity picker (v1 parity) ─────────────────
+  if (experienceType === "new") {
+    const total = newAdults.length + newJuniors.length;
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2 text-center">
+          <h3 className="font-display text-2xl uppercase tracking-widest text-white">
+            How many racers?
+          </h3>
+          <p className="mx-auto max-w-md text-sm text-white/40">
+            Tell us about your party so we can find the right races.
+          </p>
+        </div>
+
+        <div className="mx-auto max-w-md space-y-3">
+          <Counter
+            label="Adults"
+            description={'13+ years old and at least 59" (4\'11") tall'}
+            value={newAdults.length}
+            onChange={(n) => setNewRacerCount("adult", n)}
+            min={0}
+            max={10}
+          />
+          <Counter
+            label="Juniors"
+            description='7–13 years old and at least 49" tall'
+            value={newJuniors.length}
+            onChange={(n) => setNewRacerCount("junior", n)}
+            min={0}
+            max={10}
+          />
+        </div>
+
+        {total === 0 && (
+          <p className="text-center text-xs text-amber-400/70">
+            Add at least one racer to continue.
+          </p>
+        )}
+
+        {total > 0 && (
+          <div className="mx-auto max-w-md rounded-xl border border-white/8 bg-white/3 p-3 text-center text-xs text-white/40">
+            {total} racer{total !== 1 ? "s" : ""} total
+            {newAdults.length > 0 &&
+              newJuniors.length > 0 &&
+              ` (${newAdults.length} adult${newAdults.length !== 1 ? "s" : ""}, ${newJuniors.length} junior${newJuniors.length !== 1 ? "s" : ""})`}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Returning-racer party roster ──────────────────────────
 
   const alreadyAddedIds = new Set(session.party.map((m) => m.bmiPersonId).filter(Boolean));
   const availableLinked = linkedPersons.filter((lp) => !alreadyAddedIds.has(lp.id));
@@ -418,6 +489,50 @@ function PartyMemberRow({
   );
 }
 
+function Counter({
+  label,
+  description,
+  value,
+  onChange,
+  min = 0,
+  max = 10,
+}: {
+  label: string;
+  description: string;
+  value: number;
+  onChange: (n: number) => void;
+  min?: number;
+  max?: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold text-white">{label}</p>
+        <p className="mt-0.5 text-xs text-white/40">{description}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(min, value - 1))}
+          disabled={value <= min}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 text-lg font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-25"
+        >
+          −
+        </button>
+        <span className="w-6 text-center text-xl font-bold tabular-nums text-white">{value}</span>
+        <button
+          type="button"
+          onClick={() => onChange(Math.min(max, value + 1))}
+          disabled={value >= max}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 text-lg font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-25"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CategoryToggle({
   value,
   onChange,
@@ -451,9 +566,9 @@ export const RacePartyStep: StepDef<RaceItem> = {
   isVisible: () => true,
   canAdvance: (_item, session) => {
     if (session.party.length === 0) {
-      return { reason: "Add at least one party member." };
+      return { reason: "Add at least one racer to continue." };
     }
-    const missingName = session.party.some((m) => !m.firstName.trim());
+    const missingName = session.party.some((m) => !m.isNewRacer && !m.firstName.trim());
     if (missingName) return { reason: "Every party member needs a first name." };
     return true;
   },
