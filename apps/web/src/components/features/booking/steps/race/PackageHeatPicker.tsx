@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { bookingKeys } from "~/features/booking";
 import {
@@ -12,10 +12,16 @@ import {
 import {
   type PackageDefinition,
   type PackageRaceComponent,
+  type PackageTrackOption,
   primaryTrack,
   packageHeatGapMinutes,
 } from "~/features/booking/service/packages";
-import { heatsConflict, violatesMinGapAfter } from "~/features/booking/service/conflict";
+import {
+  heatsConflict,
+  violatesMinGapAfter,
+  HEAT_CONFLICT_TOOLTIP,
+  packageGapTooltip,
+} from "~/features/booking/service/conflict";
 
 export interface PackagePick {
   component: PackageRaceComponent;
@@ -41,6 +47,8 @@ interface TrackedProposal {
   block: BmiBlock;
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
 function parseLocal(iso: string): Date {
   return new Date(iso.replace(/Z$/, ""));
 }
@@ -53,19 +61,193 @@ function formatTime(iso: string): string {
   });
 }
 
-const TIER_COLOR: Record<string, string> = {
-  starter: "#00E2E5",
-  intermediate: "#8652FF",
-  pro: "#E53935",
+function spotsLabel(free: number, capacity: number): { text: string; label: string } {
+  if (free === 0) return { text: "text-red-400", label: "Full" };
+  if (free / capacity <= 0.3)
+    return { text: "text-amber-400", label: `${free} spot${free === 1 ? "" : "s"} left` };
+  return { text: "text-emerald-400", label: `${free} of ${capacity} open` };
+}
+
+// ── Color systems ───────────────────────────────────────────────────────────
+
+const TIER_BADGE: Record<string, { bg: string; text: string }> = {
+  starter: { bg: "bg-[#00E2E5]/20", text: "text-[#00E2E5]" },
+  intermediate: { bg: "bg-amber-500/20", text: "text-amber-300" },
+  pro: { bg: "bg-purple-500/20", text: "text-purple-300" },
 };
 
+const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
+  Red: { bg: "bg-red-500/20", text: "text-red-300" },
+  Blue: { bg: "bg-blue-500/20", text: "text-blue-300" },
+  Mega: { bg: "bg-purple-500/20", text: "text-purple-300" },
+};
+
+const TRACK_CARD: Record<string, { base: string; baseHover: string; selected: string }> = {
+  Red: {
+    base: "border-red-500/60 bg-red-500/[0.14]",
+    baseHover: "hover:border-red-400 hover:bg-red-500/20",
+    selected: "border-red-300 bg-red-500/30 ring-2 ring-red-400/70",
+  },
+  Blue: {
+    base: "border-blue-500/60 bg-blue-500/[0.14]",
+    baseHover: "hover:border-blue-400 hover:bg-blue-500/20",
+    selected: "border-blue-300 bg-blue-500/30 ring-2 ring-blue-400/70",
+  },
+  Mega: {
+    base: "border-white/10 bg-white/5",
+    baseHover: "hover:border-white/25 hover:bg-white/10",
+    selected: "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500/50",
+  },
+};
+
+const DISABLED_CARD =
+  "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
+
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function ProgressDots({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="flex items-center justify-center gap-2">
+      {Array.from({ length: total }, (_, i) => (
+        <div
+          key={i}
+          className={`h-2.5 w-2.5 rounded-full transition-colors ${
+            i < current
+              ? "bg-amber-400"
+              : i === current
+                ? "bg-amber-500/40 ring-2 ring-amber-500/30"
+                : "bg-white/15"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SelectedHeats({
+  picks,
+  components,
+  onClearFrom,
+}: {
+  picks: Map<string, TrackedProposal>;
+  components: PackageRaceComponent[];
+  onClearFrom: (ref: string) => void;
+}) {
+  const filled = components.filter((c) => picks.has(c.ref));
+  if (filled.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+        Heats Selected
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {filled.map((c) => {
+          const p = picks.get(c.ref)!;
+          const trackSuffix = c.tracks.length > 1 ? ` ${p.track}` : "";
+          return (
+            <span
+              key={c.ref}
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200"
+            >
+              <span>
+                🏎️ {c.label}
+                {trackSuffix} · {formatTime(p.block.start)}
+              </span>
+              <button
+                type="button"
+                aria-label={`Clear ${c.label} selection`}
+                onClick={() => onClearFrom(c.ref)}
+                className="-mr-1 text-base leading-none text-emerald-300/60 transition-colors hover:text-red-400"
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-[10px] text-white/30">
+        Click × on a heat to swap it (later picks reset since the gap rule re-applies).
+      </p>
+    </div>
+  );
+}
+
+function TrackInfoBanner({ tracks }: { tracks: Array<"Red" | "Blue" | "Mega"> }) {
+  const TRACK_DETAILS: Record<
+    string,
+    { title: string; stat: string; tagline: string; border: string; bg: string; titleClass: string }
+  > = {
+    Red: {
+      title: "Red Track",
+      stat: "1,095 ft",
+      tagline: "Technical & clockwise — more turns, more strategy.",
+      border: "border-red-500/40",
+      bg: "bg-red-500/[0.08]",
+      titleClass: "text-red-300",
+    },
+    Blue: {
+      title: "Blue Track",
+      stat: "1,013 ft",
+      tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
+      border: "border-blue-500/40",
+      bg: "bg-blue-500/[0.08]",
+      titleClass: "text-blue-300",
+    },
+    Mega: {
+      title: "Mega Track",
+      stat: "2,108 ft",
+      tagline: "Both tracks combined — the longest, fastest layout we run.",
+      border: "border-purple-500/40",
+      bg: "bg-purple-500/[0.08]",
+      titleClass: "text-purple-300",
+    },
+  };
+
+  const ordered = [...tracks].sort((a, b) => {
+    if (a === "Blue") return -1;
+    if (b === "Blue") return 1;
+    return 0;
+  });
+
+  return (
+    <div
+      className={`grid gap-2 ${ordered.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}
+    >
+      {ordered.map((track) => {
+        const info = TRACK_DETAILS[track];
+        if (!info) return null;
+        return (
+          <div key={track} className={`rounded-lg border ${info.border} ${info.bg} px-4 py-2.5`}>
+            <div className="mb-0.5 flex items-baseline justify-between gap-2">
+              <h4 className={`font-display text-sm uppercase tracking-wider ${info.titleClass}`}>
+                {info.title}
+              </h4>
+              <span className="font-mono text-[11px] text-white/50">{info.stat}</span>
+            </div>
+            <p className="text-xs leading-snug text-white/65">{info.tagline}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
+
 export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }: Props) {
-  const sortedComponents = [...pkg.races].sort((a, b) => a.sequence - b.sequence);
+  const sortedComponents = useMemo(
+    () => [...pkg.races].sort((a, b) => a.sequence - b.sequence),
+    [pkg],
+  );
+  const totalComponents = sortedComponents.length;
+  const ctaRef = useRef<HTMLDivElement>(null);
+
   const [currentComponentIdx, setCurrentComponentIdx] = useState(0);
   const [picks, setPicks] = useState<Map<string, TrackedProposal>>(new Map());
 
-  const currentComponent = sortedComponents[currentComponentIdx];
-  const allPicked = picks.size === sortedComponents.length;
+  const currentComponent = sortedComponents[currentComponentIdx] ?? null;
+  const pickedCount = sortedComponents.filter((c) => picks.has(c.ref)).length;
+  const allPicked = pickedCount === totalComponents;
 
   // Fetch availability for ALL components + tracks in parallel
   const fetchItems = useMemo(
@@ -123,54 +305,28 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
     return list;
   }, [queries, fetchItems]);
 
-  function isPickable(tp: TrackedProposal): { ok: boolean; reason?: string } {
-    if (tp.component.ref !== currentComponent?.ref) {
-      return { ok: false, reason: "Complete the current step first" };
+  // Auto-scroll CTA when last pick is made
+  useEffect(() => {
+    if (allPicked) {
+      setTimeout(() => ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     }
-    if (tp.block.freeSpots < racerCount) {
-      return { ok: false, reason: `Need ${racerCount}, only ${tp.block.freeSpots} left` };
-    }
+  }, [allPicked]);
 
-    // Check gap rule against earlier component picks
-    const gap = packageHeatGapMinutes(tp.component);
-    if (gap) {
-      const prevPick = picks.get(gap.ref);
-      if (prevPick) {
-        if (violatesMinGapAfter(prevPick.block.stop, tp.block.start, gap.minutes)) {
-          return {
-            ok: false,
-            reason: `Available ${gap.minutes} min after your ${gap.ref} ends`,
-          };
-        }
-      }
+  // Auto-advance currentComponentIdx when picks change
+  useEffect(() => {
+    const nextUnpicked = sortedComponents.findIndex((c) => !picks.has(c.ref));
+    if (nextUnpicked >= 0 && nextUnpicked !== currentComponentIdx) {
+      setCurrentComponentIdx(nextUnpicked);
     }
-
-    // Check standard heat conflict with all existing picks
-    for (const [, existing] of picks) {
-      if (
-        heatsConflict(
-          parseLocal(existing.block.start).getTime(),
-          existing.track,
-          parseLocal(tp.block.start).getTime(),
-          tp.track,
-        )
-      ) {
-        return { ok: false, reason: "Too close to a picked heat" };
-      }
-    }
-
-    return { ok: true };
-  }
+  }, [picks, sortedComponents, currentComponentIdx]);
 
   function handleClickHeat(tp: TrackedProposal) {
-    const { ok } = isPickable(tp);
-    if (!ok) return;
+    if (tp.component.ref !== currentComponent?.ref) return;
 
     const ref = tp.component.ref;
     const existing = picks.get(ref);
 
     if (existing && existing.block.start === tp.block.start) {
-      // Deselect — also clear all later picks (gap rule cascades)
       const newPicks = new Map(picks);
       newPicks.delete(ref);
       for (const comp of sortedComponents) {
@@ -182,7 +338,6 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
       return;
     }
 
-    // Select (replaces any prior pick for this component + clears later)
     const newPicks = new Map(picks);
     newPicks.set(ref, tp);
     for (const comp of sortedComponents) {
@@ -192,20 +347,27 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
     }
     setPicks(newPicks);
 
-    // Auto-advance to next component if not the last
     const nextIdx = sortedComponents.findIndex((c) => !newPicks.has(c.ref));
     if (nextIdx >= 0) {
       setCurrentComponentIdx(nextIdx);
     }
   }
 
-  // Auto-advance currentComponentIdx when picks change
-  useEffect(() => {
-    const nextUnpicked = sortedComponents.findIndex((c) => !picks.has(c.ref));
-    if (nextUnpicked >= 0 && nextUnpicked !== currentComponentIdx) {
-      setCurrentComponentIdx(nextUnpicked);
-    }
-  }, [picks, sortedComponents, currentComponentIdx]);
+  const clearPickAndLater = useCallback(
+    (ref: string) => {
+      const target = sortedComponents.find((c) => c.ref === ref);
+      if (!target) return;
+      setPicks((prev) => {
+        const next = new Map(prev);
+        for (const c of sortedComponents) {
+          if (c.sequence >= target.sequence) next.delete(c.ref);
+        }
+        return next;
+      });
+      setCurrentComponentIdx(sortedComponents.indexOf(target));
+    },
+    [sortedComponents],
+  );
 
   function handleConfirm() {
     const result: PackagePick[] = sortedComponents.map((comp) => {
@@ -221,70 +383,36 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
     onConfirm(result);
   }
 
+  const displayDate = parseLocal(date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
+      {/* Header */}
       <div className="text-center">
-        <h2 className="font-display text-2xl uppercase tracking-widest text-white">
+        <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-amber-400">
+          {pkg.name}
+        </p>
+        <h2 className="mb-1 font-display text-2xl uppercase tracking-widest text-white">
           Pick Your Heats
         </h2>
-        <p className="mt-1 text-sm text-white/50">
-          {pkg.name} — {sortedComponents.length} race{sortedComponents.length !== 1 ? "s" : ""} to
-          schedule
+        <p className="text-sm text-white/50">
+          {displayDate} · Pick {totalComponents} heat{totalComponents === 1 ? "" : "s"}
         </p>
       </div>
 
-      {/* Selected heats pills */}
-      <div className="flex flex-wrap gap-2">
-        {sortedComponents.map((comp) => {
-          const pick = picks.get(comp.ref);
-          const color = TIER_COLOR[comp.tier] ?? "#00E2E5";
-          return (
-            <span
-              key={comp.ref}
-              className="rounded-full border px-3 py-1 text-xs font-semibold"
-              style={{
-                borderColor: pick ? color : "rgba(255,255,255,0.1)",
-                color: pick ? color : "rgba(255,255,255,0.3)",
-                backgroundColor: pick ? `${color}15` : "transparent",
-              }}
-            >
-              {pick ? (
-                <>
-                  🏎️ {comp.label} · {formatTime(pick.block.start)}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newPicks = new Map(picks);
-                      newPicks.delete(comp.ref);
-                      for (const c of sortedComponents) {
-                        if (c.sequence > comp.sequence) newPicks.delete(c.ref);
-                      }
-                      setPicks(newPicks);
-                      setCurrentComponentIdx(sortedComponents.indexOf(comp));
-                    }}
-                    className="ml-1.5 opacity-60 hover:opacity-100"
-                  >
-                    ×
-                  </button>
-                </>
-              ) : (
-                `${comp.label} — pick below`
-              )}
-            </span>
-          );
-        })}
-      </div>
+      <ProgressDots current={pickedCount} total={totalComponents} />
 
-      {/* Current component indicator */}
-      {currentComponent && (
-        <div className="rounded-lg border border-white/10 bg-white/3 p-3 text-center text-sm">
-          <span className="text-white/50">Now picking: </span>
-          <span
-            className="font-semibold"
-            style={{ color: TIER_COLOR[currentComponent.tier] ?? "#00E2E5" }}
-          >
+      {/* Current-step banner */}
+      {currentComponent && !allPicked ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-4 py-2 text-center">
+          <p className="text-xs font-bold uppercase tracking-widest text-amber-300">
+            Step {currentComponent.sequence} of {totalComponents} · Pick your{" "}
             {currentComponent.label}
-          </span>
+          </p>
           {packageHeatGapMinutes(currentComponent) && (
             <p className="mt-1 text-xs text-white/40">
               Must be {packageHeatGapMinutes(currentComponent)!.minutes} min after your{" "}
@@ -292,96 +420,212 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
             </p>
           )}
         </div>
+      ) : allPicked ? (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2 text-center">
+          <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
+            All heats selected — review and confirm below
+          </p>
+        </div>
+      ) : null}
+
+      {/* Track info for multi-track steps */}
+      {currentComponent && currentComponent.tracks.length > 1 && (
+        <TrackInfoBanner
+          tracks={currentComponent.tracks.map((t) => t.track) as Array<"Red" | "Blue" | "Mega">}
+        />
       )}
+
+      <SelectedHeats picks={picks} components={sortedComponents} onClearFrom={clearPickAndLater} />
 
       {/* Heat grid */}
       {isLoading ? (
         <div className="flex h-48 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-          {allProposals.map((tp, idx) => {
-            const isCurrentComp = tp.component.ref === currentComponent?.ref;
-            const isPicked = picks.get(tp.component.ref)?.block.start === tp.block.start;
-            const { ok, reason } = isPickable(tp);
-            const isFull = !ok && !isPicked;
-            const tierColor = TIER_COLOR[tp.component.tier] ?? "#00E2E5";
-
-            return (
-              <button
-                key={`${tp.block.start}-${tp.productId}-${idx}`}
-                type="button"
-                onClick={() => handleClickHeat(tp)}
-                disabled={isFull}
-                title={reason}
-                className={`rounded-xl border p-3 text-left transition-all duration-150 ${
-                  isPicked
-                    ? "ring-1"
-                    : isFull
-                      ? "cursor-not-allowed opacity-30"
-                      : isCurrentComp
-                        ? "cursor-pointer border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10"
-                        : "cursor-default border-white/5 bg-white/3 opacity-50"
-                }`}
-                style={
-                  isPicked
-                    ? {
-                        borderColor: tierColor,
-                        backgroundColor: `${tierColor}15`,
-                        boxShadow: `0 0 0 1px ${tierColor}50`,
-                      }
-                    : undefined
-                }
-              >
-                <div className="mb-0.5 flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: tierColor }}
-                  />
-                  <span className="text-base font-bold text-white">
-                    {formatTime(tp.block.start)}
-                  </span>
-                </div>
-                <div className="mb-1 text-xs text-white/40">→ {formatTime(tp.block.stop)}</div>
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span
-                    className="rounded px-1 py-0.5 text-[10px] font-bold"
-                    style={{ backgroundColor: `${tierColor}20`, color: tierColor }}
-                  >
-                    {tp.component.label}
-                  </span>
-                  {tp.component.tracks.length > 1 && (
-                    <span className="text-white/30">{tp.track}</span>
-                  )}
-                </div>
-                {reason && !isPicked && (
-                  <p className="mt-1 text-[10px] text-amber-400/70">{reason}</p>
-                )}
-              </button>
-            );
-          })}
+      ) : allProposals.length === 0 ? (
+        <div className="flex h-48 flex-col items-center justify-center gap-3">
+          <p className="text-sm text-white/40">No heats available for this date.</p>
         </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            {allProposals.map((tp, idx) => {
+              const component = tp.component;
+              const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
+              const trackBadge = TRACK_BADGE[tp.track] ?? {
+                bg: "bg-white/10",
+                text: "text-white/70",
+              };
+              const showTrackBadge = component.tracks.length > 1;
+
+              const isPicked = picks.get(component.ref)?.block.start === tp.block.start;
+              const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
+              const blockStart = parseLocal(tp.block.start).getTime();
+
+              // Gap rule
+              const gap = packageHeatGapMinutes(component);
+              const prevPick = gap ? picks.get(gap.ref) : null;
+              const isGapViolation =
+                prevPick && gap
+                  ? violatesMinGapAfter(prevPick.block.stop, tp.block.start, gap.minutes)
+                  : false;
+              const gapAnchor =
+                prevPick && gap
+                  ? { stop: prevPick.block.stop, minutes: gap.minutes, refLabel: gap.ref }
+                  : null;
+
+              // Standard heat conflict with all existing picks
+              const isConflict = Array.from(picks.values()).some(
+                (existing) =>
+                  existing.component.ref !== component.ref &&
+                  heatsConflict(
+                    parseLocal(existing.block.start).getTime(),
+                    existing.track,
+                    blockStart,
+                    tp.track,
+                  ),
+              );
+
+              const isLowCap = tp.block.freeSpots < racerCount;
+              const isFull = isPicked
+                ? true
+                : isOtherStep || isLowCap || isConflict || isGapViolation || false;
+
+              const statusLabel = isPicked
+                ? "Selected"
+                : isOtherStep
+                  ? "Locked — finish the current step"
+                  : isGapViolation && gapAnchor
+                    ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+                    : isConflict
+                      ? "Too close to picked heat"
+                      : isLowCap
+                        ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
+                        : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
+
+              const statusClass = isPicked
+                ? "text-emerald-300"
+                : isOtherStep || isGapViolation || isConflict
+                  ? "text-amber-400"
+                  : isLowCap
+                    ? "text-red-400"
+                    : spotsLabel(tp.block.freeSpots, tp.block.capacity).text;
+
+              const cardTooltip = isOtherStep
+                ? "Locked — clear a heat above (×) to change it"
+                : isGapViolation && gapAnchor
+                  ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
+                  : isConflict
+                    ? HEAT_CONFLICT_TOOLTIP
+                    : undefined;
+
+              const trackTheme = TRACK_CARD[tp.track] ?? TRACK_CARD.Mega;
+              const cardClass = isPicked
+                ? trackTheme.selected
+                : isFull
+                  ? DISABLED_CARD
+                  : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
+
+              return (
+                <button
+                  key={`${tp.block.start}-${tp.productId}-${idx}`}
+                  type="button"
+                  onClick={() => !isFull && handleClickHeat(tp)}
+                  disabled={isFull}
+                  title={cardTooltip}
+                  className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
+                >
+                  {/* Tier + track badges */}
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1">
+                    <span
+                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}
+                    >
+                      {component.tier}
+                    </span>
+                    {showTrackBadge && (
+                      <span
+                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}
+                      >
+                        {tp.track}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mb-2 text-base font-bold text-white">
+                    {formatTime(tp.block.start)}
+                  </div>
+                  <div className="mb-1 text-xs font-medium text-white/60">{tp.block.name}</div>
+                  <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
+                  {/* Capacity bar */}
+                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className={`h-full rounded-full ${
+                        isLowCap
+                          ? "bg-red-500"
+                          : isConflict || isGapViolation || isOtherStep
+                            ? "bg-amber-400/50"
+                            : tp.block.freeSpots / tp.block.capacity <= 0.3
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                      }`}
+                      style={{
+                        width:
+                          isConflict || isGapViolation || isOtherStep
+                            ? "100%"
+                            : `${(tp.block.freeSpots / tp.block.capacity) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* CTA area */}
+          <div
+            ref={ctaRef}
+            className={`rounded-xl border p-5 transition-all duration-300 ${
+              allPicked ? "border-amber-500/40 bg-amber-500/8" : "border-white/10 bg-white/3"
+            }`}
+          >
+            {allPicked ? (
+              <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+                <div>
+                  <p className="mb-1 text-xs text-white/50">All {totalComponents} heats selected</p>
+                  <p className="text-sm text-white/70">
+                    {sortedComponents
+                      .map((c) => {
+                        const pick = picks.get(c.ref)!;
+                        const trackSuffix = c.tracks.length > 1 ? ` ${pick.track}` : "";
+                        return `${c.label}${trackSuffix} · ${formatTime(pick.block.start)}`;
+                      })
+                      .join(" → ")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-amber-400 px-6 py-3 text-sm font-bold text-[#000418] shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-300"
+                >
+                  Confirm &amp; Continue →
+                </button>
+              </div>
+            ) : (
+              <p className="text-center text-sm text-white/40">
+                Selected <span className="font-bold text-white">{pickedCount}</span> of{" "}
+                <span className="font-bold text-white">{totalComponents}</span> heats
+              </p>
+            )}
+          </div>
+        </>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
-        >
-          ← Back
-        </button>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={!allPicked}
-          className="rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Confirm &amp; Continue →
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="text-sm text-white/40 transition-colors hover:text-white/70"
+      >
+        ← Change package
+      </button>
     </div>
   );
 }

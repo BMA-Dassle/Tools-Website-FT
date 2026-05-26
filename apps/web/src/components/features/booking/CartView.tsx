@@ -12,6 +12,7 @@ import type {
 import { findOffering } from "~/features/booking";
 import { getRaceProductById, type RaceProduct } from "~/features/booking/service/race-products";
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
+import { getPackage, packageBundleTotal } from "~/features/booking/service/packages";
 import { modalBackdropProps } from "@/lib/a11y";
 import { AdditionalActivities } from "./AdditionalActivities";
 
@@ -213,6 +214,7 @@ function RaceCartCard({
   onEdit: () => void;
   onRemove: () => void;
 }) {
+  const pkg = item.packageId ? getPackage(item.packageId) : null;
   const adultProduct = item.productIdAdult ? getRaceProductById(item.productIdAdult) : null;
   const juniorProduct = item.productIdJunior ? getRaceProductById(item.productIdJunior) : null;
 
@@ -248,21 +250,29 @@ function RaceCartCard({
       })
     : null;
 
-  // Estimate — race × heats + license × new racers + POV × N + addons
+  // Estimate — package bundles their own pricing; individual races sum components
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
-  const adultRacerCount = session.party.filter((m) => (m.category ?? "adult") === "adult").length;
-  const juniorRacerCount = session.party.filter((m) => m.category === "junior").length;
-  const racesTotal =
-    (adultProduct?.price ?? 0) *
-      Math.max(1, adultProduct?.raceCount ?? 1) *
-      Math.max(1, adultRacerCount) +
-    (juniorProduct?.price ?? 0) *
-      Math.max(1, juniorProduct?.raceCount ?? 1) *
-      Math.max(1, juniorRacerCount);
-  const licenseTotal = LICENSE_PRICE * newRacerCount;
-  const povTotal = POV_PRICE * item.povQuantity;
-  const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
-  const estimated = racesTotal + licenseTotal + povTotal + addonsTotal;
+  const racerCount = session.party.length;
+  let estimated: number;
+  if (pkg) {
+    estimated =
+      packageBundleTotal(pkg, racerCount) +
+      item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
+  } else {
+    const adultRacerCount = session.party.filter((m) => (m.category ?? "adult") === "adult").length;
+    const juniorRacerCount = session.party.filter((m) => m.category === "junior").length;
+    const racesTotal =
+      (adultProduct?.price ?? 0) *
+        Math.max(1, adultProduct?.raceCount ?? 1) *
+        Math.max(1, adultRacerCount) +
+      (juniorProduct?.price ?? 0) *
+        Math.max(1, juniorProduct?.raceCount ?? 1) *
+        Math.max(1, juniorRacerCount);
+    const licenseTotal = LICENSE_PRICE * newRacerCount;
+    const povTotal = POV_PRICE * item.povQuantity;
+    const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
+    estimated = racesTotal + licenseTotal + povTotal + addonsTotal;
+  }
 
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
@@ -270,7 +280,7 @@ function RaceCartCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="text-base font-bold text-white">
-            {raceTitle(item, adultProduct, juniorProduct)}
+            {pkg ? pkg.name : raceTitle(item, adultProduct, juniorProduct)}
           </h3>
           {dateLabel && <p className="mt-0.5 text-xs text-white/50">{dateLabel}</p>}
         </div>
@@ -292,8 +302,12 @@ function RaceCartCard({
         </div>
       </div>
 
-      {/* Heats — grouped by category when both present */}
-      {(adultHeats.length > 0 || juniorHeats.length > 0) && (
+      {/* Heats — package shows all heats; individual races group by category */}
+      {pkg && item.heats.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          <HeatGroup label="Heats" heats={item.heats} party={session.party} accent="cyan" />
+        </div>
+      ) : adultHeats.length > 0 || juniorHeats.length > 0 ? (
         <div className="mt-3 space-y-2">
           {adultHeats.length > 0 && (
             <HeatGroup
@@ -312,22 +326,39 @@ function RaceCartCard({
             />
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Extras */}
-      {(item.povQuantity > 0 || item.rookiePack === true || item.addons.length > 0) && (
+      {pkg ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
-          {item.rookiePack === true && (
-            <ExtraRow icon="🎁" label={`Rookie Pack × ${newRacerCount}`} amount={null} />
+          {pkg.includesLicense && (
+            <ExtraRow icon="✓" label="Racing License included" amount={null} />
           )}
-          {item.povQuantity > 0 && !item.rookiePack && (
-            <ExtraRow icon="🎥" label={`POV Camera × ${item.povQuantity}`} amount={povTotal} />
+          {pkg.includesPov && <ExtraRow icon="✓" label="POV Race Video included" amount={null} />}
+          {pkg.appetizerCode && (
+            <ExtraRow icon="✓" label="Free Appetizer at Nemo's included" amount={null} />
           )}
           {item.addons.map((a) => (
             <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
           ))}
         </div>
-      )}
+      ) : item.povQuantity > 0 || item.rookiePack === true || item.addons.length > 0 ? (
+        <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
+          {item.rookiePack === true && (
+            <ExtraRow icon="🎁" label={`Rookie Pack × ${newRacerCount}`} amount={null} />
+          )}
+          {item.povQuantity > 0 && !item.rookiePack && (
+            <ExtraRow
+              icon="🎥"
+              label={`POV Camera × ${item.povQuantity}`}
+              amount={POV_PRICE * item.povQuantity}
+            />
+          )}
+          {item.addons.map((a) => (
+            <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
+          ))}
+        </div>
+      ) : null}
 
       {/* Estimated total */}
       {estimated > 0 && (

@@ -290,6 +290,11 @@ export const RacePovStep: StepDef<RaceItem> = {
   id: "race-pov",
   title: "POV & Pack",
   Component: RacePovStepComponent,
-  isVisible: (_item, session) => session.party.length > 0,
+  isVisible: (item, session) => {
+    if (session.party.length === 0) return false;
+    // Packages bundle license + POV + appetizer — skip this step entirely
+    if (item.packageId) return false;
+    return true;
+  },
   canAdvance: () => true,
 };
