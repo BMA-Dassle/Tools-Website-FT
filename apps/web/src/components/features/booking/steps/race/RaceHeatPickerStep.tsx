@@ -18,6 +18,8 @@ import {
 } from "~/features/booking/service/conflict";
 import { RacerSelectorModal } from "./RacerSelectorModal";
 import { getGroupEventForDate } from "@/lib/group-events";
+import { getPackage } from "~/features/booking/service/packages";
+import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
 
 /**
  * Race step — pick heats for ONE category (adult or junior).
@@ -133,12 +135,85 @@ function entriesForPick(
 }
 
 function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Component"] {
-  const Component: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
+  const Component: StepDef<RaceItem>["Component"] = ({ item, session, onChange, dispatch }) => {
     const allRacers = session.party;
     const racers = racersOfCategory(allRacers, category);
     const partySize = racers.length;
     const productId = productIdForCategory(item, category);
     const product = useMemo(() => getRaceProductById(productId), [productId]);
+
+    // Package flow: when a package is selected instead of an individual
+    // product, delegate to PackageHeatPicker (v1 parity: page.tsx:2223).
+    // Once the customer confirms picks, heats are written to item.heats
+    // and the outer Next button (BookingFlow) handles BMI booking via
+    // bookHeatsOnAdvance — same as the regular heat picker path.
+    const pkg = useMemo(
+      () => (productId ? null : getPackage(item.packageId)),
+      [productId, item.packageId],
+    );
+    const packageHeatsAlreadyPicked = !!(
+      pkg &&
+      pkg.races.length > 0 &&
+      item.heats.some((h) => h.heatId && !h.bmiLineId)
+    );
+    if (pkg && pkg.races.length > 0 && item.date && !packageHeatsAlreadyPicked) {
+      return (
+        <PackageHeatPicker
+          pkg={pkg}
+          date={item.date}
+          racerCount={partySize}
+          onConfirm={(picks: PackagePick[]) => {
+            const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
+              racers.map((r) => ({
+                productId: pick.productId,
+                track: pick.track,
+                heatId: pick.block.start,
+                bmiLineId: null,
+                assignedTo: r.id,
+              })),
+            );
+            onChange({ heats: [...item.heats, ...newHeats] });
+          }}
+          onCancel={() => dispatch({ type: "back" })}
+        />
+      );
+    }
+    if (pkg && packageHeatsAlreadyPicked) {
+      const pickSummary = pkg.races.map((comp) => {
+        const heat = item.heats.find(
+          (h) => h.heatId && comp.tracks.some((t) => t.productId === h.productId),
+        );
+        return { label: comp.label, time: heat ? formatTime(heat.heatId!) : "—" };
+      });
+      return (
+        <div className="space-y-6">
+          <div className="text-center">
+            <h2 className="font-display text-2xl uppercase tracking-widest text-white">
+              Heats Selected
+            </h2>
+            <p className="mt-1 text-sm text-white/50">{pkg.name} — ready to reserve</p>
+          </div>
+          <div className="mx-auto max-w-md space-y-2">
+            {pickSummary.map((s) => (
+              <div
+                key={s.label}
+                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
+              >
+                <span className="text-sm font-semibold text-white">{s.label}</span>
+                <span className="text-sm text-[#00E2E5]">{s.time}</span>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange({ heats: item.heats.filter((h) => !!h.bmiLineId) })}
+            className="mx-auto block text-sm text-white/40 underline hover:text-white/60"
+          >
+            Re-pick heats
+          </button>
+        </div>
+      );
+    }
     const heatsNeeded = product?.raceCount ?? 1;
 
     // Locked-track filter: when ProductStep TrackPickerModal set
@@ -467,6 +542,17 @@ function canAdvanceFor(
 ): true | { reason: string } {
   if (!hasCategory(session, category)) return true;
   const productId = productIdForCategory(item, category);
+
+  // Package flow: PackageHeatPicker auto-advances via dispatch("next")
+  // after writing heats, so canAdvance just needs to confirm heats exist.
+  if (!productId && item.packageId) {
+    const pkg = getPackage(item.packageId);
+    if (pkg && pkg.races.length > 0) {
+      const hasHeats = item.heats.some((h) => h.heatId);
+      return hasHeats ? true : { reason: "Pick your package heats." };
+    }
+  }
+
   const product = getRaceProductById(productId);
   if (!product) return { reason: `Pick a ${category} race first.` };
   const fetchPlan = buildFetchPlan(product);
