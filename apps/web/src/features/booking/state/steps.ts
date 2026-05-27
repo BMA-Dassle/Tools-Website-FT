@@ -71,6 +71,11 @@ import {
 } from "~/components/features/booking/steps/race/RaceHeatPickerStep";
 import { RacePovStep } from "~/components/features/booking/steps/race/RacePovStep";
 import { RaceAddonsStep } from "~/components/features/booking/steps/race/RaceAddonsStep";
+import {
+  AttractionProductStep,
+  AttractionDateStep,
+  AttractionSlotStep,
+} from "~/components/features/booking/steps/attraction";
 
 /**
  * Default per-kind step lists. Real race components live in
@@ -100,10 +105,9 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // steps — they live at checkout (commit 10).
   ],
   attraction: [
-    makePlaceholder("date", "Date"),
-    makePlaceholder("slot", "Slot"),
-    makePlaceholder("party", "Party"),
-    makePlaceholder("review", "Review"),
+    AttractionProductStep as StepDef,
+    AttractionDateStep as StepDef,
+    AttractionSlotStep as StepDef,
   ],
   bowling: [
     makePlaceholder("date", "Date"),

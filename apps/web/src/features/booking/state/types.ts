@@ -41,6 +41,7 @@
  * the last KbfItem leaves the cart.
  */
 import type { AppliedPromo } from "~/features/discount-codes";
+import type { BmiProposal } from "../data/bmi";
 import type { Activity, Brand, CenterCode, ContactInfo } from "../types";
 import type { EntryContext } from "./entry-context";
 
@@ -197,6 +198,16 @@ export interface AttractionItem extends BookingItemBase {
   date: string | null;
   slot: string | null;
   qty: number;
+  /** BMI productId for the selected product variant. */
+  productId: string | null;
+  /** BMI pageId (from ATTRACTIONS config). */
+  pageId: string | null;
+  /** Unit price from the product registry (for cart display). */
+  price: number;
+  /** BMI bill line id — set after bookHeat succeeds. */
+  bmiLineId: string | null;
+  /** The selected time slot's BMI proposal — needed for booking. JSON-safe. */
+  slotProposal: BmiProposal | null;
   /**
    * Party members on this attraction line. Universal: even per-slot
    * attractions (duck-pin, shuffly) track who's playing for the BMI
@@ -355,6 +366,11 @@ export function newItem(activity: Activity): SessionItem {
         date: null,
         slot: null,
         qty: 1,
+        productId: null,
+        pageId: null,
+        price: 0,
+        bmiLineId: null,
+        slotProposal: null,
         assignedTo: [],
       };
     case "bowling":

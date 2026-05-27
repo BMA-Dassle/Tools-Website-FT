@@ -19,6 +19,7 @@ import { CartView, LeaveConfirmModal } from "./CartView";
 import { CheckoutStep } from "./steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "./steps/race/HeightAgeConfirmModal";
 import { bookHeatsOnAdvance, cancelRaceOrder } from "~/features/booking/service/race";
+import { bookAttractionOnAdvance } from "~/features/booking/service/attractions";
 import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTimer";
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
 
@@ -208,6 +209,28 @@ export function BookingFlow({
       }
     }
 
+    // Book attraction slot with BMI when advancing past the slot step.
+    if (currentStep.id === "attraction-slot" && activeItem.kind === "attraction") {
+      const attractionItem = activeItem as AttractionItem;
+      if (attractionItem.slotProposal && !attractionItem.bmiLineId) {
+        setBookingHeatsProgress("Reserving your slot…");
+        setBookingHeats(true);
+        try {
+          await bookAttractionOnAdvance(session, attractionItem, dispatch);
+          advanceToNextStep();
+        } catch (err) {
+          alert(
+            err instanceof Error
+              ? `Failed to reserve slot: ${err.message}`
+              : "Failed to reserve slot. Please try again.",
+          );
+        } finally {
+          setBookingHeats(false);
+        }
+        return;
+      }
+    }
+
     advanceToNextStep();
   };
 
@@ -272,10 +295,14 @@ export function BookingFlow({
         <div className="mb-6 flex items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => setLeaveConfirm(true)}
+            onClick={() =>
+              session.items.length > 1
+                ? dispatch({ type: "setActiveItem", id: null })
+                : setLeaveConfirm(true)
+            }
             className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/60 transition-colors hover:border-white/30 hover:text-white"
           >
-            ← All activities
+            {session.items.length > 1 ? "← Back to cart" : "← All activities"}
           </button>
           {/* Progress hint — keeps "where am I / how much more" visible.
               The sticky step bar shows numbered steps; this adds the
@@ -308,6 +335,11 @@ export function BookingFlow({
           reason={bookingHeats ? "Booking in progress…" : advanceOk ? undefined : canAdvance.reason}
           nextLabel={isLastStep ? "Add to cart" : "Next"}
           onBack={() => dispatch({ type: "back" })}
+          onBackToCart={
+            session.items.length > 1
+              ? () => dispatch({ type: "setActiveItem", id: null })
+              : undefined
+          }
           onNext={handleNext}
         />
       </div>
@@ -343,6 +375,7 @@ function NavigationButtons({
   reason,
   nextLabel,
   onBack,
+  onBackToCart,
   onNext,
 }: {
   stepIndex: number;
@@ -350,14 +383,24 @@ function NavigationButtons({
   reason?: string;
   nextLabel: string;
   onBack: () => void;
+  onBackToCart?: () => void;
   onNext: () => void;
 }) {
+  const backDisabled = stepIndex === 0 && !onBackToCart;
+  const handleBack = () => {
+    if (stepIndex === 0 && onBackToCart) {
+      onBackToCart();
+    } else {
+      onBack();
+    }
+  };
+
   return (
     <div className="mt-4 flex items-center justify-between">
       <button
         type="button"
-        onClick={onBack}
-        disabled={stepIndex === 0}
+        onClick={handleBack}
+        disabled={backDisabled}
         className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
       >
         Back

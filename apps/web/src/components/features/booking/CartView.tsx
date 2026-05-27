@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type {
+  AttractionItem,
   BookingSession,
   PartyMember,
   RaceHeatAssignment,
@@ -10,6 +11,7 @@ import type {
   SessionItem,
 } from "~/features/booking";
 import { findOffering } from "~/features/booking";
+import { ATTRACTIONS, resolveAttractionContext } from "~/features/booking/service/attractions";
 import { getRaceProductById, type RaceProduct } from "~/features/booking/service/race-products";
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage, packageBundleTotal } from "~/features/booking/service/packages";
@@ -176,6 +178,9 @@ function CartItemCard({
 }) {
   if (item.kind === "race") {
     return <RaceCartCard item={item} session={session} onEdit={onEdit} onRemove={onRemove} />;
+  }
+  if (item.kind === "attraction") {
+    return <AttractionCartCard item={item} session={session} onEdit={onEdit} onRemove={onRemove} />;
   }
   return (
     <li className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-4 text-sm transition-colors hover:border-white/20">
@@ -372,6 +377,96 @@ function RaceCartCard({
       {!adultProduct && !juniorProduct && item.heats.length === 0 && (
         <p className="mt-3 text-xs text-amber-300/80">
           Click <strong>Edit</strong> to pick your race details.
+        </p>
+      )}
+    </li>
+  );
+}
+
+function AttractionCartCard({
+  item,
+  session,
+  onEdit,
+  onRemove,
+}: {
+  item: AttractionItem;
+  session: BookingSession;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const ctx = item.slug ? resolveAttractionContext(item.slug, session) : null;
+  const config = item.slug ? ATTRACTIONS[item.slug] : null;
+  const isPerPerson = config?.bookingMode === "per-person";
+
+  const product = config?.products.find((p) => p.productId === item.productId);
+  const title = product?.name ?? findOffering(item.slug ?? "")?.displayName ?? "Attraction";
+  const accentColor = config?.color ?? "#00E2E5";
+
+  const dateLabel = item.date
+    ? new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })
+    : null;
+
+  const timeLabel = item.slot
+    ? new Date(item.slot.replace(/Z$/, "")).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+    : null;
+
+  const total = isPerPerson ? item.price * item.qty : item.price;
+
+  return (
+    <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-bold text-white">{title}</h3>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-white/50">
+            {dateLabel && <span>{dateLabel}</span>}
+            {dateLabel && timeLabel && <span className="text-white/20">·</span>}
+            {timeLabel && <span>{timeLabel}</span>}
+            {isPerPerson && item.qty > 1 && (
+              <>
+                <span className="text-white/20">·</span>
+                <span>{item.qty} people</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+
+      {total > 0 && (
+        <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-sm">
+          <span className="text-xs uppercase tracking-wider text-white/40">Est. total</span>
+          <span className="font-bold" style={{ color: accentColor }}>
+            ${total.toFixed(2)}
+          </span>
+        </div>
+      )}
+
+      {!item.productId && (
+        <p className="mt-3 text-xs text-amber-300/80">
+          Click <strong>Edit</strong> to pick your activity details.
         </p>
       )}
     </li>
