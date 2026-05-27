@@ -49,14 +49,15 @@ export interface GiftCardInfo {
  * stay in one place if bowling's GAN format ever evolves.
  *
  * Current prefixes (see /api/bowling/v2/reserve CENTER_GAN_PREFIX):
- *   HPFM…  HeadPinz Fort Myers
- *   HPN…   HeadPinz Naples
- *   HP…    Fallback
+ *   HPFM…  HeadPinz Fort Myers (bowling)
+ *   HPN…   HeadPinz Naples (bowling)
+ *   RACE…  v2 race bookings
+ *   ATTR…  v2 attraction bookings
  *   DEPX…  Older format, still possible in the wild
  */
 export function isInternalDepositGan(gan: string | null | undefined): boolean {
   if (!gan) return false;
-  return /^(HPFM|HPN|DEPX)/i.test(gan);
+  return /^(HPFM|HPN|DEPX|RACE|ATTR)/i.test(gan);
 }
 
 /**

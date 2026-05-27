@@ -10,7 +10,7 @@
  */
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
-import type { BookingSession, RaceItem } from "../state/types";
+import type { BookingSession, RaceItem, AttractionItem } from "../state/types";
 import type { ContactInfo } from "../types";
 import { getRaceProductById } from "./race-products";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
@@ -415,13 +415,124 @@ export async function resolveSquareCustomer(contact: Partial<ContactInfo>): Prom
   }
 }
 
+// ── v2 Reserve (deposit + BMI confirm, server-side) ───────────────────
+
+export interface ReserveParams {
+  session: BookingSession;
+  bmiBillId: string;
+  overview: BillOverview;
+  contact: Partial<ContactInfo>;
+  cardSourceId?: string;
+  savedCardId?: string;
+  giftCardNonce?: string;
+  squareCustomerId?: string;
+}
+
+export interface ReserveResult {
+  neonId: number | null;
+  reservationNumber: string | null;
+  reservationCode: string | null;
+  giftCardGan: string | null;
+  dayofOrderId: string;
+  dayofTotalCents: number;
+  depositCents: number;
+}
+
+export async function reserveBooking(params: ReserveParams): Promise<ReserveResult> {
+  const { session, bmiBillId, overview, contact } = params;
+
+  const raceItem = session.items.find((i): i is RaceItem => i.kind === "race");
+  const bookingKind: "race" | "attraction" = raceItem ? "race" : "attraction";
+
+  const centerCode = session.center ?? "fort-myers";
+  const bmiClientKey = centerCode === "naples" ? "headpinznaples" : "headpinzftmyers";
+
+  const cartItems = overview.lines
+    .filter((l) => l.amount > 0 || overview.isCreditOrder)
+    .map((l) => ({
+      bmiProductId: resolveProductId(session, l) ?? "",
+      name: l.name,
+      quantity: l.quantity,
+      unitPriceCents: Math.round((l.amount * 100) / l.quantity),
+    }));
+
+  const bookingMetadata: Record<string, unknown> = {};
+  if (raceItem) {
+    bookingMetadata.heats = raceItem.heats.map((h) => ({
+      productId: h.productId,
+      track: h.track,
+      heatId: h.heatId,
+      assignedTo: h.assignedTo,
+    }));
+    bookingMetadata.racerNames = session.party.map((m) => m.firstName);
+  }
+
+  const cardSourceId = params.savedCardId ?? params.cardSourceId;
+
+  const res = await fetch("/api/booking/v2/reserve", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      bmiBillId,
+      bmiClientKey,
+      depositPct: 100,
+      cardSourceId: cardSourceId ?? undefined,
+      giftCardNonce: params.giftCardNonce ?? undefined,
+      squareCustomerId: params.squareCustomerId ?? undefined,
+      contact: {
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        email: contact.email,
+        phone: contact.phone,
+      },
+      bookingKind,
+      bookingMetadata,
+      cartItems,
+      centerCode,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || "Reservation failed");
+  }
+
+  return {
+    neonId: data.neonId,
+    reservationNumber: data.reservationNumber,
+    reservationCode: data.reservationCode,
+    giftCardGan: data.giftCardGan,
+    dayofOrderId: data.dayofOrderId,
+    dayofTotalCents: data.dayofTotalCents,
+    depositCents: data.depositCents,
+  };
+}
+
+function resolveProductId(session: BookingSession, line: BillLine): string | null {
+  for (const item of session.items) {
+    if (item.kind === "race") {
+      for (const h of item.heats) {
+        if (h.productId && line.name.toLowerCase().includes("race")) {
+          return h.productId;
+        }
+      }
+    }
+    if (item.kind === "attraction") {
+      const attr = item as AttractionItem;
+      if (attr.productId) return attr.productId;
+    }
+  }
+  return null;
+}
+
 // ── Confirmation URL builder ────────────────────────────────────────────
 
-export function buildConfirmationUrl(session: BookingSession, billId: string): string {
+export function buildConfirmationUrl(session: BookingSession, billId: string, v2 = false): string {
   const racerNames = session.party.map((m) => encodeURIComponent(m.firstName)).join(",");
   const personIds = session.party
     .filter((m) => m.bmiPersonId)
     .map((m) => m.bmiPersonId)
     .join(",");
-  return `/book/confirmation?billId=${billId}&billIds=${billId}&racerNames=${racerNames}&personIds=${personIds}`;
+  const base = `/book/confirmation?billId=${billId}&billIds=${billId}&racerNames=${racerNames}&personIds=${personIds}`;
+  return v2 ? `${base}&v2=1` : base;
 }

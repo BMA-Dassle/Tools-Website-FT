@@ -1,8 +1,8 @@
 # Restructure Status
 
-**Last updated:** 2026-05-15 by Alex
-**Current phase:** Phase 2 — First v2 feature (booking) — scaffold landed in PR-B1
-**Next up:** PR-B2 (Race v2 — full flow at `/book/race/v2` with real BMI adapter via `@ft/db.stringifyWithRawIds`, Square anchor + payment, confirmation page)
+**Last updated:** 2026-05-27 by Claude (PR-B3.5 session)
+**Current phase:** Phase 2 — First v2 feature (booking) — PR-B2 (race) + PR-B3 (attractions) landed, PR-B3.5 (shared deposit infrastructure) in progress
+**Next up:** PR-B3.5 verification + merge, then PR-B4 (Race-pack v2)
 
 > Read [tasks/restructure-plan.md](restructure-plan.md) for the full plan, conventions, and migration backlog.
 
@@ -79,8 +79,17 @@
     - `/book/kbf/v2` — separate route for KBF (different SEO + COPPA model).
   - **Vendor stub-mode pattern established** — `isMockMode("vendor")` returns false in prod (hard guard) and only true when `LOCAL_<VENDOR>_MOCK=1` in dev. `square.ts` demonstrates the real/mock dispatch; bmi/conq/pandora/kbf adapters follow the same shape when they land.
   - Verified: `npm run format:check` ✓, `npx turbo run typecheck` 4/4 ✓, `npx turbo run test` 13/13 ✓ (no booking-feature tests yet — those land per-activity), `npx turbo run build` 3/3 ✓ (a11y clean, 1m27s). Three new routes show in the build manifest: `/book/v2`, `/book/[activity]/v2`, `/book/kbf/v2`.
-- [ ] **PR-B2** — Race v2 (real BMI adapter, Square anchor, payment, confirmation)
-- [ ] **PR-B3** — Attraction v2 (gel-blaster / laser-tag / duck-pin / shuffly)
+- [x] **PR-B2** — Race v2 (real BMI adapter, heat picker, party management, checkout) — landed 2026-05-27.
+- [x] **PR-B3** — Attraction v2 (gel-blaster / laser-tag / duck-pin / shuffly) — landed 2026-05-27.
+- [ ] **PR-B3.5** — Shared deposit + reservations infrastructure (in progress, 2026-05-27).
+  - Deliverable 1: Neon reservations schema widened (`bowling-db.ts`) — `ReservationProductKind` includes "race" | "attraction", `booking_metadata` JSONB column, `productKinds` filter on `listBowlingReservations()`.
+  - Deliverable 2: Shared deposit service (`features/booking/service/deposit.ts`) — extracted from bowling-orders into `createDepositAndCharge()` + `rollbackDeposit()`.
+  - Deliverable 2b: Square catalog map (`features/booking/data/square-catalog-map.ts`) — 57+ race + 12+ attraction BMI product IDs → Square catalog variation IDs.
+  - Deliverable 2 addon: GAN regex updated for RACE/ATTR prefixes in `square-gift-card.ts`.
+  - Deliverable 3: v2 Reserve API route (`/api/booking/v2/reserve`) — builds Square day-of order + deposit + BMI payment/confirm + Neon reservation.
+  - Deliverable 4: v2 checkout wiring — `reserveBooking()` in checkout.ts, `onTokenize` prop on PaymentForm, CheckoutStep uses v2 reserve flow, confirmation page skips payment/confirm for `v2=1`.
+  - Deliverable 5: Admin dashboard — product kind badges (Race green, Attr orange), kind filter tabs, BMI bill ID fields.
+  - Build verified: `npx turbo run build` passes clean.
 - [ ] **PR-B4** — Race-pack v2 (multi-component heats, Pandora deposit credits)
 - [ ] **PR-B5** — Bowling v2 (Conq adapter, gift-card-as-deposit)
 - [ ] **PR-B6** — KBF v2 (identity gate, conditional Square anchor for paid add-ons)

@@ -1,5 +1,17 @@
 # Open Tasks
 
+## PR-B3.5: Shared Deposit + Reservations Infrastructure (IN PROGRESS — 2026-05-27)
+- **Branch:** `feat/booking-b2-race`
+- **What shipped (all deliverables build-verified):**
+  - D1: Neon reservations schema widened — `ReservationProductKind` now "kbf" | "open" | "race" | "attraction", `booking_metadata` JSONB column, `productKinds` filter param on `listBowlingReservations()`
+  - D2: Shared deposit service — `createDepositAndCharge()` + `rollbackDeposit()` extracted from bowling-orders into `features/booking/service/deposit.ts`
+  - D2b: Square catalog map — 57+ race + 12+ attraction BMI product IDs mapped to Square catalog variation IDs in `features/booking/data/square-catalog-map.ts`
+  - D2 addon: GAN regex updated for RACE/ATTR prefixes in `square-gift-card.ts`
+  - D3: v2 Reserve API route at `/api/booking/v2/reserve` — builds Square day-of order (catalog line items + county tax), charges deposit via shared service, confirms BMI payment server-side (bigint-safe), persists Neon reservation
+  - D4: v2 checkout wiring — `reserveBooking()` in checkout.ts, `onTokenize` prop on PaymentForm for tokenize-only mode, CheckoutStep calls reserve route instead of /api/square/pay, confirmation page skips payment/confirm for v2=1 bookings
+  - D5: Admin dashboard — product kind badges (Race=green, Attr=orange alongside existing KBF=purple, Open=blue), kind filter tabs with counts, `bmiBillId`/`bmiReservationNumber` fields on Reservation interface
+- **Still needs:** end-to-end smoke test with real Square sandbox + BMI staging, then commit + push
+
 ## PR-B2.5: Session Persistence + Cross-Sell + Timer Expiry (DONE — 2026-05-25)
 - **Branch:** `feat/booking-b2-race` @ `d120b614` · pushed
 - **What shipped:**

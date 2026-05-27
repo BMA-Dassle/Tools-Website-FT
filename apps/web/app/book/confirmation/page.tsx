@@ -342,6 +342,7 @@ export default function ConfirmationPage() {
         // Confirm payment on ALL bills (multi-bill for per-person credits)
         const billIdsParam = params.get("billIds");
         const racerNamesParam = params.get("racerNames");
+        const isV2 = params.get("v2") === "1";
         const allBillIds = billIdsParam ? billIdsParam.split(",") : [id!];
         const racerNames = racerNamesParam
           ? racerNamesParam.split(",").map(decodeURIComponent)
@@ -353,57 +354,53 @@ export default function ConfirmationPage() {
           resCode: string;
         }[] = [];
 
-        try {
-          for (let i = 0; i < allBillIds.length; i++) {
-            const bid = allBillIds[i];
-            // No "Racer 1" fallback. New bookings haven't entered guest
-            // names yet — show JUST the reservation number rather than
-            // a phony placeholder that confuses guests on the receipt.
-            // Real name (if any) flows from `racerNames` URL param OR
-            // the booking-record racers fallback further down.
-            const racerName = racerNames[i] || "";
-            // Determine amount: for single bill use full amount, for multi-bill check if credit
-            let billAmount = amount;
-            if (allBillIds.length > 1) {
-              // Check this bill's overview to see if it's a credit order
-              try {
-                const ovRes = await fetch(
-                  `/api/sms?endpoint=bill%2Foverview&billId=${bid}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`,
-                );
-                const ov = await ovRes.json();
-                const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-                billAmount = cashT?.amount ?? 0;
-              } catch {
-                billAmount = 0;
+        if (!isV2) {
+          // v1 path: client-side BMI payment/confirm
+          try {
+            for (let i = 0; i < allBillIds.length; i++) {
+              const bid = allBillIds[i];
+              const racerName = racerNames[i] || "";
+              let billAmount = amount;
+              if (allBillIds.length > 1) {
+                try {
+                  const ovRes = await fetch(
+                    `/api/sms?endpoint=bill%2Foverview&billId=${bid}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`,
+                  );
+                  const ov = await ovRes.json();
+                  const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+                  billAmount = cashT?.amount ?? 0;
+                } catch {
+                  billAmount = 0;
+                }
+              }
+
+              const depositKind = billAmount === 0 ? 2 : 0;
+              const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
+              const bmiCk = getBookingClientKey();
+              const qs = new URLSearchParams({
+                endpoint: "payment/confirm",
+                ...(bmiCk ? { clientKey: bmiCk } : {}),
+              });
+              const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: confirmBody,
+              });
+              const result = await confirmRes.json();
+              const resNum = result.reservationNumber || "";
+              const resCode = String(result.reservationCode || `r${bid}`);
+              if (resNum)
+                allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
+              if (i === 0) {
+                if (resCode) setReservationCode(resCode);
+                if (resNum) setReservationNumber(resNum);
               }
             }
-
-            const depositKind = billAmount === 0 ? 2 : 0;
-            const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
-            const bmiCk = getBookingClientKey();
-            const qs = new URLSearchParams({
-              endpoint: "payment/confirm",
-              ...(bmiCk ? { clientKey: bmiCk } : {}),
-            });
-            const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: confirmBody,
-            });
-            const result = await confirmRes.json();
-            const resNum = result.reservationNumber || "";
-            const resCode = String(result.reservationCode || `r${bid}`);
-            if (resNum)
-              allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
-            // Keep first as primary
-            if (i === 0) {
-              if (resCode) setReservationCode(resCode);
-              if (resNum) setReservationNumber(resNum);
-            }
+          } catch {
+            // Non-fatal — may already be confirmed
           }
-        } catch {
-          // Non-fatal — may already be confirmed
         }
+        // v2 path: payment/confirm already happened server-side in /api/booking/v2/reserve
         setConfirmations(allConfirmations);
 
         // Generate QR codes per racer

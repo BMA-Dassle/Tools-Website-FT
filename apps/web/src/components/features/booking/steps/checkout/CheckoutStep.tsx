@@ -12,6 +12,7 @@ import {
   confirmCreditOrder,
   resolveSquareCustomer,
   buildConfirmationUrl,
+  reserveBooking,
   type BillOverview,
 } from "~/features/booking/service/checkout";
 import { clearBookingSession } from "~/features/booking/hooks";
@@ -104,9 +105,14 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     if (overview.isCreditOrder) {
       setPhase({ step: "confirming", bmiBillId });
       try {
-        await confirmCreditOrder(bmiBillId);
+        await reserveBooking({
+          session,
+          bmiBillId,
+          overview,
+          contact,
+        });
         clearBookingSession();
-        window.location.href = buildConfirmationUrl(session, bmiBillId);
+        window.location.href = buildConfirmationUrl(session, bmiBillId, true);
       } catch (err) {
         setPhase({
           step: "error",
@@ -436,6 +442,43 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         ? "headpinz"
         : "fasttrax";
 
+    async function handleTokenize(params: {
+      cardNonce: string | null;
+      savedCardId: string | null;
+      giftCardNonce: string | null;
+    }) {
+      setPhase({ step: "confirming", bmiBillId });
+      try {
+        await reserveBooking({
+          session,
+          bmiBillId,
+          overview,
+          contact,
+          cardSourceId: params.cardNonce ?? undefined,
+          savedCardId: params.savedCardId ?? undefined,
+          giftCardNonce: params.giftCardNonce ?? undefined,
+          squareCustomerId,
+        });
+
+        void recordClickwrap({
+          billId: bmiBillId,
+          email: contact.email,
+          phone: contact.phone,
+          firstName: contact.firstName,
+          amountCents: Math.round(overview.cashOwed * 100),
+          bookingType: "racing",
+        });
+
+        clearBookingSession();
+        window.location.href = buildConfirmationUrl(session, bmiBillId, true);
+      } catch (err) {
+        setPhase({
+          step: "error",
+          message: err instanceof Error ? err.message : "Reservation failed",
+        });
+      }
+    }
+
     return (
       <div className="mx-auto max-w-md">
         <PaymentForm
@@ -447,6 +490,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           squareCustomerId={squareCustomerId}
           savedCards={savedCards}
           allowSaveCard={!!squareCustomerId}
+          onTokenize={handleTokenize}
           onSuccess={(result) => handlePaymentSuccess(result, bmiBillId)}
           onError={(msg) => setPhase({ step: "error", message: msg })}
           onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
