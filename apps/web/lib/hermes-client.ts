@@ -163,9 +163,9 @@ export async function fetchReservationProducts(
 export type PandaDocTemplate = "deposit" | "postpay" | "nopayment";
 
 export const PANDADOC_TEMPLATE_IDS: Record<PandaDocTemplate, string> = {
-  deposit: "hdukSFTyK3FfAFMxUBonXA",
-  postpay: "U25bwQXQzRUihaVQkcnP6c",
-  nopayment: "trXQZP6KUQaQRehC7f8K3J",
+  deposit: "ZLFSeVQAaUVwVapcm3BEv8",
+  postpay: "ps8LCsGgSEkXSFJvrGmKUd",
+  nopayment: "ZLFSeVQAaUVwVapcm3BEv8",
 };
 
 export function selectTemplate(item: HermesQueueItem): PandaDocTemplate {
