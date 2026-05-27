@@ -9,7 +9,11 @@
  * PR-B1 ships the interface + placeholder dispatchers. Real per-activity
  * services land in PR-B2..B6 alongside their data adapters.
  */
+import type { Dispatch } from "react";
+import type { Action } from "../state/machine";
 import type { Activity, ContactInfo } from "../types";
+import type { AttractionItem, BookingSession } from "../state/types";
+import { bookAttractionOnAdvance } from "./attractions";
 
 /**
  * Quote — non-mutating preview of what a booking will cost + reserve. UI
@@ -48,6 +52,7 @@ export interface BookingService {
  */
 export function getService(activity: Activity): BookingService {
   if (activity === "race") return raceService;
+  if (activity === "attraction") return attractionService;
 
   const notYet = (op: string) => (): Promise<never> => {
     throw new Error(`booking.${activity}.${op}() not implemented (PR-B1 scaffold)`);
@@ -63,6 +68,30 @@ export function getService(activity: Activity): BookingService {
 // ── Race service (PR-B2) ────────────────────────────────────────────────
 
 import { holdRaceItem, confirmRaceOrder, cancelRaceOrder } from "./race";
+
+// ── Attraction service (PR-B3) ─────────────────────────────────────────
+
+const attractionService: BookingService = {
+  quote: () => {
+    throw new Error("attraction.quote() not needed — checkout uses bill overview");
+  },
+  hold: async (input) => {
+    const { session, item, dispatch } = input as {
+      session: BookingSession;
+      item: AttractionItem;
+      dispatch: Dispatch<Action>;
+    };
+    if (item.bmiLineId) {
+      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+    }
+    await bookAttractionOnAdvance(session, item, dispatch);
+    return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+  },
+  confirm: async () => ({ ok: true as const }),
+  cancel: async () => ({ ok: true as const }),
+};
+
+// ── Race service (PR-B2) ────────────────────────────────────────────────
 
 const raceService: BookingService = {
   quote: () => {
