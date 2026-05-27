@@ -11,8 +11,10 @@ import {
 import {
   insertGfQuote,
   getGfQuoteByReservationId,
+  getGfQuoteByShortId,
   updateGfContractSent,
 } from "@/lib/group-function-db";
+import { notifyContractSent } from "@/lib/group-function-notify";
 import {
   buildDocumentBody,
   createDocument,
@@ -205,8 +207,13 @@ async function processQueueItem(
     message: `${item.customer.email} ${dateStr}`,
   });
 
-  // TODO: Send branded SMS + email to guest with /contract/{shortId} link
-  // TODO: Post Teams adaptive card to planner
+  // Notify guest + planner (non-blocking)
+  const updatedQuote = await getGfQuoteByShortId(contractShortId);
+  if (updatedQuote) {
+    notifyContractSent(updatedQuote).catch((err) =>
+      console.error("[group-quote-dispatch] notify error:", err),
+    );
+  }
 
   console.log(
     `[group-quote-dispatch] created contract for reservation=${item.reservationId} ` +

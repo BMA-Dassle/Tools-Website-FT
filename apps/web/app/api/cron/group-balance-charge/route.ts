@@ -7,6 +7,7 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { loadGiftCard } from "@/lib/square-gift-card";
+import { notifyBalanceCharged, notifyBalanceLinkSent } from "@/lib/group-function-notify";
 
 /**
  * 72-hour balance collection cron.
@@ -170,8 +171,12 @@ async function processBalanceCharge(
           `amount=${quote.balance_cents} payment=${balancePaymentId}`,
       );
 
-      // TODO: Send receipt SMS + email
-      // TODO: Update Teams card
+      notifyBalanceCharged({
+        ...quote,
+        balance_cents: 0,
+        balance_paid_at: new Date().toISOString(),
+        balance_payment_method: "auto_card",
+      }).catch((err) => console.error("[group-balance-charge] notify error:", err));
 
       return "auto_charged";
     } catch (err) {
@@ -213,8 +218,11 @@ async function processBalanceCharge(
       `[group-balance-charge] payment link sent for quote=${quote.id} ` + `url=${paymentLinkUrl}`,
     );
 
-    // TODO: Send SMS + email with payment link
-    // TODO: Update Teams card
+    notifyBalanceLinkSent({
+      ...quote,
+      balance_payment_link_url: paymentLinkUrl,
+      balance_link_sent_at: new Date().toISOString(),
+    }).catch((err) => console.error("[group-balance-charge] notify error:", err));
 
     return "link_sent";
   } catch (err) {

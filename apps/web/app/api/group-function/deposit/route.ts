@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
-import { getGfQuoteByShortId, updateGfDepositPaid } from "@/lib/group-function-db";
+import {
+  getGfQuoteByShortId,
+  updateGfDepositPaid,
+  type GroupFunctionQuote,
+} from "@/lib/group-function-db";
+import { notifyDepositPaid } from "@/lib/group-function-notify";
 import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
 import { buildSquareLineItem } from "@/lib/plu-catalog-map";
 
@@ -236,8 +241,13 @@ export async function POST(req: NextRequest) {
       balance_cents: quote.total_cents - quote.deposit_due_cents,
     });
 
-    // TODO: Update Teams card ("Deposit paid: $X")
-    // TODO: Send confirmation SMS + email
+    // Notify guest + planner (non-blocking)
+    const updatedQuote = await getGfQuoteByShortId(quote.contract_short_id!);
+    if (updatedQuote) {
+      notifyDepositPaid(updatedQuote).catch((err) =>
+        console.error("[gf-deposit] notify error:", err),
+      );
+    }
 
     return NextResponse.json({
       ok: true,

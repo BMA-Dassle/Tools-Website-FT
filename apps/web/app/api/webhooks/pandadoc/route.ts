@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/pandadoc";
-import { getGfQuoteByPandaDocId, updateGfContractStatus } from "@/lib/group-function-db";
+import {
+  getGfQuoteByPandaDocId,
+  getGfQuoteByShortId,
+  updateGfContractStatus,
+} from "@/lib/group-function-db";
+import { notifyDepositPaid } from "@/lib/group-function-notify";
 
 /**
  * PandaDoc webhook receiver.
@@ -75,14 +80,11 @@ async function handleEvent(evt: {
         `[pandadoc-webhook] quote=${quote.id} signed! ` +
           `guest=${quote.guest_email} event=${quote.event_name}`,
       );
-      // TODO: Update Teams adaptive card ("Contract signed")
-      // TODO: Send celebration SMS + email to guest
       break;
 
     case "document.declined":
       await updateGfContractStatus(quote.id, "declined");
       console.log(`[pandadoc-webhook] quote=${quote.id} declined by guest`);
-      // TODO: Alert planner via Teams
       break;
 
     case "document.voided":

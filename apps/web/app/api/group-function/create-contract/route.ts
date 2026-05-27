@@ -4,8 +4,10 @@ import { fetchReservationProducts, resolveCenter, type HermesQueueItem } from "@
 import {
   insertGfQuote,
   getGfQuoteByReservationId,
+  getGfQuoteByShortId,
   updateGfContractSent,
 } from "@/lib/group-function-db";
+import { notifyContractSent } from "@/lib/group-function-notify";
 import {
   buildDocumentBodyFromQuote,
   createDocument,
@@ -87,8 +89,12 @@ export async function POST(req: NextRequest) {
     contract_sent_at: new Date().toISOString(),
   });
 
-  // TODO: Send branded SMS + email to guest
-  // TODO: Post Teams adaptive card to planner
+  const updatedQuote = await getGfQuoteByShortId(contractShortId);
+  if (updatedQuote) {
+    notifyContractSent(updatedQuote).catch((err) =>
+      console.error("[create-contract] notify error:", err),
+    );
+  }
 
   return NextResponse.json({
     ok: true,
