@@ -100,7 +100,11 @@ export function CartView({
           <button
             type="button"
             onClick={onCheckout}
-            className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white"
+            disabled={!allItemsReady(session)}
+            title={
+              !allItemsReady(session) ? "Finish configuring all items before checkout" : undefined
+            }
+            className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             Checkout →
           </button>
@@ -585,6 +589,20 @@ function addonLabel(a: { id: string; qty: number }): string {
 function estimateAddon(a: { id: string; qty: number }): number {
   const meta = ADDON_ESTIMATES[a.id];
   return (meta?.price ?? 0) * a.qty;
+}
+
+function allItemsReady(session: BookingSession): boolean {
+  return session.items.every((item) => {
+    switch (item.kind) {
+      case "race":
+        return item.heats.some((h) => h.heatId);
+      case "attraction":
+        return !!item.productId && !!item.slot;
+      case "bowling":
+      case "kbf":
+        return true;
+    }
+  });
 }
 
 function otherItemTitle(item: SessionItem): string {

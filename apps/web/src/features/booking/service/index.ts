@@ -84,6 +84,9 @@ const attractionService: BookingService = {
     if (item.bmiLineId) {
       return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
     }
+    if (!item.productId || !item.slotProposal) {
+      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+    }
     await bookAttractionOnAdvance(session, item, dispatch);
     return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
   },
