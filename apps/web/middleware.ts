@@ -468,7 +468,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/survey/") ||
     // Marketing unsubscribe page — linked from email footers, must work
     // on both brand domains.
-    pathname.startsWith("/marketing/");
+    pathname.startsWith("/marketing/") ||
+    // Group function contract pages — brand is determined per-contract
+    // from Neon data, not from host. Must serve on both domains.
+    pathname.startsWith("/contract/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&

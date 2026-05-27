@@ -1,0 +1,304 @@
+import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
+import { getGfQuoteByShortId, updateGfDepositPaid } from "@/lib/group-function-db";
+import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
+import { buildSquareLineItem } from "@/lib/plu-catalog-map";
+
+/**
+ * Group function deposit payment endpoint.
+ *
+ * POST /api/group-function/deposit
+ *
+ * Called after the customer signs the PandaDoc contract on the
+ * /contract/{shortId} page. Collects the deposit via Square,
+ * creates an eGift card (GRPF prefix), and optionally saves
+ * the card on file for the 72-hour balance charge.
+ */
+
+const SQUARE_BASE = "https://connect.squareup.com/v2";
+const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
+const SQUARE_VERSION = "2024-12-18";
+
+function sqHeaders() {
+  return {
+    Authorization: `Bearer ${SQUARE_TOKEN}`,
+    "Content-Type": "application/json",
+    "Square-Version": SQUARE_VERSION,
+  };
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const { contractShortId, cardSourceId, giftCardNonce, saveCard } = body as {
+    contractShortId: string;
+    cardSourceId?: string;
+    giftCardNonce?: string;
+    saveCard?: boolean;
+  };
+
+  if (!contractShortId) {
+    return NextResponse.json({ error: "contractShortId required" }, { status: 400 });
+  }
+  if (!cardSourceId && !giftCardNonce) {
+    return NextResponse.json({ error: "cardSourceId or giftCardNonce required" }, { status: 400 });
+  }
+
+  const quote = await getGfQuoteByShortId(contractShortId);
+  if (!quote) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 });
+  }
+
+  if (quote.deposit_paid_at) {
+    return NextResponse.json({
+      ok: true,
+      action: "already_paid",
+      giftCardGan: quote.square_gift_card_gan,
+    });
+  }
+
+  if (quote.contract_status !== "signed" && quote.status !== "contract_sent") {
+    return NextResponse.json(
+      { error: `Cannot pay deposit in status: ${quote.status}` },
+      { status: 400 },
+    );
+  }
+
+  if (quote.deposit_due_cents <= 0) {
+    return NextResponse.json({ error: "No deposit due" }, { status: 400 });
+  }
+
+  const baseKey = randomBytes(8).toString("hex");
+
+  // 1. Create the day-of Square order (OPEN — staff redeems at event)
+  let dayofOrderId: string | undefined;
+  try {
+    const lineItems = (
+      quote.line_items as Array<{
+        name: string;
+        price: number;
+        tax: number;
+        qty: number;
+        total: number;
+        plu: string;
+      }>
+    ).map((p) => buildSquareLineItem(quote.center_code, p));
+
+    const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-dayof-${baseKey}`,
+        order: {
+          location_id: quote.square_location_id,
+          reference_id: `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40),
+          line_items: lineItems,
+        },
+      }),
+    });
+    const orderData = await orderRes.json();
+    if (orderRes.ok && orderData.order?.id) {
+      dayofOrderId = orderData.order.id;
+    } else {
+      console.error("[gf-deposit] day-of order creation failed:", orderData);
+    }
+  } catch (err: unknown) {
+    console.error("[gf-deposit] day-of order error:", err);
+  }
+
+  // 2. Create deposit order (single line, no tax — fraction of tax-inclusive total)
+  const ganSuffix = quote.bmi_reservation_id.slice(-8);
+
+  try {
+    const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-dep-order-${baseKey}`,
+        order: {
+          location_id: quote.square_location_id,
+          reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
+          line_items: [
+            {
+              name: "Group Event Deposit",
+              quantity: "1",
+              base_price_money: { amount: quote.deposit_due_cents, currency: "USD" },
+            },
+          ],
+        },
+      }),
+    });
+    const depositOrderData = await depositOrderRes.json();
+    if (!depositOrderRes.ok || !depositOrderData.order?.id) {
+      throw new Error(`Deposit order failed: ${JSON.stringify(depositOrderData).slice(0, 300)}`);
+    }
+    const depositOrderId = depositOrderData.order.id as string;
+
+    // 3. Charge via multi-tender (gift card partial + card remainder)
+    const multiTender = await authorizeMultiTender({
+      orderId: depositOrderId,
+      locationId: quote.square_location_id,
+      totalCents: quote.deposit_due_cents,
+      baseKey,
+      giftCardNonce: giftCardNonce || undefined,
+      cardSourceId: cardSourceId || undefined,
+      note: `GF Deposit: ${quote.event_name || ""}`,
+    });
+
+    const depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
+
+    // 4. Create DIGITAL gift card with custom GAN
+    const customGan = `GRPF${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
+    const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
+
+    const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-gc-${baseKey}`,
+        location_id: quote.square_location_id,
+        gift_card: {
+          type: "DIGITAL",
+          ...(useCustomGan ? { gan_source: "OTHER", gan: customGan } : {}),
+        },
+      }),
+    });
+    const giftCardData = await giftCardRes.json();
+    if (!giftCardRes.ok || !giftCardData.gift_card?.id) {
+      throw new Error(`Gift card creation failed: ${JSON.stringify(giftCardData).slice(0, 300)}`);
+    }
+    const giftCardId = giftCardData.gift_card.id as string;
+    const giftCardGan = giftCardData.gift_card.gan as string;
+
+    // 5. Activate gift card with deposit amount
+    const activateRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-gc-act-${baseKey}`,
+        gift_card_activity: {
+          type: "ACTIVATE",
+          location_id: quote.square_location_id,
+          gift_card_id: giftCardId,
+          activate_activity_details: {
+            amount_money: { amount: quote.deposit_due_cents, currency: "USD" },
+            buyer_payment_instrument_ids: [
+              multiTender.gcPaymentId,
+              multiTender.cardPaymentId,
+            ].filter((id): id is string => Boolean(id)),
+          },
+        },
+      }),
+    });
+    const activateData = await activateRes.json();
+    if (!activateRes.ok) {
+      console.error("[gf-deposit] gift card activation failed:", activateData);
+    }
+
+    // 6. Optionally save card on file for 72-hour auto-charge
+    let savedCardId: string | undefined;
+    let squareCustomerId: string | undefined;
+
+    if (saveCard && cardSourceId) {
+      try {
+        const custResult = await findOrCreateSquareCustomer(quote);
+        squareCustomerId = custResult ?? undefined;
+
+        if (squareCustomerId) {
+          const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
+            method: "POST",
+            headers: sqHeaders(),
+            body: JSON.stringify({
+              idempotency_key: `gf-card-${baseKey}`,
+              source_id: cardSourceId,
+              card: { customer_id: squareCustomerId },
+            }),
+          });
+          const cardData = await cardRes.json();
+          if (cardRes.ok && cardData.card?.id) {
+            savedCardId = cardData.card.id;
+          }
+        }
+      } catch (err: unknown) {
+        console.error("[gf-deposit] save card error:", err);
+      }
+    }
+
+    // 7. Update Neon
+    await updateGfDepositPaid(quote.id, {
+      square_deposit_order_id: depositOrderId,
+      square_deposit_payment_id: depositPaymentId,
+      square_gift_card_id: giftCardId,
+      square_gift_card_gan: giftCardGan,
+      square_customer_id: squareCustomerId,
+      saved_card_id: savedCardId,
+      square_dayof_order_id: dayofOrderId,
+      deposit_paid_at: new Date().toISOString(),
+      balance_cents: quote.total_cents - quote.deposit_due_cents,
+    });
+
+    // TODO: Update Teams card ("Deposit paid: $X")
+    // TODO: Send confirmation SMS + email
+
+    return NextResponse.json({
+      ok: true,
+      action: "deposit_paid",
+      giftCardGan,
+      depositCents: quote.deposit_due_cents,
+      balanceCents: quote.total_cents - quote.deposit_due_cents,
+    });
+  } catch (err: unknown) {
+    if (err instanceof SquarePaymentError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 402 });
+    }
+    console.error("[gf-deposit] unexpected error:", err);
+    return NextResponse.json(
+      { error: "Payment processing failed. Please try again." },
+      { status: 500 },
+    );
+  }
+}
+
+async function findOrCreateSquareCustomer(quote: {
+  guest_email: string;
+  guest_first_name: string;
+  guest_last_name: string;
+  guest_phone: string | null;
+  square_location_id: string;
+}): Promise<string | null> {
+  // Search by email
+  const searchRes = await fetch(`${SQUARE_BASE}/customers/search`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      query: {
+        filter: {
+          email_address: { exact: quote.guest_email },
+        },
+      },
+      limit: 1,
+    }),
+  });
+  const searchData = await searchRes.json();
+  if (searchRes.ok && searchData.customers?.[0]?.id) {
+    return searchData.customers[0].id;
+  }
+
+  // Create new customer
+  const createRes = await fetch(`${SQUARE_BASE}/customers`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `gf-cust-${quote.guest_email}-${Date.now()}`,
+      given_name: quote.guest_first_name,
+      family_name: quote.guest_last_name,
+      email_address: quote.guest_email,
+      phone_number: quote.guest_phone || undefined,
+    }),
+  });
+  const createData = await createRes.json();
+  if (createRes.ok && createData.customer?.id) {
+    return createData.customer.id;
+  }
+
+  return null;
+}
