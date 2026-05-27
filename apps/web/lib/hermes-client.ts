@@ -66,13 +66,6 @@ export interface HermesPayment {
   amount: number;
 }
 
-export interface HermesCatalogProduct {
-  id: string;
-  name: string;
-  plu: string;
-  price: number;
-}
-
 // ── Center mapping ──────────────────────────────────────────────────
 
 export const HERMES_CENTER_MAP: Record<string, { centerCode: string; squareLocationId: string }> = {
@@ -131,17 +124,6 @@ export async function completePandaDocQueue(params: {
     const text = await res.text().catch(() => "");
     throw new Error(`Hermes /queue/pandadoc/complete failed: ${res.status} ${text.slice(0, 200)}`);
   }
-}
-
-export async function fetchProductCatalog(center: string): Promise<HermesCatalogProduct[]> {
-  const res = await fetch(`${HERMES_BASE}/products/${center}`, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) {
-    throw new Error(`Hermes /products/${center} failed: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function fetchReservationProducts(
