@@ -55,6 +55,18 @@
     {
       "path": "/api/cron/bowling-pre-arrival",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/group-quote-dispatch",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/group-balance-charge",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/group-dayof-close",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
