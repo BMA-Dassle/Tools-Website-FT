@@ -59,7 +59,11 @@ export function BookingFlow({
   useEffect(() => {
     if (!hydrated) return;
     if (session.items.length === 0) {
-      dispatch({ type: "addItem", item: newItem(activity) });
+      const item = newItem(activity);
+      if (item.kind === "attraction" && slug) {
+        (item as AttractionItem).slug = slug;
+      }
+      dispatch({ type: "addItem", item });
     } else {
       const alreadyInCart = session.items.some((i) => {
         if (i.kind !== activity) return false;
