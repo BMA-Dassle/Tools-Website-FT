@@ -226,6 +226,30 @@ export async function fetchProject(
   return JSON.parse(res.body);
 }
 
+// ── Update project name ────────────────────────────────────────────
+
+export async function updateProjectName(params: {
+  centerCode: string;
+  projectId: string;
+  name: string;
+}): Promise<void> {
+  const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+
+  const getRes = await httpsRequest("GET", `/api/${clientKey}/project/${params.projectId}`, headers);
+  if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
+  const project = JSON.parse(getRes.body);
+
+  project.name = params.name;
+  project.displayName = params.name;
+
+  const putRes = await httpsRequest("PUT", `/api/${clientKey}/project`, headers, JSON.stringify(project));
+  if (putRes.status >= 400) throw new Error(`Failed to update project name: ${putRes.status}`);
+
+  console.log(`[bmi-office] updated project name ${params.projectId} → "${params.name}"`);
+}
+
 // ── Update public notes ────────────────────────────────────────────
 
 export async function updateProjectPublicNotes(params: {

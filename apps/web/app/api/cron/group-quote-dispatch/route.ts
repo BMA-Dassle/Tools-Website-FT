@@ -229,26 +229,54 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: priceChanged ? "resign_required" : "updated_data" };
   }
 
-  // Clean up event notes grammar before sending
+  // AI cleanup: format event name + clean up notes grammar
+  let eventName = item.event.name || "";
   let eventNotes = item.event.notes || "";
-  if (eventNotes.trim()) {
-    try {
-      const { cleanupNotesGrammar } = await import("@/lib/notes-grammar");
-      const cleaned = await cleanupNotesGrammar(eventNotes);
-      if (cleaned !== eventNotes) {
-        eventNotes = cleaned;
-        // Update BMI Office with corrected notes
-        const { updateProjectPublicNotes } = await import("@/lib/bmi-office-actions");
-        updateProjectPublicNotes({
+  try {
+    const [{ formatEventName }, { cleanupNotesGrammar }] = await Promise.all([
+      import("@/lib/event-name-format"),
+      import("@/lib/notes-grammar"),
+    ]);
+
+    const [formattedName, cleanedNotes] = await Promise.all([
+      eventName.trim() ? formatEventName(eventName) : Promise.resolve(eventName),
+      eventNotes.trim() ? cleanupNotesGrammar(eventNotes) : Promise.resolve(eventNotes),
+    ]);
+
+    const nameChanged = formattedName !== eventName;
+    const notesChanged = cleanedNotes !== eventNotes;
+
+    if (nameChanged) {
+      eventName = formattedName;
+      console.log(`[group-quote-dispatch] AI formatted name: "${item.event.name}" → "${formattedName}"`);
+    }
+    if (notesChanged) {
+      eventNotes = cleanedNotes;
+      console.log(`[group-quote-dispatch] AI grammar-cleaned notes for reservation=${item.reservationId}`);
+    }
+
+    // Update BMI Office with corrected name + notes
+    if (nameChanged || notesChanged) {
+      const bmi = await import("@/lib/bmi-office-actions");
+      const updates: Promise<void>[] = [];
+      if (nameChanged) {
+        updates.push(bmi.updateProjectName({
           centerCode: center.centerCode,
           projectId: item.reservationId,
-          notes: cleaned,
-        }).catch((err) => console.error("[group-quote-dispatch] BMI notes update error:", err));
-        console.log(`[group-quote-dispatch] grammar-cleaned notes for reservation=${item.reservationId}`);
+          name: formattedName,
+        }));
       }
-    } catch (err) {
-      console.warn("[group-quote-dispatch] notes cleanup failed:", err);
+      if (notesChanged) {
+        updates.push(bmi.updateProjectPublicNotes({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          notes: cleanedNotes,
+        }));
+      }
+      await Promise.allSettled(updates);
     }
+  } catch (err) {
+    console.warn("[group-quote-dispatch] AI cleanup failed:", err);
   }
 
   // Create or update internal contract (no PandaDoc)
@@ -258,7 +286,7 @@ async function processQueueItem(
   let quoteId: number;
   if (existing) {
     await updateGfQuoteDetails(existing.id, {
-      event_name: item.event.name,
+      event_name: eventName,
       event_number: item.event.number,
       event_date: item.event.dateRaw,
       event_date_display: formatEventDate(item.event.dateRaw),
@@ -300,7 +328,7 @@ async function processQueueItem(
       guest_last_name: item.customer.last,
       guest_email: item.customer.email,
       guest_phone: item.customer.phone,
-      event_name: item.event.name,
+      event_name: eventName,
       event_number: item.event.number,
       event_date: item.event.dateRaw,
       event_date_display: formatEventDate(item.event.dateRaw),
