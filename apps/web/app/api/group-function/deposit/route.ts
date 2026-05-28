@@ -89,6 +89,14 @@ export async function POST(req: NextRequest) {
       }>
     ).map((p) => buildSquareLineItem(quote.center_code, p));
 
+    const serviceCharges = quote.tax_cents > 0
+      ? [{
+          name: "Service Charge",
+          amount_money: { amount: quote.tax_cents, currency: "USD" },
+          calculation_phase: "SUBTOTAL_PHASE",
+        }]
+      : [];
+
     const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
       method: "POST",
       headers: sqHeaders(),
@@ -98,6 +106,7 @@ export async function POST(req: NextRequest) {
           location_id: quote.square_location_id,
           reference_id: `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40),
           line_items: lineItems,
+          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
         },
       }),
     });
