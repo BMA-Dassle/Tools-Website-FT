@@ -65,7 +65,8 @@ function resolvePlannerTeamsChatId(quote: GroupFunctionQuote): string | null {
 // ── Contract Sent ───────────────────────────────────────────────────
 
 export async function notifyContractSent(quote: GroupFunctionQuote): Promise<void> {
-  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}`;
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_sent`;
+  const smsUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_sent`;
   const pName = plannerName(quote);
 
   const results = await Promise.allSettled([
@@ -74,7 +75,7 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
           quote.guest_phone,
           [
             `${quote.guest_first_name}, your event contract for ${quote.event_name || "your event"} at ${quote.center_name} is ready!`,
-            `Review & sign here: ${contractUrl}`,
+            `Review & sign here: ${smsUrl}`,
             `Questions? Contact ${pName}.`,
           ].join("\n"),
         )
@@ -105,7 +106,8 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
 // ── Contract Updated (before signing) ───────────────────────────────
 
 export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<void> {
-  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}`;
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_updated`;
+  const smsUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_updated`;
   const pName = plannerName(quote);
 
   const results = await Promise.allSettled([
@@ -114,7 +116,7 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
           quote.guest_phone,
           [
             `${quote.guest_first_name}, your event contract for ${quote.event_name || "your event"} has been updated.`,
-            `Review the changes here: ${contractUrl}`,
+            `Review the changes here: ${smsUrl}`,
           ].join("\n"),
         )
       : Promise.resolve(),
@@ -263,7 +265,8 @@ export async function notify96HourReminder(
   quote: GroupFunctionQuote,
   waiverUrl: string | null,
 ): Promise<void> {
-  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}`;
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_96hr`;
+  const smsUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_96hr`;
   const pName = plannerName(quote);
   const items = (quote.line_items || []) as Array<{ name: string }>;
   const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
@@ -284,7 +287,7 @@ export async function notify96HourReminder(
           [
             `${quote.guest_first_name}, your event ${quote.event_name || ""} is almost here!`,
             `Your balance of ${dollars(quote.balance_cents)} will be charged tomorrow.`,
-            `Update details: ${contractUrl}`,
+            `Update details: ${smsUrl}`,
             hasWaivers && waiverUrl ? `Complete waivers: ${waiverUrl}` : "",
           ].filter(Boolean).join("\n"),
         )
@@ -669,7 +672,7 @@ function buildGroupFunctionCard(
       { type: "FactSet", facts },
     ],
     actions: quote.contract_short_id
-      ? [{ type: "Action.OpenUrl", title: "View Contract", url: `${baseUrl(quote)}/contract/${quote.contract_short_id}` }]
+      ? [{ type: "Action.OpenUrl", title: "View Contract", url: `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=teams` }]
       : [],
   };
 }

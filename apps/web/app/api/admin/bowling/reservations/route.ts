@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
              line_items, notes, created_at
       FROM group_function_quotes
       WHERE event_date::date = ${date}::date
+        AND status NOT IN ('cancelled', 'denied')
         ${center ? q`AND center_code = ${center}` : q``}
       ORDER BY event_date ASC
     `;

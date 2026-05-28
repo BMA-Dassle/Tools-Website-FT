@@ -1,12 +1,26 @@
 import { notFound } from "next/navigation";
-import { getGfQuoteByShortId } from "@/lib/group-function-db";
+import { headers } from "next/headers";
+import { getGfQuoteByShortId, appendAuditLog } from "@/lib/group-function-db";
 import ContractClient from "./ContractClient";
 
-export default async function ContractPage(props: { params: Promise<{ shortId: string }> }) {
+export default async function ContractPage(props: { params: Promise<{ shortId: string }>; searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const { shortId } = await props.params;
+  const { src } = await props.searchParams;
   const quote = await getGfQuoteByShortId(shortId);
 
   if (!quote) return notFound();
+
+  // Track page view (non-blocking)
+  const hdrs = await headers();
+  const ip = hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() || hdrs.get("x-real-ip") || null;
+  const ua = hdrs.get("user-agent") || null;
+  appendAuditLog({
+    quoteId: quote.id,
+    event: "page_view",
+    actorIp: ip || undefined,
+    actorUa: ua || undefined,
+    metadata: { source: src || "direct", step: quote.deposit_paid_at ? "event" : "review" },
+  }).catch(() => {});
 
   const brand = (quote.brand as "headpinz" | "fasttrax") ||
     (quote.center_code === "naples" || quote.center_code === "fort-myers" ? "headpinz" : "fasttrax");
