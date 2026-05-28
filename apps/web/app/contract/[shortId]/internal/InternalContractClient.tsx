@@ -5,7 +5,7 @@ import Image from "next/image";
 import {
   IconBan, IconClock, IconShieldCheck, IconToolsKitchen2,
   IconStar, IconCreditCard, IconReceipt,
-  IconCircleCheck, IconAlertTriangle, IconUsers, IconLink,
+  IconCircleCheck, IconAlertTriangle, IconUsers,
 } from "@tabler/icons-react";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -40,12 +40,12 @@ interface QuoteProps {
 }
 
 type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done";
-const STEPS: { key: Step; label: string }[] = [
-  { key: "review", label: "Review" },
-  { key: "tips", label: "Event Info" },
-  { key: "policy", label: "Policies" },
-  { key: "sign", label: "Agree & Sign" },
-  { key: "pay", label: "Deposit" },
+const STEPS: { key: Step; label: string; short: string }[] = [
+  { key: "review", label: "Review", short: "Review" },
+  { key: "tips", label: "Event Info", short: "Info" },
+  { key: "policy", label: "Policies", short: "Policy" },
+  { key: "sign", label: "Agree & Sign", short: "Sign" },
+  { key: "pay", label: "Deposit", short: "Pay" },
 ];
 
 export default function InternalContractClient({ quote }: { quote: QuoteProps }) {
@@ -87,10 +87,15 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
   const [taxUploading, setTaxUploading] = useState(false);
 
   const taxValid = taxExempt === "no" || (taxExempt === "yes" && Boolean(taxFileUrl));
-  const allAgreed = agreeDeposit && agreeNoPrepay && agreePaymentDay && taxExempt !== null && taxValid && agreeUnderstand;
+  const allAgreed = agreeDeposit && agreeNoPrepay && taxExempt !== null && taxValid && agreeUnderstand;
 
   // Compliance: capture IP + timestamp at sign time
   const [signedAt, setSignedAt] = useState<string | null>(null);
+
+  // Scroll to top on step change
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
 
   // Load Square SDK
   useEffect(() => {
@@ -235,12 +240,12 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
               const isPast = i < stepIdx;
               return (
                 <div key={s.key} className="flex items-center gap-1">
-                  {i > 0 && <div className={`h-px w-6 ${isPast ? "bg-cyan-400" : "bg-white/15"}`} />}
-                  <div className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
+                  {i > 0 && <div className={`h-px w-4 sm:w-6 ${isPast ? "bg-cyan-400" : "bg-white/15"}`} />}
+                  <div className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] sm:px-2.5 sm:text-[10px] font-semibold ${
                     isActive ? "bg-cyan-400/20 text-cyan-400 ring-1 ring-cyan-400/40" :
                     isPast ? "bg-emerald-400/20 text-emerald-400" : "bg-white/5 text-gray-600"
                   }`}>
-                    {isPast ? "✓" : ""} {s.label}
+                    {isPast ? "✓ " : ""}<span className="hidden sm:inline">{s.label}</span><span className="sm:hidden">{s.short}</span>
                   </div>
                 </div>
               );
@@ -403,7 +408,7 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                   { title: "Payments", text: "A 50% deposit secures your event via our online system. Please bring payment on event day for the final balance. Splitting payments is not possible.", Icon: IconCreditCard },
                   { title: "Service Charge", text: "A mandatory, non-refundable service charge applies to all contracted events, including any additions on the day of.", Icon: IconReceipt },
                 ].map((tip, i) => (
-                  <label key={i} className={`flex cursor-pointer gap-4 rounded-xl p-4 transition-colors ${tipChecks[i] ? "bg-cyan-400/5 ring-1 ring-cyan-400/20" : "bg-white/5"}`}>
+                  <label key={i} aria-label={`Acknowledge: ${tip.title}`} className={`flex cursor-pointer gap-4 rounded-xl p-4 transition-colors ${tipChecks[i] ? "bg-cyan-400/5 ring-1 ring-cyan-400/20" : "bg-white/5"}`}>
                     <input
                       type="checkbox"
                       checked={tipChecks[i]}
@@ -448,7 +453,6 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                   { title: "More Than 7 Days' Notice", text: "Full deposit value can be applied toward rescheduling. The rescheduled event must meet or exceed the original value.", Icon: IconCircleCheck },
                   { title: "Within 7 Days of Event", text: "Cancellations are non-refundable. In some cases, you may be eligible for 50% of your deposit value.", Icon: IconAlertTriangle },
                   { title: "Guest Participants", text: "Changes must be made 3+ business days in advance. Guest count may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher.", Icon: IconUsers },
-                  { title: "Additional Details", text: "Further details are governed by headpinz.com/GF-Policy", Icon: IconLink },
                 ].map((item, i) => (
                   <div key={i} className="flex gap-4 rounded-xl bg-white/5 p-4">
                     <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-400/10">
@@ -486,7 +490,6 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                 {[
                   { state: agreeDeposit, set: setAgreeDeposit, text: "I agree to make a 50% deposit via credit card after completing this document." },
                   { state: agreeNoPrepay, set: setAgreeNoPrepay, text: "I understand that the remaining balance will be automatically charged to my card on file 72 hours prior to the event." },
-                  { state: agreePaymentDay, set: setAgreePaymentDay, text: "I'll have a form of payment ready on the day of my event." },
                 ].map((item, i) => (
                   <label key={i} className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
                     <input type="checkbox" checked={item.state} onChange={(e) => item.set(e.target.checked)}

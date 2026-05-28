@@ -62,6 +62,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const squareLoaded = useRef(false);
   const [signingSessionId, setSigningSessionId] = useState<string | null>(null);
   const [signingReady, setSigningReady] = useState(false);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [phase]);
   const signingInitiated = useRef(false);
   const [schedule, setSchedule] = useState<Array<{
     activity: string;
