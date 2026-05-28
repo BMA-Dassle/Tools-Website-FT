@@ -1200,15 +1200,19 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
         {/* ═══ Event Dashboard (post-deposit) ═══ */}
         {step === "event" && (
-          <div className="space-y-6">
-            {/* Event details card — matches review step */}
+          <div className="mt-4 space-y-6">
+            {/* Event details card with countdown integrated */}
             <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#071027]">
               <div className="grid md:grid-cols-[1fr_auto]">
                 <div className="p-6">
-                  <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
+                  <h2 className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-400">
                     Event Details
                   </h2>
                   <h3 className="mb-4 text-2xl font-bold">{quote.eventName}</h3>
+
+                  {/* Countdown inline */}
+                  <EventCountdownInline eventDate={quote.eventDate} />
+
                   <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
                     <div>
                       <p className="text-xs text-gray-500">Date & Time</p>
@@ -1290,9 +1294,6 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 </div>
               </div>
             </div>
-
-            {/* Countdown */}
-            <EventCountdown eventDate={quote.eventDate} centerName={quote.centerName} />
 
             {/* Waiver link */}
             {eventDetails?.waiverUrl && (
@@ -1575,6 +1576,39 @@ function EventCountdown({ eventDate, centerName }: { eventDate: string; centerNa
             <p className="text-xs text-gray-500">{unit.label}</p>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function EventCountdownInline({ eventDate }: { eventDate: string }) {
+  const [diff, setDiff] = useState<{ days: number; hours: number; mins: number } | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const ms = new Date(eventDate).getTime() - Date.now();
+      if (ms <= 0) { setDiff(null); return; }
+      setDiff({
+        days: Math.floor(ms / 86_400_000),
+        hours: Math.floor((ms % 86_400_000) / 3_600_000),
+        mins: Math.floor((ms % 3_600_000) / 60_000),
+      });
+    };
+    update();
+    const id = setInterval(update, 60_000);
+    return () => clearInterval(id);
+  }, [eventDate]);
+
+  if (!diff) return null;
+
+  return (
+    <div className="mb-4 flex items-center gap-3 rounded-xl bg-cyan-400/5 px-4 py-2.5 ring-1 ring-cyan-400/10">
+      <IconClock size={16} className="flex-shrink-0 text-cyan-400" />
+      <div className="flex items-baseline gap-1 text-sm">
+        {diff.days > 0 && <><span className="font-bold tabular-nums text-cyan-400">{diff.days}</span><span className="text-gray-500">d</span></>}
+        <span className="font-bold tabular-nums text-cyan-400">{diff.hours}</span><span className="text-gray-500">h</span>
+        <span className="font-bold tabular-nums text-cyan-400">{diff.mins}</span><span className="text-gray-500">m</span>
+        <span className="ml-1 text-gray-400">until your event</span>
       </div>
     </div>
   );
