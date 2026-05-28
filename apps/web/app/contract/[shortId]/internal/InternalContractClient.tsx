@@ -283,6 +283,16 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                       <span>{fmtDollars(quote.totalCents)}</span>
                     </div>
                   </div>
+
+                  {/* Planner notes inside event card */}
+                  {quote.notes && (
+                    <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                        Notes from {quote.plannerFirst || "Your Planner"}
+                      </p>
+                      <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">{quote.notes}</p>
+                    </div>
+                  )}
                 </div>
                 <div className="relative hidden w-64 md:block">
                   <Image src={`${BLOB}/attractions/DSC06577.webp`} alt="Racing" fill className="object-cover" unoptimized />
@@ -357,12 +367,6 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                     )}
                   </div>
                 </div>
-                {quote.notes && (
-                  <div className="mt-4 rounded-lg bg-white/5 p-3">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-500">Notes from your planner</p>
-                    <p className="whitespace-pre-line text-sm text-gray-300">{quote.notes}</p>
-                  </div>
-                )}
               </div>
             )}
 

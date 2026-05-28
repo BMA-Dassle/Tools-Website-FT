@@ -369,6 +369,16 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   <span>{fmtDollars(quote.totalCents)}</span>
                 </div>
               </div>
+
+              {/* Planner notes inside event card */}
+              {quote.notes && (
+                <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                    Notes from {quote.plannerFirst || "Your Planner"}
+                  </p>
+                  <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">{quote.notes}</p>
+                </div>
+              )}
             </div>
 
             {/* Activity preview image */}
