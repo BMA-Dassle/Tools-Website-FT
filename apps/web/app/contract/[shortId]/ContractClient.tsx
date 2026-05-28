@@ -2,8 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-
-// Square types are declared globally in components/square/PaymentForm.tsx
+import {
+  IconBan, IconClock, IconShieldCheck, IconToolsKitchen2,
+  IconStar, IconCreditCard, IconReceipt,
+  IconCircleCheck, IconAlertTriangle, IconUsers,
+  IconClipboardCheck, IconCalendarEvent, IconShare, IconLink,
+} from "@tabler/icons-react";
+import { useVisibleInterval } from "@/lib/use-visible-interval";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
@@ -11,9 +16,6 @@ const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
 interface QuoteProps {
   id: number;
   contractShortId: string;
-  pandadocDocumentId: string | null;
-  contractStatus: string | null;
-  status: string;
   brand: "headpinz" | "fasttrax";
   centerName: string;
   squareLocationId: string;
@@ -39,114 +41,118 @@ interface QuoteProps {
   giftCardGan: string | null;
 }
 
-type Phase = "sign" | "pay" | "done";
+type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done" | "event";
+const STEPS: { key: Step; label: string; short: string }[] = [
+  { key: "review", label: "Review", short: "Review" },
+  { key: "tips", label: "Event Info", short: "Info" },
+  { key: "policy", label: "Policies", short: "Policy" },
+  { key: "sign", label: "Agree & Sign", short: "Sign" },
+  { key: "pay", label: "Deposit", short: "Pay" },
+];
 
 export default function ContractClient({ quote }: { quote: QuoteProps }) {
-  const [phase, setPhase] = useState<Phase>(() => {
-    if (quote.depositPaidAt) return "done";
-    if (quote.contractStatus === "signed") return "pay";
-    return "sign";
+  const [step, setStep] = useState<Step>(() => {
+    if (quote.depositPaidAt) return "event";
+    return "review";
   });
+  const [updateBanner, setUpdateBanner] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
-  const [saveCard, setSaveCard] = useState(true);
   const [giftCardGan, setGiftCardGan] = useState(quote.giftCardGan);
+  const [saveCard, setSaveCard] = useState(true);
   const cardRef = useRef<{
-    tokenize: () => Promise<{
-      status: string;
-      token?: string;
-      errors?: Array<{ message: string }>;
-    }>;
+    tokenize: () => Promise<{ status: string; token?: string; errors?: Array<{ message: string }> }>;
     destroy: () => void;
   } | null>(null);
   const squareLoaded = useRef(false);
-  const [signingSessionId, setSigningSessionId] = useState<string | null>(null);
-  const [signingReady, setSigningReady] = useState(false);
 
+  // Signature state
+  const [sigType, setSigType] = useState<"draw" | "type">("type");
+  const [typedSig, setTypedSig] = useState("");
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isDrawing = useRef(false);
+
+  // Agreement checkboxes
+  const [agreeDeposit, setAgreeDeposit] = useState(false);
+  const [agreeNoPrepay, setAgreeNoPrepay] = useState(false);
+  const [agreePaymentDay, setAgreePaymentDay] = useState(false);
+  const [agreePolicies, setAgreePolicies] = useState(false);
+  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(null);
+  const [agreeUnderstand, setAgreeUnderstand] = useState(false);
+
+  // Page-level acknowledgments
+  const [waiverAcknowledged, setWaiverAcknowledged] = useState(false);
+  const [tipsAcknowledged, setTipsAcknowledged] = useState(false);
+  const [policyAcknowledged, setPolicyAcknowledged] = useState(false);
+
+  // Tax exempt file upload
+  const [taxFile, setTaxFile] = useState<File | null>(null);
+  const [taxFileUrl, setTaxFileUrl] = useState<string | null>(null);
+  const [taxUploading, setTaxUploading] = useState(false);
+
+  const taxValid = taxExempt === "no" || (taxExempt === "yes" && Boolean(taxFileUrl));
+  const allAgreed = agreeDeposit && agreeNoPrepay && taxExempt !== null && taxValid && agreeUnderstand;
+
+  // Compliance: capture IP + timestamp at sign time
+  const [signedAt, setSignedAt] = useState<string | null>(null);
+
+  // Scroll to top on step change
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [phase]);
-  const signingInitiated = useRef(false);
-  const [schedule, setSchedule] = useState<Array<{
-    activity: string;
-    count: number;
-    start: string;
-    end: string;
-    persons: number;
-  }> | null>(null);
+  }, [step]);
 
-  // Fetch event schedule from BMI Office
-  useEffect(() => {
-    fetch(`/api/group-function/schedule?shortId=${quote.contractShortId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.schedule?.length > 0) setSchedule(data.schedule);
-      })
-      .catch(() => {});
-  }, [quote.contractShortId]);
+  // Event details for the post-deposit event page
+  const [eventDetails, setEventDetails] = useState<{
+    notes: string;
+    waiverUrl: string | null;
+    participants: Array<{ name: string; confirmed: boolean; confirmedAt: string | null }>;
+    totalParticipants: number;
+    confirmedCount: number;
+  } | null>(null);
 
-  // Poll for quote changes (planner may update before guest signs)
-  useEffect(() => {
-    if (phase !== "sign") return;
-    const knownDocId = quote.pandadocDocumentId;
-    const poll = setInterval(async () => {
-      try {
-        const res = await fetch(
-          `/api/group-function/quote-status?shortId=${quote.contractShortId}`,
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.pandadocDocumentId && data.pandadocDocumentId !== knownDocId) {
-          window.location.reload();
+  // Live polling for quote changes + event details
+  const lastHash = useRef<string | null>(null);
+  useVisibleInterval(async (signal) => {
+    try {
+      // Poll quote status for changes
+      const statusRes = await fetch(`/api/group-function/quote-status?shortId=${quote.contractShortId}`, { signal, cache: "no-store" });
+      if (signal.aborted || !statusRes.ok) return;
+      const statusData = await statusRes.json();
+
+      // Detect changes
+      if (lastHash.current && lastHash.current !== statusData.lineItemsHash) {
+        if (!quote.depositPaidAt && step !== "event") {
+          setUpdateBanner("Event Updated — please review the changes");
+          setStep("review");
+        } else if (statusData.status === "resign_required") {
+          setUpdateBanner("Your event has been updated and requires re-confirmation");
+          setStep("review");
         }
-      } catch { /* ignore */ }
-    }, 30_000);
-    return () => clearInterval(poll);
-  }, [phase, quote.contractShortId, quote.pandadocDocumentId]);
-
-  // Fetch signing session, then init pandadoc-signing library
-  useEffect(() => {
-    if (phase !== "sign" || signingInitiated.current) return;
-    signingInitiated.current = true;
-
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/group-function/signing-session?shortId=${quote.contractShortId}`,
-        );
-        const data = await res.json();
-        if (!data.sessionId) {
-          setError(data.error || "Failed to load signing session");
-          return;
-        }
-        setSigningSessionId(data.sessionId);
-
-        // Wait a tick for the container div to render
-        await new Promise((r) => setTimeout(r, 100));
-
-        const { Signing } = await import("pandadoc-signing");
-        const signing = new Signing(
-          "pandadoc-signing-container",
-          { sessionId: data.sessionId, width: "100%", height: 700 },
-          { region: "com" },
-        );
-
-        signing.on("document.completed", () => setPhase("pay"));
-        signing.on("document.loaded", () => setSigningReady(true));
-        signing.on("document.exception", () =>
-          setError("Something went wrong loading the contract. Please refresh."),
-        );
-
-        await signing.open();
-      } catch (err) {
-        console.error("[pandadoc-signing] Failed:", err);
-        setError("Failed to load contract. Please refresh.");
       }
-    })();
-  }, [phase, quote.contractShortId]);
+      lastHash.current = statusData.lineItemsHash;
 
+      // Fetch event details if on event page
+      if (step === "event") {
+        const detailsRes = await fetch(`/api/group-function/event-details?shortId=${quote.contractShortId}`, { signal, cache: "no-store" });
+        if (!signal.aborted && detailsRes.ok) {
+          setEventDetails(await detailsRes.json());
+        }
+      }
+    } catch { /* network error, retry next cycle */ }
+  }, 15_000);
+
+  // Initial event details fetch
   useEffect(() => {
-    if (phase !== "pay" || squareLoaded.current) return;
+    if (step !== "event") return;
+    fetch(`/api/group-function/event-details?shortId=${quote.contractShortId}`)
+      .then((r) => r.json())
+      .then((d) => setEventDetails(d))
+      .catch(() => {});
+  }, [step, quote.contractShortId]);
+
+  // Load Square SDK
+  useEffect(() => {
+    if (step !== "pay" || squareLoaded.current) return;
     squareLoaded.current = true;
     (async () => {
       try {
@@ -164,25 +170,59 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         await card.attach("#sq-card-container");
         cardRef.current = card;
       } catch {
-        setError("Failed to load payment form. Please refresh and try again.");
+        setError("Failed to load payment form. Please refresh.");
       }
     })();
-    return () => {
-      try {
-        cardRef.current?.destroy();
-      } catch {
-        /* cleanup */
-      }
-    };
-  }, [phase, quote.squareLocationId]);
+    return () => { try { cardRef.current?.destroy(); } catch { /* */ } };
+  }, [step, quote.squareLocationId]);
 
-  // PandaDoc events are handled by the Signing library above
+  // Canvas drawing handlers
+  const startDraw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    isDrawing.current = true;
+    const ctx = canvas.getContext("2d")!;
+    const rect = canvas.getBoundingClientRect();
+    const x = "touches" in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+    const y = "touches" in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  }, []);
+
+  const draw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDrawing.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    const rect = canvas.getBoundingClientRect();
+    const x = "touches" in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+    const y = "touches" in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#22d3ee";
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }, []);
+
+  const endDraw = useCallback(() => { isDrawing.current = false; }, []);
+
+  const clearCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }, []);
+
+  const hasSig = sigType === "type" ? typedSig.trim().length > 2 : true;
+
+  const handleSign = useCallback(() => {
+    if (!allAgreed || !hasSig) return;
+    setSignedAt(new Date().toISOString());
+    setStep("pay");
+  }, [allAgreed, hasSig]);
 
   const handlePay = useCallback(async () => {
-    if (!cardRef.current) {
-      setError("Payment form not ready.");
-      return;
-    }
+    if (!cardRef.current) { setError("Payment form not ready."); return; }
     setError(null);
     setProcessing(true);
     try {
@@ -195,20 +235,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       const res = await fetch("/api/group-function/deposit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contractShortId: quote.contractShortId,
-          cardSourceId: result.token,
-          saveCard,
-        }),
+        body: JSON.stringify({ contractShortId: quote.contractShortId, cardSourceId: result.token, saveCard }),
       });
       const data = await res.json();
-      if (!res.ok || data.error) {
-        setError(data.error || "Payment failed.");
-        setProcessing(false);
-        return;
-      }
+      if (!res.ok || data.error) { setError(data.error || "Payment failed."); setProcessing(false); return; }
       setGiftCardGan(data.giftCardGan);
-      setPhase("done");
+      setStep("event");
     } catch {
       setError("Payment processing failed. Please try again.");
     } finally {
@@ -219,106 +251,67 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const fmtDollars = (cents: number) =>
     `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 
-  const isFT = quote.brand === "fasttrax";
+  const stepIdx = STEPS.findIndex((s) => s.key === step);
 
   return (
     <div className="min-h-screen">
-      {/* ─── Hero Section ─── */}
+      {/* Hero */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
-          <Image
-            src={`${BLOB}/hero/racer-journey-bg.webp`}
-            alt=""
-            fill
-            className="object-cover"
-            priority
-            unoptimized
-          />
+          <Image src={`${BLOB}/hero/racer-journey-bg.webp`} alt="" fill className="object-cover" priority unoptimized />
           <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/80 via-[#000418]/60 to-[#000418]" />
         </div>
-
-        <div className="relative mx-auto max-w-4xl px-4 pb-12 pt-36 text-center">
-          {phase === "done" ? (
+        <div className="relative mx-auto max-w-4xl px-4 pb-10 pt-36 text-center">
+          {step === "event" ? (
             <>
               <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400">
-                <svg
-                  className="h-10 w-10 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={3}
-                >
+                <svg className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h1 className="mb-2 text-4xl font-extrabold tracking-tight md:text-5xl">
-                You&apos;re All Set!
-              </h1>
-              <p className="text-lg text-gray-300">
-                Your adventure at {quote.centerName} is confirmed
-              </p>
+              <h1 className="mb-2 text-4xl font-extrabold tracking-tight md:text-5xl">You&apos;re All Set!</h1>
+              <p className="text-lg text-gray-300">Your adventure at {quote.centerName} is confirmed</p>
             </>
           ) : (
             <>
-              <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-cyan-400">
-                {quote.centerName}
-              </p>
+              <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-cyan-400">{quote.centerName}</p>
               <h1 className="mb-3 text-4xl font-extrabold tracking-tight md:text-5xl">
-                {quote.guestFirstName}, your
-                <span className={isFT ? " text-cyan-400" : " text-rose-400"}> experience </span>
-                awaits
+                {quote.guestFirstName}, your <span className="text-cyan-400">experience</span> awaits
               </h1>
-              <p className="mx-auto max-w-xl text-lg text-gray-300">
-                Review your event details below, sign your contract, and secure your date with a
-                deposit.
-              </p>
             </>
           )}
         </div>
-
-        {/* Gradient bottom border */}
         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#E53935] via-white/60 to-[#00E2E5]" />
       </div>
 
-      {/* ─── Steps indicator ─── */}
-      {phase !== "done" && (
-        <div className="mx-auto max-w-2xl px-4 py-6">
-          <div className="flex items-center justify-center gap-2 text-sm">
-            {[
-              { label: "Review & Sign", step: "sign" },
-              { label: "Pay Deposit", step: "pay" },
-              { label: "Confirmed", step: "done" },
-            ].map((s, i) => {
-              const isActive = s.step === phase;
-              const isPast = (phase === "pay" && s.step === "sign") || (phase as string) === "done";
+      {/* Update banner */}
+      {updateBanner && (
+        <div className="mx-auto max-w-4xl px-4 pt-4">
+          <div className="flex items-center gap-3 rounded-xl bg-amber-500/10 px-4 py-3 ring-1 ring-amber-500/20">
+            <IconAlertTriangle size={20} className="flex-shrink-0 text-amber-400" />
+            <p className="flex-1 text-sm font-semibold text-amber-300">{updateBanner}</p>
+            <button onClick={() => setUpdateBanner(null)} className="text-amber-400 hover:text-amber-300" aria-label="Dismiss">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step indicator */}
+      {step !== "done" && step !== "event" && (
+        <div className="mx-auto max-w-3xl px-4 py-5">
+          <div className="flex items-center justify-center gap-1">
+            {STEPS.map((s, i) => {
+              const isActive = s.key === step;
+              const isPast = i < stepIdx;
               return (
-                <div key={s.step} className="flex items-center gap-2">
-                  {i > 0 && (
-                    <div className={`h-px w-8 ${isPast ? "bg-cyan-400" : "bg-white/20"}`} />
-                  )}
-                  <div
-                    className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                      isActive
-                        ? "bg-cyan-400/20 text-cyan-400 ring-1 ring-cyan-400/40"
-                        : isPast
-                          ? "bg-emerald-400/20 text-emerald-400"
-                          : "bg-white/5 text-gray-500"
-                    }`}
-                  >
-                    {isPast ? (
-                      <svg
-                        className="h-3.5 w-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={3}
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      <span>{i + 1}</span>
-                    )}
-                    {s.label}
+                <div key={s.key} className="flex items-center gap-1">
+                  {i > 0 && <div className={`h-px w-4 sm:w-6 ${isPast ? "bg-cyan-400" : "bg-white/15"}`} />}
+                  <div className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] sm:px-2.5 sm:text-[10px] font-semibold ${
+                    isActive ? "bg-cyan-400/20 text-cyan-400 ring-1 ring-cyan-400/40" :
+                    isPast ? "bg-emerald-400/20 text-emerald-400" : "bg-white/5 text-gray-600"
+                  }`}>
+                    {isPast ? "✓ " : ""}<span className="hidden sm:inline">{s.label}</span><span className="sm:hidden">{s.short}</span>
                   </div>
                 </div>
               );
@@ -328,349 +321,421 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       )}
 
       <div className="mx-auto max-w-4xl px-4 pb-16">
-        {/* ─── Event Details Card ─── */}
-        <div className="mb-8 overflow-hidden rounded-2xl border border-white/10 bg-[#071027]">
-          <div className="grid md:grid-cols-[1fr_auto]">
-            <div className="p-6">
-              <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
-                Event Details
-              </h2>
-              <h3 className="mb-4 text-2xl font-bold">{quote.eventName}</h3>
-              <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
-                <div>
-                  <p className="text-xs text-gray-500">Date & Time</p>
-                  <p className="font-semibold">{quote.eventDateDisplay}</p>
-                </div>
-                {quote.guestCount && (
-                  <div>
-                    <p className="text-xs text-gray-500">Guests</p>
-                    <p className="font-semibold">{quote.guestCount}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-xs text-gray-500">Total</p>
-                  <p className="text-xl font-bold text-white">{fmtDollars(quote.totalCents)}</p>
-                </div>
-              </div>
-
-              <div className="space-y-1.5 border-t border-white/10 pt-3">
-                {quote.lineItems.map((item, i) => (
-                  <div key={i} className="flex justify-between text-sm">
-                    <span className="text-gray-400">
-                      {item.name} <span className="text-gray-600">x{item.qty}</span>
-                    </span>
-                    <span className="font-medium">{fmtDollars(Math.round(item.total * 100))}</span>
-                  </div>
-                ))}
-                {quote.taxCents > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Tax</span>
-                    <span className="font-medium">{fmtDollars(quote.taxCents)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t border-white/10 pt-2 text-sm font-bold">
-                  <span>Total</span>
-                  <span>{fmtDollars(quote.totalCents)}</span>
-                </div>
-              </div>
-
-              {/* Planner notes inside event card */}
-              {quote.notes && (
-                <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-cyan-400">
-                    Notes from {quote.plannerFirst || "Your Planner"}
-                  </p>
-                  <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">{quote.notes}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Activity preview image */}
-            <div className="relative hidden w-64 md:block">
-              <Image
-                src={`${BLOB}/attractions/DSC06577.webp`}
-                alt="Racing experience"
-                fill
-                className="object-cover"
-                unoptimized
-              />
-              <div className="absolute inset-0 bg-gradient-to-r from-[#071027] to-transparent" />
-            </div>
-          </div>
-        </div>
-
-        {/* ─── Event Schedule Timeline ─── */}
-        {schedule && schedule.length > 0 && (
-          <div className="mb-8 rounded-2xl border border-white/10 bg-[#071027] p-5">
-            <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
-              Event Schedule
-            </h3>
-            <div className="relative space-y-0">
-              {schedule.map((s, i) => (
-                <div key={i} className="flex gap-4">
-                  {/* Timeline line + dot */}
-                  <div className="flex flex-col items-center">
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-[10px] font-bold text-cyan-400 ring-1 ring-cyan-400/30">
-                      {s.start.replace(/:00 /, " ").replace(/ /g, "")}
+        {/* ═══ Step 1: Review ═══ */}
+        {step === "review" && (
+          <>
+            {/* Event details card with racing image */}
+            <div className="mb-8 overflow-hidden rounded-2xl border border-white/10 bg-[#071027]">
+              <div className="grid md:grid-cols-[1fr_auto]">
+                <div className="p-6">
+                  <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">Event Details</h2>
+                  <h3 className="mb-4 text-2xl font-bold">{quote.eventName}</h3>
+                  <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs text-gray-500">Date & Time</p>
+                      <p className="font-semibold">{quote.eventDateDisplay}</p>
                     </div>
-                    {i < schedule.length - 1 && (
-                      <div className="my-1 h-8 w-px bg-gradient-to-b from-cyan-400/40 to-transparent" />
+                    {quote.guestCount && (
+                      <div>
+                        <p className="text-xs text-gray-500">Guests</p>
+                        <p className="font-semibold">{quote.guestCount}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs text-gray-500">Total</p>
+                      <p className="text-xl font-bold text-white">{fmtDollars(quote.totalCents)}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 border-t border-white/10 pt-3">
+                    {quote.lineItems.map((item, i) => (
+                      <div key={i} className="flex justify-between text-sm">
+                        <span className="text-gray-400">{item.name} <span className="text-gray-600">x{item.qty}</span></span>
+                        <span className="font-medium">{fmtDollars(Math.round(item.total * 100))}</span>
+                      </div>
+                    ))}
+                    {quote.taxCents > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-400">Tax</span>
+                        <span className="font-medium">{fmtDollars(quote.taxCents)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-white/10 pt-2 text-sm font-bold">
+                      <span>Total</span>
+                      <span>{fmtDollars(quote.totalCents)}</span>
+                    </div>
+                  </div>
+
+                  {/* Planner notes inside event card */}
+                  {quote.notes && (
+                    <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-cyan-400">
+                        Notes from {quote.plannerFirst || "Your Planner"}
+                      </p>
+                      <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">{quote.notes}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="relative hidden w-64 md:block">
+                  <Image src={`${BLOB}/attractions/DSC06577.webp`} alt="Racing" fill className="object-cover" unoptimized />
+                  <div className="absolute inset-0 bg-gradient-to-r from-[#071027] to-transparent" />
+                </div>
+              </div>
+            </div>
+
+            {/* Payment schedule */}
+            <div className="mb-8 rounded-2xl border border-white/10 bg-[#071027] p-5">
+              <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">Payment Schedule</h3>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/40">1</div>
+                  <div className="flex-1">
+                    <p className="font-semibold">50% Deposit — Due Today</p>
+                    <p className="text-sm text-gray-400">Due upon signing your contract</p>
+                  </div>
+                  <p className="text-lg font-bold">{fmtDollars(quote.depositDueCents)}</p>
+                </div>
+                <div className="ml-4 h-6 border-l border-dashed border-white/20" />
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-xs font-bold text-gray-500">2</div>
+                  <div className="flex-1">
+                    <p className="font-semibold">Remaining Balance — 72 Hours Before Event</p>
+                    <p className="text-sm text-gray-400">Automatically charged to your card on file</p>
+                  </div>
+                  <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Planner card with avatar + contact icons */}
+            {quote.plannerFirst && (
+              <div className="mb-8 rounded-2xl border border-white/10 bg-[#071027] p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-xl font-bold">
+                    {quote.plannerFirst[0]}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Your Event Planner</p>
+                    <p className="text-lg font-bold">{quote.plannerFirst} {quote.plannerLast}</p>
+                    <div className="mt-1 space-y-0.5 text-sm text-gray-400">
+                      {quote.plannerPhone && <p><a href={`tel:${quote.plannerPhone}`} className="hover:text-cyan-400">{quote.plannerPhone}</a></p>}
+                      {quote.plannerEmail && <p><a href={`mailto:${quote.plannerEmail}`} className="hover:text-cyan-400">{quote.plannerEmail}</a></p>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {quote.plannerPhone && (
+                      <a href={`tel:${quote.plannerPhone}`} aria-label="Call planner"
+                        className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-600 transition-colors hover:bg-cyan-500">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        </svg>
+                      </a>
+                    )}
+                    {quote.plannerPhone && (
+                      <a href={`sms:${quote.plannerPhone}`} aria-label="Text planner"
+                        className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 transition-colors hover:bg-white/10">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                      </a>
+                    )}
+                    {quote.plannerEmail && (
+                      <a href={`mailto:${quote.plannerEmail}`} aria-label="Email planner"
+                        className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 transition-colors hover:bg-white/10">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                      </a>
                     )}
                   </div>
-                  {/* Content */}
-                  <div className="flex-1 pb-4">
-                    <p className="font-semibold">{s.activity}</p>
-                    <p className="text-sm text-gray-400">
-                      {s.start} – {s.end}
-                      {s.count > 1 && (
-                        <span className="ml-2 text-gray-500">
-                          ({s.count} {s.activity.toLowerCase().includes("lane") ? "lanes" : "areas"}
-                          )
-                        </span>
-                      )}
-                      {s.persons > 0 && (
-                        <span className="ml-2 text-gray-500">{s.persons} guests</span>
-                      )}
-                    </p>
+                </div>
+              </div>
+            )}
+
+            <button onClick={() => setStep("tips")}
+              className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-4 text-lg font-bold shadow-lg shadow-cyan-500/20">
+              Continue
+            </button>
+          </>
+        )}
+
+        {/* ═══ Step 2: Helpful Tips ═══ */}
+        {step === "tips" && (
+          <>
+            <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
+              <h2 className="mb-4 text-xl font-bold">Helpful Tips for Your Event</h2>
+              <p className="mb-4 text-sm text-gray-300">We&apos;re excited to host your event! Here are a few reminders:</p>
+              <div className="space-y-4">
+                {[
+                  { title: "Outside Food & Beverages", text: "No outside food or drinks. We welcome cakes for celebrations, but we’re unable to store them due to health guidelines.", Icon: IconBan },
+                  { title: "Buffets", text: "Buffets are served for one hour and are for in-event dining only. No to-go food will be provided.", Icon: IconClock },
+                  { title: "Adding Food", text: "If your quote doesn’t include food, you have up to 72 hours before the event to place your order.", Icon: IconToolsKitchen2 },
+                  { title: "HeadPinz Rewards", text: "HeadPinz Rewards cannot be earned or redeemed on group events.", Icon: IconStar },
+                  { title: "Payments", text: "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.", Icon: IconCreditCard },
+                  { title: "Service Charge", text: "A mandatory, non-refundable service charge applies to all contracted events, including any additions on the day of.", Icon: IconReceipt },
+                ].map((tip, i) => (
+                  <div key={i} className="flex gap-4 rounded-xl bg-white/5 p-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-cyan-400/10">
+                      <tip.Icon size={20} className="text-cyan-400" stroke={1.5} />
+                    </div>
+                    <div>
+                      <p className="mb-1 font-semibold text-white">{tip.title}</p>
+                      <p className="text-sm leading-relaxed text-gray-400">{tip.text}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                ))}
 
-        {/* ─── Planner Card ─── */}
-        {quote.plannerFirst && (
-          <div className="mb-8 rounded-2xl border border-white/10 bg-[#071027] p-5">
-            <div className="flex items-start gap-4">
-              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-xl font-bold">
-                {quote.plannerFirst[0]}
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-                  Your Event Planner
-                </p>
-                <p className="text-lg font-bold">
-                  {quote.plannerFirst} {quote.plannerLast}
-                </p>
-                <div className="mt-1 space-y-0.5 text-sm text-gray-400">
-                  {quote.plannerPhone && (
-                    <p>
-                      <a href={`tel:${quote.plannerPhone}`} className="hover:text-cyan-400">
-                        {quote.plannerPhone}
-                      </a>
-                    </p>
-                  )}
-                  {quote.plannerEmail && (
-                    <p>
-                      <a href={`mailto:${quote.plannerEmail}`} className="hover:text-cyan-400">
-                        {quote.plannerEmail}
-                      </a>
-                    </p>
-                  )}
+                {/* Waivers — mandatory acknowledgment */}
+                <div className={`rounded-xl p-4 transition-colors ${waiverAcknowledged ? "bg-emerald-400/5 ring-1 ring-emerald-400/20" : "bg-red-500/5 ring-1 ring-red-500/20"}`}>
+                  <div className="flex gap-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-500/10">
+                      <IconShieldCheck size={20} className="text-red-400" stroke={1.5} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="mb-1 font-semibold text-white">Waivers for Attractions</p>
+                      <p className="text-sm leading-relaxed text-gray-400">For Laser Tag, Racing, and Nexus, all participants must complete a waiver. Your planner will provide a link — getting this done early avoids delays!</p>
+                      <p className="mt-2 text-xs font-semibold text-red-400">MANDATORY: Failure to complete waivers prior to your event is grounds for cancellation.</p>
+                    </div>
+                  </div>
+                  <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-lg bg-white/5 p-3">
+                    <input type="checkbox" checked={waiverAcknowledged} onChange={(e) => setWaiverAcknowledged(e.target.checked)}
+                      className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                    <span className="text-sm font-semibold text-white">I understand that waivers are required for all participants</span>
+                  </label>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                {quote.plannerPhone && (
-                  <a
-                    href={`tel:${quote.plannerPhone}`}
-                    className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-600 transition-colors hover:bg-cyan-500"
-                    title="Call"
-                    aria-label="Call planner"
-                  >
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                      />
-                    </svg>
-                  </a>
-                )}
-                {quote.plannerPhone && (
-                  <a
-                    href={`sms:${quote.plannerPhone}`}
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 transition-colors hover:bg-white/10"
-                    title="Text"
-                    aria-label="Text planner"
-                  >
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                      />
-                    </svg>
-                  </a>
-                )}
-                {quote.plannerEmail && (
-                  <a
-                    href={`mailto:${quote.plannerEmail}`}
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 transition-colors hover:bg-white/10"
-                    title="Email"
-                    aria-label="Email planner"
-                  >
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </a>
-                )}
               </div>
             </div>
-            {quote.notes && (
-              <div className="mt-4 rounded-lg bg-white/5 p-3">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-500">
-                  Notes from your planner
-                </p>
-                <p className="whitespace-pre-line text-sm text-gray-300">{quote.notes}</p>
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* ─── Payment Schedule ─── */}
-        {phase !== "done" && quote.depositDueCents > 0 && (
-          <div className="mb-8 rounded-2xl border border-white/10 bg-[#071027] p-5">
-            <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
-              Payment Schedule
-            </h3>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                    phase === "sign"
-                      ? "bg-cyan-400/20 text-cyan-400 ring-1 ring-cyan-400/40"
-                      : "bg-emerald-400/20 text-emerald-400"
-                  }`}
-                >
-                  {phase === "sign" ? (
-                    "1"
-                  ) : (
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={3}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold">50% Deposit — Due Today</p>
-                  <p className="text-sm text-gray-400">Due upon signing your contract</p>
-                </div>
-                <p className="text-lg font-bold">{fmtDollars(quote.depositDueCents)}</p>
-              </div>
-              <div className="ml-4 h-6 border-l border-dashed border-white/20" />
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-xs font-bold text-gray-500">
-                  2
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold">Remaining Balance — 72 Hours Before Event</p>
-                  <p className="text-sm text-gray-400">
-                    Automatically charged to your card on file
-                  </p>
-                </div>
-                <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
-              </div>
-            </div>
-          </div>
-        )}
+            <div className="flex gap-3">
+              {/* Acknowledge event info */}
+              <label className="mb-6 flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-[#071027] p-5">
+                <input type="checkbox" checked={tipsAcknowledged} onChange={(e) => setTipsAcknowledged(e.target.checked)}
+                  className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                <span className="text-sm font-semibold text-white">I have read and understand the event information above</span>
+              </label>
 
-        {/* ─── Phase A: Sign ─── */}
-        {phase === "sign" && (
-          <div className="mb-8">
-            <h2 className="mb-4 text-xl font-bold">Review & Sign Your Contract</h2>
-            {!signingReady && !error && signingInitiated.current && (
-              <div className="flex items-center justify-center rounded-2xl border border-white/10 bg-[#071027] p-16">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-                  <p className="text-gray-400">Loading your contract...</p>
-                </div>
-              </div>
-            )}
-            {/* pandadoc-signing library mounts here; CSS forces its iframe full-width */}
-            <style>{`
-              #pandadoc-signing-container { width: 100%; min-height: 700px; }
-              #pandadoc-signing-container iframe { width: 100% !important; height: 700px !important; border: none; }
-            `}</style>
-            <div
-              id="pandadoc-signing-container"
-              className="overflow-hidden rounded-2xl border border-white/10"
-            />
-            {!signingReady && error && (
-              <div className="rounded-2xl border border-red-500/20 bg-red-900/20 p-8 text-center">
-                <p className="text-red-300">{error}</p>
-                <button
-                  onClick={() => {
-                    setError(null);
-                    signingInitiated.current = false;
-                  }}
-                  className="mt-3 rounded-lg border border-white/20 px-4 py-2 text-sm hover:bg-white/10"
-                >
-                  Retry
+              <div className="flex gap-3">
+                <button onClick={() => setStep("review")} className="rounded-xl border border-white/20 px-6 py-3 font-semibold hover:bg-white/5">Back</button>
+                <button onClick={() => setStep("policy")} disabled={!waiverAcknowledged || !tipsAcknowledged}
+                  className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed">
+                  Continue
                 </button>
               </div>
-            )}
-            <p className="mt-3 text-center text-xs text-gray-500">
-              After signing, you&apos;ll be prompted to secure your date with a deposit.
-            </p>
-          </div>
+            </div>
+          </>
         )}
 
-        {/* ─── Phase B: Pay ─── */}
-        {phase === "pay" && (
-          <div className="mb-8">
-            <div className="mb-6 flex items-center gap-3 rounded-xl bg-emerald-500/10 px-4 py-3 ring-1 ring-emerald-500/20">
-              <svg
-                className="h-5 w-5 flex-shrink-0 text-emerald-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="font-semibold text-emerald-300">
-                Contract signed! Now let&apos;s secure your date.
+        {/* ═══ Step 3: Cancellation Policy ═══ */}
+        {step === "policy" && (
+          <>
+            <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
+              <h2 className="mb-4 text-xl font-bold">Cancellation Policy</h2>
+              <div className="space-y-4">
+                {[
+                  { title: "More Than 7 Days' Notice", text: "Full deposit value can be applied toward rescheduling. The rescheduled event must meet or exceed the original value.", Icon: IconCircleCheck },
+                  { title: "Within 7 Days of Event", text: "Cancellations are non-refundable. In some cases, you may be eligible for 50% of your deposit value.", Icon: IconAlertTriangle },
+                  { title: "Guest Participants", text: "Changes must be made 3+ business days in advance. Guest count may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher.", Icon: IconUsers },
+                ].map((item, i) => (
+                  <div key={i} className="flex gap-4 rounded-xl bg-white/5 p-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-400/10">
+                      <item.Icon size={20} className="text-amber-400" stroke={1.5} />
+                    </div>
+                    <div>
+                      <p className="mb-1 font-semibold text-white">{item.title}</p>
+                      <p className="text-sm leading-relaxed text-gray-400">{item.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              {/* Acknowledge cancellation policy */}
+              <label className="mb-6 flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-[#071027] p-5">
+                <input type="checkbox" checked={policyAcknowledged} onChange={(e) => setPolicyAcknowledged(e.target.checked)}
+                  className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                <span className="text-sm font-semibold text-white">I have read and agree to the cancellation policy</span>
+              </label>
+
+              <div className="flex gap-3">
+                <button onClick={() => setStep("tips")} className="rounded-xl border border-white/20 px-6 py-3 font-semibold hover:bg-white/5">Back</button>
+                <button onClick={() => setStep("sign")} disabled={!policyAcknowledged}
+                  className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed">
+                  Continue to Sign
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ═══ Step 4: Agree & Sign ═══ */}
+        {step === "sign" && (
+          <>
+            <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
+              <h2 className="mb-2 text-xl font-bold">Let&apos;s Make it Official</h2>
+              <p className="mb-6 text-sm text-gray-400">
+                We&apos;re excited to create lasting memories at {quote.centerName}! Confirm the details and sign below.
+              </p>
+
+              <div className="space-y-3">
+                {[
+                  { state: agreeDeposit, set: setAgreeDeposit, text: "I agree to make a 50% deposit via credit card after completing this document." },
+                  { state: agreeNoPrepay, set: setAgreeNoPrepay, text: "I understand that the remaining balance will be automatically charged to my card on file 72 hours prior to the event." },
+                ].map((item, i) => (
+                  <label key={i} className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
+                    <input type="checkbox" checked={item.state} onChange={(e) => item.set(e.target.checked)}
+                      className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                    <span className="text-sm text-gray-300">{item.text}</span>
+                  </label>
+                ))}
+
+                <div className="rounded-xl bg-white/5 p-4">
+                  <p className="mb-3 font-semibold text-white">Are you tax exempt?</p>
+                  <div className="flex gap-4">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input type="radio" name="tax" checked={taxExempt === "yes"} onChange={() => setTaxExempt("yes")}
+                        className="h-4 w-4 text-cyan-500" />
+                      <span className="text-sm">Yes</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input type="radio" name="tax" checked={taxExempt === "no"} onChange={() => setTaxExempt("no")}
+                        className="h-4 w-4 text-cyan-500" />
+                      <span className="text-sm">No</span>
+                    </label>
+                  </div>
+                  {taxExempt === "yes" && (
+                    <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+                      <p className="mb-2 text-sm font-semibold text-amber-400">Upload DR-14 Tax Exempt Letter</p>
+                      <p className="mb-3 text-xs text-gray-400">Required to apply tax exemption. PDF, JPG, or PNG accepted.</p>
+                      {taxFileUrl ? (
+                        <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
+                          <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="truncate">{taxFile?.name || "Uploaded"}</span>
+                        </div>
+                      ) : (
+                        <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${taxUploading ? "border-cyan-400/30 text-cyan-400" : "border-white/20 text-gray-400 hover:border-cyan-400/40 hover:text-cyan-300"}`}>
+                          {taxUploading ? (
+                            <><div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" /> Uploading...</>
+                          ) : (
+                            <><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg> Choose file</>
+                          )}
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setTaxFile(file);
+                              setTaxUploading(true);
+                              try {
+                                const form = new FormData();
+                                form.append("file", file);
+                                form.append("shortId", quote.contractShortId);
+                                const res = await fetch("/api/group-function/upload-tax-doc", { method: "POST", body: form });
+                                const data = await res.json();
+                                if (data.url) setTaxFileUrl(data.url);
+                                else setError(data.error || "Upload failed");
+                              } catch {
+                                setError("Upload failed. Please try again.");
+                              } finally {
+                                setTaxUploading(false);
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
+                  <input type="checkbox" checked={agreeUnderstand} onChange={(e) => setAgreeUnderstand(e.target.checked)}
+                    className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                  <span className="text-sm text-gray-300">I understand that my tax exempt answer cannot be changed at the time of the event.</span>
+                </label>
+              </div>
+
+              {/* Signature */}
+              <div className="mt-6 border-t border-white/10 pt-6">
+                <p className="mb-3 text-sm font-semibold text-gray-400">Guest Signature</p>
+                <div className="mb-3 flex gap-2">
+                  <button onClick={() => setSigType("type")}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-semibold ${sigType === "type" ? "bg-cyan-400/20 text-cyan-400 ring-1 ring-cyan-400/40" : "bg-white/5 text-gray-500"}`}>
+                    Type
+                  </button>
+                  <button onClick={() => setSigType("draw")}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-semibold ${sigType === "draw" ? "bg-cyan-400/20 text-cyan-400 ring-1 ring-cyan-400/40" : "bg-white/5 text-gray-500"}`}>
+                    Draw
+                  </button>
+                </div>
+
+                {sigType === "type" ? (
+                  <input
+                    type="text"
+                    value={typedSig}
+                    onChange={(e) => setTypedSig(e.target.value)}
+                    placeholder="Type your full name"
+                    className="w-full rounded-lg border border-white/20 bg-[#0a1628] px-4 py-3 font-serif text-2xl italic text-cyan-300 placeholder:text-gray-600"
+                  />
+                ) : (
+                  <div className="relative">
+                    <canvas
+                      ref={canvasRef}
+                      width={500}
+                      height={120}
+                      onMouseDown={startDraw}
+                      onMouseMove={draw}
+                      onMouseUp={endDraw}
+                      onMouseLeave={endDraw}
+                      onTouchStart={startDraw}
+                      onTouchMove={draw}
+                      onTouchEnd={endDraw}
+                      className="w-full cursor-crosshair rounded-lg border border-white/20 bg-[#0a1628]"
+                    />
+                    <button onClick={clearCanvas}
+                      className="absolute right-2 top-2 rounded bg-white/10 px-2 py-0.5 text-xs text-gray-400 hover:bg-white/20">
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Compliance footer */}
+              <p className="mt-4 text-[10px] text-gray-600">
+                By signing, you consent to use electronic signatures per the ESIGN Act and UETA.
+                Your signature, IP address, and timestamp will be recorded for verification purposes.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-[#071027] p-6">
+            <div className="flex gap-3">
+              <button onClick={() => setStep("policy")} className="rounded-xl border border-white/20 px-6 py-3 font-semibold hover:bg-white/5">Back</button>
+              <button onClick={handleSign} disabled={!allAgreed || !hasSig}
+                className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-4 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40">
+                Sign & Continue to Payment
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ═══ Step 5: Pay Deposit ═══ */}
+        {step === "pay" && (
+          <>
+            <div className="mb-4 flex items-center gap-3 rounded-xl bg-emerald-500/10 px-4 py-3 ring-1 ring-emerald-500/20">
+              <svg className="h-5 w-5 flex-shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <p className="font-semibold text-emerald-300">
+                Contract signed{signedAt ? ` at ${new Date(signedAt).toLocaleTimeString()}` : ""}! Now secure your date.
+              </p>
+            </div>
+
+            <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
               <h2 className="mb-1 text-xl font-bold">Secure Your Event</h2>
               <p className="mb-6 text-sm text-gray-400">
-                A deposit of{" "}
-                <span className="font-semibold text-white">
-                  {fmtDollars(quote.depositDueCents)}
-                </span>{" "}
-                secures your date.{" "}
-                {quote.balanceCents > 0 &&
-                  `The remaining ${fmtDollars(quote.balanceCents)} will be charged 72 hours before your event.`}
+                Deposit: <span className="font-semibold text-white">{fmtDollars(quote.depositDueCents)}</span>
+                {quote.balanceCents > 0 && ` — remaining ${fmtDollars(quote.balanceCents)} charged 72 hours before event.`}
               </p>
 
               <div id="sq-card-container" className="mb-4 min-h-[50px] rounded-lg bg-white p-3" />
@@ -685,96 +750,125 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </div>
 
               {error && (
-                <div className="mb-4 rounded-lg bg-red-900/40 px-4 py-2.5 text-sm text-red-200 ring-1 ring-red-500/20">
-                  {error}
-                </div>
+                <div className="mb-4 rounded-lg bg-red-900/40 px-4 py-2.5 text-sm text-red-200 ring-1 ring-red-500/20">{error}</div>
               )}
 
-              <button
-                onClick={handlePay}
-                disabled={processing}
-                className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-4 text-lg font-bold text-white shadow-lg shadow-cyan-500/20 transition-all hover:shadow-cyan-500/30 disabled:opacity-50"
-              >
-                {processing ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    Processing...
-                  </span>
-                ) : (
-                  `Pay ${fmtDollars(quote.depositDueCents)} Deposit`
-                )}
+              <button onClick={handlePay} disabled={processing}
+                className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-4 text-lg font-bold text-white shadow-lg shadow-cyan-500/20 disabled:opacity-50">
+                {processing ? "Processing..." : `Pay ${fmtDollars(quote.depositDueCents)} Deposit`}
               </button>
             </div>
-          </div>
+          </>
         )}
 
-        {/* ─── Phase C: Done ─── */}
-        {phase === "done" && (
+        {/* ═══ Event Dashboard (post-deposit) ═══ */}
+        {step === "event" && (
           <div className="space-y-6">
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-8 text-center">
-              <p className="mb-2 text-lg font-semibold text-emerald-300">Deposit Confirmed</p>
+            {/* Deposit confirmed banner */}
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6 text-center">
+              <p className="mb-1 text-sm font-semibold text-emerald-300">Deposit Confirmed</p>
               <p className="text-3xl font-extrabold">{fmtDollars(quote.depositDueCents)}</p>
-              {giftCardGan && (
-                <p className="mt-2 font-mono text-sm text-cyan-400">Ref: {giftCardGan}</p>
-              )}
+              <p className="mt-1 text-sm text-gray-400">Remaining balance charged 72 hours before event</p>
             </div>
 
+            {/* Countdown */}
             <EventCountdown eventDate={quote.eventDate} centerName={quote.centerName} />
 
-            {/* What to expect */}
-            <div>
-              <h3 className="mb-4 text-center text-lg font-bold">What to Expect</h3>
-              <div className="grid gap-4 sm:grid-cols-3">
-                {[
-                  {
-                    img: `${BLOB}/attractions/DSC06577.webp`,
-                    title: "Arrive & Check In",
-                    desc: "Our team will greet your group and get everyone set up.",
-                  },
-                  {
-                    img: `${BLOB}/attractions/DSC06538.webp`,
-                    title: "Play & Compete",
-                    desc: "Racing, laser tag, bowling, arcade — your custom package.",
-                  },
-                  {
-                    img: `${BLOB}/attractions/DSC06481.webp`,
-                    title: "Eat & Celebrate",
-                    desc: "Food and drinks served trackside at Nemo's.",
-                  },
-                ].map((step, i) => (
-                  <div
-                    key={i}
-                    className="overflow-hidden rounded-xl border border-white/10 bg-[#071027]"
-                  >
-                    <div className="relative h-36">
-                      <Image
-                        src={step.img}
-                        alt={step.title}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#071027] to-transparent" />
-                      <span className="absolute bottom-2 left-3 text-xs font-bold text-cyan-400">
-                        Step {i + 1}
-                      </span>
-                    </div>
-                    <div className="p-3">
-                      <p className="font-semibold">{step.title}</p>
-                      <p className="text-xs text-gray-400">{step.desc}</p>
-                    </div>
+            {/* Waiver link */}
+            {eventDetails?.waiverUrl && (
+              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-cyan-400/10">
+                    <IconClipboardCheck size={20} className="text-cyan-400" stroke={1.5} />
                   </div>
-                ))}
+                  <div className="flex-1">
+                    <p className="font-semibold text-white">Complete Your Waivers</p>
+                    <p className="mt-1 text-sm text-gray-400">All participants must sign a waiver before the event. Share this link with your group.</p>
+                    <p className="mt-1 text-xs font-semibold text-red-400">MANDATORY: Failure to complete waivers is grounds for cancellation.</p>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <a href={eventDetails.waiverUrl} target="_blank" rel="noopener"
+                    className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-cyan-500/20">
+                    Open Waiver Form
+                  </a>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(eventDetails.waiverUrl!); }}
+                    aria-label="Copy waiver link"
+                    className="flex items-center gap-1.5 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold hover:bg-white/5">
+                    <IconLink size={16} /> Copy Link
+                  </button>
+                  <a href={`sms:?body=${encodeURIComponent(`Please complete your waiver for our event: ${eventDetails.waiverUrl}`)}`}
+                    className="flex items-center gap-1.5 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold hover:bg-white/5">
+                    <IconShare size={16} /> Share via Text
+                  </a>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="flex flex-wrap justify-center gap-3">
+            {/* Planner notes (live) */}
+            {eventDetails?.notes && (
+              <div className="rounded-2xl border border-white/10 bg-[#071027] p-5">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-cyan-400">Notes from Your Planner</h3>
+                <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">{eventDetails.notes}</p>
+              </div>
+            )}
+
+            {/* Participants */}
+            {eventDetails && eventDetails.totalParticipants > 0 && (
+              <div className="rounded-2xl border border-white/10 bg-[#071027] p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-400">Registered Participants</h3>
+                  <span className="text-sm text-gray-400">
+                    <span className="font-semibold text-emerald-400">{eventDetails.confirmedCount}</span> / {eventDetails.totalParticipants} confirmed
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {eventDetails.participants.map((p, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-sm">
+                      <span className="text-gray-300">{p.name}</span>
+                      {p.confirmed ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-400">
+                          <IconCircleCheck size={14} /> Confirmed
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-500">Pending</span>
+                      )}
+                    </div>
+                  ))}
+                  {eventDetails.totalParticipants > eventDetails.participants.length && (
+                    <p className="pt-2 text-center text-xs text-gray-500">
+                      + {eventDetails.totalParticipants - eventDetails.participants.length} more participants
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Planner contact */}
+            {quote.plannerFirst && (
+              <div className="rounded-2xl border border-white/10 bg-[#071027] p-5">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-lg font-bold">
+                    {quote.plannerFirst[0]}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Your Event Planner</p>
+                    <p className="font-bold">{quote.plannerFirst} {quote.plannerLast}</p>
+                    {quote.plannerPhone && <p className="text-sm text-gray-400">{quote.plannerPhone}</p>}
+                    {quote.plannerEmail && <p className="text-sm text-gray-400">{quote.plannerEmail}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Calendar download */}
+            <div className="flex justify-center">
               <a
                 href={`data:text/calendar;charset=utf-8,${encodeURIComponent(buildIcs(quote))}`}
                 download={`${quote.eventName || "Event"}.ics`}
-                className="rounded-full bg-white/10 px-6 py-2.5 text-sm font-semibold transition-colors hover:bg-white/20"
-              >
-                Add to Calendar
+                className="flex items-center gap-2 rounded-full bg-white/10 px-6 py-2.5 text-sm font-semibold hover:bg-white/20">
+                <IconCalendarEvent size={16} /> Add to Calendar
               </a>
             </div>
           </div>
@@ -790,10 +884,7 @@ function EventCountdown({ eventDate, centerName }: { eventDate: string; centerNa
   useEffect(() => {
     const update = () => {
       const ms = new Date(eventDate).getTime() - Date.now();
-      if (ms <= 0) {
-        setDiff(null);
-        return;
-      }
+      if (ms <= 0) { setDiff(null); return; }
       setDiff({
         days: Math.floor(ms / 86_400_000),
         hours: Math.floor((ms % 86_400_000) / 3_600_000),
@@ -809,9 +900,7 @@ function EventCountdown({ eventDate, centerName }: { eventDate: string; centerNa
 
   return (
     <div className="rounded-2xl border border-white/10 bg-[#071027] p-6 text-center">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
-        Countdown to {centerName}
-      </p>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">Countdown to {centerName}</p>
       <div className="flex justify-center gap-4">
         {[
           { value: diff.days, label: "Days" },
@@ -831,20 +920,12 @@ function EventCountdown({ eventDate, centerName }: { eventDate: string; centerNa
 function buildIcs(quote: QuoteProps): string {
   const start = new Date(quote.eventDate);
   const end = new Date(start.getTime() + 2 * 3_600_000);
-  const fmt = (d: Date) =>
-    d
-      .toISOString()
-      .replace(/[-:]/g, "")
-      .replace(/\.\d{3}/, "");
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   return [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "BEGIN:VEVENT",
-    `DTSTART:${fmt(start)}`,
-    `DTEND:${fmt(end)}`,
+    "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT",
+    `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
     `SUMMARY:${quote.eventName || "Group Event"} at ${quote.centerName}`,
     `DESCRIPTION:Event at ${quote.centerName}`,
-    "END:VEVENT",
-    "END:VCALENDAR",
+    "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
 }

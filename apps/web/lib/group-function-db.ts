@@ -168,6 +168,7 @@ export type GfQuoteStatus =
   | "pending"
   | "contract_sent"
   | "deposit_paid"
+  | "resign_required"
   | "balance_charged"
   | "balance_link_sent"
   | "completed"

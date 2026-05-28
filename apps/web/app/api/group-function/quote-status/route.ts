@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { getGfQuoteByShortId } from "@/lib/group-function-db";
 
 /**
@@ -6,9 +7,8 @@ import { getGfQuoteByShortId } from "@/lib/group-function-db";
  *
  * GET /api/group-function/quote-status?shortId=...
  *
- * Returns the current PandaDoc document ID and status so the page
- * can detect when the contract has been updated (voided + re-created)
- * and reload to show the new document.
+ * Returns current quote state + a hash of line items so the client
+ * can detect changes without transferring the full product list.
  */
 
 export async function GET(req: NextRequest) {
@@ -22,14 +22,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const lineItemsHash = createHash("md5")
+    .update(JSON.stringify(quote.line_items))
+    .digest("hex")
+    .slice(0, 12);
+
   return NextResponse.json({
-    pandadocDocumentId: quote.pandadoc_document_id,
-    contractStatus: quote.contract_status,
     status: quote.status,
+    contractStatus: quote.contract_status,
     depositPaidAt: quote.deposit_paid_at,
     totalCents: quote.total_cents,
+    taxCents: quote.tax_cents,
     depositDueCents: quote.deposit_due_cents,
     balanceCents: quote.balance_cents,
+    eventName: quote.event_name,
+    eventDateDisplay: quote.event_date_display,
+    notes: quote.notes,
+    lineItemsHash,
     updatedAt: quote.updated_at,
   });
 }
