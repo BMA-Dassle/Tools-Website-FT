@@ -37,7 +37,11 @@ export async function GET(req: NextRequest) {
       expiresAt: session.expires_at,
     });
   } catch (err) {
-    console.error("[signing-session] Failed:", err);
-    return NextResponse.json({ error: "Failed to create signing session" }, { status: 500 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[signing-session] Failed:", msg);
+    return NextResponse.json(
+      { error: "Failed to create signing session", detail: msg },
+      { status: 500 },
+    );
   }
 }

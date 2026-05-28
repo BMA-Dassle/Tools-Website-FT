@@ -62,7 +62,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   } | null>(null);
   const squareLoaded = useRef(false);
   const [signingReady, setSigningReady] = useState(false);
-  const [signingLoading, setSigningLoading] = useState(false);
+  const signingInitiated = useRef(false);
   const signingRef = useRef<Signing | null>(null);
   const [schedule, setSchedule] = useState<Array<{
     activity: string;
@@ -83,8 +83,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   }, [quote.contractShortId]);
 
   useEffect(() => {
-    if (phase !== "sign" || signingReady || signingLoading) return;
-    setSigningLoading(true);
+    if (phase !== "sign" || signingReady || signingInitiated.current) return;
+    signingInitiated.current = true;
 
     (async () => {
       try {
@@ -113,11 +113,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         signingRef.current = signing;
       } catch {
         setError("Failed to load contract. Please refresh.");
-      } finally {
-        setSigningLoading(false);
       }
     })();
-  }, [phase, signingReady, signingLoading, quote.contractShortId]);
+  }, [phase, signingReady, quote.contractShortId]);
 
   useEffect(() => {
     if (phase !== "pay" || squareLoaded.current) return;
@@ -570,7 +568,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         {phase === "sign" && (
           <div className="mb-8">
             <h2 className="mb-4 text-xl font-bold">Review & Sign Your Contract</h2>
-            {signingLoading && !signingReady && (
+            {!signingReady && !error && signingInitiated.current && (
               <div className="flex items-center justify-center rounded-2xl border border-white/10 bg-[#071027] p-16">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
