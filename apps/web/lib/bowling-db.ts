@@ -295,12 +295,6 @@ export async function ensureBowlingSchema(): Promise<void> {
   // square_loyalty_reward_id + reward_discount_cents.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS loyalty_action TEXT`;
 
-  // ── v2 booking metadata (PR-B3.5) ─────────────────────────────────
-  // JSONB column for type-specific metadata. Races store heat assignments
-  // + racer names. Attractions store slug + time slot + quantity. Bowling
-  // doesn't use it (has its own player/line tables).
-  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS booking_metadata JSONB`;
-
   schemaReady = true;
 }
 
@@ -461,12 +455,10 @@ export type PlayerInput = {
   laneNumber?: number | null;
 };
 
-export type ReservationProductKind = "kbf" | "open" | "race" | "attraction" | "race-pack";
-
 export interface BowlingReservation {
   id: number;
   centerCode: string;
-  productKind: ReservationProductKind;
+  productKind: "kbf" | "open";
   qamfReservationId?: string;
   /** BMI bill ID — always a raw string; never coerce to Number. */
   bmiBillId?: string;
@@ -548,8 +540,6 @@ export interface BowlingReservation {
     timeSlot: string;
     timeLabel: string;
   }>;
-  /** Type-specific metadata (race heats, attraction details). Null for bowling. */
-  bookingMetadata?: Record<string, unknown>;
   insertedAt: string;
 }
 
@@ -685,7 +675,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
   return {
     id: row.id as number,
     centerCode: row.center_code as string,
-    productKind: row.product_kind as ReservationProductKind,
+    productKind: row.product_kind as "kbf" | "open",
     qamfReservationId: (row.qamf_reservation_id as string) ?? undefined,
     bmiBillId: (row.bmi_bill_id as string) ?? undefined,
     bmiReservationNumber: (row.bmi_reservation_number as string) ?? undefined,
@@ -739,18 +729,6 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
       if (Array.isArray(raw)) return raw;
       return [];
     })(),
-    bookingMetadata: (() => {
-      const raw = row.booking_metadata;
-      if (!raw) return undefined;
-      if (typeof raw === "string")
-        try {
-          return JSON.parse(raw);
-        } catch {
-          return undefined;
-        }
-      if (typeof raw === "object") return raw as Record<string, unknown>;
-      return undefined;
-    })(),
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -791,11 +769,9 @@ export async function insertBowlingReservation(
     | "rewardDiscountCents"
     | "attractionBookings"
     | "checkinMethod"
-    | "bookingMetadata"
   > & {
     rewardDiscountCents?: number;
     attractionBookings?: BowlingReservation["attractionBookings"];
-    bookingMetadata?: Record<string, unknown>;
   },
   lines: ReservationLine[],
 ): Promise<BowlingReservation> {
@@ -814,7 +790,7 @@ export async function insertBowlingReservation(
       guest_name, guest_email, guest_phone, notes,
       booking_source, square_customer_id,
       square_loyalty_reward_id, reward_discount_cents,
-      loyalty_action, attraction_bookings, booking_metadata
+      loyalty_action, attraction_bookings
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
@@ -825,8 +801,7 @@ export async function insertBowlingReservation(
       ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null},
       ${r.bookingSource ?? "web"}, ${r.squareCustomerId ?? null},
       ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0},
-      ${r.loyaltyAction ?? null}, ${JSON.stringify(r.attractionBookings ?? [])}::jsonb,
-      ${r.bookingMetadata ? JSON.stringify(r.bookingMetadata) : null}::jsonb
+      ${r.loyaltyAction ?? null}, ${JSON.stringify(r.attractionBookings ?? [])}::jsonb
     )
     RETURNING *
   `;
@@ -977,7 +952,6 @@ export async function listBowlingReservations(opts: {
   startDate: string; // 'YYYY-MM-DD' inclusive
   endDate: string; // 'YYYY-MM-DD' inclusive
   centerCode?: string;
-  productKinds?: ReservationProductKind[];
 }): Promise<BowlingReservationWithLines[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
@@ -987,36 +961,15 @@ export async function listBowlingReservations(opts: {
   // template tag consumed `::date` as a parameter type hint, stripping it from
   // the SQL — so the AT TIME ZONE was applied to a bare text parameter, which
   // Postgres silently mis-interpreted.  Casting the column side is unambiguous.
-  const hasCenter = !!opts.centerCode;
-  const hasKinds = opts.productKinds && opts.productKinds.length > 0;
-
-  const rows =
-    hasCenter && hasKinds
-      ? await q`
-        SELECT * FROM bowling_reservations
-        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
-          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-          AND center_code = ${opts.centerCode}
-          AND product_kind = ANY(${opts.productKinds!}::text[])
-        ORDER BY booked_at ASC
-      `
-      : hasCenter
-        ? await q`
+  const rows = opts.centerCode
+    ? await q`
         SELECT * FROM bowling_reservations
         WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
           AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
           AND center_code = ${opts.centerCode}
         ORDER BY booked_at ASC
       `
-        : hasKinds
-          ? await q`
-        SELECT * FROM bowling_reservations
-        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
-          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-          AND product_kind = ANY(${opts.productKinds!}::text[])
-        ORDER BY booked_at ASC
-      `
-          : await q`
+    : await q`
         SELECT * FROM bowling_reservations
         WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
           AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date

@@ -14,8 +14,6 @@ interface Reservation {
   centerCode: string;
   productKind: string;
   qamfReservationId?: string;
-  bmiBillId?: string;
-  bmiReservationNumber?: string;
   squareDepositOrderId?: string;
   squareDayofOrderId?: string;
   squareGiftCardGan?: string;
@@ -121,47 +119,6 @@ const SOURCE_COLORS: Record<string, string> = {
   kiosk: "#f59e0b",
   conqueror: "#ec4899",
   admin: "#8b5cf6",
-};
-
-const KIND_BADGE: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  kbf: {
-    label: "KBF",
-    color: "#a855f7",
-    bg: "rgba(168,85,247,0.15)",
-    border: "rgba(168,85,247,0.3)",
-  },
-  open: {
-    label: "Open",
-    color: "#3b82f6",
-    bg: "rgba(59,130,246,0.15)",
-    border: "rgba(59,130,246,0.3)",
-  },
-  race: {
-    label: "Race",
-    color: "#22c55e",
-    bg: "rgba(34,197,94,0.15)",
-    border: "rgba(34,197,94,0.3)",
-  },
-  attraction: {
-    label: "Attr",
-    color: "#f59e0b",
-    bg: "rgba(245,158,11,0.15)",
-    border: "rgba(245,158,11,0.3)",
-  },
-  "race-pack": {
-    label: "Pack",
-    color: "#d97706",
-    bg: "rgba(217,119,6,0.15)",
-    border: "rgba(217,119,6,0.3)",
-  },
-};
-
-const KIND_FULL_LABELS: Record<string, string> = {
-  kbf: "Kids Bowl Free",
-  open: "Open Bowling",
-  race: "Karting",
-  attraction: "Attraction",
-  "race-pack": "Race Pack",
 };
 
 /**
@@ -374,7 +331,7 @@ function BowlingResendModal({
           {reservation.guestPhone && <div>{reservation.guestPhone}</div>}
           {reservation.guestEmail && <div>{reservation.guestEmail}</div>}
           <div>
-            {KIND_BADGE[reservation.productKind]?.label ?? reservation.productKind} &middot;{" "}
+            {reservation.productKind === "kbf" ? "KBF" : "Open"} &middot;{" "}
             {fmtTime(reservation.bookedAt)} &middot;{" "}
             {CENTERS[reservation.centerCode] ?? reservation.centerCode}
           </div>
@@ -529,7 +486,7 @@ function CancelModal({
           </div>
           <div style={{ color: "var(--ba-muted)" }}>
             {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""}{" "}
-            &middot; {KIND_FULL_LABELS[reservation.productKind] ?? reservation.productKind}
+            &middot; {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
           {hasDeposit && (
             <div style={{ color: "#22c55e", fontWeight: 600, marginTop: 2 }}>
@@ -843,7 +800,7 @@ function RescheduleModal({
           </div>
           <div style={{ color: "var(--ba-muted)" }}>
             {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""}{" "}
-            &middot; {KIND_FULL_LABELS[reservation.productKind] ?? reservation.productKind}
+            &middot; {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
         </div>
 
@@ -1362,7 +1319,7 @@ function CheckInModal({
           </div>
           <div style={{ color: "var(--ba-muted)" }}>
             {playerCount} bowler{playerCount > 1 ? "s" : ""} &middot;{" "}
-            {KIND_FULL_LABELS[reservation.productKind] ?? reservation.productKind}
+            {reservation.productKind === "kbf" ? "Kids Bowl Free" : "Open Bowling"}
           </div>
         </div>
 
@@ -1621,7 +1578,6 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [search, setSearch] = useState("");
   const [hideCancelled, setHideCancelled] = useState(true);
   const [hideWalkins, setHideWalkins] = useState(true);
-  const [kindFilter, setKindFilter] = useState<string | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1735,7 +1691,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       .finally(() => setOrderLoading(false));
   }, [orderTarget, token]);
 
-  // Client-side search + cancelled filter + kind filter
+  // Client-side search + cancelled filter
   const filtered = useMemo(() => {
     let list = reservations;
     if (hideWalkins) {
@@ -1743,9 +1699,6 @@ export default function ReservationsClient({ token }: { token: string }) {
     }
     if (hideCancelled) {
       list = list.filter((r) => r.status !== "cancelled" && r.status !== "completed");
-    }
-    if (kindFilter) {
-      list = list.filter((r) => r.productKind === kindFilter);
     }
     if (search.trim()) {
       const q = search.toLowerCase().trim();
@@ -1763,7 +1716,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       });
     }
     return list;
-  }, [reservations, search, hideCancelled, hideWalkins, kindFilter]);
+  }, [reservations, search, hideCancelled, hideWalkins]);
 
   // Stats
   const active = filtered.filter((r) => r.status !== "cancelled" && r.status !== "completed");
@@ -2237,30 +2190,6 @@ export default function ReservationsClient({ token }: { token: string }) {
           >
             {hideWalkins ? "Web Only" : "All Sources"}
           </button>
-          {(["kbf", "open", "race", "attraction", "race-pack"] as const).map((k) => {
-            const badge = KIND_BADGE[k];
-            const isActive = kindFilter === k;
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKindFilter(isActive ? null : k)}
-                style={{
-                  ...NAV_BTN,
-                  fontSize: "0.7rem",
-                  fontWeight: 600,
-                  backgroundColor: isActive ? badge.bg : "var(--ba-input-bg)",
-                  borderColor: isActive ? badge.border : "var(--ba-input-border)",
-                  color: isActive ? badge.color : "var(--ba-muted)",
-                }}
-              >
-                {badge.label}
-                <span style={{ marginLeft: 3, opacity: 0.7, fontSize: "0.6rem" }}>
-                  ({reservations.filter((r) => r.productKind === k).length})
-                </span>
-              </button>
-            );
-          })}
           <button
             type="button"
             onClick={() => setDate(todayET())}
@@ -2572,12 +2501,15 @@ export default function ReservationsClient({ token }: { token: string }) {
                           fontWeight: 600,
                           textTransform: "uppercase",
                           letterSpacing: "0.02em",
-                          backgroundColor: KIND_BADGE[r.productKind]?.bg ?? "rgba(59,130,246,0.15)",
-                          color: KIND_BADGE[r.productKind]?.color ?? "#3b82f6",
-                          border: `1px solid ${KIND_BADGE[r.productKind]?.border ?? "rgba(59,130,246,0.3)"}`,
+                          backgroundColor:
+                            r.productKind === "kbf"
+                              ? "rgba(168,85,247,0.15)"
+                              : "rgba(59,130,246,0.15)",
+                          color: r.productKind === "kbf" ? "#a855f7" : "#3b82f6",
+                          border: `1px solid ${r.productKind === "kbf" ? "rgba(168,85,247,0.3)" : "rgba(59,130,246,0.3)"}`,
                         }}
                       >
-                        {KIND_BADGE[r.productKind]?.label ?? r.productKind}
+                        {r.productKind === "kbf" ? "KBF" : "Open"}
                       </span>
                       <span style={{ color: "var(--ba-muted)", fontSize: "0.65rem" }}>
                         {r.playerCount ?? "—"}p
