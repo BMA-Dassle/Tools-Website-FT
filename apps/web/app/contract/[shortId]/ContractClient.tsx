@@ -396,8 +396,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 <div key={i} className="flex gap-4">
                   {/* Timeline line + dot */}
                   <div className="flex flex-col items-center">
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-[10px] font-bold text-cyan-400 ring-1 ring-cyan-400/30
-                      {s.start.replace(/:00\s/, " ").replace(/\s/g, "")}
+                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-[10px] font-bold text-cyan-400 ring-1 ring-cyan-400/30">
+                      {s.start.replace(/:00 /, " ").replace(/ /g, "")}
                     </div>
                     {i < schedule.length - 1 && (
                       <div className="my-1 h-8 w-px bg-gradient-to-b from-cyan-400/40 to-transparent" />
