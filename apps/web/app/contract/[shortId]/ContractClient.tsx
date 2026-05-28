@@ -39,6 +39,7 @@ interface QuoteProps {
   lineItems: Array<{ name: string; price: number; qty: number; total: number }>;
   depositPaidAt: string | null;
   giftCardGan: string | null;
+  status: string;
 }
 
 type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done" | "event";
@@ -52,9 +53,10 @@ const STEPS: { key: Step; label: string; short: string }[] = [
 
 export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [step, setStep] = useState<Step>(() => {
-    if (quote.depositPaidAt) return "event";
+    if (quote.depositPaidAt && quote.status !== "resign_required") return "event";
     return "review";
   });
+  const alreadyPaid = Boolean(quote.depositPaidAt);
   const [updateBanner, setUpdateBanner] = useState<string | null>(null);
   const [signedPdfUrl, setSignedPdfUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -254,7 +256,18 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         return;
       }
       setSignedAt(data.signedAt);
-      setStep("pay");
+      // If already paid (resign flow), skip payment and go to event page
+      if (alreadyPaid) {
+        // Update status back to deposit_paid
+        fetch("/api/group-function/audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shortId: quote.contractShortId, event: "re-signed" }),
+        }).catch(() => {});
+        setStep("event");
+      } else {
+        setStep("pay");
+      }
     } catch {
       setError("Failed to record signature. Please try again.");
     } finally {

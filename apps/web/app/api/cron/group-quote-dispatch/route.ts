@@ -166,8 +166,9 @@ async function processQueueItem(
     }
   }
 
-  // Post-signing update: data only, don't touch PandaDoc
-  if (existing && (existing.status === "deposit_paid" || existing.status === "balance_charged" || existing.status === "balance_link_sent" || existing.status === "completed")) {
+  // Post-signing update: data only, preserve gift card
+  if (existing && (existing.status === "deposit_paid" || existing.status === "resign_required" || existing.status === "balance_charged" || existing.status === "balance_link_sent" || existing.status === "completed")) {
+    const priceChanged = existing.total_cents !== totalCents;
     const balanceCents = totalCents - existing.deposit_due_cents;
     await updateGfQuoteDetails(existing.id, {
       event_name: item.event.name,
@@ -191,16 +192,27 @@ async function processQueueItem(
       guest_phone: item.customer.phone,
       hermes_last_processed_at: new Date().toISOString(),
     });
+
+    // If price changed after deposit, force re-sign
+    if (priceChanged && (existing.status === "deposit_paid" || existing.status === "balance_charged")) {
+      const q = (await import("@/lib/db")).sql();
+      await q`UPDATE group_function_quotes SET status = 'resign_required', updated_at = NOW() WHERE id = ${existing.id}`;
+      console.log(
+        `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
+          `(was ${existing.total_cents} → now ${totalCents})`,
+      );
+    }
+
     await completePandaDocQueue({
       center: item.center,
       queueId: item.queueId,
       logId: item.logId,
-      message: `${item.customer.email} (post-sign update)`,
+      message: `${item.customer.email} (post-sign update${priceChanged ? " — price changed" : ""})`,
     });
     console.log(
-      `[group-quote-dispatch] post-sign data update for reservation=${item.reservationId}`,
+      `[group-quote-dispatch] post-sign data update for reservation=${item.reservationId}${priceChanged ? " (PRICE CHANGED)" : ""}`,
     );
-    return { reservationId: item.reservationId, action: "updated_data" };
+    return { reservationId: item.reservationId, action: priceChanged ? "resign_required" : "updated_data" };
   }
 
   // Cancel any existing PandaDoc docs for this reservation

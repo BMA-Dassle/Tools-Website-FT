@@ -44,6 +44,7 @@ export default async function ContractPage(props: { params: Promise<{ shortId: s
         }>,
         depositPaidAt: quote.deposit_paid_at,
         giftCardGan: quote.square_gift_card_gan,
+        status: quote.status,
       }}
     />
   );
