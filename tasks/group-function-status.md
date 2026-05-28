@@ -29,7 +29,7 @@
 
 - [ ] **Day-of order payment at event time** — Need a cron that, at the time of the event, pays/closes the day-of Square order using the gift card. Currently the day-of order is created OPEN at deposit time, the gift card gets loaded to 100% at balance charge time, but nothing redeems the gift card against the day-of order. Staff must do this manually at POS. A cron should auto-pay the day-of order with the gift card at event start time (or shortly after).
 
-- [ ] **Naples BMI Office auth** — API2 credentials fail for `headpinznaples` client key. Naples events won't get BMI status updates or payment recording until separate Naples credentials are configured. Need to either: get API2 access to Naples, or add Naples-specific creds to env.
+- [x] ~~**Naples BMI Office auth**~~ — API2 user created in Naples instance 2026-05-28. Same creds as Fort Myers. Confirmed auth + correct stateId (1191926 = Confirmation + Waiver).
 
 - [ ] **Hermes queue "read = consumed" problem** — The `/queue/pandadoc` endpoint in Hermes moves items from priority 1→9 on READ (before our cron processes them). If processing fails, the item is already moved and won't be retried. Fix: Hermes should only move items when `/complete` is called, not on GET. This is a Hermes-side change (`c:\GIT\Hermes_BMI\src\main.ts` lines 241-247).
 
