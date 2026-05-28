@@ -75,6 +75,10 @@
     {
       "path": "/api/cron/group-dayof-pay",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/group-96hr-reminder",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

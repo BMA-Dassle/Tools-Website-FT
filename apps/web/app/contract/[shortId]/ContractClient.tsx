@@ -1512,6 +1512,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </div>
             )}
 
+            {/* Update Card on File */}
+            {!alreadyPaid || quote.status === "deposit_paid" || quote.status === "balance_link_sent" ? null : null}
+            <UpdateCardSection shortId={quote.contractShortId} locationId={quote.squareLocationId} />
+
             {/* Downloads / Actions */}
             <div className="flex flex-wrap justify-center gap-3">
               {signedPdfUrl && (
@@ -1612,6 +1616,101 @@ function EventCountdownInline({ eventDate }: { eventDate: string }) {
         <span className="font-bold tabular-nums text-cyan-400">{diff.mins}</span><span className="text-gray-500">m</span>
         <span className="ml-1 text-gray-400">until your event</span>
       </div>
+    </div>
+  );
+}
+
+function UpdateCardSection({ shortId, locationId }: { shortId: string; locationId: string }) {
+  const [open, setOpen] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [result, setResult] = useState<{ last4: string; brand: string } | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const updateCardRef = useRef<{ tokenize: () => Promise<{ status: string; token?: string; errors?: Array<{ message: string }> }>; destroy: () => void } | null>(null);
+  const cardLoaded = useRef(false);
+
+  useEffect(() => {
+    if (!open || cardLoaded.current) return;
+    cardLoaded.current = true;
+    (async () => {
+      try {
+        if (!window.Square) {
+          await new Promise<void>((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://web.squarecdn.com/v1/square.js";
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error("Failed to load Square SDK"));
+            document.head.appendChild(script);
+          });
+        }
+        const payments = await window.Square!.payments(SQUARE_APP_ID, locationId);
+        const card = await payments.card();
+        await card.attach("#sq-update-card-container");
+        updateCardRef.current = card;
+      } catch {
+        setCardError("Failed to load card form.");
+      }
+    })();
+  }, [open, locationId]);
+
+  async function handleUpdate() {
+    if (!updateCardRef.current) return;
+    setUpdating(true);
+    setCardError(null);
+    try {
+      const tokenResult = await updateCardRef.current.tokenize();
+      if (tokenResult.status !== "OK" || !tokenResult.token) {
+        setCardError(tokenResult.errors?.[0]?.message || "Card verification failed");
+        return;
+      }
+      const res = await fetch("/api/group-function/update-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contractShortId: shortId, cardSourceId: tokenResult.token }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setCardError(data.error || "Failed"); return; }
+      setResult(data);
+    } catch {
+      setCardError("Failed to update card.");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  if (result) {
+    return (
+      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 text-center">
+        <p className="font-semibold text-emerald-400">Card Updated</p>
+        <p className="mt-1 text-sm text-gray-400">{result.brand} ending in {result.last4}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#071027] p-5">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between text-sm font-semibold"
+      >
+        <span className="flex items-center gap-2">
+          <IconCreditCard size={16} className="text-cyan-400" />
+          Update Card on File
+        </span>
+        <span className="text-gray-500">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-4">
+          <div id="sq-update-card-container" className="mb-4" />
+          {cardError && <p className="mb-3 text-sm text-red-400">{cardError}</p>}
+          <button
+            onClick={handleUpdate}
+            disabled={updating}
+            className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 font-bold disabled:opacity-40"
+          >
+            {updating ? "Updating..." : "Save New Card"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

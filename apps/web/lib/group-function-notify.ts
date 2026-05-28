@@ -257,6 +257,178 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
   }
 }
 
+// ── 96-Hour Reminder (24hrs before balance charge) ─────────────────
+
+export async function notify96HourReminder(
+  quote: GroupFunctionQuote,
+  waiverUrl: string | null,
+): Promise<void> {
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}`;
+  const pName = plannerName(quote);
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
+  const hasWaivers = hasWaiverRequiredActivities(items);
+
+  const waiverBlock = hasWaivers && waiverUrl
+    ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">⚠ Waivers Required</p>
+        <p style="margin:0 0 12px;font-size:13px;color:#78350f">Some of your activities require signed waivers for all participants. Please make sure your group completes their waivers before the event.</p>
+        <a href="${waiverUrl}" style="display:inline-block;padding:10px 24px;background-color:#f59e0b;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px">Complete Waivers</a>
+      </div>`
+    : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? (await import("@/lib/sms-retry")).voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event ${quote.event_name || ""} is almost here!`,
+            `Your balance of ${dollars(quote.balance_cents)} will be charged tomorrow.`,
+            `Update details: ${contractUrl}`,
+            hasWaivers && waiverUrl ? `Complete waivers: ${waiverUrl}` : "",
+          ].filter(Boolean).join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Action Needed — Your Event Is Almost Here!`,
+      html: emailShell(
+        quote,
+        `${quote.guest_first_name}, your event is almost here`,
+        "Less than 24 hours to update your event details",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">We're getting excited for <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Your remaining balance of <strong style="color:#004aad">${dollars(quote.balance_cents)}</strong> will be automatically charged to your card on file tomorrow.</p>
+
+        <div style="background:#f8fafc;border-radius:12px;padding:16px;margin:16px 0">
+          <p style="margin:0 0 8px;font-size:13px;font-weight:bold;color:#1a1a1a">Before that happens, please verify:</p>
+          <p style="margin:0;font-size:13px;color:#475569;line-height:1.8">
+            ✓ Your guest count is accurate${quote.guest_count ? ` (${quote.guest_count} guests)` : ""}<br>
+            ✓ All event details are correct<br>
+            ✓ Your card on file is up to date
+          </p>
+        </div>
+
+        <div style="text-align:center;margin:24px 0">
+          <a href="${contractUrl}" style="display:inline-block;padding:14px 28px;background-color:#004aad;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;margin:0 6px">VIEW EVENT DETAILS</a>
+        </div>
+
+        ${waiverBlock}
+
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event", quote.event_name || "")}
+          ${pricingRow("Date", quote.event_date_display || "")}
+          ${pricingRow("Deposit Paid", dollars(quote.deposit_due_cents), true)}
+          ${pricingRow("Balance Due (charged tomorrow)", dollars(quote.balance_cents), true)}
+          ${pricingRow("Total", dollars(quote.total_cents))}
+        </table>
+
+        <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Questions? Reply to this email or contact ${pName}.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name} is almost here! Your balance of ${dollars(quote.balance_cents)} will be charged tomorrow.\n\nVerify your details: ${contractUrl}\n\n${hasWaivers && waiverUrl ? `Complete waivers: ${waiverUrl}\n\n` : ""}${pName}\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] 96hr reminder failed:", r.reason);
+    }
+  }
+}
+
+// ── Balance Charged Receipt ────────────────────────────────────────
+
+export async function notifyBalanceReceipt(
+  quote: GroupFunctionQuote,
+  waiverUrl: string | null,
+  cardLast4?: string,
+): Promise<void> {
+  const pName = plannerName(quote);
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
+  const hasWaivers = hasWaiverRequiredActivities(items);
+  const chargeDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  const waiverBlock = hasWaivers && waiverUrl
+    ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">⚠ Reminder: Complete Your Waivers</p>
+        <p style="margin:0 0 12px;font-size:13px;color:#78350f">All participants must have signed waivers before the event.</p>
+        <a href="${waiverUrl}" style="display:inline-block;padding:10px 24px;background-color:#f59e0b;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px">Complete Waivers</a>
+      </div>`
+    : "";
+
+  const notesBlock = quote.notes
+    ? `<div style="background:#f8fafc;border-radius:12px;padding:16px;margin:16px 0">
+        <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#64748b;text-transform:uppercase;letter-spacing:1px">Event Notes</p>
+        <p style="margin:0;font-size:13px;color:#475569;white-space:pre-line">${quote.notes}</p>
+      </div>`
+    : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? (await import("@/lib/sms-retry")).voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your payment of ${dollars(quote.balance_cents)} for ${quote.event_name || "your event"} is complete!`,
+            `You're all set for ${quote.event_date_display || "your event"}. See you at ${quote.center_name}!`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Payment Complete — See You Soon!`,
+      html: emailShell(
+        quote,
+        "You're all set!",
+        `Payment complete for ${quote.event_name || "your event"}`,
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Great news, ${quote.guest_first_name}! Your remaining balance has been charged and everything is ready for your event. We're looking forward to hosting you at <strong style="color:#0f172a">${quote.center_name}</strong>!</p>
+
+        <div style="background:#f0fdf4;border-radius:12px;padding:20px;margin:16px 0;text-align:center;border:1px solid #bbf7d0">
+          <p style="margin:0 0 4px;font-size:13px;color:#15803d;text-transform:uppercase;letter-spacing:1px">Payment Receipt</p>
+          <table style="width:100%;margin:12px 0;border-collapse:collapse;text-align:left">
+            ${pricingRow("Deposit Paid", dollars(quote.deposit_due_cents))}
+            ${pricingRow("Balance Charged", dollars(quote.total_cents - quote.deposit_due_cents), true)}
+            <tr><td colspan="2" style="padding:8px 0;border-top:1px solid #d1fae5"></td></tr>
+            ${pricingRow("Total Paid", dollars(quote.total_cents), true)}
+            ${cardLast4 ? pricingRow("Card", `ending in ${cardLast4}`) : ""}
+            ${pricingRow("Date", chargeDate)}
+          </table>
+        </div>
+
+        ${waiverBlock}
+
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event", quote.event_name || "")}
+          ${pricingRow("Date", quote.event_date_display || "")}
+          ${quote.guest_count ? pricingRow("Guests", String(quote.guest_count)) : ""}
+          ${pricingRow("Center", quote.center_name)}
+        </table>
+
+        ${notesBlock}
+
+        <p style="margin:16px 0 0;font-size:15px;color:#475569;text-align:center">We're looking forward to creating an amazing experience for your group!</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour payment of ${dollars(quote.total_cents - quote.deposit_due_cents)} is complete. Total paid: ${dollars(quote.total_cents)}.\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\n${quote.guest_count ? `Guests: ${quote.guest_count}\n` : ""}Center: ${quote.center_name}\n\nWe're looking forward to hosting you!\n\n${pName}\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] balance receipt failed:", r.reason);
+    }
+  }
+}
+
 // ── Post-Paid Approval ─────────────────────────────────────────────
 
 const APPROVAL_RECIPIENTS = ["eric@headpinz.com", "jacob@headpinz.com"];

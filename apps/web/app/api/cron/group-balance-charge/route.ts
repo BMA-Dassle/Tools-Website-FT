@@ -8,7 +8,8 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { loadGiftCard } from "@/lib/square-gift-card";
-import { notifyBalanceCharged, notifyBalanceLinkSent } from "@/lib/group-function-notify";
+import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
+import { fetchProject } from "@/lib/bmi-office-actions";
 
 /**
  * 72-hour balance collection cron.
@@ -221,12 +222,32 @@ async function processBalanceCharge(
           `amount=${quote.balance_cents} payment=${balancePaymentId}`,
       );
 
-      notifyBalanceCharged({
-        ...quote,
-        balance_cents: 0,
-        balance_paid_at: new Date().toISOString(),
-        balance_payment_method: "auto_card",
-      }).catch((err) => console.error("[group-balance-charge] notify error:", err));
+      // Send receipt email with waiver URL and card last4
+      (async () => {
+        let waiverUrl: string | null = null;
+        let cardLast4: string | undefined;
+        try {
+          const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
+          if (project?.projectReference) {
+            const clientKeys: Record<string, string> = { "fort-myers": "headpinzftmyers", fasttrax: "headpinzftmyers", naples: "headpinznaples" };
+            const ck = clientKeys[quote.center_code] || "headpinzftmyers";
+            waiverUrl = `https://kiosk.sms-timing.com/${ck}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
+          }
+        } catch { /* non-fatal */ }
+        // Get card last4 from the payment
+        try {
+          const payRes = await fetch(`${SQUARE_BASE}/payments/${balancePaymentId}`, { headers: sqHeaders() });
+          if (payRes.ok) {
+            const payData = await payRes.json();
+            cardLast4 = payData.payment?.card_details?.card?.last_4;
+          }
+        } catch { /* non-fatal */ }
+        await notifyBalanceReceipt(
+          { ...quote, balance_cents: 0, balance_paid_at: new Date().toISOString(), balance_payment_method: "auto_card" },
+          waiverUrl,
+          cardLast4,
+        );
+      })().catch((err) => console.error("[group-balance-charge] receipt notify error:", err));
 
       return "auto_charged";
     } catch (err) {

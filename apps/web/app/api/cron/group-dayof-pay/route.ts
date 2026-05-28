@@ -189,6 +189,34 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
 
   // Record results
   if (paymentIds.length > 0) {
+    // Complete the order (no staff interaction for group events)
+    if (remaining <= 0) {
+      try {
+        // Refetch order to get current version
+        const freshRes = await fetch(`${SQUARE_BASE}/orders/${orderId}`, { headers: sqHeaders() });
+        if (freshRes.ok) {
+          const freshData = await freshRes.json();
+          const version = freshData.order?.version;
+          if (version) {
+            await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
+              method: "PUT",
+              headers: sqHeaders(),
+              body: JSON.stringify({
+                order: {
+                  location_id: quote.square_location_id,
+                  version,
+                  state: "COMPLETED",
+                },
+              }),
+            });
+            console.log(`[group-dayof-pay] quote=${quote.id} order COMPLETED`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[group-dayof-pay] quote=${quote.id} order complete failed (non-fatal):`, err);
+      }
+    }
+
     await q`UPDATE group_function_quotes SET
       dayof_paid_at = NOW(),
       dayof_payment_ids = ${JSON.stringify(paymentIds)}::jsonb,
