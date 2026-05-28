@@ -100,55 +100,84 @@ async function syncQuote(
       return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: "would_cancel", changes: ["BMI state: Cancellation"] };
     }
 
-    // Cancel the quote and refund gift cards
+    // Cancel the quote and refund Square payments
     const q = sql();
     await q`UPDATE group_function_quotes SET status = 'cancelled', updated_at = NOW() WHERE id = ${quote.id}`;
 
-    // Refund gift cards if any
-    const gcIds = (await import("@/lib/group-function-db")).parseGiftCardIds(quote.square_gift_card_id);
-    if (gcIds.length > 0) {
-      const SQUARE_BASE = "https://connect.squareup.com/v2";
-      const sqHeaders = () => ({
-        Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN || ""}`,
-        "Content-Type": "application/json",
-        "Square-Version": "2024-12-18",
-      });
+    const SQUARE_BASE = "https://connect.squareup.com/v2";
+    const sqHeaders = () => ({
+      Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN || ""}`,
+      "Content-Type": "application/json",
+      "Square-Version": "2024-12-18",
+    });
 
-      for (let i = 0; i < gcIds.length; i++) {
-        try {
-          // Get current balance
-          const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${gcIds[i]}`, { headers: sqHeaders() });
-          if (!gcRes.ok) continue;
-          const gcData = await gcRes.json();
-          const balance = gcData.gift_card?.balance_money?.amount ?? 0;
-          if (balance <= 0) continue;
+    const refundedPayments: string[] = [];
 
-          // Deactivate — clears the balance
-          await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
-            method: "POST",
-            headers: sqHeaders(),
-            body: JSON.stringify({
-              idempotency_key: `gf-cancel-gc-${quote.id}-${i}`,
-              gift_card_activity: {
-                type: "DEACTIVATE",
-                location_id: quote.square_location_id,
-                gift_card_id: gcIds[i],
-                deactivate_activity_details: { reason: "SUSPICIOUS_ACTIVITY" },
-              },
-            }),
-          });
-          console.log(`[group-quote-sync] deactivated gift card ${i} for cancelled quote=${quote.id}`);
-        } catch (err) {
-          console.error(`[group-quote-sync] gift card deactivation failed for quote=${quote.id} gc=${i}:`, err);
+    // Refund deposit payment
+    if (quote.square_deposit_payment_id) {
+      try {
+        const refundRes = await fetch(`${SQUARE_BASE}/refunds`, {
+          method: "POST",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            idempotency_key: `gf-cancel-dep-${quote.id}`,
+            payment_id: quote.square_deposit_payment_id,
+            amount_money: { amount: quote.deposit_due_cents, currency: "USD" },
+            reason: "Event cancelled by event planner",
+          }),
+        });
+        const refundData = await refundRes.json();
+        if (refundRes.ok && refundData.refund?.id) {
+          refundedPayments.push(`deposit:${refundData.refund.id}`);
+          console.log(`[group-quote-sync] refunded deposit $${(quote.deposit_due_cents / 100).toFixed(2)} for quote=${quote.id}`);
+        } else {
+          console.error(`[group-quote-sync] deposit refund failed for quote=${quote.id}:`, JSON.stringify(refundData).slice(0, 300));
         }
+      } catch (err) {
+        console.error(`[group-quote-sync] deposit refund error for quote=${quote.id}:`, err);
+      }
+    }
+
+    // Refund balance payment
+    if (quote.square_balance_payment_id) {
+      try {
+        const balanceAmount = quote.total_cents - quote.deposit_due_cents;
+        const refundRes = await fetch(`${SQUARE_BASE}/refunds`, {
+          method: "POST",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            idempotency_key: `gf-cancel-bal-${quote.id}`,
+            payment_id: quote.square_balance_payment_id,
+            amount_money: { amount: balanceAmount, currency: "USD" },
+            reason: "Event cancelled by event planner",
+          }),
+        });
+        const refundData = await refundRes.json();
+        if (refundRes.ok && refundData.refund?.id) {
+          refundedPayments.push(`balance:${refundData.refund.id}`);
+          console.log(`[group-quote-sync] refunded balance $${(balanceAmount / 100).toFixed(2)} for quote=${quote.id}`);
+        } else {
+          console.error(`[group-quote-sync] balance refund failed for quote=${quote.id}:`, JSON.stringify(refundData).slice(0, 300));
+        }
+      } catch (err) {
+        console.error(`[group-quote-sync] balance refund error for quote=${quote.id}:`, err);
       }
     }
 
     await (await import("@/lib/group-function-db")).appendAuditLog({
       quoteId: quote.id,
       event: "cancelled_from_bmi",
-      metadata: { bmiStateId },
+      metadata: { bmiStateId, refundedPayments },
     });
+
+    // Send cancellation email
+    const { notifyEventCancelled } = await import("@/lib/group-function-notify");
+    const refreshed = await getGfQuoteByShortId(quote.contract_short_id!);
+    if (refreshed) {
+      notifyEventCancelled(refreshed, refundedPayments.length > 0).catch((err) =>
+        console.error(`[group-quote-sync] cancel notify error for quote=${quote.id}:`, err),
+      );
+    }
 
     console.log(`[group-quote-sync] CANCELLED quote=${quote.id} event="${quote.event_name}"`);
     return { id: quote.id, eventName: quote.event_name || "", status: "cancelled", action: "cancelled", changes: ["BMI state: Cancellation"] };

@@ -429,6 +429,68 @@ export async function notifyBalanceReceipt(
   }
 }
 
+// ── Event Cancelled ────────────────────────────────────────────────
+
+export async function notifyEventCancelled(
+  quote: GroupFunctionQuote,
+  hasRefund: boolean,
+): Promise<void> {
+  const pName = plannerName(quote);
+
+  const refundBlock = hasRefund
+    ? `<div style="background:#f0fdf4;border-radius:12px;padding:16px;margin:16px 0;border:1px solid #bbf7d0">
+        <p style="margin:0 0 4px;font-size:13px;font-weight:bold;color:#15803d">Refund Initiated</p>
+        <p style="margin:0;font-size:13px;color:#475569">A refund has been initiated for your payment(s). Please allow 5-10 business days for the refund to appear on your statement.</p>
+      </div>`
+    : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? (await import("@/lib/sms-retry")).voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event ${quote.event_name || ""} at ${quote.center_name} has been cancelled.`,
+            hasRefund ? "A refund has been initiated to your card." : "",
+            `Questions? Contact ${pName}.`,
+          ].filter(Boolean).join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Event Cancelled — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        "Event Cancelled",
+        `${quote.event_name || "Your event"} has been cancelled`,
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, we're sorry to inform you that <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name} has been cancelled.</p>
+
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event", quote.event_name || "")}
+          ${pricingRow("Date", quote.event_date_display || "")}
+          ${pricingRow("Center", quote.center_name)}
+        </table>
+
+        ${refundBlock}
+
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">If you have questions about this cancellation, please contact your event planner.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name} at ${quote.center_name} has been cancelled.\n\n${hasRefund ? "A refund has been initiated. Please allow 5-10 business days.\n\n" : ""}Questions? Contact ${pName}.\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] cancellation notification failed:", r.reason);
+    }
+  }
+}
+
 // ── Post-Paid Approval ─────────────────────────────────────────────
 
 const APPROVAL_RECIPIENTS = ["eric@headpinz.com", "jacob@headpinz.com"];
