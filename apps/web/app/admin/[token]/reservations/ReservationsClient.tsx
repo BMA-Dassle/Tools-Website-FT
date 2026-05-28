@@ -1619,7 +1619,12 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Reservation | null>(null);
   const [checkinTarget, setCheckinTarget] = useState<Reservation | null>(null);
-  const [orderTarget, setOrderTarget] = useState<Reservation | null>(null);
+  const [orderTarget, setOrderTarget] = useState<{
+    guestName: string;
+    squareDayofOrderId: string | null;
+    rewardDiscountCents: number;
+    squareLoyaltyRewardId?: string | null;
+  } | null>(null);
   const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderMeta, setOrderMeta] = useState<{
@@ -2406,6 +2411,21 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {ge.plannerName && <span>Planner: {ge.plannerName}</span>}
                           {ge.savedCardId && <span style={{ color: "#22c55e" }}>Card on file</span>}
                           {!ge.savedCardId && ge.depositPaidAt && <span style={{ color: "#f59e0b" }}>No card saved</span>}
+                          {ge.depositPaidAt && (
+                            <span style={{ display: "inline-block", padding: "0 4px", borderRadius: 3, fontSize: 10, fontWeight: 600, backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)" }}>
+                              Deposit Paid
+                            </span>
+                          )}
+                          {ge.balancePaidAt && (
+                            <span style={{ display: "inline-block", padding: "0 4px", borderRadius: 3, fontSize: 10, fontWeight: 600, backgroundColor: "rgba(34,211,238,0.15)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.3)" }}>
+                              Balance Paid
+                            </span>
+                          )}
+                          {ge.squareDayofOrderId && !ge.balancePaidAt && (
+                            <span style={{ display: "inline-block", padding: "0 4px", borderRadius: 3, fontSize: 10, fontWeight: 600, backgroundColor: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>
+                              Balance Pending
+                            </span>
+                          )}
                         </div>
                         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                           {ge.contractShortId && (
@@ -2419,9 +2439,29 @@ export default function ReservationsClient({ token }: { token: string }) {
                             </a>
                           )}
                           {ge.squareDayofOrderId && (
-                            <span style={{ fontSize: 11, color: "var(--ba-muted)" }}>
-                              Day-of Order: {ge.squareDayofOrderId.slice(0, 12)}...
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOrderTarget({
+                                  guestName: ge.eventName,
+                                  squareDayofOrderId: ge.squareDayofOrderId,
+                                  rewardDiscountCents: 0,
+                                })
+                              }
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                padding: 0,
+                                fontSize: 11,
+                                color: "#22d3ee",
+                                fontWeight: 600,
+                                textDecoration: "underline",
+                                textDecorationColor: "rgba(34,211,238,0.3)",
+                              }}
+                            >
+                              View Square Order
+                            </button>
                           )}
                         </div>
                       </div>
