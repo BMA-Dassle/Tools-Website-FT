@@ -49,6 +49,17 @@
 
 - [ ] **SEO: HeadPinz metadata on /book routes** — (from todo.md) headpinz.com/book/* shows FastTrax titles in Google.
 
+### Needs Building
+
+- [ ] **Post-paid account approval workflow** — Events with the `GF Post Paid Account` product require management approval before the contract is sent to the customer. Flow:
+  1. Queue dispatcher detects `GF Post Paid Account` in products (already detected via `selectTemplate()` in hermes-client.ts)
+  2. Instead of sending the contract, set status to `pending_approval` and email an approval page link to eric@headpinz.com and jacob@headpinz.com
+  3. **Approval page** (`/contract/[shortId]/approve`): shows full event details (customer, planner, products, pricing, event date, notes). Two buttons: Approve / Deny
+  4. **Approve**: sets status to `contract_sent`, sends the contract to the customer (normal flow)
+  5. **Deny**: emails the event planner (CC eric@headpinz.com + jacob@headpinz.com) with the denial reason (text field on deny). Does NOT send the contract.
+  6. No additional approvals needed for subsequent changes to an already-approved post-paid event
+  7. **FUTURE**: payment collection method for post-paid events (invoicing / manual charge after event)
+
 ### Low Priority / Future
 
 - [ ] **Admin reservations: group event actions** — Currently read-only display. Could add: manual resend contract, cancel event, view Square orders, manual balance charge.
