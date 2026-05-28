@@ -251,6 +251,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Update BMI Office: status + record payment (non-blocking)
+    import("@/lib/bmi-office-actions").then(async ({ updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities }) => {
+      const items = (quote.line_items || []) as Array<{ name: string }>;
+      await updateProjectStatus({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        hasWaiverActivities: hasWaiverRequiredActivities(items),
+      });
+      await recordProjectPayment({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        amountDollars: quote.deposit_due_cents / 100,
+      });
+    }).catch((err) => console.error("[gf-deposit] BMI Office update error:", err));
+
     return NextResponse.json({
       ok: true,
       action: "deposit_paid",

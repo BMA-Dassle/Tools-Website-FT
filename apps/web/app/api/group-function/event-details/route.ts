@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import { randomUUID } from "crypto";
 import { getGfQuoteByShortId } from "@/lib/group-function-db";
-import redis from "@/lib/redis";
+import { fetchPersonsByIds } from "@/lib/bmi-office-actions";
 
 /**
  * Live event details from BMI Office for the post-deposit event page.
@@ -94,9 +94,19 @@ export async function GET(req: NextRequest) {
       ? `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference)}`
       : null;
 
-    // Participants — fetch names from Redis cache or BMI Office
+    // Participants — batch lookup via personsByIds
     const projectPersons: Array<{ personId: string; confirmed: string | null }> = project.projectPersons || [];
-    const participants = await resolveParticipants(projectPersons.slice(0, 100), clientKey, headers);
+    const personIds = projectPersons.slice(0, 100).map((p) => p.personId);
+    const persons = await fetchPersonsByIds(quote.center_code, personIds);
+    const personMap = new Map(persons.map((p) => [p.id, p]));
+    const participants = projectPersons.slice(0, 100).map((pp) => {
+      const person = personMap.get(pp.personId);
+      return {
+        name: person ? `${person.firstName} ${person.lastName}`.trim() : "Guest",
+        confirmed: Boolean(pp.confirmed),
+        confirmedAt: pp.confirmed || null,
+      };
+    });
 
     // Schedule
     const schedules: Array<{ resourceId: string; resourceGroupId: string | null; start: string; stop: string; persons: number }> = project.schedules || [];
@@ -118,41 +128,3 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function resolveParticipants(
-  persons: Array<{ personId: string; confirmed: string | null }>,
-  clientKey: string,
-  headers: Record<string, string>,
-): Promise<Array<{ name: string; confirmed: boolean; confirmedAt: string | null }>> {
-  const results: Array<{ name: string; confirmed: boolean; confirmedAt: string | null }> = [];
-
-  for (const pp of persons) {
-    const cacheKey = `gf-person:${pp.personId}`;
-    let name: string | null = null;
-
-    // Check Redis cache
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) name = cached;
-    } catch { /* */ }
-
-    // Fetch from BMI Office if not cached
-    if (!name) {
-      try {
-        const res = await httpsGet(`/api/${clientKey}/person/${pp.personId}`, headers);
-        if (res.status < 400) {
-          const person = JSON.parse(res.body);
-          name = `${person.firstName || ""} ${person.name || ""}`.trim() || "Unknown";
-          try { await redis.set(cacheKey, name, "EX", 300); } catch { /* */ }
-        }
-      } catch { /* */ }
-    }
-
-    results.push({
-      name: name || "Guest",
-      confirmed: Boolean(pp.confirmed),
-      confirmedAt: pp.confirmed || null,
-    });
-  }
-
-  return results;
-}
