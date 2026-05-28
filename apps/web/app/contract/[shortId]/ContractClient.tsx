@@ -258,6 +258,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const startDraw = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
+      if ("touches" in e) e.preventDefault();
       const canvas = canvasRef.current;
       if (!canvas) return;
       isDrawing.current = true;
@@ -271,6 +272,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const draw = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
+      if ("touches" in e) e.preventDefault();
       if (!isDrawing.current) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -1120,6 +1122,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                       onTouchStart={startDraw}
                       onTouchMove={draw}
                       onTouchEnd={endDraw}
+                      style={{ touchAction: "none" }}
                       className="w-full cursor-crosshair rounded-lg border border-white/20 bg-[#0a1628]"
                     />
                     <button
