@@ -211,7 +211,7 @@ export async function sendDocument(
     method: "POST",
     headers: authHeaders(centerCode),
     body: JSON.stringify({
-      silent: false,
+      silent: true,
       sender: { email: plannerEmail },
     }),
     signal: AbortSignal.timeout(15_000),
