@@ -1698,19 +1698,18 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
         </span>
         <span className="text-gray-500">{open ? "▲" : "▼"}</span>
       </button>
-      {open && (
-        <div className="mt-4">
-          <div id="sq-update-card-container" className="mb-4" />
-          {cardError && <p className="mb-3 text-sm text-red-400">{cardError}</p>}
-          <button
-            onClick={handleUpdate}
-            disabled={updating}
-            className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 font-bold disabled:opacity-40"
-          >
+      <div className={open ? "mt-4" : "hidden"}>
+        <div id="sq-update-card-container" className="mb-4" />
+        {cardError && <p className="mb-3 text-sm text-red-400">{cardError}</p>}
+        <button
+          onClick={handleUpdate}
+          disabled={updating}
+          className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 font-bold disabled:opacity-40"
+        >
             {updating ? "Updating..." : "Save New Card"}
           </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
