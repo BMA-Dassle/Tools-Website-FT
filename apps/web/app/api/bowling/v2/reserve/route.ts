@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import {
   createReservation,
   getReservation,
@@ -28,6 +28,7 @@ import {
   splitGuestName,
 } from "~/features/marketing";
 import { evaluateCode, getDiscountCodeByCode, recordRedemption } from "~/features/discount-codes";
+import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -981,35 +982,124 @@ export async function POST(req: NextRequest) {
     }
 
     if (actualDepositToCharge > 0 && (body.squareToken || body.giftCardNonce)) {
-      const origin = req.nextUrl.origin;
-      const sqRes = await fetch(`${origin}/api/square/bowling-orders`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          sourceId: body.squareToken,
-          giftCardNonce: body.giftCardNonce,
-          idempotencyKey: randomUUID(),
-          locationId: squareLocationId,
-          depositPct: overallDepositPct,
-          lineItems: sqLineItems,
-          squareCustomerId: resolvedSquareCustomerId,
-          note: `Deposit – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`,
-          // Custom GAN so staff see "Gift Card HPFMX77012" instead of random digits
-          giftCardGan: `${CENTER_GAN_PREFIX[centerCode] ?? "HP"}${qamfReservationId.replace(/[^A-Za-z0-9]/g, "")}`,
-          // Pass pre-created day-of order if provided (avoids duplicate creation).
-          // Use the reward-adjusted total/deposit when a reward was applied.
-          ...(body.dayofOrderId
-            ? {
-                existingDayofOrderId: body.dayofOrderId,
-                existingDayofTotalCents: authoritativeTotalCents,
-                existingDepositCents: actualDepositToCharge,
-              }
-            : {}),
-        }),
-      });
+      // ── Build day-of order (or reuse pre-created from quote) ────
+      if (body.dayofOrderId) {
+        squareDayofOrderId = body.dayofOrderId;
+        totalCents = authoritativeTotalCents;
 
-      const sqData = await sqRes.json();
-      if (!sqRes.ok) {
+        // Attach loyalty customer if not set at quote time
+        if (resolvedSquareCustomerId) {
+          try {
+            const getRes = await fetch(`${SQUARE_BASE}/orders/${squareDayofOrderId}`, {
+              headers: sqLoyaltyHeaders(),
+            });
+            if (getRes.ok) {
+              const getData = await getRes.json();
+              if (!getData.order?.customer_id && getData.order?.version != null) {
+                await fetch(`${SQUARE_BASE}/orders/${squareDayofOrderId}`, {
+                  method: "PUT",
+                  headers: sqLoyaltyHeaders(),
+                  body: JSON.stringify({
+                    order: {
+                      location_id: squareLocationId,
+                      customer_id: resolvedSquareCustomerId,
+                      version: getData.order.version,
+                    },
+                  }),
+                }).catch(() => {});
+              }
+            }
+          } catch {
+            // Non-fatal — customer linkage is for loyalty accrual
+          }
+        }
+      } else {
+        // Create day-of order from scratch (no quote step)
+        const LOCATION_TAX: Record<string, string> = {
+          TXBSQN0FEKQ11: "UBPQTR3W6ZKVRYFC7DXN2SJN",
+          PPTR5G2N0QXF7: "BQNVIEEZQO2PX2FI72U6FEC4",
+        };
+        const taxCatalogId = LOCATION_TAX[squareLocationId];
+        const orderTaxes = taxCatalogId
+          ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
+          : [];
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const dayofLineItems = sqLineItems.map((li: any) => {
+          const modifiers = li.modifiers?.length
+            ? {
+                applied_modifiers: li.modifiers.map((m: { catalog_object_id: string }) => ({
+                  catalog_object_id: m.catalog_object_id,
+                })),
+              }
+            : {};
+          const noteField = li.note ? { note: li.note } : {};
+          if (li.catalogObjectId) {
+            return {
+              catalog_object_id: li.catalogObjectId,
+              quantity: li.quantity,
+              ...modifiers,
+              ...noteField,
+            };
+          }
+          return {
+            name: li.name,
+            quantity: li.quantity,
+            base_price_money: li.basePriceMoney,
+            ...modifiers,
+            ...noteField,
+          };
+        });
+
+        const dayofBaseKey = randomBytes(8).toString("hex");
+        const dayofOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
+          method: "POST",
+          headers: sqLoyaltyHeaders(),
+          body: JSON.stringify({
+            idempotency_key: `bowl-dayof-${dayofBaseKey}`,
+            order: {
+              location_id: squareLocationId,
+              ...(resolvedSquareCustomerId ? { customer_id: resolvedSquareCustomerId } : {}),
+              line_items: dayofLineItems,
+              ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
+            },
+          }),
+        });
+        const dayofOrderData = await dayofOrderRes.json();
+        if (!dayofOrderRes.ok || dayofOrderData.errors) {
+          const sqErr = dayofOrderData.errors?.[0];
+          const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(dayofOrderData);
+          console.error("[bowling/v2/reserve] day-of order failed:", detail);
+          return NextResponse.json({ error: `Failed to create order: ${detail}` }, { status: 500 });
+        }
+        squareDayofOrderId = dayofOrderData.order?.id as string;
+        totalCents =
+          (dayofOrderData.order?.total_money?.amount as number) ?? authoritativeTotalCents;
+      }
+
+      // ── Charge deposit via shared deposit service ───────────────
+      const ganPrefix = CENTER_GAN_PREFIX[centerCode] ?? "HP";
+      const ganSuffix = qamfReservationId.replace(/[^A-Za-z0-9]/g, "");
+      const depositNote = `Deposit – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`;
+
+      try {
+        const depositResult = await createDepositAndCharge({
+          amountCents: actualDepositToCharge,
+          locationId: squareLocationId,
+          cardSourceId: body.squareToken,
+          giftCardNonce: body.giftCardNonce,
+          squareCustomerId: resolvedSquareCustomerId,
+          ganPrefix,
+          ganSuffix,
+          note: depositNote,
+        });
+
+        squareDepositOrderId = depositResult.depositOrderId;
+        squareDepositPaymentId = depositResult.depositPaymentId;
+        squareGiftCardId = depositResult.giftCardId;
+        squareGiftCardGan = depositResult.giftCardGan;
+        depositCents = actualDepositToCharge;
+      } catch (err) {
         // Payment failed — delete loyalty reward to return points
         if (loyaltyRewardId) {
           await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
@@ -1025,24 +1115,17 @@ export async function POST(req: NextRequest) {
         } catch {
           // Non-fatal
         }
-        // Forward Square error code + detail so the client can show a specific message
-        return NextResponse.json(
-          {
-            error: sqData.error ?? "Payment failed",
-            code: sqData.code,
-            detail: sqData.detail,
-          },
-          { status: sqRes.status },
-        );
-      }
 
-      squareDepositOrderId = sqData.depositOrderId ?? undefined;
-      squareDepositPaymentId = sqData.depositPaymentId ?? undefined;
-      squareDayofOrderId = sqData.dayofOrderId;
-      squareGiftCardId = sqData.giftCardId ?? undefined;
-      squareGiftCardGan = sqData.giftCardGan ?? undefined;
-      depositCents = sqData.depositPaidCents ?? 0;
-      totalCents = sqData.dayofTotalCents ?? authoritativeTotalCents;
+        if (err instanceof DepositPaymentError) {
+          return NextResponse.json(
+            { error: err.friendlyMessage, code: err.code, detail: err.message },
+            { status: 400 },
+          );
+        }
+        const msg = err instanceof Error ? err.message : "Payment failed";
+        console.error("[bowling/v2/reserve] deposit charge failed:", msg);
+        return NextResponse.json({ error: msg }, { status: 500 });
+      }
     } else {
       // $0 deposit (reward covered it) or no token — day-of order from quote
       squareDayofOrderId = body.dayofOrderId;

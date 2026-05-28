@@ -3,6 +3,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 const RESERVATION_SECONDS = 10 * 60; // 10 minutes
+const QAMF_HOLD_SECONDS = 15 * 60; // 15 minutes for QAMF holds
+const QAMF_EXTEND_INTERVAL = 8 * 60 * 1000; // auto-extend every 8 min
 const WARN_THRESHOLD = 2 * 60; // amber at 2 min
 const URGENT_THRESHOLD = 60; // red at 1 min
 
@@ -12,29 +14,28 @@ export interface ReservationTimerHandle {
 
 interface ReservationTimerProps {
   bmiBillId: string | null;
+  /** QAMF hold ID — when set, timer manages a QAMF hold instead of a BMI bill. */
+  qamfHoldId?: string | null;
+  /** QAMF center ID for the hold extend endpoint. */
+  qamfCenterId?: number | null;
   onExpired?: () => void;
 }
 
 export const ReservationTimer = forwardRef<ReservationTimerHandle, ReservationTimerProps>(
-  function ReservationTimer({ bmiBillId, onExpired }, ref) {
-    const [secondsLeft, setSecondsLeft] = useState(RESERVATION_SECONDS);
+  function ReservationTimer({ bmiBillId, qamfHoldId, qamfCenterId, onExpired }, ref) {
+    const holdKey = bmiBillId || qamfHoldId || null;
+    const isQamf = !bmiBillId && !!qamfHoldId;
+    const maxSeconds = isQamf ? QAMF_HOLD_SECONDS : RESERVATION_SECONDS;
+
+    const [secondsLeft, setSecondsLeft] = useState(maxSeconds);
     const [refreshing, setRefreshing] = useState(false);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const extendRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const startedRef = useRef<string | null>(null);
 
-    // Reset timer when bmiBillId first appears or changes
-    useEffect(() => {
-      if (!bmiBillId) {
-        startedRef.current = null;
-        setSecondsLeft(RESERVATION_SECONDS);
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        return;
-      }
-      if (startedRef.current === bmiBillId) return;
-      startedRef.current = bmiBillId;
-      setSecondsLeft(RESERVATION_SECONDS);
-
+    function startCountdown(seconds: number) {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      setSecondsLeft(seconds);
       intervalRef.current = setInterval(() => {
         setSecondsLeft((prev) => {
           if (prev <= 1) {
@@ -45,43 +46,78 @@ export const ReservationTimer = forwardRef<ReservationTimerHandle, ReservationTi
           return prev - 1;
         });
       }, 1000);
+    }
+
+    // Reset timer when holdKey first appears or changes
+    useEffect(() => {
+      if (!holdKey) {
+        startedRef.current = null;
+        setSecondsLeft(maxSeconds);
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        if (extendRef.current) clearInterval(extendRef.current);
+        return;
+      }
+      if (startedRef.current === holdKey) return;
+      startedRef.current = holdKey;
+      startCountdown(maxSeconds);
+
+      // QAMF: auto-extend every 8 minutes to keep the hold alive
+      if (isQamf && qamfHoldId) {
+        if (extendRef.current) clearInterval(extendRef.current);
+        extendRef.current = setInterval(() => {
+          fetch(`/api/bowling/v2/reserve/hold/${encodeURIComponent(qamfHoldId)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ centerId: qamfCenterId }),
+          }).catch(() => {});
+        }, QAMF_EXTEND_INTERVAL);
+      }
 
       return () => {
         if (intervalRef.current) clearInterval(intervalRef.current);
+        if (extendRef.current) clearInterval(extendRef.current);
       };
-    }, [bmiBillId, onExpired]);
+    }, [holdKey, maxSeconds, isQamf, qamfHoldId, qamfCenterId, onExpired]);
+
+    // Reset countdown on user activity (QAMF holds reset on interaction)
+    useEffect(() => {
+      if (!isQamf || !holdKey) return;
+      function resetOnActivity() {
+        setSecondsLeft(QAMF_HOLD_SECONDS);
+      }
+      window.addEventListener("click", resetOnActivity);
+      window.addEventListener("keypress", resetOnActivity);
+      return () => {
+        window.removeEventListener("click", resetOnActivity);
+        window.removeEventListener("keypress", resetOnActivity);
+      };
+    }, [isQamf, holdKey]);
 
     const refreshReservation = useCallback(async (): Promise<boolean> => {
-      if (!bmiBillId || refreshing) return false;
+      if (!holdKey || refreshing) return false;
       setRefreshing(true);
       try {
-        await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bmiBillId}`);
-        setSecondsLeft(RESERVATION_SECONDS);
-
-        // Restart the countdown interval after a successful refresh
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        intervalRef.current = setInterval(() => {
-          setSecondsLeft((prev) => {
-            if (prev <= 1) {
-              if (intervalRef.current) clearInterval(intervalRef.current);
-              onExpired?.();
-              return 0;
-            }
-            return prev - 1;
+        if (isQamf && qamfHoldId) {
+          await fetch(`/api/bowling/v2/reserve/hold/${encodeURIComponent(qamfHoldId)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ centerId: qamfCenterId }),
           });
-        }, 1000);
-
+        } else if (bmiBillId) {
+          await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bmiBillId}`);
+        }
+        startCountdown(maxSeconds);
         return true;
       } catch {
         return false;
       } finally {
         setRefreshing(false);
       }
-    }, [bmiBillId, refreshing, onExpired]);
+    }, [holdKey, refreshing, isQamf, qamfHoldId, qamfCenterId, bmiBillId, maxSeconds, onExpired]);
 
     useImperativeHandle(ref, () => ({ refresh: refreshReservation }), [refreshReservation]);
 
-    if (!bmiBillId) return null;
+    if (!holdKey) return null;
 
     const minutes = Math.floor(secondsLeft / 60);
     const secs = secondsLeft % 60;

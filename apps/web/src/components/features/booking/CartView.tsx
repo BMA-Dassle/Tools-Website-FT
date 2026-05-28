@@ -636,7 +636,7 @@ function otherItemSummary(item: SessionItem): string {
         .join(" · ");
     case "kbf":
       return [
-        item.slot,
+        item.bookedAt,
         `${item.bowlers.length} bowler${item.bowlers.length === 1 ? "" : "s"}`,
         item.paidAdults > 0 ? `${item.paidAdults} adult(s)` : null,
       ]

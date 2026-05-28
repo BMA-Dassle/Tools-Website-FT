@@ -20,6 +20,7 @@ import {
   newKbfIdentity,
   type BookingSession,
   type KbfIdentityState,
+  type LoyaltyState,
   type PartyMember,
   type RaceHeatAssignment,
   type SessionItem,
@@ -85,6 +86,27 @@ export type Action =
    * not mutating mid-flow.
    */
   | { type: "applyPromo"; promo: AppliedPromo | null }
+
+  /* ── bowling holds ─────────────────────────────────────────────── */
+  /** Store QAMF temporary reservation info on a bowling/kbf item. */
+  | { type: "setBowlingHold"; itemId: string; qamfReservationId: string; qamfCenterId: number }
+  /** Clear QAMF hold (expired or released). */
+  | { type: "clearBowlingHold"; itemId: string }
+  /** Store bowling quote pricing from the quote endpoint. */
+  | {
+      type: "setBowlingQuote";
+      itemId: string;
+      dayofOrderId: string;
+      totalCents: number;
+      depositCents: number;
+      discountOffCents?: number;
+    }
+
+  /* ── loyalty (HeadPinz Rewards) ────────────────────────────────── */
+  /** Set or update the session-level loyalty state. */
+  | { type: "setLoyalty"; loyalty: LoyaltyState }
+  /** Clear loyalty state (e.g. phone changed). */
+  | { type: "clearLoyalty" }
   | { type: "restoreSession"; session: BookingSession };
 
 export function reducer(state: BookingSession, action: Action): BookingSession {
@@ -254,6 +276,57 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
 
     case "applyPromo":
       return { ...state, appliedPromo: action.promo };
+
+    /* ──────── bowling holds ──────── */
+    case "setBowlingHold":
+      return {
+        ...state,
+        items: state.items.map((i) =>
+          i.id === action.itemId && (i.kind === "bowling" || i.kind === "kbf")
+            ? {
+                ...i,
+                qamfReservationId: action.qamfReservationId,
+                qamfCenterId: action.qamfCenterId,
+              }
+            : i,
+        ),
+      };
+
+    case "clearBowlingHold":
+      return {
+        ...state,
+        items: state.items.map((i) =>
+          i.id === action.itemId && (i.kind === "bowling" || i.kind === "kbf")
+            ? { ...i, qamfReservationId: null, qamfCenterId: null }
+            : i,
+        ),
+      };
+
+    case "setBowlingQuote":
+      return {
+        ...state,
+        items: state.items.map((i) =>
+          i.id === action.itemId && (i.kind === "bowling" || i.kind === "kbf")
+            ? {
+                ...i,
+                quoteDayofOrderId: action.dayofOrderId,
+                quoteTotalCents: action.totalCents,
+                quoteDepositCents: action.depositCents,
+                quoteDiscountOffCents: action.discountOffCents ?? 0,
+              }
+            : i,
+        ),
+      };
+
+    /* ──────── loyalty ──────── */
+    case "setLoyalty":
+      return { ...state, loyalty: action.loyalty };
+
+    case "clearLoyalty": {
+      const next = { ...state };
+      delete next.loyalty;
+      return next;
+    }
 
     case "restoreSession":
       return action.session;

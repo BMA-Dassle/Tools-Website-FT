@@ -217,23 +217,82 @@ export interface AttractionItem extends BookingItemBase {
   assignedTo: string[];
 }
 
-export interface BowlingItem extends BookingItemBase {
-  kind: "bowling";
-  /** open = walk-in style; hourly = per-lane reservation. */
-  variant: "open" | "hourly";
-  date: string | null;
-  hour: number | null;
-  laneCount: number;
-  /** Party members playing — feeds the Conq reservation roster (not BMI bill). */
-  assignedTo: string[];
+/** Attraction add-on booked via BMI during a bowling session. */
+export interface BowlingAttractionAddon {
+  slug: string;
+  name: string;
+  quantity: number;
+  bmiOrderId: string | null;
+  bmiBillLineId: string | null;
+  squareCatalogObjectId: string | null;
+  pricePerPerson: number;
+  totalPrice: number;
+  timeSlot: string;
+  timeLabel: string;
 }
 
-export interface KbfItem extends BookingItemBase {
+/** Fields shared between BowlingItem and KbfItem (bowling-common). */
+interface BowlingCommon {
+  date: string | null;
+  hour: number | null;
+  minute: number | null;
+  /** Full ISO from QAMF availability (e.g. "2026-06-01T14:00:00-04:00"). */
+  bookedAt: string | null;
+  /** DB experience row id. */
+  experienceId: number | null;
+  /** Experience slug (e.g. "fun-4-all", "vip-mon-thur", "pizza-bowl"). */
+  experienceSlug: string | null;
+  /** QAMF web offer ID for the selected experience at this center. */
+  webOfferId: number | null;
+  /** QAMF option ID (game/time/unlimited variant). */
+  optionId: number | null;
+  optionType: "Game" | "Time" | "Unlimited" | null;
+  tier: "regular" | "vip" | null;
+  laneCount: number;
+  /** Duration in minutes for hourly rentals (null for non-hourly). */
+  durationMinutes: number | null;
+  /** Square line-item multiplier for the primary bowling product. */
+  durationMultiplier: number;
+  /** Shoe rental selections: bowling_square_products.id → quantity. */
+  shoeSelections: Record<number, number>;
+  /** Laser tag / gel blaster add-ons booked via BMI. */
+  attractionAddons: BowlingAttractionAddon[];
+  /** Pizza bowl per-lane modifier selections. Each entry = one lane. */
+  pizzaModifierSelections: Array<Record<string, string[]>>;
+  /** QAMF temporary reservation ID (set after hold creation on offer step). */
+  qamfReservationId: string | null;
+  /** QAMF center ID (numeric, e.g. 9172 or 3148). */
+  qamfCenterId: number | null;
+  /** Resolved line items sent to the reserve route. */
+  lineItems: Array<{ squareProductId: number; quantity: number }>;
+  /** $0 pass-through items (pizza/soda) for Square order visibility. */
+  rawItems: Array<{ catalogObjectId: string; name: string; quantity: number; note?: string }>;
+  /** Pre-created Square day-of order from the quote step. */
+  quoteDayofOrderId: string | null;
+  quoteTotalCents: number;
+  quoteDepositCents: number;
+  quoteDiscountOffCents: number;
+  /** True when a $2.99 booking fee is included. */
+  hasBookingFee: boolean;
+}
+
+export interface BowlingItem extends BookingItemBase, BowlingCommon {
+  kind: "bowling";
+  variant: "open" | "hourly";
+  playerCount: number;
+  /** Party members playing — feeds the Conq reservation roster (not BMI bill). */
+  assignedTo: string[];
+  /** Discount code applied mid-flow (bowling slots step). */
+  discountCode: string | null;
+}
+
+export interface KbfItem extends BookingItemBase, BowlingCommon {
   kind: "kbf";
   /** KBF pass member ids (from kbf_pass_members). A DIFFERENT roster
    *  from session.party — KBF passes have their own membership tables. */
   bowlers: number[];
-  slot: string | null;
+  /** Verified KBF pass id. */
+  passId: number | null;
   /** Number of paying adults (drives shoes / adult-lane add-ons). */
   paidAdults: number;
 }
@@ -261,6 +320,35 @@ export interface KbfIdentityState {
   phase: "lookup" | "verify" | "verified";
   emailOrPhone: string;
   passId: number | null;
+}
+
+/* ───────────────────── Loyalty (HeadPinz Rewards) ──────────────── */
+
+/** Selected reward tier for deposit discount at checkout. */
+export interface SelectedRewardTier {
+  id: string;
+  name: string;
+  points: number;
+  discountCents: number;
+}
+
+/**
+ * Square Loyalty state. Populated during checkout when the customer's
+ * phone resolves to a HeadPinz Rewards account (or they enroll).
+ *
+ * Earning: `customerId` is attached to the Square day-of order so
+ * points auto-accrue (10 Pinz per $1). No verification needed.
+ *
+ * Redeeming: requires SMS verification to prove ownership. After
+ * verify, reward tiers become selectable to reduce the deposit.
+ */
+export interface LoyaltyState {
+  accountId: string;
+  customerId: string;
+  balance: number;
+  verified: boolean;
+  isNewSignup: boolean;
+  selectedRewardTier: SelectedRewardTier | null;
 }
 
 /* ───────────────────────── BookingSession ──────────────────────── */
@@ -304,6 +392,13 @@ export interface BookingSession {
    * item leaves the cart.
    */
   kbfIdentity?: KbfIdentityState;
+  /**
+   * HeadPinz Loyalty (Square Loyalty) state — populated during checkout
+   * when the customer enters a phone number at a HeadPinz center.
+   * Drives both earning (squareCustomerId attached to day-of order for
+   * point accrual) and redeeming (reward tier selection for deposit discount).
+   */
+  loyalty?: LoyaltyState;
   /** Items in the cart, insertion order. */
   items: SessionItem[];
   /**
@@ -378,18 +473,67 @@ export function newItem(activity: Activity): SessionItem {
         id,
         kind: "bowling",
         variant: "open",
+        playerCount: 2,
         date: null,
         hour: null,
+        minute: null,
+        bookedAt: null,
+        experienceId: null,
+        experienceSlug: null,
+        webOfferId: null,
+        optionId: null,
+        optionType: null,
+        tier: null,
         laneCount: 1,
+        durationMinutes: null,
+        durationMultiplier: 1,
+        shoeSelections: {},
+        attractionAddons: [],
+        pizzaModifierSelections: [{}],
+        qamfReservationId: null,
+        qamfCenterId: null,
+        lineItems: [],
+        rawItems: [],
+        quoteDayofOrderId: null,
+        quoteTotalCents: 0,
+        quoteDepositCents: 0,
+        quoteDiscountOffCents: 0,
+        hasBookingFee: false,
         assignedTo: [],
+        discountCode: null,
       };
     case "kbf":
       return {
         id,
         kind: "kbf",
         bowlers: [],
-        slot: null,
+        passId: null,
         paidAdults: 0,
+        date: null,
+        hour: null,
+        minute: null,
+        bookedAt: null,
+        experienceId: null,
+        experienceSlug: null,
+        webOfferId: null,
+        optionId: null,
+        optionType: null,
+        tier: null,
+        laneCount: 1,
+        durationMinutes: null,
+        durationMultiplier: 1,
+        shoeSelections: {},
+        attractionAddons: [],
+        pizzaModifierSelections: [{}],
+        qamfReservationId: null,
+        qamfCenterId: null,
+        lineItems: [],
+        rawItems: [],
+        quoteDayofOrderId: null,
+        quoteTotalCents: 0,
+        quoteDepositCents: 0,
+        quoteDiscountOffCents: 0,
+        hasBookingFee: false,
       };
   }
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
-import type { BookingSession, RaceItem } from "~/features/booking";
+import type { BookingSession, BowlingItem, KbfItem, RaceItem } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
 import {
   runCheckout,
@@ -15,6 +15,7 @@ import {
   reserveBooking,
   type BillOverview,
 } from "~/features/booking/service/checkout";
+import { bowlingReserve } from "~/features/booking/service/bowling";
 import { clearBookingSession } from "~/features/booking/hooks";
 import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm";
 import type { SavedCard } from "@/components/square/SavedCardSelector";
@@ -70,11 +71,56 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
   // ── Contact phase ─────────────────────────────────────────────
 
+  const isBowlingOnly = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
+
   async function handleContactSubmit() {
     if (!isValidContact) return;
     dispatch({ type: "setContact", patch: contact });
-    setPhase({ step: "booking", progress: "Starting checkout…" });
 
+    if (isBowlingOnly) {
+      // Bowling path: build review from item quote data (no BMI bill)
+      setPhase({ step: "booking", progress: "Preparing your order…" });
+      try {
+        const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf") as
+          | BowlingItem
+          | KbfItem;
+
+        const overview: BillOverview = {
+          lines: bowlingItem.lineItems.map((li) => ({
+            name: `Line item ${li.squareProductId}`,
+            quantity: li.quantity,
+            amount: 0,
+          })),
+          subtotal: bowlingItem.quoteTotalCents / 100,
+          tax: 0,
+          total: bowlingItem.quoteTotalCents / 100,
+          cashOwed: bowlingItem.quoteDepositCents / 100,
+          creditApplied: 0,
+          isCreditOrder: bowlingItem.quoteDepositCents <= 0,
+        };
+
+        // If we have a quote, use those numbers
+        if (bowlingItem.quoteTotalCents > 0) {
+          const depositDollars = bowlingItem.quoteDepositCents / 100;
+          const totalDollars = bowlingItem.quoteTotalCents / 100;
+          overview.subtotal = totalDollars;
+          overview.total = totalDollars;
+          overview.cashOwed = depositDollars;
+        }
+
+        const syntheticBillId = `bowl-${bowlingItem.qamfReservationId ?? bowlingItem.id}`;
+        setPhase({ step: "review", overview, bmiBillId: syntheticBillId });
+      } catch (err) {
+        setPhase({
+          step: "error",
+          message: err instanceof Error ? err.message : "Checkout failed",
+        });
+      }
+      return;
+    }
+
+    // BMI path: race/attraction
+    setPhase({ step: "booking", progress: "Starting checkout…" });
     try {
       const result = await runCheckout(session, contact, dispatch, (msg) =>
         setPhase({ step: "booking", progress: msg }),
@@ -449,28 +495,72 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     }) {
       setPhase({ step: "confirming", bmiBillId });
       try {
-        await reserveBooking({
-          session,
-          bmiBillId,
-          overview,
-          contact,
-          cardSourceId: params.cardNonce ?? undefined,
-          savedCardId: params.savedCardId ?? undefined,
-          giftCardNonce: params.giftCardNonce ?? undefined,
-          squareCustomerId,
-        });
+        if (isBowlingOnly) {
+          // Bowling reserve path — QAMF + Square via /api/bowling/v2/reserve
+          const bowlingItem = session.items.find(
+            (i) => i.kind === "bowling" || i.kind === "kbf",
+          ) as BowlingItem | KbfItem;
 
-        void recordClickwrap({
-          billId: bmiBillId,
-          email: contact.email,
-          phone: contact.phone,
-          firstName: contact.firstName,
-          amountCents: Math.round(overview.cashOwed * 100),
-          bookingType: "racing",
-        });
+          const result = await bowlingReserve({
+            session,
+            item: bowlingItem,
+            contact,
+            cardToken: params.cardNonce ?? undefined,
+            giftCardNonce: params.giftCardNonce ?? undefined,
+            squareCustomerId: session.loyalty?.customerId,
+            loyaltyAccountId: session.loyalty?.accountId,
+            loyaltyAction: session.loyalty
+              ? session.loyalty.isNewSignup
+                ? "signup"
+                : "existing"
+              : undefined,
+            rewardTierId: session.loyalty?.selectedRewardTier?.id,
+            rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
+            smsOptIn: contact.smsOptIn,
+          });
 
-        clearBookingSession();
-        window.location.href = buildConfirmationUrl(session, bmiBillId, true);
+          void recordClickwrap({
+            billId: `bowl-${result.qamfReservationId}`,
+            email: contact.email,
+            phone: contact.phone,
+            firstName: contact.firstName,
+            amountCents: Math.round(overview.cashOwed * 100),
+            bookingType: "attractions",
+          });
+
+          clearBookingSession();
+          const confirmBase =
+            bowlingItem.kind === "kbf"
+              ? "/hp/book/kids-bowl-free/confirmation"
+              : "/hp/book/bowling/confirmation";
+          window.location.href = result.shortCode
+            ? `${confirmBase}?code=${result.shortCode}`
+            : `${confirmBase}?neonId=${result.neonId}`;
+        } else {
+          // BMI reserve path — race/attraction via /api/booking/v2/reserve
+          await reserveBooking({
+            session,
+            bmiBillId,
+            overview,
+            contact,
+            cardSourceId: params.cardNonce ?? undefined,
+            savedCardId: params.savedCardId ?? undefined,
+            giftCardNonce: params.giftCardNonce ?? undefined,
+            squareCustomerId,
+          });
+
+          void recordClickwrap({
+            billId: bmiBillId,
+            email: contact.email,
+            phone: contact.phone,
+            firstName: contact.firstName,
+            amountCents: Math.round(overview.cashOwed * 100),
+            bookingType: "racing",
+          });
+
+          clearBookingSession();
+          window.location.href = buildConfirmationUrl(session, bmiBillId, true);
+        }
       } catch (err) {
         setPhase({
           step: "error",

@@ -76,6 +76,15 @@ import {
   AttractionDateStep,
   AttractionSlotStep,
 } from "~/components/features/booking/steps/attraction";
+import BowlingPlayersStep from "~/components/features/booking/steps/bowling/BowlingPlayersStep";
+import BowlingSlotsStep from "~/components/features/booking/steps/bowling/BowlingSlotsStep";
+import BowlingTierStep from "~/components/features/booking/steps/bowling/BowlingTierStep";
+import BowlingOfferStep from "~/components/features/booking/steps/bowling/BowlingOfferStep";
+import BowlingShoesStep from "~/components/features/booking/steps/bowling/BowlingShoesStep";
+import BowlingAttractionsStep from "~/components/features/booking/steps/bowling/BowlingAttractionsStep";
+import BowlingFoodStep from "~/components/features/booking/steps/bowling/BowlingFoodStep";
+import KbfIdentityStep from "~/components/features/booking/steps/bowling/KbfIdentityStep";
+import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowlersStep";
 
 /**
  * Default per-kind step lists. Real race components live in
@@ -110,19 +119,21 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     AttractionSlotStep as StepDef,
   ],
   bowling: [
-    makePlaceholder("date", "Date"),
-    makePlaceholder("slot", "Time"),
-    makePlaceholder("lanes", "Lanes"),
-    makePlaceholder("addons", "Shoes & Add-ons"),
-    makePlaceholder("review", "Review"),
+    BowlingPlayersStep as StepDef,
+    BowlingSlotsStep as StepDef,
+    BowlingTierStep as StepDef,
+    BowlingOfferStep as StepDef,
+    BowlingShoesStep as StepDef,
+    BowlingAttractionsStep as StepDef,
+    BowlingFoodStep as StepDef,
   ],
   kbf: [
-    // Composite "Verify" step: lookup → 6-digit → roster. Breadcrumb shows
-    // one tick. Sub-state lives in item.identity.phase.
-    makePlaceholder("identity", "Verify"),
-    makePlaceholder("slot", "Time"),
-    makePlaceholder("bowlers", "Bowlers"),
-    makePlaceholder("addons", "Shoes & Add-ons"),
-    makePlaceholder("review", "Review"),
+    KbfIdentityStep as StepDef,
+    KbfBowlersStep as StepDef,
+    BowlingSlotsStep as StepDef,
+    BowlingTierStep as StepDef,
+    BowlingOfferStep as StepDef,
+    BowlingShoesStep as StepDef,
+    BowlingAttractionsStep as StepDef,
   ],
 };

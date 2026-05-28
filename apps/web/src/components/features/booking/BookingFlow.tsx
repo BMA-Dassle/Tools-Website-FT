@@ -289,6 +289,16 @@ export function BookingFlow({
           <ReservationTimer
             ref={timerRef}
             bmiBillId={session.bmiBillId}
+            qamfHoldId={(() => {
+              const bi = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
+              return bi && (bi.kind === "bowling" || bi.kind === "kbf")
+                ? bi.qamfReservationId
+                : null;
+            })()}
+            qamfCenterId={(() => {
+              const bi = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
+              return bi && (bi.kind === "bowling" || bi.kind === "kbf") ? bi.qamfCenterId : null;
+            })()}
             onExpired={handleReservationExpired}
           />
         </div>

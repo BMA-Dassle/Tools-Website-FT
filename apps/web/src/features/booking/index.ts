@@ -21,12 +21,15 @@ export type {
   AttractionItem,
   BookingItem,
   BookingSession,
+  BowlingAttractionAddon,
   BowlingItem,
   KbfIdentityState,
   KbfItem,
+  LoyaltyState,
   PartyMember,
   RaceHeatAssignment,
   RaceItem,
+  SelectedRewardTier,
   SessionItem,
 } from "./state/types";
 

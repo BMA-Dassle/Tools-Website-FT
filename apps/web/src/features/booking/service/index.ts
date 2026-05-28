@@ -53,6 +53,7 @@ export interface BookingService {
 export function getService(activity: Activity): BookingService {
   if (activity === "race") return raceService;
   if (activity === "attraction") return attractionService;
+  if (activity === "bowling" || activity === "kbf") return bowlingService;
 
   const notYet = (op: string) => (): Promise<never> => {
     throw new Error(`booking.${activity}.${op}() not implemented (PR-B1 scaffold)`);
@@ -68,6 +69,7 @@ export function getService(activity: Activity): BookingService {
 // ── Race service (PR-B2) ────────────────────────────────────────────────
 
 import { holdRaceItem, confirmRaceOrder, cancelRaceOrder } from "./race";
+import { bowlingService } from "./bowling";
 
 // ── Attraction service (PR-B3) ─────────────────────────────────────────
 
