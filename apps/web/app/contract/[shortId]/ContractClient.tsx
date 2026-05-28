@@ -226,7 +226,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
             src={`${BLOB}/subpages/group-events-hero.webp`}
             alt=""
             fill
-            className="object-cover"
+            className="object-cover object-bottom"
             priority
             unoptimized
           />

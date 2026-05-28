@@ -185,7 +185,7 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
       {/* Hero */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
-          <Image src={`${BLOB}/subpages/group-events-hero.webp`} alt="" fill className="object-cover" priority unoptimized />
+          <Image src={`${BLOB}/subpages/group-events-hero.webp`} alt="" fill className="object-cover object-bottom" priority unoptimized />
           <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/80 via-[#000418]/60 to-[#000418]" />
         </div>
         <div className="relative mx-auto max-w-4xl px-4 pb-10 pt-36 text-center">
