@@ -135,9 +135,15 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: "debounced" };
   }
 
-  const depositDueCents = Math.round(item.depositDue * 100);
   const totalCents = Math.round(item.totalBill * 100);
   const taxCents = Math.round(item.tax * 100);
+
+  // Events within 96 hours: require full payment upfront (no time for
+  // the deposit → 72hr balance charge cycle)
+  const eventTime = new Date(item.event.dateRaw).getTime();
+  const hoursUntilEvent = (eventTime - Date.now()) / 3_600_000;
+  const fullPaymentRequired = hoursUntilEvent <= 96;
+  const depositDueCents = fullPaymentRequired ? totalCents : Math.round(item.depositDue * 100);
 
   // No-changes check: if pricing/products match, update contact info and re-send
   if (existing && existing.contract_sent_at) {
@@ -282,6 +288,12 @@ async function processQueueItem(
   // Create or update internal contract (no PandaDoc)
   const contractShortId = existing?.contract_short_id || randomBytes(4).toString("hex");
   const balanceCents = totalCents - depositDueCents;
+
+  if (fullPaymentRequired) {
+    console.log(
+      `[group-quote-dispatch] FULL PAYMENT: event within ${Math.round(hoursUntilEvent)}hrs — deposit=${totalCents} balance=0 for reservation=${item.reservationId}`,
+    );
+  }
 
   let quoteId: number;
   if (existing) {
