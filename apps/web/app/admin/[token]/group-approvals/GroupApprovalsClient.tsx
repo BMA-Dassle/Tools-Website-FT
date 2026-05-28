@@ -262,7 +262,7 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void handleDeny(q);
                     }}
-                    autoFocus
+                    ref={(el) => el?.focus()}
                     className="w-full px-3 py-2 rounded-lg border border-red-500/40 bg-red-500/5 text-slate-200 text-sm outline-none focus:border-red-400"
                   />
                 </div>

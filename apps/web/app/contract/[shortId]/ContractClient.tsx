@@ -68,7 +68,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-red-500/10">
           <IconBan size={40} className="text-red-400" />
         </div>
-        <h1 className="mb-2 text-2xl font-bold">Event {quote.status === "cancelled" ? "Cancelled" : "Denied"}</h1>
+        <h1 className="mb-2 text-2xl font-bold">
+          Event {quote.status === "cancelled" ? "Cancelled" : "Denied"}
+        </h1>
         <p className="text-gray-400">
           {quote.status === "cancelled"
             ? "This event has been cancelled. If you believe this is an error, please contact your event planner."
@@ -76,10 +78,26 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         </p>
         {quote.plannerFirst && (
           <div className="mt-8 inline-block rounded-2xl border border-white/10 bg-[#071027] px-8 py-5 text-left">
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Your Event Planner</p>
-            <p className="mt-1 font-bold">{quote.plannerFirst} {quote.plannerLast}</p>
-            {quote.plannerPhone && <p className="mt-0.5 text-sm text-gray-400"><a href={`tel:${quote.plannerPhone}`} className="hover:text-cyan-400">{quote.plannerPhone}</a></p>}
-            {quote.plannerEmail && <p className="text-sm text-gray-400"><a href={`mailto:${quote.plannerEmail}`} className="hover:text-cyan-400">{quote.plannerEmail}</a></p>}
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
+              Your Event Planner
+            </p>
+            <p className="mt-1 font-bold">
+              {quote.plannerFirst} {quote.plannerLast}
+            </p>
+            {quote.plannerPhone && (
+              <p className="mt-0.5 text-sm text-gray-400">
+                <a href={`tel:${quote.plannerPhone}`} className="hover:text-cyan-400">
+                  {quote.plannerPhone}
+                </a>
+              </p>
+            )}
+            {quote.plannerEmail && (
+              <p className="text-sm text-gray-400">
+                <a href={`mailto:${quote.plannerEmail}`} className="hover:text-cyan-400">
+                  {quote.plannerEmail}
+                </a>
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -880,7 +898,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   },
                   {
                     title: "Guest Participants",
-                    text: "Changes must be made 3+ business days in advance. Guest count may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher.",
+                    text: "Guest count may be updated more than 72 hours before your event. Headcount may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher.",
                     Icon: IconUsers,
                   },
                 ].map((item, i) => (
@@ -894,6 +912,18 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     </div>
                   </div>
                 ))}
+                <div className="flex gap-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-500/15">
+                    <IconAlertTriangle size={20} className="text-red-400" stroke={1.5} />
+                  </div>
+                  <div>
+                    <p className="mb-1 font-semibold text-red-400">Within 72 Hours of Event</p>
+                    <p className="text-sm leading-relaxed text-red-300/80">
+                      All headcounts and sales are final. Our team and vendors need time to prepare
+                      for your event — changes cannot be made within 72 hours.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1544,8 +1574,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
             )}
 
             {/* Update Card on File */}
-            {!alreadyPaid || quote.status === "deposit_paid" || quote.status === "balance_link_sent" ? null : null}
-            <UpdateCardSection shortId={quote.contractShortId} locationId={quote.squareLocationId} />
+            {!alreadyPaid || quote.status === "deposit_paid" || quote.status === "balance_link_sent"
+              ? null
+              : null}
+            <UpdateCardSection
+              shortId={quote.contractShortId}
+              locationId={quote.squareLocationId}
+            />
 
             {/* Downloads / Actions */}
             <div className="flex flex-wrap justify-center gap-3">
@@ -1624,7 +1659,10 @@ function EventCountdownInline({ eventDate }: { eventDate: string }) {
   useEffect(() => {
     const update = () => {
       const ms = new Date(eventDate).getTime() - Date.now();
-      if (ms <= 0) { setDiff(null); return; }
+      if (ms <= 0) {
+        setDiff(null);
+        return;
+      }
       setDiff({
         days: Math.floor(ms / 86_400_000),
         hours: Math.floor((ms % 86_400_000) / 3_600_000),
@@ -1642,9 +1680,16 @@ function EventCountdownInline({ eventDate }: { eventDate: string }) {
     <div className="mb-4 flex items-center gap-3 rounded-xl bg-cyan-400/5 px-4 py-2.5 ring-1 ring-cyan-400/10">
       <IconClock size={16} className="flex-shrink-0 text-cyan-400" />
       <div className="flex items-baseline gap-1 text-sm">
-        {diff.days > 0 && <><span className="font-bold tabular-nums text-cyan-400">{diff.days}</span><span className="text-gray-500">d</span></>}
-        <span className="font-bold tabular-nums text-cyan-400">{diff.hours}</span><span className="text-gray-500">h</span>
-        <span className="font-bold tabular-nums text-cyan-400">{diff.mins}</span><span className="text-gray-500">m</span>
+        {diff.days > 0 && (
+          <>
+            <span className="font-bold tabular-nums text-cyan-400">{diff.days}</span>
+            <span className="text-gray-500">d</span>
+          </>
+        )}
+        <span className="font-bold tabular-nums text-cyan-400">{diff.hours}</span>
+        <span className="text-gray-500">h</span>
+        <span className="font-bold tabular-nums text-cyan-400">{diff.mins}</span>
+        <span className="text-gray-500">m</span>
         <span className="ml-1 text-gray-400">until your event</span>
       </div>
     </div>
@@ -1656,7 +1701,14 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
   const [updating, setUpdating] = useState(false);
   const [result, setResult] = useState<{ last4: string; brand: string } | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
-  const updateCardRef = useRef<{ tokenize: () => Promise<{ status: string; token?: string; errors?: Array<{ message: string }> }>; destroy: () => void } | null>(null);
+  const updateCardRef = useRef<{
+    tokenize: () => Promise<{
+      status: string;
+      token?: string;
+      errors?: Array<{ message: string }>;
+    }>;
+    destroy: () => void;
+  } | null>(null);
   const cardLoaded = useRef(false);
 
   useEffect(() => {
@@ -1699,7 +1751,10 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
         body: JSON.stringify({ contractShortId: shortId, cardSourceId: tokenResult.token }),
       });
       const data = await res.json();
-      if (!res.ok) { setCardError(data.error || "Failed"); return; }
+      if (!res.ok) {
+        setCardError(data.error || "Failed");
+        return;
+      }
       setResult(data);
     } catch {
       setCardError("Failed to update card.");
@@ -1712,7 +1767,9 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
     return (
       <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 text-center">
         <p className="font-semibold text-emerald-400">Card Updated</p>
-        <p className="mt-1 text-sm text-gray-400">{result.brand} ending in {result.last4}</p>
+        <p className="mt-1 text-sm text-gray-400">
+          {result.brand} ending in {result.last4}
+        </p>
       </div>
     );
   }
@@ -1737,8 +1794,8 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
           disabled={updating}
           className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 font-bold disabled:opacity-40"
         >
-            {updating ? "Updating..." : "Save New Card"}
-          </button>
+          {updating ? "Updating..." : "Save New Card"}
+        </button>
       </div>
     </div>
   );
