@@ -75,9 +75,12 @@ const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "")
 const normDate = (d: string | null | undefined) => {
   if (!d) return "";
   try {
+    // BMI stores local ET without timezone. DB may store UTC ISO or JS toString.
+    // Compare YYYY-MM-DD in ET to avoid timezone/format false positives.
     const dt = new Date(d);
-    // Compare in ET (BMI dates are Eastern, DB may be UTC or ET string)
-    return dt.toLocaleString("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+    const etStr = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+    const etTime = dt.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }); // HH:MM
+    return `${etStr} ${etTime}`;
   } catch { return ""; }
 };
 
