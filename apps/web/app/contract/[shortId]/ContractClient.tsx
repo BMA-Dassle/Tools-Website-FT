@@ -862,35 +862,32 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </div>
             </div>
 
-            <div className="flex gap-3">
-              {/* Acknowledge cancellation policy */}
-              <label className="mb-6 flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-[#071027] p-5">
-                <input
-                  type="checkbox"
-                  checked={policyAcknowledged}
-                  onChange={(e) => setPolicyAcknowledged(e.target.checked)}
-                  className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
-                />
-                <span className="text-sm font-semibold text-white">
-                  I have read and agree to the cancellation policy
-                </span>
-              </label>
+            <label className="mb-4 flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-[#071027] p-5">
+              <input
+                type="checkbox"
+                checked={policyAcknowledged}
+                onChange={(e) => setPolicyAcknowledged(e.target.checked)}
+                className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
+              />
+              <span className="text-sm font-semibold text-white">
+                I have read and agree to the cancellation policy
+              </span>
+            </label>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStep("tips")}
-                  className="rounded-xl border border-white/20 px-6 py-3 font-semibold hover:bg-white/5"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={() => setStep("sign")}
-                  disabled={!policyAcknowledged}
-                  className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Continue to Sign
-                </button>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setStep("tips")}
+                className="rounded-xl border border-white/20 py-4 font-semibold hover:bg-white/5"
+              >
+                Back
+              </button>
+              <button
+                onClick={() => setStep("sign")}
+                disabled={!policyAcknowledged}
+                className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-4 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Continue to Sign
+              </button>
             </div>
           </>
         )}
