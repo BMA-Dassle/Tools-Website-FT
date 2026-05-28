@@ -2780,7 +2780,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                         {r.squareDayofOrderId && (
                           <button
                             type="button"
-                            onClick={() => setOrderTarget(r)}
+                            onClick={() => setOrderTarget({ guestName: r.guestName || "Guest", squareDayofOrderId: r.squareDayofOrderId ?? null, rewardDiscountCents: r.rewardDiscountCents, squareLoyaltyRewardId: r.squareLoyaltyRewardId })}
                             style={{
                               background: "none",
                               border: "none",
@@ -3290,7 +3290,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {r.squareDayofOrderId ? (
                             <button
                               type="button"
-                              onClick={() => setOrderTarget(r)}
+                              onClick={() => setOrderTarget({ guestName: r.guestName || "Guest", squareDayofOrderId: r.squareDayofOrderId ?? null, rewardDiscountCents: r.rewardDiscountCents, squareLoyaltyRewardId: r.squareLoyaltyRewardId })}
                               style={{
                                 background: "none",
                                 border: "none",
