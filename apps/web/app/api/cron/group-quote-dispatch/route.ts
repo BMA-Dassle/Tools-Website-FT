@@ -4,8 +4,6 @@ import {
   fetchPandaDocQueue,
   completePandaDocQueue,
   resolveCenter,
-  selectTemplate,
-  PANDADOC_TEMPLATE_IDS,
   type HermesQueueItem,
 } from "@/lib/hermes-client";
 import {
@@ -16,25 +14,17 @@ import {
   updateGfQuoteDetails,
 } from "@/lib/group-function-db";
 import { notifyContractSent, notifyContractUpdated } from "@/lib/group-function-notify";
-import {
-  buildDocumentBody,
-  createDocument,
-  waitForDraft,
-  sendDocument,
-  searchDocumentsByReservation,
-  cancelDocument,
-} from "@/lib/pandadoc";
 
 /**
  * Group Quote Dispatch cron.
  *
  * Polls Hermes /queue/pandadoc for pending event quotes, creates
- * PandaDoc contracts, persists to Neon, and acknowledges processing.
+ * internal contracts (no PandaDoc), persists to Neon, and acknowledges.
  *
  * Schedule: every 2 minutes via vercel.json.
  *
  * Query params:
- *   ?dryRun=1  — scan + report, no PandaDoc creation or Hermes completion
+ *   ?dryRun=1  — scan + report, no creation or Hermes completion
  *   ?limit=N   — max items to process per run (default 5)
  */
 
@@ -69,7 +59,6 @@ export async function GET(req: NextRequest) {
         centerName: i.centerName,
         eventName: i.event.name,
         depositDue: i.depositDue,
-        template: selectTemplate(i),
       })),
     });
   }
@@ -85,11 +74,6 @@ export async function GET(req: NextRequest) {
         action: "error",
         error: err instanceof Error ? err.message : String(err),
       });
-    }
-
-    // Rate limit: 15s between PandaDoc API calls
-    if (validItems.indexOf(item) < validItems.length - 1) {
-      await new Promise((r) => setTimeout(r, 15_000));
     }
   }
 
@@ -143,7 +127,6 @@ async function processQueueItem(
       existingProducts.length === item.products.length;
 
     if (unchanged) {
-      // Always re-send the link as a reminder
       await updateGfQuoteDetails(existing.id, {
         hermes_last_processed_at: new Date().toISOString(),
       });
@@ -193,7 +176,6 @@ async function processQueueItem(
       hermes_last_processed_at: new Date().toISOString(),
     });
 
-    // If price changed after deposit, force re-sign
     if (priceChanged && (existing.status === "deposit_paid" || existing.status === "balance_charged")) {
       const q = (await import("@/lib/db")).sql();
       await q`UPDATE group_function_quotes SET status = 'resign_required', updated_at = NOW() WHERE id = ${existing.id}`;
@@ -215,31 +197,12 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: priceChanged ? "resign_required" : "updated_data" };
   }
 
-  // Cancel any existing PandaDoc docs for this reservation
-  const existingDocs = await searchDocumentsByReservation(center.centerCode, item.reservationId);
-  for (const doc of existingDocs) {
-    if (doc.status !== "document.voided" && doc.status !== "document.deleted") {
-      await cancelDocument(center.centerCode, doc.id);
-    }
-  }
-
-  // Build and create PandaDoc document
-  const { template, templateId, body } = buildDocumentBody(item);
-  const { documentId } = await createDocument(center.centerCode, body);
-
-  // Wait for PandaDoc to finish processing
-  await waitForDraft(center.centerCode, documentId);
-
-  // Send the document
-  await sendDocument(center.centerCode, documentId, item.planner.email);
-
-  // Reuse existing short ID if updating, generate new for first-time
+  // Create or update internal contract (no PandaDoc)
   const contractShortId = existing?.contract_short_id || randomBytes(4).toString("hex");
   const balanceCents = totalCents - depositDueCents;
 
   let quoteId: number;
   if (existing) {
-    // Update existing row with fresh Hermes data (unsigned re-send)
     await updateGfQuoteDetails(existing.id, {
       event_name: item.event.name,
       event_number: item.event.number,
@@ -294,17 +257,12 @@ async function processQueueItem(
       balance_cents: balanceCents,
       line_items: item.products,
       prior_payments: item.payments,
-      pandadoc_template: template,
-      pandadoc_template_id: templateId,
     });
     quoteId = quote.id;
   }
 
-  // Update with PandaDoc details
+  // Mark contract as sent
   await updateGfContractSent(quoteId, {
-    pandadoc_document_id: documentId,
-    pandadoc_template: template,
-    pandadoc_template_id: templateId,
     contract_short_id: contractShortId,
     contract_status: "sent",
     contract_sent_at: new Date().toISOString(),
@@ -330,8 +288,7 @@ async function processQueueItem(
   }
 
   console.log(
-    `[group-quote-dispatch] created contract for reservation=${item.reservationId} ` +
-      `doc=${documentId} shortId=${contractShortId} template=${template}`,
+    `[group-quote-dispatch] contract created for reservation=${item.reservationId} shortId=${contractShortId}`,
   );
 
   return { reservationId: item.reservationId, action: "created" };

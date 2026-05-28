@@ -414,9 +414,9 @@ export async function getQuotesWithPendingBalanceLinks(): Promise<GroupFunctionQ
 export async function updateGfContractSent(
   id: number,
   fields: {
-    pandadoc_document_id: string;
-    pandadoc_template: string;
-    pandadoc_template_id: string;
+    pandadoc_document_id?: string;
+    pandadoc_template?: string;
+    pandadoc_template_id?: string;
     contract_short_id: string;
     contract_status: string;
     contract_sent_at: string;
@@ -426,9 +426,9 @@ export async function updateGfContractSent(
   const q = sql();
   await q`
     UPDATE group_function_quotes SET
-      pandadoc_document_id = ${fields.pandadoc_document_id},
-      pandadoc_template = ${fields.pandadoc_template},
-      pandadoc_template_id = ${fields.pandadoc_template_id},
+      pandadoc_document_id = ${fields.pandadoc_document_id ?? null},
+      pandadoc_template = ${fields.pandadoc_template ?? null},
+      pandadoc_template_id = ${fields.pandadoc_template_id ?? null},
       contract_short_id = ${fields.contract_short_id},
       contract_status = ${fields.contract_status},
       contract_sent_at = ${fields.contract_sent_at},
