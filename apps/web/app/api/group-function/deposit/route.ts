@@ -201,11 +201,13 @@ export async function POST(req: NextRequest) {
       console.error("[gf-deposit] gift card activation failed:", activateData);
     }
 
-    // 6. Optionally save card on file for 72-hour auto-charge
+    // 6. Save card on file for 72-hour auto-charge
+    // Only when: card was actually used (not GC-only), customer wanted to save,
+    // and we have the original nonce. Matches the karting flow pattern.
     let savedCardId: string | undefined;
     let squareCustomerId: string | undefined;
 
-    if (saveCard && cardSourceId) {
+    if (saveCard && cardSourceId && multiTender.cardPaymentId) {
       try {
         const custResult = await findOrCreateSquareCustomer(quote);
         squareCustomerId = custResult ?? undefined;
@@ -223,10 +225,20 @@ export async function POST(req: NextRequest) {
           const cardData = await cardRes.json();
           if (cardRes.ok && cardData.card?.id) {
             savedCardId = cardData.card.id;
+            console.log(`[gf-deposit] card saved: ${savedCardId} for customer ${squareCustomerId}`);
+          } else {
+            console.error("[gf-deposit] card save failed:", JSON.stringify(cardData).slice(0, 300));
           }
         }
       } catch (err: unknown) {
         console.error("[gf-deposit] save card error:", err);
+      }
+    } else if (saveCard && !multiTender.cardPaymentId) {
+      // GC-only payment — still look up/create customer for future charges
+      try {
+        squareCustomerId = (await findOrCreateSquareCustomer(quote)) ?? undefined;
+      } catch {
+        // non-fatal
       }
     }
 
