@@ -60,10 +60,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     destroy: () => void;
   } | null>(null);
   const squareLoaded = useRef(false);
+  const [signingSessionId, setSigningSessionId] = useState<string | null>(null);
   const [signingReady, setSigningReady] = useState(false);
   const signingInitiated = useRef(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const signingRef = useRef<any>(null);
   const [schedule, setSchedule] = useState<Array<{
     activity: string;
     count: number;
@@ -82,8 +81,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       .catch(() => {});
   }, [quote.contractShortId]);
 
+  // Fetch signing session, then init pandadoc-signing library
   useEffect(() => {
-    if (phase !== "sign" || signingReady || signingInitiated.current) return;
+    if (phase !== "sign" || signingInitiated.current) return;
     signingInitiated.current = true;
 
     (async () => {
@@ -96,6 +96,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
           setError(data.error || "Failed to load signing session");
           return;
         }
+        setSigningSessionId(data.sessionId);
+
+        // Wait a tick for the container div to render
+        await new Promise((r) => setTimeout(r, 100));
 
         const { Signing } = await import("pandadoc-signing");
         const signing = new Signing(
@@ -111,12 +115,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         );
 
         await signing.open();
-        signingRef.current = signing;
-      } catch {
+      } catch (err) {
+        console.error("[pandadoc-signing] Failed:", err);
         setError("Failed to load contract. Please refresh.");
       }
     })();
-  }, [phase, signingReady, quote.contractShortId]);
+  }, [phase, quote.contractShortId]);
 
   useEffect(() => {
     if (phase !== "pay" || squareLoaded.current) return;
@@ -581,6 +585,17 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               id="pandadoc-signing-container"
               className="overflow-hidden rounded-2xl border border-white/10"
             />
+            {/* Fallback iframe if library fails to mount */}
+            {signingSessionId && error && (
+              <div className="overflow-hidden rounded-2xl border border-white/10">
+                <iframe
+                  src={`https://app.pandadoc.com/s/${signingSessionId}`}
+                  className="h-[700px] w-full"
+                  title="Event Contract"
+                  allow="clipboard-write"
+                />
+              </div>
+            )}
             {!signingReady && error && (
               <div className="rounded-2xl border border-red-500/20 bg-red-900/20 p-8 text-center">
                 <p className="text-red-300">{error}</p>
