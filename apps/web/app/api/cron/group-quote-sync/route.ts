@@ -78,28 +78,31 @@ async function syncQuote(
 
   const changes: string[] = [];
 
+  // Normalize phone for comparison (strip everything except digits)
+  const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");
+  // Normalize date for comparison (compare just YYYY-MM-DDTHH:MM:SS, ignore timezone)
+  const normDate = (d: string | null | undefined) => {
+    if (!d) return "";
+    const iso = new Date(d).toISOString();
+    return iso.slice(0, 19);
+  };
+
   // Check customer
   const customerPersonId = project.personId as string;
-  const plannerUserId = project.userId as string;
 
-  const personIds = [customerPersonId];
-  // Get planner person ID from user record
-  const plannerPersonId = (project as Record<string, unknown>).userCreatedId as string | undefined;
-
-  // Fetch customer details
-  const persons = await fetchPersonsByIds(quote.center_code, personIds);
+  const persons = await fetchPersonsByIds(quote.center_code, [customerPersonId]);
   const customer = persons[0];
 
   if (customer) {
     if (customer.firstName !== quote.guest_first_name) changes.push(`customer_first: ${quote.guest_first_name} → ${customer.firstName}`);
     if (customer.lastName !== quote.guest_last_name) changes.push(`customer_last: ${quote.guest_last_name} → ${customer.lastName}`);
-    if (customer.email && customer.email !== quote.guest_email) changes.push(`customer_email: ${quote.guest_email} → ${customer.email}`);
-    if (customer.phone && customer.phone !== quote.guest_phone) changes.push(`customer_phone: ${quote.guest_phone} → ${customer.phone}`);
+    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase()) changes.push(`customer_email: ${quote.guest_email} → ${customer.email}`);
+    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone)) changes.push(`customer_phone: ${quote.guest_phone} → ${customer.phone}`);
   }
 
-  // Check event date
+  // Check event date (normalize to avoid timezone/format false positives)
   const bmiDate = project.date as string | undefined;
-  if (bmiDate && bmiDate !== quote.event_date) {
+  if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
     changes.push(`event_date: ${quote.event_date} → ${bmiDate}`);
   }
 
@@ -158,10 +161,10 @@ async function syncQuote(
   if (customer) {
     if (customer.firstName !== quote.guest_first_name) updates.guest_first_name = customer.firstName;
     if (customer.lastName !== quote.guest_last_name) updates.guest_last_name = customer.lastName;
-    if (customer.email && customer.email !== quote.guest_email) updates.guest_email = customer.email;
-    if (customer.phone && customer.phone !== quote.guest_phone) updates.guest_phone = customer.phone;
+    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase()) updates.guest_email = customer.email;
+    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone)) updates.guest_phone = customer.phone;
   }
-  if (bmiDate && bmiDate !== quote.event_date) updates.event_date = bmiDate;
+  if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) updates.event_date = bmiDate;
   if (bmiName && bmiName !== quote.event_name) updates.event_name = bmiName;
 
   if (Object.keys(updates).length > 0) {
