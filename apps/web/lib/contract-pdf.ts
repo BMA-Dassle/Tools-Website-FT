@@ -311,13 +311,20 @@ export async function generateContractPdf(
 
   // ── Signature ──
   ctx.y -= 6;
-  const sigH = quote.signature_type === "typed" && quote.signature_data ? 110 : 90;
+  let sigImage: Awaited<ReturnType<typeof doc.embedPng>> | null = null;
+  if (quote.signature_type === "draw" && quote.signature_data?.startsWith("data:image/png;base64,")) {
+    try {
+      const b64 = quote.signature_data.split(",")[1];
+      sigImage = await doc.embedPng(Buffer.from(b64, "base64"));
+    } catch { /* non-fatal — fall back to text */ }
+  }
+
+  const sigH = sigImage ? 130 : (quote.signature_type === "typed" && quote.signature_data ? 110 : 90);
   card(ctx, sigH);
   ctx.y -= 4;
   label(ctx, "ELECTRONIC SIGNATURE");
 
   if (quote.signature_type === "typed" && quote.signature_data) {
-    // Draw signature in a styled box
     ctx.page.drawRectangle({
       x: M,
       y: ctx.y - 32,
@@ -327,6 +334,18 @@ export async function generateContractPdf(
     });
     t(ctx, quote.signature_data, M + 12, ctx.y - 22, { font: fi, sz: 24, color: C.cyan });
     ctx.y -= 44;
+  } else if (sigImage) {
+    const imgW = Math.min(sigImage.width, CW - 24);
+    const imgH = (sigImage.height / sigImage.width) * imgW;
+    const boxH = Math.min(imgH + 16, 80);
+    ctx.page.drawRectangle({ x: M, y: ctx.y - boxH, width: CW, height: boxH, color: C.stripe });
+    ctx.page.drawImage(sigImage, {
+      x: M + 12,
+      y: ctx.y - boxH + 8,
+      width: imgW - 24,
+      height: boxH - 16,
+    });
+    ctx.y -= boxH + 8;
   } else if (quote.signature_type === "draw") {
     ctx.page.drawRectangle({ x: M, y: ctx.y - 32, width: CW, height: 36, color: C.stripe });
     t(ctx, "[Drawn signature on file]", M + 12, ctx.y - 22, { font: fi, sz: 12, color: C.cyan });
