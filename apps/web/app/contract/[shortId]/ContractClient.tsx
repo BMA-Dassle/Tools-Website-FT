@@ -81,6 +81,25 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       .catch(() => {});
   }, [quote.contractShortId]);
 
+  // Poll for quote changes (planner may update before guest signs)
+  useEffect(() => {
+    if (phase !== "sign") return;
+    const knownDocId = quote.pandadocDocumentId;
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/group-function/quote-status?shortId=${quote.contractShortId}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.pandadocDocumentId && data.pandadocDocumentId !== knownDocId) {
+          window.location.reload();
+        }
+      } catch { /* ignore */ }
+    }, 30_000);
+    return () => clearInterval(poll);
+  }, [phase, quote.contractShortId, quote.pandadocDocumentId]);
+
   // Fetch signing session, then init pandadoc-signing library
   useEffect(() => {
     if (phase !== "sign" || signingInitiated.current) return;

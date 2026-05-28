@@ -109,6 +109,11 @@ export async function ensureGfSchema(): Promise<void> {
     )
   `;
 
+  // New columns added post-initial schema (idempotent)
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS deposit_attempts INTEGER NOT NULL DEFAULT 0`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS deposit_last_error TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS hermes_last_processed_at TIMESTAMPTZ`;
+
   await q`CREATE UNIQUE INDEX IF NOT EXISTS gfq_bmi_reservation
     ON group_function_quotes(bmi_reservation_id)`;
   await q`CREATE INDEX IF NOT EXISTS gfq_status
@@ -193,6 +198,9 @@ export interface GroupFunctionQuote {
   teams_card_conversation_id: string | null;
   balance_charge_attempts: number;
   balance_last_error: string | null;
+  deposit_attempts: number;
+  deposit_last_error: string | null;
+  hermes_last_processed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -511,6 +519,81 @@ export async function updateGfTeamsCard(
       updated_at = NOW()
     WHERE id = ${id}
   `;
+}
+
+// ── Quote detail updates (for live modifications) ───────────────────
+
+export async function updateGfQuoteDetails(
+  id: number,
+  fields: {
+    event_name?: string;
+    event_number?: string;
+    event_date?: string;
+    event_date_display?: string;
+    guest_count?: number;
+    notes?: string;
+    total_cents?: number;
+    tax_cents?: number;
+    deposit_due_cents?: number;
+    balance_cents?: number;
+    line_items?: unknown[];
+    prior_payments?: unknown[];
+    planner_first?: string;
+    planner_last?: string;
+    planner_email?: string;
+    planner_phone?: string;
+    guest_first_name?: string;
+    guest_last_name?: string;
+    guest_email?: string;
+    guest_phone?: string;
+    hermes_last_processed_at?: string;
+  },
+): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    UPDATE group_function_quotes SET
+      event_name = COALESCE(${fields.event_name ?? null}, event_name),
+      event_number = COALESCE(${fields.event_number ?? null}, event_number),
+      event_date = COALESCE(${fields.event_date ?? null}::timestamptz, event_date),
+      event_date_display = COALESCE(${fields.event_date_display ?? null}, event_date_display),
+      guest_count = COALESCE(${fields.guest_count ?? null}, guest_count),
+      notes = COALESCE(${fields.notes ?? null}, notes),
+      total_cents = COALESCE(${fields.total_cents ?? null}, total_cents),
+      tax_cents = COALESCE(${fields.tax_cents ?? null}, tax_cents),
+      deposit_due_cents = COALESCE(${fields.deposit_due_cents ?? null}, deposit_due_cents),
+      balance_cents = COALESCE(${fields.balance_cents ?? null}, balance_cents),
+      line_items = COALESCE(${fields.line_items ? JSON.stringify(fields.line_items) : null}::jsonb, line_items),
+      prior_payments = COALESCE(${fields.prior_payments ? JSON.stringify(fields.prior_payments) : null}::jsonb, prior_payments),
+      planner_first = COALESCE(${fields.planner_first ?? null}, planner_first),
+      planner_last = COALESCE(${fields.planner_last ?? null}, planner_last),
+      planner_email = COALESCE(${fields.planner_email ?? null}, planner_email),
+      planner_phone = COALESCE(${fields.planner_phone ?? null}, planner_phone),
+      guest_first_name = COALESCE(${fields.guest_first_name ?? null}, guest_first_name),
+      guest_last_name = COALESCE(${fields.guest_last_name ?? null}, guest_last_name),
+      guest_email = COALESCE(${fields.guest_email ?? null}, guest_email),
+      guest_phone = COALESCE(${fields.guest_phone ?? null}, guest_phone),
+      hermes_last_processed_at = COALESCE(${fields.hermes_last_processed_at ?? null}::timestamptz, hermes_last_processed_at),
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+}
+
+export async function updateGfDepositAttempt(
+  id: number,
+  error: string,
+): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      deposit_attempts = deposit_attempts + 1,
+      deposit_last_error = ${error},
+      updated_at = NOW()
+    WHERE id = ${id}
+    RETURNING deposit_attempts
+  `;
+  return (rows[0] as { deposit_attempts: number })?.deposit_attempts ?? 0;
 }
 
 // ── List ────────────────────────────────────────────────────────────

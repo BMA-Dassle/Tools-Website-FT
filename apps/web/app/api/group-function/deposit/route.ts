@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import {
   getGfQuoteByShortId,
   updateGfDepositPaid,
+  updateGfDepositAttempt,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { notifyDepositPaid } from "@/lib/group-function-notify";
@@ -257,10 +258,16 @@ export async function POST(req: NextRequest) {
       balanceCents: quote.total_cents - quote.deposit_due_cents,
     });
   } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errCode = err instanceof SquarePaymentError ? err.code : "UNKNOWN";
+
+    // Track failed attempt
+    const attempts = await updateGfDepositAttempt(quote.id, `${errCode}: ${errMsg}`);
+    console.error(`[gf-deposit] attempt #${attempts} failed:`, errCode, errMsg);
+
     if (err instanceof SquarePaymentError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 402 });
     }
-    console.error("[gf-deposit] unexpected error:", err);
     return NextResponse.json(
       { error: "Payment processing failed. Please try again." },
       { status: 500 },

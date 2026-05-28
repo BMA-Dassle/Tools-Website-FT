@@ -93,6 +93,14 @@ async function processBalanceCharge(
 ): Promise<"auto_charged" | "link_sent"> {
   if (quote.balance_cents <= 0) return "auto_charged";
 
+  // Staleness check: warn if quote hasn't been updated in 30+ days
+  const daysSinceUpdate = (Date.now() - new Date(quote.updated_at).getTime()) / 86_400_000;
+  if (daysSinceUpdate > 30) {
+    console.warn(
+      `[group-balance-charge] STALE quote=${quote.id} last updated ${Math.round(daysSinceUpdate)}d ago — charging anyway but event data may be outdated`,
+    );
+  }
+
   const baseKey = randomBytes(8).toString("hex");
 
   // Path A: auto-charge saved card

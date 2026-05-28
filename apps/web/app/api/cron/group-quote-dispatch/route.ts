@@ -13,6 +13,7 @@ import {
   getGfQuoteByReservationId,
   getGfQuoteByShortId,
   updateGfContractSent,
+  updateGfQuoteDetails,
 } from "@/lib/group-function-db";
 import { notifyContractSent } from "@/lib/group-function-notify";
 import {
@@ -110,17 +111,61 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: "skipped_unknown_center" };
   }
 
-  // Idempotency: skip if already in Neon
   const existing = await getGfQuoteByReservationId(item.reservationId);
-  if (existing?.contract_sent_at) {
-    // Already processed — just complete the Hermes queue item
+
+  // Debounce: skip if processed within the last 60 seconds
+  if (
+    existing?.hermes_last_processed_at &&
+    Date.now() - new Date(existing.hermes_last_processed_at).getTime() < 60_000
+  ) {
     await completePandaDocQueue({
       center: item.center,
       queueId: item.queueId,
       logId: item.logId,
-      message: `${item.customer.email} (already processed)`,
+      message: `${item.customer.email} (debounced)`,
     });
-    return { reservationId: item.reservationId, action: "skipped" };
+    return { reservationId: item.reservationId, action: "debounced" };
+  }
+
+  const depositDueCents = Math.round(item.depositDue * 100);
+  const totalCents = Math.round(item.totalBill * 100);
+  const taxCents = Math.round(item.tax * 100);
+
+  // Post-signing update: data only, don't touch PandaDoc
+  if (existing && (existing.status === "deposit_paid" || existing.status === "balance_charged" || existing.status === "balance_link_sent" || existing.status === "completed")) {
+    const balanceCents = totalCents - existing.deposit_due_cents;
+    await updateGfQuoteDetails(existing.id, {
+      event_name: item.event.name,
+      event_number: item.event.number,
+      event_date: item.event.dateRaw,
+      event_date_display: item.event.date,
+      notes: item.event.notes,
+      total_cents: totalCents,
+      tax_cents: taxCents,
+      deposit_due_cents: depositDueCents,
+      balance_cents: Math.max(0, balanceCents),
+      line_items: item.products,
+      prior_payments: item.payments,
+      planner_first: item.planner.first,
+      planner_last: item.planner.last,
+      planner_email: item.planner.email,
+      planner_phone: item.planner.phone,
+      guest_first_name: item.customer.first,
+      guest_last_name: item.customer.last,
+      guest_email: item.customer.email,
+      guest_phone: item.customer.phone,
+      hermes_last_processed_at: new Date().toISOString(),
+    });
+    await completePandaDocQueue({
+      center: item.center,
+      queueId: item.queueId,
+      logId: item.logId,
+      message: `${item.customer.email} (post-sign update)`,
+    });
+    console.log(
+      `[group-quote-dispatch] post-sign data update for reservation=${item.reservationId}`,
+    );
+    return { reservationId: item.reservationId, action: "updated_data" };
   }
 
   // Cancel any existing PandaDoc docs for this reservation
@@ -141,17 +186,35 @@ async function processQueueItem(
   // Send the document
   await sendDocument(center.centerCode, documentId, item.planner.email);
 
-  // Generate short ID for the contract landing page
-  const contractShortId = randomBytes(4).toString("hex");
-
-  // Persist to Neon (insert or update if row exists but wasn't sent yet)
-  const depositDueCents = Math.round(item.depositDue * 100);
-  const totalCents = Math.round(item.totalBill * 100);
-  const taxCents = Math.round(item.tax * 100);
+  // Reuse existing short ID if updating, generate new for first-time
+  const contractShortId = existing?.contract_short_id || randomBytes(4).toString("hex");
   const balanceCents = totalCents - depositDueCents;
 
   let quoteId: number;
   if (existing) {
+    // Update existing row with fresh Hermes data (unsigned re-send)
+    await updateGfQuoteDetails(existing.id, {
+      event_name: item.event.name,
+      event_number: item.event.number,
+      event_date: item.event.dateRaw,
+      event_date_display: item.event.date,
+      notes: item.event.notes,
+      total_cents: totalCents,
+      tax_cents: taxCents,
+      deposit_due_cents: depositDueCents,
+      balance_cents: balanceCents,
+      line_items: item.products,
+      prior_payments: item.payments,
+      planner_first: item.planner.first,
+      planner_last: item.planner.last,
+      planner_email: item.planner.email,
+      planner_phone: item.planner.phone,
+      guest_first_name: item.customer.first,
+      guest_last_name: item.customer.last,
+      guest_email: item.customer.email,
+      guest_phone: item.customer.phone,
+      hermes_last_processed_at: new Date().toISOString(),
+    });
     quoteId = existing.id;
   } else {
     const quote = await insertGfQuote({
