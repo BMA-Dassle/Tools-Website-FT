@@ -367,48 +367,65 @@ function buildGroupFunctionCard(
 
 function emailShell(quote: GroupFunctionQuote, heroTitle: string, heroSubtitle: string, content: string): string {
   const pName = plannerName(quote);
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a1020;color:#e2e8f0">
-<div style="max-width:600px;margin:0 auto">
+  const isHP = quote.brand === "headpinz";
+  const accentColor = isHP ? "#e53935" : "#06b6d4";
+  const domain = isHP ? "headpinz.com" : "fasttraxent.com";
+  const logoUrl = isHP
+    ? "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo.png"
+    : "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/fasttrax-logo.png";
 
-  <!-- Hero -->
-  <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:40px 24px 32px;text-align:center;border-radius:16px 16px 0 0">
-    <img src="${BLOB}/subpages/group-events-hero.webp" alt="" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;margin-bottom:20px" />
-    <h1 style="margin:0 0 8px;font-size:26px;font-weight:800;color:white">${heroTitle}</h1>
-    <p style="margin:0;font-size:15px;color:#94a3b8">${heroSubtitle}</p>
-  </div>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#f4f4f5;color:#1e293b">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+
+  <!-- Header -->
+  <tr><td style="background-color:#0f172a;padding:24px 32px;text-align:center">
+    <img src="${logoUrl}" alt="${quote.center_name}" height="40" style="height:40px;max-height:40px" />
+  </td></tr>
+
+  <!-- Accent bar -->
+  <tr><td style="height:4px;background:linear-gradient(90deg,${accentColor},#2563eb)"></td></tr>
+
+  <!-- Hero text -->
+  <tr><td style="background-color:#ffffff;padding:32px 32px 16px;text-align:center">
+    <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;color:#0f172a">${heroTitle}</h1>
+    <p style="margin:0;font-size:15px;color:#64748b">${heroSubtitle}</p>
+  </td></tr>
 
   <!-- Content -->
-  <div style="background:#1e293b;padding:28px 24px;border-left:1px solid rgba(148,163,184,0.1);border-right:1px solid rgba(148,163,184,0.1)">
+  <tr><td style="background-color:#ffffff;padding:0 32px 24px">
     ${content}
-  </div>
+  </td></tr>
 
-  <!-- Event summary bar -->
-  <div style="background:#0f172a;padding:16px 24px;border:1px solid rgba(148,163,184,0.1);border-top:none">
-    <table style="width:100%;font-size:13px;color:#94a3b8"><tr>
-      <td style="padding:4px 0"><strong style="color:white">${quote.event_name || "Event"}</strong></td>
-      <td style="padding:4px 0;text-align:right">${quote.event_date_display || ""}</td>
-    </tr><tr>
-      <td style="padding:4px 0">${quote.center_name}</td>
-      <td style="padding:4px 0;text-align:right">Total: <strong style="color:white">${dollars(quote.total_cents)}</strong></td>
-    </tr></table>
-  </div>
+  <!-- Event summary -->
+  <tr><td style="background-color:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0">
+    <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#64748b">
+      <tr><td style="padding:4px 0"><strong style="color:#0f172a">${quote.event_name || "Event"}</strong></td><td style="padding:4px 0;text-align:right">${quote.event_date_display || ""}</td></tr>
+      <tr><td style="padding:4px 0">${quote.center_name}</td><td style="padding:4px 0;text-align:right">Total: <strong style="color:#0f172a">${dollars(quote.total_cents)}</strong></td></tr>
+    </table>
+  </td></tr>
 
-  <!-- Planner footer -->
-  <div style="background:#1e293b;padding:20px 24px;border-radius:0 0 16px 16px;border:1px solid rgba(148,163,184,0.1);border-top:none">
-    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b">Your Event Planner</p>
-    <p style="margin:0 0 4px;font-size:16px;font-weight:700;color:white">${pName}</p>
-    ${quote.planner_phone ? `<p style="margin:0;font-size:13px"><a href="tel:${quote.planner_phone}" style="color:#22d3ee;text-decoration:none">${quote.planner_phone}</a></p>` : ""}
-    ${quote.planner_email ? `<p style="margin:0;font-size:13px"><a href="mailto:${quote.planner_email}" style="color:#22d3ee;text-decoration:none">${quote.planner_email}</a></p>` : ""}
-  </div>
+  <!-- Planner -->
+  <tr><td style="background-color:#ffffff;padding:20px 32px;border-top:1px solid #e2e8f0">
+    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;font-weight:600">Your Event Planner</p>
+    <p style="margin:0 0 2px;font-size:16px;font-weight:700;color:#0f172a">${pName}</p>
+    ${quote.planner_phone ? `<p style="margin:0;font-size:13px"><a href="tel:${quote.planner_phone}" style="color:${accentColor};text-decoration:none">${quote.planner_phone}</a></p>` : ""}
+    ${quote.planner_email ? `<p style="margin:0;font-size:13px"><a href="mailto:${quote.planner_email}" style="color:${accentColor};text-decoration:none">${quote.planner_email}</a></p>` : ""}
+  </td></tr>
 
-  <p style="text-align:center;font-size:11px;color:#475569;margin-top:16px;padding:0 24px">${quote.center_name} · <a href="${baseUrl(quote)}" style="color:#475569">${quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com"}</a></p>
-</div>
+</table>
+
+<!-- Footer -->
+<p style="text-align:center;font-size:11px;color:#94a3b8;margin:16px 0 0">${quote.center_name} · <a href="${baseUrl(quote)}" style="color:#94a3b8;text-decoration:none">${domain}</a></p>
+
+</td></tr></table>
 </body></html>`;
 }
 
 function ctaButton(text: string, url: string): string {
-  return `<div style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;padding:14px 40px;background:linear-gradient(135deg,#06b6d4,#2563eb);color:white;text-decoration:none;border-radius:999px;font-weight:700;font-size:16px;letter-spacing:0.5px">${text}</a></div>`;
+  return `<div style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;padding:14px 40px;background:linear-gradient(135deg,#06b6d4,#2563eb);color:#0f172a;text-decoration:none;border-radius:999px;font-weight:700;font-size:16px;letter-spacing:0.5px">${text}</a></div>`;
 }
 
 function pricingRow(label: string, value: string, highlight?: boolean): string {
@@ -420,7 +437,7 @@ function buildContractSentHtml(quote: GroupFunctionQuote, contractUrl: string): 
     quote,
     `${quote.guest_first_name}, your experience awaits`,
     `Your event contract is ready to review and sign`,
-    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">We're excited to host <strong style="color:white">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Review the details below and sign your contract to lock in your date.</p>
+    `<p style="margin:0 0 16px;font-size:15px;color:#475569">We're excited to host <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Review the details below and sign your contract to lock in your date.</p>
 
     <table style="width:100%;margin:16px 0;border-collapse:collapse">
       ${pricingRow("Event Total", dollars(quote.total_cents))}
@@ -439,7 +456,7 @@ function buildContractUpdatedHtml(quote: GroupFunctionQuote, contractUrl: string
     quote,
     "Contract Updated",
     `Your event details have been revised`,
-    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">${quote.guest_first_name}, your event planner has updated the details for <strong style="color:white">${quote.event_name || "your event"}</strong>. Please review the updated contract and sign to confirm.</p>
+    `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your event planner has updated the details for <strong style="color:#0f172a">${quote.event_name || "your event"}</strong>. Please review the updated contract and sign to confirm.</p>
 
     <table style="width:100%;margin:16px 0;border-collapse:collapse">
       ${pricingRow("Event Total", dollars(quote.total_cents))}
@@ -458,9 +475,9 @@ function buildDepositPaidHtml(quote: GroupFunctionQuote): string {
     quote,
     "Deposit Received!",
     `Your date at ${quote.center_name} is secured`,
-    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">Great news, ${quote.guest_first_name}! Your deposit has been received and your event date is locked in.</p>
+    `<p style="margin:0 0 16px;font-size:15px;color:#475569">Great news, ${quote.guest_first_name}! Your deposit has been received and your event date is locked in.</p>
 
-    <div style="background:#0f172a;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
+    <div style="background:#f8fafc;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
       <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Deposit Paid</p>
       <p style="margin:0;font-size:32px;font-weight:800;color:#22d3ee">${dollars(quote.deposit_due_cents)}</p>
       ${quote.square_gift_card_gan ? `<p style="margin:8px 0 0;font-size:12px;font-family:monospace;color:#64748b">Ref: ${quote.square_gift_card_gan}</p>` : ""}
@@ -481,9 +498,9 @@ function buildBalanceChargedHtml(quote: GroupFunctionQuote): string {
     quote,
     "You're All Set!",
     `Payment complete for ${quote.event_name || "your event"}`,
-    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">${quote.guest_first_name}, your remaining balance has been charged. Everything is paid and you're ready to go!</p>
+    `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your remaining balance has been charged. Everything is paid and you're ready to go!</p>
 
-    <div style="background:#0f172a;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
+    <div style="background:#f8fafc;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
       <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Total Paid</p>
       <p style="margin:0;font-size:32px;font-weight:800;color:#22c55e">${dollars(quote.total_cents)}</p>
     </div>
@@ -494,7 +511,7 @@ function buildBalanceChargedHtml(quote: GroupFunctionQuote): string {
       ${pricingRow("Total Paid", dollars(quote.total_cents), true)}
     </table>
 
-    <p style="margin:16px 0 0;font-size:15px;color:#cbd5e1;text-align:center">See you at <strong style="color:white">${quote.center_name}</strong>!</p>`,
+    <p style="margin:16px 0 0;font-size:15px;color:#475569;text-align:center">See you at <strong style="color:#0f172a">${quote.center_name}</strong>!</p>`,
   );
 }
 
@@ -503,9 +520,9 @@ function buildBalanceLinkHtml(quote: GroupFunctionQuote): string {
     quote,
     "Balance Due",
     `Complete your payment for ${quote.event_name || "your event"}`,
-    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">${quote.guest_first_name}, your event is coming up and the remaining balance is due.</p>
+    `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your event is coming up and the remaining balance is due.</p>
 
-    <div style="background:#0f172a;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
+    <div style="background:#f8fafc;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
       <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Balance Due</p>
       <p style="margin:0;font-size:32px;font-weight:800;color:#f59e0b">${dollars(quote.balance_cents)}</p>
     </div>

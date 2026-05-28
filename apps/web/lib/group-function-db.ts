@@ -236,6 +236,14 @@ export interface GroupFunctionQuote {
   deposit_attempts: number;
   deposit_last_error: string | null;
   hermes_last_processed_at: string | null;
+  document_seal: string | null;
+  signed_pdf_url: string | null;
+  otp_verified_at: string | null;
+  otp_method: string | null;
+  signer_ip: string | null;
+  signer_ua: string | null;
+  signature_type: string | null;
+  signature_data: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -635,6 +643,56 @@ export async function updateGfDepositAttempt(
     RETURNING deposit_attempts
   `;
   return (rows[0] as { deposit_attempts: number })?.deposit_attempts ?? 0;
+}
+
+// ── Audit trail ─────────────────────────────────────────────────────
+
+export async function appendAuditLog(params: {
+  quoteId: number;
+  event: string;
+  actorEmail?: string;
+  actorIp?: string;
+  actorUa?: string;
+  metadata?: Record<string, unknown>;
+  documentHash?: string;
+}): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    INSERT INTO contract_audit_log (quote_id, event, actor_email, actor_ip, actor_ua, metadata, document_hash)
+    VALUES (
+      ${params.quoteId},
+      ${params.event},
+      ${params.actorEmail ?? null},
+      ${params.actorIp ?? null},
+      ${params.actorUa ?? null},
+      ${JSON.stringify(params.metadata ?? {})},
+      ${params.documentHash ?? null}
+    )
+  `;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  quote_id: number;
+  event: string;
+  actor_email: string | null;
+  actor_ip: string | null;
+  actor_ua: string | null;
+  metadata: Record<string, unknown>;
+  document_hash: string | null;
+  created_at: string;
+}
+
+export async function getAuditLog(quoteId: number): Promise<AuditLogEntry[]> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM contract_audit_log
+    WHERE quote_id = ${quoteId}
+    ORDER BY created_at ASC
+  `;
+  return rows as AuditLogEntry[];
 }
 
 // ── List ────────────────────────────────────────────────────────────

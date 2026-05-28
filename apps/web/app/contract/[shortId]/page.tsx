@@ -11,19 +11,14 @@ export default async function ContractPage(props: { params: Promise<{ shortId: s
   const brand =
     quote.center_code === "naples" || quote.center_code === "fort-myers" ? "headpinz" : "fasttrax";
 
-  const squareLocationId = quote.square_location_id;
-
   return (
     <ContractClient
       quote={{
         id: quote.id,
         contractShortId: quote.contract_short_id!,
-        pandadocDocumentId: quote.pandadoc_document_id,
-        contractStatus: quote.contract_status,
-        status: quote.status,
         brand,
         centerName: quote.center_name,
-        squareLocationId,
+        squareLocationId: quote.square_location_id,
         eventName: quote.event_name || "",
         eventDateDisplay: quote.event_date_display || "",
         eventDate: quote.event_date,
