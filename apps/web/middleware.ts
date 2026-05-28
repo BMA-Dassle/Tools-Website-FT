@@ -500,17 +500,17 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/survey/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
-    // Contract pages need site nav even on HeadPinz domain
+    // Contract pages need site nav but not the mobile Book Now bar
     if (pathname.startsWith("/contract/")) {
       requestHeaders.set("x-show-nav", "1");
+      requestHeaders.set("x-no-mobile-bar", "1");
     }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // Survey routes on EITHER domain: suppress the mobile Book-Now bar so
-  // it doesn't sit on top of the survey content (FastTrax bowling visitor
-  // hitting fasttraxent.com/survey/* would otherwise get the FT MobileBookBar).
-  if (pathname.startsWith("/survey/")) {
+  // Survey and contract routes on EITHER domain: suppress the mobile
+  // Book-Now bar so it doesn't overlap focused customer-flow screens.
+  if (pathname.startsWith("/survey/") || pathname.startsWith("/contract/")) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
     return NextResponse.next({ request: { headers: requestHeaders } });
