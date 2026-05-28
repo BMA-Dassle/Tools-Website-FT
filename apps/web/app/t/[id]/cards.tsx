@@ -75,7 +75,13 @@ export const TICKET_PULSE_CSS = `
   }
 `;
 
-export function CheckingInCard({ details }: { details: CardDetails }) {
+export function CheckingInCard({
+  details,
+  children,
+}: {
+  details: CardDetails;
+  children?: React.ReactNode;
+}) {
   const trackColor = trackColorFor(details);
   return (
     <div
@@ -163,6 +169,7 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
           </p>
         )}
       </div>
+      {children}
     </div>
   );
 }
@@ -170,9 +177,11 @@ export function CheckingInCard({ details }: { details: CardDetails }) {
 export function PreRaceCard({
   details,
   loadingStatus,
+  children,
 }: {
   details: CardDetails;
   loadingStatus?: boolean;
+  children?: React.ReactNode;
 }) {
   const trackColor = trackColorFor(details);
   const mins = minutesUntil(details.scheduledStart);
@@ -257,6 +266,7 @@ export function PreRaceCard({
           <p className="text-[#00E2E5]/50 font-bold text-xs mt-4">{details.resNumber}</p>
         )}
       </div>
+      {children}
     </div>
   );
 }

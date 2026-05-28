@@ -6,6 +6,7 @@ import {
 } from "@/lib/bowling-db";
 import { getSurveysForReservations } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
+import { sql } from "@/lib/db";
 
 /**
  * GET /api/admin/bowling/reservations?token=...&date=YYYY-MM-DD&center=...
@@ -73,7 +74,56 @@ export async function GET(req: NextRequest) {
       survey: surveyMap.get(String(r.id)) ?? null,
     }));
 
-    return NextResponse.json({ reservations: enriched });
+    // Group function events for the same date
+    const q = sql();
+    const gfRows = await q`
+      SELECT id, contract_short_id, event_name, event_number, event_date, event_date_display,
+             guest_first_name, guest_last_name, guest_email, guest_phone, guest_count,
+             planner_first, planner_last, planner_email, planner_phone,
+             center_code, brand, status, total_cents, tax_cents, deposit_due_cents, balance_cents,
+             square_deposit_order_id, square_dayof_order_id, square_gift_card_gan,
+             square_customer_id, saved_card_id, deposit_paid_at, balance_paid_at,
+             line_items, notes, created_at
+      FROM group_function_quotes
+      WHERE event_date::date = ${date}::date
+        AND status NOT IN ('cancelled', 'denied')
+        ${center ? q`AND center_code = ${center}` : q``}
+      ORDER BY event_date ASC
+    `;
+    const groupEvents = gfRows.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      contractShortId: r.contract_short_id,
+      eventName: r.event_name,
+      eventNumber: r.event_number,
+      eventDate: r.event_date,
+      eventDateDisplay: r.event_date_display,
+      guestName: `${r.guest_first_name} ${r.guest_last_name}`,
+      guestEmail: r.guest_email,
+      guestPhone: r.guest_phone,
+      guestCount: r.guest_count,
+      plannerName: r.planner_first ? `${r.planner_first} ${r.planner_last || ""}`.trim() : null,
+      plannerEmail: r.planner_email,
+      plannerPhone: r.planner_phone,
+      centerCode: r.center_code,
+      brand: r.brand,
+      status: r.status,
+      totalCents: r.total_cents,
+      taxCents: r.tax_cents,
+      depositDueCents: r.deposit_due_cents,
+      balanceCents: r.balance_cents,
+      squareDepositOrderId: r.square_deposit_order_id,
+      squareDayofOrderId: r.square_dayof_order_id,
+      squareGiftCardGan: r.square_gift_card_gan,
+      squareCustomerId: r.square_customer_id,
+      savedCardId: r.saved_card_id,
+      depositPaidAt: r.deposit_paid_at,
+      balancePaidAt: r.balance_paid_at,
+      lineItems: r.line_items,
+      notes: r.notes,
+      createdAt: r.created_at,
+    }));
+
+    return NextResponse.json({ reservations: enriched, groupEvents });
   } catch (err) {
     console.error("[admin/bowling/reservations]", err);
     return NextResponse.json({ error: "Failed to load reservations" }, { status: 500 });

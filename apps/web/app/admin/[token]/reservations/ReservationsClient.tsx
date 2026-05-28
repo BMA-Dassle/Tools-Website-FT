@@ -66,6 +66,38 @@ interface Reservation {
   lines: ReservationLine[];
 }
 
+interface GroupEvent {
+  id: number;
+  contractShortId: string;
+  eventName: string;
+  eventNumber: string;
+  eventDate: string;
+  eventDateDisplay: string;
+  guestName: string;
+  guestEmail: string;
+  guestPhone: string | null;
+  guestCount: number | null;
+  plannerName: string | null;
+  plannerEmail: string | null;
+  plannerPhone: string | null;
+  centerCode: string;
+  brand: string;
+  status: string;
+  totalCents: number;
+  depositDueCents: number;
+  balanceCents: number;
+  squareDepositOrderId: string | null;
+  squareDayofOrderId: string | null;
+  squareGiftCardGan: string | null;
+  squareCustomerId: string | null;
+  savedCardId: string | null;
+  depositPaidAt: string | null;
+  balancePaidAt: string | null;
+  lineItems: Array<{ name: string; qty: number; total: number }>;
+  notes: string | null;
+  createdAt: string;
+}
+
 interface SquareLineItem {
   uid: string;
   name: string;
@@ -1616,6 +1648,7 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [hideWalkins, setHideWalkins] = useState(true);
   const [kindFilter, setKindFilter] = useState<string | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [groupEvents, setGroupEvents] = useState<GroupEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -1623,7 +1656,12 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Reservation | null>(null);
   const [checkinTarget, setCheckinTarget] = useState<Reservation | null>(null);
-  const [orderTarget, setOrderTarget] = useState<Reservation | null>(null);
+  const [orderTarget, setOrderTarget] = useState<{
+    guestName: string;
+    squareDayofOrderId: string | null;
+    rewardDiscountCents: number;
+    squareLoyaltyRewardId?: string | null;
+  } | null>(null);
   const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderMeta, setOrderMeta] = useState<{
@@ -1676,11 +1714,13 @@ export default function ReservationsClient({ token }: { token: string }) {
         }
         const data = await res.json();
         setReservations(data.reservations ?? []);
+        setGroupEvents(data.groupEvents ?? []);
         setError(null);
       } catch (err) {
         if (!silent) {
           setError(err instanceof Error ? err.message : "Failed to load");
           setReservations([]);
+          setGroupEvents([]);
         }
       } finally {
         setLoading(false);
@@ -2376,12 +2416,229 @@ export default function ReservationsClient({ token }: { token: string }) {
           >
             {error}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : filtered.length === 0 && groupEvents.length === 0 ? (
           <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
             {search ? "No matching reservations." : "No reservations for this date."}
           </div>
         ) : (
           <>
+            {/* ── Group Function Events ────────────────────────── */}
+            {groupEvents.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: 1,
+                    color: "#22d3ee",
+                    marginBottom: 8,
+                  }}
+                >
+                  Group Events ({groupEvents.length})
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {groupEvents.map((ge) => {
+                    const statusColors: Record<string, string> = {
+                      contract_sent: "#f59e0b",
+                      deposit_paid: "#22c55e",
+                      balance_charged: "#22d3ee",
+                      completed: "#22d3ee",
+                      resign_required: "#ef4444",
+                      cancelled: "#ef4444",
+                    };
+                    const sColor = statusColors[ge.status] || "#94a3b8";
+                    const fmtD = (c: number) => `$${(c / 100).toFixed(2)}`;
+                    return (
+                      <div
+                        key={ge.id}
+                        style={{
+                          borderRadius: 8,
+                          border: `1px solid ${sColor}33`,
+                          backgroundColor: "var(--ba-bg2)",
+                          padding: "10px 12px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 4,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontWeight: 700, fontSize: 14 }}>{ge.eventName}</span>
+                            <span style={{ fontSize: 11, color: "var(--ba-muted)" }}>
+                              #{ge.eventNumber}
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: sColor,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {ge.status.replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "4px 16px",
+                            fontSize: 12,
+                            color: "var(--ba-muted)",
+                          }}
+                        >
+                          <span>{ge.eventDateDisplay}</span>
+                          <span>{ge.guestName}</span>
+                          {ge.guestPhone && <span>{ge.guestPhone}</span>}
+                          {ge.guestCount && <span>{ge.guestCount} guests</span>}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "4px 12px",
+                            fontSize: 12,
+                            marginTop: 4,
+                          }}
+                        >
+                          <span style={{ color: "#22c55e", fontWeight: 600 }}>
+                            Deposit: {fmtD(ge.depositDueCents)}
+                          </span>
+                          <span>Balance: {fmtD(ge.balanceCents)}</span>
+                          <span style={{ fontWeight: 700 }}>Total: {fmtD(ge.totalCents)}</span>
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "4px 12px",
+                            fontSize: 11,
+                            marginTop: 4,
+                            color: "var(--ba-muted)",
+                          }}
+                        >
+                          {ge.squareGiftCardGan && (
+                            <span>
+                              GAN:{" "}
+                              {(() => {
+                                try {
+                                  const g = JSON.parse(ge.squareGiftCardGan);
+                                  return Array.isArray(g) ? g.join(", ") : ge.squareGiftCardGan;
+                                } catch {
+                                  return ge.squareGiftCardGan;
+                                }
+                              })()}
+                            </span>
+                          )}
+                          {ge.plannerName && <span>Planner: {ge.plannerName}</span>}
+                          {ge.savedCardId && <span style={{ color: "#22c55e" }}>Card on file</span>}
+                          {!ge.savedCardId && ge.depositPaidAt && (
+                            <span style={{ color: "#f59e0b" }}>No card saved</span>
+                          )}
+                          {ge.depositPaidAt && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0 4px",
+                                borderRadius: 3,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                backgroundColor: "rgba(34,197,94,0.15)",
+                                color: "#22c55e",
+                                border: "1px solid rgba(34,197,94,0.3)",
+                              }}
+                            >
+                              Deposit Paid
+                            </span>
+                          )}
+                          {ge.balancePaidAt && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0 4px",
+                                borderRadius: 3,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                backgroundColor: "rgba(34,211,238,0.15)",
+                                color: "#22d3ee",
+                                border: "1px solid rgba(34,211,238,0.3)",
+                              }}
+                            >
+                              Balance Paid
+                            </span>
+                          )}
+                          {ge.squareDayofOrderId && !ge.balancePaidAt && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0 4px",
+                                borderRadius: 3,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                backgroundColor: "rgba(245,158,11,0.15)",
+                                color: "#f59e0b",
+                                border: "1px solid rgba(245,158,11,0.3)",
+                              }}
+                            >
+                              Balance Pending
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                          {ge.contractShortId && (
+                            <a
+                              href={`/contract/${ge.contractShortId}`}
+                              target="_blank"
+                              rel="noopener"
+                              style={{
+                                fontSize: 11,
+                                color: "#22d3ee",
+                                textDecoration: "none",
+                                fontWeight: 600,
+                              }}
+                            >
+                              View Contract
+                            </a>
+                          )}
+                          {ge.squareDayofOrderId && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOrderTarget({
+                                  guestName: ge.eventName,
+                                  squareDayofOrderId: ge.squareDayofOrderId,
+                                  rewardDiscountCents: 0,
+                                })
+                              }
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                padding: 0,
+                                fontSize: 11,
+                                color: "#22d3ee",
+                                fontWeight: 600,
+                                textDecoration: "underline",
+                                textDecorationColor: "rgba(34,211,238,0.3)",
+                              }}
+                            >
+                              View Square Order
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* ── Mobile card list (<md) ────────────────────────── */}
             <div className="md:hidden flex flex-col gap-1.5">
               {filtered.map((r) => {
@@ -2688,7 +2945,14 @@ export default function ReservationsClient({ token }: { token: string }) {
                         {r.squareDayofOrderId && (
                           <button
                             type="button"
-                            onClick={() => setOrderTarget(r)}
+                            onClick={() =>
+                              setOrderTarget({
+                                guestName: r.guestName || "Guest",
+                                squareDayofOrderId: r.squareDayofOrderId ?? null,
+                                rewardDiscountCents: r.rewardDiscountCents,
+                                squareLoyaltyRewardId: r.squareLoyaltyRewardId,
+                              })
+                            }
                             style={{
                               background: "none",
                               border: "none",
@@ -3198,7 +3462,14 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {r.squareDayofOrderId ? (
                             <button
                               type="button"
-                              onClick={() => setOrderTarget(r)}
+                              onClick={() =>
+                                setOrderTarget({
+                                  guestName: r.guestName || "Guest",
+                                  squareDayofOrderId: r.squareDayofOrderId ?? null,
+                                  rewardDiscountCents: r.rewardDiscountCents,
+                                  squareLoyaltyRewardId: r.squareLoyaltyRewardId,
+                                })
+                              }
                               style={{
                                 background: "none",
                                 border: "none",

@@ -50,3 +50,5 @@ yarn-error.log*
 # grants that frequently include curl commands with bearer tokens / API keys.
 .claude/settings.local.json
 .claude/worktrees/
+.vercel
+.env*.local

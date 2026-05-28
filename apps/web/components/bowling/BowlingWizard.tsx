@@ -1112,8 +1112,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       selectedExperience.kind === "hourly"
     : false;
 
-  // 1 lane per 6 bowlers (round up), minimum 1.  Only counts when per-lane.
-  const laneCount = selectedIsPerLane ? Math.max(1, Math.ceil(activePlayerCount / 6)) : 1;
+  // 1 lane per 6 bowlers (round up), minimum 1.
+  // Always computed — per-lane add-ons (C&S) need it even in per-person experiences.
+  const laneCount = Math.max(1, Math.ceil(activePlayerCount / 6));
 
   // Per-lane → scale by lanes.  Per-person → scale by player count.
   // These are mutually exclusive — never both.
@@ -1199,7 +1200,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     const qty =
       item.sortOrder === 0
         ? item.quantity * qtyMultiplier * durationMultiplier
-        : item.quantity * qtyMultiplier;
+        : item.quantity * laneCount;
     return s + priceCents * qty;
   }, 0);
   const basePreTaxDeposit = baseItems.reduce((s, item) => {
@@ -1207,7 +1208,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
     const qty =
       item.sortOrder === 0
         ? item.quantity * qtyMultiplier * durationMultiplier
-        : item.quantity * qtyMultiplier;
+        : item.quantity * laneCount;
     return s + Math.round(priceCents * qty * (depositPct / 100));
   }, 0);
 
@@ -1349,7 +1350,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
               ? selectedDurationOpt!.overrideSquareProductId!
               : item.squareProductId,
             quantity:
-              item.quantity * qtyMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+              item.sortOrder === 0
+                ? item.quantity * qtyMultiplier * durationMultiplier
+                : item.quantity * laneCount,
           };
         })),
     ...shoeProducts
@@ -1808,7 +1811,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   : item.label
                 : item.label,
               quantity: String(
-                item.quantity * qtyMultiplier * (item.sortOrder === 0 ? durationMultiplier : 1),
+                item.sortOrder === 0
+                  ? item.quantity * qtyMultiplier * durationMultiplier
+                  : item.quantity * laneCount,
               ),
               catalogObjectId: useOverride
                 ? selectedDurationOpt!.overrideCatalogObjectId!
@@ -5670,17 +5675,20 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   baseItems.map((item, idx) => {
                     const { priceCents: itemPrice } = effectiveItemPrice(item);
                     const qty =
-                      item.quantity *
-                      qtyMultiplier *
-                      (item.sortOrder === 0 ? durationMultiplier : 1);
+                      item.sortOrder === 0
+                        ? item.quantity * qtyMultiplier * durationMultiplier
+                        : item.quantity * laneCount;
                     return (
                       <div key={idx} className="flex justify-between text-sm">
                         <span className="font-body text-white/55">
                           {item.label}
-                          {selectedIsPerLane && laneCount > 1 && (
+                          {item.sortOrder > 0 && laneCount > 1 && (
                             <span className="text-white/35"> × {laneCount} lanes</span>
                           )}
-                          {!selectedIsPerLane && activePlayerCount > 1 && (
+                          {item.sortOrder === 0 && selectedIsPerLane && laneCount > 1 && (
+                            <span className="text-white/35"> × {laneCount} lanes</span>
+                          )}
+                          {item.sortOrder === 0 && !selectedIsPerLane && activePlayerCount > 1 && (
                             <span className="text-white/35"> × {activePlayerCount} people</span>
                           )}
                           {item.sortOrder === 0 && durationMultiplier > 1 && (

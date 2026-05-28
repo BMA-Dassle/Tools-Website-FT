@@ -524,7 +524,9 @@ function buildSingleSmsBody(
     `FastTrax: NOW CHECKING IN`,
     `${race.raceType} Heat ${race.heatNumber} | ${timeET(race.scheduledStart)}`,
     racerLabel(member),
-    `Head to Karting (1st Floor) now: ${shortUrl}`,
+    `Head to Karting (1st Floor) now:`,
+    shortUrl,
+    `Have this open for check-in`,
   ].join("\n");
 }
 
@@ -546,7 +548,9 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     );
     for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
-  lines.push(`Head to Karting (1st Floor) now: ${shortUrl}`);
+  lines.push(`Head to Karting (1st Floor) now:`);
+  lines.push(shortUrl);
+  lines.push(`Have this open for check-in`);
   return lines.join("\n");
 }
 
@@ -558,7 +562,9 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
 function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
   return [
     `FastTrax: NOW CHECKING IN`,
-    `Your racer's heat is up - head to Karting (1st Floor) now: ${shortUrl}`,
+    `Your racer's heat is up - head to Karting (1st Floor) now:`,
+    shortUrl,
+    `Have this open for check-in`,
     `${racerLabel(member)} | ${member.track} Heat ${member.heatNumber} | ${timeET(member.scheduledStart)}`,
   ].join("\n");
 }
@@ -574,7 +580,9 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   );
   const lines: string[] = [
     `FastTrax: NOW CHECKING IN`,
-    `Your racers are up - head to Karting (1st Floor) now: ${shortUrl}`,
+    `Your racers are up - head to Karting (1st Floor) now:`,
+    shortUrl,
+    `Have this open for check-in`,
   ];
   for (const m of sorted) {
     lines.push(`${racerLabel(m)} | ${m.track} Heat ${m.heatNumber} | ${timeET(m.scheduledStart)}`);
@@ -598,7 +606,7 @@ function buildEmailHtml(race: CurrentRace, firstName: string, shortUrl: string):
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View Your E-Ticket</a>
           </p>
-          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">No paper ticket is needed. Show your e-ticket screen at check-in.</p>
+          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">Please have your e-ticket open and ready for check-in.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -650,7 +658,7 @@ function buildGroupEmailHtml(
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View E-Tickets</a>
           </p>
-          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">Show the e-ticket screen at check-in. No paper ticket needed.</p>
+          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">Please have your e-ticket open and ready for check-in.</p>
         </td></tr>
       </table>
     </td></tr>

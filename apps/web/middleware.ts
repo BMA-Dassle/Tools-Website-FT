@@ -468,7 +468,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/survey/") ||
     // Marketing unsubscribe page — linked from email footers, must work
     // on both brand domains.
-    pathname.startsWith("/marketing/");
+    pathname.startsWith("/marketing/") ||
+    // Group function contract pages — brand is determined per-contract
+    // from Neon data, not from host. Must serve on both domains.
+    pathname.startsWith("/contract/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
@@ -497,13 +500,15 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/survey/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    if (pathname.startsWith("/contract/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // Survey routes on EITHER domain: suppress the mobile Book-Now bar so
-  // it doesn't sit on top of the survey content (FastTrax bowling visitor
-  // hitting fasttraxent.com/survey/* would otherwise get the FT MobileBookBar).
-  if (pathname.startsWith("/survey/")) {
+  // Survey and contract routes on EITHER domain: suppress the mobile
+  // Book-Now bar so it doesn't overlap focused customer-flow screens.
+  if (pathname.startsWith("/survey/") || pathname.startsWith("/contract/")) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
     return NextResponse.next({ request: { headers: requestHeaders } });

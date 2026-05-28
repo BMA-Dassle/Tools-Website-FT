@@ -371,6 +371,267 @@ export function HeadPinzNaplesJsonLd() {
   );
 }
 
+// ── Recurring weekly events (Trivia Tuesday, Midnight Madness, Mega Track) ──
+//
+// Each emits a single Event with `eventSchedule` for weekly recurrence. Google
+// reads the byDay/repeatFrequency/scheduleTimezone fields to materialize the
+// next occurrence in rich results — no need to compute "next Friday" at
+// request time and re-stamp startDate every render.
+//
+// `scheduleTimezone: America/New_York` handles DST transitions automatically,
+// so the 7pm trivia stays 7pm local across the year without our code knowing
+// when DST flips.
+
+interface RecurringEventArgs {
+  name: string;
+  description: string;
+  url: string;
+  image: string;
+  byDay: string | string[]; // schema.org/Monday … schema.org/Sunday
+  startTime: string; // "HH:MM:SS"
+  endTime: string; // "HH:MM:SS" — if < startTime, Google reads end as next day
+  locationName: string;
+  streetAddress: string;
+  addressLocality: string;
+  addressRegion: string;
+  postalCode: string;
+  organizerName: string;
+  organizerUrl: string;
+  /** Optional offer; omit for "varies / see venue" pricing. */
+  price?: string;
+}
+
+function recurringEventSchema({
+  name,
+  description,
+  url,
+  image,
+  byDay,
+  startTime,
+  endTime,
+  locationName,
+  streetAddress,
+  addressLocality,
+  addressRegion,
+  postalCode,
+  organizerName,
+  organizerUrl,
+  price,
+}: RecurringEventArgs) {
+  const days = Array.isArray(byDay) ? byDay : [byDay];
+  return {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    name,
+    description,
+    url,
+    image: [image],
+    location: {
+      "@type": "Place",
+      name: locationName,
+      address: {
+        "@type": "PostalAddress",
+        streetAddress,
+        addressLocality,
+        addressRegion,
+        postalCode,
+        addressCountry: "US",
+      },
+    },
+    organizer: {
+      "@type": "Organization",
+      name: organizerName,
+      url: organizerUrl,
+    },
+    eventSchedule: {
+      "@type": "Schedule",
+      byDay: days.map((d) => `https://schema.org/${d}`),
+      startTime,
+      endTime,
+      repeatFrequency: "P1W",
+      scheduleTimezone: "America/New_York",
+    },
+    eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+    eventStatus: "https://schema.org/EventScheduled",
+    ...(price !== undefined
+      ? {
+          offers: {
+            "@type": "Offer",
+            price,
+            priceCurrency: "USD",
+            availability: "https://schema.org/InStock",
+            url,
+          },
+        }
+      : {}),
+  };
+}
+
+export function TriviaTuesdayJsonLd() {
+  const schema = recurringEventSchema({
+    name: "Trivia Tuesday at HeadPinz Fort Myers",
+    description:
+      "Weekly trivia night at HeadPinz Fort Myers. Free to play, food and drink specials at the bar, prizes for top teams.",
+    url: "https://headpinz.com/fort-myers",
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    byDay: "Tuesday",
+    startTime: "19:00:00",
+    endTime: "21:00:00",
+    locationName: "HeadPinz Fort Myers",
+    streetAddress: "14513 Global Parkway",
+    addressLocality: "Fort Myers",
+    addressRegion: "FL",
+    postalCode: "33913",
+    organizerName: "HeadPinz",
+    organizerUrl: "https://headpinz.com",
+    price: "0",
+  });
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
+// Midnight Madness runs at BOTH HeadPinz centers (Fort Myers + Naples) on the
+// same nights. Schema.org Event entries with multi-location are awkward in
+// rich results — Google prefers one Event per venue. So we expose a
+// `location` prop and emit one Event per page (rendered on the matching
+// /fort-myers and /naples landing pages).
+type HeadPinzLocation = "fort-myers" | "naples";
+
+const MIDNIGHT_MADNESS_VENUES: Record<
+  HeadPinzLocation,
+  {
+    locationName: string;
+    streetAddress: string;
+    addressLocality: string;
+    postalCode: string;
+    url: string;
+  }
+> = {
+  "fort-myers": {
+    locationName: "HeadPinz Fort Myers",
+    streetAddress: "14513 Global Parkway",
+    addressLocality: "Fort Myers",
+    postalCode: "33913",
+    url: "https://headpinz.com/fort-myers",
+  },
+  naples: {
+    locationName: "HeadPinz Naples",
+    streetAddress: "8525 Radio Lane",
+    addressLocality: "Naples",
+    postalCode: "34104",
+    url: "https://headpinz.com/naples",
+  },
+};
+
+export function MidnightMadnessJsonLd({ location }: { location: HeadPinzLocation }) {
+  const venue = MIDNIGHT_MADNESS_VENUES[location];
+  const schema = recurringEventSchema({
+    name: `Midnight Madness at ${venue.locationName}`,
+    description: `Late-night unlimited bowling at ${venue.locationName} every Friday and Saturday from 11:59 PM to 2 AM. Cosmic lighting, music, full bar.`,
+    url: venue.url,
+    image:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
+    byDay: ["Friday", "Saturday"],
+    startTime: "23:59:00",
+    endTime: "02:00:00",
+    locationName: venue.locationName,
+    streetAddress: venue.streetAddress,
+    addressLocality: venue.addressLocality,
+    addressRegion: "FL",
+    postalCode: venue.postalCode,
+    organizerName: "HeadPinz",
+    organizerUrl: "https://headpinz.com",
+    // Price varies (regular vs. VIP lanes) — omit `price` so Google doesn't
+    // print a misleading single number.
+  });
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
+export function MegaTrackTuesdayJsonLd() {
+  const schema = recurringEventSchema({
+    name: "Mega Track Tuesday at FastTrax",
+    description:
+      "Every Tuesday FastTrax pulls the barrier between Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. All kart classes (Adult, Junior, Mini) race for a flat $20.99. First-time Junior racers excluded.",
+    url: "https://fasttraxent.com/racing",
+    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
+    byDay: "Tuesday",
+    startTime: "15:00:00",
+    endTime: "23:00:00",
+    locationName: "FastTrax Entertainment",
+    streetAddress: "14501 Global Parkway",
+    addressLocality: "Fort Myers",
+    addressRegion: "FL",
+    postalCode: "33913",
+    organizerName: "FastTrax Entertainment",
+    organizerUrl: "https://fasttraxent.com",
+    price: "20.99",
+  });
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
+// ── Article (BlogPosting) ────────────────────────────────────────────────────
+
+export function ArticleJsonLd({
+  url,
+  headline,
+  description,
+  image,
+  datePublished,
+  dateModified,
+  authorName,
+  publisherName,
+  publisherLogo,
+}: {
+  url: string;
+  headline: string;
+  description: string;
+  image: string;
+  datePublished: string;
+  dateModified?: string;
+  authorName: string;
+  publisherName: string;
+  publisherLogo: string;
+}) {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    url,
+    headline,
+    description,
+    image: [image],
+    datePublished,
+    dateModified: dateModified ?? datePublished,
+    author: { "@type": "Organization", name: authorName },
+    publisher: {
+      "@type": "Organization",
+      name: publisherName,
+      logo: { "@type": "ImageObject", url: publisherLogo },
+    },
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
 export function FAQJsonLd({ faqs }: { faqs: { question: string; answer: string }[] }) {
   const schema = {
     "@context": "https://schema.org",

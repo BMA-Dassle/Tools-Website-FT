@@ -54,10 +54,11 @@ export interface GiftCardInfo {
  *   RACE…  v2 race bookings
  *   ATTR…  v2 attraction bookings
  *   DEPX…  Older format, still possible in the wild
+ *   GRPF…  Group function event deposits
  */
 export function isInternalDepositGan(gan: string | null | undefined): boolean {
   if (!gan) return false;
-  return /^(HPFM|HPN|DEPX|RACE|ATTR)/i.test(gan);
+  return /^(HPFM|HPN|DEPX|RACE|ATTR|GRPF)/i.test(gan);
 }
 
 /**
@@ -1006,6 +1007,46 @@ export async function appendCustomerNote(params: {
   if (!putRes.ok) {
     throw new SquarePaymentError("CUSTOMER_PUT_FAILED", `status ${putRes.status}`, putRes.status);
   }
+}
+
+/**
+ * LOAD an existing gift card with additional funds.
+ *
+ * Unlike ACTIVATE (first-time balance set), LOAD adds to the existing
+ * balance. Used by the 72-hour group function balance collection to
+ * bring the gift card from 50% deposit to 100% of the event total.
+ */
+export async function loadGiftCard(params: {
+  giftCardId: string;
+  locationId: string;
+  amountCents: number;
+  baseKey: string;
+  buyerPaymentInstrumentIds?: string[];
+}): Promise<{ balanceCents: number }> {
+  const res = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `gc-load-${params.baseKey}`,
+      gift_card_activity: {
+        type: "LOAD",
+        location_id: params.locationId,
+        gift_card_id: params.giftCardId,
+        load_activity_details: {
+          amount_money: { amount: params.amountCents, currency: "USD" },
+          buyer_payment_instrument_ids: params.buyerPaymentInstrumentIds ?? [],
+        },
+      },
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.errors) {
+    const sqErr = data.errors?.[0];
+    const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(data);
+    throw new SquarePaymentError(sqErr?.code ?? "GIFT_CARD_LOAD_FAILED", detail, res.status);
+  }
+  const balance = data.gift_card_activity?.gift_card_balance_money?.amount ?? 0;
+  return { balanceCents: balance };
 }
 
 /** Reset the in-process loyalty-program cache. Test-only. @internal */

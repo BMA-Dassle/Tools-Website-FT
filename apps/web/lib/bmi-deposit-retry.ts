@@ -40,6 +40,7 @@ import { sql, isDbConfigured } from "@/lib/db";
 export type DepositFailureSource =
   | "race-pack-square" // /api/square/pay — addDeposit failed after Square charge
   | "pov-claim" // /api/pov-codes?action=claim-from-credit — deduct failed
+  | "headsock-checkin" // /api/admin/checkin — headsock deposit deduct failed
   | "manual" // staff-entered backfill row
   | "sales-log-backfill"; // one-time import from old sales_log.deposit_credit_pending rows
 

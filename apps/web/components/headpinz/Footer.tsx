@@ -156,6 +156,10 @@ export default function HeadPinzFooter() {
               Careers
             </a>
             <span className="mx-2">&middot;</span>
+            <Link href="/blog" className="hover:text-white/60 transition-colors">
+              Family Fun Guide
+            </Link>
+            <span className="mx-2">&middot;</span>
             <Link href="/accessibility" className="hover:text-white/60 transition-colors">
               Accessibility
             </Link>

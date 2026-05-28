@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { checkinQrDataUrl } from "@/lib/qr-checkin";
+import { modalBackdropProps } from "@/lib/a11y";
 import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
 import {
   CheckingInCard,
@@ -244,6 +246,79 @@ export default function GroupETicketView({ group, initial }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.id, group.locationId]);
 
+  const [qrByMember, setQrByMember] = useState<Record<string, string>>({});
+  const [fullscreenQrKey, setFullscreenQrKey] = useState<string | null>(null);
+  const qrGenerated = useRef(false);
+  const [headsockByPerson, setHeadsockByPerson] = useState<Record<string, number>>({});
+  const headsockChecked = useRef(false);
+  useEffect(() => {
+    if (qrGenerated.current) return;
+    qrGenerated.current = true;
+    const targets: { key: string; pid: string; sid: string }[] = [];
+    for (const m of group.members) {
+      const pid = String(m.personId ?? "").trim();
+      const sid = String(m.sessionId ?? "").trim();
+      if (!pid || !sid || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) continue;
+      targets.push({ key: memberKey(m), pid, sid });
+    }
+    Promise.all(
+      targets.map(async (t) => {
+        try {
+          const url = await checkinQrDataUrl(t.pid, t.sid);
+          return { key: t.key, url };
+        } catch {
+          return null;
+        }
+      }),
+    ).then((results) => {
+      const out: Record<string, string> = {};
+      for (const r of results) if (r) out[r.key] = r.url;
+      setQrByMember(out);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.id]);
+
+  useEffect(() => {
+    if (headsockChecked.current) return;
+    headsockChecked.current = true;
+    const hsKindId = "48069703";
+    const seen = new Set<string>();
+    const targets: string[] = [];
+    for (const m of group.members) {
+      const pid = String(m.personId ?? "").trim();
+      if (!pid || !/^\d+$/.test(pid) || seen.has(pid)) continue;
+      seen.add(pid);
+      targets.push(pid);
+    }
+    const ac = new AbortController();
+    Promise.all(
+      targets.map(async (pid) => {
+        try {
+          const res = await fetch(
+            `/api/pandora/deposits/${encodeURIComponent(pid)}?locationId=${encodeURIComponent(group.locationId)}`,
+            { cache: "no-store", signal: ac.signal },
+          );
+          if (!res.ok) return null;
+          const json = await res.json();
+          const rows = Array.isArray(json?.data) ? json.data : [];
+          const row = rows.find(
+            (r: { OUT_DPK_ID: number | string }) => String(r.OUT_DPK_ID) === hsKindId,
+          );
+          if (row && row.OUT_DPS_AMOUNT > 0) return { pid, balance: row.OUT_DPS_AMOUNT };
+          return null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((results) => {
+      const out: Record<string, number> = {};
+      for (const r of results) if (r) out[r.pid] = r.balance;
+      setHeadsockByPerson(out);
+    });
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group.id, group.locationId]);
+
   const racerCount = group.members.length;
   const distinctHeats = new Set(group.members.map((m) => String(m.sessionId))).size;
   const earliest = earliestStart(group.members);
@@ -339,16 +414,68 @@ export default function GroupETicketView({ group, initial }: Props) {
                         ) : isPast ? (
                           <PastCard details={m} />
                         ) : s.checkingIn ? (
-                          <CheckingInCard details={m} />
+                          <CheckingInCard details={m}>
+                            {s.onSession && qrByMember[key] && (
+                              <>
+                                {(headsockByPerson[String(m.personId)] ?? 0) > 0 && (
+                                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
+                                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                                      Headsock Credit
+                                    </p>
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setFullscreenQrKey(key)}
+                                  className="w-full flex flex-col items-center gap-2 py-4 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
+                                >
+                                  <div className="bg-white rounded-lg p-1.5">
+                                    <img
+                                      src={qrByMember[key]}
+                                      alt={`QR for ${m.firstName}`}
+                                      data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
+                                      width={100}
+                                      height={100}
+                                      className="block"
+                                    />
+                                  </div>
+                                  <p className="text-white/50 text-xs">Tap to open full screen</p>
+                                </button>
+                              </>
+                            )}
+                          </CheckingInCard>
                         ) : (
-                          <PreRaceCard details={m} loadingStatus={loadingStatus} />
+                          <PreRaceCard details={m} loadingStatus={loadingStatus}>
+                            {s.onSession && qrByMember[key] && (
+                              <>
+                                {(headsockByPerson[String(m.personId)] ?? 0) > 0 && (
+                                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
+                                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                                      Headsock Credit
+                                    </p>
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setFullscreenQrKey(key)}
+                                  className="w-full flex flex-col items-center gap-2 py-4 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
+                                >
+                                  <div className="bg-white rounded-lg p-1.5">
+                                    <img
+                                      src={qrByMember[key]}
+                                      alt={`QR for ${m.firstName}`}
+                                      data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
+                                      width={100}
+                                      height={100}
+                                      className="block"
+                                    />
+                                  </div>
+                                  <p className="text-white/50 text-xs">Tap to open full screen</p>
+                                </button>
+                              </>
+                            )}
+                          </PreRaceCard>
                         )}
-                        {/* Per-member ViewPoint voucher block — sits
-                            directly under the member's ticket card so
-                            it's clearly THEIR codes (not the
-                            household's). Hidden on past heats; the
-                            heads-up email/SMS has already fired by
-                            then. */}
                         {!isPast && memberPov && memberPov.codes.length > 0 && (
                           <div className="mt-3">
                             <PovVoucherBlock
@@ -410,10 +537,37 @@ export default function GroupETicketView({ group, initial }: Props) {
         <div className="mt-6 text-center">
           <p className="text-white/30 text-xs">14501 Global Parkway, Fort Myers, FL 33913</p>
           <p className="text-white/20 text-[11px] mt-1">
-            Show this screen at check-in · No paper ticket needed
+            Please have your e-ticket open and ready at check-in
           </p>
         </div>
       </div>
+
+      {fullscreenQrKey &&
+        qrByMember[fullscreenQrKey] &&
+        (() => {
+          const m = group.members.find((m) => memberKey(m) === fullscreenQrKey);
+          if (!m) return null;
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center px-6"
+              {...modalBackdropProps(() => setFullscreenQrKey(null))}
+            >
+              <img
+                src={qrByMember[fullscreenQrKey]}
+                alt="Check-in QR"
+                className="block"
+                style={{ width: "min(280px, 70vw)", height: "min(280px, 70vw)" }}
+              />
+              <p className="mt-4 text-black font-bold text-2xl sm:text-3xl text-center">
+                {m.firstName} {m.lastName}
+              </p>
+              <p className="mt-1 text-black/60 text-sm uppercase tracking-wider">
+                Scan at Check-In
+              </p>
+              <p className="mt-6 text-black/30 text-xs">Tap anywhere to close</p>
+            </div>
+          );
+        })()}
     </div>
   );
 }

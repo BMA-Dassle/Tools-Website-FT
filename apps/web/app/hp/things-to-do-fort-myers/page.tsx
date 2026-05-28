@@ -312,6 +312,38 @@ export default function ThingsToDoFortMyersHpPage() {
         </div>
       </section>
 
+      {/* Family Fun Guide cross-link — the blog's lead post is the deeper
+          version of this hub, so the contextual link is natural here. */}
+      <section style={{ padding: "0 clamp(16px, 4vw, 32px) 40px" }}>
+        <div className="max-w-5xl mx-auto">
+          <Link
+            href="/blog/best-indoor-activities-fort-myers"
+            className="rounded-2xl p-6 transition-transform hover:scale-[1.01] block"
+            style={{
+              backgroundColor: "rgba(253,91,86,0.08)",
+              border: "1px solid rgba(253,91,86,0.35)",
+            }}
+          >
+            <div
+              className="uppercase font-bold mb-2"
+              style={{ color: "#fd5b56", fontSize: "11px", letterSpacing: "2px" }}
+            >
+              Family Fun Guide · Read more
+            </div>
+            <h3
+              className="font-heading font-black uppercase text-white mb-2"
+              style={{ fontSize: "20px", letterSpacing: "-0.3px" }}
+            >
+              The Best Indoor Activities for Families in Fort Myers (Rain or Shine)
+            </h3>
+            <p className="font-body text-white/75" style={{ fontSize: "14px", lineHeight: 1.6 }}>
+              The full breakdown — GameZone arcade, laser tag, ropes course, bowling, dining, and
+              birthday-party tips for any weather.
+            </p>
+          </Link>
+        </div>
+      </section>
+
       {/* CTA */}
       <section
         style={{ padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)" }}

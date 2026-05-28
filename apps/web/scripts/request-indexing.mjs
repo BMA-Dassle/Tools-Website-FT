@@ -52,14 +52,23 @@ async function getToken() {
   return d.access_token;
 }
 
-const urls = [
-  "https://headpinz.com/fort-myers/group-events",
-  "https://headpinz.com/careers",
-  "https://headpinz.com/fort-myers",
-  "https://headpinz.com/naples",
-  "https://headpinz.com/fort-myers/group-events",
-  "https://headpinz.com/naples/group-events",
-];
+// URLs to (re)ping. Pass `--url=<u>` flags on the CLI to override, e.g.:
+//   node scripts/request-indexing.mjs --url=https://headpinz.com/foo --url=https://headpinz.com/bar
+// Otherwise the default list below is used.
+const cliUrls = process.argv
+  .filter((a) => a.startsWith("--url="))
+  .map((a) => a.slice("--url=".length));
+
+const urls =
+  cliUrls.length > 0
+    ? cliUrls
+    : [
+        "https://headpinz.com/blog",
+        "https://headpinz.com/blog/best-indoor-activities-fort-myers",
+        // Pages whose internal-link graph changed when we added the blog —
+        // re-ping so Google re-crawls and picks up the new outbound links.
+        "https://headpinz.com/things-to-do-fort-myers",
+      ];
 
 const token = await getToken();
 console.log("✅ Authenticated with Google Indexing API\n");

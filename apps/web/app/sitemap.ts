@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { listAlternatives } from "@/lib/alternatives-data";
+import { getAllPosts } from "@/lib/blog/posts";
 
 /**
  * Per-domain sitemap. Both fasttraxent.com and headpinz.com hit the same
@@ -125,6 +126,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: now,
       changeFrequency: "monthly" as const,
       priority: 0.6,
+    })),
+    // Blog (Family Fun Guide). Hub + per-post entries. Posts use their own
+    // publishedAt/updatedAt for lastModified so crawlers see real freshness
+    // signals instead of "everything updated today."
+    { url: `${hp}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    ...getAllPosts("headpinz").map((p) => ({
+      url: `${hp}/blog/${p.meta.slug}`,
+      lastModified: new Date(`${p.meta.updatedAt ?? p.meta.publishedAt}T00:00:00Z`),
+      changeFrequency: "monthly" as const,
+      priority: 0.65,
     })),
   ];
 

@@ -265,29 +265,32 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Step 3: Save card on file (if requested + customer exists) ────
-    // Only runs when an actual card was used and the customer wanted
-    // to save it. GC-only payments produce no saveable instrument.
+    // Square docs: use the paymentId (not the nonce) as source_id for CreateCard.
+    // The nonce is consumed by payment; the paymentId is the handle to save from.
+    // https://developer.squareup.com/docs/cards-api/walkthrough/card-from-payment-id
     let savedNewCardId: string | null = null;
-    if (saveCard && squareCustomerId && !useSavedCard && token && cardPaymentId) {
+    if (saveCard && squareCustomerId && !useSavedCard && cardPaymentId) {
       try {
         const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
           method: "POST",
           headers: sqHeaders(),
           body: JSON.stringify({
             idempotency_key: `card-${baseKey}`,
-            source_id: token,
+            source_id: cardPaymentId,
             card: {
               customer_id: squareCustomerId,
             },
           }),
         });
         const cardData = await cardRes.json();
-        if (cardData.card) {
+        if (cardRes.ok && cardData.card) {
           savedNewCardId = cardData.card.id;
           console.log("[square/pay] card saved:", savedNewCardId);
+        } else {
+          console.error("[square/pay] card save failed:", JSON.stringify(cardData).slice(0, 300));
         }
-      } catch {
-        console.warn("[square/pay] card save failed (non-fatal)");
+      } catch (err) {
+        console.error("[square/pay] card save error:", err);
       }
     }
 

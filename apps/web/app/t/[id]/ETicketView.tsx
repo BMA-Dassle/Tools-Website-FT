@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { RaceTicket } from "@/lib/race-tickets";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { checkinQrDataUrl } from "@/lib/qr-checkin";
+import { modalBackdropProps } from "@/lib/a11y";
 import {
   CheckingInCard,
   InvalidCard,
@@ -69,6 +71,11 @@ export default function ETicketView({
    *  round-trips. StrictMode in dev double-invokes the effect; the
    *  ref short-circuits the second pass. */
   const povClaimAttempted = useRef(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [fullscreenQr, setFullscreenQr] = useState(false);
+  const qrGenerated = useRef(false);
+  const [headsockCredit, setHeadsockCredit] = useState(0);
+  const headsockChecked = useRef(false);
 
   const mins = minutesUntil(ticket.scheduledStart);
   // Hard fallback for tickets viewed long after the heat with no called signal.
@@ -180,6 +187,44 @@ export default function ETicketView({
     return () => ac.abort();
   }, [ticket.personId, ticket.sessionId, ticket.locationId]);
 
+  useEffect(() => {
+    if (qrGenerated.current) return;
+    qrGenerated.current = true;
+    const pid = String(ticket.personId ?? "").trim();
+    const sid = String(ticket.sessionId ?? "").trim();
+    if (!pid || !sid || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) return;
+    checkinQrDataUrl(pid, sid)
+      .then(setQrDataUrl)
+      .catch(() => {});
+  }, [ticket.personId, ticket.sessionId]);
+
+  useEffect(() => {
+    if (headsockChecked.current) return;
+    headsockChecked.current = true;
+    const pid = String(ticket.personId ?? "").trim();
+    if (!pid || !/^\d+$/.test(pid)) return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/pandora/deposits/${encodeURIComponent(pid)}?locationId=${encodeURIComponent(ticket.locationId)}`,
+          { cache: "no-store", signal: ac.signal },
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        const rows = Array.isArray(json?.data) ? json.data : [];
+        const hsKindId = "48069703";
+        const row = rows.find(
+          (r: { OUT_DPK_ID: number | string }) => String(r.OUT_DPK_ID) === hsKindId,
+        );
+        if (row && row.OUT_DPS_AMOUNT > 0) setHeadsockCredit(row.OUT_DPS_AMOUNT);
+      } catch {
+        /* silent */
+      }
+    })();
+    return () => ac.abort();
+  }, [ticket.personId, ticket.locationId]);
+
   return (
     <div className="min-h-screen bg-[#010A20] flex items-start justify-center px-4 pt-28 sm:pt-32 pb-8">
       <style>{TICKET_PULSE_CSS}</style>
@@ -224,32 +269,73 @@ export default function ETicketView({
         ) : isPast ? (
           <PastCard details={ticket} />
         ) : checkingIn ? (
-          <CheckingInCard details={ticket} />
+          <CheckingInCard details={ticket}>
+            {onSession && qrDataUrl && (
+              <>
+                {headsockCredit > 0 && (
+                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
+                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                      Headsock Credit on File
+                    </p>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFullscreenQr(true)}
+                  className="w-full flex flex-col items-center gap-2 py-5 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
+                >
+                  <div className="bg-white rounded-lg p-2">
+                    <img
+                      src={qrDataUrl}
+                      alt="Check-in QR"
+                      data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
+                      width={140}
+                      height={140}
+                      className="block"
+                    />
+                  </div>
+                  <p className="text-white/50 text-xs">
+                    Tap to open full screen &middot; Scan at Check-In
+                  </p>
+                </button>
+              </>
+            )}
+          </CheckingInCard>
         ) : (
-          <PreRaceCard details={ticket} loadingStatus={loadingStatus} />
+          <PreRaceCard details={ticket} loadingStatus={loadingStatus}>
+            {onSession && qrDataUrl && (
+              <>
+                {headsockCredit > 0 && (
+                  <div className="bg-amber-500/15 border-t border-amber-400/30 px-4 py-2.5 text-center">
+                    <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
+                      Headsock Credit on File
+                    </p>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFullscreenQr(true)}
+                  className="w-full flex flex-col items-center gap-2 py-5 border-t border-white/10 hover:bg-white/5 active:scale-[0.99] transition-all"
+                >
+                  <div className="bg-white rounded-lg p-2">
+                    <img
+                      src={qrDataUrl}
+                      alt="Check-in QR"
+                      data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
+                      width={140}
+                      height={140}
+                      className="block"
+                    />
+                  </div>
+                  <p className="text-white/50 text-xs">
+                    Tap to open full screen &middot; Scan at Check-In
+                  </p>
+                </button>
+              </>
+            )}
+          </PreRaceCard>
         )}
 
-        {/* Full-screen "Open Full Screen" button — TABLED for now.
-            Keeping the FullScreenTicket component + state in place so
-            we can re-enable with a one-line change once the UX is
-            finalized. */}
-        {false && !isPast && onSession && (
-          <button
-            type="button"
-            onClick={() => setFullScreen(true)}
-            className="mt-3 w-full py-3 rounded-xl border border-[#00E2E5]/40 bg-[#00E2E5]/10 text-[#00E2E5] font-bold uppercase tracking-wider text-sm hover:bg-[#00E2E5]/15 active:scale-[0.99] transition-all"
-          >
-            Open Full Screen
-          </button>
-        )}
-
-        {/* ViewPoint POV voucher block — between the e-ticket card
-            and the live track status feed. Renders only when the
-            participant had ViewPoint Credit on file at first open
-            (auto-claimed via /api/pov-codes?action=claim-from-credit).
-            Hidden on past tickets so a finished race doesn't show
-            "claim your codes" — the email/SMS heads-up has already
-            fired by then and the block would be confusing. */}
         {!isPast && povCodes.length > 0 && (
           <div className="mt-6">
             <PovVoucherBlock codes={povCodes} cached={povCached} />
@@ -263,7 +349,7 @@ export default function ETicketView({
         <div className="mt-6 text-center">
           <p className="text-white/30 text-xs">14501 Global Parkway, Fort Myers, FL 33913</p>
           <p className="text-white/20 text-[11px] mt-1">
-            Show this screen at check-in · No paper ticket needed
+            Please have your e-ticket open and ready at check-in
           </p>
         </div>
       </div>
@@ -280,6 +366,25 @@ export default function ETicketView({
           }}
           onClose={() => setFullScreen(false)}
         />
+      )}
+
+      {fullscreenQr && qrDataUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center px-6"
+          {...modalBackdropProps(() => setFullscreenQr(false))}
+        >
+          <img
+            src={qrDataUrl}
+            alt="Check-in QR"
+            className="block"
+            style={{ width: "min(280px, 70vw)", height: "min(280px, 70vw)" }}
+          />
+          <p className="mt-4 text-black font-bold text-2xl sm:text-3xl text-center">
+            {ticket.firstName} {ticket.lastName}
+          </p>
+          <p className="mt-1 text-black/60 text-sm uppercase tracking-wider">Scan at Check-In</p>
+          <p className="mt-6 text-black/30 text-xs">Tap anywhere to close</p>
+        </div>
       )}
     </div>
   );
