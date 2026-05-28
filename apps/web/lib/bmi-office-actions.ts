@@ -98,6 +98,55 @@ function apiHeaders(token: string, clientKey: string) {
   };
 }
 
+// ── Minimal project payload (avoids overbooking validation on PUT) ──
+
+const PROJECT_CORE_FIELDS = [
+  "balance",
+  "confirm",
+  "invoiceId",
+  "partyInfo",
+  "projectReference",
+  "name",
+  "number",
+  "displayName",
+  "personId",
+  "persons",
+  "created",
+  "updated",
+  "date",
+  "validityDate",
+  "publish",
+  "companyId",
+  "styleId",
+  "stateId",
+  "kindId",
+  "priority",
+  "reservationId",
+  "userCreatedId",
+  "userUpdatedId",
+  "userId",
+  "userAgentId",
+  "userExternalId",
+  "resellerId",
+  "id",
+] as const;
+
+function toMinimalProject(
+  project: Record<string, unknown>,
+  extraFields?: string[],
+): Record<string, unknown> {
+  const minimal: Record<string, unknown> = {};
+  for (const key of PROJECT_CORE_FIELDS) {
+    if (key in project) minimal[key] = project[key];
+  }
+  if (extraFields) {
+    for (const key of extraFields) {
+      if (key in project) minimal[key] = project[key];
+    }
+  }
+  return minimal;
+}
+
 // ── Update project status ───────────────────────────────────────────
 
 export async function updateProjectStatus(params: {
@@ -120,13 +169,14 @@ export async function updateProjectStatus(params: {
 
   // Update stateId: -3 = Confirmation, or location-specific Confirmation + Waiver
   const newStateId = params.hasWaiverActivities ? WAIVER_STATE_IDS[clientKey] || "-3" : "-3";
-  project.stateId = newStateId;
+  const minimal = toMinimalProject(project);
+  minimal.stateId = newStateId;
 
   const putRes = await httpsRequest(
     "PUT",
     `/api/${clientKey}/project`,
     headers,
-    JSON.stringify(project),
+    JSON.stringify(minimal),
   );
   if (putRes.status >= 400) throw new Error(`Failed to update project status: ${putRes.status}`);
 
@@ -237,14 +287,24 @@ export async function updateProjectName(params: {
   const token = await getOfficeToken(clientKey);
   const headers = apiHeaders(token, clientKey);
 
-  const getRes = await httpsRequest("GET", `/api/${clientKey}/project/${params.projectId}`, headers);
+  const getRes = await httpsRequest(
+    "GET",
+    `/api/${clientKey}/project/${params.projectId}`,
+    headers,
+  );
   if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
   const project = JSON.parse(getRes.body);
 
-  project.name = params.name;
-  project.displayName = params.name;
+  const minimal = toMinimalProject(project);
+  minimal.name = params.name;
+  minimal.displayName = params.name;
 
-  const putRes = await httpsRequest("PUT", `/api/${clientKey}/project`, headers, JSON.stringify(project));
+  const putRes = await httpsRequest(
+    "PUT",
+    `/api/${clientKey}/project`,
+    headers,
+    JSON.stringify(minimal),
+  );
   if (putRes.status >= 400) throw new Error(`Failed to update project name: ${putRes.status}`);
 
   console.log(`[bmi-office] updated project name ${params.projectId} → "${params.name}"`);
@@ -261,7 +321,11 @@ export async function updateProjectPublicNotes(params: {
   const token = await getOfficeToken(clientKey);
   const headers = apiHeaders(token, clientKey);
 
-  const getRes = await httpsRequest("GET", `/api/${clientKey}/project/${params.projectId}`, headers);
+  const getRes = await httpsRequest(
+    "GET",
+    `/api/${clientKey}/project/${params.projectId}`,
+    headers,
+  );
   if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
   const project = JSON.parse(getRes.body);
 
@@ -272,7 +336,15 @@ export async function updateProjectPublicNotes(params: {
     publicLog.memo = params.notes;
   }
 
-  const putRes = await httpsRequest("PUT", `/api/${clientKey}/project`, headers, JSON.stringify(project));
+  const minimal = toMinimalProject(project, ["logs"]);
+  minimal.logs = logs;
+
+  const putRes = await httpsRequest(
+    "PUT",
+    `/api/${clientKey}/project`,
+    headers,
+    JSON.stringify(minimal),
+  );
   if (putRes.status >= 400) throw new Error(`Failed to update project notes: ${putRes.status}`);
 
   console.log(`[bmi-office] updated public notes for project ${params.projectId}`);
