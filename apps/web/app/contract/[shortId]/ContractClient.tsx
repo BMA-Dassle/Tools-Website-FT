@@ -64,6 +64,23 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [signingReady, setSigningReady] = useState(false);
   const [signingLoading, setSigningLoading] = useState(false);
   const signingRef = useRef<Signing | null>(null);
+  const [schedule, setSchedule] = useState<Array<{
+    activity: string;
+    count: number;
+    start: string;
+    end: string;
+    persons: number;
+  }> | null>(null);
+
+  // Fetch event schedule from BMI Office
+  useEffect(() => {
+    fetch(`/api/group-function/schedule?shortId=${quote.contractShortId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.schedule?.length > 0) setSchedule(data.schedule);
+      })
+      .catch(() => {});
+  }, [quote.contractShortId]);
 
   useEffect(() => {
     if (phase !== "sign" || signingReady || signingLoading) return;
@@ -345,6 +362,46 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
             </div>
           </div>
         </div>
+
+        {/* ─── Event Schedule Timeline ─── */}
+        {schedule && schedule.length > 0 && (
+          <div className="mb-8 rounded-2xl border border-white/10 bg-[#071027] p-5">
+            <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
+              Event Schedule
+            </h3>
+            <div className="relative space-y-0">
+              {schedule.map((s, i) => (
+                <div key={i} className="flex gap-4">
+                  {/* Timeline line + dot */}
+                  <div className="flex flex-col items-center">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/30">
+                      {s.start.replace(/:00\s/, " ").replace(/\s/g, "")}
+                    </div>
+                    {i < schedule.length - 1 && (
+                      <div className="my-1 h-8 w-px bg-gradient-to-b from-cyan-400/40 to-transparent" />
+                    )}
+                  </div>
+                  {/* Content */}
+                  <div className="flex-1 pb-4">
+                    <p className="font-semibold">{s.activity}</p>
+                    <p className="text-sm text-gray-400">
+                      {s.start} – {s.end}
+                      {s.count > 1 && (
+                        <span className="ml-2 text-gray-500">
+                          ({s.count} {s.activity.toLowerCase().includes("lane") ? "lanes" : "areas"}
+                          )
+                        </span>
+                      )}
+                      {s.persons > 0 && (
+                        <span className="ml-2 text-gray-500">{s.persons} guests</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ─── Planner Card ─── */}
         {quote.plannerFirst && (
