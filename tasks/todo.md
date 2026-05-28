@@ -25,6 +25,20 @@
 - **Known bug:** New racers can remove license from cart (cart remove button not guarded for mandatory items)
 - **Still needs manual testing:** timer expiry (10-min wait), cross-sell round-trip, tab restore persistence
 
+## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-05-28)
+- **Branch:** `feat/booking-b2-race`
+- **What shipped (all deliverables build-verified):**
+  - D1: Type extensions — BowlingItem/KbfItem with 30+ fields (experience, QAMF, shoes, food, pricing), LoyaltyState on BookingSession, 5 new reducer actions
+  - D2: Bowling service — `service/bowling.ts` with hold/confirm/cancel/reserve, wired into `getService()` for bowling + kbf
+  - D3: 7 bowling step components — BowlingPlayers, BowlingSlots (calendar+hours+minutes), BowlingTier (Regular/VIP video cards), BowlingOffer (experience cards + QAMF hold), BowlingShoes (rental add-ons), BowlingAttractions, BowlingFood (pizza-bowl modifiers)
+  - D4: 2 KBF steps — KbfIdentity (lookup → OTP → verify composite), KbfBowlers (family member selection)
+  - D5: Hold timer generalized — ReservationTimer handles both BMI and QAMF holds with auto-extend
+  - D6: Checkout integration — bowling path in CheckoutStep routes to `bowlingReserve()` → `/api/bowling/v2/reserve`
+  - D6b: Shared loyalty — LoyaltySection component for HeadPinz Rewards (earning + redeeming) at checkout for ALL HeadPinz bookings
+  - D7: Step registry — all placeholders replaced with real components
+  - D8: Deposit unification — bowling reserve migrated from `/api/square/bowling-orders` to shared `createDepositAndCharge()`
+- **Still needs:** DiscountCodeInput for mid-flow entry on bowling slots, end-to-end testing
+
 ## SEO: HeadPinz metadata on shared /book routes
 - **Priority:** High
 - **Issue:** `headpinz.com/book/*` pages show FastTrax title/description in Google results because `/book` routes use the root layout metadata (FastTrax-branded), not the `/hp` layout

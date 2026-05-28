@@ -20,6 +20,7 @@ import { clearBookingSession } from "~/features/booking/hooks";
 import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm";
 import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
+import { LoyaltySection } from "./LoyaltySection";
 
 interface CheckoutStepProps {
   session: BookingSession;
@@ -306,6 +307,11 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             </span>
           </label>
         </div>
+
+        {/* HeadPinz Rewards — earning + redeeming for all HeadPinz bookings */}
+        {session.entryBrand === "headpinz" && (
+          <LoyaltySection session={session} dispatch={dispatch} phone={phone} />
+        )}
 
         <div className="flex items-center justify-between pt-2">
           <button
