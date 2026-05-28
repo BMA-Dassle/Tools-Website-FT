@@ -212,6 +212,20 @@ export async function fetchPersonsByIds(
   }));
 }
 
+// ── Fetch project (read-only) ──────────────────────────────────────
+
+export async function fetchProject(
+  centerCode: string,
+  projectId: string,
+): Promise<Record<string, unknown> | null> {
+  const clientKey = CLIENT_KEYS[centerCode] || "headpinzftmyers";
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+  const res = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
+  if (res.status >= 400) return null;
+  return JSON.parse(res.body);
+}
+
 // ── Helper: detect waiver-required activities ───────────────────────
 
 export function hasWaiverRequiredActivities(lineItems: Array<{ name: string }>): boolean {
