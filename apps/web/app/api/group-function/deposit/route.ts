@@ -251,8 +251,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update BMI Office: status + record payment (non-blocking)
-    import("@/lib/bmi-office-actions").then(async ({ updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities }) => {
+    // Update BMI Office: status + record payment (must complete before response)
+    try {
+      const { updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities } =
+        await import("@/lib/bmi-office-actions");
       const items = (quote.line_items || []) as Array<{ name: string }>;
       await updateProjectStatus({
         centerCode: quote.center_code,
@@ -264,7 +266,9 @@ export async function POST(req: NextRequest) {
         projectId: quote.bmi_reservation_id,
         amountDollars: quote.deposit_due_cents / 100,
       });
-    }).catch((err) => console.error("[gf-deposit] BMI Office update error:", err));
+    } catch (err) {
+      console.error("[gf-deposit] BMI Office update error:", err);
+    }
 
     return NextResponse.json({
       ok: true,

@@ -28,6 +28,11 @@ const CLIENT_KEYS: Record<string, string> = {
   naples: "headpinznaples",
 };
 
+const WAIVER_STATE_IDS: Record<string, string> = {
+  headpinzftmyers: "3274635",
+  headpinznaples: "1191926",
+};
+
 const WAIVER_ACTIVITIES = ["laser tag", "gel blaster", "racing", "race", "nexus", "kart"];
 
 let cachedToken: string | null = null;
@@ -53,20 +58,29 @@ function httpsRequest(
       res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
     });
     req.on("error", reject);
-    req.setTimeout(15_000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(15_000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
     if (body) req.write(body);
     req.end();
   });
 }
 
 async function getOfficeToken(clientKey: string): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiry - 60_000 && tokenClientKey === clientKey) return cachedToken;
+  if (cachedToken && Date.now() < tokenExpiry - 60_000 && tokenClientKey === clientKey)
+    return cachedToken;
   const postBody = `grant_type=password&username=${OFFICE_USER}&password=${OFFICE_PASS}`;
-  const res = await httpsRequest("POST", "/auth/token", {
-    "Content-Type": "application/x-www-form-urlencoded",
-    clientkey: clientKey,
-    "x-fast-version": SMS_VERSION,
-  }, postBody);
+  const res = await httpsRequest(
+    "POST",
+    "/auth/token",
+    {
+      "Content-Type": "application/x-www-form-urlencoded",
+      clientkey: clientKey,
+      "x-fast-version": SMS_VERSION,
+    },
+    postBody,
+  );
   if (res.status !== 200) throw new Error(`Office auth failed: ${res.status}`);
   const data = JSON.parse(res.body);
   cachedToken = data.access_token;
@@ -96,18 +110,29 @@ export async function updateProjectStatus(params: {
   const headers = apiHeaders(token, clientKey);
 
   // Fetch current project
-  const getRes = await httpsRequest("GET", `/api/${clientKey}/project/${params.projectId}`, headers);
+  const getRes = await httpsRequest(
+    "GET",
+    `/api/${clientKey}/project/${params.projectId}`,
+    headers,
+  );
   if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
   const project = JSON.parse(getRes.body);
 
-  // Update stateId: -3 = Confirmation, 1191926 = Confirmation + Waiver
-  const newStateId = params.hasWaiverActivities ? "1191926" : "-3";
+  // Update stateId: -3 = Confirmation, or location-specific Confirmation + Waiver
+  const newStateId = params.hasWaiverActivities ? WAIVER_STATE_IDS[clientKey] || "-3" : "-3";
   project.stateId = newStateId;
 
-  const putRes = await httpsRequest("PUT", `/api/${clientKey}/project`, headers, JSON.stringify(project));
+  const putRes = await httpsRequest(
+    "PUT",
+    `/api/${clientKey}/project`,
+    headers,
+    JSON.stringify(project),
+  );
   if (putRes.status >= 400) throw new Error(`Failed to update project status: ${putRes.status}`);
 
-  console.log(`[bmi-office] project ${params.projectId} status → ${newStateId} (${params.hasWaiverActivities ? "Confirmation+Waiver" : "Confirmation"})`);
+  console.log(
+    `[bmi-office] project ${params.projectId} status → ${newStateId} (${params.hasWaiverActivities ? "Confirmation+Waiver" : "Confirmation"})`,
+  );
 }
 
 // ── Record payment ──────────────────────────────────────────────────
@@ -134,10 +159,13 @@ export async function recordProjectPayment(params: {
   });
 
   const res = await httpsRequest("POST", `/api/${clientKey}/projectPayment`, headers, body);
-  if (res.status >= 400) throw new Error(`Failed to record payment: ${res.status} ${res.body.slice(0, 200)}`);
+  if (res.status >= 400)
+    throw new Error(`Failed to record payment: ${res.status} ${res.body.slice(0, 200)}`);
 
   const data = JSON.parse(res.body);
-  console.log(`[bmi-office] payment recorded for project ${params.projectId}: $${params.amountDollars} ref=${data.paymentReference?.slice(0, 20)}`);
+  console.log(
+    `[bmi-office] payment recorded for project ${params.projectId}: $${params.amountDollars} ref=${data.paymentReference?.slice(0, 20)}`,
+  );
   return { paymentReference: data.paymentReference || "" };
 }
 
