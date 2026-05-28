@@ -580,13 +580,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               id="pandadoc-signing-container"
               className="overflow-hidden rounded-2xl border border-white/10"
             />
-            {!signingLoading && !signingReady && error && (
+            {!signingReady && error && (
               <div className="rounded-2xl border border-red-500/20 bg-red-900/20 p-8 text-center">
                 <p className="text-red-300">{error}</p>
                 <button
                   onClick={() => {
                     setError(null);
-                    setSigningLoading(false);
+                    signingInitiated.current = false;
                   }}
                   className="mt-3 rounded-lg border border-white/20 px-4 py-2 text-sm hover:bg-white/10"
                 >
