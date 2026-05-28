@@ -581,21 +581,15 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 </div>
               </div>
             )}
+            {/* pandadoc-signing library mounts here; CSS forces its iframe full-width */}
+            <style>{`
+              #pandadoc-signing-container { width: 100%; min-height: 700px; }
+              #pandadoc-signing-container iframe { width: 100% !important; height: 700px !important; border: none; }
+            `}</style>
             <div
               id="pandadoc-signing-container"
               className="overflow-hidden rounded-2xl border border-white/10"
             />
-            {/* Fallback iframe if library fails to mount */}
-            {signingSessionId && error && (
-              <div className="overflow-hidden rounded-2xl border border-white/10">
-                <iframe
-                  src={`https://app.pandadoc.com/s/${signingSessionId}`}
-                  className="h-[700px] w-full"
-                  title="Event Contract"
-                  allow="clipboard-write"
-                />
-              </div>
-            )}
             {!signingReady && error && (
               <div className="rounded-2xl border border-red-500/20 bg-red-900/20 p-8 text-center">
                 <p className="text-red-300">{error}</p>
