@@ -319,7 +319,7 @@ export async function generateContractPdf(
   // Tax exempt
   drawRect(ctx.page, margin - 10, ctx.y - 30, contentWidth + 20, 38, COLORS.cardBg);
   sectionLabel(ctx, "TAX EXEMPT");
-  text(ctx, `Status: ${quote.tax_exempt_status || "No"}`, margin, ctx.y, {
+  text(ctx, "Status: Declared at signing", margin, ctx.y, {
     size: 9,
     color: COLORS.lightGray,
   });
