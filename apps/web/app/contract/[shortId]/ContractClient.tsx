@@ -62,6 +62,30 @@ const STEPS: { key: Step; label: string; short: string }[] = [
 ];
 
 export default function ContractClient({ quote }: { quote: QuoteProps }) {
+  if (quote.status === "cancelled" || quote.status === "denied") {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-20 text-center">
+        <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-red-500/10">
+          <IconBan size={40} className="text-red-400" />
+        </div>
+        <h1 className="mb-2 text-2xl font-bold">Event {quote.status === "cancelled" ? "Cancelled" : "Denied"}</h1>
+        <p className="text-gray-400">
+          {quote.status === "cancelled"
+            ? "This event has been cancelled. If you believe this is an error, please contact your event planner."
+            : "This event contract has been denied. Please contact your event planner for details."}
+        </p>
+        {quote.plannerFirst && (
+          <div className="mt-8 inline-block rounded-2xl border border-white/10 bg-[#071027] px-8 py-5 text-left">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Your Event Planner</p>
+            <p className="mt-1 font-bold">{quote.plannerFirst} {quote.plannerLast}</p>
+            {quote.plannerPhone && <p className="mt-0.5 text-sm text-gray-400"><a href={`tel:${quote.plannerPhone}`} className="hover:text-cyan-400">{quote.plannerPhone}</a></p>}
+            {quote.plannerEmail && <p className="text-sm text-gray-400"><a href={`mailto:${quote.plannerEmail}`} className="hover:text-cyan-400">{quote.plannerEmail}</a></p>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const [step, setStep] = useState<Step>(() => {
     if (quote.status === "resign_required") return "review";
     if (quote.depositPaidAt) return "event";
@@ -155,6 +179,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       }
       // Detect resign_required status change
       if (statusData.status === "resign_required" && step === "event") {
+        window.location.reload();
+        return;
+      }
+      if (statusData.status === "cancelled" || statusData.status === "denied") {
         window.location.reload();
         return;
       }

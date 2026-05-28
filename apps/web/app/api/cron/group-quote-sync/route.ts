@@ -93,6 +93,67 @@ async function syncQuote(
     return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: "bmi_fetch_failed" };
   }
 
+  // Check for cancellation in BMI Office (stateId = -4)
+  const bmiStateId = String(project.stateId || "");
+  if (bmiStateId === "-4" && quote.status !== "cancelled") {
+    if (dryRun) {
+      return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: "would_cancel", changes: ["BMI state: Cancellation"] };
+    }
+
+    // Cancel the quote and refund gift cards
+    const q = sql();
+    await q`UPDATE group_function_quotes SET status = 'cancelled', updated_at = NOW() WHERE id = ${quote.id}`;
+
+    // Refund gift cards if any
+    const gcIds = (await import("@/lib/group-function-db")).parseGiftCardIds(quote.square_gift_card_id);
+    if (gcIds.length > 0) {
+      const SQUARE_BASE = "https://connect.squareup.com/v2";
+      const sqHeaders = () => ({
+        Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN || ""}`,
+        "Content-Type": "application/json",
+        "Square-Version": "2024-12-18",
+      });
+
+      for (let i = 0; i < gcIds.length; i++) {
+        try {
+          // Get current balance
+          const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${gcIds[i]}`, { headers: sqHeaders() });
+          if (!gcRes.ok) continue;
+          const gcData = await gcRes.json();
+          const balance = gcData.gift_card?.balance_money?.amount ?? 0;
+          if (balance <= 0) continue;
+
+          // Deactivate — clears the balance
+          await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+            method: "POST",
+            headers: sqHeaders(),
+            body: JSON.stringify({
+              idempotency_key: `gf-cancel-gc-${quote.id}-${i}`,
+              gift_card_activity: {
+                type: "DEACTIVATE",
+                location_id: quote.square_location_id,
+                gift_card_id: gcIds[i],
+                deactivate_activity_details: { reason: "SUSPICIOUS_ACTIVITY" },
+              },
+            }),
+          });
+          console.log(`[group-quote-sync] deactivated gift card ${i} for cancelled quote=${quote.id}`);
+        } catch (err) {
+          console.error(`[group-quote-sync] gift card deactivation failed for quote=${quote.id} gc=${i}:`, err);
+        }
+      }
+    }
+
+    await (await import("@/lib/group-function-db")).appendAuditLog({
+      quoteId: quote.id,
+      event: "cancelled_from_bmi",
+      metadata: { bmiStateId },
+    });
+
+    console.log(`[group-quote-sync] CANCELLED quote=${quote.id} event="${quote.event_name}"`);
+    return { id: quote.id, eventName: quote.event_name || "", status: "cancelled", action: "cancelled", changes: ["BMI state: Cancellation"] };
+  }
+
   const changes: string[] = [];
   const isSigned = quote.status !== "contract_sent";
 
