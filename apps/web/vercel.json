@@ -58,7 +58,7 @@
     },
     {
       "path": "/api/cron/group-quote-dispatch",
-      "schedule": "*/2 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/group-balance-charge",
