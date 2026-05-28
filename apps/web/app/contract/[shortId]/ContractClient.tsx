@@ -1708,7 +1708,6 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
         >
             {updating ? "Updating..." : "Save New Card"}
           </button>
-        </div>
       </div>
     </div>
   );
