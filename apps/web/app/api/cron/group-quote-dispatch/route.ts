@@ -90,7 +90,13 @@ export async function GET(req: NextRequest) {
 async function processQueueItem(
   item: HermesQueueItem,
 ): Promise<{ reservationId: string; action: string }> {
-  const center = resolveCenter(item.center);
+  // Hermes sometimes sends "10.48.0.14" for FastTrax events — detect via subject
+  let hermesCenter = item.center;
+  if (hermesCenter === "10.48.0.14" && (item.subject?.includes("FT") || item.subject?.includes("FastTrax"))) {
+    hermesCenter = "10.48.0.14_FT";
+  }
+
+  const center = resolveCenter(hermesCenter);
   if (!center) {
     return { reservationId: item.reservationId, action: "skipped_unknown_center" };
   }

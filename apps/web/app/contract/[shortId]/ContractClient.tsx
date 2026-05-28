@@ -176,14 +176,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     }
   }, 15_000);
 
-  // Initial event details fetch
+  // Fetch event details on mount (live notes for review + full details for event page)
   useEffect(() => {
-    if (step !== "event") return;
     fetch(`/api/group-function/event-details?shortId=${quote.contractShortId}`)
       .then((r) => r.json())
       .then((d) => setEventDetails(d))
       .catch(() => {});
-  }, [step, quote.contractShortId]);
+  }, [quote.contractShortId]);
 
   // Load Square SDK
   useEffect(() => {
@@ -542,14 +541,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     </div>
                   </div>
 
-                  {/* Planner notes inside event card */}
-                  {quote.notes && (
+                  {/* Planner notes — live from BMI Office, fallback to DB */}
+                  {(quote.notes || eventDetails?.notes) && (
                     <div className="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
                       <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-cyan-400">
                         Notes from {quote.plannerFirst || "Your Planner"}
                       </p>
                       <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">
-                        {quote.notes}
+                        {eventDetails?.notes || quote.notes}
                       </p>
                     </div>
                   )}
