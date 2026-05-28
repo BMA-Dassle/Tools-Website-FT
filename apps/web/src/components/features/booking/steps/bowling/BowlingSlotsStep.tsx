@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
+import { DiscountCodeInput } from "./DiscountCodeInput";
 
 const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
@@ -182,6 +183,18 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
           </>
         )}
       </div>
+
+      {/* Discount code — bowling only (KBF is free) */}
+      {item.kind === "bowling" && (
+        <DiscountCodeInput
+          locationId={centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7"}
+          appliedCode={(item as BowlingItem).discountCode}
+          onApply={(discount) =>
+            onChange({ discountCode: discount.code } as Partial<BowlingLikeItem>)
+          }
+          onClear={() => onChange({ discountCode: null } as Partial<BowlingLikeItem>)}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Calendar */}
