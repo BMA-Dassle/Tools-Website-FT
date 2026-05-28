@@ -153,7 +153,8 @@ export async function POST(req: NextRequest) {
     const depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
 
     // 4. Create DIGITAL gift card with custom GAN
-    const customGan = `GRPF${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
+    const prefix = quote.gan_prefix || "GRPF";
+    const customGan = `${prefix}${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
     const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
 
     const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {

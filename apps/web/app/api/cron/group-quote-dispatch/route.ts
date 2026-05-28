@@ -133,12 +133,14 @@ async function processQueueItem(
 
   // No-changes check: if data matches, just re-send the link
   if (existing && existing.contract_sent_at) {
+    const existingProducts = (existing.line_items as unknown[]) || [];
     const unchanged =
       existing.total_cents === totalCents &&
       existing.deposit_due_cents === depositDueCents &&
       existing.tax_cents === taxCents &&
       existing.event_name === item.event.name &&
-      existing.guest_email === item.customer.email;
+      existing.guest_email === item.customer.email &&
+      existingProducts.length === item.products.length;
 
     if (unchanged) {
       // Always re-send the link as a reminder
@@ -258,6 +260,9 @@ async function processQueueItem(
       center_code: center.centerCode,
       center_name: item.centerName,
       square_location_id: center.squareLocationId,
+      brand: center.brand,
+      base_url: center.baseUrl,
+      gan_prefix: center.ganPrefix,
       planner_first: item.planner.first,
       planner_last: item.planner.last,
       planner_email: item.planner.email,

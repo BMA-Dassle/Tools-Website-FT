@@ -109,6 +109,11 @@ export async function ensureGfSchema(): Promise<void> {
     )
   `;
 
+  // Brand/URL columns
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS brand TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS base_url TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS gan_prefix TEXT`;
+
   // New columns added post-initial schema (idempotent)
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS deposit_attempts INTEGER NOT NULL DEFAULT 0`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS deposit_last_error TEXT`;
@@ -178,6 +183,9 @@ export interface GroupFunctionQuote {
   center_code: string;
   center_name: string;
   square_location_id: string;
+  brand: string | null;
+  base_url: string | null;
+  gan_prefix: string | null;
   planner_first: string | null;
   planner_last: string | null;
   planner_email: string | null;
@@ -241,6 +249,9 @@ export interface InsertGfQuoteParams {
   center_code: string;
   center_name: string;
   square_location_id: string;
+  brand?: string;
+  base_url?: string;
+  gan_prefix?: string;
   planner_first?: string;
   planner_last?: string;
   planner_email?: string;
@@ -271,7 +282,7 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
   const rows = await q`
     INSERT INTO group_function_quotes (
       bmi_reservation_id, hermes_queue_id, hermes_log_id, hermes_center,
-      center_code, center_name, square_location_id,
+      center_code, center_name, square_location_id, brand, base_url, gan_prefix,
       planner_first, planner_last, planner_email, planner_phone,
       guest_first_name, guest_last_name, guest_email, guest_phone,
       event_name, event_number, event_date, event_date_display,
@@ -288,6 +299,9 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
       ${params.center_code},
       ${params.center_name},
       ${params.square_location_id},
+      ${params.brand ?? null},
+      ${params.base_url ?? null},
+      ${params.gan_prefix ?? null},
       ${params.planner_first ?? null},
       ${params.planner_last ?? null},
       ${params.planner_email ?? null},

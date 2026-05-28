@@ -15,7 +15,11 @@ import { PLANNERS } from "@/lib/sales-lead-config";
 import type { GroupFunctionQuote } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+const FALLBACK_URL = "https://fasttraxent.com";
+
+function baseUrl(quote: GroupFunctionQuote): string {
+  return quote.base_url || FALLBACK_URL;
+}
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
 
 function dollars(cents: number): string {
@@ -49,7 +53,7 @@ function resolvePlannerTeamsChatId(quote: GroupFunctionQuote): string | null {
 // ── Contract Sent ───────────────────────────────────────────────────
 
 export async function notifyContractSent(quote: GroupFunctionQuote): Promise<void> {
-  const contractUrl = `${BASE_URL}/contract/${quote.contract_short_id}`;
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}`;
   const pName = plannerName(quote);
 
   const results = await Promise.allSettled([
@@ -88,7 +92,7 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
 // ── Contract Updated (before signing) ───────────────────────────────
 
 export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<void> {
-  const contractUrl = `${BASE_URL}/contract/${quote.contract_short_id}`;
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}`;
   const pName = plannerName(quote);
 
   const results = await Promise.allSettled([
@@ -354,7 +358,7 @@ function buildGroupFunctionCard(
       { type: "FactSet", facts },
     ],
     actions: quote.contract_short_id
-      ? [{ type: "Action.OpenUrl", title: "View Contract", url: `${BASE_URL}/contract/${quote.contract_short_id}` }]
+      ? [{ type: "Action.OpenUrl", title: "View Contract", url: `${baseUrl(quote)}/contract/${quote.contract_short_id}` }]
       : [],
   };
 }
@@ -398,7 +402,7 @@ function emailShell(quote: GroupFunctionQuote, heroTitle: string, heroSubtitle: 
     ${quote.planner_email ? `<p style="margin:0;font-size:13px"><a href="mailto:${quote.planner_email}" style="color:#22d3ee;text-decoration:none">${quote.planner_email}</a></p>` : ""}
   </div>
 
-  <p style="text-align:center;font-size:11px;color:#475569;margin-top:16px;padding:0 24px">${quote.center_name} · <a href="${BASE_URL}" style="color:#475569">fasttraxent.com</a></p>
+  <p style="text-align:center;font-size:11px;color:#475569;margin-top:16px;padding:0 24px">${quote.center_name} · <a href="${baseUrl(quote)}" style="color:#475569">${quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com"}</a></p>
 </div>
 </body></html>`;
 }

@@ -68,18 +68,35 @@ export interface HermesPayment {
 
 // ── Center mapping ──────────────────────────────────────────────────
 
-export const HERMES_CENTER_MAP: Record<string, { centerCode: string; squareLocationId: string }> = {
+export interface CenterInfo {
+  centerCode: string;
+  squareLocationId: string;
+  brand: "headpinz" | "fasttrax";
+  baseUrl: string;
+  ganPrefix: string;
+}
+
+export const HERMES_CENTER_MAP: Record<string, CenterInfo> = {
   "10.48.0.14": {
     centerCode: "fort-myers",
     squareLocationId: "TXBSQN0FEKQ11",
+    brand: "headpinz",
+    baseUrl: "https://headpinz.com",
+    ganPrefix: "HPFM",
   },
   "10.48.0.14_FT": {
     centerCode: "fasttrax",
     squareLocationId: "LAB52GY480CJF",
+    brand: "fasttrax",
+    baseUrl: "https://fasttraxent.com",
+    ganPrefix: "GRPF",
   },
   "10.40.0.43": {
     centerCode: "naples",
     squareLocationId: "PPTR5G2N0QXF7",
+    brand: "headpinz",
+    baseUrl: "https://headpinz.com",
+    ganPrefix: "HPN",
   },
 };
 
