@@ -224,8 +224,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // check-in) suppress the mobile "Book Now" bar — flagged by
   // middleware.ts so the chrome decision stays in one place.
   const noMobileBar = hdrs.get("x-no-mobile-bar") === "1";
-  const forceNav = hdrs.get("x-show-nav") === "1";
-  const showChrome = (!isHeadPinz || forceNav) && !isAdmin;
+  const showChrome = !isHeadPinz && !isAdmin;
   const showMobileBar = showChrome && !noMobileBar;
   // GA4 measurement ID, brand-aware. Admin routes opt out (PII / staff
   // tools). Falsy ID short-circuits the GoogleAnalytics component.

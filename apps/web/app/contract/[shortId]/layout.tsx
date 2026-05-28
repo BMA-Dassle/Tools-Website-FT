@@ -1,4 +1,6 @@
 import { headers } from "next/headers";
+import Nav from "@/components/Nav";
+import HeadPinzNav from "@/components/headpinz/Nav";
 
 export default async function ContractLayout({ children }: { children: React.ReactNode }) {
   const hdrs = await headers();
@@ -12,6 +14,7 @@ export default async function ContractLayout({ children }: { children: React.Rea
         .mobile-book-now, [data-mobile-cta], .fixed.bottom-0 { display: none !important; }
         @media (max-width: 768px) { nav .book-now-sticky, footer { display: none !important; } }
       `}</style>
+      {brand === "headpinz" ? <HeadPinzNav /> : <Nav />}
       {children}
     </div>
   );
