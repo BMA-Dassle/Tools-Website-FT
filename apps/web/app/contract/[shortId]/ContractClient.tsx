@@ -56,6 +56,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     return "review";
   });
   const [updateBanner, setUpdateBanner] = useState<string | null>(null);
+  const [signedPdfUrl, setSignedPdfUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [giftCardGan, setGiftCardGan] = useState(quote.giftCardGan);
@@ -130,6 +131,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         }
       }
       lastHash.current = statusData.lineItemsHash;
+      if (statusData.signedPdfUrl && !signedPdfUrl) setSignedPdfUrl(statusData.signedPdfUrl);
 
       // Fetch event details if on event page
       if (step === "event") {
@@ -177,32 +179,39 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   }, [step, quote.squareLocationId]);
 
   // Canvas drawing handlers
+  const getCanvasCoords = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+  }, []);
+
   const startDraw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     isDrawing.current = true;
     const ctx = canvas.getContext("2d")!;
-    const rect = canvas.getBoundingClientRect();
-    const x = "touches" in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = "touches" in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    const { x, y } = getCanvasCoords(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
-  }, []);
+  }, [getCanvasCoords]);
 
   const draw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     if (!isDrawing.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
-    const rect = canvas.getBoundingClientRect();
-    const x = "touches" in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = "touches" in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    const { x, y } = getCanvasCoords(e);
     ctx.lineWidth = 2;
     ctx.lineCap = "round";
     ctx.strokeStyle = "#22d3ee";
     ctx.lineTo(x, y);
     ctx.stroke();
-  }, []);
+  }, [getCanvasCoords]);
 
   const endDraw = useCallback(() => { isDrawing.current = false; }, []);
 
@@ -215,11 +224,43 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const hasSig = sigType === "type" ? typedSig.trim().length > 2 : true;
 
-  const handleSign = useCallback(() => {
+  const handleSign = useCallback(async () => {
     if (!allAgreed || !hasSig) return;
-    setSignedAt(new Date().toISOString());
-    setStep("pay");
-  }, [allAgreed, hasSig]);
+    setProcessing(true);
+    try {
+      const sigValue = sigType === "type" ? typedSig : canvasRef.current?.toDataURL("image/png") || "";
+      const res = await fetch("/api/group-function/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shortId: quote.contractShortId,
+          signatureType: sigType,
+          signatureData: sigValue,
+          agreements: {
+            deposit: agreeDeposit,
+            autoCharge: agreeNoPrepay,
+            waiverAcknowledged,
+            tipsAcknowledged,
+            policyAcknowledged,
+          },
+          taxExempt: taxExempt || "no",
+          taxFileUrl: taxFileUrl || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setError(data.error || "Failed to record signature");
+        setProcessing(false);
+        return;
+      }
+      setSignedAt(data.signedAt);
+      setStep("pay");
+    } catch {
+      setError("Failed to record signature. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
+  }, [allAgreed, hasSig, sigType, typedSig, quote.contractShortId, agreeDeposit, agreeNoPrepay, waiverAcknowledged, tipsAcknowledged, policyAcknowledged, taxExempt, taxFileUrl]);
 
   const handlePay = useCallback(async () => {
     if (!cardRef.current) { setError("Payment form not ready."); return; }
@@ -241,6 +282,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       if (!res.ok || data.error) { setError(data.error || "Payment failed."); setProcessing(false); return; }
       setGiftCardGan(data.giftCardGan);
       setStep("event");
+      // Generate signed PDF in background (non-blocking)
+      fetch("/api/group-function/generate-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shortId: quote.contractShortId }),
+      }).catch(() => {});
     } catch {
       setError("Payment processing failed. Please try again.");
     } finally {
@@ -862,8 +909,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </div>
             )}
 
-            {/* Calendar download */}
-            <div className="flex justify-center">
+            {/* Downloads */}
+            <div className="flex flex-wrap justify-center gap-3">
+              {signedPdfUrl && (
+                <a href={signedPdfUrl} target="_blank" rel="noopener"
+                  className="flex items-center gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-cyan-500/20">
+                  <IconClipboardCheck size={16} /> View Signed Contract
+                </a>
+              )}
               <a
                 href={`data:text/calendar;charset=utf-8,${encodeURIComponent(buildIcs(quote))}`}
                 download={`${quote.eventName || "Event"}.ics`}

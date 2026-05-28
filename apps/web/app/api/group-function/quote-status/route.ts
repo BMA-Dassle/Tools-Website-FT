@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
     eventDateDisplay: quote.event_date_display,
     notes: quote.notes,
     lineItemsHash,
+    signedPdfUrl: quote.signed_pdf_url,
     updatedAt: quote.updated_at,
   });
 }

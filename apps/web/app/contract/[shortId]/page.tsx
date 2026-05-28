@@ -8,8 +8,8 @@ export default async function ContractPage(props: { params: Promise<{ shortId: s
 
   if (!quote) return notFound();
 
-  const brand =
-    quote.center_code === "naples" || quote.center_code === "fort-myers" ? "headpinz" : "fasttrax";
+  const brand = (quote.brand as "headpinz" | "fasttrax") ||
+    (quote.center_code === "naples" || quote.center_code === "fort-myers" ? "headpinz" : "fasttrax");
 
   return (
     <ContractClient
