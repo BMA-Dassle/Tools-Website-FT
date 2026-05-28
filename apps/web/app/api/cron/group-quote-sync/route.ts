@@ -38,8 +38,8 @@ export async function GET(req: NextRequest) {
 
   const quotes = (await q`
     SELECT * FROM group_function_quotes
-    WHERE status IN ('contract_sent', 'deposit_paid', 'balance_charged', 'balance_link_sent')
-      AND event_date > NOW()
+    WHERE status IN ('contract_sent', 'deposit_paid', 'balance_charged', 'balance_link_sent', 'resign_required')
+      AND event_date > NOW() - INTERVAL '7 days'
     ORDER BY event_date ASC
     LIMIT 30
   `) as GroupFunctionQuote[];
@@ -74,7 +74,11 @@ export async function GET(req: NextRequest) {
 const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");
 const normDate = (d: string | null | undefined) => {
   if (!d) return "";
-  try { return new Date(d).toISOString().slice(0, 19); } catch { return ""; }
+  try {
+    const dt = new Date(d);
+    // Compare in ET (BMI dates are Eastern, DB may be UTC or ET string)
+    return dt.toLocaleString("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch { return ""; }
 };
 
 async function syncQuote(
