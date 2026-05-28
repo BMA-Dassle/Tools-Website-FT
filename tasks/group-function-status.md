@@ -27,7 +27,15 @@
 
 ### High Priority
 
-- [ ] **Day-of order payment at event time** — Need a cron that, at the time of the event, pays/closes the day-of Square order using the gift card. Currently the day-of order is created OPEN at deposit time, the gift card gets loaded to 100% at balance charge time, but nothing redeems the gift card against the day-of order. Staff must do this manually at POS. A cron should auto-pay the day-of order with the gift card at event start time (or shortly after).
+- [ ] **Day-of order payment at event time** — Need a cron that, at the time of the event, pays/closes the day-of Square order using the gift card(s). Currently the day-of order is created OPEN at deposit time, the gift card gets loaded at balance charge time, but nothing redeems the gift card against the day-of order. Staff must do this manually at POS. A cron should auto-pay the day-of order with the gift card(s) at event start time (or shortly after).
+
+- [ ] **Multi-gift-card support for large events** — Square limits: max $2,000 per gift card, max $10,000 in gift cards per person per day. A $10k event needs $5k deposit = 3 gift cards ($2k+$2k+$1k). The balance charge adds another $5k. Current code creates a single gift card and will fail for events over $4k total ($2k deposit). Changes needed:
+  - **Deposit flow:** Split gift card creation into $2k chunks. Store array of gift card IDs/GANs (not single values). Activate each card up to $2k.
+  - **Balance charge flow:** Load existing cards to $2k max each, create additional cards if needed. Respect the $10k/person/day limit — if deposit + balance same day, cap at $10k total across both operations.
+  - **Day-of payment cron:** Redeem multiple gift cards against the day-of order (multi-tender).
+  - **Key insight: don't link gift cards to a customer.** The $10k/person/day limit is per customer. Unlinked gift cards bypass it entirely. We still link the saved credit card to a customer (for 72hr auto-charge), but gift cards stay anonymous — tracked by GAN in our DB, redeemed by the day-of cron. Customer never sees or manages them.
+  - **DB schema:** `square_gift_card_id` and `square_gift_card_gan` need to become JSON arrays (or add a `group_function_gift_cards` child table).
+  - **Admin + event page:** Display all GANs, not just one.
 
 - [x] ~~**Naples BMI Office auth**~~ — API2 user created in Naples instance 2026-05-28. Same creds as Fort Myers. Confirmed auth + correct stateId (1191926 = Confirmation + Waiver).
 
@@ -35,9 +43,9 @@
 
 ### Medium Priority
 
-- [ ] **HeadPinz nav on contract pages** — Implemented but untested. HeadPinzNav renders on headpinz.com contract URLs, FastTrax Nav on fasttraxent.com. Verify it looks correct after deploy.
+- [x] ~~**HeadPinz nav on contract pages**~~ — Verified working 2026-05-28.
 
-- [ ] **Card save verification** — Fixed to use paymentId (not nonce) per Square docs. Needs live testing to confirm cards are actually saving now.
+- [x] ~~**Card save verification**~~ — Confirmed working 2026-05-28 using paymentId as source_id.
 
 - [ ] **SEO: HeadPinz metadata on /book routes** — (from todo.md) headpinz.com/book/* shows FastTrax titles in Google.
 
