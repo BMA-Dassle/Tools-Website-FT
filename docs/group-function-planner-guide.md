@@ -58,7 +58,7 @@ After the customer signs and pays:
 
 ### 5. Day of the Event
 
-Payment is handled automatically. The gift card(s) are redeemed against the day-of Square order at event time and the order is closed. **No staff action is needed for payment.**
+Payment is handled automatically on event day. **No staff action is needed for payment.**
 
 ---
 
@@ -72,7 +72,7 @@ The original contract tab and the add-on tab are separate. The contract covers w
 
 ### The Portal Shows "Paid in Full"
 
-Once the 72-hour balance charge completes, the customer's event shows as paid in full. The gift card(s) cover the entire event total. Staff will see this reflected in Square when the event day arrives.
+Once the 72-hour balance charge completes, the customer's event shows as paid in full. Staff will see this reflected in Square when the event day arrives.
 
 ### All Quotes CC the Event Planner
 
@@ -93,7 +93,7 @@ Update anything in BMI Office — customer info, products, pricing, notes, date.
 ### After the Customer Signs and Pays
 
 - **Contact info changes** (name, phone, email, planner): Updated automatically, no re-signing needed.
-- **Pricing or product changes**: The customer is required to re-sign the contract. They receive a "Contract Updated" email. Their deposit and card on file are preserved — they just need to acknowledge the new terms.
+- **Pricing or product changes**: The customer is required to re-sign the contract. They receive a "Contract Updated" email. Their deposit is preserved — they just need to acknowledge the new terms.
 - **Notes changes**: Updated automatically and shown on the customer's event page.
 
 ### Cancelling an Event
