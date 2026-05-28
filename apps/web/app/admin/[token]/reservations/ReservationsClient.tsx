@@ -2407,7 +2407,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                           <span style={{ fontWeight: 700 }}>Total: {fmtD(ge.totalCents)}</span>
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 11, marginTop: 4, color: "var(--ba-muted)" }}>
-                          {ge.squareGiftCardGan && <span>GAN: {ge.squareGiftCardGan}</span>}
+                          {ge.squareGiftCardGan && <span>GAN: {(() => { try { const g = JSON.parse(ge.squareGiftCardGan); return Array.isArray(g) ? g.join(", ") : ge.squareGiftCardGan; } catch { return ge.squareGiftCardGan; } })()}</span>}
                           {ge.plannerName && <span>Planner: {ge.plannerName}</span>}
                           {ge.savedCardId && <span style={{ color: "#22c55e" }}>Card on file</span>}
                           {!ge.savedCardId && ge.depositPaidAt && <span style={{ color: "#f59e0b" }}>No card saved</span>}

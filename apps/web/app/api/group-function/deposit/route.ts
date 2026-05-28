@@ -152,54 +152,77 @@ export async function POST(req: NextRequest) {
 
     const depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
 
-    // 4. Create DIGITAL gift card with custom GAN
+    // 4. Create DIGITAL gift cards in $2k chunks (Square max per card)
+    const GC_MAX_CENTS = 200_000;
     const prefix = quote.gan_prefix || "GRPF";
-    const customGan = `${prefix}${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
-    const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
+    const baseGan = `${prefix}${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
+    const paymentIds = [multiTender.gcPaymentId, multiTender.cardPaymentId].filter(
+      (id): id is string => Boolean(id),
+    );
 
-    const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-gc-${baseKey}`,
-        location_id: quote.square_location_id,
-        gift_card: {
-          type: "DIGITAL",
-          ...(useCustomGan ? { gan_source: "OTHER", gan: customGan } : {}),
-        },
-      }),
-    });
-    const giftCardData = await giftCardRes.json();
-    if (!giftCardRes.ok || !giftCardData.gift_card?.id) {
-      throw new Error(`Gift card creation failed: ${JSON.stringify(giftCardData).slice(0, 300)}`);
-    }
-    const giftCardId = giftCardData.gift_card.id as string;
-    const giftCardGan = giftCardData.gift_card.gan as string;
+    const gcIds: string[] = [];
+    const gcGans: string[] = [];
+    let depositRemaining = quote.deposit_due_cents;
+    let gcIndex = 0;
 
-    // 5. Activate gift card with deposit amount
-    const activateRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-gc-act-${baseKey}`,
-        gift_card_activity: {
-          type: "ACTIVATE",
+    while (depositRemaining > 0) {
+      const chunkCents = Math.min(depositRemaining, GC_MAX_CENTS);
+      const suffix = gcIndex === 0 ? "" : String.fromCharCode(65 + gcIndex); // "", "B", "C", ...
+      const customGan = `${baseGan}${suffix}`;
+      const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
+
+      const gcRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `gf-gc-${baseKey}-${gcIndex}`,
           location_id: quote.square_location_id,
-          gift_card_id: giftCardId,
-          activate_activity_details: {
-            amount_money: { amount: quote.deposit_due_cents, currency: "USD" },
-            buyer_payment_instrument_ids: [
-              multiTender.gcPaymentId,
-              multiTender.cardPaymentId,
-            ].filter((id): id is string => Boolean(id)),
+          gift_card: {
+            type: "DIGITAL",
+            ...(useCustomGan ? { gan_source: "OTHER", gan: customGan } : {}),
           },
-        },
-      }),
-    });
-    const activateData = await activateRes.json();
-    if (!activateRes.ok) {
-      console.error("[gf-deposit] gift card activation failed:", activateData);
+        }),
+      });
+      const gcData = await gcRes.json();
+      if (!gcRes.ok || !gcData.gift_card?.id) {
+        throw new Error(`Gift card #${gcIndex} creation failed: ${JSON.stringify(gcData).slice(0, 300)}`);
+      }
+
+      const gcId = gcData.gift_card.id as string;
+      const gcGan = gcData.gift_card.gan as string;
+
+      // 5. Activate with chunk amount (unlinked — no customer_id)
+      const actRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `gf-gc-act-${baseKey}-${gcIndex}`,
+          gift_card_activity: {
+            type: "ACTIVATE",
+            location_id: quote.square_location_id,
+            gift_card_id: gcId,
+            activate_activity_details: {
+              amount_money: { amount: chunkCents, currency: "USD" },
+              buyer_payment_instrument_ids: paymentIds,
+            },
+          },
+        }),
+      });
+      const actData = await actRes.json();
+      if (!actRes.ok) {
+        console.error(`[gf-deposit] gift card #${gcIndex} activation failed:`, actData);
+      }
+
+      gcIds.push(gcId);
+      gcGans.push(gcGan);
+      depositRemaining -= chunkCents;
+      gcIndex++;
+
+      console.log(`[gf-deposit] gift card #${gcIndex}: ${gcGan} activated with $${(chunkCents / 100).toFixed(2)}`);
     }
+
+    const giftCardId = JSON.stringify(gcIds);
+    const giftCardGan = JSON.stringify(gcGans);
 
     // 6. Save card on file for 72-hour auto-charge
     // Square requires: charge first → use the paymentId as source_id for CreateCard.

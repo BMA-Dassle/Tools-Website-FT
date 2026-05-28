@@ -695,6 +695,20 @@ export async function getAuditLog(quoteId: number): Promise<AuditLogEntry[]> {
   return rows as AuditLogEntry[];
 }
 
+// ── Gift card array helpers ─────────────────────────────────────────
+
+export function parseGiftCardIds(raw: string | null): string[] {
+  if (!raw) return [];
+  if (raw.startsWith("[")) {
+    try { return JSON.parse(raw) as string[]; } catch { return []; }
+  }
+  return [raw];
+}
+
+export function parseGiftCardGans(raw: string | null): string[] {
+  return parseGiftCardIds(raw);
+}
+
 // ── List ────────────────────────────────────────────────────────────
 
 export async function listGfQuotes(opts?: {

@@ -13,6 +13,7 @@ import { voxSend } from "@/lib/sms-retry";
 import { sendAdaptiveCardToChannel, updateAdaptiveCard } from "@/lib/teams-bot";
 import { PLANNERS } from "@/lib/sales-lead-config";
 import type { GroupFunctionQuote } from "@/lib/group-function-db";
+import { parseGiftCardGans } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
 
 const FALLBACK_URL = "https://fasttraxent.com";
@@ -24,6 +25,16 @@ const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function primaryGan(quote: GroupFunctionQuote): string {
+  const gans = parseGiftCardGans(quote.square_gift_card_gan);
+  return gans[0] || "";
+}
+
+function allGans(quote: GroupFunctionQuote): string {
+  const gans = parseGiftCardGans(quote.square_gift_card_gan);
+  return gans.join(", ");
 }
 
 function plannerName(quote: GroupFunctionQuote): string {
@@ -136,7 +147,7 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
           quote.guest_phone,
           [
             `${quote.guest_first_name}, your deposit of ${dollars(quote.deposit_due_cents)} for ${quote.event_name || "your event"} has been received!`,
-            quote.square_gift_card_gan ? `Reference: ${quote.square_gift_card_gan}` : "",
+            primaryGan(quote) ? `Reference: ${primaryGan(quote)}` : "",
             `Your remaining balance of ${dollars(quote.balance_cents)} will be charged 72 hours before your event.`,
             `See you at ${quote.center_name}!`,
           ]
@@ -153,7 +164,7 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
       cc: plannerCc(quote),
       subject: `Deposit Received — ${quote.event_name || quote.center_name}`,
       html: buildDepositPaidHtml(quote),
-      text: `Hi ${quote.guest_first_name},\n\nYour deposit of ${dollars(quote.deposit_due_cents)} has been received for ${quote.event_name}.\n\nReference: ${quote.square_gift_card_gan || "N/A"}\nRemaining balance: ${dollars(quote.balance_cents)}\n\nThe remaining balance will be charged 72 hours before your event.\n\nThank you!\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour deposit of ${dollars(quote.deposit_due_cents)} has been received for ${quote.event_name}.\n\nReference: ${primaryGan(quote) || "N/A"}\nRemaining balance: ${dollars(quote.balance_cents)}\n\nThe remaining balance will be charged 72 hours before your event.\n\nThank you!\n${quote.center_name}`,
     }),
 
     updateContractTeamsCard(quote, "deposit_paid"),
@@ -280,8 +291,8 @@ function buildGroupFunctionCard(
     { title: "Balance", value: dollars(quote.balance_cents) },
   ];
 
-  if (quote.square_gift_card_gan) {
-    facts.push({ title: "GAN", value: quote.square_gift_card_gan });
+  if (primaryGan(quote)) {
+    facts.push({ title: "GAN", value: allGans(quote) });
   }
 
   const statusBanners: Record<string, unknown>[] = [];
@@ -482,7 +493,7 @@ function buildDepositPaidHtml(quote: GroupFunctionQuote): string {
     <div style="background:#f8fafc;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
       <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Deposit Paid</p>
       <p style="margin:0;font-size:32px;font-weight:800;color:#22d3ee">${dollars(quote.deposit_due_cents)}</p>
-      ${quote.square_gift_card_gan ? `<p style="margin:8px 0 0;font-size:12px;font-family:monospace;color:#64748b">Ref: ${quote.square_gift_card_gan}</p>` : ""}
+      ${primaryGan(quote) ? `<p style="margin:8px 0 0;font-size:12px;font-family:monospace;color:#64748b">Ref: ${primaryGan(quote)}</p>` : ""}
     </div>
 
     <table style="width:100%;margin:16px 0;border-collapse:collapse">
