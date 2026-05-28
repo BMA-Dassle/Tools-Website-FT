@@ -212,6 +212,28 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: priceChanged ? "resign_required" : "updated_data" };
   }
 
+  // Clean up event notes grammar before sending
+  let eventNotes = item.event.notes || "";
+  if (eventNotes.trim()) {
+    try {
+      const { cleanupNotesGrammar } = await import("@/lib/notes-grammar");
+      const cleaned = await cleanupNotesGrammar(eventNotes);
+      if (cleaned !== eventNotes) {
+        eventNotes = cleaned;
+        // Update BMI Office with corrected notes
+        const { updateProjectPublicNotes } = await import("@/lib/bmi-office-actions");
+        updateProjectPublicNotes({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          notes: cleaned,
+        }).catch((err) => console.error("[group-quote-dispatch] BMI notes update error:", err));
+        console.log(`[group-quote-dispatch] grammar-cleaned notes for reservation=${item.reservationId}`);
+      }
+    } catch (err) {
+      console.warn("[group-quote-dispatch] notes cleanup failed:", err);
+    }
+  }
+
   // Create or update internal contract (no PandaDoc)
   const contractShortId = existing?.contract_short_id || randomBytes(4).toString("hex");
   const balanceCents = totalCents - depositDueCents;
@@ -223,7 +245,7 @@ async function processQueueItem(
       event_number: item.event.number,
       event_date: item.event.dateRaw,
       event_date_display: item.event.date,
-      notes: item.event.notes,
+      notes: eventNotes,
       total_cents: totalCents,
       tax_cents: taxCents,
       deposit_due_cents: depositDueCents,
@@ -265,7 +287,7 @@ async function processQueueItem(
       event_number: item.event.number,
       event_date: item.event.dateRaw,
       event_date_display: item.event.date,
-      notes: item.event.notes,
+      notes: eventNotes,
       total_cents: totalCents,
       tax_cents: taxCents,
       deposit_due_cents: depositDueCents,

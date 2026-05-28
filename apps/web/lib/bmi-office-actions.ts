@@ -226,6 +226,34 @@ export async function fetchProject(
   return JSON.parse(res.body);
 }
 
+// ── Update public notes ────────────────────────────────────────────
+
+export async function updateProjectPublicNotes(params: {
+  centerCode: string;
+  projectId: string;
+  notes: string;
+}): Promise<void> {
+  const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+
+  const getRes = await httpsRequest("GET", `/api/${clientKey}/project/${params.projectId}`, headers);
+  if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
+  const project = JSON.parse(getRes.body);
+
+  const logs = (project.logs || []) as Array<{ public: boolean; memo: string; id: string }>;
+  const publicLog = logs.find((l) => l.public);
+
+  if (publicLog) {
+    publicLog.memo = params.notes;
+  }
+
+  const putRes = await httpsRequest("PUT", `/api/${clientKey}/project`, headers, JSON.stringify(project));
+  if (putRes.status >= 400) throw new Error(`Failed to update project notes: ${putRes.status}`);
+
+  console.log(`[bmi-office] updated public notes for project ${params.projectId}`);
+}
+
 // ── Helper: detect waiver-required activities ───────────────────────
 
 export function hasWaiverRequiredActivities(lineItems: Array<{ name: string }>): boolean {

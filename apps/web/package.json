@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.0",
     "@ft/db": "*",
     "@neondatabase/serverless": "^1.1.0",
     "@next/third-parties": "^16.2.6",
