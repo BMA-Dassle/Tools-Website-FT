@@ -77,6 +77,10 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
   const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(null);
   const [agreeUnderstand, setAgreeUnderstand] = useState(false);
 
+  // Tip acknowledgments (must all be checked to proceed past Event Info)
+  const [tipChecks, setTipChecks] = useState<boolean[]>([false, false, false, false, false, false, false]);
+  const allTipsChecked = tipChecks.every(Boolean);
+
   const allAgreed = agreeDeposit && agreeNoPrepay && agreePaymentDay && agreePolicies && taxExempt !== null && agreeUnderstand;
 
   // Compliance: capture IP + timestamp at sign time
@@ -393,24 +397,36 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                   { title: "Payments", text: "A 50% deposit secures your event via our online system. Please bring payment on event day for the final balance. Splitting payments is not possible.", Icon: IconCreditCard },
                   { title: "Service Charge", text: "A mandatory, non-refundable service charge applies to all contracted events, including any additions on the day of.", Icon: IconReceipt },
                 ].map((tip, i) => (
-                  <div key={i} className="flex gap-4 rounded-xl bg-white/5 p-4">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-cyan-400/10">
-                      <tip.Icon size={20} className="text-cyan-400" stroke={1.5} />
+                  <label key={i} className={`flex cursor-pointer gap-4 rounded-xl p-4 transition-colors ${tipChecks[i] ? "bg-cyan-400/5 ring-1 ring-cyan-400/20" : "bg-white/5"}`}>
+                    <input
+                      type="checkbox"
+                      checked={tipChecks[i]}
+                      onChange={(e) => {
+                        const next = [...tipChecks];
+                        next[i] = e.target.checked;
+                        setTipChecks(next);
+                      }}
+                      className="mt-1 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
+                    />
+                    <div className="flex flex-1 gap-3">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-cyan-400/10">
+                        <tip.Icon size={20} className="text-cyan-400" stroke={1.5} />
+                      </div>
+                      <div>
+                        <p className="mb-1 font-semibold text-white">{tip.title}</p>
+                        <p className="text-sm leading-relaxed text-gray-400">{tip.text}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="mb-1 font-semibold text-white">{tip.title}</p>
-                      <p className="text-sm leading-relaxed text-gray-400">{tip.text}</p>
-                    </div>
-                  </div>
+                  </label>
                 ))}
               </div>
             </div>
 
             <div className="flex gap-3">
               <button onClick={() => setStep("review")} className="rounded-xl border border-white/20 px-6 py-3 font-semibold hover:bg-white/5">Back</button>
-              <button onClick={() => setStep("policy")}
-                className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20">
-                Continue
+              <button onClick={() => setStep("policy")} disabled={!allTipsChecked}
+                className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed">
+                {allTipsChecked ? "Continue" : `Acknowledge All (${tipChecks.filter(Boolean).length}/${tipChecks.length})`}
               </button>
             </div>
           </>
@@ -463,7 +479,7 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
               <div className="space-y-3">
                 {[
                   { state: agreeDeposit, set: setAgreeDeposit, text: "I agree to make a 50% deposit via credit card after completing this document." },
-                  { state: agreeNoPrepay, set: setAgreeNoPrepay, text: "I understand that we do not accept pre-paid payments and we are unable to collect final payment before your event." },
+                  { state: agreeNoPrepay, set: setAgreeNoPrepay, text: "I understand that the remaining balance will be automatically charged to my card on file 72 hours prior to the event." },
                   { state: agreePaymentDay, set: setAgreePaymentDay, text: "I'll have a form of payment ready on the day of my event." },
                   { state: agreePolicies, set: setAgreePolicies, text: "I agree to the \"Tips for Your Event\" and \"Cancellation\" policies." },
                 ].map((item, i) => (
