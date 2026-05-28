@@ -82,7 +82,7 @@ export function buildDocumentBody(item: HermesQueueItem) {
       name: "Pricing Table 1",
       data_merge: true,
       options: {},
-      sections: [{ default: true, rows: productRows }],
+      sections: [{ title: "Products", default: true, rows: productRows }],
     },
   ];
 
@@ -104,7 +104,7 @@ export function buildDocumentBody(item: HermesQueueItem) {
       name: "Pricing Table 2",
       data_merge: true,
       options: {},
-      sections: [{ default: true, rows: depositRows }],
+      sections: [{ title: "Deposits", default: true, rows: depositRows }],
     });
   }
 
@@ -353,7 +353,7 @@ export function buildDocumentBodyFromQuote(quote: GroupFunctionQuote) {
       name: "Pricing Table 1",
       data_merge: true,
       options: {},
-      sections: [{ default: true, rows: productRows }],
+      sections: [{ title: "Products", default: true, rows: productRows }],
     },
   ];
 
@@ -375,7 +375,7 @@ export function buildDocumentBodyFromQuote(quote: GroupFunctionQuote) {
       name: "Pricing Table 2",
       data_merge: true,
       options: {},
-      sections: [{ default: true, rows: depositRows }],
+      sections: [{ title: "Deposits", default: true, rows: depositRows }],
     });
   }
 
