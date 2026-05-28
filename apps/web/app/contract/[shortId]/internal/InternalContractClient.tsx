@@ -77,9 +77,10 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
   const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(null);
   const [agreeUnderstand, setAgreeUnderstand] = useState(false);
 
-  // Tip acknowledgments (must all be checked to proceed past Event Info)
-  const [tipChecks, setTipChecks] = useState<boolean[]>([false, false, false, false, false, false, false]);
-  const allTipsChecked = tipChecks.every(Boolean);
+  // Page-level acknowledgments
+  const [waiverAcknowledged, setWaiverAcknowledged] = useState(false);
+  const [tipsAcknowledged, setTipsAcknowledged] = useState(false);
+  const [policyAcknowledged, setPolicyAcknowledged] = useState(false);
 
   // Tax exempt file upload
   const [taxFile, setTaxFile] = useState<File | null>(null);
@@ -402,42 +403,55 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                 {[
                   { title: "Outside Food & Beverages", text: "No outside food or drinks. We welcome cakes for celebrations, but we’re unable to store them due to health guidelines.", Icon: IconBan },
                   { title: "Buffets", text: "Buffets are served for one hour and are for in-event dining only. No to-go food will be provided.", Icon: IconClock },
-                  { title: "Waivers for Attractions", text: "For Laser Tag, Racing, and Nexus, all participants must complete a waiver. Your planner will provide a link — getting this done early avoids delays!", Icon: IconShieldCheck },
                   { title: "Adding Food", text: "If your quote doesn’t include food, you have up to 72 hours before the event to place your order.", Icon: IconToolsKitchen2 },
                   { title: "HeadPinz Rewards", text: "HeadPinz Rewards cannot be earned or redeemed on group events.", Icon: IconStar },
-                  { title: "Payments", text: "A 50% deposit secures your event via our online system. Please bring payment on event day for the final balance. Splitting payments is not possible.", Icon: IconCreditCard },
+                  { title: "Payments", text: "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.", Icon: IconCreditCard },
                   { title: "Service Charge", text: "A mandatory, non-refundable service charge applies to all contracted events, including any additions on the day of.", Icon: IconReceipt },
                 ].map((tip, i) => (
-                  <label key={i} aria-label={`Acknowledge: ${tip.title}`} className={`flex cursor-pointer gap-4 rounded-xl p-4 transition-colors ${tipChecks[i] ? "bg-cyan-400/5 ring-1 ring-cyan-400/20" : "bg-white/5"}`}>
-                    <input
-                      type="checkbox"
-                      checked={tipChecks[i]}
-                      onChange={(e) => {
-                        const next = [...tipChecks];
-                        next[i] = e.target.checked;
-                        setTipChecks(next);
-                      }}
-                      className="mt-1 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
-                    />
-                    <div className="flex flex-1 gap-3">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-cyan-400/10">
-                        <tip.Icon size={20} className="text-cyan-400" stroke={1.5} />
-                      </div>
-                      <div>
-                        <p className="mb-1 font-semibold text-white">{tip.title}</p>
-                        <p className="text-sm leading-relaxed text-gray-400">{tip.text}</p>
-                      </div>
+                  <div key={i} className="flex gap-4 rounded-xl bg-white/5 p-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-cyan-400/10">
+                      <tip.Icon size={20} className="text-cyan-400" stroke={1.5} />
                     </div>
-                  </label>
+                    <div>
+                      <p className="mb-1 font-semibold text-white">{tip.title}</p>
+                      <p className="text-sm leading-relaxed text-gray-400">{tip.text}</p>
+                    </div>
+                  </div>
                 ))}
+
+                {/* Waivers — mandatory acknowledgment */}
+                <div className={`rounded-xl p-4 transition-colors ${waiverAcknowledged ? "bg-emerald-400/5 ring-1 ring-emerald-400/20" : "bg-red-500/5 ring-1 ring-red-500/20"}`}>
+                  <div className="flex gap-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-500/10">
+                      <IconShieldCheck size={20} className="text-red-400" stroke={1.5} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="mb-1 font-semibold text-white">Waivers for Attractions</p>
+                      <p className="text-sm leading-relaxed text-gray-400">For Laser Tag, Racing, and Nexus, all participants must complete a waiver. Your planner will provide a link — getting this done early avoids delays!</p>
+                      <p className="mt-2 text-xs font-semibold text-red-400">MANDATORY: Failure to complete waivers prior to your event is grounds for cancellation.</p>
+                    </div>
+                  </div>
+                  <label className="mt-3 flex cursor-pointer items-center gap-3 rounded-lg bg-white/5 p-3">
+                    <input type="checkbox" checked={waiverAcknowledged} onChange={(e) => setWaiverAcknowledged(e.target.checked)}
+                      className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                    <span className="text-sm font-semibold text-white">I understand that waivers are required for all participants</span>
+                  </label>
+                </div>
               </div>
             </div>
 
             <div className="flex gap-3">
+              {/* Acknowledge event info */}
+              <label className="mb-4 flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-4">
+                <input type="checkbox" checked={tipsAcknowledged} onChange={(e) => setTipsAcknowledged(e.target.checked)}
+                  className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                <span className="text-sm font-semibold text-white">I have read and understand the event information above</span>
+              </label>
+
               <button onClick={() => setStep("review")} className="rounded-xl border border-white/20 px-6 py-3 font-semibold hover:bg-white/5">Back</button>
-              <button onClick={() => setStep("policy")} disabled={!allTipsChecked}
+              <button onClick={() => setStep("policy")} disabled={!waiverAcknowledged || !tipsAcknowledged}
                 className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed">
-                {allTipsChecked ? "Continue" : `Acknowledge All (${tipChecks.filter(Boolean).length}/${tipChecks.length})`}
+                Continue
               </button>
             </div>
           </>
@@ -468,9 +482,16 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
             </div>
 
             <div className="flex gap-3">
+              {/* Acknowledge cancellation policy */}
+              <label className="mb-4 flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-4">
+                <input type="checkbox" checked={policyAcknowledged} onChange={(e) => setPolicyAcknowledged(e.target.checked)}
+                  className="h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500" />
+                <span className="text-sm font-semibold text-white">I have read and agree to the cancellation policy</span>
+              </label>
+
               <button onClick={() => setStep("tips")} className="rounded-xl border border-white/20 px-6 py-3 font-semibold hover:bg-white/5">Back</button>
-              <button onClick={() => setStep("sign")}
-                className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20">
+              <button onClick={() => setStep("sign")} disabled={!policyAcknowledged}
+                className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed">
                 Continue to Sign
               </button>
             </div>
