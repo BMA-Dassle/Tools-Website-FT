@@ -88,6 +88,23 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ ok: true, results });
 }
 
+function formatEventDate(dateRaw: string): string {
+  // BMI dates are local ET without timezone (e.g. "2026-10-17T11:30:00")
+  // Hermes has a bug in its moment format string (MM instead of mm)
+  // so we format it ourselves
+  const d = new Date(dateRaw + (dateRaw.includes("Z") || dateRaw.includes("+") ? "" : "-04:00"));
+  return d.toLocaleDateString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+  }) + " " + d.toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 async function processQueueItem(
   item: HermesQueueItem,
 ): Promise<{ reservationId: string; action: string }> {
@@ -172,7 +189,7 @@ async function processQueueItem(
       event_name: item.event.name,
       event_number: item.event.number,
       event_date: item.event.dateRaw,
-      event_date_display: item.event.date,
+      event_date_display: formatEventDate(item.event.dateRaw),
       notes: item.event.notes,
       total_cents: totalCents,
       tax_cents: taxCents,
@@ -244,7 +261,7 @@ async function processQueueItem(
       event_name: item.event.name,
       event_number: item.event.number,
       event_date: item.event.dateRaw,
-      event_date_display: item.event.date,
+      event_date_display: formatEventDate(item.event.dateRaw),
       notes: eventNotes,
       total_cents: totalCents,
       tax_cents: taxCents,
@@ -286,7 +303,7 @@ async function processQueueItem(
       event_name: item.event.name,
       event_number: item.event.number,
       event_date: item.event.dateRaw,
-      event_date_display: item.event.date,
+      event_date_display: formatEventDate(item.event.dateRaw),
       notes: eventNotes,
       total_cents: totalCents,
       tax_cents: taxCents,

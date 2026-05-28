@@ -157,7 +157,13 @@ async function syncQuote(
     if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase()) updates.guest_email = customer.email;
     if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone)) updates.guest_phone = customer.phone;
   }
-  if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) updates.event_date = bmiDate;
+  if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
+    updates.event_date = bmiDate;
+    // Reformat display date from raw BMI date (Hermes has AM/PM formatting bug)
+    const d = new Date(bmiDate + (bmiDate.includes("Z") || bmiDate.includes("+") ? "" : "-04:00"));
+    updates.event_date_display = d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
+      + " " + d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true });
+  }
   if (bmiName && bmiName !== quote.event_name) updates.event_name = bmiName;
 
   // Update products if changed
