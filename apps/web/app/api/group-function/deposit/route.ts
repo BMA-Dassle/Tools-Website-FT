@@ -202,43 +202,31 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. Save card on file for 72-hour auto-charge
-    // Only when: card was actually used (not GC-only), customer wanted to save,
-    // and we have the original nonce. Matches the karting flow pattern.
+    // Square requires: charge first → use the paymentId as source_id for CreateCard.
+    // The nonce is consumed by the payment; the paymentId is the handle to save from.
+    // See: https://developer.squareup.com/docs/cards-api/walkthrough/card-from-payment-id
     let savedCardId: string | undefined;
     let squareCustomerId: string | undefined;
 
-    if (saveCard && cardSourceId && multiTender.cardPaymentId) {
-      try {
-        const custResult = await findOrCreateSquareCustomer(quote);
-        squareCustomerId = custResult ?? undefined;
+    const custResult = await findOrCreateSquareCustomer(quote);
+    squareCustomerId = custResult ?? undefined;
 
-        if (squareCustomerId) {
-          const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
-            method: "POST",
-            headers: sqHeaders(),
-            body: JSON.stringify({
-              idempotency_key: `gf-card-${baseKey}`,
-              source_id: cardSourceId,
-              card: { customer_id: squareCustomerId },
-            }),
-          });
-          const cardData = await cardRes.json();
-          if (cardRes.ok && cardData.card?.id) {
-            savedCardId = cardData.card.id;
-            console.log(`[gf-deposit] card saved: ${savedCardId} for customer ${squareCustomerId}`);
-          } else {
-            console.error("[gf-deposit] card save failed:", JSON.stringify(cardData).slice(0, 300));
-          }
-        }
-      } catch (err: unknown) {
-        console.error("[gf-deposit] save card error:", err);
-      }
-    } else if (saveCard && !multiTender.cardPaymentId) {
-      // GC-only payment — still look up/create customer for future charges
-      try {
-        squareCustomerId = (await findOrCreateSquareCustomer(quote)) ?? undefined;
-      } catch {
-        // non-fatal
+    if (saveCard && multiTender.cardPaymentId && squareCustomerId) {
+      const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `gf-card-${baseKey}`,
+          source_id: multiTender.cardPaymentId,
+          card: { customer_id: squareCustomerId },
+        }),
+      });
+      const cardData = await cardRes.json();
+      if (cardRes.ok && cardData.card?.id) {
+        savedCardId = cardData.card.id;
+        console.log(`[gf-deposit] card saved: ${savedCardId} for customer ${squareCustomerId}`);
+      } else {
+        console.error("[gf-deposit] card save FAILED:", JSON.stringify(cardData).slice(0, 500));
       }
     }
 
