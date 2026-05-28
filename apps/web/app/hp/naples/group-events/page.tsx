@@ -80,17 +80,17 @@ const activities = [
   },
   {
     title: "NEXUS Laser Tag",
-    subtitle: "$200/session",
+    subtitle: "$150/session",
     color: purple,
     img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
-    desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions. $200 per session for group events.",
+    desc: "Immersive two-story arena with haptic vests and precision sensors. Objective-based missions. $150 per session, up to 15 guests.",
   },
   {
     title: "Gel Blasters",
-    subtitle: "Per Person",
+    subtitle: "$200/session",
     color: blue,
     img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/addons/gelblaster-gtOdWfUsDWYEf72h2aBEytF5GCuZUs.jpg",
-    desc: "High-tech blasters with haptic vests and eco-friendly Gellets. Fast-paced team battles in a glowing arena.",
+    desc: "High-tech blasters with haptic vests and eco-friendly Gellets. Fast-paced team battles in a glowing arena. $200 per session, up to 15 guests.",
   },
   {
     title: "Arcade / Game Zone",
@@ -150,8 +150,8 @@ const bowlingTables = [classicBowling, vipBowling, vipPinzExclusive];
 /* -- Add-on activities (Naples) --------------------------- */
 
 const addOnActivities = [
-  { name: "NEXUS Laser Tag", price: "$10/person" },
-  { name: "NEXUS Gel Blasters", price: "$250/session" },
+  { name: "NEXUS Laser Tag", price: "$150/session (up to 15 guests)" },
+  { name: "NEXUS Gel Blasters", price: "$200/session (up to 15 guests)" },
   { name: "Pool Tables", price: "$15/hour" },
   { name: "Game Zone Cards", price: "$5 / $10 / $20" },
 ];
