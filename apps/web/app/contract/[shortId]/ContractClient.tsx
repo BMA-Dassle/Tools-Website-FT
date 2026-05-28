@@ -303,12 +303,18 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       setSignedAt(data.signedAt);
       // If already paid (resign flow), skip payment and go to event page
       if (alreadyPaid) {
-        // Update status back to deposit_paid
         fetch("/api/group-function/audit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ shortId: quote.contractShortId, event: "re-signed" }),
         }).catch(() => {});
+        // Regenerate signed PDF with updated data
+        fetch("/api/group-function/generate-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shortId: quote.contractShortId }),
+        }).catch(() => {});
+        setUpdateBanner(null);
         setStep("event");
       } else {
         setStep("pay");
