@@ -131,6 +131,39 @@ async function processQueueItem(
   const totalCents = Math.round(item.totalBill * 100);
   const taxCents = Math.round(item.tax * 100);
 
+  // No-changes check: if data matches, just re-send the link
+  if (existing && existing.contract_sent_at) {
+    const unchanged =
+      existing.total_cents === totalCents &&
+      existing.deposit_due_cents === depositDueCents &&
+      existing.tax_cents === taxCents &&
+      existing.event_name === item.event.name &&
+      existing.guest_email === item.customer.email;
+
+    if (unchanged) {
+      // Always re-send the link as a reminder
+      await updateGfQuoteDetails(existing.id, {
+        hermes_last_processed_at: new Date().toISOString(),
+      });
+      const refreshedQuote = await getGfQuoteByShortId(existing.contract_short_id!);
+      if (refreshedQuote) {
+        notifyContractSent(refreshedQuote).catch((err) =>
+          console.error("[group-quote-dispatch] resend notify error:", err),
+        );
+      }
+      await completePandaDocQueue({
+        center: item.center,
+        queueId: item.queueId,
+        logId: item.logId,
+        message: `${item.customer.email} (resent)`,
+      });
+      console.log(
+        `[group-quote-dispatch] no changes, resent link for reservation=${item.reservationId}`,
+      );
+      return { reservationId: item.reservationId, action: "resent" };
+    }
+  }
+
   // Post-signing update: data only, don't touch PandaDoc
   if (existing && (existing.status === "deposit_paid" || existing.status === "balance_charged" || existing.status === "balance_link_sent" || existing.status === "completed")) {
     const balanceCents = totalCents - existing.deposit_due_cents;
