@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Signing } from "pandadoc-signing";
 
 // Square types are declared globally in components/square/PaymentForm.tsx
 
@@ -63,7 +62,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const squareLoaded = useRef(false);
   const [signingReady, setSigningReady] = useState(false);
   const signingInitiated = useRef(false);
-  const signingRef = useRef<Signing | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signingRef = useRef<any>(null);
   const [schedule, setSchedule] = useState<Array<{
     activity: string;
     count: number;
@@ -97,6 +97,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
           return;
         }
 
+        const { Signing } = await import("pandadoc-signing");
         const signing = new Signing(
           "pandadoc-signing-container",
           { sessionId: data.sessionId, width: "100%", height: 700 },
