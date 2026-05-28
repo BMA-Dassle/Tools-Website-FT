@@ -53,11 +53,17 @@ const STEPS: { key: Step; label: string; short: string }[] = [
 
 export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [step, setStep] = useState<Step>(() => {
-    if (quote.depositPaidAt && quote.status !== "resign_required") return "event";
+    if (quote.status === "resign_required") return "review";
+    if (quote.depositPaidAt) return "event";
     return "review";
   });
   const alreadyPaid = Boolean(quote.depositPaidAt);
-  const [updateBanner, setUpdateBanner] = useState<string | null>(null);
+
+  // Show banner if returning from a resign_required state
+  const [updateBannerInit] = useState(() =>
+    quote.status === "resign_required" ? "Your event has been updated and requires re-confirmation" : null,
+  );
+  const [updateBanner, setUpdateBanner] = useState<string | null>(updateBannerInit);
   const [signedPdfUrl, setSignedPdfUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -122,15 +128,15 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       if (signal.aborted || !statusRes.ok) return;
       const statusData = await statusRes.json();
 
-      // Detect changes
+      // Detect changes — reload page to get fresh server data
       if (lastHash.current && lastHash.current !== statusData.lineItemsHash) {
-        if (!quote.depositPaidAt && step !== "event") {
-          setUpdateBanner("Event Updated — please review the changes");
-          setStep("review");
-        } else if (statusData.status === "resign_required") {
-          setUpdateBanner("Your event has been updated and requires re-confirmation");
-          setStep("review");
-        }
+        window.location.reload();
+        return;
+      }
+      // Detect resign_required status change
+      if (statusData.status === "resign_required" && step === "event") {
+        window.location.reload();
+        return;
       }
       lastHash.current = statusData.lineItemsHash;
       if (statusData.signedPdfUrl && !signedPdfUrl) setSignedPdfUrl(statusData.signedPdfUrl);
