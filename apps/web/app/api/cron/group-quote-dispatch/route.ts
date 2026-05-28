@@ -121,19 +121,27 @@ async function processQueueItem(
   const totalCents = Math.round(item.totalBill * 100);
   const taxCents = Math.round(item.tax * 100);
 
-  // No-changes check: if data matches, just re-send the link
+  // No-changes check: if pricing/products match, update contact info and re-send
   if (existing && existing.contract_sent_at) {
     const existingProducts = (existing.line_items as unknown[]) || [];
-    const unchanged =
+    const pricingUnchanged =
       existing.total_cents === totalCents &&
       existing.deposit_due_cents === depositDueCents &&
       existing.tax_cents === taxCents &&
       existing.event_name === item.event.name &&
-      existing.guest_email === item.customer.email &&
       existingProducts.length === item.products.length;
 
-    if (unchanged) {
+    if (pricingUnchanged) {
       await updateGfQuoteDetails(existing.id, {
+        guest_first_name: item.customer.first,
+        guest_last_name: item.customer.last,
+        guest_email: item.customer.email,
+        guest_phone: item.customer.phone,
+        planner_first: item.planner.first,
+        planner_last: item.planner.last,
+        planner_email: item.planner.email,
+        planner_phone: item.planner.phone,
+        notes: item.event.notes,
         hermes_last_processed_at: new Date().toISOString(),
       });
       const refreshedQuote = await getGfQuoteByShortId(existing.contract_short_id!);
@@ -149,7 +157,7 @@ async function processQueueItem(
         message: `${item.customer.email} (resent)`,
       });
       console.log(
-        `[group-quote-dispatch] no changes, resent link for reservation=${item.reservationId}`,
+        `[group-quote-dispatch] pricing unchanged, updated contacts + resent link for reservation=${item.reservationId}`,
       );
       return { reservationId: item.reservationId, action: "resent" };
     }
