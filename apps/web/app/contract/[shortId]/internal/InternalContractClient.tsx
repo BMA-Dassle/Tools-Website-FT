@@ -81,7 +81,13 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
   const [tipChecks, setTipChecks] = useState<boolean[]>([false, false, false, false, false, false, false]);
   const allTipsChecked = tipChecks.every(Boolean);
 
-  const allAgreed = agreeDeposit && agreeNoPrepay && agreePaymentDay && agreePolicies && taxExempt !== null && agreeUnderstand;
+  // Tax exempt file upload
+  const [taxFile, setTaxFile] = useState<File | null>(null);
+  const [taxFileUrl, setTaxFileUrl] = useState<string | null>(null);
+  const [taxUploading, setTaxUploading] = useState(false);
+
+  const taxValid = taxExempt === "no" || (taxExempt === "yes" && Boolean(taxFileUrl));
+  const allAgreed = agreeDeposit && agreeNoPrepay && agreePaymentDay && taxExempt !== null && taxValid && agreeUnderstand;
 
   // Compliance: capture IP + timestamp at sign time
   const [signedAt, setSignedAt] = useState<string | null>(null);
@@ -481,7 +487,6 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                   { state: agreeDeposit, set: setAgreeDeposit, text: "I agree to make a 50% deposit via credit card after completing this document." },
                   { state: agreeNoPrepay, set: setAgreeNoPrepay, text: "I understand that the remaining balance will be automatically charged to my card on file 72 hours prior to the event." },
                   { state: agreePaymentDay, set: setAgreePaymentDay, text: "I'll have a form of payment ready on the day of my event." },
-                  { state: agreePolicies, set: setAgreePolicies, text: "I agree to the \"Tips for Your Event\" and \"Cancellation\" policies." },
                 ].map((item, i) => (
                   <label key={i} className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
                     <input type="checkbox" checked={item.state} onChange={(e) => item.set(e.target.checked)}
@@ -490,8 +495,8 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                   </label>
                 ))}
 
-                <div className="rounded-lg bg-white/5 p-3">
-                  <p className="mb-2 text-sm text-gray-300">Are you tax exempt?</p>
+                <div className="rounded-xl bg-white/5 p-4">
+                  <p className="mb-3 font-semibold text-white">Are you tax exempt?</p>
                   <div className="flex gap-4">
                     <label className="flex cursor-pointer items-center gap-2">
                       <input type="radio" name="tax" checked={taxExempt === "yes"} onChange={() => setTaxExempt("yes")}
@@ -505,7 +510,50 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
                     </label>
                   </div>
                   {taxExempt === "yes" && (
-                    <p className="mt-2 text-xs text-amber-400">Please email your DR-14 letter to your event planner.</p>
+                    <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+                      <p className="mb-2 text-sm font-semibold text-amber-400">Upload DR-14 Tax Exempt Letter</p>
+                      <p className="mb-3 text-xs text-gray-400">Required to apply tax exemption. PDF, JPG, or PNG accepted.</p>
+                      {taxFileUrl ? (
+                        <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
+                          <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="truncate">{taxFile?.name || "Uploaded"}</span>
+                        </div>
+                      ) : (
+                        <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${taxUploading ? "border-cyan-400/30 text-cyan-400" : "border-white/20 text-gray-400 hover:border-cyan-400/40 hover:text-cyan-300"}`}>
+                          {taxUploading ? (
+                            <><div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" /> Uploading...</>
+                          ) : (
+                            <><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg> Choose file</>
+                          )}
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setTaxFile(file);
+                              setTaxUploading(true);
+                              try {
+                                const form = new FormData();
+                                form.append("file", file);
+                                form.append("shortId", quote.contractShortId);
+                                const res = await fetch("/api/group-function/upload-tax-doc", { method: "POST", body: form });
+                                const data = await res.json();
+                                if (data.url) setTaxFileUrl(data.url);
+                                else setError(data.error || "Upload failed");
+                              } catch {
+                                setError("Upload failed. Please try again.");
+                              } finally {
+                                setTaxUploading(false);
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -599,11 +647,14 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
 
               <div id="sq-card-container" className="mb-4 min-h-[50px] rounded-lg bg-white p-3" />
 
-              <label className="mb-5 flex cursor-pointer items-center gap-2.5 text-sm text-gray-300">
-                <input type="checkbox" checked={saveCard} onChange={(e) => setSaveCard(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-600 bg-gray-800" />
-                Save card for remaining balance
-              </label>
+              <div className="mb-5 flex items-start gap-2.5 rounded-lg bg-white/5 p-3">
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm text-gray-300">
+                  Your card will be saved on file. The remaining balance of <strong className="text-white">{fmtDollars(quote.balanceCents)}</strong> will be automatically charged 72 hours prior to your event.
+                </p>
+              </div>
 
               {error && (
                 <div className="mb-4 rounded-lg bg-red-900/40 px-4 py-2.5 text-sm text-red-200 ring-1 ring-red-500/20">{error}</div>
