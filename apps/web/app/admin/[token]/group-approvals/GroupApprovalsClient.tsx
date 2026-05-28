@@ -49,9 +49,11 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
   const [actionInFlight, setActionInFlight] = useState<number | null>(null);
   const [denyingId, setDenyingId] = useState<number | null>(null);
   const [denyReason, setDenyReason] = useState("");
-  const [actionResult, setActionResult] = useState<{ id: number; msg: string; ok: boolean } | null>(
-    null,
-  );
+  const [actionResult, setActionResult] = useState<{
+    id: number;
+    msg: string;
+    ok: boolean;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -132,313 +134,183 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 900,
-        margin: "0 auto",
-        padding: "1.5rem",
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        color: "#e2e8f0",
-        backgroundColor: "#0f172a",
-        minHeight: "100vh",
-      }}
-    >
-      <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>
-        Pending Approvals
-      </h1>
-      <p style={{ color: "#94a3b8", fontSize: "0.8rem", marginBottom: "1.5rem" }}>
-        Post-paid group events awaiting management approval
-      </p>
+    <div className="min-h-screen bg-[#0f172a] text-slate-200 px-3 py-4 sm:px-6 sm:py-6">
+      <div className="max-w-3xl mx-auto">
+        <h1 className="text-xl sm:text-2xl font-bold mb-0.5">Pending Approvals</h1>
+        <p className="text-slate-400 text-xs sm:text-sm mb-4">
+          Post-paid group events awaiting management approval
+        </p>
 
-      {loading && <p style={{ color: "#94a3b8" }}>Loading...</p>}
-      {error && <p style={{ color: "#ef4444" }}>Error: {error}</p>}
+        {loading && <p className="text-slate-400 text-sm">Loading...</p>}
+        {error && <p className="text-red-400 text-sm">Error: {error}</p>}
 
-      {!loading && quotes.length === 0 && (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "3rem 1rem",
-            color: "#64748b",
-          }}
-        >
-          <p style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>No pending approvals</p>
-          <p style={{ fontSize: "0.8rem" }}>Post-paid events will appear here when submitted</p>
-        </div>
-      )}
+        {!loading && quotes.length === 0 && (
+          <div className="text-center py-12 text-slate-500">
+            <p className="text-base mb-1">No pending approvals</p>
+            <p className="text-xs">Post-paid events will appear here when submitted</p>
+          </div>
+        )}
 
-      {actionResult && (
-        <div
-          style={{
-            padding: "0.75rem 1rem",
-            borderRadius: 8,
-            marginBottom: "1rem",
-            backgroundColor: actionResult.ok ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-            border: `1px solid ${actionResult.ok ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
-            color: actionResult.ok ? "#22c55e" : "#ef4444",
-            fontSize: "0.85rem",
-          }}
-        >
-          {actionResult.msg}
-        </div>
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        {quotes.map((q) => (
+        {actionResult && (
           <div
-            key={q.id}
-            style={{
-              border: "1px solid rgba(148,163,184,0.2)",
-              borderRadius: 10,
-              padding: "1.25rem",
-              backgroundColor: "rgba(30,41,59,0.5)",
-            }}
+            className={`rounded-lg px-3 py-2.5 mb-3 text-sm border ${
+              actionResult.ok
+                ? "bg-green-500/10 border-green-500/30 text-green-400"
+                : "bg-red-500/10 border-red-500/30 text-red-400"
+            }`}
           >
-            {/* Header */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                marginBottom: "1rem",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{q.eventName}</div>
-                <div style={{ color: "#94a3b8", fontSize: "0.8rem", marginTop: 2 }}>
-                  #{q.eventNumber} · {q.centerName} · {q.eventDateDisplay || q.eventDate}
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#f59e0b" }}>
-                  {dollars(q.totalCents)}
-                </div>
-                <div style={{ color: "#64748b", fontSize: "0.7rem" }}>{timeAgo(q.createdAt)}</div>
-              </div>
-            </div>
+            {actionResult.msg}
+          </div>
+        )}
 
-            {/* Guest + Planner */}
+        <div className="space-y-3">
+          {quotes.map((q) => (
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "1rem",
-                marginBottom: "1rem",
-              }}
+              key={q.id}
+              className="rounded-xl border border-white/10 bg-slate-800/50 overflow-hidden"
             >
-              <div>
-                <div
-                  style={{
-                    color: "#64748b",
-                    fontSize: "0.65rem",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    marginBottom: 4,
-                  }}
-                >
-                  Guest
+              {/* Header tile — event name + total */}
+              <div className="px-4 pt-4 pb-3 sm:flex sm:justify-between sm:items-start">
+                <div className="mb-2 sm:mb-0">
+                  <div className="text-base sm:text-lg font-bold leading-tight">{q.eventName}</div>
+                  <div className="text-slate-400 text-xs mt-1">
+                    #{q.eventNumber} · {q.centerName}
+                  </div>
+                  <div className="text-slate-400 text-xs">{q.eventDateDisplay || q.eventDate}</div>
                 </div>
-                <div style={{ fontWeight: 600 }}>{q.guestName}</div>
-                <div style={{ color: "#94a3b8", fontSize: "0.8rem" }}>{q.guestEmail}</div>
-                {q.guestPhone && (
-                  <div style={{ color: "#94a3b8", fontSize: "0.8rem" }}>{q.guestPhone}</div>
-                )}
-              </div>
-              <div>
-                <div
-                  style={{
-                    color: "#64748b",
-                    fontSize: "0.65rem",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    marginBottom: 4,
-                  }}
-                >
-                  Planner
-                </div>
-                <div style={{ fontWeight: 600 }}>{q.plannerName || "—"}</div>
-                {q.plannerEmail && (
-                  <div style={{ color: "#94a3b8", fontSize: "0.8rem" }}>{q.plannerEmail}</div>
-                )}
-                {q.plannerPhone && (
-                  <div style={{ color: "#94a3b8", fontSize: "0.8rem" }}>{q.plannerPhone}</div>
-                )}
-              </div>
-            </div>
-
-            {/* Line Items */}
-            {q.lineItems && q.lineItems.length > 0 && (
-              <div style={{ marginBottom: "1rem" }}>
-                <div
-                  style={{
-                    color: "#64748b",
-                    fontSize: "0.65rem",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    marginBottom: 6,
-                  }}
-                >
-                  Products
-                </div>
-                <table style={{ width: "100%", fontSize: "0.8rem", borderCollapse: "collapse" }}>
-                  <tbody>
-                    {q.lineItems.map((item, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid rgba(148,163,184,0.1)" }}>
-                        <td style={{ padding: "4px 0" }}>{item.name}</td>
-                        <td style={{ padding: "4px 0", textAlign: "center", color: "#94a3b8" }}>
-                          x{item.qty}
-                        </td>
-                        <td
-                          style={{ padding: "4px 0", textAlign: "right", fontFamily: "monospace" }}
-                        >
-                          ${item.total.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    gap: "1.5rem",
-                    marginTop: 6,
-                    fontSize: "0.75rem",
-                    color: "#94a3b8",
-                  }}
-                >
-                  <span>Tax: {dollars(q.taxCents)}</span>
-                  <span style={{ fontWeight: 700, color: "#e2e8f0" }}>
-                    Total: {dollars(q.totalCents)}
+                <div className="flex sm:flex-col items-baseline sm:items-end gap-2 sm:gap-0">
+                  <span className="text-xl sm:text-2xl font-bold text-amber-400">
+                    {dollars(q.totalCents)}
+                  </span>
+                  <span className="text-slate-500 text-[10px] sm:text-xs">
+                    {timeAgo(q.createdAt)}
                   </span>
                 </div>
               </div>
-            )}
 
-            {/* Notes */}
-            {q.notes && (
-              <div style={{ marginBottom: "1rem" }}>
-                <div
-                  style={{
-                    color: "#64748b",
-                    fontSize: "0.65rem",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    marginBottom: 4,
-                  }}
-                >
-                  Notes
+              {/* Guest + Planner — stacks on mobile */}
+              <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1">
+                    Guest
+                  </div>
+                  <div className="font-semibold text-sm">{q.guestName}</div>
+                  <div className="text-slate-400 text-xs truncate">{q.guestEmail}</div>
+                  {q.guestPhone && <div className="text-slate-400 text-xs">{q.guestPhone}</div>}
                 </div>
-                <div style={{ color: "#94a3b8", fontSize: "0.8rem", whiteSpace: "pre-wrap" }}>
-                  {q.notes}
+                <div>
+                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1">
+                    Planner
+                  </div>
+                  <div className="font-semibold text-sm">{q.plannerName || "—"}</div>
+                  {q.plannerEmail && (
+                    <div className="text-slate-400 text-xs truncate">{q.plannerEmail}</div>
+                  )}
+                  {q.plannerPhone && <div className="text-slate-400 text-xs">{q.plannerPhone}</div>}
                 </div>
               </div>
-            )}
 
-            {/* Deny reason input */}
-            {denyingId === q.id && (
-              <div style={{ marginBottom: "1rem" }}>
-                <input
-                  type="text"
-                  placeholder="Reason for denial..."
-                  value={denyReason}
-                  onChange={(e) => setDenyReason(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleDeny(q);
-                  }}
-                  autoFocus
-                  style={{
-                    width: "100%",
-                    padding: "0.5rem 0.75rem",
-                    borderRadius: 6,
-                    border: "1px solid rgba(239,68,68,0.4)",
-                    backgroundColor: "rgba(239,68,68,0.05)",
-                    color: "#e2e8f0",
-                    fontSize: "0.85rem",
-                  }}
-                />
-              </div>
-            )}
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-              {denyingId === q.id ? (
-                <>
-                  <button
-                    onClick={() => {
-                      setDenyingId(null);
-                      setDenyReason("");
-                    }}
-                    style={{
-                      padding: "0.5rem 1rem",
-                      borderRadius: 6,
-                      border: "1px solid rgba(148,163,184,0.3)",
-                      backgroundColor: "transparent",
-                      color: "#94a3b8",
-                      fontSize: "0.8rem",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => void handleDeny(q)}
-                    disabled={!denyReason.trim() || actionInFlight === q.id}
-                    style={{
-                      padding: "0.5rem 1.25rem",
-                      borderRadius: 6,
-                      border: "none",
-                      backgroundColor: !denyReason.trim() ? "rgba(239,68,68,0.2)" : "#ef4444",
-                      color: "#fff",
-                      fontSize: "0.8rem",
-                      fontWeight: 700,
-                      cursor: !denyReason.trim() ? "not-allowed" : "pointer",
-                      opacity: actionInFlight === q.id ? 0.5 : 1,
-                    }}
-                  >
-                    {actionInFlight === q.id ? "Denying..." : "Confirm Deny"}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setDenyingId(q.id)}
-                    disabled={actionInFlight === q.id}
-                    style={{
-                      padding: "0.5rem 1rem",
-                      borderRadius: 6,
-                      border: "1px solid rgba(239,68,68,0.4)",
-                      backgroundColor: "rgba(239,68,68,0.1)",
-                      color: "#ef4444",
-                      fontSize: "0.8rem",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Deny
-                  </button>
-                  <button
-                    onClick={() => void handleApprove(q)}
-                    disabled={actionInFlight === q.id}
-                    style={{
-                      padding: "0.5rem 1.5rem",
-                      borderRadius: 6,
-                      border: "none",
-                      backgroundColor: "#22c55e",
-                      color: "#fff",
-                      fontSize: "0.8rem",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      opacity: actionInFlight === q.id ? 0.5 : 1,
-                    }}
-                  >
-                    {actionInFlight === q.id ? "Approving..." : "Approve"}
-                  </button>
-                </>
+              {/* Line items */}
+              {q.lineItems && q.lineItems.length > 0 && (
+                <div className="px-4 pb-3">
+                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1.5">
+                    Products
+                  </div>
+                  <div className="space-y-1">
+                    {q.lineItems.map((item, i) => (
+                      <div
+                        key={i}
+                        className="flex justify-between text-xs border-b border-white/5 pb-1"
+                      >
+                        <span className="truncate mr-2">{item.name}</span>
+                        <span className="flex gap-3 shrink-0 text-slate-400">
+                          <span>x{item.qty}</span>
+                          <span className="font-mono text-slate-300 w-16 text-right">
+                            ${item.total.toFixed(2)}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end gap-4 mt-2 text-xs text-slate-400">
+                    <span>Tax: {dollars(q.taxCents)}</span>
+                    <span className="font-bold text-slate-200">Total: {dollars(q.totalCents)}</span>
+                  </div>
+                </div>
               )}
+
+              {/* Notes */}
+              {q.notes && (
+                <div className="px-4 pb-3">
+                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1">
+                    Notes
+                  </div>
+                  <div className="text-slate-400 text-xs whitespace-pre-wrap leading-relaxed">
+                    {q.notes}
+                  </div>
+                </div>
+              )}
+
+              {/* Deny reason input */}
+              {denyingId === q.id && (
+                <div className="px-4 pb-3">
+                  <input
+                    type="text"
+                    placeholder="Reason for denial..."
+                    value={denyReason}
+                    onChange={(e) => setDenyReason(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleDeny(q);
+                    }}
+                    autoFocus
+                    className="w-full px-3 py-2 rounded-lg border border-red-500/40 bg-red-500/5 text-slate-200 text-sm outline-none focus:border-red-400"
+                  />
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="px-4 pb-4 flex gap-2 justify-end">
+                {denyingId === q.id ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setDenyingId(null);
+                        setDenyReason("");
+                      }}
+                      className="px-4 py-2 rounded-lg border border-white/15 text-slate-400 text-sm font-semibold hover:bg-white/5 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void handleDeny(q)}
+                      disabled={!denyReason.trim() || actionInFlight === q.id}
+                      className="px-5 py-2 rounded-lg bg-red-500 text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-600 transition-colors"
+                    >
+                      {actionInFlight === q.id ? "Denying..." : "Confirm Deny"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setDenyingId(q.id)}
+                      disabled={actionInFlight === q.id}
+                      className="px-4 py-2 rounded-lg border border-red-500/40 bg-red-500/10 text-red-400 text-sm font-semibold hover:bg-red-500/20 transition-colors"
+                    >
+                      Deny
+                    </button>
+                    <button
+                      onClick={() => void handleApprove(q)}
+                      disabled={actionInFlight === q.id}
+                      className="px-6 py-2 rounded-lg bg-green-500 text-white text-sm font-bold disabled:opacity-50 hover:bg-green-600 transition-colors"
+                    >
+                      {actionInFlight === q.id ? "Approving..." : "Approve"}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
