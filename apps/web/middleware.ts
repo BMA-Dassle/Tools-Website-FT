@@ -500,6 +500,10 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/survey/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    // Contract pages need site nav even on HeadPinz domain
+    if (pathname.startsWith("/contract/")) {
+      requestHeaders.set("x-show-nav", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
