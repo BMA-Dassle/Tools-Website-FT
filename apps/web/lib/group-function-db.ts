@@ -113,6 +113,32 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS deposit_attempts INTEGER NOT NULL DEFAULT 0`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS deposit_last_error TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS hermes_last_processed_at TIMESTAMPTZ`;
+  // Compliance columns
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS document_seal TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signed_pdf_url TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS otp_verified_at TIMESTAMPTZ`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS otp_method TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signer_ip TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signer_ua TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signature_type TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signature_data TEXT`;
+
+  // Immutable audit trail
+  await q`
+    CREATE TABLE IF NOT EXISTS contract_audit_log (
+      id            BIGSERIAL PRIMARY KEY,
+      quote_id      INTEGER NOT NULL,
+      event         TEXT NOT NULL,
+      actor_email   TEXT,
+      actor_ip      TEXT,
+      actor_ua      TEXT,
+      metadata      JSONB DEFAULT '{}',
+      document_hash TEXT,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS cal_quote ON contract_audit_log(quote_id)`;
+  await q`CREATE INDEX IF NOT EXISTS cal_event ON contract_audit_log(event)`;
 
   await q`CREATE UNIQUE INDEX IF NOT EXISTS gfq_bmi_reservation
     ON group_function_quotes(bmi_reservation_id)`;
