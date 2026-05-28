@@ -383,6 +383,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     href={`tel:${quote.plannerPhone}`}
                     className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-600 transition-colors hover:bg-cyan-500"
                     title="Call"
+                    aria-label="Call planner"
                   >
                     <svg
                       className="h-4 w-4"
@@ -404,6 +405,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     href={`sms:${quote.plannerPhone}`}
                     className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 transition-colors hover:bg-white/10"
                     title="Text"
+                    aria-label="Text planner"
                   >
                     <svg
                       className="h-4 w-4"
@@ -425,6 +427,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     href={`mailto:${quote.plannerEmail}`}
                     className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 transition-colors hover:bg-white/10"
                     title="Email"
+                    aria-label="Email planner"
                   >
                     <svg
                       className="h-4 w-4"
