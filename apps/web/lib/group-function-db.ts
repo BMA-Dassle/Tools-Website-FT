@@ -128,6 +128,12 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signature_type TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signature_data TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signed_pdf_history JSONB DEFAULT '[]'`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS approval_required BOOLEAN NOT NULL DEFAULT FALSE`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS approved_by TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denied_at TIMESTAMPTZ`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denied_by TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denial_reason TEXT`;
 
   // Immutable audit trail
   await q`
@@ -167,6 +173,7 @@ export async function ensureGfSchema(): Promise<void> {
 
 export type GfQuoteStatus =
   | "pending"
+  | "pending_approval"
   | "contract_sent"
   | "deposit_paid"
   | "resign_required"
@@ -174,6 +181,7 @@ export type GfQuoteStatus =
   | "balance_link_sent"
   | "completed"
   | "cancelled"
+  | "denied"
   | "expired";
 
 export interface GroupFunctionQuote {
@@ -240,6 +248,12 @@ export interface GroupFunctionQuote {
   document_seal: string | null;
   signed_pdf_url: string | null;
   signed_pdf_history: unknown[];
+  approval_required: boolean;
+  approved_at: string | null;
+  approved_by: string | null;
+  denied_at: string | null;
+  denied_by: string | null;
+  denial_reason: string | null;
   otp_verified_at: string | null;
   otp_method: string | null;
   signer_ip: string | null;

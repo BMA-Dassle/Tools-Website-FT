@@ -257,6 +257,66 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
   }
 }
 
+// ── Post-Paid Approval ─────────────────────────────────────────────
+
+const APPROVAL_RECIPIENTS = ["eric@headpinz.com", "jacob@headpinz.com"];
+
+export async function notifyApprovalNeeded(quote: GroupFunctionQuote): Promise<void> {
+  const approveUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}/approve`;
+
+  for (const to of APPROVAL_RECIPIENTS) {
+    sendEmail({
+      to,
+      subject: `[APPROVAL NEEDED] Post-Paid: ${quote.event_name || quote.center_name}`,
+      bcc: GF_BCC,
+      html: emailShell(
+        quote,
+        "Post-Paid Approval Required",
+        `${quote.event_name || "Event"} requires management approval`,
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">A new post-paid group event needs your approval before the contract is sent to the customer.</p>
+
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Customer", `${quote.guest_first_name} ${quote.guest_last_name}`)}
+          ${pricingRow("Email", quote.guest_email)}
+          ${pricingRow("Planner", plannerName(quote))}
+          ${pricingRow("Event Total", dollars(quote.total_cents), true)}
+        </table>
+
+        ${ctaButton("Review & Approve", approveUrl)}
+
+        <p style="margin:0;font-size:13px;color:#64748b;text-align:center">This event uses a post-paid account. No deposit will be collected.</p>`,
+      ),
+      text: `Post-paid approval needed for ${quote.event_name}\n\nCustomer: ${quote.guest_first_name} ${quote.guest_last_name}\nTotal: ${dollars(quote.total_cents)}\nPlanner: ${plannerName(quote)}\n\nReview: ${approveUrl}`,
+    }).catch((err) => console.error("[gf-notify] approval email failed:", err));
+  }
+}
+
+export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<void> {
+  if (!quote.planner_email) return;
+
+  await sendEmail({
+    to: quote.planner_email,
+    toName: plannerName(quote),
+    cc: APPROVAL_RECIPIENTS.join(","),
+    bcc: GF_BCC,
+    subject: `Post-Paid Account Denied — ${quote.event_name || quote.center_name}`,
+    html: emailShell(
+      quote,
+      "Post-Paid Account Denied",
+      `${quote.event_name || "Event"} was not approved for post-paid billing`,
+      `<p style="margin:0 0 16px;font-size:15px;color:#475569">The post-paid account request for <strong style="color:#0f172a">${quote.event_name || "this event"}</strong> has been denied.</p>
+
+      ${quote.denial_reason ? `<div style="background:#f8fafc;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #ef4444">
+        <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Reason</p>
+        <p style="margin:0;font-size:15px;color:#1a1a1a">${quote.denial_reason}</p>
+      </div>` : ""}
+
+      <p style="margin:16px 0 0;font-size:13px;color:#64748b">Please convert this to a standard deposit event or contact management for further discussion.</p>`,
+    ),
+    text: `Post-paid account denied for ${quote.event_name}\n\n${quote.denial_reason ? `Reason: ${quote.denial_reason}\n\n` : ""}Please convert this to a standard deposit event or contact management.`,
+  });
+}
+
 // ── Teams Adaptive Card ─────────────────────────────────────────────
 
 async function sendContractTeamsCard(quote: GroupFunctionQuote): Promise<void> {

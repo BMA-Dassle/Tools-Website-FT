@@ -4,6 +4,7 @@ import {
   fetchPandaDocQueue,
   completePandaDocQueue,
   resolveCenter,
+  selectTemplate,
   type HermesQueueItem,
 } from "@/lib/hermes-client";
 import {
@@ -13,7 +14,7 @@ import {
   updateGfContractSent,
   updateGfQuoteDetails,
 } from "@/lib/group-function-db";
-import { notifyContractSent, notifyContractUpdated } from "@/lib/group-function-notify";
+import { notifyContractSent, notifyContractUpdated, notifyApprovalNeeded } from "@/lib/group-function-notify";
 
 /**
  * Group Quote Dispatch cron.
@@ -273,6 +274,41 @@ async function processQueueItem(
       prior_payments: item.payments,
     });
     quoteId = quote.id;
+  }
+
+  // Check if post-paid account (requires management approval before sending)
+  const isPostPaid = selectTemplate(item) === "postpay";
+
+  if (isPostPaid && !existing?.approved_at) {
+    // Hold for approval — don't send contract yet
+    const q = (await import("@/lib/db")).sql();
+    await q`UPDATE group_function_quotes SET
+      contract_short_id = ${contractShortId},
+      approval_required = TRUE,
+      status = 'pending_approval',
+      updated_at = NOW()
+    WHERE id = ${quoteId}`;
+
+    const now = new Date();
+    const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
+    await completePandaDocQueue({
+      center: item.center,
+      queueId: item.queueId,
+      logId: item.logId,
+      message: `${item.customer.email} (pending approval) ${dateStr}`,
+    });
+
+    const pendingQuote = await getGfQuoteByShortId(contractShortId);
+    if (pendingQuote) {
+      notifyApprovalNeeded(pendingQuote).catch((err) =>
+        console.error("[group-quote-dispatch] approval notify error:", err),
+      );
+    }
+
+    console.log(
+      `[group-quote-dispatch] POST-PAID: pending approval for reservation=${item.reservationId} shortId=${contractShortId}`,
+    );
+    return { reservationId: item.reservationId, action: "pending_approval" };
   }
 
   // Mark contract as sent
