@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import {
+  IconBan, IconClock, IconShieldCheck, IconToolsKitchen2,
+  IconStar, IconCreditCard, IconReceipt,
+  IconCircleCheck, IconAlertTriangle, IconUsers, IconLink,
+} from "@tabler/icons-react";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
@@ -185,7 +190,7 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
       {/* Hero */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
-          <Image src={`${BLOB}/subpages/group-events-hero.webp`} alt="" fill className="object-cover object-bottom" priority unoptimized />
+          <Image src={`${BLOB}/hero/racer-journey-bg.webp`} alt="" fill className="object-cover" priority unoptimized />
           <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/80 via-[#000418]/60 to-[#000418]" />
         </div>
         <div className="relative mx-auto max-w-4xl px-4 pb-10 pt-36 text-center">
@@ -376,17 +381,17 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
               <p className="mb-4 text-sm text-gray-300">We&apos;re excited to host your event! Here are a few reminders:</p>
               <div className="space-y-4">
                 {[
-                  { title: "Outside Food & Beverages", text: "No outside food or drinks. We welcome cakes for celebrations, but we're unable to store them due to health guidelines." },
-                  { title: "Buffets", text: "Buffets are served for one hour and are for in-event dining only. No to-go food will be provided." },
-                  { title: "Waivers for Attractions", text: "For Laser Tag, Racing, and Nexus, all participants must complete a waiver. Your planner will provide a link — getting this done early avoids delays!" },
-                  { title: "Adding Food", text: "If your quote doesn't include food, you have up to 72 hours before the event to place your order." },
-                  { title: "HeadPinz Rewards", text: "HeadPinz Rewards cannot be earned or redeemed on group events." },
-                  { title: "Payments", text: "A 50% deposit secures your event via our online system. Please bring payment on event day for the final balance. Splitting payments is not possible." },
-                  { title: "Service Charge", text: "A mandatory, non-refundable service charge applies to all contracted events, including any additions on the day of." },
+                  { title: "Outside Food & Beverages", text: "No outside food or drinks. We welcome cakes for celebrations, but we’re unable to store them due to health guidelines.", Icon: IconBan },
+                  { title: "Buffets", text: "Buffets are served for one hour and are for in-event dining only. No to-go food will be provided.", Icon: IconClock },
+                  { title: "Waivers for Attractions", text: "For Laser Tag, Racing, and Nexus, all participants must complete a waiver. Your planner will provide a link — getting this done early avoids delays!", Icon: IconShieldCheck },
+                  { title: "Adding Food", text: "If your quote doesn’t include food, you have up to 72 hours before the event to place your order.", Icon: IconToolsKitchen2 },
+                  { title: "HeadPinz Rewards", text: "HeadPinz Rewards cannot be earned or redeemed on group events.", Icon: IconStar },
+                  { title: "Payments", text: "A 50% deposit secures your event via our online system. Please bring payment on event day for the final balance. Splitting payments is not possible.", Icon: IconCreditCard },
+                  { title: "Service Charge", text: "A mandatory, non-refundable service charge applies to all contracted events, including any additions on the day of.", Icon: IconReceipt },
                 ].map((tip, i) => (
-                  <div key={i} className="flex gap-3 rounded-xl bg-white/5 p-4">
-                    <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-400">
-                      <span className="text-sm font-bold">{i + 1}</span>
+                  <div key={i} className="flex gap-4 rounded-xl bg-white/5 p-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-cyan-400/10">
+                      <tip.Icon size={20} className="text-cyan-400" stroke={1.5} />
                     </div>
                     <div>
                       <p className="mb-1 font-semibold text-white">{tip.title}</p>
@@ -414,14 +419,14 @@ export default function InternalContractClient({ quote }: { quote: QuoteProps })
               <h2 className="mb-4 text-xl font-bold">Cancellation Policy</h2>
               <div className="space-y-4">
                 {[
-                  { title: "More Than 7 Days' Notice", text: "Full deposit value can be applied toward rescheduling. The rescheduled event must meet or exceed the original value." },
-                  { title: "Within 7 Days of Event", text: "Cancellations are non-refundable. In some cases, you may be eligible for 50% of your deposit value." },
-                  { title: "Guest Participants", text: "Changes must be made 3+ business days in advance. Guest count may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher." },
-                  { title: "Additional Details", text: "Further details are governed by headpinz.com/GF-Policy" },
+                  { title: "More Than 7 Days' Notice", text: "Full deposit value can be applied toward rescheduling. The rescheduled event must meet or exceed the original value.", Icon: IconCircleCheck },
+                  { title: "Within 7 Days of Event", text: "Cancellations are non-refundable. In some cases, you may be eligible for 50% of your deposit value.", Icon: IconAlertTriangle },
+                  { title: "Guest Participants", text: "Changes must be made 3+ business days in advance. Guest count may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher.", Icon: IconUsers },
+                  { title: "Additional Details", text: "Further details are governed by headpinz.com/GF-Policy", Icon: IconLink },
                 ].map((item, i) => (
-                  <div key={i} className="flex gap-3 rounded-xl bg-white/5 p-4">
-                    <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-amber-400/10 text-amber-400">
-                      <span className="text-sm font-bold">{i + 1}</span>
+                  <div key={i} className="flex gap-4 rounded-xl bg-white/5 p-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-400/10">
+                      <item.Icon size={20} className="text-amber-400" stroke={1.5} />
                     </div>
                     <div>
                       <p className="mb-1 font-semibold text-white">{item.title}</p>

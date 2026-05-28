@@ -223,10 +223,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
           <Image
-            src={`${BLOB}/subpages/group-events-hero.webp`}
+            src={`${BLOB}/hero/racer-journey-bg.webp`}
             alt=""
             fill
-            className="object-cover object-bottom"
+            className="object-cover"
             priority
             unoptimized
           />
