@@ -13,7 +13,7 @@ const COLORS = {
   gray: rgb(0.58, 0.64, 0.72),
   lightGray: rgb(0.78, 0.82, 0.86),
   emerald: rgb(0.13, 0.83, 0.53),
-  line: rgb(1, 1, 1, 0.08),
+  line: rgb(1, 1, 1),
   red: rgb(0.9, 0.22, 0.21),
 };
 
