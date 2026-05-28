@@ -127,6 +127,7 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signer_ua TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signature_type TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signature_data TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS signed_pdf_history JSONB DEFAULT '[]'`;
 
   // Immutable audit trail
   await q`
@@ -238,6 +239,7 @@ export interface GroupFunctionQuote {
   hermes_last_processed_at: string | null;
   document_seal: string | null;
   signed_pdf_url: string | null;
+  signed_pdf_history: unknown[];
   otp_verified_at: string | null;
   otp_method: string | null;
   signer_ip: string | null;
