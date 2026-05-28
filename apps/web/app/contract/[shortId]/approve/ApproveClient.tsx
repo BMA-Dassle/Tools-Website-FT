@@ -189,10 +189,11 @@ export default function ApproveClient(props: Props) {
       {!alreadyDecided && !result && (
         <div className="rounded-2xl border border-white/10 bg-[#071027] p-6">
           <div className="mb-4">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">
+            <label htmlFor="approver-email" className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">
               Your Email
             </label>
             <input
+              id="approver-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -223,10 +224,11 @@ export default function ApproveClient(props: Props) {
             </div>
           ) : (
             <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">
+              <label htmlFor="deny-reason" className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">
                 Reason for Denial
               </label>
               <textarea
+                id="deny-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 rows={3}
