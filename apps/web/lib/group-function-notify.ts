@@ -1,12 +1,11 @@
 /**
  * Group function lifecycle notifications — SMS, email, Teams.
  *
- * Sends branded messages to guests and planners at each lifecycle stage:
- *   - Contract sent (SMS + email to guest, Teams card to planner)
- *   - Contract signed (Teams card update)
- *   - Deposit paid (SMS + email to guest, Teams card update)
- *   - Balance charged (SMS + email receipt to guest, Teams card update)
- *   - Balance link sent (SMS + email with payment link)
+ * All emails:
+ *   - Sent FROM the planner (if available) so it appears in their inbox
+ *   - CC the planner so they see the thread
+ *   - Reply-to the planner for direct guest responses
+ *   - Premium dark-branded design matching the contract landing page
  */
 
 import { sendEmail } from "@/lib/sendgrid";
@@ -17,9 +16,25 @@ import type { GroupFunctionQuote } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function plannerName(quote: GroupFunctionQuote): string {
+  return quote.planner_first
+    ? `${quote.planner_first} ${quote.planner_last || ""}`.trim()
+    : "your event planner";
+}
+
+function plannerFrom(quote: GroupFunctionQuote): { email: string; name: string } | undefined {
+  if (!quote.planner_email) return undefined;
+  return { email: quote.planner_email, name: plannerName(quote) };
+}
+
+function plannerCc(quote: GroupFunctionQuote): string | undefined {
+  return quote.planner_email || undefined;
 }
 
 function resolvePlannerTeamsChatId(quote: GroupFunctionQuote): string | null {
@@ -35,35 +50,31 @@ function resolvePlannerTeamsChatId(quote: GroupFunctionQuote): string | null {
 
 export async function notifyContractSent(quote: GroupFunctionQuote): Promise<void> {
   const contractUrl = `${BASE_URL}/contract/${quote.contract_short_id}`;
-  const plannerName = quote.planner_first
-    ? `${quote.planner_first} ${quote.planner_last || ""}`.trim()
-    : "your event planner";
+  const pName = plannerName(quote);
 
   const results = await Promise.allSettled([
-    // SMS to guest
     quote.guest_phone
       ? voxSend(
           quote.guest_phone,
           [
             `${quote.guest_first_name}, your event contract for ${quote.event_name || "your event"} at ${quote.center_name} is ready!`,
             `Review & sign here: ${contractUrl}`,
-            `Questions? Contact ${plannerName}.`,
+            `Questions? Contact ${pName}.`,
           ].join("\n"),
         )
       : Promise.resolve(),
 
-    // Email to guest
     sendEmail({
       to: quote.guest_email,
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
-      from: quote.planner_email ? { email: quote.planner_email, name: plannerName } : undefined,
+      from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
       subject: `Your Event Contract — ${quote.event_name || quote.center_name}`,
-      html: buildContractSentEmailHtml(quote, contractUrl, plannerName),
-      text: `Hi ${quote.guest_first_name},\n\nYour event contract is ready to review and sign.\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nTotal: ${dollars(quote.total_cents)}\n\nReview & Sign: ${contractUrl}\n\nQuestions? Reply to this email or contact ${plannerName}.\n\nThank you!\n${quote.center_name}`,
+      html: buildContractSentHtml(quote, contractUrl),
+      text: `Hi ${quote.guest_first_name},\n\nYour event contract is ready to review and sign.\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nTotal: ${dollars(quote.total_cents)}\n\nReview & Sign: ${contractUrl}\n\nQuestions? Reply to this email.\n\n${pName}\n${quote.center_name}`,
     }),
 
-    // Teams card to planner
     sendContractTeamsCard(quote),
   ]);
 
@@ -74,11 +85,48 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
   }
 }
 
+// ── Contract Updated (before signing) ───────────────────────────────
+
+export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<void> {
+  const contractUrl = `${BASE_URL}/contract/${quote.contract_short_id}`;
+  const pName = plannerName(quote);
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event contract for ${quote.event_name || "your event"} has been updated.`,
+            `Review the changes here: ${contractUrl}`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      subject: `Contract Updated — ${quote.event_name || quote.center_name}`,
+      html: buildContractUpdatedHtml(quote, contractUrl),
+      text: `Hi ${quote.guest_first_name},\n\nYour event contract for ${quote.event_name} has been updated with new details.\n\nReview the changes: ${contractUrl}\n\nQuestions? Reply to this email.\n\n${pName}\n${quote.center_name}`,
+    }),
+
+    updateContractTeamsCard(quote, "contract_sent"),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] contractUpdated notification failed:", r.reason);
+    }
+  }
+}
+
 // ── Deposit Paid ────────────────────────────────────────────────────
 
 export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void> {
   const results = await Promise.allSettled([
-    // SMS to guest
     quote.guest_phone
       ? voxSend(
           quote.guest_phone,
@@ -93,16 +141,17 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
         )
       : Promise.resolve(),
 
-    // Email to guest
     sendEmail({
       to: quote.guest_email,
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
       subject: `Deposit Received — ${quote.event_name || quote.center_name}`,
-      html: buildDepositPaidEmailHtml(quote),
+      html: buildDepositPaidHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour deposit of ${dollars(quote.deposit_due_cents)} has been received for ${quote.event_name}.\n\nReference: ${quote.square_gift_card_gan || "N/A"}\nRemaining balance: ${dollars(quote.balance_cents)}\n\nThe remaining balance will be charged 72 hours before your event.\n\nThank you!\n${quote.center_name}`,
     }),
 
-    // Teams card update
     updateContractTeamsCard(quote, "deposit_paid"),
   ]);
 
@@ -131,8 +180,11 @@ export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<v
     sendEmail({
       to: quote.guest_email,
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
       subject: `Payment Complete — ${quote.event_name || quote.center_name}`,
-      html: buildBalanceChargedEmailHtml(quote),
+      html: buildBalanceChargedHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(quote.total_cents - quote.deposit_due_cents)} has been charged. You're all set for ${quote.event_name} on ${quote.event_date_display}!\n\nThank you!\n${quote.center_name}`,
     }),
 
@@ -158,7 +210,7 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
           [
             `${quote.guest_first_name}, your remaining balance of ${dollars(quote.balance_cents)} for ${quote.event_name || "your event"} is due.`,
             `Pay here: ${quote.balance_payment_link_url}`,
-            `Questions? Contact us at ${quote.center_name}.`,
+            `Questions? Contact ${plannerName(quote)}.`,
           ].join("\n"),
         )
       : Promise.resolve(),
@@ -166,8 +218,11 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
     sendEmail({
       to: quote.guest_email,
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
       subject: `Balance Due — ${quote.event_name || quote.center_name}`,
-      html: buildBalanceLinkEmailHtml(quote),
+      html: buildBalanceLinkHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(quote.balance_cents)} for ${quote.event_name} is due.\n\nPay here: ${quote.balance_payment_link_url}\n\nThank you!\n${quote.center_name}`,
     }),
 
@@ -209,9 +264,7 @@ function buildGroupFunctionCard(
   stage?: string,
 ): Record<string, unknown> {
   const effectiveStage = stage || quote.status;
-  const plannerName = quote.planner_first
-    ? `${quote.planner_first} ${quote.planner_last || ""}`.trim()
-    : "Guest Services";
+  const pName = plannerName(quote);
 
   const facts = [
     { title: "Event", value: quote.event_name || "—" },
@@ -293,93 +346,168 @@ function buildGroupFunctionCard(
       },
       {
         type: "TextBlock",
-        text: `${quote.center_name} · Planner: ${plannerName}`,
+        text: `${quote.center_name} · Planner: ${pName}`,
         size: "small",
         isSubtle: true,
       },
       ...statusBanners,
-      {
-        type: "FactSet",
-        facts,
-      },
+      { type: "FactSet", facts },
     ],
     actions: quote.contract_short_id
-      ? [
-          {
-            type: "Action.OpenUrl",
-            title: "View Contract",
-            url: `${BASE_URL}/contract/${quote.contract_short_id}`,
-          },
-        ]
+      ? [{ type: "Action.OpenUrl", title: "View Contract", url: `${BASE_URL}/contract/${quote.contract_short_id}` }]
       : [],
   };
 }
 
-// ── Email HTML builders ─────────────────────────────────────────────
+// ── Premium Email HTML ──────────────────────────────────────────────
 
-function emailShell(centerName: string, content: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8fafc;color:#1e293b"><div style="max-width:600px;margin:0 auto;padding:24px"><div style="background:#0f172a;color:white;padding:20px;border-radius:12px 12px 0 0;text-align:center"><h2 style="margin:0;font-size:20px">${centerName}</h2></div><div style="background:white;padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px">${content}</div><p style="text-align:center;font-size:12px;color:#94a3b8;margin-top:16px">${centerName}</p></div></body></html>`;
+function emailShell(quote: GroupFunctionQuote, heroTitle: string, heroSubtitle: string, content: string): string {
+  const pName = plannerName(quote);
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a1020;color:#e2e8f0">
+<div style="max-width:600px;margin:0 auto">
+
+  <!-- Hero -->
+  <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:40px 24px 32px;text-align:center;border-radius:16px 16px 0 0">
+    <img src="${BLOB}/subpages/group-events-hero.webp" alt="" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;margin-bottom:20px" />
+    <h1 style="margin:0 0 8px;font-size:26px;font-weight:800;color:white">${heroTitle}</h1>
+    <p style="margin:0;font-size:15px;color:#94a3b8">${heroSubtitle}</p>
+  </div>
+
+  <!-- Content -->
+  <div style="background:#1e293b;padding:28px 24px;border-left:1px solid rgba(148,163,184,0.1);border-right:1px solid rgba(148,163,184,0.1)">
+    ${content}
+  </div>
+
+  <!-- Event summary bar -->
+  <div style="background:#0f172a;padding:16px 24px;border:1px solid rgba(148,163,184,0.1);border-top:none">
+    <table style="width:100%;font-size:13px;color:#94a3b8"><tr>
+      <td style="padding:4px 0"><strong style="color:white">${quote.event_name || "Event"}</strong></td>
+      <td style="padding:4px 0;text-align:right">${quote.event_date_display || ""}</td>
+    </tr><tr>
+      <td style="padding:4px 0">${quote.center_name}</td>
+      <td style="padding:4px 0;text-align:right">Total: <strong style="color:white">${dollars(quote.total_cents)}</strong></td>
+    </tr></table>
+  </div>
+
+  <!-- Planner footer -->
+  <div style="background:#1e293b;padding:20px 24px;border-radius:0 0 16px 16px;border:1px solid rgba(148,163,184,0.1);border-top:none">
+    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b">Your Event Planner</p>
+    <p style="margin:0 0 4px;font-size:16px;font-weight:700;color:white">${pName}</p>
+    ${quote.planner_phone ? `<p style="margin:0;font-size:13px"><a href="tel:${quote.planner_phone}" style="color:#22d3ee;text-decoration:none">${quote.planner_phone}</a></p>` : ""}
+    ${quote.planner_email ? `<p style="margin:0;font-size:13px"><a href="mailto:${quote.planner_email}" style="color:#22d3ee;text-decoration:none">${quote.planner_email}</a></p>` : ""}
+  </div>
+
+  <p style="text-align:center;font-size:11px;color:#475569;margin-top:16px;padding:0 24px">${quote.center_name} · <a href="${BASE_URL}" style="color:#475569">fasttraxent.com</a></p>
+</div>
+</body></html>`;
 }
 
-function buildContractSentEmailHtml(
-  quote: GroupFunctionQuote,
-  contractUrl: string,
-  plannerName: string,
-): string {
+function ctaButton(text: string, url: string): string {
+  return `<div style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;padding:14px 40px;background:linear-gradient(135deg,#06b6d4,#2563eb);color:white;text-decoration:none;border-radius:999px;font-weight:700;font-size:16px;letter-spacing:0.5px">${text}</a></div>`;
+}
+
+function pricingRow(label: string, value: string, highlight?: boolean): string {
+  return `<tr><td style="padding:6px 0;color:#94a3b8;font-size:14px">${label}</td><td style="padding:6px 0;text-align:right;font-size:14px;font-weight:${highlight ? "700" : "600"};color:${highlight ? "#22d3ee" : "white"}">${value}</td></tr>`;
+}
+
+function buildContractSentHtml(quote: GroupFunctionQuote, contractUrl: string): string {
   return emailShell(
-    quote.center_name,
-    `<h3 style="margin:0 0 16px">Your Event Contract is Ready</h3>
-    <p>Hi ${quote.guest_first_name},</p>
-    <p>Your contract for <strong>${quote.event_name || "your event"}</strong> on <strong>${quote.event_date_display || ""}</strong> is ready for review.</p>
-    <table style="width:100%;margin:16px 0;font-size:14px">
-      <tr><td style="padding:4px 0;color:#64748b">Total</td><td style="padding:4px 0;text-align:right;font-weight:600">${dollars(quote.total_cents)}</td></tr>
-      <tr><td style="padding:4px 0;color:#64748b">Deposit Due</td><td style="padding:4px 0;text-align:right;font-weight:600">${dollars(quote.deposit_due_cents)}</td></tr>
+    quote,
+    `${quote.guest_first_name}, your experience awaits`,
+    `Your event contract is ready to review and sign`,
+    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">We're excited to host <strong style="color:white">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Review the details below and sign your contract to lock in your date.</p>
+
+    <table style="width:100%;margin:16px 0;border-collapse:collapse">
+      ${pricingRow("Event Total", dollars(quote.total_cents))}
+      ${pricingRow("Deposit Due Today", dollars(quote.deposit_due_cents), true)}
+      ${quote.balance_cents > 0 ? pricingRow("Balance (due 72hrs before)", dollars(quote.balance_cents)) : ""}
     </table>
-    <div style="text-align:center;margin:24px 0"><a href="${contractUrl}" style="display:inline-block;padding:12px 32px;background:#0f172a;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px">Review & Sign</a></div>
-    <p style="font-size:14px;color:#64748b">Questions? Contact ${plannerName}${quote.planner_phone ? ` at ${quote.planner_phone}` : ""}.</p>`,
+
+    ${ctaButton("Review & Sign Contract", contractUrl)}
+
+    <p style="margin:0;font-size:13px;color:#64748b;text-align:center">After signing, you'll pay your deposit to secure your date.</p>`,
   );
 }
 
-function buildDepositPaidEmailHtml(quote: GroupFunctionQuote): string {
+function buildContractUpdatedHtml(quote: GroupFunctionQuote, contractUrl: string): string {
   return emailShell(
-    quote.center_name,
-    `<h3 style="margin:0 0 16px">Deposit Received!</h3>
-    <p>Hi ${quote.guest_first_name},</p>
-    <p>Your deposit of <strong>${dollars(quote.deposit_due_cents)}</strong> for <strong>${quote.event_name || "your event"}</strong> has been received.</p>
-    ${quote.square_gift_card_gan ? `<p style="font-size:14px;color:#64748b">Reference: <code>${quote.square_gift_card_gan}</code></p>` : ""}
-    <table style="width:100%;margin:16px 0;font-size:14px">
-      <tr><td style="padding:4px 0;color:#64748b">Event Date</td><td style="padding:4px 0;text-align:right">${quote.event_date_display || ""}</td></tr>
-      <tr><td style="padding:4px 0;color:#64748b">Deposit Paid</td><td style="padding:4px 0;text-align:right;color:#22c55e;font-weight:600">${dollars(quote.deposit_due_cents)}</td></tr>
-      <tr><td style="padding:4px 0;color:#64748b">Remaining Balance</td><td style="padding:4px 0;text-align:right">${dollars(quote.balance_cents)}</td></tr>
+    quote,
+    "Contract Updated",
+    `Your event details have been revised`,
+    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">${quote.guest_first_name}, your event planner has updated the details for <strong style="color:white">${quote.event_name || "your event"}</strong>. Please review the updated contract and sign to confirm.</p>
+
+    <table style="width:100%;margin:16px 0;border-collapse:collapse">
+      ${pricingRow("Event Total", dollars(quote.total_cents))}
+      ${pricingRow("Deposit Due", dollars(quote.deposit_due_cents), true)}
+      ${quote.balance_cents > 0 ? pricingRow("Balance (due 72hrs before)", dollars(quote.balance_cents)) : ""}
     </table>
-    <p style="font-size:14px;color:#64748b">The remaining balance will be charged 72 hours before your event.</p>
-    <p>See you at ${quote.center_name}!</p>`,
+
+    ${ctaButton("Review Updated Contract", contractUrl)}
+
+    <p style="margin:0;font-size:13px;color:#64748b;text-align:center">The previous version has been replaced with this updated contract.</p>`,
   );
 }
 
-function buildBalanceChargedEmailHtml(quote: GroupFunctionQuote): string {
+function buildDepositPaidHtml(quote: GroupFunctionQuote): string {
   return emailShell(
-    quote.center_name,
-    `<h3 style="margin:0 0 16px">Payment Complete!</h3>
-    <p>Hi ${quote.guest_first_name},</p>
-    <p>Your remaining balance of <strong>${dollars(quote.total_cents - quote.deposit_due_cents)}</strong> for <strong>${quote.event_name || "your event"}</strong> has been charged.</p>
-    <p style="font-size:18px;font-weight:700;text-align:center;margin:20px 0;color:#22c55e">You're all set!</p>
-    <table style="width:100%;margin:16px 0;font-size:14px">
-      <tr><td style="padding:4px 0;color:#64748b">Event</td><td style="padding:4px 0;text-align:right">${quote.event_name || ""}</td></tr>
-      <tr><td style="padding:4px 0;color:#64748b">Date</td><td style="padding:4px 0;text-align:right">${quote.event_date_display || ""}</td></tr>
-      <tr><td style="padding:4px 0;color:#64748b">Total Paid</td><td style="padding:4px 0;text-align:right;color:#22c55e;font-weight:600">${dollars(quote.total_cents)}</td></tr>
+    quote,
+    "Deposit Received!",
+    `Your date at ${quote.center_name} is secured`,
+    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">Great news, ${quote.guest_first_name}! Your deposit has been received and your event date is locked in.</p>
+
+    <div style="background:#0f172a;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
+      <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Deposit Paid</p>
+      <p style="margin:0;font-size:32px;font-weight:800;color:#22d3ee">${dollars(quote.deposit_due_cents)}</p>
+      ${quote.square_gift_card_gan ? `<p style="margin:8px 0 0;font-size:12px;font-family:monospace;color:#64748b">Ref: ${quote.square_gift_card_gan}</p>` : ""}
+    </div>
+
+    <table style="width:100%;margin:16px 0;border-collapse:collapse">
+      ${pricingRow("Event Date", quote.event_date_display || "")}
+      ${pricingRow("Deposit Paid", dollars(quote.deposit_due_cents), true)}
+      ${quote.balance_cents > 0 ? pricingRow("Remaining Balance", dollars(quote.balance_cents)) : ""}
     </table>
-    <p>See you at ${quote.center_name}!</p>`,
+
+    ${quote.balance_cents > 0 ? `<p style="margin:0;font-size:13px;color:#64748b;text-align:center">The remaining balance will be automatically charged 72 hours before your event.</p>` : ""}`,
   );
 }
 
-function buildBalanceLinkEmailHtml(quote: GroupFunctionQuote): string {
+function buildBalanceChargedHtml(quote: GroupFunctionQuote): string {
   return emailShell(
-    quote.center_name,
-    `<h3 style="margin:0 0 16px">Balance Due</h3>
-    <p>Hi ${quote.guest_first_name},</p>
-    <p>Your remaining balance of <strong>${dollars(quote.balance_cents)}</strong> for <strong>${quote.event_name || "your event"}</strong> on <strong>${quote.event_date_display || ""}</strong> is due.</p>
-    <div style="text-align:center;margin:24px 0"><a href="${quote.balance_payment_link_url}" style="display:inline-block;padding:12px 32px;background:#0f172a;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px">Pay ${dollars(quote.balance_cents)}</a></div>
-    <p style="font-size:14px;color:#64748b">Questions? Contact us at ${quote.center_name}.</p>`,
+    quote,
+    "You're All Set!",
+    `Payment complete for ${quote.event_name || "your event"}`,
+    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">${quote.guest_first_name}, your remaining balance has been charged. Everything is paid and you're ready to go!</p>
+
+    <div style="background:#0f172a;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
+      <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Total Paid</p>
+      <p style="margin:0;font-size:32px;font-weight:800;color:#22c55e">${dollars(quote.total_cents)}</p>
+    </div>
+
+    <table style="width:100%;margin:16px 0;border-collapse:collapse">
+      ${pricingRow("Event", quote.event_name || "")}
+      ${pricingRow("Date", quote.event_date_display || "")}
+      ${pricingRow("Total Paid", dollars(quote.total_cents), true)}
+    </table>
+
+    <p style="margin:16px 0 0;font-size:15px;color:#cbd5e1;text-align:center">See you at <strong style="color:white">${quote.center_name}</strong>!</p>`,
+  );
+}
+
+function buildBalanceLinkHtml(quote: GroupFunctionQuote): string {
+  return emailShell(
+    quote,
+    "Balance Due",
+    `Complete your payment for ${quote.event_name || "your event"}`,
+    `<p style="margin:0 0 16px;font-size:15px;color:#cbd5e1">${quote.guest_first_name}, your event is coming up and the remaining balance is due.</p>
+
+    <div style="background:#0f172a;border-radius:12px;padding:20px;margin:16px 0;text-align:center">
+      <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Balance Due</p>
+      <p style="margin:0;font-size:32px;font-weight:800;color:#f59e0b">${dollars(quote.balance_cents)}</p>
+    </div>
+
+    ${ctaButton(`Pay ${dollars(quote.balance_cents)}`, quote.balance_payment_link_url || "#")}
+
+    <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Questions? Reply to this email or contact your planner.</p>`,
   );
 }

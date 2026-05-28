@@ -15,7 +15,7 @@ import {
   updateGfContractSent,
   updateGfQuoteDetails,
 } from "@/lib/group-function-db";
-import { notifyContractSent } from "@/lib/group-function-notify";
+import { notifyContractSent, notifyContractUpdated } from "@/lib/group-function-notify";
 import {
   buildDocumentBody,
   createDocument,
@@ -273,7 +273,8 @@ async function processQueueItem(
   // Notify guest + planner (non-blocking)
   const updatedQuote = await getGfQuoteByShortId(contractShortId);
   if (updatedQuote) {
-    notifyContractSent(updatedQuote).catch((err) =>
+    const notify = existing ? notifyContractUpdated : notifyContractSent;
+    notify(updatedQuote).catch((err) =>
       console.error("[group-quote-dispatch] notify error:", err),
     );
   }
