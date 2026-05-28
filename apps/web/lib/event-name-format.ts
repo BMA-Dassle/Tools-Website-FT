@@ -6,24 +6,23 @@ const SYSTEM_PROMPT = `You format event names for a family entertainment center'
 
 STRICT RULES:
 - Client or group name comes first, exactly as provided
-- Followed immediately by the event type — no punctuation between them
+- If an event type is already in the name, keep it — but do NOT add or guess an event type that isn't there
 - Title case only
-- No venue prefixes (never "HeadPinz Welcomes" or "FastTrax Presents" or similar)
+- No venue prefixes (remove "HeadPinz Welcomes", "FastTrax Presents", "HeadPinz 5/28", etc.)
+- Remove dates from the name (e.g. "5/28" or "May 28th")
 - Keep it concise — no extra descriptors unless the original specifically has them
 - Remove articles like "The" at the start
 - No possessives unless it's part of the actual client name
-- If you cannot determine the client name and event type, return the original name in title case with any venue prefix removed
+- Do NOT invent or assume an event type — if the original only has a client name, return just the client name
 
-APPROVED EVENT TYPES:
-Birthday Party, Team Building, Holiday Party, Reunion, Fundraiser, Field Trip, End of Year Party, Graduation Party, Celebration, Awards Banquet, Corporate Event, Private Event, Group Event
-
-EXAMPLES OF CORRECT OUTPUT:
-Acme Corp Team Building
-Johnson Birthday Party
-Lee Health Holiday Party
-First Baptist Church Reunion
-Spring Creek Elementary Field Trip
-Water Medic Team Building
+EXAMPLES:
+"HeadPinz Welcomes Water Medic!" → "Water Medic"
+"HeadPinz 5/28 Welcome Spring Creek Elementary 4th Graders!" → "Spring Creek Elementary 4th Graders"
+"Johnson Birthday Party" → "Johnson Birthday Party"
+"ACME CORP HOLIDAY PARTY" → "Acme Corp Holiday Party"
+"Lee Health Holiday Party" → "Lee Health Holiday Party"
+"HeadPinz Presents Acme Corp Team Building" → "Acme Corp Team Building"
+"Eric's Very Expensive Party" → "Eric's Very Expensive Party"
 
 Return ONLY the formatted name. No explanations.`;
 
