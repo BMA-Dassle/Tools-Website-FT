@@ -367,69 +367,71 @@ function buildGroupFunctionCard(
 
 function emailShell(quote: GroupFunctionQuote, heroTitle: string, heroSubtitle: string, content: string): string {
   const pName = plannerName(quote);
-  const isHP = quote.brand === "headpinz";
-  const accentColor = isHP ? "#e53935" : "#06b6d4";
-  const domain = isHP ? "headpinz.com" : "fasttraxent.com";
-  const logoUrl = isHP
-    ? "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/headpinz-logo.png"
-    : "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logos/fasttrax-logo.png";
+  const domain = quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com";
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#f4f4f5;color:#1e293b">
-<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:24px 0">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+  return `<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light" /><meta name="supported-color-schemes" content="light" /><style type="text/css">:root{color-scheme:light;supported-color-schemes:light}#outlook a{padding:0}a img{border:none}table td{border-collapse:collapse}body{margin:0;padding:0;background-color:#f2f3f5;-webkit-text-size-adjust:100%}a{color:#004aad}.section-label{font-size:10px;text-transform:uppercase;letter-spacing:3px;color:#004aad;font-weight:bold}.cta-btn{display:inline-block;padding:14px 28px;background-color:#004aad;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase}.cta-btn.red{background-color:#d71c1c;color:#ffffff !important}</style></head>
+<body style="margin:0;padding:0;background-color:#f2f3f5">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f2f3f5">
+<tr><td align="center" style="padding:20px 10px">
+<table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0">
 
-  <!-- Header -->
-  <tr><td style="background-color:#0f172a;padding:24px 32px;text-align:center">
-    <img src="${logoUrl}" alt="${quote.center_name}" height="40" style="height:40px;max-height:40px" />
+  <!-- HEADER LOGOS -->
+  <tr><td style="padding:24px 40px;background-color:#000418">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td align="left" width="50%"><img src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/hp_logo%201.png" width="130" alt="HeadPinz" style="height:auto" /></td>
+      <td align="right" width="50%"><img src="https://documents.sms-timing.com/Files/Automatic-emailings/headpinzftmyers/ft_logo%201.png" width="130" alt="FastTrax" style="height:auto" /></td>
+    </tr></table>
   </td></tr>
 
-  <!-- Accent bar -->
-  <tr><td style="height:4px;background:linear-gradient(90deg,${accentColor},#2563eb)"></td></tr>
-
-  <!-- Hero text -->
-  <tr><td style="background-color:#ffffff;padding:32px 32px 16px;text-align:center">
-    <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;color:#0f172a">${heroTitle}</h1>
-    <p style="margin:0;font-size:15px;color:#64748b">${heroSubtitle}</p>
+  <!-- HEADLINE -->
+  <tr><td align="center" style="padding:28px 40px 20px 40px;font-family:Arial,sans-serif">
+    <h1 style="margin:0 0 8px 0;font-size:24px;color:#1a1a1a;letter-spacing:1px;text-transform:uppercase">${heroTitle}</h1>
+    <p style="margin:0;font-size:15px;color:#666666;line-height:1.6">${heroSubtitle}</p>
   </td></tr>
 
-  <!-- Content -->
-  <tr><td style="background-color:#ffffff;padding:0 32px 24px">
+  <!-- CONTENT -->
+  <tr><td style="padding:0 40px 24px 40px;font-family:Arial,sans-serif">
     ${content}
   </td></tr>
 
-  <!-- Event summary -->
-  <tr><td style="background-color:#f8fafc;padding:16px 32px;border-top:1px solid #e2e8f0">
-    <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#64748b">
-      <tr><td style="padding:4px 0"><strong style="color:#0f172a">${quote.event_name || "Event"}</strong></td><td style="padding:4px 0;text-align:right">${quote.event_date_display || ""}</td></tr>
-      <tr><td style="padding:4px 0">${quote.center_name}</td><td style="padding:4px 0;text-align:right">Total: <strong style="color:#0f172a">${dollars(quote.total_cents)}</strong></td></tr>
+  <!-- EVENT SUMMARY -->
+  <tr><td style="padding:0 40px 24px 40px;font-family:Arial,sans-serif">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e0e0e0;border-radius:6px;overflow:hidden">
+      <tr><td style="background-color:#000418;padding:10px 16px;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;color:#00e2e5;text-transform:uppercase;letter-spacing:1px">${quote.event_name || "Event Details"}</td></tr>
+      <tr><td style="padding:14px 16px;font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.8">
+        <table cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="color:#888;font-size:13px;width:140px">Date:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold">${quote.event_date_display || ""}</td></tr>
+          <tr><td style="color:#888;font-size:13px;padding-top:6px">Center:</td><td style="color:#1a1a1a;font-size:14px;padding-top:6px">${quote.center_name}</td></tr>
+          <tr><td style="color:#888;font-size:13px;padding-top:6px">Total:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding-top:6px">${dollars(quote.total_cents)}</td></tr>
+        </table>
+      </td></tr>
     </table>
   </td></tr>
 
-  <!-- Planner -->
-  <tr><td style="background-color:#ffffff;padding:20px 32px;border-top:1px solid #e2e8f0">
-    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;font-weight:600">Your Event Planner</p>
-    <p style="margin:0 0 2px;font-size:16px;font-weight:700;color:#0f172a">${pName}</p>
-    ${quote.planner_phone ? `<p style="margin:0;font-size:13px"><a href="tel:${quote.planner_phone}" style="color:${accentColor};text-decoration:none">${quote.planner_phone}</a></p>` : ""}
-    ${quote.planner_email ? `<p style="margin:0;font-size:13px"><a href="mailto:${quote.planner_email}" style="color:${accentColor};text-decoration:none">${quote.planner_email}</a></p>` : ""}
+  <!-- PLANNER -->
+  <tr><td style="padding:0 40px 24px 40px;font-family:Arial,sans-serif">
+    <p class="section-label" style="margin:0 0 10px 0">Your Event Planner</p>
+    <p style="margin:0 0 2px;font-size:16px;font-weight:bold;color:#1a1a1a">${pName}</p>
+    ${quote.planner_phone ? `<p style="margin:0;font-size:13px;color:#666"><a href="tel:${quote.planner_phone}" style="color:#004aad;text-decoration:none">${quote.planner_phone}</a></p>` : ""}
+    ${quote.planner_email ? `<p style="margin:0;font-size:13px;color:#666"><a href="mailto:${quote.planner_email}" style="color:#004aad;text-decoration:none">${quote.planner_email}</a></p>` : ""}
+  </td></tr>
+
+  <!-- FOOTER -->
+  <tr><td style="padding:16px 40px;border-top:1px solid #e0e0e0;font-family:Arial,sans-serif;text-align:center">
+    <p style="margin:0;font-size:11px;color:#999">${quote.center_name} · <a href="${baseUrl(quote)}" style="color:#999;text-decoration:none">${domain}</a></p>
   </td></tr>
 
 </table>
-
-<!-- Footer -->
-<p style="text-align:center;font-size:11px;color:#94a3b8;margin:16px 0 0">${quote.center_name} · <a href="${baseUrl(quote)}" style="color:#94a3b8;text-decoration:none">${domain}</a></p>
-
 </td></tr></table>
 </body></html>`;
 }
 
 function ctaButton(text: string, url: string): string {
-  return `<div style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;padding:14px 40px;background:linear-gradient(135deg,#06b6d4,#2563eb);color:#0f172a;text-decoration:none;border-radius:999px;font-weight:700;font-size:16px;letter-spacing:0.5px">${text}</a></div>`;
+  return `<div style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;padding:14px 28px;background-color:#004aad;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase;font-family:Arial,sans-serif">${text}</a></div>`;
 }
 
 function pricingRow(label: string, value: string, highlight?: boolean): string {
-  return `<tr><td style="padding:6px 0;color:#94a3b8;font-size:14px">${label}</td><td style="padding:6px 0;text-align:right;font-size:14px;font-weight:${highlight ? "700" : "600"};color:${highlight ? "#22d3ee" : "white"}">${value}</td></tr>`;
+  return `<tr><td style="padding:6px 0;color:#888;font-size:13px;font-family:Arial,sans-serif">${label}</td><td style="padding:6px 0;text-align:right;font-size:14px;font-weight:${highlight ? "bold" : "normal"};color:${highlight ? "#004aad" : "#1a1a1a"};font-family:Arial,sans-serif">${value}</td></tr>`;
 }
 
 function buildContractSentHtml(quote: GroupFunctionQuote, contractUrl: string): string {
