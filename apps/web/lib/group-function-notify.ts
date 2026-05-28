@@ -17,6 +17,7 @@ import { parseGiftCardGans } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
 
 const FALLBACK_URL = "https://fasttraxent.com";
+const GF_BCC = ["vendorcases@dassle.us", "jacob@headpinz.com"];
 
 function baseUrl(quote: GroupFunctionQuote): string {
   return quote.base_url || FALLBACK_URL;
@@ -85,6 +86,7 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
+      bcc: GF_BCC,
       subject: `Your Event Contract — ${quote.event_name || quote.center_name}`,
       html: buildContractSentHtml(quote, contractUrl),
       text: `Hi ${quote.guest_first_name},\n\nYour event contract is ready to review and sign.\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nTotal: ${dollars(quote.total_cents)}\n\nReview & Sign: ${contractUrl}\n\nQuestions? Reply to this email.\n\n${pName}\n${quote.center_name}`,
@@ -123,6 +125,7 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
+      bcc: GF_BCC,
       subject: `Contract Updated — ${quote.event_name || quote.center_name}`,
       html: buildContractUpdatedHtml(quote, contractUrl),
       text: `Hi ${quote.guest_first_name},\n\nYour event contract for ${quote.event_name} has been updated with new details.\n\nReview the changes: ${contractUrl}\n\nQuestions? Reply to this email.\n\n${pName}\n${quote.center_name}`,
@@ -162,6 +165,7 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
+      bcc: GF_BCC,
       subject: `Deposit Received — ${quote.event_name || quote.center_name}`,
       html: buildDepositPaidHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour deposit of ${dollars(quote.deposit_due_cents)} has been received for ${quote.event_name}.\n\nReference: ${primaryGan(quote) || "N/A"}\nRemaining balance: ${dollars(quote.balance_cents)}\n\nThe remaining balance will be charged 72 hours before your event.\n\nThank you!\n${quote.center_name}`,
@@ -198,6 +202,7 @@ export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<v
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
+      bcc: GF_BCC,
       subject: `Payment Complete — ${quote.event_name || quote.center_name}`,
       html: buildBalanceChargedHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(quote.total_cents - quote.deposit_due_cents)} has been charged. You're all set for ${quote.event_name} on ${quote.event_date_display}!\n\nThank you!\n${quote.center_name}`,
@@ -236,6 +241,7 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
+      bcc: GF_BCC,
       subject: `Balance Due — ${quote.event_name || quote.center_name}`,
       html: buildBalanceLinkHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(quote.balance_cents)} for ${quote.event_name} is due.\n\nPay here: ${quote.balance_payment_link_url}\n\nThank you!\n${quote.center_name}`,
