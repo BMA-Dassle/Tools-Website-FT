@@ -106,13 +106,13 @@ export function resolveCenter(hermesCenter: string) {
 
 // ── API calls ───────────────────────────────────────────────────────
 
-export async function fetchPandaDocQueue(): Promise<HermesQueueItem[]> {
+export async function fetchHermesEnrichedEvents(): Promise<HermesQueueItem[]> {
   const res = await fetch(`${HERMES_BASE}/queue/pandadoc`, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
-    throw new Error(`Hermes /queue/pandadoc failed: ${res.status}`);
+    throw new Error(`Hermes enriched events failed: ${res.status}`);
   }
   return res.json();
 }

@@ -4,6 +4,7 @@ import {
   resolveCenter,
   selectTemplate,
   isTaxExempt,
+  fetchHermesEnrichedEvents,
   type HermesQueueItem,
 } from "@/lib/hermes-client";
 import {
@@ -53,6 +54,26 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("[group-quote-dispatch] BMI scan failed:", err);
     return NextResponse.json({ ok: false, error: "BMI scan failed" }, { status: 502 });
+  }
+
+  // Enrich scan results with planner data from Hermes queue
+  try {
+    const hermesItems = await fetchHermesEnrichedEvents();
+    const plannerMap = new Map<string, HermesQueueItem["planner"]>();
+    for (const h of hermesItems) {
+      if (h.planner?.first || h.planner?.last || h.planner?.email) {
+        plannerMap.set(h.reservationId, h.planner);
+      }
+    }
+    for (const item of scannedItems) {
+      const planner = plannerMap.get(item.reservationId);
+      if (planner) item.planner = planner;
+    }
+    console.log(
+      `[group-quote-dispatch] enriched ${plannerMap.size} items with Hermes planner data`,
+    );
+  } catch (err) {
+    console.warn("[group-quote-dispatch] Hermes planner enrichment failed (non-fatal):", err);
   }
 
   // Filter to items not actively tracked in our DB
