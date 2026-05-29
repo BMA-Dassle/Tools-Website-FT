@@ -147,7 +147,7 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: "debounced" };
   }
 
-  const totalCents = Math.round(item.totalBill * 100);
+  let totalCents = Math.round(item.totalBill * 100);
   const taxExempt = isTaxExempt(item.products);
   const taxCents = taxExempt ? 0 : Math.round(item.tax * 100);
 
@@ -156,7 +156,7 @@ async function processQueueItem(
   const eventTime = new Date(item.event.dateRaw).getTime();
   const hoursUntilEvent = (eventTime - Date.now()) / 3_600_000;
   const fullPaymentRequired = hoursUntilEvent <= 96;
-  const depositDueCents = fullPaymentRequired ? totalCents : Math.round(item.depositDue * 100);
+  let depositDueCents = fullPaymentRequired ? totalCents : Math.round(item.depositDue * 100);
 
   // No-changes check: if pricing/products match, update contact info and re-send
   if (existing && existing.contract_sent_at) {
@@ -272,8 +272,13 @@ async function processQueueItem(
     );
     if (scCheck.corrected) {
       activeProducts = scCheck.products;
+      const oldTotal = totalCents;
+      // Recalculate from corrected products so DB stays consistent with BMI
+      totalCents = Math.round(activeProducts.reduce((s, p) => s + p.total, 0) * 100) + taxCents;
+      depositDueCents = fullPaymentRequired ? totalCents : Math.round(totalCents / 2);
       console.log(
-        `[group-quote-dispatch] service charge corrected for reservation=${item.reservationId}`,
+        `[group-quote-dispatch] service charge corrected for reservation=${item.reservationId} ` +
+          `(total ${oldTotal} → ${totalCents})`,
       );
     }
   } catch (err) {

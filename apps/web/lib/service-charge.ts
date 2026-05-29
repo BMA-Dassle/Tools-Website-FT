@@ -66,7 +66,8 @@ export function verifyServiceCharge(
   const correctPct = getServiceChargePct(subtotal);
   const correctAmount = Math.round(subtotal * correctPct) / 100;
   const currentAmount = scProduct.total;
-  const needsUpdate = Math.abs(currentAmount - correctAmount) > 0.01;
+  // Tolerance: $0.05 avoids false positives from minor rounding at source
+  const needsUpdate = Math.abs(currentAmount - correctAmount) > 0.05;
 
   return {
     found: true,
