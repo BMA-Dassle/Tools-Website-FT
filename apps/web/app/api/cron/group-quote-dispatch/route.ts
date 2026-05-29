@@ -55,11 +55,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "BMI scan failed" }, { status: 502 });
   }
 
-  // Filter to items not already in our DB
+  // Filter to items not actively tracked in our DB
+  // Allow re-processing if the existing quote was cancelled/denied/expired
+  const TERMINAL_STATUSES = ["cancelled", "denied", "expired"];
   const newItems: HermesQueueItem[] = [];
   for (const item of scannedItems) {
     const existing = await getGfQuoteByReservationId(item.reservationId);
-    if (!existing) {
+    if (!existing || TERMINAL_STATUSES.includes(existing.status)) {
       newItems.push(item);
     }
   }
