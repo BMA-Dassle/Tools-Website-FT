@@ -278,6 +278,86 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
   console.log(`[gf-notify] waiver reminder sent for quote=${quote.id}`);
 }
 
+// ── 7-Day Waiver Reminder ──────────────────────────────────────────
+
+export async function notify7DayWaiverReminder(
+  quote: GroupFunctionQuote,
+  waiverUrl: string,
+): Promise<void> {
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_7day_waiver`;
+
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const waiverActivities = items
+    .filter((i) =>
+      ["laser tag", "gel blaster", "racing", "race", "nexus", "kart", "vip birthday"].some((w) =>
+        i.name.toLowerCase().includes(w),
+      ),
+    )
+    .map((i) => i.name);
+
+  const activityList =
+    waiverActivities.length > 0
+      ? waiverActivities
+          .map((a) => `<li style="margin:4px 0;font-size:14px;color:#333">${a}</li>`)
+          .join("")
+      : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event ${quote.event_name || ""} is in 7 days! All participants must complete their waivers before arriving.`,
+            `Complete waivers: ${waiverUrl}`,
+            `Please share this link with your entire group.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      bcc: GF_BCC,
+      subject: `Action Required: Waivers Must Be Completed — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        "Waivers Must Be Completed Within 7 Days",
+        "Your event is coming up — don't wait!",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your event is just <strong>7 days away</strong>! To ensure a smooth experience, <strong>everyone attending must complete a waiver</strong> prior to your event.</p>
+
+        <div style="background:#fef3c7;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #f59e0b">
+          <p style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#92400e">Action Required: Waivers Must Be Completed</p>
+          <p style="margin:0 0 4px;font-size:13px;color:#78350f">This must be done within the next 7 days for the following activities:</p>
+          ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
+        </div>
+
+        <p style="margin:16px 0;font-size:14px;color:#dc2626;font-weight:bold">Failure to complete waivers in time may result in check-in delays or delays to your event.</p>
+
+        ${ctaButton("Complete Your Waiver Now", waiverUrl)}
+
+        <p style="margin:16px 0;font-size:14px;color:#475569">Make sure everyone in your group signs the waiver. Share this link:</p>
+
+        <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+        </div>
+
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">View your event details anytime on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour event is 7 days away! All participants must complete a waiver before arriving.\n\nComplete waivers: ${waiverUrl}\n\nPlease share this link with everyone in your group. Failure to complete waivers may result in check-in delays.\n\nIf text don't work, copy and paste the waiver link above.\n\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] 7-day waiver reminder failed:", r.reason);
+    }
+  }
+
+  console.log(`[gf-notify] 7-day waiver reminder sent for quote=${quote.id}`);
+}
+
 // ── Balance Charged ─────────────────────────────────────────────────
 
 export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<void> {
