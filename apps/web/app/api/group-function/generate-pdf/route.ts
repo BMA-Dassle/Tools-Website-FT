@@ -94,15 +94,10 @@ export async function POST(req: NextRequest) {
 
   // Update BMI private notes with contract links
   try {
-    const { appendProjectPrivateNote } = await import("@/lib/bmi-office-actions");
+    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
     const contractPageUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}`;
     const pdfUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}/pdf`;
-    const ts = new Date().toLocaleDateString("en-US", {
-      month: "2-digit",
-      day: "2-digit",
-      year: "numeric",
-      timeZone: "America/New_York",
-    });
+    const ts = noteTimestamp();
 
     await appendProjectPrivateNote({
       centerCode: quote.center_code,

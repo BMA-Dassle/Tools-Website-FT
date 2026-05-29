@@ -310,13 +310,9 @@ export async function POST(req: NextRequest) {
         amountDollars: quote.deposit_due_cents / 100,
       });
 
+      const { noteTimestamp } = await import("@/lib/bmi-office-actions");
       const contractUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`;
-      const ts = new Date().toLocaleDateString("en-US", {
-        month: "2-digit",
-        day: "2-digit",
-        year: "numeric",
-        timeZone: "America/New_York",
-      });
+      const ts = noteTimestamp();
       await appendProjectPrivateNote({
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,

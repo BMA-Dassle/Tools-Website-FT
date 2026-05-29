@@ -475,14 +475,9 @@ async function processQueueItem(
 
   // Log to BMI private notes
   try {
-    const { appendProjectPrivateNote } = await import("@/lib/bmi-office-actions");
+    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
     const contractUrl = `${center.baseUrl}/contract/${contractShortId}`;
-    const ts = new Date().toLocaleDateString("en-US", {
-      month: "2-digit",
-      day: "2-digit",
-      year: "numeric",
-      timeZone: "America/New_York",
-    });
+    const ts = noteTimestamp();
     await appendProjectPrivateNote({
       centerCode: center.centerCode,
       projectId: item.reservationId,

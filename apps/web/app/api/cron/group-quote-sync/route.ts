@@ -431,13 +431,8 @@ async function syncQuote(
 
     // Log changes to BMI private notes
     try {
-      const { appendProjectPrivateNote } = await import("@/lib/bmi-office-actions");
-      const ts = new Date().toLocaleDateString("en-US", {
-        month: "2-digit",
-        day: "2-digit",
-        year: "numeric",
-        timeZone: "America/New_York",
-      });
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      const ts = noteTimestamp();
       const summary = changes
         .map((c) => {
           if (c.startsWith("products:")) return c;
