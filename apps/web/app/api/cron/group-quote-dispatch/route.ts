@@ -261,6 +261,25 @@ async function processQueueItem(
     };
   }
 
+  // Verify and correct service charge tier before processing
+  let activeProducts = item.products;
+  try {
+    const { verifyAndCorrectServiceCharge } = await import("@/lib/service-charge");
+    const scCheck = await verifyAndCorrectServiceCharge(
+      center.centerCode,
+      item.reservationId,
+      item.products,
+    );
+    if (scCheck.corrected) {
+      activeProducts = scCheck.products;
+      console.log(
+        `[group-quote-dispatch] service charge corrected for reservation=${item.reservationId}`,
+      );
+    }
+  } catch (err) {
+    console.warn("[group-quote-dispatch] service charge check failed:", err);
+  }
+
   // AI cleanup: format event name + clean up notes grammar
   let eventName = item.event.name || "";
   let eventNotes = item.event.notes || "";
@@ -341,7 +360,7 @@ async function processQueueItem(
       tax_cents: taxCents,
       deposit_due_cents: depositDueCents,
       balance_cents: balanceCents,
-      line_items: item.products,
+      line_items: activeProducts,
       prior_payments: item.payments,
       planner_first: item.planner.first,
       planner_last: item.planner.last,
@@ -383,7 +402,7 @@ async function processQueueItem(
       tax_cents: taxCents,
       deposit_due_cents: depositDueCents,
       balance_cents: balanceCents,
-      line_items: item.products,
+      line_items: activeProducts,
       prior_payments: item.payments,
       is_tax_exempt: taxExempt,
     });

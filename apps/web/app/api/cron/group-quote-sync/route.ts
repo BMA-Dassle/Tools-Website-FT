@@ -44,7 +44,13 @@ export async function GET(req: NextRequest) {
     LIMIT 30
   `) as GroupFunctionQuote[];
 
-  const results: Array<{ id: number; eventName: string; status: string; action: string; changes?: string[] }> = [];
+  const results: Array<{
+    id: number;
+    eventName: string;
+    status: string;
+    action: string;
+    changes?: string[];
+  }> = [];
 
   for (const quote of quotes) {
     try {
@@ -62,7 +68,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const updated = results.filter((r) => r.action === "updated" || r.action === "resign_required").length;
+  const updated = results.filter(
+    (r) => r.action === "updated" || r.action === "resign_required",
+  ).length;
   console.log(
     `[group-quote-sync] checked=${quotes.length} updated=${updated} ` +
       `unchanged=${results.filter((r) => r.action === "unchanged").length}`,
@@ -79,9 +87,15 @@ const normDate = (d: string | null | undefined) => {
     // Compare YYYY-MM-DD in ET to avoid timezone/format false positives.
     const dt = new Date(d);
     const etStr = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
-    const etTime = dt.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }); // HH:MM
+    const etTime = dt.toLocaleTimeString("en-GB", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+    }); // HH:MM
     return `${etStr} ${etTime}`;
-  } catch { return ""; }
+  } catch {
+    return "";
+  }
 };
 
 async function syncQuote(
@@ -90,14 +104,25 @@ async function syncQuote(
 ): Promise<{ id: number; eventName: string; status: string; action: string; changes?: string[] }> {
   const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
   if (!project) {
-    return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: "bmi_fetch_failed" };
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: quote.status,
+      action: "bmi_fetch_failed",
+    };
   }
 
   // Check for cancellation in BMI Office (stateId = -4)
   const bmiStateId = String(project.stateId || "");
   if (bmiStateId === "-4" && quote.status !== "cancelled") {
     if (dryRun) {
-      return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: "would_cancel", changes: ["BMI state: Cancellation"] };
+      return {
+        id: quote.id,
+        eventName: quote.event_name || "",
+        status: quote.status,
+        action: "would_cancel",
+        changes: ["BMI state: Cancellation"],
+      };
     }
 
     // Cancel the quote and refund Square payments
@@ -129,9 +154,14 @@ async function syncQuote(
         const refundData = await refundRes.json();
         if (refundRes.ok && refundData.refund?.id) {
           refundedPayments.push(`deposit:${refundData.refund.id}`);
-          console.log(`[group-quote-sync] refunded deposit $${(quote.deposit_due_cents / 100).toFixed(2)} for quote=${quote.id}`);
+          console.log(
+            `[group-quote-sync] refunded deposit $${(quote.deposit_due_cents / 100).toFixed(2)} for quote=${quote.id}`,
+          );
         } else {
-          console.error(`[group-quote-sync] deposit refund failed for quote=${quote.id}:`, JSON.stringify(refundData).slice(0, 300));
+          console.error(
+            `[group-quote-sync] deposit refund failed for quote=${quote.id}:`,
+            JSON.stringify(refundData).slice(0, 300),
+          );
         }
       } catch (err) {
         console.error(`[group-quote-sync] deposit refund error for quote=${quote.id}:`, err);
@@ -155,16 +185,23 @@ async function syncQuote(
         const refundData = await refundRes.json();
         if (refundRes.ok && refundData.refund?.id) {
           refundedPayments.push(`balance:${refundData.refund.id}`);
-          console.log(`[group-quote-sync] refunded balance $${(balanceAmount / 100).toFixed(2)} for quote=${quote.id}`);
+          console.log(
+            `[group-quote-sync] refunded balance $${(balanceAmount / 100).toFixed(2)} for quote=${quote.id}`,
+          );
         } else {
-          console.error(`[group-quote-sync] balance refund failed for quote=${quote.id}:`, JSON.stringify(refundData).slice(0, 300));
+          console.error(
+            `[group-quote-sync] balance refund failed for quote=${quote.id}:`,
+            JSON.stringify(refundData).slice(0, 300),
+          );
         }
       } catch (err) {
         console.error(`[group-quote-sync] balance refund error for quote=${quote.id}:`, err);
       }
     }
 
-    await (await import("@/lib/group-function-db")).appendAuditLog({
+    await (
+      await import("@/lib/group-function-db")
+    ).appendAuditLog({
       quoteId: quote.id,
       event: "cancelled_from_bmi",
       metadata: { bmiStateId, refundedPayments },
@@ -180,7 +217,13 @@ async function syncQuote(
     }
 
     console.log(`[group-quote-sync] CANCELLED quote=${quote.id} event="${quote.event_name}"`);
-    return { id: quote.id, eventName: quote.event_name || "", status: "cancelled", action: "cancelled", changes: ["BMI state: Cancellation"] };
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: "cancelled",
+      action: "cancelled",
+      changes: ["BMI state: Cancellation"],
+    };
   }
 
   const changes: string[] = [];
@@ -192,10 +235,14 @@ async function syncQuote(
   const customer = persons[0];
 
   if (customer) {
-    if (customer.firstName !== quote.guest_first_name) changes.push(`customer_first: ${quote.guest_first_name} → ${customer.firstName}`);
-    if (customer.lastName !== quote.guest_last_name) changes.push(`customer_last: ${quote.guest_last_name} → ${customer.lastName}`);
-    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase()) changes.push(`customer_email: ${quote.guest_email} → ${customer.email}`);
-    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone)) changes.push(`customer_phone: ${quote.guest_phone} → ${customer.phone}`);
+    if (customer.firstName !== quote.guest_first_name)
+      changes.push(`customer_first: ${quote.guest_first_name} → ${customer.firstName}`);
+    if (customer.lastName !== quote.guest_last_name)
+      changes.push(`customer_last: ${quote.guest_last_name} → ${customer.lastName}`);
+    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase())
+      changes.push(`customer_email: ${quote.guest_email} → ${customer.email}`);
+    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone))
+      changes.push(`customer_phone: ${quote.guest_phone} → ${customer.phone}`);
   }
 
   // Check event date
@@ -212,10 +259,22 @@ async function syncQuote(
 
   // Check products via Hermes
   const hermesCenter = HERMES_CENTER_MAP[quote.center_code] || "10.48.0.14";
-  let freshProducts: Array<{ name: string; overrideName: string | null; price: number; tax: number; qty: number; total: number; plu: string }> | null = null;
+  let freshProducts: Array<{
+    name: string;
+    overrideName: string | null;
+    price: number;
+    tax: number;
+    qty: number;
+    total: number;
+    plu: string;
+  }> | null = null;
   try {
     freshProducts = await fetchReservationProducts(hermesCenter, quote.bmi_reservation_id);
-    const existingProducts = (quote.line_items || []) as Array<{ name: string; qty: number; total: number }>;
+    const existingProducts = (quote.line_items || []) as Array<{
+      name: string;
+      qty: number;
+      total: number;
+    }>;
 
     const productChanged =
       freshProducts.length !== existingProducts.length ||
@@ -232,34 +291,78 @@ async function syncQuote(
   }
 
   if (changes.length === 0) {
-    return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: "unchanged" };
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: quote.status,
+      action: "unchanged",
+    };
   }
 
   if (dryRun) {
-    return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: isSigned ? "would_resign" : "would_update", changes };
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: quote.status,
+      action: isSigned ? "would_resign" : "would_update",
+      changes,
+    };
   }
 
   // Apply contact/date/name changes
   const updates: Record<string, unknown> = {};
   if (customer) {
-    if (customer.firstName !== quote.guest_first_name) updates.guest_first_name = customer.firstName;
+    if (customer.firstName !== quote.guest_first_name)
+      updates.guest_first_name = customer.firstName;
     if (customer.lastName !== quote.guest_last_name) updates.guest_last_name = customer.lastName;
-    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase()) updates.guest_email = customer.email;
-    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone)) updates.guest_phone = customer.phone;
+    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase())
+      updates.guest_email = customer.email;
+    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone))
+      updates.guest_phone = customer.phone;
   }
   if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
     updates.event_date = bmiDate;
     // Reformat display date from raw BMI date (Hermes has AM/PM formatting bug)
     const d = new Date(bmiDate + (bmiDate.includes("Z") || bmiDate.includes("+") ? "" : "-04:00"));
-    updates.event_date_display = d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
-      + " " + d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true });
+    updates.event_date_display =
+      d.toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        month: "short",
+        day: "numeric",
+      }) +
+      " " +
+      d.toLocaleTimeString("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
   }
   if (bmiName && bmiName !== quote.event_name) updates.event_name = bmiName;
 
   // Update products if changed
   if (freshProducts && changes.some((c) => c.startsWith("products:"))) {
+    // Verify and correct service charge tier
+    try {
+      const { verifyAndCorrectServiceCharge } = await import("@/lib/service-charge");
+      const scCheck = await verifyAndCorrectServiceCharge(
+        quote.center_code,
+        quote.bmi_reservation_id,
+        freshProducts,
+      );
+      if (scCheck.corrected) {
+        freshProducts = scCheck.products as typeof freshProducts;
+        console.log(`[group-quote-sync] service charge corrected for quote=${quote.id}`);
+      }
+    } catch (err) {
+      console.warn(`[group-quote-sync] service charge check failed for quote=${quote.id}:`, err);
+    }
+
     const totalBill = freshProducts.reduce((s, p) => s + p.total, 0);
-    const taxTotal = freshProducts.reduce((s, p) => s + (p.tax || 0) * p.total / (p.price || 1), 0);
+    const taxTotal = freshProducts.reduce(
+      (s, p) => s + ((p.tax || 0) * p.total) / (p.price || 1),
+      0,
+    );
     const totalCents = Math.round((totalBill + taxTotal) * 100);
     const taxCents = Math.round(taxTotal * 100);
     updates.line_items = freshProducts;
@@ -323,8 +426,16 @@ async function syncQuote(
       );
     }
 
-    console.log(`[group-quote-sync] RESIGN REQUIRED quote=${quote.id} changes=[${changes.join(", ")}]`);
-    return { id: quote.id, eventName: quote.event_name || "", status: "resign_required", action: "resign_required", changes };
+    console.log(
+      `[group-quote-sync] RESIGN REQUIRED quote=${quote.id} changes=[${changes.join(", ")}]`,
+    );
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: "resign_required",
+      action: "resign_required",
+      changes,
+    };
   }
 
   // Pre-deposit: just re-notify
@@ -336,5 +447,11 @@ async function syncQuote(
   }
 
   console.log(`[group-quote-sync] updated quote=${quote.id} changes=[${changes.join(", ")}]`);
-  return { id: quote.id, eventName: quote.event_name || "", status: quote.status, action: "updated", changes };
+  return {
+    id: quote.id,
+    eventName: quote.event_name || "",
+    status: quote.status,
+    action: "updated",
+    changes,
+  };
 }

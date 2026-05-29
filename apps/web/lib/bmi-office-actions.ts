@@ -350,6 +350,43 @@ export async function updateProjectPublicNotes(params: {
   console.log(`[bmi-office] updated public notes for project ${params.projectId}`);
 }
 
+// ── Update project product price ───────────────────────────────────
+
+export async function updateProjectProduct(params: {
+  centerCode: string;
+  projectId: string;
+  productId: string;
+  projectProductId: string;
+  productName: string;
+  pricePerUnit: number;
+}): Promise<void> {
+  const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+
+  const body = JSON.stringify({
+    projectId: params.projectId,
+    productId: params.productId,
+    id: params.projectProductId,
+    quantity: 1,
+    pricePerUnit: params.pricePerUnit,
+    totalPrice: params.pricePerUnit,
+    isVisible: true,
+    discountMetaId: null,
+    name: null,
+    dynamicGroups: null,
+  });
+
+  const res = await httpsRequest("PUT", `/api/${clientKey}/projectProduct`, headers, body);
+  if (res.status >= 400) {
+    throw new Error(`Failed to update projectProduct: ${res.status} ${res.body.slice(0, 200)}`);
+  }
+
+  console.log(
+    `[bmi-office] updated service charge for project ${params.projectId}: ${params.productName} → $${params.pricePerUnit.toFixed(2)}`,
+  );
+}
+
 // ── Helper: detect waiver-required activities ───────────────────────
 
 export function hasWaiverRequiredActivities(lineItems: Array<{ name: string }>): boolean {
