@@ -89,13 +89,16 @@ export async function POST(req: NextRequest) {
       }>
     ).map((p) => buildSquareLineItem(quote.center_code, p));
 
-    const serviceCharges = quote.tax_cents > 0
-      ? [{
-          name: "Service Charge",
-          amount_money: { amount: quote.tax_cents, currency: "USD" },
-          calculation_phase: "SUBTOTAL_PHASE",
-        }]
-      : [];
+    const serviceCharges =
+      quote.tax_cents > 0
+        ? [
+            {
+              name: "Service Charge",
+              amount_money: { amount: quote.tax_cents, currency: "USD" },
+              calculation_phase: "SUBTOTAL_PHASE",
+            },
+          ]
+        : [];
 
     const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
       method: "POST",
@@ -194,7 +197,9 @@ export async function POST(req: NextRequest) {
       });
       const gcData = await gcRes.json();
       if (!gcRes.ok || !gcData.gift_card?.id) {
-        throw new Error(`Gift card #${gcIndex} creation failed: ${JSON.stringify(gcData).slice(0, 300)}`);
+        throw new Error(
+          `Gift card #${gcIndex} creation failed: ${JSON.stringify(gcData).slice(0, 300)}`,
+        );
       }
 
       const gcId = gcData.gift_card.id as string;
@@ -227,7 +232,9 @@ export async function POST(req: NextRequest) {
       depositRemaining -= chunkCents;
       gcIndex++;
 
-      console.log(`[gf-deposit] gift card #${gcIndex}: ${gcGan} activated with $${(chunkCents / 100).toFixed(2)}`);
+      console.log(
+        `[gf-deposit] gift card #${gcIndex}: ${gcGan} activated with $${(chunkCents / 100).toFixed(2)}`,
+      );
     }
 
     const giftCardId = JSON.stringify(gcIds);
@@ -283,10 +290,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update BMI Office: status + record payment (must complete before response)
+    // Update BMI Office: status + record payment + private note
     try {
-      const { updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities } =
-        await import("@/lib/bmi-office-actions");
+      const {
+        updateProjectStatus,
+        recordProjectPayment,
+        hasWaiverRequiredActivities,
+        appendProjectPrivateNote,
+      } = await import("@/lib/bmi-office-actions");
       const items = (quote.line_items || []) as Array<{ name: string }>;
       await updateProjectStatus({
         centerCode: quote.center_code,
@@ -297,6 +308,19 @@ export async function POST(req: NextRequest) {
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
         amountDollars: quote.deposit_due_cents / 100,
+      });
+
+      const contractUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`;
+      const ts = new Date().toLocaleDateString("en-US", {
+        month: "2-digit",
+        day: "2-digit",
+        year: "numeric",
+        timeZone: "America/New_York",
+      });
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${ts}] Deposit paid: $${(quote.deposit_due_cents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((quote.total_cents - quote.deposit_due_cents) / 100).toFixed(2)}\nContract: ${contractUrl}`,
       });
     } catch (err) {
       console.error("[gf-deposit] BMI Office update error:", err);

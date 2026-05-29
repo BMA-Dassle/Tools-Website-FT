@@ -431,6 +431,9 @@ export async function updateProjectPublicNotes(params: {
 
 // ── Append to private notes ────────────────────────────────────────
 
+const NOTES_SECTION_START = "── FastTrax Web ──";
+const NOTES_SECTION_END = "── End FastTrax Web ──";
+
 export async function appendProjectPrivateNote(params: {
   centerCode: string;
   projectId: string;
@@ -457,7 +460,19 @@ export async function appendProjectPrivateNote(params: {
 
   if (privateLog) {
     const existing = privateLog.memo || "";
-    privateLog.memo = existing ? `${existing}\n\n${params.note}` : params.note;
+    const startIdx = existing.indexOf(NOTES_SECTION_START);
+    const endIdx = existing.indexOf(NOTES_SECTION_END);
+
+    if (startIdx >= 0 && endIdx > startIdx) {
+      const before = existing.slice(0, startIdx);
+      const after = existing.slice(endIdx + NOTES_SECTION_END.length);
+      const section = existing.slice(startIdx + NOTES_SECTION_START.length, endIdx).trim();
+      const updated = section ? `${section}\n${params.note}` : params.note;
+      privateLog.memo = `${before}${NOTES_SECTION_START}\n${updated}\n${NOTES_SECTION_END}${after}`;
+    } else {
+      const sep = existing.trim() ? "\n\n" : "";
+      privateLog.memo = `${existing}${sep}${NOTES_SECTION_START}\n${params.note}\n${NOTES_SECTION_END}`;
+    }
   }
 
   const minimal = toMinimalProject(project, ["logs"]);

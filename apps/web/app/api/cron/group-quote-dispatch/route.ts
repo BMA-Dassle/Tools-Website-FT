@@ -473,6 +473,25 @@ async function processQueueItem(
     notify(updatedQuote).catch((err) => console.error("[group-quote-dispatch] notify error:", err));
   }
 
+  // Log to BMI private notes
+  try {
+    const { appendProjectPrivateNote } = await import("@/lib/bmi-office-actions");
+    const contractUrl = `${center.baseUrl}/contract/${contractShortId}`;
+    const ts = new Date().toLocaleDateString("en-US", {
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+      timeZone: "America/New_York",
+    });
+    await appendProjectPrivateNote({
+      centerCode: center.centerCode,
+      projectId: item.reservationId,
+      note: `[${ts}] Contract sent to ${item.customer.email}\nContract: ${contractUrl}`,
+    });
+  } catch {
+    /* non-fatal */
+  }
+
   console.log(
     `[group-quote-dispatch] contract created for reservation=${item.reservationId} shortId=${contractShortId}`,
   );
