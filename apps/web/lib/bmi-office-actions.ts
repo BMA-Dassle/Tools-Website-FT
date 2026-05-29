@@ -411,20 +411,33 @@ export async function updateProjectPublicNotes(params: {
   const logs = (project.logs || []) as Array<{ public: boolean; memo: string; id: string }>;
   const publicLog = logs.find((l) => l.public);
 
-  if (publicLog) {
+  if (!publicLog) {
+    const createRes = await httpsRequest(
+      "POST",
+      `/api/${clientKey}/projectLog`,
+      headers,
+      JSON.stringify({
+        projectId: params.projectId,
+        public: true,
+        kind: 1,
+        action: 7,
+        memo: params.notes,
+      }),
+    );
+    if (createRes.status >= 400)
+      throw new Error(`Failed to create public log: ${createRes.status}`);
+  } else {
     publicLog.memo = params.notes;
+    const minimal = toMinimalProject(project, ["logs"]);
+    minimal.logs = logs;
+    const putRes = await httpsRequest(
+      "PUT",
+      `/api/${clientKey}/project`,
+      headers,
+      JSON.stringify(minimal),
+    );
+    if (putRes.status >= 400) throw new Error(`Failed to update project notes: ${putRes.status}`);
   }
-
-  const minimal = toMinimalProject(project, ["logs"]);
-  minimal.logs = logs;
-
-  const putRes = await httpsRequest(
-    "PUT",
-    `/api/${clientKey}/project`,
-    headers,
-    JSON.stringify(minimal),
-  );
-  if (putRes.status >= 400) throw new Error(`Failed to update project notes: ${putRes.status}`);
 
   console.log(`[bmi-office] updated public notes for project ${params.projectId}`);
 }
@@ -502,7 +515,26 @@ export async function appendProjectPrivateNote(params: {
   }>;
   const privateLog = logs.find((l) => !l.public);
 
-  if (privateLog) {
+  const newMemo = buildSection(params.contractUrl || null, params.pdfUrl || null, params.note);
+
+  if (!privateLog) {
+    // No private log exists — create one via POST /projectLog
+    const createRes = await httpsRequest(
+      "POST",
+      `/api/${clientKey}/projectLog`,
+      headers,
+      JSON.stringify({
+        projectId: params.projectId,
+        public: false,
+        kind: 1,
+        action: 7,
+        memo: newMemo,
+      }),
+    );
+    if (createRes.status >= 400) {
+      throw new Error(`Failed to create private log: ${createRes.status}`);
+    }
+  } else {
     const existing = privateLog.memo || "";
     const startIdx = existing.indexOf(NOTES_SECTION_START);
     const endIdx = existing.indexOf(NOTES_SECTION_END);
@@ -518,21 +550,21 @@ export async function appendProjectPrivateNote(params: {
       privateLog.memo = `${before}${buildSection(url, pdf, updatedLog)}${after}`;
     } else {
       const sep = existing.trim() ? "\n\n" : "";
-      privateLog.memo = `${existing}${sep}${buildSection(params.contractUrl || null, params.pdfUrl || null, params.note)}`;
+      privateLog.memo = `${existing}${sep}${newMemo}`;
     }
-  }
 
-  const minimal = toMinimalProject(project, ["logs"]);
-  minimal.logs = logs;
+    const minimal = toMinimalProject(project, ["logs"]);
+    minimal.logs = logs;
 
-  const putRes = await httpsRequest(
-    "PUT",
-    `/api/${clientKey}/project`,
-    headers,
-    JSON.stringify(minimal),
-  );
-  if (putRes.status >= 400) {
-    throw new Error(`Failed to update private notes: ${putRes.status}`);
+    const putRes = await httpsRequest(
+      "PUT",
+      `/api/${clientKey}/project`,
+      headers,
+      JSON.stringify(minimal),
+    );
+    if (putRes.status >= 400) {
+      throw new Error(`Failed to update private notes: ${putRes.status}`);
+    }
   }
 
   console.log(`[bmi-office] appended private note for project ${params.projectId}`);
