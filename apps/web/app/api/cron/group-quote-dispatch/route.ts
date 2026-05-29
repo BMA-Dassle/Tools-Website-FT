@@ -39,6 +39,10 @@ import { scanForNewEvents } from "@/lib/bmi-scan";
  */
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "5"), 20);
 
@@ -137,7 +141,9 @@ function formatEventDate(dateRaw: string): string {
   // BMI dates are local ET without timezone (e.g. "2026-10-17T11:30:00")
   // Hermes has a bug in its moment format string (MM instead of mm)
   // so we format it ourselves
-  const d = new Date(dateRaw + (dateRaw.includes("Z") || dateRaw.includes("+") ? "" : "-04:00"));
+  const hasTimezone =
+    dateRaw.includes("Z") || dateRaw.includes("+") || /\d-\d{2}:\d{2}$/.test(dateRaw);
+  const d = new Date(hasTimezone ? dateRaw : `${dateRaw}-04:00`);
   return (
     d.toLocaleDateString("en-US", {
       timeZone: "America/New_York",

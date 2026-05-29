@@ -269,6 +269,10 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
               ? "HeadPinz Naples"
               : "HeadPinz Fort Myers";
 
+          const dateHasTz =
+            proj.date.includes("Z") || proj.date.includes("+") || /\d-\d{2}:\d{2}$/.test(proj.date);
+          const normalizedDate = dateHasTz ? proj.date : `${proj.date}-04:00`;
+
           const item: HermesQueueItem = {
             queueId: 0,
             logId: 0,
@@ -278,14 +282,8 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
             reservationId: String(proj.id),
             event: {
               name: proj.name || proj.displayName || "",
-              date:
-                proj.date.includes("-04:00") || proj.date.includes("Z")
-                  ? proj.date
-                  : `${proj.date}-04:00`,
-              dateRaw:
-                proj.date.includes("-04:00") || proj.date.includes("Z")
-                  ? proj.date
-                  : `${proj.date}-04:00`,
+              date: normalizedDate,
+              dateRaw: normalizedDate,
               notes,
               number: proj.number || "",
             },

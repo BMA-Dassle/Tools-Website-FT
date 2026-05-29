@@ -29,6 +29,10 @@ const HERMES_CENTER_MAP: Record<string, string> = {
 const SYNC_STATUSES = ["contract_sent", "deposit_paid", "balance_charged", "balance_link_sent"];
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });
   }
@@ -435,7 +439,8 @@ async function syncQuote(
   if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
     updates.event_date = bmiDate;
     // Reformat display date from raw BMI date (Hermes has AM/PM formatting bug)
-    const d = new Date(bmiDate + (bmiDate.includes("Z") || bmiDate.includes("+") ? "" : "-04:00"));
+    const hasTz = bmiDate.includes("Z") || bmiDate.includes("+") || /\d-\d{2}:\d{2}$/.test(bmiDate);
+    const d = new Date(hasTz ? bmiDate : `${bmiDate}-04:00`);
     updates.event_date_display =
       d.toLocaleDateString("en-US", {
         timeZone: "America/New_York",
