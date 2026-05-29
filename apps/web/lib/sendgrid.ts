@@ -51,13 +51,23 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
     to: [opts.toName ? { email: opts.to, name: opts.toName } : { email: opts.to }],
     subject: opts.subject,
   };
-  if (opts.bcc) {
-    const bccList = Array.isArray(opts.bcc) ? opts.bcc : [opts.bcc];
-    personalization.bcc = bccList.map((email) => ({ email }));
-  }
+  const usedEmails = new Set([opts.to.toLowerCase()]);
   if (opts.cc) {
     const ccList = Array.isArray(opts.cc) ? opts.cc : [opts.cc];
-    personalization.cc = ccList.map((email) => ({ email }));
+    personalization.cc = ccList
+      .filter((e) => {
+        const lower = e.toLowerCase();
+        if (usedEmails.has(lower)) return false;
+        usedEmails.add(lower);
+        return true;
+      })
+      .map((email) => ({ email }));
+    if ((personalization.cc as unknown[]).length === 0) delete personalization.cc;
+  }
+  if (opts.bcc) {
+    const bccList = Array.isArray(opts.bcc) ? opts.bcc : [opts.bcc];
+    const filtered = bccList.filter((e) => !usedEmails.has(e.toLowerCase()));
+    if (filtered.length > 0) personalization.bcc = filtered.map((email) => ({ email }));
   }
 
   const payload: Record<string, unknown> = {
