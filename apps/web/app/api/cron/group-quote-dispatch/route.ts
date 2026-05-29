@@ -59,25 +59,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "BMI scan failed" }, { status: 502 });
   }
 
-  // Filter to items not actively tracked in our DB
-  // Allow re-processing if the existing quote was cancelled/denied/expired
-  const TERMINAL_STATUSES = ["cancelled", "denied", "expired"];
-  const newItems: HermesQueueItem[] = [];
-  for (const item of scannedItems) {
-    const existing = await getGfQuoteByReservationId(item.reservationId);
-    if (!existing || TERMINAL_STATUSES.includes(existing.status)) {
-      newItems.push(item);
-    }
-  }
-
-  const itemsToProcess = newItems.slice(0, limit);
+  // All scanned items are in "Send Contract" state — process all of them
+  // (sales explicitly requested send/resend by setting this state)
+  const itemsToProcess = scannedItems.slice(0, limit);
 
   if (dryRun) {
     return NextResponse.json({
       ok: true,
       dryRun: true,
       scanned: scannedItems.length,
-      new: newItems.length,
+      toProcess: itemsToProcess.length,
       items: itemsToProcess.map((i) => ({
         reservationId: i.reservationId,
         centerName: i.centerName,
@@ -102,16 +93,16 @@ export async function GET(req: NextRequest) {
   }
 
   console.log(
-    `[group-quote-dispatch] scanned=${scannedItems.length} new=${newItems.length} ` +
-      `processed=${results.length} ` +
+    `[group-quote-dispatch] scanned=${scannedItems.length} processed=${results.length} ` +
       `created=${results.filter((r) => r.action === "created").length} ` +
+      `resent=${results.filter((r) => r.action === "resent").length} ` +
       `errors=${results.filter((r) => r.action === "error").length}`,
   );
 
   return NextResponse.json({
     ok: true,
     scanned: scannedItems.length,
-    new: newItems.length,
+    processed: results.length,
     results,
   });
 }

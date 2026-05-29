@@ -8,7 +8,6 @@ import {
 } from "@/lib/group-function-db";
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
 import { fetchReservationProducts, fetchReservationDetail } from "@/lib/hermes-client";
-import { notifyContractUpdated } from "@/lib/group-function-notify";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -571,14 +570,6 @@ async function syncQuote(
       event: "resign_required_auto",
       metadata: { changes, trigger: "group-quote-sync" },
     });
-
-    // Notify about the update
-    const refreshed = await getGfQuoteByShortId(quote.contract_short_id!);
-    if (refreshed) {
-      notifyContractUpdated(refreshed).catch((err) =>
-        console.error(`[group-quote-sync] notify error for quote=${quote.id}:`, err),
-      );
-    }
 
     console.log(
       `[group-quote-sync] RESIGN REQUIRED quote=${quote.id} changes=[${changes.join(", ")}]`,
