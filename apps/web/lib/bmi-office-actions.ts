@@ -147,6 +147,16 @@ function toMinimalProject(
   return minimal;
 }
 
+// ── Pandora location IDs (for direct Firebird state updates) ───────
+
+const PANDORA_LOCATION_IDS: Record<string, string> = {
+  "fort-myers": "TXBSQN0FEKQ11",
+  fasttrax: "LAB52GY480CJF",
+  naples: "PPTR5G2N0QXF7",
+};
+
+const HERMES_BASE = process.env.HERMES_BASE_URL || "https://bma-bmi-hermes.azurewebsites.net";
+
 // ── Update project status ───────────────────────────────────────────
 
 export async function updateProjectStatus(params: {
@@ -155,10 +165,38 @@ export async function updateProjectStatus(params: {
   hasWaiverActivities: boolean;
 }): Promise<void> {
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
+  const newStateId = params.hasWaiverActivities ? WAIVER_STATE_IDS[clientKey] || "-3" : "-3";
+
+  // Primary: Pandora direct Firebird update (bypasses overbooking validation)
+  const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
+  try {
+    const pandoraRes = await fetch(`${HERMES_BASE}/project/state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locationId,
+        projectId: params.projectId,
+        stateId: newStateId,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (pandoraRes.ok) {
+      console.log(
+        `[bmi-office] project ${params.projectId} status → ${newStateId} via Pandora (${params.hasWaiverActivities ? "Confirmation+Waiver" : "Confirmation"})`,
+      );
+      return;
+    }
+    console.warn(
+      `[bmi-office] Pandora state update failed (${pandoraRes.status}), falling back to Office API`,
+    );
+  } catch (err) {
+    console.warn("[bmi-office] Pandora state update error, falling back to Office API:", err);
+  }
+
+  // Fallback: Office API with minimal PUT
   const token = await getOfficeToken(clientKey);
   const headers = apiHeaders(token, clientKey);
 
-  // Fetch current project
   const getRes = await httpsRequest(
     "GET",
     `/api/${clientKey}/project/${params.projectId}`,
@@ -167,8 +205,6 @@ export async function updateProjectStatus(params: {
   if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
   const project = JSON.parse(getRes.body);
 
-  // Update stateId: -3 = Confirmation, or location-specific Confirmation + Waiver
-  const newStateId = params.hasWaiverActivities ? WAIVER_STATE_IDS[clientKey] || "-3" : "-3";
   const minimal = toMinimalProject(project);
   minimal.stateId = newStateId;
 
