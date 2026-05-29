@@ -66,6 +66,7 @@ export default async function ContractPage(props: {
         giftCardGan: quote.square_gift_card_gan,
         status: quote.status,
         isTaxExempt: quote.is_tax_exempt,
+        isPostPaid: quote.approval_required || false,
       }}
     />
   );
