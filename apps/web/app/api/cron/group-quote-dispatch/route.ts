@@ -150,7 +150,29 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: "skipped_unknown_center" };
   }
 
-  const existing = await getGfQuoteByReservationId(item.reservationId);
+  let existing = await getGfQuoteByReservationId(item.reservationId);
+
+  // If previous quote was cancelled/denied/expired, reset it for re-processing
+  if (existing && ["cancelled", "denied", "expired"].includes(existing.status)) {
+    await updateGfQuoteDetails(existing.id, {
+      status: "pending",
+      contract_sent_at: null,
+      contract_status: null,
+      contract_short_id: null,
+      deposit_paid_at: null,
+      square_deposit_order_id: null,
+      square_deposit_payment_id: null,
+      square_gift_card_id: null,
+      square_gift_card_gan: null,
+      square_dayof_order_id: null,
+      signed_pdf_url: null,
+      hermes_last_processed_at: new Date().toISOString(),
+    });
+    existing = null;
+    console.log(
+      `[group-quote-dispatch] reset cancelled quote for reservation=${item.reservationId}`,
+    );
+  }
 
   // Debounce: skip if processed within the last 60 seconds
   if (
