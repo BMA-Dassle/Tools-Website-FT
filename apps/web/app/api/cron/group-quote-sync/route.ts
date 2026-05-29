@@ -284,9 +284,25 @@ async function syncQuote(
     changes.push(`event_date: ${quote.event_date} → ${bmiDate}`);
   }
 
-  // Check event name
-  const bmiName = (project.name as string) || (project.displayName as string) || "";
+  // Check event name — AI format if changed
+  let bmiName = (project.name as string) || (project.displayName as string) || "";
   if (bmiName && bmiName !== quote.event_name) {
+    try {
+      const { formatEventName } = await import("@/lib/event-name-format");
+      const formatted = await formatEventName(bmiName);
+      if (formatted !== bmiName) {
+        console.log(`[group-quote-sync] AI formatted name: "${bmiName}" → "${formatted}"`);
+        const { updateProjectName } = await import("@/lib/bmi-office-actions");
+        updateProjectName({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          name: formatted,
+        }).catch((err) => console.warn(`[group-quote-sync] BMI name writeback failed:`, err));
+        bmiName = formatted;
+      }
+    } catch (err) {
+      console.warn("[group-quote-sync] AI name format failed:", err);
+    }
     changes.push(`event_name: ${quote.event_name} → ${bmiName}`);
   }
 
