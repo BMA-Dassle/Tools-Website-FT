@@ -153,7 +153,10 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
           [
             `${quote.guest_first_name}, your deposit of ${dollars(quote.deposit_due_cents)} for ${quote.event_name || "your event"} has been received!`,
             primaryGan(quote) ? `Reference: ${primaryGan(quote)}` : "",
-            `Your remaining balance of ${dollars(quote.balance_cents)} will be charged 72 hours before your event.`,
+            quote.balance_cents > 0
+              ? `Your remaining balance of ${dollars(quote.balance_cents)} will be charged 72 hours before your event.`
+              : "",
+            `View your event: ${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_deposit`,
             `See you at ${quote.center_name}!`,
           ]
             .filter(Boolean)
@@ -1082,7 +1085,9 @@ function buildDepositPaidHtml(quote: GroupFunctionQuote): string {
       ${quote.balance_cents > 0 ? pricingRow("Remaining Balance", dollars(quote.balance_cents)) : ""}
     </table>
 
-    ${quote.balance_cents > 0 ? `<p style="margin:0;font-size:13px;color:#64748b;text-align:center">The remaining balance will be automatically charged 72 hours before your event.</p>` : ""}`,
+    ${quote.balance_cents > 0 ? `<p style="margin:0 0 16px;font-size:13px;color:#64748b;text-align:center">The remaining balance will be automatically charged 72 hours before your event.</p>` : ""}
+
+    ${ctaButton("View Your Event", `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_deposit`)}`,
   );
 }
 
