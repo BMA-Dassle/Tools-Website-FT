@@ -14,14 +14,7 @@ import { sql } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const {
-    shortId,
-    signatureType,
-    signatureData,
-    agreements,
-    taxExempt,
-    taxFileUrl,
-  } = body as {
+  const { shortId, signatureType, signatureData, agreements, taxExempt, taxFileUrl } = body as {
     shortId: string;
     signatureType: "typed" | "drawn";
     signatureData: string;
@@ -43,7 +36,10 @@ export async function POST(req: NextRequest) {
   const quote = await getGfQuoteByShortId(shortId);
   if (!quote) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const signerIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
+  const signerIp =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown";
   const signerUa = req.headers.get("user-agent") || "unknown";
   const signedAt = new Date().toISOString();
 
@@ -80,6 +76,7 @@ export async function POST(req: NextRequest) {
       contract_signed_at = ${signedAt},
       contract_status = 'signed',
       document_seal = ${seal},
+      tax_file_url = ${taxFileUrl || null},
       updated_at = NOW()
     WHERE id = ${quote.id}
   `;

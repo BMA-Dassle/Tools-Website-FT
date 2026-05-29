@@ -5,6 +5,7 @@ import {
   completePandaDocQueue,
   resolveCenter,
   selectTemplate,
+  isTaxExempt,
   type HermesQueueItem,
 } from "@/lib/hermes-client";
 import {
@@ -14,7 +15,11 @@ import {
   updateGfContractSent,
   updateGfQuoteDetails,
 } from "@/lib/group-function-db";
-import { notifyContractSent, notifyContractUpdated, notifyApprovalNeeded } from "@/lib/group-function-notify";
+import {
+  notifyContractSent,
+  notifyContractUpdated,
+  notifyApprovalNeeded,
+} from "@/lib/group-function-notify";
 
 /**
  * Group Quote Dispatch cron.
@@ -93,16 +98,20 @@ function formatEventDate(dateRaw: string): string {
   // Hermes has a bug in its moment format string (MM instead of mm)
   // so we format it ourselves
   const d = new Date(dateRaw + (dateRaw.includes("Z") || dateRaw.includes("+") ? "" : "-04:00"));
-  return d.toLocaleDateString("en-US", {
-    timeZone: "America/New_York",
-    month: "short",
-    day: "numeric",
-  }) + " " + d.toLocaleTimeString("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  return (
+    d.toLocaleDateString("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+    }) +
+    " " +
+    d.toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+  );
 }
 
 async function processQueueItem(
@@ -110,7 +119,10 @@ async function processQueueItem(
 ): Promise<{ reservationId: string; action: string }> {
   // Hermes sometimes sends "10.48.0.14" for FastTrax events — detect via subject
   let hermesCenter = item.center;
-  if (hermesCenter === "10.48.0.14" && (item.subject?.includes("FT") || item.subject?.includes("FastTrax"))) {
+  if (
+    hermesCenter === "10.48.0.14" &&
+    (item.subject?.includes("FT") || item.subject?.includes("FastTrax"))
+  ) {
     hermesCenter = "10.48.0.14_FT";
   }
 
@@ -136,7 +148,8 @@ async function processQueueItem(
   }
 
   const totalCents = Math.round(item.totalBill * 100);
-  const taxCents = Math.round(item.tax * 100);
+  const taxExempt = isTaxExempt(item.products);
+  const taxCents = taxExempt ? 0 : Math.round(item.tax * 100);
 
   // Events within 96 hours: require full payment upfront (no time for
   // the deposit → 72hr balance charge cycle)
@@ -188,7 +201,14 @@ async function processQueueItem(
   }
 
   // Post-signing update: data only, preserve gift card
-  if (existing && (existing.status === "deposit_paid" || existing.status === "resign_required" || existing.status === "balance_charged" || existing.status === "balance_link_sent" || existing.status === "completed")) {
+  if (
+    existing &&
+    (existing.status === "deposit_paid" ||
+      existing.status === "resign_required" ||
+      existing.status === "balance_charged" ||
+      existing.status === "balance_link_sent" ||
+      existing.status === "completed")
+  ) {
     const priceChanged = existing.total_cents !== totalCents;
     const balanceCents = totalCents - existing.deposit_due_cents;
     await updateGfQuoteDetails(existing.id, {
@@ -214,7 +234,10 @@ async function processQueueItem(
       hermes_last_processed_at: new Date().toISOString(),
     });
 
-    if (priceChanged && (existing.status === "deposit_paid" || existing.status === "balance_charged")) {
+    if (
+      priceChanged &&
+      (existing.status === "deposit_paid" || existing.status === "balance_charged")
+    ) {
       const q = (await import("@/lib/db")).sql();
       await q`UPDATE group_function_quotes SET status = 'resign_required', updated_at = NOW() WHERE id = ${existing.id}`;
       console.log(
@@ -232,7 +255,10 @@ async function processQueueItem(
     console.log(
       `[group-quote-dispatch] post-sign data update for reservation=${item.reservationId}${priceChanged ? " (PRICE CHANGED)" : ""}`,
     );
-    return { reservationId: item.reservationId, action: priceChanged ? "resign_required" : "updated_data" };
+    return {
+      reservationId: item.reservationId,
+      action: priceChanged ? "resign_required" : "updated_data",
+    };
   }
 
   // AI cleanup: format event name + clean up notes grammar
@@ -254,11 +280,15 @@ async function processQueueItem(
 
     if (nameChanged) {
       eventName = formattedName;
-      console.log(`[group-quote-dispatch] AI formatted name: "${item.event.name}" → "${formattedName}"`);
+      console.log(
+        `[group-quote-dispatch] AI formatted name: "${item.event.name}" → "${formattedName}"`,
+      );
     }
     if (notesChanged) {
       eventNotes = cleanedNotes;
-      console.log(`[group-quote-dispatch] AI grammar-cleaned notes for reservation=${item.reservationId}`);
+      console.log(
+        `[group-quote-dispatch] AI grammar-cleaned notes for reservation=${item.reservationId}`,
+      );
     }
 
     // Update BMI Office with corrected name + notes
@@ -266,18 +296,22 @@ async function processQueueItem(
       const bmi = await import("@/lib/bmi-office-actions");
       const updates: Promise<void>[] = [];
       if (nameChanged) {
-        updates.push(bmi.updateProjectName({
-          centerCode: center.centerCode,
-          projectId: item.reservationId,
-          name: formattedName,
-        }));
+        updates.push(
+          bmi.updateProjectName({
+            centerCode: center.centerCode,
+            projectId: item.reservationId,
+            name: formattedName,
+          }),
+        );
       }
       if (notesChanged) {
-        updates.push(bmi.updateProjectPublicNotes({
-          centerCode: center.centerCode,
-          projectId: item.reservationId,
-          notes: cleanedNotes,
-        }));
+        updates.push(
+          bmi.updateProjectPublicNotes({
+            centerCode: center.centerCode,
+            projectId: item.reservationId,
+            notes: cleanedNotes,
+          }),
+        );
       }
       await Promise.allSettled(updates);
     }
@@ -351,6 +385,7 @@ async function processQueueItem(
       balance_cents: balanceCents,
       line_items: item.products,
       prior_payments: item.payments,
+      is_tax_exempt: taxExempt,
     });
     quoteId = quote.id;
   }
@@ -411,9 +446,7 @@ async function processQueueItem(
   const updatedQuote = await getGfQuoteByShortId(contractShortId);
   if (updatedQuote) {
     const notify = existing ? notifyContractUpdated : notifyContractSent;
-    notify(updatedQuote).catch((err) =>
-      console.error("[group-quote-dispatch] notify error:", err),
-    );
+    notify(updatedQuote).catch((err) => console.error("[group-quote-dispatch] notify error:", err));
   }
 
   console.log(

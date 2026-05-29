@@ -3,7 +3,10 @@ import { headers } from "next/headers";
 import { getGfQuoteByShortId, appendAuditLog } from "@/lib/group-function-db";
 import ContractClient from "./ContractClient";
 
-export default async function ContractPage(props: { params: Promise<{ shortId: string }>; searchParams: Promise<{ [key: string]: string | undefined }> }) {
+export default async function ContractPage(props: {
+  params: Promise<{ shortId: string }>;
+  searchParams: Promise<{ [key: string]: string | undefined }>;
+}) {
   const { shortId } = await props.params;
   const { src } = await props.searchParams;
   const quote = await getGfQuoteByShortId(shortId);
@@ -22,8 +25,11 @@ export default async function ContractPage(props: { params: Promise<{ shortId: s
     metadata: { source: src || "direct", step: quote.deposit_paid_at ? "event" : "review" },
   }).catch(() => {});
 
-  const brand = (quote.brand as "headpinz" | "fasttrax") ||
-    (quote.center_code === "naples" || quote.center_code === "fort-myers" ? "headpinz" : "fasttrax");
+  const brand =
+    (quote.brand as "headpinz" | "fasttrax") ||
+    (quote.center_code === "naples" || quote.center_code === "fort-myers"
+      ? "headpinz"
+      : "fasttrax");
 
   return (
     <ContractClient
@@ -59,6 +65,7 @@ export default async function ContractPage(props: { params: Promise<{ shortId: s
         depositPaidAt: quote.deposit_paid_at,
         giftCardGan: quote.square_gift_card_gan,
         status: quote.status,
+        isTaxExempt: quote.is_tax_exempt,
       }}
     />
   );

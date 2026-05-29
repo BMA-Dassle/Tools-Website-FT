@@ -50,6 +50,7 @@ interface QuoteProps {
   depositPaidAt: string | null;
   giftCardGan: string | null;
   status: string;
+  isTaxExempt: boolean;
 }
 
 type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done" | "event";
@@ -144,7 +145,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [agreeNoPrepay, setAgreeNoPrepay] = useState(false);
   const [agreePaymentDay, setAgreePaymentDay] = useState(false);
   const [agreePolicies, setAgreePolicies] = useState(false);
-  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(null);
+  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(quote.isTaxExempt ? "yes" : null);
   const [agreeUnderstand, setAgreeUnderstand] = useState(false);
 
   // Page-level acknowledgments
@@ -996,28 +997,35 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
                 <div className="rounded-xl bg-white/5 p-4">
                   <p className="mb-3 font-semibold text-white">Are you tax exempt?</p>
-                  <div className="flex gap-4">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="tax"
-                        checked={taxExempt === "yes"}
-                        onChange={() => setTaxExempt("yes")}
-                        className="h-4 w-4 text-cyan-500"
-                      />
-                      <span className="text-sm">Yes</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="tax"
-                        checked={taxExempt === "no"}
-                        onChange={() => setTaxExempt("no")}
-                        className="h-4 w-4 text-cyan-500"
-                      />
-                      <span className="text-sm">No</span>
-                    </label>
-                  </div>
+                  {quote.isTaxExempt ? (
+                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-sm text-emerald-400">
+                      This event is tax exempt based on the event products. Please upload your DR-14
+                      certificate below.
+                    </div>
+                  ) : (
+                    <div className="flex gap-4">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="radio"
+                          name="tax"
+                          checked={taxExempt === "yes"}
+                          onChange={() => setTaxExempt("yes")}
+                          className="h-4 w-4 text-cyan-500"
+                        />
+                        <span className="text-sm">Yes</span>
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="radio"
+                          name="tax"
+                          checked={taxExempt === "no"}
+                          onChange={() => setTaxExempt("no")}
+                          className="h-4 w-4 text-cyan-500"
+                        />
+                        <span className="text-sm">No</span>
+                      </label>
+                    </div>
+                  )}
                   {taxExempt === "yes" && (
                     <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
                       <p className="mb-2 text-sm font-semibold text-amber-400">

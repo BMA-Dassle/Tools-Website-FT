@@ -137,6 +137,9 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denied_at TIMESTAMPTZ`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denied_by TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denial_reason TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS approval_memo TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS is_tax_exempt BOOLEAN NOT NULL DEFAULT FALSE`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS tax_file_url TEXT`;
 
   // Immutable audit trail
   await q`
@@ -260,6 +263,9 @@ export interface GroupFunctionQuote {
   denied_at: string | null;
   denied_by: string | null;
   denial_reason: string | null;
+  approval_memo: string | null;
+  is_tax_exempt: boolean;
+  tax_file_url: string | null;
   otp_verified_at: string | null;
   otp_method: string | null;
   signer_ip: string | null;
@@ -305,6 +311,7 @@ export interface InsertGfQuoteParams {
   prior_payments: unknown[];
   pandadoc_template?: string;
   pandadoc_template_id?: string;
+  is_tax_exempt?: boolean;
 }
 
 export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupFunctionQuote> {
@@ -321,7 +328,7 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
       total_cents, tax_cents, deposit_due_cents, balance_cents,
       line_items, prior_payments,
       pandadoc_template, pandadoc_template_id,
-      status
+      is_tax_exempt, status
     ) VALUES (
       ${params.bmi_reservation_id},
       ${params.hermes_queue_id ?? null},
@@ -355,6 +362,7 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
       ${JSON.stringify(params.prior_payments)},
       ${params.pandadoc_template ?? null},
       ${params.pandadoc_template_id ?? null},
+      ${params.is_tax_exempt ?? false},
       'pending'
     )
     RETURNING *
@@ -650,10 +658,7 @@ export async function updateGfQuoteDetails(
   `;
 }
 
-export async function updateGfDepositAttempt(
-  id: number,
-  error: string,
-): Promise<number> {
+export async function updateGfDepositAttempt(id: number, error: string): Promise<number> {
   await ensureGfSchema();
   const q = sql();
   const rows = await q`
@@ -722,7 +727,11 @@ export async function getAuditLog(quoteId: number): Promise<AuditLogEntry[]> {
 export function parseGiftCardIds(raw: string | null): string[] {
   if (!raw) return [];
   if (raw.startsWith("[")) {
-    try { return JSON.parse(raw) as string[]; } catch { return []; }
+    try {
+      return JSON.parse(raw) as string[];
+    } catch {
+      return [];
+    }
   }
   return [raw];
 }

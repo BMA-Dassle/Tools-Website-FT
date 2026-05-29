@@ -42,6 +42,23 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function getWarnings(lineItems: PendingQuote["lineItems"]): { key: string; message: string }[] {
+  const warnings: { key: string; message: string }[] = [];
+  if (!lineItems?.some((item) => item.name.toLowerCase().includes("youth"))) {
+    warnings.push({
+      key: "no-youth",
+      message: "No youth products on this event. Why is this a post-paid account?",
+    });
+  }
+  if (lineItems?.some((item) => item.name.toLowerCase().includes("legacy"))) {
+    warnings.push({
+      key: "legacy",
+      message: "Legacy product detected. This pricing may be outdated.",
+    });
+  }
+  return warnings;
+}
+
 export default function GroupApprovalsClient({ token }: { token: string }) {
   const [quotes, setQuotes] = useState<PendingQuote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,6 +66,8 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
   const [actionInFlight, setActionInFlight] = useState<number | null>(null);
   const [denyingId, setDenyingId] = useState<number | null>(null);
   const [denyReason, setDenyReason] = useState("");
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [approvalMemo, setApprovalMemo] = useState("");
   const [actionResult, setActionResult] = useState<{
     id: number;
     msg: string;
@@ -81,7 +100,7 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
     return () => clearInterval(id);
   }, [load]);
 
-  async function handleApprove(q: PendingQuote) {
+  async function handleApprove(q: PendingQuote, memo?: string) {
     setActionInFlight(q.id);
     setActionResult(null);
     try {
@@ -92,12 +111,15 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
           shortId: q.contractShortId,
           action: "approve",
           email: "eric@headpinz.com",
+          memo: memo || undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setActionResult({ id: q.id, msg: "Approved — contract sent to customer", ok: true });
       setQuotes((prev) => prev.filter((x) => x.id !== q.id));
+      setApprovingId(null);
+      setApprovalMemo("");
     } catch (err) {
       setActionResult({ id: q.id, msg: err instanceof Error ? err.message : "Failed", ok: false });
     } finally {
@@ -251,6 +273,24 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                 </div>
               )}
 
+              {/* Warnings */}
+              {(() => {
+                const w = getWarnings(q.lineItems);
+                return w.length > 0 ? (
+                  <div className="px-4 pb-3 space-y-2">
+                    {w.map((warn) => (
+                      <div
+                        key={warn.key}
+                        className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                      >
+                        <span className="font-bold text-red-400">Warning: </span>
+                        {warn.message}
+                      </div>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+
               {/* Deny reason input */}
               {denyingId === q.id && (
                 <div className="px-4 pb-3">
@@ -264,6 +304,20 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                     }}
                     ref={(el) => el?.focus()}
                     className="w-full px-3 py-2 rounded-lg border border-red-500/40 bg-red-500/5 text-slate-200 text-sm outline-none focus:border-red-400"
+                  />
+                </div>
+              )}
+
+              {/* Approval memo input */}
+              {approvingId === q.id && (
+                <div className="px-4 pb-3">
+                  <textarea
+                    placeholder="Acknowledge warnings and explain why this approval is appropriate..."
+                    value={approvalMemo}
+                    onChange={(e) => setApprovalMemo(e.target.value)}
+                    rows={2}
+                    ref={(el) => el?.focus()}
+                    className="w-full px-3 py-2 rounded-lg border border-amber-500/40 bg-amber-500/5 text-slate-200 text-sm outline-none focus:border-amber-400"
                   />
                 </div>
               )}
@@ -289,6 +343,25 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                       {actionInFlight === q.id ? "Denying..." : "Confirm Deny"}
                     </button>
                   </>
+                ) : approvingId === q.id ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setApprovingId(null);
+                        setApprovalMemo("");
+                      }}
+                      className="px-4 py-2 rounded-lg border border-white/15 text-slate-400 text-sm font-semibold hover:bg-white/5 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void handleApprove(q, approvalMemo)}
+                      disabled={!approvalMemo.trim() || actionInFlight === q.id}
+                      className="px-5 py-2 rounded-lg bg-green-500 text-white text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-green-600 transition-colors"
+                    >
+                      {actionInFlight === q.id ? "Approving..." : "Confirm Approve"}
+                    </button>
+                  </>
                 ) : (
                   <>
                     <button
@@ -299,7 +372,14 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                       Deny
                     </button>
                     <button
-                      onClick={() => void handleApprove(q)}
+                      onClick={() => {
+                        const w = getWarnings(q.lineItems);
+                        if (w.length > 0) {
+                          setApprovingId(q.id);
+                        } else {
+                          void handleApprove(q);
+                        }
+                      }}
                       disabled={actionInFlight === q.id}
                       className="px-6 py-2 rounded-lg bg-green-500 text-white text-sm font-bold disabled:opacity-50 hover:bg-green-600 transition-colors"
                     >

@@ -2,8 +2,12 @@ import { notFound } from "next/navigation";
 import { getGfQuoteByShortId } from "@/lib/group-function-db";
 import ApproveClient from "./ApproveClient";
 
-export default async function ApprovePage(props: { params: Promise<{ shortId: string }> }) {
+export default async function ApprovePage(props: {
+  params: Promise<{ shortId: string }>;
+  searchParams: Promise<{ [key: string]: string | undefined }>;
+}) {
   const { shortId } = await props.params;
+  const { for: approverEmail } = await props.searchParams;
   const quote = await getGfQuoteByShortId(shortId);
   if (!quote) return notFound();
 
@@ -24,7 +28,9 @@ export default async function ApprovePage(props: { params: Promise<{ shortId: st
       guestEmail={quote.guest_email}
       guestPhone={quote.guest_phone}
       guestCount={quote.guest_count}
-      plannerName={quote.planner_first ? `${quote.planner_first} ${quote.planner_last || ""}`.trim() : null}
+      plannerName={
+        quote.planner_first ? `${quote.planner_first} ${quote.planner_last || ""}`.trim() : null
+      }
       plannerEmail={quote.planner_email}
       plannerPhone={quote.planner_phone}
       totalCents={quote.total_cents}
@@ -36,6 +42,7 @@ export default async function ApprovePage(props: { params: Promise<{ shortId: st
       approvedAt={quote.approved_at}
       deniedBy={quote.denied_by}
       denialReason={quote.denial_reason}
+      approverEmail={approverEmail || null}
     />
   );
 }

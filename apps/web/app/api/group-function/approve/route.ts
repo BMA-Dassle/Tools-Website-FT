@@ -23,11 +23,12 @@ const ALLOWED_APPROVERS = ["eric@headpinz.com", "jacob@headpinz.com"];
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { shortId, action, email, reason } = body as {
+  const { shortId, action, email, reason, memo } = body as {
     shortId: string;
     action: "approve" | "deny";
     email?: string;
     reason?: string;
+    memo?: string;
   };
 
   if (!shortId || !action) {
@@ -44,7 +45,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (quote.status !== "pending_approval") {
-    return NextResponse.json({ error: `Quote is in status: ${quote.status}, not pending_approval` }, { status: 400 });
+    return NextResponse.json(
+      { error: `Quote is in status: ${quote.status}, not pending_approval` },
+      { status: 400 },
+    );
   }
 
   const approverEmail = (email || "").toLowerCase();
@@ -58,6 +62,7 @@ export async function POST(req: NextRequest) {
     await q`UPDATE group_function_quotes SET
       approved_at = NOW(),
       approved_by = ${approverEmail},
+      approval_memo = ${memo || null},
       updated_at = NOW()
     WHERE id = ${quote.id}`;
 
@@ -71,7 +76,7 @@ export async function POST(req: NextRequest) {
       quoteId: quote.id,
       event: "postpaid_approved",
       actorEmail: approverEmail,
-      metadata: {},
+      metadata: { memo: memo || null },
     });
 
     const updatedQuote = await getGfQuoteByShortId(shortId);

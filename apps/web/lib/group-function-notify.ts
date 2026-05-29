@@ -272,13 +272,14 @@ export async function notify96HourReminder(
   const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
   const hasWaivers = hasWaiverRequiredActivities(items);
 
-  const waiverBlock = hasWaivers && waiverUrl
-    ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
+  const waiverBlock =
+    hasWaivers && waiverUrl
+      ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
         <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">⚠ Waivers Required</p>
         <p style="margin:0 0 12px;font-size:13px;color:#78350f">Some of your activities require signed waivers for all participants. Please make sure your group completes their waivers before the event.</p>
         <a href="${waiverUrl}" style="display:inline-block;padding:10px 24px;background-color:#f59e0b;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px">Complete Waivers</a>
       </div>`
-    : "";
+      : "";
 
   const results = await Promise.allSettled([
     quote.guest_phone
@@ -289,7 +290,9 @@ export async function notify96HourReminder(
             `Your balance of ${dollars(quote.balance_cents)} will be charged tomorrow.`,
             `Update details: ${smsUrl}`,
             hasWaivers && waiverUrl ? `Complete waivers: ${waiverUrl}` : "",
-          ].filter(Boolean).join("\n"),
+          ]
+            .filter(Boolean)
+            .join("\n"),
         )
       : Promise.resolve(),
 
@@ -354,15 +357,20 @@ export async function notifyBalanceReceipt(
   const items = (quote.line_items || []) as Array<{ name: string }>;
   const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
   const hasWaivers = hasWaiverRequiredActivities(items);
-  const chargeDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const chargeDate = new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
-  const waiverBlock = hasWaivers && waiverUrl
-    ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
+  const waiverBlock =
+    hasWaivers && waiverUrl
+      ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
         <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">⚠ Reminder: Complete Your Waivers</p>
         <p style="margin:0 0 12px;font-size:13px;color:#78350f">All participants must have signed waivers before the event.</p>
         <a href="${waiverUrl}" style="display:inline-block;padding:10px 24px;background-color:#f59e0b;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px">Complete Waivers</a>
       </div>`
-    : "";
+      : "";
 
   const notesBlock = quote.notes
     ? `<div style="background:#f8fafc;border-radius:12px;padding:16px;margin:16px 0">
@@ -455,7 +463,9 @@ export async function notifyEventCancelled(
             `${quote.guest_first_name}, your event ${quote.event_name || ""} at ${quote.center_name} has been cancelled.`,
             hasRefund ? "A refund has been initiated to your card." : "",
             `Questions? Contact ${pName}.`,
-          ].filter(Boolean).join("\n"),
+          ]
+            .filter(Boolean)
+            .join("\n"),
         )
       : Promise.resolve(),
 
@@ -499,9 +509,8 @@ export async function notifyEventCancelled(
 const APPROVAL_RECIPIENTS = ["eric@headpinz.com", "jacob@headpinz.com"];
 
 export async function notifyApprovalNeeded(quote: GroupFunctionQuote): Promise<void> {
-  const approveUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}/approve`;
-
   for (const to of APPROVAL_RECIPIENTS) {
+    const approveUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}/approve?for=${encodeURIComponent(to)}`;
     sendEmail({
       to,
       subject: `[APPROVAL NEEDED] Post-Paid: ${quote.event_name || quote.center_name}`,
@@ -543,10 +552,14 @@ export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<v
       `${quote.event_name || "Event"} was not approved for post-paid billing`,
       `<p style="margin:0 0 16px;font-size:15px;color:#475569">The post-paid account request for <strong style="color:#0f172a">${quote.event_name || "this event"}</strong> has been denied.</p>
 
-      ${quote.denial_reason ? `<div style="background:#f8fafc;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #ef4444">
+      ${
+        quote.denial_reason
+          ? `<div style="background:#f8fafc;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #ef4444">
         <p style="margin:0 0 4px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Reason</p>
         <p style="margin:0;font-size:15px;color:#1a1a1a">${quote.denial_reason}</p>
-      </div>` : ""}
+      </div>`
+          : ""
+      }
 
       <p style="margin:16px 0 0;font-size:13px;color:#64748b">Please convert this to a standard deposit event or contact management for further discussion.</p>`,
     ),
@@ -672,14 +685,25 @@ function buildGroupFunctionCard(
       { type: "FactSet", facts },
     ],
     actions: quote.contract_short_id
-      ? [{ type: "Action.OpenUrl", title: "View Contract", url: `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=teams` }]
+      ? [
+          {
+            type: "Action.OpenUrl",
+            title: "View Contract",
+            url: `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=teams`,
+          },
+        ]
       : [],
   };
 }
 
 // ── Premium Email HTML ──────────────────────────────────────────────
 
-function emailShell(quote: GroupFunctionQuote, heroTitle: string, heroSubtitle: string, content: string): string {
+function emailShell(
+  quote: GroupFunctionQuote,
+  heroTitle: string,
+  heroSubtitle: string,
+  content: string,
+): string {
   const pName = plannerName(quote);
   const domain = quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com";
 
