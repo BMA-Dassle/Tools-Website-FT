@@ -331,6 +331,37 @@ export async function updateProjectName(params: {
   projectId: string;
   name: string;
 }): Promise<void> {
+  // Primary: Pandora direct Firebird update (bypasses overbooking validation)
+  const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
+  try {
+    const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+    const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/name`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pandoraKey}`,
+      },
+      body: JSON.stringify({
+        locationID: locationId,
+        projectId: params.projectId,
+        name: params.name,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (pandoraRes.ok) {
+      console.log(
+        `[bmi-office] updated project name ${params.projectId} → "${params.name}" via Pandora`,
+      );
+      return;
+    }
+    console.warn(
+      `[bmi-office] Pandora name update failed (${pandoraRes.status}), falling back to Office API`,
+    );
+  } catch (err) {
+    console.warn("[bmi-office] Pandora name update error, falling back to Office API:", err);
+  }
+
+  // Fallback: Office API with minimal PUT
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const token = await getOfficeToken(clientKey);
   const headers = apiHeaders(token, clientKey);
