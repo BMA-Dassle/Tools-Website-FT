@@ -446,10 +446,29 @@ export function noteTimestamp(): string {
 const NOTES_SECTION_START = "── FastTrax Web ──";
 const NOTES_SECTION_END = "── End FastTrax Web ──";
 
+const NOTES_LINKS_MARKER = "──";
+
+function buildSection(contractUrl: string | null, logLines: string): string {
+  const header = contractUrl ? `Contract: ${contractUrl}\n${NOTES_LINKS_MARKER}\n` : "";
+  return `${NOTES_SECTION_START}\n${header}${logLines}\n${NOTES_SECTION_END}`;
+}
+
+function parseSection(section: string): { contractUrl: string | null; logLines: string } {
+  const markerIdx = section.indexOf(NOTES_LINKS_MARKER + "\n");
+  if (markerIdx >= 0) {
+    const header = section.slice(0, markerIdx).trim();
+    const logLines = section.slice(markerIdx + NOTES_LINKS_MARKER.length + 1).trim();
+    const urlMatch = header.match(/Contract:\s*(.+)/);
+    return { contractUrl: urlMatch?.[1]?.trim() || null, logLines };
+  }
+  return { contractUrl: null, logLines: section.trim() };
+}
+
 export async function appendProjectPrivateNote(params: {
   centerCode: string;
   projectId: string;
   note: string;
+  contractUrl?: string;
 }): Promise<void> {
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const token = await getOfficeToken(clientKey);
@@ -478,12 +497,14 @@ export async function appendProjectPrivateNote(params: {
     if (startIdx >= 0 && endIdx > startIdx) {
       const before = existing.slice(0, startIdx);
       const after = existing.slice(endIdx + NOTES_SECTION_END.length);
-      const section = existing.slice(startIdx + NOTES_SECTION_START.length, endIdx).trim();
-      const updated = section ? `${section}\n${params.note}` : params.note;
-      privateLog.memo = `${before}${NOTES_SECTION_START}\n${updated}\n${NOTES_SECTION_END}${after}`;
+      const sectionContent = existing.slice(startIdx + NOTES_SECTION_START.length, endIdx).trim();
+      const parsed = parseSection(sectionContent);
+      const url = params.contractUrl || parsed.contractUrl;
+      const updatedLog = parsed.logLines ? `${parsed.logLines}\n${params.note}` : params.note;
+      privateLog.memo = `${before}${buildSection(url, updatedLog)}${after}`;
     } else {
       const sep = existing.trim() ? "\n\n" : "";
-      privateLog.memo = `${existing}${sep}${NOTES_SECTION_START}\n${params.note}\n${NOTES_SECTION_END}`;
+      privateLog.memo = `${existing}${sep}${buildSection(params.contractUrl || null, params.note)}`;
     }
   }
 

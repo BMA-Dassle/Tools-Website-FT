@@ -102,7 +102,8 @@ export async function POST(req: NextRequest) {
     await appendProjectPrivateNote({
       centerCode: quote.center_code,
       projectId: quote.bmi_reservation_id,
-      note: `[${ts}] Contract signed\nSigned PDF: ${pdfUrl}\nContract page: ${contractPageUrl}`,
+      note: `[${ts}] Contract signed | PDF: ${pdfUrl}`,
+      contractUrl: contractPageUrl,
     });
   } catch (err) {
     console.error("[generate-pdf] BMI private note update failed:", err);

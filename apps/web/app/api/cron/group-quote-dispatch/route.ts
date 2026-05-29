@@ -481,7 +481,8 @@ async function processQueueItem(
     await appendProjectPrivateNote({
       centerCode: center.centerCode,
       projectId: item.reservationId,
-      note: `[${ts}] Contract sent to ${item.customer.email}\nContract: ${contractUrl}`,
+      note: `[${ts}] Contract sent to ${item.customer.email}`,
+      contractUrl,
     });
   } catch {
     /* non-fatal */

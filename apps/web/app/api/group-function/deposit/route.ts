@@ -316,7 +316,8 @@ export async function POST(req: NextRequest) {
       await appendProjectPrivateNote({
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
-        note: `[${ts}] Deposit paid: $${(quote.deposit_due_cents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((quote.total_cents - quote.deposit_due_cents) / 100).toFixed(2)}\nContract: ${contractUrl}`,
+        note: `[${ts}] Deposit paid: $${(quote.deposit_due_cents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((quote.total_cents - quote.deposit_due_cents) / 100).toFixed(2)}`,
+        contractUrl,
       });
     } catch (err) {
       console.error("[gf-deposit] BMI Office update error:", err);
