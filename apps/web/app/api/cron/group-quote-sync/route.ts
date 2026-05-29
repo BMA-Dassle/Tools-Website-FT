@@ -325,8 +325,7 @@ async function syncQuote(
     } catch (err) {
       console.error("[group-quote-sync] AI name format FAILED:", err);
     }
-    // Name changes update DB silently — don't trigger contract update email
-    updates.event_name = bmiName;
+    // Name changes tracked separately — don't trigger contract update email
   }
 
   // Check products via Hermes
@@ -381,8 +380,12 @@ async function syncQuote(
     };
   }
 
-  // Apply contact/date/name changes
+  // Apply changes
   const updates: Record<string, unknown> = {};
+  // Name changes are silent (no email trigger) but still saved
+  if (bmiName && bmiName !== quote.event_name) {
+    updates.event_name = bmiName;
+  }
   if (customer) {
     if (customer.firstName !== quote.guest_first_name)
       updates.guest_first_name = customer.firstName;
