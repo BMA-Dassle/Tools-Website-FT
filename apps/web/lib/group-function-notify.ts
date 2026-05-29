@@ -62,7 +62,13 @@ function resolvePlannerTeamsChatId(quote: GroupFunctionQuote): string | null {
   return null;
 }
 
-// ── Memo helper — logs every email to BMI private notes ────────────
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function emailOk(result: PromiseSettledResult<unknown>): boolean {
+  if (result.status === "rejected") return false;
+  const v = result.value;
+  return !(v && typeof v === "object" && "ok" in v && !(v as { ok: boolean }).ok);
+}
 
 function memoLog(quote: GroupFunctionQuote, message: string): void {
   import("@/lib/bmi-office-actions")
@@ -117,7 +123,12 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
     }
   }
 
-  memoLog(quote, `Contract sent to ${quote.guest_email}`);
+  memoLog(
+    quote,
+    emailOk(results[1])
+      ? `Contract sent to ${quote.guest_email}`
+      : `Contract email FAILED to ${quote.guest_email}`,
+  );
 }
 
 // ── Contract Updated (before signing) ───────────────────────────────
@@ -159,7 +170,12 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
     }
   }
 
-  memoLog(quote, `Contract updated — resent to ${quote.guest_email}`);
+  memoLog(
+    quote,
+    emailOk(results[1])
+      ? `Contract updated — resent to ${quote.guest_email}`
+      : `Contract update email FAILED to ${quote.guest_email}`,
+  );
 }
 
 // ── Deposit Paid ────────────────────────────────────────────────────
