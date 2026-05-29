@@ -155,7 +155,7 @@ const PANDORA_LOCATION_IDS: Record<string, string> = {
   naples: "PPTR5G2N0QXF7",
 };
 
-const HERMES_BASE = process.env.HERMES_BASE_URL || "https://bma-bmi-hermes.azurewebsites.net";
+const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 
 // ── Update project status ───────────────────────────────────────────
 
@@ -170,9 +170,13 @@ export async function updateProjectStatus(params: {
   // Primary: Pandora direct Firebird update (bypasses overbooking validation)
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
   try {
-    const pandoraRes = await fetch(`${HERMES_BASE}/project/state`, {
+    const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+    const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/project/state`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pandoraKey}`,
+      },
       body: JSON.stringify({
         locationId,
         projectId: params.projectId,
