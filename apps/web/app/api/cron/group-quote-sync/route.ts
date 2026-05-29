@@ -302,12 +302,19 @@ async function syncQuote(
   // Check event name — AI format if changed
   let bmiName = (project.name as string) || (project.displayName as string) || "";
   if (bmiName && bmiName !== quote.event_name) {
+    console.log(
+      `[group-quote-sync] name change detected quote=${quote.id}: DB="${quote.event_name}" BMI="${bmiName}"`,
+    );
     try {
       const { formatEventName } = await import("@/lib/event-name-format");
+      console.log(`[group-quote-sync] calling formatEventName with: "${bmiName}"`);
       const formatted = await formatEventName(bmiName);
+      console.log(
+        `[group-quote-sync] formatEventName returned: "${formatted}" (changed=${formatted !== bmiName})`,
+      );
       if (formatted !== bmiName) {
-        console.log(`[group-quote-sync] AI formatted name: "${bmiName}" → "${formatted}"`);
         const { updateProjectName } = await import("@/lib/bmi-office-actions");
+        console.log(`[group-quote-sync] writing back formatted name to BMI...`);
         updateProjectName({
           centerCode: quote.center_code,
           projectId: quote.bmi_reservation_id,
@@ -316,7 +323,7 @@ async function syncQuote(
         bmiName = formatted;
       }
     } catch (err) {
-      console.warn("[group-quote-sync] AI name format failed:", err);
+      console.error("[group-quote-sync] AI name format FAILED:", err);
     }
     changes.push(`event_name: ${quote.event_name} → ${bmiName}`);
   }

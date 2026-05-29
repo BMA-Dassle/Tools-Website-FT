@@ -26,7 +26,11 @@ EXAMPLES:
 Return ONLY the formatted name. No explanations.`;
 
 export async function formatEventName(rawName: string): Promise<string> {
-  if (!GATEWAY_KEY || !rawName.trim()) return rawName;
+  if (!GATEWAY_KEY || !rawName.trim()) {
+    console.log(`[event-name-format] skipping: keySet=${!!GATEWAY_KEY} rawName="${rawName}"`);
+    return rawName;
+  }
+  console.log(`[event-name-format] calling AI Gateway for: "${rawName}"`);
 
   try {
     const res = await fetch(GATEWAY_URL, {
