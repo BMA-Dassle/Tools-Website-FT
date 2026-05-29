@@ -82,8 +82,12 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
     });
     if (!res.ok) {
       const errText = (await res.text().catch(() => "")).slice(0, 500);
+      console.error(
+        `[sendgrid] FAILED ${res.status} to=${opts.to} subject="${opts.subject}" error=${errText}`,
+      );
       return { ok: false, status: res.status, error: errText };
     }
+    console.log(`[sendgrid] sent to=${opts.to} subject="${opts.subject}" status=${res.status}`);
     return { ok: true, status: res.status };
   } catch (err) {
     return {
