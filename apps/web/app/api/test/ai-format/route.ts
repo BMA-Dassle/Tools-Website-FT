@@ -3,7 +3,7 @@ import { formatEventName } from "@/lib/event-name-format";
 
 export async function GET(req: NextRequest) {
   const name = req.nextUrl.searchParams.get("name") || "HeadPinz Welcomes Test Corp!";
-  const key = process.env.VERCEL_AI_GATEWAY_KEY;
+  const key = process.env.ANTHROPIC_API_KEY || process.env.VERCEL_AI_GATEWAY_KEY;
 
   try {
     const result = await formatEventName(name);

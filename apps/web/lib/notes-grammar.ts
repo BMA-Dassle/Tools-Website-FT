@@ -1,4 +1,4 @@
-const GATEWAY_KEY = process.env.VERCEL_AI_GATEWAY_KEY || "";
+const GATEWAY_KEY = process.env.ANTHROPIC_API_KEY || process.env.VERCEL_AI_GATEWAY_KEY || "";
 const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/messages";
 
 const SYSTEM_PROMPT = `You are a light editor for event planning notes at a family entertainment center. These notes are read by customers and must be professional but accurate.
