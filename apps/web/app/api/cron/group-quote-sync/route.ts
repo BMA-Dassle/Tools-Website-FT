@@ -592,15 +592,11 @@ async function syncQuote(
     };
   }
 
-  // Pre-deposit: just re-notify
-  const refreshed = await getGfQuoteByShortId(quote.contract_short_id!);
-  if (refreshed) {
-    notifyContractUpdated(refreshed).catch((err) =>
-      console.error(`[group-quote-sync] notify error for quote=${quote.id}:`, err),
-    );
-  }
-
-  console.log(`[group-quote-sync] updated quote=${quote.id} changes=[${changes.join(", ")}]`);
+  // Pre-deposit: flag changes only, do NOT email
+  // Sales must set BMI to "Send Contract" to trigger a resend
+  console.log(
+    `[group-quote-sync] flagged changes (no email) quote=${quote.id} changes=[${changes.join(", ")}]`,
+  );
   return {
     id: quote.id,
     eventName: quote.event_name || "",

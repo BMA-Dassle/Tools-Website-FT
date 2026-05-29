@@ -9,12 +9,10 @@
  * on Hermes polling the Firebird database.
  */
 
-import { fetchProject, fetchPersonsByIds, type PersonInfo } from "@/lib/bmi-office-actions";
+import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
 import {
   fetchReservationProducts,
   fetchReservationDetail,
-  HERMES_CENTER_MAP,
-  type CenterInfo,
   type HermesQueueItem,
   type HermesProduct,
 } from "@/lib/hermes-client";
@@ -35,7 +33,8 @@ interface CenterConfig {
   clientKey: string;
   centerCode: string;
   hermesCenter: string;
-  newDepositStateIds: Record<string, string>;
+  sendContractStateId: string;
+  pendingSignedContractStateId: string;
 }
 
 /** Build full resource ID list from metadata (top-level + all group members). */
@@ -51,23 +50,20 @@ function extractAllResourceIds(meta: {
   return [...ids];
 }
 
-const CENTERS: CenterConfig[] = [
+export const CENTERS: CenterConfig[] = [
   {
     clientKey: "headpinzftmyers",
     centerCode: "fort-myers",
     hermesCenter: "10.48.0.14",
-    newDepositStateIds: {
-      "48952154": "HPFM",
-      "48952156": "FT",
-    },
+    sendContractStateId: "49130082",
+    pendingSignedContractStateId: "48952154",
   },
   {
     clientKey: "headpinznaples",
     centerCode: "naples",
     hermesCenter: "10.40.0.43",
-    newDepositStateIds: {
-      "8007473": "NAPLES",
-    },
+    sendContractStateId: "8020645",
+    pendingSignedContractStateId: "8007473",
   },
 ];
 
@@ -205,78 +201,95 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
         return true;
       });
 
-      // Filter to new deposit requested states
-      const newDeposit = projects.filter((p) => center.newDepositStateIds[String(p.stateId)]);
+      // Filter to "Send Contract" state only
+      const sendContract = projects.filter((p) => String(p.stateId) === center.sendContractStateId);
 
       console.log(
-        `[bmi-scan] ${center.clientKey}: ${projects.length} total, ${newDeposit.length} in new-deposit state`,
+        `[bmi-scan] ${center.clientKey}: ${projects.length} total, ${sendContract.length} in send-contract state`,
       );
 
-      for (const proj of newDeposit) {
+      for (const proj of sendContract) {
         try {
-          const brand = center.newDepositStateIds[String(proj.stateId)];
-          const isFT = brand === "FT";
-          const hermesCenter = isFT ? "10.48.0.14_FT" : center.hermesCenter;
-          const hermesCenterProducts = isFT ? "10.48.0.14" : center.hermesCenter;
+          const projId = String(proj.id);
 
-          // Fetch full project for customer/planner details + notes
-          const fullProject = await fetchProject(
-            isFT ? "fasttrax" : center.centerCode,
-            String(proj.id),
-          );
-          if (!fullProject) continue;
+          // Pandora is the primary data source — enriched reservation with location, planner, customer, products
+          const pandora = await fetchReservationDetail(center.centerCode, projId);
 
-          // Fetch products from Hermes
-          let products: HermesProduct[] = [];
-          try {
-            products = await fetchReservationProducts(hermesCenterProducts, String(proj.id));
-          } catch {
-            console.warn(`[bmi-scan] products fetch failed for ${proj.id}`);
-            continue;
+          // Resolve brand from Pandora location field
+          let isFT = false;
+          let centerName =
+            center.centerCode === "naples" ? "HeadPinz Naples" : "HeadPinz Fort Myers";
+          let hermesCenter = center.hermesCenter;
+
+          if (center.centerCode === "fort-myers" || center.centerCode === "fasttrax") {
+            const loc = (pandora?.location || "").toLowerCase();
+            if (!loc && pandora) {
+              // FM event with no location — error, skip
+              console.error(
+                `[bmi-scan] FM project ${projId} missing location — skipping. Planner: ${pandora.planner?.email || "unknown"}`,
+              );
+              continue;
+            }
+            if (loc.includes("fasttrax")) {
+              isFT = true;
+              centerName = "FastTrax Fort Myers";
+              hermesCenter = "10.48.0.14_FT";
+            } else {
+              // "HeadPinz..." or "Dual Location" → HeadPinz
+              centerName = loc.includes("dual") ? "HeadPinz Fort Myers" : "HeadPinz Fort Myers";
+              hermesCenter = "10.48.0.14";
+            }
           }
 
-          // Get enriched reservation from Hermes (planner, customer, etc.)
-          let hermesData: HermesQueueItem | null = null;
-          try {
-            hermesData = await fetchReservationDetail(hermesCenter, String(proj.id));
-          } catch {
-            /* non-fatal */
+          // Use Pandora data when available, fall back to BMI Office
+          let products: HermesProduct[] = pandora?.products || [];
+          if (products.length === 0) {
+            try {
+              const hermesCenterProducts = isFT ? "10.48.0.14" : center.hermesCenter;
+              products = await fetchReservationProducts(hermesCenterProducts, projId);
+            } catch {
+              console.warn(`[bmi-scan] products fetch failed for ${projId}`);
+              continue;
+            }
           }
 
-          // Get customer info from BMI (more reliable than Hermes for contact details)
-          const customerPersonId = fullProject.personId as string;
-          let customer: PersonInfo | null = null;
-          try {
-            const persons = await fetchPersonsByIds(isFT ? "fasttrax" : center.centerCode, [
-              customerPersonId,
-            ]);
-            customer = persons[0] || null;
-          } catch {
-            /* non-fatal */
+          // Customer: prefer Pandora, fall back to BMI Office person lookup
+          let customer = pandora?.customer || null;
+          if (!customer?.email) {
+            const fullProject = await fetchProject(isFT ? "fasttrax" : center.centerCode, projId);
+            if (fullProject) {
+              try {
+                const persons = await fetchPersonsByIds(isFT ? "fasttrax" : center.centerCode, [
+                  String(fullProject.personId),
+                ]);
+                const p = persons[0];
+                if (p) {
+                  customer = {
+                    email: p.email || "",
+                    first: p.firstName || "",
+                    last: p.lastName || "",
+                    phone: p.phone || "",
+                  };
+                }
+              } catch {
+                /* non-fatal */
+              }
+            }
           }
 
-          // Extract notes from public log
-          const logs = (fullProject.logs || []) as Array<{
-            public: boolean;
-            memo: string;
-          }>;
-          const publicLog = logs.find((l) => l.public);
-          const notes = publicLog?.memo || "";
+          // Notes: prefer Pandora, fall back to BMI Office logs
+          let notes = pandora?.event?.notes || "";
+          if (!notes) {
+            const fullProject = await fetchProject(isFT ? "fasttrax" : center.centerCode, projId);
+            const logs = (fullProject?.logs || []) as Array<{ public: boolean; memo: string }>;
+            notes = logs.find((l) => l.public)?.memo || "";
+          }
 
-          // Calculate totals from products
           const totalBill = products.reduce((s, p) => s + p.total, 0);
           const taxTotal = products.reduce(
             (s, p) => s + ((p.tax || 0) * p.total) / (p.price || 1),
             0,
           );
-
-          // Resolve center info
-          const centerInfo = HERMES_CENTER_MAP[hermesCenter];
-          const centerName = isFT
-            ? "FastTrax Fort Myers"
-            : center.centerCode === "naples"
-              ? "HeadPinz Naples"
-              : "HeadPinz Fort Myers";
 
           const dateHasTz =
             proj.date.includes("Z") || proj.date.includes("+") || /\d-\d{2}:\d{2}$/.test(proj.date);
@@ -287,29 +300,30 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
             logId: 0,
             center: hermesCenter,
             centerName,
+            location: pandora?.location || undefined,
             subject: isFT ? `FT ${proj.name}` : proj.name,
-            reservationId: String(proj.id),
+            reservationId: projId,
             event: {
-              name: proj.name || proj.displayName || "",
+              name: pandora?.event?.name || proj.name || proj.displayName || "",
               date: normalizedDate,
               dateRaw: normalizedDate,
               notes,
-              number: proj.number || "",
+              number: pandora?.event?.number || proj.number || "",
             },
             customer: {
               email: customer?.email || "",
-              first: customer?.firstName || "",
-              last: customer?.lastName || "",
+              first: customer?.first || "",
+              last: customer?.last || "",
               phone: customer?.phone || "",
             },
             planner: {
-              email: hermesData?.planner?.email || "",
-              first: hermesData?.planner?.first || "",
-              last: hermesData?.planner?.last || "",
-              phone: hermesData?.planner?.phone || "",
+              email: pandora?.planner?.email || "",
+              first: pandora?.planner?.first || "",
+              last: pandora?.planner?.last || "",
+              phone: pandora?.planner?.phone || "",
             },
             products,
-            payments: hermesData?.payments || [],
+            payments: pandora?.payments || [],
             tax: taxTotal,
             totalBill,
             depositDue: 0,

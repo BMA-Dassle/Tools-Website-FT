@@ -18,7 +18,7 @@ import {
   notifyContractUpdated,
   notifyApprovalNeeded,
 } from "@/lib/group-function-notify";
-import { scanForNewEvents } from "@/lib/bmi-scan";
+import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -230,6 +230,21 @@ async function processQueueItem(
         notifyContractSent(refreshedQuote).catch((err) =>
           console.error("[group-quote-dispatch] resend notify error:", err),
         );
+      }
+      // Transition back to Pending Signed Contract
+      try {
+        const { setProjectState } = await import("@/lib/bmi-office-actions");
+        const scanCenter = CENTERS.find((c) => c.centerCode === center.centerCode);
+        if (scanCenter) {
+          await setProjectState({
+            centerCode: center.centerCode,
+            projectId: item.reservationId,
+            stateId: scanCenter.pendingSignedContractStateId,
+            label: "Pending Signed Contract",
+          });
+        }
+      } catch {
+        /* non-fatal */
       }
       console.log(
         `[group-quote-dispatch] pricing unchanged, updated contacts + resent link for reservation=${item.reservationId}`,
@@ -499,6 +514,25 @@ async function processQueueItem(
     });
   } catch {
     /* non-fatal */
+  }
+
+  // Transition BMI state from "Send Contract" → "Pending Signed Contract"
+  try {
+    const { setProjectState } = await import("@/lib/bmi-office-actions");
+    const scanCenter = CENTERS.find((c) => c.centerCode === center.centerCode);
+    if (scanCenter) {
+      await setProjectState({
+        centerCode: center.centerCode,
+        projectId: item.reservationId,
+        stateId: scanCenter.pendingSignedContractStateId,
+        label: "Pending Signed Contract",
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[group-quote-dispatch] failed to set Pending Signed Contract for ${item.reservationId}:`,
+      err,
+    );
   }
 
   console.log(

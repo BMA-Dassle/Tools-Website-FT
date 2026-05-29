@@ -22,6 +22,7 @@ export interface HermesQueueItem {
   logId: number;
   center: string;
   centerName: string;
+  location?: string;
   subject: string;
   reservationId: string;
   event: {
@@ -119,6 +120,12 @@ export async function fetchHermesEnrichedEvents(): Promise<HermesQueueItem[]> {
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 
+export const PANDORA_LOCATION_IDS: Record<string, string> = {
+  "fort-myers": "TXBSQN0FEKQ11",
+  fasttrax: "LAB52GY480CJF",
+  naples: "PPTR5G2N0QXF7",
+};
+
 const HERMES_TO_PANDORA_LOCATION: Record<string, string> = {
   "10.48.0.14": "TXBSQN0FEKQ11",
   "10.48.0.14_FT": "LAB52GY480CJF",
@@ -126,10 +133,11 @@ const HERMES_TO_PANDORA_LOCATION: Record<string, string> = {
 };
 
 export async function fetchReservationDetail(
-  hermesCenter: string,
+  centerOrHermesCenter: string,
   reservationId: string,
 ): Promise<HermesQueueItem | null> {
-  const locationID = HERMES_TO_PANDORA_LOCATION[hermesCenter];
+  const locationID =
+    PANDORA_LOCATION_IDS[centerOrHermesCenter] || HERMES_TO_PANDORA_LOCATION[centerOrHermesCenter];
   if (!locationID) return null;
   const key = process.env.SWAGGER_ADMIN_KEY || "";
   const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation`, {

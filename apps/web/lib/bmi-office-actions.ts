@@ -165,18 +165,17 @@ const PANDORA_LOCATION_IDS: Record<string, string> = {
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 
-// ── Update project status ───────────────────────────────────────────
+// ── Update project state (generic) ──────────────────────────────────
 
-export async function updateProjectStatus(params: {
+export async function setProjectState(params: {
   centerCode: string;
   projectId: string;
-  hasWaiverActivities: boolean;
+  stateId: string;
+  label?: string;
 }): Promise<void> {
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
-  const newStateId = params.hasWaiverActivities ? WAIVER_STATE_IDS[clientKey] || "-3" : "-3";
-
-  // Primary: Pandora direct Firebird update (bypasses overbooking validation)
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
+
   try {
     const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
     const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/state`, {
@@ -188,13 +187,13 @@ export async function updateProjectStatus(params: {
       body: JSON.stringify({
         locationID: locationId,
         projectId: params.projectId,
-        stateID: newStateId,
+        stateID: params.stateId,
       }),
       signal: AbortSignal.timeout(15_000),
     });
     if (pandoraRes.ok) {
       console.log(
-        `[bmi-office] project ${params.projectId} status → ${newStateId} via Pandora (${params.hasWaiverActivities ? "Confirmation+Waiver" : "Confirmation"})`,
+        `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora${params.label ? ` (${params.label})` : ""}`,
       );
       return;
     }
@@ -205,10 +204,8 @@ export async function updateProjectStatus(params: {
     console.warn("[bmi-office] Pandora state update error, falling back to Office API:", err);
   }
 
-  // Fallback: Office API with minimal PUT
   const token = await getOfficeToken(clientKey);
   const headers = apiHeaders(token, clientKey);
-
   const getRes = await httpsRequest(
     "GET",
     `/api/${clientKey}/project/${params.projectId}`,
@@ -216,10 +213,8 @@ export async function updateProjectStatus(params: {
   );
   if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
   const project = JSON.parse(getRes.body);
-
   const minimal = toMinimalProject(project);
-  minimal.stateId = newStateId;
-
+  minimal.stateId = params.stateId;
   const putRes = await httpsRequest(
     "PUT",
     `/api/${clientKey}/project`,
@@ -227,10 +222,24 @@ export async function updateProjectStatus(params: {
     JSON.stringify(minimal),
   );
   if (putRes.status >= 400) throw new Error(`Failed to update project status: ${putRes.status}`);
-
   console.log(
-    `[bmi-office] project ${params.projectId} status → ${newStateId} (${params.hasWaiverActivities ? "Confirmation+Waiver" : "Confirmation"})`,
+    `[bmi-office] project ${params.projectId} state → ${params.stateId}${params.label ? ` (${params.label})` : ""}`,
   );
+}
+
+// ── Update project to Confirmation (after deposit paid) ─────────────
+
+export async function updateProjectStatus(params: {
+  centerCode: string;
+  projectId: string;
+  hasWaiverActivities?: boolean;
+}): Promise<void> {
+  await setProjectState({
+    centerCode: params.centerCode,
+    projectId: params.projectId,
+    stateId: "-3",
+    label: "Confirmation",
+  });
 }
 
 // ── Record payment ──────────────────────────────────────────────────
