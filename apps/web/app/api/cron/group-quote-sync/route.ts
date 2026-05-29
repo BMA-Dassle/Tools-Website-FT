@@ -325,7 +325,8 @@ async function syncQuote(
     } catch (err) {
       console.error("[group-quote-sync] AI name format FAILED:", err);
     }
-    changes.push(`event_name: ${quote.event_name} → ${bmiName}`);
+    // Name changes update DB silently — don't trigger contract update email
+    updates.event_name = bmiName;
   }
 
   // Check products via Hermes
