@@ -154,20 +154,23 @@ async function processQueueItem(
 
   // If previous quote was cancelled/denied/expired, reset it for re-processing
   if (existing && ["cancelled", "denied", "expired"].includes(existing.status)) {
-    await updateGfQuoteDetails(existing.id, {
-      status: "pending",
-      contract_sent_at: null,
-      contract_status: null,
-      contract_short_id: null,
-      deposit_paid_at: null,
-      square_deposit_order_id: null,
-      square_deposit_payment_id: null,
-      square_gift_card_id: null,
-      square_gift_card_gan: null,
-      square_dayof_order_id: null,
-      signed_pdf_url: null,
-      hermes_last_processed_at: new Date().toISOString(),
-    });
+    const { sql } = await import("@/lib/db");
+    const q = sql();
+    await q`UPDATE group_function_quotes SET
+      status = 'pending',
+      contract_sent_at = NULL,
+      contract_status = NULL,
+      contract_short_id = NULL,
+      deposit_paid_at = NULL,
+      square_deposit_order_id = NULL,
+      square_deposit_payment_id = NULL,
+      square_gift_card_id = NULL,
+      square_gift_card_gan = NULL,
+      square_dayof_order_id = NULL,
+      signed_pdf_url = NULL,
+      hermes_last_processed_at = NOW(),
+      updated_at = NOW()
+    WHERE id = ${existing.id}`;
     existing = null;
     console.log(
       `[group-quote-dispatch] reset cancelled quote for reservation=${item.reservationId}`,
