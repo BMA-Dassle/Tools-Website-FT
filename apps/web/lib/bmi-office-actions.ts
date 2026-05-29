@@ -429,6 +429,53 @@ export async function updateProjectPublicNotes(params: {
   console.log(`[bmi-office] updated public notes for project ${params.projectId}`);
 }
 
+// ── Append to private notes ────────────────────────────────────────
+
+export async function appendProjectPrivateNote(params: {
+  centerCode: string;
+  projectId: string;
+  note: string;
+}): Promise<void> {
+  const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+
+  const getRes = await httpsRequest(
+    "GET",
+    `/api/${clientKey}/project/${params.projectId}`,
+    headers,
+  );
+  if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
+  const project = JSON.parse(getRes.body);
+
+  const logs = (project.logs || []) as Array<{
+    public: boolean;
+    memo: string;
+    id: string;
+  }>;
+  const privateLog = logs.find((l) => !l.public);
+
+  if (privateLog) {
+    const existing = privateLog.memo || "";
+    privateLog.memo = existing ? `${existing}\n\n${params.note}` : params.note;
+  }
+
+  const minimal = toMinimalProject(project, ["logs"]);
+  minimal.logs = logs;
+
+  const putRes = await httpsRequest(
+    "PUT",
+    `/api/${clientKey}/project`,
+    headers,
+    JSON.stringify(minimal),
+  );
+  if (putRes.status >= 400) {
+    throw new Error(`Failed to update private notes: ${putRes.status}`);
+  }
+
+  console.log(`[bmi-office] appended private note for project ${params.projectId}`);
+}
+
 // ── Update project product price ───────────────────────────────────
 
 export async function updateProjectProduct(params: {

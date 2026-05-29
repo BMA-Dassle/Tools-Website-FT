@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import {
-  getGfQuoteByShortId,
-  getAuditLog,
-  appendAuditLog,
-} from "@/lib/group-function-db";
+import { getGfQuoteByShortId, getAuditLog, appendAuditLog } from "@/lib/group-function-db";
 import { generateContractPdf } from "@/lib/contract-pdf";
 import { sendEmail } from "@/lib/sendgrid";
 import { sql } from "@/lib/db";
@@ -34,7 +30,10 @@ export async function POST(req: NextRequest) {
 
   // Upload to Vercel Blob
   const filename = `contracts/${shortId}-signed.pdf`;
-  const blob = await put(filename, Buffer.from(pdfBytes), { access: "public", contentType: "application/pdf" });
+  const blob = await put(filename, Buffer.from(pdfBytes), {
+    access: "public",
+    contentType: "application/pdf",
+  });
 
   // Store URL in Neon
   const q = sql();
@@ -92,6 +91,27 @@ export async function POST(req: NextRequest) {
 </div></body></html>`,
     text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${blob.url}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(quote.deposit_due_cents / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
   });
+
+  // Update BMI private notes with contract links
+  try {
+    const { appendProjectPrivateNote } = await import("@/lib/bmi-office-actions");
+    const contractPageUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}`;
+    const pdfUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}/pdf`;
+    const ts = new Date().toLocaleDateString("en-US", {
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+      timeZone: "America/New_York",
+    });
+
+    await appendProjectPrivateNote({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      note: `[${ts}] Contract signed\nSigned PDF: ${pdfUrl}\nContract page: ${contractPageUrl}`,
+    });
+  } catch (err) {
+    console.error("[generate-pdf] BMI private note update failed:", err);
+  }
 
   return NextResponse.json({ ok: true, pdfUrl: blob.url });
 }
