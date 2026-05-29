@@ -132,6 +132,10 @@ async function flipPovClaimRedisFlag(personId: string): Promise<void> {
 }
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const started = Date.now();
   const url = new URL(req.url);
   const dryRun = url.searchParams.get("dryRun") === "1";

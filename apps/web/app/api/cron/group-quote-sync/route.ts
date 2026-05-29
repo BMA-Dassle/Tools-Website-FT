@@ -7,7 +7,7 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
-import { fetchReservationProducts, fetchHermesEnrichedEvents } from "@/lib/hermes-client";
+import { fetchReservationProducts, fetchHermesReservation } from "@/lib/hermes-client";
 import { notifyContractUpdated } from "@/lib/group-function-notify";
 
 /**
@@ -56,20 +56,22 @@ export async function GET(req: NextRequest) {
     changes?: string[];
   }> = [];
 
-  // Fetch Hermes planner data once for all quotes
-  let plannerMap: Map<string, PlannerInfo> | undefined;
-  const needsPlanner = quotes.some((q) => !q.planner_first && !q.planner_last);
-  if (needsPlanner) {
-    try {
-      const hermesItems = await fetchHermesEnrichedEvents();
-      plannerMap = new Map();
-      for (const h of hermesItems) {
-        if (h.planner?.first || h.planner?.last || h.planner?.email) {
-          plannerMap.set(h.reservationId, h.planner);
+  // Fetch planner data from Hermes for quotes missing it
+  const plannerMap = new Map<string, PlannerInfo>();
+  for (const quote of quotes) {
+    if (!quote.planner_first && !quote.planner_last) {
+      try {
+        const hermesCenter =
+          quote.center_code === "fasttrax" ? "10.48.0.14_FT" : HERMES_CENTER_MAP[quote.center_code];
+        if (hermesCenter) {
+          const hres = await fetchHermesReservation(hermesCenter, quote.bmi_reservation_id);
+          if (hres?.planner?.first || hres?.planner?.last || hres?.planner?.email) {
+            plannerMap.set(quote.bmi_reservation_id, hres.planner);
+          }
         }
+      } catch {
+        /* non-fatal */
       }
-    } catch {
-      /* non-fatal */
     }
   }
 

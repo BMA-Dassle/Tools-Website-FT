@@ -13,6 +13,10 @@ const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
  * starts in 60-75 minutes. Sends the race-day email if not already sent.
  */
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2, lazyConnect: true });
   try {
     await redis.connect();

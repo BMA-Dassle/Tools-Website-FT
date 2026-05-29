@@ -18,6 +18,10 @@ import { sql, isDbConfigured } from "@/lib/db";
  */
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });
   }

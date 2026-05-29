@@ -25,6 +25,10 @@ import { logSms, logCronRun } from "@/lib/sms-log";
  * Cron schedule: `* * * * *` (every minute) in vercel.json.
  */
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const started = Date.now();
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
 

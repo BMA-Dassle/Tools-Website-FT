@@ -12,6 +12,7 @@
 import { fetchProject, fetchPersonsByIds, type PersonInfo } from "@/lib/bmi-office-actions";
 import {
   fetchReservationProducts,
+  fetchHermesReservation,
   HERMES_CENTER_MAP,
   type CenterInfo,
   type HermesQueueItem,
@@ -234,7 +235,15 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
             continue;
           }
 
-          // Get customer info
+          // Get enriched reservation from Hermes (planner, customer, etc.)
+          let hermesData: HermesQueueItem | null = null;
+          try {
+            hermesData = await fetchHermesReservation(hermesCenter, String(proj.id));
+          } catch {
+            /* non-fatal */
+          }
+
+          // Get customer info from BMI (more reliable than Hermes for contact details)
           const customerPersonId = fullProject.personId as string;
           let customer: PersonInfo | null = null;
           try {
@@ -294,21 +303,17 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
               phone: customer?.phone || "",
             },
             planner: {
-              email: "",
-              first: "",
-              last: "",
-              phone: "",
+              email: hermesData?.planner?.email || "",
+              first: hermesData?.planner?.first || "",
+              last: hermesData?.planner?.last || "",
+              phone: hermesData?.planner?.phone || "",
             },
             products,
-            payments: [],
+            payments: hermesData?.payments || [],
             tax: taxTotal,
             totalBill,
             depositDue: 0,
           };
-
-          // Resolve planner from BMI project userId
-          // For now, planner info comes through later via the Hermes center mapping
-          // The dispatch cron handles planner resolution separately
 
           items.push(item);
         } catch (err) {

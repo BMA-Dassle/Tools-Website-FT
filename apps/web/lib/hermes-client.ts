@@ -117,6 +117,18 @@ export async function fetchHermesEnrichedEvents(): Promise<HermesQueueItem[]> {
   return res.json();
 }
 
+export async function fetchHermesReservation(
+  center: string,
+  reservationId: string,
+): Promise<HermesQueueItem | null> {
+  const res = await fetch(`${HERMES_BASE}/reservation/${center}/${reservationId}`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function completePandaDocQueue(params: {
   center: string;
   queueId: number;

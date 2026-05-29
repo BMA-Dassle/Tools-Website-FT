@@ -39,6 +39,10 @@ function sqHeaders() {
 }
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
 
   let quotes: GroupFunctionQuote[];

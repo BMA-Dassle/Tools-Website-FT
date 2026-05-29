@@ -114,6 +114,10 @@ function formatLap(ms: number): string {
  *   If 15 min passed with no membership, give up.
  */
 export async function GET(_req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2, lazyConnect: true });
   try {
     await redis.connect();

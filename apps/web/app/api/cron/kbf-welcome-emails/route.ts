@@ -23,6 +23,10 @@ import { sendWelcomeEmailBatch } from "@/lib/kbf-welcome-email";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const started = Date.now();
   const invoker = req.headers.get("x-vercel-cron")
     ? "vercel-cron"

@@ -490,6 +490,10 @@ const CRON_LOCK_KEY = "cron-lock:pre-race";
 const CRON_LOCK_TTL = 90;
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, skipped: "not production" });
+  }
+
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();
   const windowStart = Date.now() - WINDOW_SKEW_BEHIND_MS;
