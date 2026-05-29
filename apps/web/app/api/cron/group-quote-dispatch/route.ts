@@ -156,7 +156,7 @@ async function processQueueItem(
   const eventTime = new Date(item.event.dateRaw).getTime();
   const hoursUntilEvent = (eventTime - Date.now()) / 3_600_000;
   const fullPaymentRequired = hoursUntilEvent <= 96;
-  let depositDueCents = fullPaymentRequired ? totalCents : Math.round(item.depositDue * 100);
+  let depositDueCents = fullPaymentRequired ? totalCents : Math.round(totalCents / 2);
 
   // No-changes check: if pricing/products match, update contact info and re-send
   if (existing && existing.contract_sent_at) {
