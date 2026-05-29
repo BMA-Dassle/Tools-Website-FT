@@ -459,17 +459,23 @@ async function syncQuote(
     try {
       const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
       const ts = noteTimestamp();
-      const summary = changes
-        .map((c) => {
-          if (c.startsWith("products:")) return c;
-          return c.split(":")[0];
-        })
-        .join(", ");
-      await appendProjectPrivateNote({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        note: `[${ts}] Updated: ${summary}`,
-      });
+      const allChanges = [...changes];
+      if (updates.event_name && updates.event_name !== quote.event_name) {
+        allChanges.push(`event_name → ${updates.event_name}`);
+      }
+      if (allChanges.length > 0) {
+        const summary = allChanges
+          .map((c) => {
+            if (c.startsWith("products:") || c.startsWith("event_name")) return c;
+            return c.split(":")[0];
+          })
+          .join(", ");
+        await appendProjectPrivateNote({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          note: `[${ts}] Updated: ${summary}`,
+        });
+      }
     } catch {
       /* non-fatal */
     }
