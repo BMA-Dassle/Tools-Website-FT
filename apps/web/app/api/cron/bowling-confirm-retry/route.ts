@@ -7,6 +7,7 @@ import {
   MAX_QAMF_CONFIRM_ATTEMPTS,
 } from "@/lib/bowling-db";
 import { setReservationCustomer, setReservationStatus } from "@/lib/qamf-bowling";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/bowling-confirm-retry
@@ -36,9 +37,8 @@ const CENTER_CODE_TO_ID: Record<string, number> = {
 };
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();

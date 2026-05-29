@@ -10,6 +10,7 @@ import {
 import { loadGiftCard } from "@/lib/square-gift-card";
 import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * 72-hour balance collection cron.
@@ -39,9 +40,8 @@ function sqHeaders() {
 }
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
 

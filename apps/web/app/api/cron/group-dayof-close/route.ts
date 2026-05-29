@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateGfStatus, type GroupFunctionQuote } from "@/lib/group-function-db";
 import { sql, isDbConfigured } from "@/lib/db";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Day-of auto-close cron for non-bowling group events.
@@ -18,9 +19,8 @@ import { sql, isDbConfigured } from "@/lib/db";
  */
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });

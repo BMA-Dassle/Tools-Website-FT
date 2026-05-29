@@ -18,6 +18,7 @@ import {
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -692,9 +693,8 @@ function personDedupKey(c: Candidate): string {
 }
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();

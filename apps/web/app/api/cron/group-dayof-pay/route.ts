@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql, isDbConfigured } from "@/lib/db";
 import { parseGiftCardIds, type GroupFunctionQuote } from "@/lib/group-function-db";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Day-of order payment cron for group function events.
@@ -32,9 +33,8 @@ function sqHeaders() {
 }
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });

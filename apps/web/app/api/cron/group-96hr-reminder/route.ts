@@ -3,6 +3,7 @@ import { sql, isDbConfigured } from "@/lib/db";
 import { type GroupFunctionQuote } from "@/lib/group-function-db";
 import { notify96HourReminder } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * 96-hour reminder cron.
@@ -22,9 +23,8 @@ const CLIENT_KEYS: Record<string, string> = {
 };
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });

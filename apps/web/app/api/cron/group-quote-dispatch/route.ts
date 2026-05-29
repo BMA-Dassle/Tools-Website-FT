@@ -19,6 +19,7 @@ import {
   notifyApprovalNeeded,
 } from "@/lib/group-function-notify";
 import { scanForNewEvents } from "@/lib/bmi-scan";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Group Quote Dispatch cron.
@@ -38,9 +39,8 @@ import { scanForNewEvents } from "@/lib/bmi-scan";
  */
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "5"), 20);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql, isDbConfigured } from "@/lib/db";
 import { type GroupFunctionQuote } from "@/lib/group-function-db";
 import { fetchProject, hasWaiverRequiredActivities } from "@/lib/bmi-office-actions";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * 7-day waiver reminder cron.
@@ -23,9 +24,8 @@ const CLIENT_KEYS: Record<string, string> = {
 };
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });

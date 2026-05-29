@@ -9,6 +9,7 @@ import {
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
 import { fetchReservationProducts, fetchReservationDetail } from "@/lib/hermes-client";
 import { notifyContractUpdated } from "@/lib/group-function-notify";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Group quote sync cron.
@@ -29,9 +30,8 @@ const HERMES_CENTER_MAP: Record<string, string> = {
 const SYNC_STATUSES = ["contract_sent", "deposit_paid", "balance_charged", "balance_link_sent"];
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });

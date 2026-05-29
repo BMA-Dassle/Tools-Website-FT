@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { downloadKbfCsv, parseKbfCsv, syncKbfFromCsv } from "@/lib/kbf-sync";
 import { sendWelcomeEmailBatch } from "@/lib/kbf-welcome-email";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Hourly Kids Bowl Free center-report sync.
@@ -25,9 +26,8 @@ import { sendWelcomeEmailBatch } from "@/lib/kbf-welcome-email";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   const started = Date.now();
   const url = new URL(req.url);

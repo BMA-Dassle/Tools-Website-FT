@@ -19,6 +19,7 @@ import {
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -490,9 +491,8 @@ const CRON_LOCK_KEY = "cron-lock:pre-race";
 const CRON_LOCK_TTL = 90;
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
-    return NextResponse.json({ ok: true, skipped: "not production" });
-  }
+  const denied = verifyCron(req);
+  if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();
