@@ -90,7 +90,7 @@ function httpsRequest(
       res.on("end", () => resolve({ status: res.statusCode, body: data }));
     });
     req.on("error", reject);
-    req.setTimeout(30_000, () => {
+    req.setTimeout(60_000, () => {
       req.destroy();
       reject(new Error("Timeout"));
     });
@@ -131,6 +131,7 @@ interface BmiProject {
   displayName: string;
   number: string;
   stateId: string;
+  kindId: string;
   personId: string;
   persons: number;
   date: string;
@@ -140,10 +141,21 @@ interface BmiProject {
  * Scan BMI for events in "New Deposit Requested" states.
  * Returns HermesQueueItem-compatible objects ready for processQueueItem.
  */
+/** Split a date range into 30-day windows. */
+function monthlyWindows(from: Date, months: number): Array<{ from: string; till: string }> {
+  const windows: Array<{ from: string; till: string }> = [];
+  const cursor = new Date(from);
+  for (let i = 0; i < months; i++) {
+    const start = cursor.toISOString().slice(0, 10);
+    cursor.setDate(cursor.getDate() + 30);
+    const end = cursor.toISOString().slice(0, 10);
+    windows.push({ from: start, till: end });
+  }
+  return windows;
+}
+
 export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
   const items: HermesQueueItem[] = [];
-  const fromDate = new Date().toISOString().slice(0, 10);
-  const toDate = new Date(Date.now() + 365 * 86_400_000).toISOString().slice(0, 10);
 
   for (const center of CENTERS) {
     try {
@@ -163,15 +175,34 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
       if (ids.length === 0) continue;
       const resourceParam = ids.map((id) => `resourceIds=${id}`).join("&");
 
-      // Fetch all projects
-      const dpRes = await httpsRequest(
-        "GET",
-        `/api/${center.clientKey}/dayPlanner?${resourceParam}&from=${fromDate}&till=${toDate}&showAll=true`,
-        headers,
-      );
-      if (dpRes.status >= 400) continue;
-      const dp = JSON.parse(dpRes.body);
-      const projects = (dp.reservations?.projects || []) as BmiProject[];
+      // Fetch projects in monthly batches to avoid API timeout
+      const windows = monthlyWindows(new Date(), 12);
+      const allProjects: BmiProject[] = [];
+      for (const w of windows) {
+        try {
+          const dpRes = await httpsRequest(
+            "GET",
+            `/api/${center.clientKey}/dayPlanner?${resourceParam}&from=${w.from}&till=${w.till}&showAll=true`,
+            headers,
+          );
+          if (dpRes.status >= 400) continue;
+          const dp = JSON.parse(dpRes.body);
+          const batch = (dp.reservations?.projects || []) as BmiProject[];
+          allProjects.push(...batch);
+        } catch (err) {
+          console.warn(`[bmi-scan] ${center.clientKey} batch ${w.from}→${w.till} failed:`, err);
+        }
+      }
+
+      // Dedupe and filter out online reservations (kindId=-10)
+      const seen = new Set<string>();
+      const projects = allProjects.filter((p) => {
+        if (String(p.kindId) === "-10") return false;
+        const id = String(p.id);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
 
       // Filter to new deposit requested states
       const newDeposit = projects.filter((p) => center.newDepositStateIds[String(p.stateId)]);
