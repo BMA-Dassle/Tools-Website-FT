@@ -117,16 +117,34 @@ export async function fetchHermesEnrichedEvents(): Promise<HermesQueueItem[]> {
   return res.json();
 }
 
-export async function fetchHermesReservation(
-  center: string,
+const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
+
+const HERMES_TO_PANDORA_LOCATION: Record<string, string> = {
+  "10.48.0.14": "TXBSQN0FEKQ11",
+  "10.48.0.14_FT": "LAB52GY480CJF",
+  "10.40.0.43": "PPTR5G2N0QXF7",
+};
+
+export async function fetchReservationDetail(
+  hermesCenter: string,
   reservationId: string,
 ): Promise<HermesQueueItem | null> {
-  const res = await fetch(`${HERMES_BASE}/reservation/${center}/${reservationId}`, {
-    headers: { Accept: "application/json" },
+  const locationID = HERMES_TO_PANDORA_LOCATION[hermesCenter];
+  if (!locationID) return null;
+  const key = process.env.SWAGGER_ADMIN_KEY || "";
+  const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({ locationID, reservationId }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) return null;
-  return res.json();
+  const body = await res.json();
+  if (!body.success) return null;
+  return body.data;
 }
 
 export async function completePandaDocQueue(params: {

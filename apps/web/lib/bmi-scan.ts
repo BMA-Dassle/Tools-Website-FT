@@ -12,7 +12,7 @@
 import { fetchProject, fetchPersonsByIds, type PersonInfo } from "@/lib/bmi-office-actions";
 import {
   fetchReservationProducts,
-  fetchHermesReservation,
+  fetchReservationDetail,
   HERMES_CENTER_MAP,
   type CenterInfo,
   type HermesQueueItem,
@@ -238,7 +238,7 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
           // Get enriched reservation from Hermes (planner, customer, etc.)
           let hermesData: HermesQueueItem | null = null;
           try {
-            hermesData = await fetchHermesReservation(hermesCenter, String(proj.id));
+            hermesData = await fetchReservationDetail(hermesCenter, String(proj.id));
           } catch {
             /* non-fatal */
           }

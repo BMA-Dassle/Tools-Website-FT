@@ -7,7 +7,7 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
-import { fetchReservationProducts, fetchHermesReservation } from "@/lib/hermes-client";
+import { fetchReservationProducts, fetchReservationDetail } from "@/lib/hermes-client";
 import { notifyContractUpdated } from "@/lib/group-function-notify";
 
 /**
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
         const hermesCenter =
           quote.center_code === "fasttrax" ? "10.48.0.14_FT" : HERMES_CENTER_MAP[quote.center_code];
         if (hermesCenter) {
-          const hres = await fetchHermesReservation(hermesCenter, quote.bmi_reservation_id);
+          const hres = await fetchReservationDetail(hermesCenter, quote.bmi_reservation_id);
           if (hres?.planner?.first || hres?.planner?.last || hres?.planner?.email) {
             plannerMap.set(quote.bmi_reservation_id, hres.planner);
           }
