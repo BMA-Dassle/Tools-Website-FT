@@ -422,6 +422,7 @@ export async function getQuotesNeedingBalanceCharge(): Promise<GroupFunctionQuot
     WHERE status = 'deposit_paid'
       AND event_date - INTERVAL '72 hours' <= NOW()
       AND event_date > NOW()
+      AND (approval_required IS NULL OR approval_required = FALSE)
     ORDER BY event_date ASC
   `;
   return rows as GroupFunctionQuote[];

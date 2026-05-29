@@ -185,13 +185,18 @@ async function processQueueItem(
   let totalCents = Math.round(item.totalBill * 100);
   const taxExempt = isTaxExempt(item.products);
   const taxCents = taxExempt ? 0 : Math.round(item.tax * 100);
+  const isPostPaid = selectTemplate(item) === "postpay";
 
-  // Events within 96 hours: require full payment upfront (no time for
-  // the deposit → 72hr balance charge cycle)
+  // Post-paid: no deposit, full amount billed day-of
+  // Events within 96 hours: full payment upfront
   const eventTime = new Date(item.event.dateRaw).getTime();
   const hoursUntilEvent = (eventTime - Date.now()) / 3_600_000;
-  const fullPaymentRequired = hoursUntilEvent <= 96;
-  let depositDueCents = fullPaymentRequired ? totalCents : Math.round(totalCents / 2);
+  const fullPaymentRequired = !isPostPaid && hoursUntilEvent <= 96;
+  let depositDueCents = isPostPaid
+    ? 0
+    : fullPaymentRequired
+      ? totalCents
+      : Math.round(totalCents / 2);
 
   // No-changes check: if pricing/products match, update contact info and re-send
   if (existing && existing.contract_sent_at) {

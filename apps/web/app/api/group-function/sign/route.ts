@@ -98,5 +98,36 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // Post-paid: no deposit step — mark as confirmed and update BMI
+  if (quote.approval_required && quote.deposit_due_cents === 0) {
+    await q`
+      UPDATE group_function_quotes SET
+        status = 'deposit_paid',
+        deposit_paid_at = ${signedAt},
+        updated_at = NOW()
+      WHERE id = ${quote.id}
+    `;
+
+    try {
+      const { updateProjectStatus } = await import("@/lib/bmi-office-actions");
+      await updateProjectStatus({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+      });
+    } catch (err) {
+      console.warn(`[sign] BMI status update failed for post-paid quote ${quote.id}:`, err);
+    }
+
+    try {
+      const { notifyDepositPaid } = await import("@/lib/group-function-notify");
+      const refreshed = await getGfQuoteByShortId(shortId);
+      if (refreshed) notifyDepositPaid(refreshed).catch(() => {});
+    } catch {
+      /* non-fatal */
+    }
+
+    console.log(`[sign] post-paid quote ${quote.id} confirmed (no deposit)`);
+  }
+
   return NextResponse.json({ ok: true, seal, signedAt });
 }
