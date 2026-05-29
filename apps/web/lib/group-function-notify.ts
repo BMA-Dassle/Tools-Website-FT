@@ -183,6 +183,101 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
   }
 }
 
+// ── Waiver Reminder (sent 5 min after deposit) ─────────────────────
+
+const CLIENT_KEYS_NOTIFY: Record<string, string> = {
+  "fort-myers": "headpinzftmyers",
+  fasttrax: "headpinzftmyers",
+  naples: "headpinznaples",
+};
+
+export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<void> {
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const { hasWaiverRequiredActivities, fetchProject } = await import("@/lib/bmi-office-actions");
+  if (!hasWaiverRequiredActivities(items)) return;
+
+  const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
+  if (!project?.projectReference) {
+    console.warn(`[gf-notify] no projectReference for waiver email, skipping quote=${quote.id}`);
+    return;
+  }
+
+  const clientKey = CLIENT_KEYS_NOTIFY[quote.center_code] || "headpinzftmyers";
+  const waiverUrl = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_waiver`;
+
+  const waiverActivities = items
+    .filter((i) =>
+      ["laser tag", "gel blaster", "racing", "race", "nexus", "kart", "vip birthday"].some((w) =>
+        i.name.toLowerCase().includes(w),
+      ),
+    )
+    .map((i) => i.name);
+
+  const activityList =
+    waiverActivities.length > 0
+      ? waiverActivities
+          .map((a) => `<li style="margin:4px 0;font-size:14px;color:#333">${a}</li>`)
+          .join("")
+      : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, all participants for ${quote.event_name || "your event"} at ${quote.center_name} must complete a waiver before arriving.`,
+            `Please forward this link to everyone in your group:`,
+            waiverUrl,
+            `Questions? Contact ${plannerName(quote)}.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Waivers Required — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        "Waivers Required",
+        "Please complete waivers before your event",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your deposit is confirmed and we can't wait to see you! Before your event, <strong>every participant must complete a waiver</strong>.</p>
+
+        <div style="background:#fef3c7;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #f59e0b">
+          <p style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#92400e">Important: Waivers Are Mandatory</p>
+          <p style="margin:0 0 4px;font-size:13px;color:#78350f">Participants without a signed waiver will not be able to participate in the following activities:</p>
+          ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
+        </div>
+
+        <p style="margin:16px 0;font-size:14px;color:#475569">Please forward this email — or share the link below — with everyone attending your event. Getting waivers done early avoids delays at check-in!</p>
+
+        ${ctaButton("Complete Waivers Now", waiverUrl)}
+
+        <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
+          <p style="margin:0 0 8px;font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Share This Link With Your Group</p>
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+        </div>
+
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">You can also access the waiver link anytime from your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour deposit is confirmed! Before your event, every participant must complete a waiver.\n\nComplete waivers here: ${waiverUrl}\n\nPlease forward this link to everyone in your group. Incomplete waivers may delay check-in.\n\nQuestions? Contact ${plannerName(quote)}.\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] waiver reminder failed:", r.reason);
+    }
+  }
+
+  console.log(`[gf-notify] waiver reminder sent for quote=${quote.id}`);
+}
+
 // ── Balance Charged ─────────────────────────────────────────────────
 
 export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<void> {

@@ -140,6 +140,7 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS approval_memo TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS is_tax_exempt BOOLEAN NOT NULL DEFAULT FALSE`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS tax_file_url TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS waiver_reminder_sent_at TIMESTAMPTZ`;
 
   // Immutable audit trail
   await q`
@@ -266,6 +267,7 @@ export interface GroupFunctionQuote {
   approval_memo: string | null;
   is_tax_exempt: boolean;
   tax_file_url: string | null;
+  waiver_reminder_sent_at: string | null;
   otp_verified_at: string | null;
   otp_method: string | null;
   signer_ip: string | null;

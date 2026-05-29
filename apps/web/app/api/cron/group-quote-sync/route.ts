@@ -71,12 +71,45 @@ export async function GET(req: NextRequest) {
   const updated = results.filter(
     (r) => r.action === "updated" || r.action === "resign_required",
   ).length;
+
+  // Send waiver reminders for quotes deposited 5+ minutes ago
+  let waiversSent = 0;
+  if (!dryRun) {
+    try {
+      const waiverDue = (await q`
+        SELECT * FROM group_function_quotes
+        WHERE deposit_paid_at IS NOT NULL
+          AND waiver_reminder_sent_at IS NULL
+          AND deposit_paid_at < NOW() - INTERVAL '5 minutes'
+          AND status NOT IN ('cancelled', 'denied', 'expired')
+          AND event_date > NOW()
+        LIMIT 5
+      `) as GroupFunctionQuote[];
+
+      for (const wq of waiverDue) {
+        try {
+          const { notifyWaiverReminder } = await import("@/lib/group-function-notify");
+          await notifyWaiverReminder(wq);
+          await q`UPDATE group_function_quotes SET waiver_reminder_sent_at = NOW() WHERE id = ${wq.id}`;
+          waiversSent++;
+        } catch (err) {
+          console.error(`[group-quote-sync] waiver reminder failed for quote=${wq.id}:`, err);
+          // Mark as sent anyway to avoid retrying failures forever
+          await q`UPDATE group_function_quotes SET waiver_reminder_sent_at = NOW() WHERE id = ${wq.id}`;
+        }
+      }
+    } catch (err) {
+      console.error("[group-quote-sync] waiver reminder query failed:", err);
+    }
+  }
+
   console.log(
     `[group-quote-sync] checked=${quotes.length} updated=${updated} ` +
-      `unchanged=${results.filter((r) => r.action === "unchanged").length}`,
+      `unchanged=${results.filter((r) => r.action === "unchanged").length}` +
+      (waiversSent > 0 ? ` waivers=${waiversSent}` : ""),
   );
 
-  return NextResponse.json({ ok: true, checked: quotes.length, updated, results });
+  return NextResponse.json({ ok: true, checked: quotes.length, updated, waiversSent, results });
 }
 
 const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");
