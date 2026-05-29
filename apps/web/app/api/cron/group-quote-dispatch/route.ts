@@ -237,6 +237,20 @@ async function processQueueItem(
       } catch {
         /* non-fatal */
       }
+      // Log to BMI private notes
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        const contractUrl = `${center.baseUrl}/contract/${existing.contract_short_id}`;
+        await appendProjectPrivateNote({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          note: `[${noteTimestamp()}] Contract resent to ${item.customer.email}`,
+          contractUrl,
+        });
+      } catch {
+        /* non-fatal */
+      }
       console.log(
         `[group-quote-dispatch] pricing unchanged, updated contacts + resent link for reservation=${item.reservationId}`,
       );
@@ -288,6 +302,20 @@ async function processQueueItem(
         `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
           `(was ${existing.total_cents} → now ${totalCents})`,
       );
+    }
+
+    // Log to BMI private notes
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      const contractUrl = `${center.baseUrl}/contract/${existing.contract_short_id}`;
+      await appendProjectPrivateNote({
+        centerCode: center.centerCode,
+        projectId: item.reservationId,
+        note: `[${noteTimestamp()}] Contract updated${priceChanged ? " (price changed — resign required)" : ""}`,
+        contractUrl,
+      });
+    } catch {
+      /* non-fatal */
     }
 
     console.log(
