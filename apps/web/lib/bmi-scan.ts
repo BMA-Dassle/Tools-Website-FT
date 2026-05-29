@@ -234,8 +234,14 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
             reservationId: String(proj.id),
             event: {
               name: proj.name || proj.displayName || "",
-              date: proj.date,
-              dateRaw: proj.date,
+              date:
+                proj.date.includes("-04:00") || proj.date.includes("Z")
+                  ? proj.date
+                  : `${proj.date}-04:00`,
+              dateRaw:
+                proj.date.includes("-04:00") || proj.date.includes("Z")
+                  ? proj.date
+                  : `${proj.date}-04:00`,
               notes,
               number: proj.number || "",
             },
