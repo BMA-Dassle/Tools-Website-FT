@@ -62,6 +62,21 @@ function resolvePlannerTeamsChatId(quote: GroupFunctionQuote): string | null {
   return null;
 }
 
+// ── Memo helper — logs every email to BMI private notes ────────────
+
+function memoLog(quote: GroupFunctionQuote, message: string): void {
+  import("@/lib/bmi-office-actions")
+    .then(({ appendProjectPrivateNote, noteTimestamp }) =>
+      appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] ${message}`,
+        contractUrl: `${baseUrl(quote)}/contract/${quote.contract_short_id}`,
+      }),
+    )
+    .catch(() => {});
+}
+
 // ── Contract Sent ───────────────────────────────────────────────────
 
 export async function notifyContractSent(quote: GroupFunctionQuote): Promise<void> {
@@ -101,6 +116,8 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
       console.error("[gf-notify] contractSent notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Contract sent to ${quote.guest_email}`);
 }
 
 // ── Contract Updated (before signing) ───────────────────────────────
@@ -141,6 +158,8 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
       console.error("[gf-notify] contractUpdated notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Contract updated — resent to ${quote.guest_email}`);
 }
 
 // ── Deposit Paid ────────────────────────────────────────────────────
@@ -184,6 +203,11 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
       console.error("[gf-notify] depositPaid notification failed:", r.reason);
     }
   }
+
+  memoLog(
+    quote,
+    `Deposit received — ${dollars(quote.deposit_due_cents)} confirmation sent to ${quote.guest_email}`,
+  );
 }
 
 // ── Waiver Reminder (sent 5 min after deposit) ─────────────────────
@@ -279,6 +303,7 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
   }
 
   console.log(`[gf-notify] waiver reminder sent for quote=${quote.id}`);
+  memoLog(quote, `Waiver reminder sent to ${quote.guest_email}`);
 }
 
 // ── 7-Day Waiver Reminder ──────────────────────────────────────────
@@ -359,6 +384,7 @@ export async function notify7DayWaiverReminder(
   }
 
   console.log(`[gf-notify] 7-day waiver reminder sent for quote=${quote.id}`);
+  memoLog(quote, `7-day waiver reminder sent to ${quote.guest_email}`);
 }
 
 // ── 2-Day Final Waiver Warning ─────────────────────────────────────
@@ -437,6 +463,7 @@ export async function notify2DayWaiverWarning(
   }
 
   console.log(`[gf-notify] 2-day waiver warning sent for quote=${quote.id}`);
+  memoLog(quote, `2-day waiver warning sent to ${quote.guest_email}`);
 }
 
 // ── Balance Charged ─────────────────────────────────────────────────
@@ -474,6 +501,8 @@ export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<v
       console.error("[gf-notify] balanceCharged notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Balance charged — ${dollars(quote.balance_cents)} via saved card`);
 }
 
 // ── Balance Link Sent ───────────────────────────────────────────────
@@ -513,6 +542,8 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
       console.error("[gf-notify] balanceLinkSent notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Balance payment link sent to ${quote.guest_email}`);
 }
 
 // ── 96-Hour Reminder (24hrs before balance charge) ─────────────────
