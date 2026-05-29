@@ -225,7 +225,7 @@ async function processQueueItem(
       // Transition back to Pending Signed Contract
       try {
         const { setProjectState } = await import("@/lib/bmi-office-actions");
-        const scanCenter = CENTERS.find((c) => c.centerCode === center.centerCode);
+        const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
         if (scanCenter) {
           await setProjectState({
             centerCode: center.centerCode,
@@ -510,7 +510,7 @@ async function processQueueItem(
   // Transition BMI state from "Send Contract" → "Pending Signed Contract"
   try {
     const { setProjectState } = await import("@/lib/bmi-office-actions");
-    const scanCenter = CENTERS.find((c) => c.centerCode === center.centerCode);
+    const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
     if (scanCenter) {
       await setProjectState({
         centerCode: center.centerCode,
