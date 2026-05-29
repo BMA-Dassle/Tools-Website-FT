@@ -70,12 +70,26 @@ export async function GET(req: NextRequest) {
           const clientKey = CLIENT_KEYS[quote.center_code] || "headpinzftmyers";
           waiverUrl = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
         }
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
 
       await notify96HourReminder(quote, waiverUrl);
 
       // Record that reminder was sent
       await q`INSERT INTO contract_audit_log (quote_id, event, metadata) VALUES (${quote.id}, '96hr_reminder_sent', '{}')`;
+
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        await appendProjectPrivateNote({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          note: `[${noteTimestamp()}] 96-hour reminder sent | Balance: $${(quote.balance_cents / 100).toFixed(2)}`,
+        });
+      } catch {
+        /* non-fatal */
+      }
 
       sent++;
       console.log(`[group-96hr-reminder] sent for quote=${quote.id} event="${quote.event_name}"`);

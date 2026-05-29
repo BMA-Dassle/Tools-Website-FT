@@ -249,6 +249,17 @@ async function syncQuote(
       );
     }
 
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] Cancelled${refundedPayments.length > 0 ? ` | Refunds: ${refundedPayments.join(", ")}` : ""}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     console.log(`[group-quote-sync] CANCELLED quote=${quote.id} event="${quote.event_name}"`);
     return {
       id: quote.id,

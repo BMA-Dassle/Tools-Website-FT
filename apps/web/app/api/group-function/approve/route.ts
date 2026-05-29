@@ -86,6 +86,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] Post-paid approved by ${approverEmail}${memo ? ` | Memo: ${memo}` : ""}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     console.log(`[approve] approved quote=${quote.id} by ${approverEmail}`);
     return NextResponse.json({ ok: true, action: "approved" });
   }
@@ -115,6 +126,17 @@ export async function POST(req: NextRequest) {
     notifyPostPaidDenied(deniedQuote).catch((err) =>
       console.error("[approve] deny notify error:", err),
     );
+  }
+
+  try {
+    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+    await appendProjectPrivateNote({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      note: `[${noteTimestamp()}] Post-paid denied by ${approverEmail} | Reason: ${reason}`,
+    });
+  } catch {
+    /* non-fatal */
   }
 
   console.log(`[approve] denied quote=${quote.id} by ${approverEmail}: ${reason}`);

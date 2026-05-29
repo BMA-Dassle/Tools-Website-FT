@@ -229,25 +229,52 @@ async function processBalanceCharge(
         try {
           const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
           if (project?.projectReference) {
-            const clientKeys: Record<string, string> = { "fort-myers": "headpinzftmyers", fasttrax: "headpinzftmyers", naples: "headpinznaples" };
+            const clientKeys: Record<string, string> = {
+              "fort-myers": "headpinzftmyers",
+              fasttrax: "headpinzftmyers",
+              naples: "headpinznaples",
+            };
             const ck = clientKeys[quote.center_code] || "headpinzftmyers";
             waiverUrl = `https://kiosk.sms-timing.com/${ck}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
           }
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
         // Get card last4 from the payment
         try {
-          const payRes = await fetch(`${SQUARE_BASE}/payments/${balancePaymentId}`, { headers: sqHeaders() });
+          const payRes = await fetch(`${SQUARE_BASE}/payments/${balancePaymentId}`, {
+            headers: sqHeaders(),
+          });
           if (payRes.ok) {
             const payData = await payRes.json();
             cardLast4 = payData.payment?.card_details?.card?.last_4;
           }
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
         await notifyBalanceReceipt(
-          { ...quote, balance_cents: 0, balance_paid_at: new Date().toISOString(), balance_payment_method: "auto_card" },
+          {
+            ...quote,
+            balance_cents: 0,
+            balance_paid_at: new Date().toISOString(),
+            balance_payment_method: "auto_card",
+          },
           waiverUrl,
           cardLast4,
         );
       })().catch((err) => console.error("[group-balance-charge] receipt notify error:", err));
+
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        await appendProjectPrivateNote({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          note: `[${noteTimestamp()}] Balance charged: $${(quote.balance_cents / 100).toFixed(2)} via saved card`,
+        });
+      } catch {
+        /* non-fatal */
+      }
 
       return "auto_charged";
     } catch (err) {
@@ -294,6 +321,17 @@ async function processBalanceCharge(
       balance_payment_link_url: paymentLinkUrl,
       balance_link_sent_at: new Date().toISOString(),
     }).catch((err) => console.error("[group-balance-charge] notify error:", err));
+
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] Balance link sent: $${(quote.balance_cents / 100).toFixed(2)} (auto-charge failed)`,
+      });
+    } catch {
+      /* non-fatal */
+    }
 
     return "link_sent";
   } catch (err) {
