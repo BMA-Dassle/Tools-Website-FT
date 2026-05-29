@@ -33,7 +33,15 @@ const WAIVER_STATE_IDS: Record<string, string> = {
   headpinznaples: "1191926",
 };
 
-const WAIVER_ACTIVITIES = ["laser tag", "gel blaster", "racing", "race", "nexus", "kart"];
+const WAIVER_ACTIVITIES = [
+  "laser tag",
+  "gel blaster",
+  "racing",
+  "race",
+  "nexus",
+  "kart",
+  "vip birthday",
+];
 
 let cachedToken: string | null = null;
 let tokenExpiry = 0;
