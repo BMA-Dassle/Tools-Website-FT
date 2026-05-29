@@ -631,6 +631,8 @@ export async function notify96HourReminder(
       console.error("[gf-notify] 96hr reminder failed:", r.reason);
     }
   }
+
+  memoLog(quote, `96-hour reminder sent to ${quote.guest_email}`);
 }
 
 // ── Balance Charged Receipt ────────────────────────────────────────
@@ -725,6 +727,8 @@ export async function notifyBalanceReceipt(
       console.error("[gf-notify] balance receipt failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Balance receipt sent to ${quote.guest_email}`);
 }
 
 // ── Event Cancelled ────────────────────────────────────────────────
@@ -789,6 +793,8 @@ export async function notifyEventCancelled(
       console.error("[gf-notify] cancellation notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Cancellation notice sent to ${quote.guest_email}`);
 }
 
 // ── Post-Paid Approval ─────────────────────────────────────────────
@@ -822,6 +828,8 @@ export async function notifyApprovalNeeded(quote: GroupFunctionQuote): Promise<v
       text: `Post-paid approval needed for ${quote.event_name}\n\nCustomer: ${quote.guest_first_name} ${quote.guest_last_name}\nTotal: ${dollars(quote.total_cents)}\nPlanner: ${plannerName(quote)}\n\nReview: ${approveUrl}`,
     }).catch((err) => console.error("[gf-notify] approval email failed:", err));
   }
+
+  memoLog(quote, `Approval request sent to management`);
 }
 
 export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<void> {
@@ -852,6 +860,8 @@ export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<v
     ),
     text: `Post-paid account denied for ${quote.event_name}\n\n${quote.denial_reason ? `Reason: ${quote.denial_reason}\n\n` : ""}Please convert this to a standard deposit event or contact management.`,
   });
+
+  memoLog(quote, `Post-paid denied — planner notified`);
 }
 
 // ── Teams Adaptive Card ─────────────────────────────────────────────
