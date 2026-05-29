@@ -300,6 +300,16 @@ async function syncQuote(
     };
   }
 
+  // Skip sync while BMI state is "Quote" (-2) — planner is mid-edit
+  if (bmiStateId === "-2") {
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: quote.status,
+      action: "skipped_quote_state",
+    };
+  }
+
   const changes: string[] = [];
   const isSigned = quote.status !== "contract_sent";
 
