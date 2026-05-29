@@ -358,6 +358,84 @@ export async function notify7DayWaiverReminder(
   console.log(`[gf-notify] 7-day waiver reminder sent for quote=${quote.id}`);
 }
 
+// ── 2-Day Final Waiver Warning ─────────────────────────────────────
+
+export async function notify2DayWaiverWarning(
+  quote: GroupFunctionQuote,
+  waiverUrl: string,
+): Promise<void> {
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_2day_waiver`;
+
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const waiverActivities = items
+    .filter((i) =>
+      ["laser tag", "gel blaster", "racing", "race", "nexus", "kart", "vip birthday"].some((w) =>
+        i.name.toLowerCase().includes(w),
+      ),
+    )
+    .map((i) => i.name);
+
+  const activityList =
+    waiverActivities.length > 0
+      ? waiverActivities
+          .map((a) => `<li style="margin:4px 0;font-size:14px;color:#333">${a}</li>`)
+          .join("")
+      : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `URGENT: ${quote.guest_first_name}, your event ${quote.event_name || ""} is in 2 days! Waivers must be completed NOW.`,
+            `Guests without a signed waiver will not be able to participate.`,
+            `Complete waivers: ${waiverUrl}`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      bcc: GF_BCC,
+      subject: `ONLY 2 DAYS LEFT — Complete Waivers Now! — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        "Only 2 Days Left to Complete Waiver!",
+        "This is your final reminder",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your event is in <strong>2 days</strong>. If you or your guests have not signed the required waiver, it must be completed within the next <strong>48 hours</strong> to avoid delays at check-in.</p>
+
+        <div style="background:#fef2f2;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #ef4444">
+          <p style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#dc2626">Guests without a signed waiver will not be able to participate</p>
+          <p style="margin:0;font-size:13px;color:#991b1b">This applies to the following activities at your event:</p>
+          ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
+        </div>
+
+        ${ctaButton("Complete Your Waiver Now", waiverUrl)}
+
+        <p style="margin:16px 0;font-size:14px;color:#475569"><strong>Make sure your entire group is ready.</strong> Share the waiver link below with anyone who still needs to sign:</p>
+
+        <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+        </div>
+
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">If you have already completed your waiver, please disregard this email. View event details on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+      ),
+      text: `URGENT: ${quote.guest_first_name}, your event is in 2 days!\n\nAll participants must complete their waiver within the next 48 hours.\n\nGuests without a signed waiver will not be able to participate.\n\nComplete waivers: ${waiverUrl}\n\nShare this link with your entire group.\n\nIf already completed, please disregard.\n\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] 2-day waiver warning failed:", r.reason);
+    }
+  }
+
+  console.log(`[gf-notify] 2-day waiver warning sent for quote=${quote.id}`);
+}
+
 // ── Balance Charged ─────────────────────────────────────────────────
 
 export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<void> {
