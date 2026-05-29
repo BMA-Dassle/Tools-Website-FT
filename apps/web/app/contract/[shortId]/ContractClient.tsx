@@ -438,7 +438,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const stepIdx = STEPS.findIndex((s) => s.key === step);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative overflow-hidden">
+      {/* Ambient background glows */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+        <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-[#E53935]/8 blur-[120px]" />
+        <div className="absolute top-1/3 -right-40 h-[600px] w-[600px] rounded-full bg-[#00E2E5]/6 blur-[150px]" />
+        <div className="absolute bottom-1/4 left-1/4 h-[400px] w-[400px] rounded-full bg-[#9b51e0]/5 blur-[120px]" />
+      </div>
+
       {/* Hero */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
