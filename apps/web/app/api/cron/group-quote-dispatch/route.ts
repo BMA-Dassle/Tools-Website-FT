@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import {
-  fetchPandaDocQueue,
-  completePandaDocQueue,
   resolveCenter,
   selectTemplate,
   isTaxExempt,
@@ -20,17 +18,22 @@ import {
   notifyContractUpdated,
   notifyApprovalNeeded,
 } from "@/lib/group-function-notify";
+import { scanForNewEvents } from "@/lib/bmi-scan";
 
 /**
  * Group Quote Dispatch cron.
  *
- * Polls Hermes /queue/pandadoc for pending event quotes, creates
- * internal contracts (no PandaDoc), persists to Neon, and acknowledges.
+ * Scans BMI Office directly for events in "New Deposit Requested"
+ * state, creates internal contracts, persists to Neon, and sends
+ * contract emails.
+ *
+ * Replaces the Hermes queue-based approach to eliminate the
+ * "read = consumed" bug and Hermes polling dependency.
  *
  * Schedule: every 2 minutes via vercel.json.
  *
  * Query params:
- *   ?dryRun=1  — scan + report, no creation or Hermes completion
+ *   ?dryRun=1  — scan + report, no creation
  *   ?limit=N   — max items to process per run (default 5)
  */
 
@@ -44,32 +47,41 @@ export async function GET(req: NextRequest) {
     error?: string;
   }> = [];
 
-  let queueItems: HermesQueueItem[];
+  let scannedItems: HermesQueueItem[];
   try {
-    queueItems = await fetchPandaDocQueue();
+    scannedItems = await scanForNewEvents();
   } catch (err) {
-    console.error("[group-quote-dispatch] Hermes queue fetch failed:", err);
-    return NextResponse.json({ ok: false, error: "Hermes queue fetch failed" }, { status: 502 });
+    console.error("[group-quote-dispatch] BMI scan failed:", err);
+    return NextResponse.json({ ok: false, error: "BMI scan failed" }, { status: 502 });
   }
 
-  const validItems = queueItems.filter((item) => !item.error).slice(0, limit);
+  // Filter to items not already in our DB
+  const newItems: HermesQueueItem[] = [];
+  for (const item of scannedItems) {
+    const existing = await getGfQuoteByReservationId(item.reservationId);
+    if (!existing) {
+      newItems.push(item);
+    }
+  }
+
+  const itemsToProcess = newItems.slice(0, limit);
 
   if (dryRun) {
     return NextResponse.json({
       ok: true,
       dryRun: true,
-      total: queueItems.length,
-      valid: validItems.length,
-      items: validItems.map((i) => ({
+      scanned: scannedItems.length,
+      new: newItems.length,
+      items: itemsToProcess.map((i) => ({
         reservationId: i.reservationId,
         centerName: i.centerName,
         eventName: i.event.name,
-        depositDue: i.depositDue,
+        totalBill: i.totalBill,
       })),
     });
   }
 
-  for (const item of validItems) {
+  for (const item of itemsToProcess) {
     try {
       const result = await processQueueItem(item);
       results.push(result);
@@ -84,13 +96,18 @@ export async function GET(req: NextRequest) {
   }
 
   console.log(
-    `[group-quote-dispatch] processed=${results.length} ` +
+    `[group-quote-dispatch] scanned=${scannedItems.length} new=${newItems.length} ` +
+      `processed=${results.length} ` +
       `created=${results.filter((r) => r.action === "created").length} ` +
-      `skipped=${results.filter((r) => r.action === "skipped").length} ` +
       `errors=${results.filter((r) => r.action === "error").length}`,
   );
 
-  return NextResponse.json({ ok: true, results });
+  return NextResponse.json({
+    ok: true,
+    scanned: scannedItems.length,
+    new: newItems.length,
+    results,
+  });
 }
 
 function formatEventDate(dateRaw: string): string {
@@ -138,12 +155,6 @@ async function processQueueItem(
     existing?.hermes_last_processed_at &&
     Date.now() - new Date(existing.hermes_last_processed_at).getTime() < 60_000
   ) {
-    await completePandaDocQueue({
-      center: item.center,
-      queueId: item.queueId,
-      logId: item.logId,
-      message: `${item.customer.email} (debounced)`,
-    });
     return { reservationId: item.reservationId, action: "debounced" };
   }
 
@@ -187,12 +198,6 @@ async function processQueueItem(
           console.error("[group-quote-dispatch] resend notify error:", err),
         );
       }
-      await completePandaDocQueue({
-        center: item.center,
-        queueId: item.queueId,
-        logId: item.logId,
-        message: `${item.customer.email} (resent)`,
-      });
       console.log(
         `[group-quote-dispatch] pricing unchanged, updated contacts + resent link for reservation=${item.reservationId}`,
       );
@@ -246,12 +251,6 @@ async function processQueueItem(
       );
     }
 
-    await completePandaDocQueue({
-      center: item.center,
-      queueId: item.queueId,
-      logId: item.logId,
-      message: `${item.customer.email} (post-sign update${priceChanged ? " — price changed" : ""})`,
-    });
     console.log(
       `[group-quote-dispatch] post-sign data update for reservation=${item.reservationId}${priceChanged ? " (PRICE CHANGED)" : ""}`,
     );
@@ -427,15 +426,6 @@ async function processQueueItem(
       updated_at = NOW()
     WHERE id = ${quoteId}`;
 
-    const now = new Date();
-    const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
-    await completePandaDocQueue({
-      center: item.center,
-      queueId: item.queueId,
-      logId: item.logId,
-      message: `${item.customer.email} (pending approval) ${dateStr}`,
-    });
-
     const pendingQuote = await getGfQuoteByShortId(contractShortId);
     if (pendingQuote) {
       notifyApprovalNeeded(pendingQuote).catch((err) =>
@@ -454,16 +444,6 @@ async function processQueueItem(
     contract_short_id: contractShortId,
     contract_status: "sent",
     contract_sent_at: new Date().toISOString(),
-  });
-
-  // Complete the Hermes queue item
-  const now = new Date();
-  const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
-  await completePandaDocQueue({
-    center: item.center,
-    queueId: item.queueId,
-    logId: item.logId,
-    message: `${item.customer.email} ${dateStr}`,
   });
 
   // Notify guest + planner (non-blocking)
