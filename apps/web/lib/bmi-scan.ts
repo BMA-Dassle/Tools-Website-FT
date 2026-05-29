@@ -223,12 +223,10 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
 
           if (center.centerCode === "fort-myers" || center.centerCode === "fasttrax") {
             const loc = (pandora?.location || "").toLowerCase();
-            if (!loc && pandora) {
-              // FM event with no location — error, skip
-              console.error(
-                `[bmi-scan] FM project ${projId} missing location — skipping. Planner: ${pandora.planner?.email || "unknown"}`,
+            if (!loc) {
+              console.warn(
+                `[bmi-scan] FM project ${projId} missing location — defaulting to HeadPinz`,
               );
-              continue;
             }
             if (loc.includes("fasttrax")) {
               isFT = true;
