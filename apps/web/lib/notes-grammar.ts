@@ -1,6 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-
 const GATEWAY_KEY = process.env.VERCEL_AI_GATEWAY_KEY || "";
+const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/messages";
 
 const SYSTEM_PROMPT = `You are a light editor for event planning notes at a family entertainment center. These notes are read by customers and must be professional but accurate.
 
@@ -23,23 +22,30 @@ export async function cleanupNotesGrammar(notes: string): Promise<string> {
   if (!GATEWAY_KEY || !notes.trim()) return notes;
 
   try {
-    const client = new Anthropic({
-      apiKey: GATEWAY_KEY,
-      baseURL: "https://ai-gateway.vercel.sh",
+    const res = await fetch(GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GATEWAY_KEY}`,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "anthropic/claude-3-5-haiku-20241022",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: notes }],
+      }),
+      signal: AbortSignal.timeout(15_000),
     });
 
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: notes }],
-    });
-
-    const result = response.content[0];
-    if (result.type === "text" && result.text.trim()) {
-      return result.text.trim();
+    if (!res.ok) {
+      console.error("[notes-grammar] AI Gateway error:", res.status, await res.text());
+      return notes;
     }
-    return notes;
+
+    const data = await res.json();
+    const text = data.content?.[0]?.text?.trim();
+    return text || notes;
   } catch (err) {
     console.error("[notes-grammar] AI Gateway error:", err);
     return notes;
