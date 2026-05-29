@@ -116,15 +116,19 @@ const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "")
 const normDate = (d: string | null | undefined) => {
   if (!d) return "";
   try {
-    // BMI stores local ET without timezone. DB may store UTC ISO or JS toString.
-    // Compare YYYY-MM-DD in ET to avoid timezone/format false positives.
-    const dt = new Date(d);
-    const etStr = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+    // BMI stores local ET without timezone (e.g. "2026-05-28T07:00:00").
+    // Append ET offset so JS doesn't treat it as UTC.
+    const raw = String(d);
+    const hasTimezone =
+      raw.includes("Z") || raw.includes("+") || /\d-\d{2}:\d{2}$/.test(raw) || raw.includes("GMT");
+    const dt = new Date(hasTimezone ? raw : `${raw}-04:00`);
+    if (isNaN(dt.getTime())) return "";
+    const etStr = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     const etTime = dt.toLocaleTimeString("en-GB", {
       timeZone: "America/New_York",
       hour: "2-digit",
       minute: "2-digit",
-    }); // HH:MM
+    });
     return `${etStr} ${etTime}`;
   } catch {
     return "";
