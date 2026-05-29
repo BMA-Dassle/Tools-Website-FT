@@ -7,7 +7,7 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
-import { fetchReservationProducts } from "@/lib/hermes-client";
+import { fetchReservationProducts, fetchHermesEnrichedEvents } from "@/lib/hermes-client";
 import { notifyContractUpdated } from "@/lib/group-function-notify";
 
 /**
@@ -52,9 +52,26 @@ export async function GET(req: NextRequest) {
     changes?: string[];
   }> = [];
 
+  // Fetch Hermes planner data once for all quotes
+  let plannerMap: Map<string, PlannerInfo> | undefined;
+  const needsPlanner = quotes.some((q) => !q.planner_first && !q.planner_last);
+  if (needsPlanner) {
+    try {
+      const hermesItems = await fetchHermesEnrichedEvents();
+      plannerMap = new Map();
+      for (const h of hermesItems) {
+        if (h.planner?.first || h.planner?.last || h.planner?.email) {
+          plannerMap.set(h.reservationId, h.planner);
+        }
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   for (const quote of quotes) {
     try {
-      const result = await syncQuote(quote, dryRun);
+      const result = await syncQuote(quote, dryRun, plannerMap);
       results.push(result);
     } catch (err) {
       console.error(`[group-quote-sync] error syncing quote=${quote.id}:`, err);
@@ -135,9 +152,12 @@ const normDate = (d: string | null | undefined) => {
   }
 };
 
+type PlannerInfo = { first: string; last: string; email: string; phone: string };
+
 async function syncQuote(
   quote: GroupFunctionQuote,
   dryRun: boolean,
+  plannerMap?: Map<string, PlannerInfo>,
 ): Promise<{ id: number; eventName: string; status: string; action: string; changes?: string[] }> {
   const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
   if (!project) {
@@ -293,6 +313,14 @@ async function syncQuote(
       changes.push(`customer_phone: ${quote.guest_phone} → ${customer.phone}`);
   }
 
+  // Backfill planner from Hermes if missing
+  if (!quote.planner_first && !quote.planner_last && plannerMap) {
+    const planner = plannerMap.get(quote.bmi_reservation_id);
+    if (planner) {
+      changes.push(`planner: (empty) → ${planner.first} ${planner.last}`);
+    }
+  }
+
   // Check event date
   const bmiDate = project.date as string | undefined;
   if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
@@ -394,6 +422,15 @@ async function syncQuote(
       updates.guest_email = customer.email;
     if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone))
       updates.guest_phone = customer.phone;
+  }
+  if (!quote.planner_first && !quote.planner_last && plannerMap) {
+    const planner = plannerMap.get(quote.bmi_reservation_id);
+    if (planner) {
+      updates.planner_first = planner.first;
+      updates.planner_last = planner.last;
+      updates.planner_email = planner.email;
+      updates.planner_phone = planner.phone;
+    }
   }
   if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
     updates.event_date = bmiDate;
