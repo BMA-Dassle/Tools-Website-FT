@@ -171,16 +171,16 @@ export async function updateProjectStatus(params: {
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
   try {
     const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
-    const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/project/state`, {
+    const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/state`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${pandoraKey}`,
       },
       body: JSON.stringify({
-        locationId,
+        locationID: locationId,
         projectId: params.projectId,
-        stateId: newStateId,
+        stateID: newStateId,
       }),
       signal: AbortSignal.timeout(15_000),
     });
