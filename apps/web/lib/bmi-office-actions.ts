@@ -448,20 +448,32 @@ const NOTES_SECTION_END = "── End FastTrax Web ──";
 
 const NOTES_LINKS_MARKER = "──";
 
-function buildSection(contractUrl: string | null, logLines: string): string {
-  const header = contractUrl ? `Contract: ${contractUrl}\n${NOTES_LINKS_MARKER}\n` : "";
+function buildSection(contractUrl: string | null, pdfUrl: string | null, logLines: string): string {
+  const links: string[] = [];
+  if (contractUrl) links.push(`Contract: ${contractUrl}`);
+  if (pdfUrl) links.push(`Signed PDF: ${pdfUrl}`);
+  const header = links.length > 0 ? `${links.join("\n")}\n${NOTES_LINKS_MARKER}\n` : "";
   return `${NOTES_SECTION_START}\n${header}${logLines}\n${NOTES_SECTION_END}`;
 }
 
-function parseSection(section: string): { contractUrl: string | null; logLines: string } {
+function parseSection(section: string): {
+  contractUrl: string | null;
+  pdfUrl: string | null;
+  logLines: string;
+} {
   const markerIdx = section.indexOf(NOTES_LINKS_MARKER + "\n");
   if (markerIdx >= 0) {
     const header = section.slice(0, markerIdx).trim();
     const logLines = section.slice(markerIdx + NOTES_LINKS_MARKER.length + 1).trim();
-    const urlMatch = header.match(/Contract:\s*(.+)/);
-    return { contractUrl: urlMatch?.[1]?.trim() || null, logLines };
+    const contractMatch = header.match(/Contract:\s*(.+)/);
+    const pdfMatch = header.match(/Signed PDF:\s*(.+)/);
+    return {
+      contractUrl: contractMatch?.[1]?.trim() || null,
+      pdfUrl: pdfMatch?.[1]?.trim() || null,
+      logLines,
+    };
   }
-  return { contractUrl: null, logLines: section.trim() };
+  return { contractUrl: null, pdfUrl: null, logLines: section.trim() };
 }
 
 export async function appendProjectPrivateNote(params: {
@@ -469,6 +481,7 @@ export async function appendProjectPrivateNote(params: {
   projectId: string;
   note: string;
   contractUrl?: string;
+  pdfUrl?: string;
 }): Promise<void> {
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const token = await getOfficeToken(clientKey);
@@ -500,11 +513,12 @@ export async function appendProjectPrivateNote(params: {
       const sectionContent = existing.slice(startIdx + NOTES_SECTION_START.length, endIdx).trim();
       const parsed = parseSection(sectionContent);
       const url = params.contractUrl || parsed.contractUrl;
+      const pdf = params.pdfUrl || parsed.pdfUrl;
       const updatedLog = parsed.logLines ? `${parsed.logLines}\n${params.note}` : params.note;
-      privateLog.memo = `${before}${buildSection(url, updatedLog)}${after}`;
+      privateLog.memo = `${before}${buildSection(url, pdf, updatedLog)}${after}`;
     } else {
       const sep = existing.trim() ? "\n\n" : "";
-      privateLog.memo = `${existing}${sep}${buildSection(params.contractUrl || null, params.note)}`;
+      privateLog.memo = `${existing}${sep}${buildSection(params.contractUrl || null, params.pdfUrl || null, params.note)}`;
     }
   }
 
