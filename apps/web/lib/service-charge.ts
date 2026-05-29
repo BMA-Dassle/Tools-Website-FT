@@ -92,12 +92,14 @@ export function isServiceChargeProduct(name: string, plu?: string): boolean {
  * Returns the corrected products array (with updated service charge amount)
  * or the original if no update was needed.
  */
-export async function verifyAndCorrectServiceCharge(
+export async function verifyAndCorrectServiceCharge<
+  T extends { name: string; price: number; qty: number; total: number },
+>(
   centerCode: string,
   projectId: string,
-  hermesProducts: Array<{ name: string; price: number; qty: number; total: number }>,
+  hermesProducts: T[],
 ): Promise<{
-  products: Array<{ name: string; price: number; qty: number; total: number }>;
+  products: T[];
   corrected: boolean;
   result: ServiceChargeResult;
 }> {
