@@ -330,7 +330,7 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
       total_cents, tax_cents, deposit_due_cents, balance_cents,
       line_items, prior_payments,
       pandadoc_template, pandadoc_template_id,
-      is_tax_exempt, status
+      is_tax_exempt, hermes_last_processed_at, status
     ) VALUES (
       ${params.bmi_reservation_id},
       ${params.hermes_queue_id ?? null},
@@ -365,6 +365,7 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
       ${params.pandadoc_template ?? null},
       ${params.pandadoc_template_id ?? null},
       ${params.is_tax_exempt ?? false},
+      NOW(),
       'pending'
     )
     RETURNING *
