@@ -1094,7 +1094,7 @@ function buildContractSentHtml(quote: GroupFunctionQuote, contractUrl: string): 
 
     <table style="width:100%;margin:16px 0;border-collapse:collapse">
       ${pricingRow("Event Total", dollars(quote.total_cents))}
-      ${pricingRow("Deposit Due Today", dollars(quote.deposit_due_cents), true)}
+      ${pricingRow(quote.balance_cents > 0 ? "Deposit Due Today" : "Payment Due Today", dollars(quote.deposit_due_cents), true)}
       ${quote.balance_cents > 0 ? pricingRow("Balance (due 72hrs before)", dollars(quote.balance_cents)) : ""}
     </table>
 
@@ -1113,7 +1113,7 @@ function buildContractUpdatedHtml(quote: GroupFunctionQuote, contractUrl: string
 
     <table style="width:100%;margin:16px 0;border-collapse:collapse">
       ${pricingRow("Event Total", dollars(quote.total_cents))}
-      ${pricingRow("Deposit Due", dollars(quote.deposit_due_cents), true)}
+      ${pricingRow(quote.balance_cents > 0 ? "Deposit Due" : "Payment Due", dollars(quote.deposit_due_cents), true)}
       ${quote.balance_cents > 0 ? pricingRow("Balance (due 72hrs before)", dollars(quote.balance_cents)) : ""}
     </table>
 
