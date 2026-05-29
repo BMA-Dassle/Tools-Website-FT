@@ -37,115 +37,18 @@ interface CenterConfig {
   newDepositStateIds: Record<string, string>;
 }
 
-// Full resource IDs — includes bowling lanes, tracks, arena, etc.
-// API metadata only returns a subset; these come from the BMI Office UI.
-const RESOURCE_IDS: Record<string, string[]> = {
-  headpinzftmyers: [
-    "305133",
-    "11208654",
-    "11208660",
-    "14824707",
-    "15159040",
-    "33416821",
-    "-1",
-    "333684",
-    "76810",
-    "333807",
-    "333931",
-    "305107",
-    "305605",
-    "315746",
-    "311252",
-    "312255",
-    "312258",
-    "312261",
-    "312264",
-    "314545",
-    "314548",
-    "314551",
-    "314554",
-    "350398",
-    "350401",
-    "350404",
-    "350407",
-    "350410",
-    "350413",
-    "350416",
-    "350419",
-    "350422",
-    "350425",
-    "350428",
-    "350431",
-    "350434",
-    "350437",
-    "350440",
-    "350443",
-    "1796293",
-    "1796296",
-    "1796301",
-    "11415871",
-    "11415874",
-    "11415868",
-    "11418764",
-    "11418768",
-    "11418772",
-    "11418775",
-    "11418778",
-    "11418781",
-    "11418784",
-    "11418787",
-    "23109817",
-    "23134588",
-    "24397590",
-    "24398518",
-    "28443055",
-    "28443690",
-    "28443692",
-    "28443696",
-    "28443699",
-    "28443702",
-    "28443707",
-    "28443710",
-    "28443713",
-    "28443716",
-  ],
-  headpinznaples: [
-    "34633",
-    "34635",
-    "34637",
-    "34639",
-    "34641",
-    "35125",
-    "35127",
-    "35129",
-    "34652",
-    "35131",
-    "35134",
-    "35137",
-    "35140",
-    "35143",
-    "35146",
-    "35149",
-    "35152",
-    "35155",
-    "35158",
-    "35161",
-    "35164",
-    "35167",
-    "35170",
-    "35173",
-    "35176",
-    "523598",
-    "35179",
-    "35183",
-    "35186",
-    "35189",
-    "35192",
-    "35195",
-    "35198",
-    "35201",
-  ],
-};
+/** Build full resource ID list from metadata (top-level + all group members). */
+function extractAllResourceIds(meta: {
+  resources: Array<{ id: string }>;
+  resourceGroups?: Array<{ resources?: Array<{ id: string }> }>;
+}): string[] {
+  const ids = new Set<string>();
+  for (const r of meta.resources || []) ids.add(String(r.id));
+  for (const g of meta.resourceGroups || []) {
+    for (const r of g.resources || []) ids.add(String(r.id));
+  }
+  return [...ids];
+}
 
 const CENTERS: CenterConfig[] = [
   {
@@ -252,8 +155,11 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
         clientkey: center.clientKey,
       };
 
-      // Use full resource ID list (includes bowling lanes, tracks, arena)
-      const ids = RESOURCE_IDS[center.clientKey] || [];
+      // Get ALL resource IDs from metadata (top-level + resource groups)
+      const metaRes = await httpsRequest("GET", `/api/${center.clientKey}/metadata`, headers);
+      if (metaRes.status >= 400) continue;
+      const meta = JSON.parse(metaRes.body);
+      const ids = extractAllResourceIds(meta);
       if (ids.length === 0) continue;
       const resourceParam = ids.map((id) => `resourceIds=${id}`).join("&");
 
