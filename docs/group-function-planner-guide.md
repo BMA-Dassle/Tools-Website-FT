@@ -26,6 +26,7 @@ Create the event in BMI Office as you normally would. Fill in:
 - **Public notes** — These are what the customer sees. Include arrival time, food timing, lane/activity details, and any special instructions. The system lightly cleans up grammar and spelling before the customer sees them, but won't change any of your details.
 
 When you're ready, set the state to:
+
 - **"New Deposit Requested - HPFM"** (HeadPinz Fort Myers)
 - **"New Deposit Requested - FT"** (FastTrax)
 - **"New Deposit Requested"** (HeadPinz Naples)
@@ -112,6 +113,7 @@ Set the BMI Office state to **"Cancellation."** The system will:
 Your public notes are what the customer sees on their contract page and in the "You're All Set" confirmation after paying. The system cleans up grammar and spelling, but keeps your content exactly as written. A few tips:
 
 **Do:**
+
 - Include arrival time and check-in instructions
 - Mention food timing ("Pizzas at 12:00, cake at 1:30")
 - Note any special setup ("Check-in table near front entrance")
@@ -119,14 +121,17 @@ Your public notes are what the customer sees on their contract page and in the "
 - Mention waiver requirements if applicable
 
 **Don't worry about:**
+
 - Perfect spelling — the system fixes it
 - Formatting — the system handles punctuation and capitalization
 - Venue name in the title — the system removes "HeadPinz Welcomes" etc.
 
 **Example — Before (what you type):**
-> arriving at 10.  bowling with 5 kids per lane will adjust based on headcount.  pizzas at 10:45 will provide lane assignments. laser tag rotated in during bowling.  $5 gamezone cards for students without waivers
+
+> arriving at 10. bowling with 5 kids per lane will adjust based on headcount. pizzas at 10:45 will provide lane assignments. laser tag rotated in during bowling. $5 gamezone cards for students without waivers
 
 **Example — After (what the customer sees):**
+
 > Arriving at 10. Bowling with 5 kids per lane, will adjust based on headcount. Pizzas at 10:45 — will provide lane assignments. Laser tag rotated in during bowling. $5 GameZone cards for students without waivers.
 
 Same information, just cleaned up.
@@ -162,9 +167,11 @@ Post-paid events do not go through the automatic payment cycle. Payment collecti
 ## What the Customer Sees
 
 ### Contract Page
+
 A branded, mobile-friendly page with 5 steps: Review → Event Info → Policies → Sign → Pay. Matches our HeadPinz or FastTrax branding depending on the location.
 
 ### "You're All Set" Page (After Payment)
+
 - Event details with countdown timer
 - Deposit paid / balance due summary
 - Waiver link and participant list (with confirmation status)
@@ -174,6 +181,7 @@ A branded, mobile-friendly page with 5 steps: Review → Event Info → Policies
 - Signed contract PDF download
 
 ### Emails
+
 Professional branded emails from your email address (Reply-To goes to you). Customers can reply directly to reach you.
 
 ---
@@ -181,34 +189,39 @@ Professional branded emails from your email address (Reply-To goes to you). Cust
 ## Troubleshooting
 
 **"My event isn't sending"**
+
 - Make sure the status is set to "New Deposit Requested" (HPFM, FT, or Naples)
 - Confirm the customer has an email address in BMI Office
 - Wait 1-2 minutes — the system checks the queue frequently
 
 **"The customer says the time is wrong"**
+
 - Check the event time in BMI Office — the contract pulls the time directly from there
 - If you fix it in BMI, the system will update the contract within 5 minutes
 
 **"I need to resend the contract link"**
+
 - Change the BMI state away from "New Deposit Requested" and back again. The system will re-send.
 
 **"The customer wants to change their card"**
+
 - They can do this themselves on their "You're All Set" page — there's an "Update Card on File" section. You can also send them the contract link again.
 
 **"I need to cancel after the customer paid"**
+
 - Set BMI state to "Cancellation." The refund is automatic.
 
 ---
 
 ## Quick Reference
 
-| Action | What You Do | What the System Does |
-|--------|-------------|---------------------|
-| New event | Set up in BMI, set status to "New Deposit Requested" | Sends contract to customer |
-| Change details | Update in BMI Office | Re-sends contract or requires re-sign |
-| Cancel event | Set BMI status to "Cancellation" | Refunds payments, emails customer |
-| Day-of add-ons | Center opens a secondary tab | N/A — separate from contract |
-| Check status | Look at admin reservations page or BMI status | Auto-updates status and payments |
+| Action         | What You Do                                          | What the System Does                  |
+| -------------- | ---------------------------------------------------- | ------------------------------------- |
+| New event      | Set up in BMI, set status to "New Deposit Requested" | Sends contract to customer            |
+| Change details | Update in BMI Office                                 | Re-sends contract or requires re-sign |
+| Cancel event   | Set BMI status to "Cancellation"                     | Refunds payments, emails customer     |
+| Day-of add-ons | Center opens a secondary tab                         | N/A — separate from contract          |
+| Check status   | Look at admin reservations page or BMI status        | Auto-updates status and payments      |
 
 ---
 

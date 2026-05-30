@@ -31,7 +31,10 @@ export async function POST(req: NextRequest) {
   };
 
   if (!contractShortId || !cardSourceId) {
-    return NextResponse.json({ error: "contractShortId and cardSourceId required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "contractShortId and cardSourceId required" },
+      { status: 400 },
+    );
   }
 
   const quote = await getGfQuoteByShortId(contractShortId);
@@ -101,7 +104,9 @@ export async function POST(req: NextRequest) {
       updated_at = NOW()
     WHERE id = ${quote.id}`;
 
-    console.log(`[update-card] quote=${quote.id} card updated to ${newCardId} (${brand} ...${last4})`);
+    console.log(
+      `[update-card] quote=${quote.id} card updated to ${newCardId} (${brand} ...${last4})`,
+    );
 
     return NextResponse.json({ ok: true, last4, brand });
   } catch (err) {

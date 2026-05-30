@@ -2361,7 +2361,16 @@ export default function ReservationsClient({ token }: { token: string }) {
             {/* ── Group Function Events ────────────────────────── */}
             {groupEvents.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: "#22d3ee", marginBottom: 8 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: 1,
+                    color: "#22d3ee",
+                    marginBottom: 8,
+                  }}
+                >
                   Group Events ({groupEvents.length})
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2386,43 +2395,133 @@ export default function ReservationsClient({ token }: { token: string }) {
                           padding: "10px 12px",
                         }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 4,
+                          }}
+                        >
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span style={{ fontWeight: 700, fontSize: 14 }}>{ge.eventName}</span>
-                            <span style={{ fontSize: 11, color: "var(--ba-muted)" }}>#{ge.eventNumber}</span>
+                            <span style={{ fontSize: 11, color: "var(--ba-muted)" }}>
+                              #{ge.eventNumber}
+                            </span>
                           </div>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: sColor, textTransform: "uppercase" }}>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: sColor,
+                              textTransform: "uppercase",
+                            }}
+                          >
                             {ge.status.replace(/_/g, " ")}
                           </span>
                         </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", fontSize: 12, color: "var(--ba-muted)" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "4px 16px",
+                            fontSize: 12,
+                            color: "var(--ba-muted)",
+                          }}
+                        >
                           <span>{ge.eventDateDisplay}</span>
                           <span>{ge.guestName}</span>
                           {ge.guestPhone && <span>{ge.guestPhone}</span>}
                           {ge.guestCount && <span>{ge.guestCount} guests</span>}
                         </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 12, marginTop: 4 }}>
-                          <span style={{ color: "#22c55e", fontWeight: 600 }}>Deposit: {fmtD(ge.depositDueCents)}</span>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "4px 12px",
+                            fontSize: 12,
+                            marginTop: 4,
+                          }}
+                        >
+                          <span style={{ color: "#22c55e", fontWeight: 600 }}>
+                            Deposit: {fmtD(ge.depositDueCents)}
+                          </span>
                           <span>Balance: {fmtD(ge.balanceCents)}</span>
                           <span style={{ fontWeight: 700 }}>Total: {fmtD(ge.totalCents)}</span>
                         </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 11, marginTop: 4, color: "var(--ba-muted)" }}>
-                          {ge.squareGiftCardGan && <span>GAN: {(() => { try { const g = JSON.parse(ge.squareGiftCardGan); return Array.isArray(g) ? g.join(", ") : ge.squareGiftCardGan; } catch { return ge.squareGiftCardGan; } })()}</span>}
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "4px 12px",
+                            fontSize: 11,
+                            marginTop: 4,
+                            color: "var(--ba-muted)",
+                          }}
+                        >
+                          {ge.squareGiftCardGan && (
+                            <span>
+                              GAN:{" "}
+                              {(() => {
+                                try {
+                                  const g = JSON.parse(ge.squareGiftCardGan);
+                                  return Array.isArray(g) ? g.join(", ") : ge.squareGiftCardGan;
+                                } catch {
+                                  return ge.squareGiftCardGan;
+                                }
+                              })()}
+                            </span>
+                          )}
                           {ge.plannerName && <span>Planner: {ge.plannerName}</span>}
                           {ge.savedCardId && <span style={{ color: "#22c55e" }}>Card on file</span>}
-                          {!ge.savedCardId && ge.depositPaidAt && <span style={{ color: "#f59e0b" }}>No card saved</span>}
+                          {!ge.savedCardId && ge.depositPaidAt && (
+                            <span style={{ color: "#f59e0b" }}>No card saved</span>
+                          )}
                           {ge.depositPaidAt && (
-                            <span style={{ display: "inline-block", padding: "0 4px", borderRadius: 3, fontSize: 10, fontWeight: 600, backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0 4px",
+                                borderRadius: 3,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                backgroundColor: "rgba(34,197,94,0.15)",
+                                color: "#22c55e",
+                                border: "1px solid rgba(34,197,94,0.3)",
+                              }}
+                            >
                               Deposit Paid
                             </span>
                           )}
                           {ge.balancePaidAt && (
-                            <span style={{ display: "inline-block", padding: "0 4px", borderRadius: 3, fontSize: 10, fontWeight: 600, backgroundColor: "rgba(34,211,238,0.15)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.3)" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0 4px",
+                                borderRadius: 3,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                backgroundColor: "rgba(34,211,238,0.15)",
+                                color: "#22d3ee",
+                                border: "1px solid rgba(34,211,238,0.3)",
+                              }}
+                            >
                               Balance Paid
                             </span>
                           )}
                           {ge.squareDayofOrderId && !ge.balancePaidAt && (
-                            <span style={{ display: "inline-block", padding: "0 4px", borderRadius: 3, fontSize: 10, fontWeight: 600, backgroundColor: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0 4px",
+                                borderRadius: 3,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                backgroundColor: "rgba(245,158,11,0.15)",
+                                color: "#f59e0b",
+                                border: "1px solid rgba(245,158,11,0.3)",
+                              }}
+                            >
                               Balance Pending
                             </span>
                           )}
@@ -2433,7 +2532,12 @@ export default function ReservationsClient({ token }: { token: string }) {
                               href={`/contract/${ge.contractShortId}`}
                               target="_blank"
                               rel="noopener"
-                              style={{ fontSize: 11, color: "#22d3ee", textDecoration: "none", fontWeight: 600 }}
+                              style={{
+                                fontSize: 11,
+                                color: "#22d3ee",
+                                textDecoration: "none",
+                                fontWeight: 600,
+                              }}
                             >
                               View Contract
                             </a>
@@ -2780,7 +2884,14 @@ export default function ReservationsClient({ token }: { token: string }) {
                         {r.squareDayofOrderId && (
                           <button
                             type="button"
-                            onClick={() => setOrderTarget({ guestName: r.guestName || "Guest", squareDayofOrderId: r.squareDayofOrderId ?? null, rewardDiscountCents: r.rewardDiscountCents, squareLoyaltyRewardId: r.squareLoyaltyRewardId })}
+                            onClick={() =>
+                              setOrderTarget({
+                                guestName: r.guestName || "Guest",
+                                squareDayofOrderId: r.squareDayofOrderId ?? null,
+                                rewardDiscountCents: r.rewardDiscountCents,
+                                squareLoyaltyRewardId: r.squareLoyaltyRewardId,
+                              })
+                            }
                             style={{
                               background: "none",
                               border: "none",
@@ -3290,7 +3401,14 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {r.squareDayofOrderId ? (
                             <button
                               type="button"
-                              onClick={() => setOrderTarget({ guestName: r.guestName || "Guest", squareDayofOrderId: r.squareDayofOrderId ?? null, rewardDiscountCents: r.rewardDiscountCents, squareLoyaltyRewardId: r.squareLoyaltyRewardId })}
+                              onClick={() =>
+                                setOrderTarget({
+                                  guestName: r.guestName || "Guest",
+                                  squareDayofOrderId: r.squareDayofOrderId ?? null,
+                                  rewardDiscountCents: r.rewardDiscountCents,
+                                  squareLoyaltyRewardId: r.squareLoyaltyRewardId,
+                                })
+                              }
                               style={{
                                 background: "none",
                                 border: "none",

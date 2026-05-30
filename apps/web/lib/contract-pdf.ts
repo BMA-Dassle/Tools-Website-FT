@@ -84,7 +84,12 @@ function t(
   });
 }
 
-function tRight(ctx: Ctx, s: string, y: number, opts?: { font?: PDFFont; sz?: number; color?: ReturnType<typeof rgb> }) {
+function tRight(
+  ctx: Ctx,
+  s: string,
+  y: number,
+  opts?: { font?: PDFFont; sz?: number; color?: ReturnType<typeof rgb> },
+) {
   const fnt = opts?.font ?? ctx.f;
   const sz = opts?.sz ?? 10;
   const w = fnt.widthOfTextAtSize(s, sz);
@@ -102,8 +107,20 @@ function pageHeader(ctx: Ctx, title: string, subtitle?: string) {
   ctx.page.drawRectangle({ x: 0, y: PAGE_H - 50, width: PAGE_W, height: 2, color: C.cyan });
   // Red/white/cyan gradient stripe at very top
   ctx.page.drawRectangle({ x: 0, y: PAGE_H - 2, width: PAGE_W / 3, height: 2, color: C.red });
-  ctx.page.drawRectangle({ x: PAGE_W / 3, y: PAGE_H - 2, width: PAGE_W / 3, height: 2, color: rgb(1, 1, 1) });
-  ctx.page.drawRectangle({ x: (PAGE_W * 2) / 3, y: PAGE_H - 2, width: PAGE_W / 3, height: 2, color: C.cyan });
+  ctx.page.drawRectangle({
+    x: PAGE_W / 3,
+    y: PAGE_H - 2,
+    width: PAGE_W / 3,
+    height: 2,
+    color: rgb(1, 1, 1),
+  });
+  ctx.page.drawRectangle({
+    x: (PAGE_W * 2) / 3,
+    y: PAGE_H - 2,
+    width: PAGE_W / 3,
+    height: 2,
+    color: C.cyan,
+  });
 
   t(ctx, title, M, PAGE_H - 30, { font: ctx.fb, sz: 18, color: C.white });
   if (subtitle) {
@@ -181,7 +198,11 @@ export async function generateContractPdf(
     if (i % 2 === 1) stripe(ctx, tableRowH);
     t(ctx, item.name, M + 4, ctx.y - 6, { sz: 9, color: C.lightGray });
     t(ctx, `x${item.qty}`, M + 320, ctx.y - 6, { sz: 9, color: C.gray });
-    tRight(ctx, dollars(Math.round(item.total * 100)), ctx.y - 6, { font: fb, sz: 10, color: C.white });
+    tRight(ctx, dollars(Math.round(item.total * 100)), ctx.y - 6, {
+      font: fb,
+      sz: 10,
+      color: C.white,
+    });
     ctx.y -= tableRowH;
   }
   if (quote.tax_cents > 0) {
@@ -217,26 +238,53 @@ export async function generateContractPdf(
   const col2X = M + colW + 16;
   const contactH = 76;
   // Left card
-  ctx.page.drawRectangle({ x: CARD_X, y: ctx.y - contactH, width: colW + CARD_PAD + 8, height: contactH, color: C.card });
+  ctx.page.drawRectangle({
+    x: CARD_X,
+    y: ctx.y - contactH,
+    width: colW + CARD_PAD + 8,
+    height: contactH,
+    color: C.card,
+  });
   // Right card
-  ctx.page.drawRectangle({ x: col2X - 8, y: ctx.y - contactH, width: colW + CARD_PAD + 8, height: contactH, color: C.card });
+  ctx.page.drawRectangle({
+    x: col2X - 8,
+    y: ctx.y - contactH,
+    width: colW + CARD_PAD + 8,
+    height: contactH,
+    color: C.card,
+  });
 
   let ly = ctx.y - 4;
   t(ctx, "EVENT PLANNER", M, ly, { font: fb, sz: 8.5, color: C.cyan });
   ly -= 16;
-  t(ctx, `${quote.planner_first || ""} ${quote.planner_last || ""}`.trim() || "—", M, ly, { font: fb, sz: 10, color: C.white });
+  t(ctx, `${quote.planner_first || ""} ${quote.planner_last || ""}`.trim() || "—", M, ly, {
+    font: fb,
+    sz: 10,
+    color: C.white,
+  });
   ly -= 14;
-  if (quote.planner_email) { t(ctx, quote.planner_email, M, ly, { sz: 8, color: C.gray }); ly -= 12; }
-  if (quote.planner_phone) { t(ctx, quote.planner_phone, M, ly, { sz: 8, color: C.gray }); }
+  if (quote.planner_email) {
+    t(ctx, quote.planner_email, M, ly, { sz: 8, color: C.gray });
+    ly -= 12;
+  }
+  if (quote.planner_phone) {
+    t(ctx, quote.planner_phone, M, ly, { sz: 8, color: C.gray });
+  }
 
   let ry = ctx.y - 4;
   t(ctx, "CUSTOMER", col2X, ry, { font: fb, sz: 8.5, color: C.cyan });
   ry -= 16;
-  t(ctx, `${quote.guest_first_name} ${quote.guest_last_name}`, col2X, ry, { font: fb, sz: 10, color: C.white });
+  t(ctx, `${quote.guest_first_name} ${quote.guest_last_name}`, col2X, ry, {
+    font: fb,
+    sz: 10,
+    color: C.white,
+  });
   ry -= 14;
   t(ctx, quote.guest_email, col2X, ry, { sz: 8, color: C.gray });
   ry -= 12;
-  if (quote.guest_phone) { t(ctx, quote.guest_phone, col2X, ry, { sz: 8, color: C.gray }); }
+  if (quote.guest_phone) {
+    t(ctx, quote.guest_phone, col2X, ry, { sz: 8, color: C.gray });
+  }
 
   ctx.y -= contactH + 6;
 
@@ -262,7 +310,10 @@ export async function generateContractPdf(
     ctx.y -= 4;
     label(ctx, "CANCELLATION POLICY HIGHLIGHTS");
     const policies = [
-      ["7+ days notice:", "Deposit applied toward rescheduling (must meet or exceed original value)"],
+      [
+        "7+ days notice:",
+        "Deposit applied toward rescheduling (must meet or exceed original value)",
+      ],
       ["Within 7 days:", "Non-refundable; 50% deposit credit may be available"],
       ["Guest changes:", "3+ business days notice; count may increase but not decrease >15%"],
     ];
@@ -306,20 +357,28 @@ export async function generateContractPdf(
   card(ctx, 40);
   ctx.y -= 4;
   label(ctx, "TAX EXEMPT");
-  t(ctx, "Status declared at signing — see audit log for details", M, ctx.y, { sz: 9, color: C.lightGray });
+  t(ctx, "Status declared at signing — see audit log for details", M, ctx.y, {
+    sz: 9,
+    color: C.lightGray,
+  });
   ctx.y -= 22;
 
   // ── Signature ──
   ctx.y -= 6;
   let sigImage: Awaited<ReturnType<typeof doc.embedPng>> | null = null;
-  if (quote.signature_type === "draw" && quote.signature_data?.startsWith("data:image/png;base64,")) {
+  if (
+    quote.signature_type === "draw" &&
+    quote.signature_data?.startsWith("data:image/png;base64,")
+  ) {
     try {
       const b64 = quote.signature_data.split(",")[1];
       sigImage = await doc.embedPng(Buffer.from(b64, "base64"));
-    } catch { /* non-fatal — fall back to text */ }
+    } catch {
+      /* non-fatal — fall back to text */
+    }
   }
 
-  const sigH = sigImage ? 130 : (quote.signature_type === "typed" && quote.signature_data ? 110 : 90);
+  const sigH = sigImage ? 130 : quote.signature_type === "typed" && quote.signature_data ? 110 : 90;
   card(ctx, sigH);
   ctx.y -= 4;
   label(ctx, "ELECTRONIC SIGNATURE");
@@ -352,7 +411,13 @@ export async function generateContractPdf(
     ctx.y -= 44;
   }
 
-  t(ctx, `Signed: ${quote.contract_signed_at ? new Date(quote.contract_signed_at).toLocaleString("en-US", { timeZone: "America/New_York" }) : "—"}`, M, ctx.y, { sz: 8, color: C.gray });
+  t(
+    ctx,
+    `Signed: ${quote.contract_signed_at ? new Date(quote.contract_signed_at).toLocaleString("en-US", { timeZone: "America/New_York" }) : "—"}`,
+    M,
+    ctx.y,
+    { sz: 8, color: C.gray },
+  );
   ctx.y -= 12;
   if (quote.signer_ip) {
     t(ctx, `IP Address: ${quote.signer_ip}`, M, ctx.y, { sz: 8, color: C.gray });
@@ -375,11 +440,29 @@ export async function generateContractPdf(
 
   // ── ESIGN Compliance ──
   ctx.y -= 10;
-  t(ctx, "This document was electronically signed in compliance with the ESIGN Act (15 U.S.C. §7001) and the", M, ctx.y, { sz: 7, color: C.gray });
+  t(
+    ctx,
+    "This document was electronically signed in compliance with the ESIGN Act (15 U.S.C. §7001) and the",
+    M,
+    ctx.y,
+    { sz: 7, color: C.gray },
+  );
   ctx.y -= 10;
-  t(ctx, "Uniform Electronic Transactions Act (UETA). The signer's identity, IP address, user agent, and", M, ctx.y, { sz: 7, color: C.gray });
+  t(
+    ctx,
+    "Uniform Electronic Transactions Act (UETA). The signer's identity, IP address, user agent, and",
+    M,
+    ctx.y,
+    { sz: 7, color: C.gray },
+  );
   ctx.y -= 10;
-  t(ctx, "timestamp were captured and recorded for verification and non-repudiation purposes.", M, ctx.y, { sz: 7, color: C.gray });
+  t(
+    ctx,
+    "timestamp were captured and recorded for verification and non-repudiation purposes.",
+    M,
+    ctx.y,
+    { sz: 7, color: C.gray },
+  );
 
   pageFooter(ctx, seal, 2, totalPages);
 
@@ -405,7 +488,13 @@ export async function generateContractPdf(
         pageFooter(ctx, seal, 3, totalPages);
         ctx = addBgPage(doc, ctx);
         pageHeader(ctx, "AUDIT TRAIL", "CONTINUED");
-        ctx.page.drawRectangle({ x: CARD_X, y: ctx.y - 18, width: CARD_W, height: 18, color: C.card });
+        ctx.page.drawRectangle({
+          x: CARD_X,
+          y: ctx.y - 18,
+          width: CARD_W,
+          height: 18,
+          color: C.card,
+        });
         for (let j = 0; j < headers.length; j++) {
           t(ctx, headers[j], cols[j], ctx.y - 12, { font: fb, sz: 7, color: C.cyan });
         }
@@ -413,7 +502,13 @@ export async function generateContractPdf(
       }
 
       if (i % 2 === 0) {
-        ctx.page.drawRectangle({ x: CARD_X, y: ctx.y - 14, width: CARD_W, height: 16, color: C.stripe });
+        ctx.page.drawRectangle({
+          x: CARD_X,
+          y: ctx.y - 14,
+          width: CARD_W,
+          height: 16,
+          color: C.stripe,
+        });
       }
 
       const entry = auditLog[i];
@@ -440,7 +535,9 @@ export async function generateContractPdf(
 
   // Metadata
   doc.setTitle(`Event Contract — ${quote.event_name || ""}`);
-  doc.setSubject(`Contract for ${quote.guest_first_name} ${quote.guest_last_name} at ${quote.center_name}`);
+  doc.setSubject(
+    `Contract for ${quote.guest_first_name} ${quote.guest_last_name} at ${quote.center_name}`,
+  );
   doc.setCreator("FastTrax Entertainment / HeadPinz");
   doc.setProducer("FastTrax Contract System");
   if (seal) {
