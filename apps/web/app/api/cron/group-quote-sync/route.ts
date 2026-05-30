@@ -7,7 +7,8 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
-import { fetchReservationProducts, fetchReservationDetail } from "@/lib/hermes-client";
+import { fetchReservationProducts, fetchReservationDetail, isTaxExempt } from "@/lib/hermes-client";
+import { subtotalCents, taxCents as computeTaxCents } from "@/lib/group-function-pricing";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -486,13 +487,11 @@ async function syncQuote(
       console.warn(`[group-quote-sync] service charge check failed for quote=${quote.id}:`, err);
     }
 
-    const totalBill = freshProducts.reduce((s, p) => s + p.total, 0);
-    const taxTotal = freshProducts.reduce(
-      (s, p) => s + ((p.tax || 0) * p.total) / (p.price || 1),
-      0,
-    );
-    const totalCents = Math.round((totalBill + taxTotal) * 100);
-    const taxCents = Math.round(taxTotal * 100);
+    // p.tax is a per-line RATE; line tax = rate × line-total. total_cents is the
+    // tax-inclusive grand total. Honor tax exemption like the dispatch cron does.
+    const taxExempt = isTaxExempt(freshProducts);
+    const taxCents = computeTaxCents(freshProducts, taxExempt);
+    const totalCents = subtotalCents(freshProducts) + taxCents;
     updates.line_items = freshProducts;
     updates.total_cents = totalCents;
     updates.tax_cents = taxCents;

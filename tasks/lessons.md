@@ -1,5 +1,36 @@
 # Lessons Learned
 
+## Pandora product `tax` is a RATE, not a dollar amount (2026-05-30)
+
+Each product in the Pandora `/v2/bmi/reservation` response carries `tax` as a
+**per-line tax RATE** (e.g. `0.065` = 6.5%), NOT a dollar amount. Verified live on
+reservation `49220090`: every product had `tax: 0.065`.
+
+**Line tax = `rate × line-total`.** The old formula was:
+
+```ts
+taxTotal = products.reduce((s, p) => s + ((p.tax || 0) * p.total) / (p.price || 1), 0);
+```
+
+`(tax * total) / price` reduces to `rate × qty`, which under-counted tax by the unit
+price. On 49220090 it produced **$0.65** instead of **$63.76** (`0.065 × 980.95`). The
+bug was duplicated in two places, so it was extracted into one helper:
+[apps/web/lib/group-function-pricing.ts](apps/web/lib/group-function-pricing.ts)
+(`subtotalCents`, `taxCents`) — used by `bmi-scan`, both group-quote crons, and the backfill.
+
+Two coupled gotchas the tax bug had masked (tax was ≈$0, so nobody noticed):
+- **`total_cents` is the tax-INCLUSIVE grand total** everywhere (contract page, signed PDF,
+  Square deposit/day-of orders: deposit = total/2, balance = total − deposit). The dispatch
+  cron's normal path stored a tax-EXCLUSIVE total; now `+ taxCents`.
+- The sync cron recomputed tax **without** honoring `isTaxExempt(...)` (dispatch did) — fixed.
+
+Existing rows don't self-heal (dispatch only re-scans "Send Contract"; sync only recomputes
+tax on product change). One-time fix:
+[apps/web/app/api/cron/group-quote-tax-backfill/route.ts](apps/web/app/api/cron/group-quote-tax-backfill/route.ts)
+— recomputes unpaid quotes, reports (read-only) on already-paid quotes that under-collected.
+Run dry-run first: `curl -H "Authorization: Bearer $CRON_SECRET" .../api/cron/group-quote-tax-backfill?dryRun=1`,
+then `?dryRun=0`.
+
 ## Neon sql template tag consumes `::type` as parameter type hints (2026-05-09)
 
 The `@neondatabase/serverless` `sql` tagged template treats `${value}::type`

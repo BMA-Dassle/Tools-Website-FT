@@ -16,6 +16,7 @@ import {
   type HermesQueueItem,
   type HermesProduct,
 } from "@/lib/hermes-client";
+import { taxCents } from "@/lib/group-function-pricing";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
 const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
@@ -284,10 +285,10 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
           }
 
           const totalBill = products.reduce((s, p) => s + p.total, 0);
-          const taxTotal = products.reduce(
-            (s, p) => s + ((p.tax || 0) * p.total) / (p.price || 1),
-            0,
-          );
+          // p.tax is a per-line RATE (e.g. 0.065), so line tax = rate × line-total.
+          // taxCents() returns cents; HermesQueueItem.tax is a dollar amount. Tax
+          // exemption is applied downstream in the dispatch cron, so compute raw here.
+          const taxTotal = taxCents(products, false) / 100;
 
           const dateHasTz =
             proj.date.includes("Z") || proj.date.includes("+") || /\d-\d{2}:\d{2}$/.test(proj.date);
