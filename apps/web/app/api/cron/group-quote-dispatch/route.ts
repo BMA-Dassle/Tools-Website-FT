@@ -182,9 +182,11 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: "debounced" };
   }
 
-  let totalCents = Math.round(item.totalBill * 100);
   const taxExempt = isTaxExempt(item.products);
   const taxCents = taxExempt ? 0 : Math.round(item.tax * 100);
+  // total_cents is the tax-inclusive grand total (matches the sync cron, deposit
+  // route, and contract display). item.totalBill is the pre-tax subtotal.
+  let totalCents = Math.round(item.totalBill * 100) + taxCents;
   const isPostPaid = selectTemplate(item) === "postpay";
 
   // Post-paid: no deposit, full amount billed day-of
@@ -485,9 +487,8 @@ async function processQueueItem(
     quoteId = quote.id;
   }
 
-  // Check if post-paid account (requires management approval before sending)
-  const isPostPaid = selectTemplate(item) === "postpay";
-
+  // Check if post-paid account (requires management approval before sending).
+  // isPostPaid is already computed above from the same products.
   if (isPostPaid && !existing?.approved_at) {
     // Hold for approval — don't send contract yet
     const q = (await import("@/lib/db")).sql();

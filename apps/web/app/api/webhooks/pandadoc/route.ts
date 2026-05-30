@@ -62,7 +62,9 @@ async function handleEvent(evt: {
 
   const quote = await getGfQuoteByPandaDocId(documentId);
   if (!quote) {
-    console.warn(`[pandadoc-webhook] No quote found for documentId=${documentId} — orphan webhook, status=${evt.data.status}`);
+    console.warn(
+      `[pandadoc-webhook] No quote found for documentId=${documentId} — orphan webhook, status=${evt.data.status}`,
+    );
     return;
   }
 

@@ -405,6 +405,40 @@ export async function updateProjectPublicNotes(params: {
   projectId: string;
   notes: string;
 }): Promise<void> {
+  // Primary: Pandora direct Firebird update. /memo/public REPLACES the public
+  // note (1:1 with the Office set below). projectId is already a string
+  // (bmi_reservation_id is TEXT) — JSON.stringify is precision-safe; never Number() it.
+  const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
+  try {
+    const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+    const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/memo/public`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pandoraKey}`,
+      },
+      body: JSON.stringify({
+        locationID: locationId,
+        projectId: params.projectId,
+        memo: params.notes,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (pandoraRes.ok) {
+      console.log(`[bmi-office] updated public notes for project ${params.projectId} via Pandora`);
+      return;
+    }
+    console.warn(
+      `[bmi-office] Pandora public-notes update failed (${pandoraRes.status}), falling back to Office API`,
+    );
+  } catch (err) {
+    console.warn(
+      "[bmi-office] Pandora public-notes update error, falling back to Office API:",
+      err,
+    );
+  }
+
+  // Fallback: Office API GET-find-public-log-modify-PUT
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const token = await getOfficeToken(clientKey);
   const headers = apiHeaders(token, clientKey);
@@ -505,6 +539,45 @@ export async function appendProjectPrivateNote(params: {
   contractUrl?: string;
   pdfUrl?: string;
 }): Promise<void> {
+  // Primary: Pandora direct Firebird update. /memo/private APPENDS one entry to
+  // the private "log of updates" — send just this line. Include contract/PDF
+  // links inline when passed (only on contract-sent / generate-pdf / resend).
+  // projectId is already a string (bmi_reservation_id is TEXT) — JSON.stringify
+  // is precision-safe; never Number() it.
+  const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
+  try {
+    const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+    let memo = params.note;
+    if (params.contractUrl) memo += `\nContract: ${params.contractUrl}`;
+    if (params.pdfUrl) memo += `\nSigned PDF: ${params.pdfUrl}`;
+    const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/memo/private`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pandoraKey}`,
+      },
+      body: JSON.stringify({
+        locationID: locationId,
+        projectId: params.projectId,
+        memo,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (pandoraRes.ok) {
+      console.log(`[bmi-office] appended private note for project ${params.projectId} via Pandora`);
+      return;
+    }
+    console.warn(
+      `[bmi-office] Pandora private-note append failed (${pandoraRes.status}), falling back to Office API`,
+    );
+  } catch (err) {
+    console.warn(
+      "[bmi-office] Pandora private-note append error, falling back to Office API:",
+      err,
+    );
+  }
+
+  // Fallback: Office API GET-append-PUT into the "── FastTrax Web ──" section
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const token = await getOfficeToken(clientKey);
   const headers = apiHeaders(token, clientKey);

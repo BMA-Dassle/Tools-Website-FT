@@ -18,6 +18,7 @@ The group function system automates the full lifecycle of group events — from 
 ### Step 1: Planner Creates the Event in BMI Office
 
 Set up the event as normal in BMI Office:
+
 - Event name, date, time
 - Customer contact (name, email, phone)
 - Products and pricing
@@ -25,6 +26,7 @@ Set up the event as normal in BMI Office:
 - Set the state to **"New Deposit Requested"** (HPFM or FT)
 
 **What happens automatically:**
+
 - The system picks up the event within 1-2 minutes
 - Event name is cleaned up (venue prefixes removed, title case applied)
 - Notes are lightly edited for grammar and spelling
@@ -42,6 +44,7 @@ The customer receives an email with a link to their contract page. The contract 
 5. **Pay Deposit** — 50% deposit via credit card (or 100% if event is within 96 hours)
 
 **After payment:**
+
 - A digital gift card is created with the deposit amount (used for day-of redemption)
 - The customer's card is saved for the automatic balance charge
 - BMI Office is updated: status changes to **"Confirmation + Waiver"** and the deposit is recorded as a payment
@@ -51,6 +54,7 @@ The customer receives an email with a link to their contract page. The contract 
 ### Step 3: 96-Hour Reminder (4 Days Before Event)
 
 The customer receives an email and SMS:
+
 - "Your event is almost here!"
 - "Your balance will be charged tomorrow"
 - Verify guest count, event details, card on file
@@ -60,6 +64,7 @@ The customer receives an email and SMS:
 ### Step 4: 72-Hour Auto-Charge (3 Days Before Event)
 
 The remaining balance is automatically charged to the customer's saved card:
+
 - Gift card is loaded to 100% of the event total
 - Customer receives a payment receipt email with full breakdown
 - If the card fails, a payment link is sent instead
@@ -67,6 +72,7 @@ The remaining balance is automatically charged to the customer's saved card:
 ### Step 5: Event Day
 
 At event time:
+
 - The gift card(s) are redeemed against the day-of Square order
 - The order is completed automatically
 - No staff interaction needed for payment
@@ -98,6 +104,7 @@ Post-paid events do not go through the automatic payment cycle.
 ### Large Events (Over $4,000 Total)
 
 Square limits gift cards to $2,000 each. For large events, the system automatically creates multiple gift cards:
+
 - $5,000 deposit → 3 gift cards ($2,000 + $2,000 + $1,000)
 - Each card has a unique GAN (e.g., GRPF12345678, GRPF12345678B, GRPF12345678C)
 - All cards are redeemed automatically on event day
@@ -105,6 +112,7 @@ Square limits gift cards to $2,000 each. For large events, the system automatica
 ### Contract Updates After Signing
 
 If the planner changes event details in BMI Office after the customer has already signed:
+
 - **Contact info changes** (name, email, phone): Updated automatically, contract re-sent
 - **Pricing/product changes**: Customer must re-sign the contract (previous signed PDF is archived)
 - The customer receives a "Contract Updated" email with a link to review and re-sign
@@ -112,6 +120,7 @@ If the planner changes event details in BMI Office after the customer has alread
 ### Cancellation
 
 When a planner sets the BMI Office state to **"Cancellation"**:
+
 1. The contract is immediately blocked — customer can no longer sign or pay
 2. All Square payments are **refunded** to the customer's card (5-10 business days)
 3. Customer receives a cancellation email with refund confirmation
@@ -136,6 +145,7 @@ When a planner sets the BMI Office state to **"Cancellation"**:
 ### Public Notes Tips
 
 Write notes as you normally would. The system lightly cleans up grammar and spelling before the customer sees them. A few tips:
+
 - **Be specific** — arrival time, food timing, lane assignments, special instructions
 - **Don't worry about perfect grammar** — the system fixes spelling errors and formatting
 - **Keep it factual** — the system will not add or change any information, only clean up wording
@@ -150,6 +160,7 @@ Write notes as you normally would. The system lightly cleans up grammar and spel
 ### Cancelling an Event
 
 Set the BMI Office state to **"Cancellation"**. The system will:
+
 - Block the contract page
 - Refund all payments to the customer's card
 - Send the customer a cancellation email
@@ -158,6 +169,7 @@ Set the BMI Office state to **"Cancellation"**. The system will:
 ### Monitoring Events
 
 All group events appear on the **admin reservations page** for the event date. You can see:
+
 - Event name, number, status
 - Customer and planner info
 - Deposit/balance/total amounts
@@ -169,17 +181,17 @@ All group events appear on the **admin reservations page** for the event date. Y
 
 ## Email Timeline
 
-| When | Email | To |
-|------|-------|----|
-| Contract created | "Your Event Contract" — review & sign link | Customer (CC planner) |
-| Contract updated | "Contract Updated" — review changes | Customer (CC planner) |
-| Deposit paid | "Deposit Received" — confirmation + reference | Customer (CC planner) |
-| 96 hours before | "Your Event Is Almost Here" — verify details, update card, waivers | Customer (CC planner) |
-| 72 hours before | "Payment Complete — See You Soon!" — receipt with breakdown | Customer (CC planner) |
-| Balance link sent | "Balance Due" — payment link (if auto-charge failed) | Customer (CC planner) |
-| Cancelled | "Event Cancelled" — refund confirmation | Customer (CC planner) |
-| Post-paid approval | "Approval Needed" — review & approve/deny | Management |
-| Post-paid denied | "Post-Paid Account Denied" — reason | Planner (CC management) |
+| When               | Email                                                              | To                      |
+| ------------------ | ------------------------------------------------------------------ | ----------------------- |
+| Contract created   | "Your Event Contract" — review & sign link                         | Customer (CC planner)   |
+| Contract updated   | "Contract Updated" — review changes                                | Customer (CC planner)   |
+| Deposit paid       | "Deposit Received" — confirmation + reference                      | Customer (CC planner)   |
+| 96 hours before    | "Your Event Is Almost Here" — verify details, update card, waivers | Customer (CC planner)   |
+| 72 hours before    | "Payment Complete — See You Soon!" — receipt with breakdown        | Customer (CC planner)   |
+| Balance link sent  | "Balance Due" — payment link (if auto-charge failed)               | Customer (CC planner)   |
+| Cancelled          | "Event Cancelled" — refund confirmation                            | Customer (CC planner)   |
+| Post-paid approval | "Approval Needed" — review & approve/deny                          | Management              |
+| Post-paid denied   | "Post-Paid Account Denied" — reason                                | Planner (CC management) |
 
 All emails are BCC'd to vendorcases@dassle.us and jacob@headpinz.com.
 
@@ -187,24 +199,24 @@ All emails are BCC'd to vendorcases@dassle.us and jacob@headpinz.com.
 
 ## BMI Office States
 
-| State | Meaning |
-|-------|---------|
-| New Deposit Requested (HPFM/FT) | Triggers contract creation |
-| Confirmation | Deposit paid, no waiver activities |
-| Confirmation + Waiver | Deposit paid, has waiver activities (laser tag, racing, etc.) |
-| Cancellation | Triggers automatic refund + cancellation |
+| State                           | Meaning                                                       |
+| ------------------------------- | ------------------------------------------------------------- |
+| New Deposit Requested (HPFM/FT) | Triggers contract creation                                    |
+| Confirmation                    | Deposit paid, no waiver activities                            |
+| Confirmation + Waiver           | Deposit paid, has waiver activities (laser tag, racing, etc.) |
+| Cancellation                    | Triggers automatic refund + cancellation                      |
 
 ---
 
 ## Square Components per Event
 
-| Component | Created When | Purpose |
-|-----------|-------------|---------|
-| Day-of Order | At deposit payment | Full event total — redeemed by gift card(s) on event day |
-| Deposit Order | At deposit payment | 50% deposit charge to customer's card |
-| Gift Card(s) | At deposit payment | Internal tracking — loaded to 100% at balance charge, redeemed on event day |
-| Saved Card | At deposit payment | Used for automatic 72-hour balance charge |
-| Balance Order | At 72hr charge | Remaining balance charged to saved card |
+| Component     | Created When       | Purpose                                                                     |
+| ------------- | ------------------ | --------------------------------------------------------------------------- |
+| Day-of Order  | At deposit payment | Full event total — redeemed by gift card(s) on event day                    |
+| Deposit Order | At deposit payment | 50% deposit charge to customer's card                                       |
+| Gift Card(s)  | At deposit payment | Internal tracking — loaded to 100% at balance charge, redeemed on event day |
+| Saved Card    | At deposit payment | Used for automatic 72-hour balance charge                                   |
+| Balance Order | At 72hr charge     | Remaining balance charged to saved card                                     |
 
 ---
 

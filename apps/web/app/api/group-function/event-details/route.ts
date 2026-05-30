@@ -36,7 +36,10 @@ function httpsGet(
       res.on("end", () => resolve({ status: res.statusCode || 500, body: data }));
     });
     req.on("error", reject);
-    req.setTimeout(10_000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(10_000, () => {
+      req.destroy();
+      reject(new Error("Timeout"));
+    });
   });
 }
 
@@ -45,13 +48,28 @@ let tokenExpiry = 0;
 let tokenClientKey = "";
 
 async function getOfficeToken(clientKey: string): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiry - 60_000 && tokenClientKey === clientKey) return cachedToken;
+  if (cachedToken && Date.now() < tokenExpiry - 60_000 && tokenClientKey === clientKey)
+    return cachedToken;
   const body = `grant_type=password&username=${OFFICE_USER}&password=${OFFICE_PASS}`;
   const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
     const postData = Buffer.from(body, "utf-8");
     const r = https.request(
-      { hostname: OFFICE_HOST, path: "/auth/token", method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": postData.length, clientkey: clientKey, "x-fast-version": SMS_VERSION } },
-      (resp) => { let d = ""; resp.on("data", (c) => (d += c)); resp.on("end", () => resolve({ status: resp.statusCode || 500, body: d })); },
+      {
+        hostname: OFFICE_HOST,
+        path: "/auth/token",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": postData.length,
+          clientkey: clientKey,
+          "x-fast-version": SMS_VERSION,
+        },
+      },
+      (resp) => {
+        let d = "";
+        resp.on("data", (c) => (d += c));
+        resp.on("end", () => resolve({ status: resp.statusCode || 500, body: d }));
+      },
     );
     r.on("error", reject);
     r.end(postData);
@@ -65,7 +83,12 @@ async function getOfficeToken(clientKey: string): Promise<string> {
 }
 
 function apiHeaders(token: string, clientKey: string) {
-  return { Authorization: `Bearer ${token}`, "x-fast-version": SMS_VERSION, "x-session-id": randomUUID(), clientkey: clientKey };
+  return {
+    Authorization: `Bearer ${token}`,
+    "x-fast-version": SMS_VERSION,
+    "x-session-id": randomUUID(),
+    clientkey: clientKey,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -81,8 +104,12 @@ export async function GET(req: NextRequest) {
     const token = await getOfficeToken(clientKey);
     const headers = apiHeaders(token, clientKey);
 
-    const projRes = await httpsGet(`/api/${clientKey}/project/${quote.bmi_reservation_id}`, headers);
-    if (projRes.status >= 400) return NextResponse.json({ error: "Failed to fetch project" }, { status: 502 });
+    const projRes = await httpsGet(
+      `/api/${clientKey}/project/${quote.bmi_reservation_id}`,
+      headers,
+    );
+    if (projRes.status >= 400)
+      return NextResponse.json({ error: "Failed to fetch project" }, { status: 502 });
     const project = JSON.parse(projRes.body);
 
     // Notes — public log, most recent
@@ -95,7 +122,8 @@ export async function GET(req: NextRequest) {
       : null;
 
     // Participants — batch lookup via personsByIds
-    const projectPersons: Array<{ personId: string; confirmed: string | null }> = project.projectPersons || [];
+    const projectPersons: Array<{ personId: string; confirmed: string | null }> =
+      project.projectPersons || [];
     const personIds = projectPersons.slice(0, 100).map((p) => p.personId);
     const persons = await fetchPersonsByIds(quote.center_code, personIds);
     const personMap = new Map(persons.map((p) => [p.id, p]));
@@ -109,7 +137,13 @@ export async function GET(req: NextRequest) {
     });
 
     // Schedule
-    const schedules: Array<{ resourceId: string; resourceGroupId: string | null; start: string; stop: string; persons: number }> = project.schedules || [];
+    const schedules: Array<{
+      resourceId: string;
+      resourceGroupId: string | null;
+      start: string;
+      stop: string;
+      persons: number;
+    }> = project.schedules || [];
 
     return NextResponse.json({
       notes,
@@ -127,4 +161,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to load event details" }, { status: 500 });
   }
 }
-
