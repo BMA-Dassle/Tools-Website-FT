@@ -460,8 +460,13 @@ export default function CheckInClient({ token, version }: Props) {
               className="font-black uppercase text-center leading-tight mt-2"
               style={{ fontSize: "clamp(40px, 10vw, 72px)", color: getTrackTextColor() }}
             >
-              {lastResult.nextRace.track} {lastResult.nextRace.raceType}{" "}
-              {lastResult.nextRace.heatNumber ? `Heat ${lastResult.nextRace.heatNumber}` : ""}
+              {[
+                lastResult.nextRace.track,
+                lastResult.nextRace.raceType,
+                lastResult.nextRace.heatNumber ? `Heat ${lastResult.nextRace.heatNumber}` : null,
+              ]
+                .filter(Boolean)
+                .join(" ") || "Race details unavailable"}
             </p>
             {lastResult.nextRace.scheduledStart && (
               <p

@@ -242,12 +242,15 @@ async function fetchNextRace(
     const json = await res.json();
     const data = json?.data;
     if (!data) return { status: "unknown" };
+    // Read each field with the documented races/current name plus the obvious
+    // shorter alias, so the track / type / race number all survive regardless of
+    // which naming the race/next payload uses.
     return {
       status: "found",
       race: {
-        track: data.trackName?.toLowerCase() ?? null,
-        raceType: data.raceType ?? null,
-        heatNumber: data.heatNumber ?? null,
+        track: (data.trackName ?? data.track)?.toLowerCase() ?? null,
+        raceType: data.raceType ?? data.type ?? null,
+        heatNumber: data.heatNumber ?? data.raceNumber ?? null,
         scheduledStart: data.scheduledStart ?? null,
       },
     };
