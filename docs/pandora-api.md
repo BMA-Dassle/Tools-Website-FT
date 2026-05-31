@@ -45,6 +45,36 @@ Fetches full customer details from BMI Firebird database including contact infor
 - `pic` — Base64 encoded profile picture (omit with `?picture=false` to reduce payload).
 - `lastVisit` — Last time they raced.
 
+### GET /bmi/race/next/{locationID}/{person|participant}/{id}
+
+Returns a racer's **next upcoming race** at a location. Used by the race check-in scanner
+([apps/web/app/api/admin/checkin/route.ts](../apps/web/app/api/admin/checkin/route.ts)) to tell a
+guest when they actually race when the QR they scanned isn't currently being called.
+
+**Parameters:**
+| Name | Type | In | Description |
+|------|------|-----|-------------|
+| locationID | string | path | Pandora location ID (e.g. `LAB52GY480CJF` for FastTrax FT Myers) |
+| `person` / `participant` | literal | path | Path segment selecting the ID type — use `person` for a BMI person ID, `participant` for a participant ID. |
+| id | string | path | The person ID or participant ID (matching the segment above). Pass as a string — never `Number()` it (BMI ID precision). |
+
+**Response (200):** same race shape as `GET /bmi/races/current/{locationID}`, wrapped in `{ success, data }`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "trackName": "Blue",
+    "raceType": "Starter",
+    "heatNumber": 5,
+    "scheduledStart": "2026-05-31T20:00:00.000Z",
+    "sessionId": 123456
+  }
+}
+```
+
+**404** — no upcoming race scheduled for that racer (surfaced to staff as "No upcoming race found").
+
 ## Environment Variables
 
 | Variable                | Value                                          | Description                            |

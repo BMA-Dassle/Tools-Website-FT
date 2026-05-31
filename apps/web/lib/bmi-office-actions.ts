@@ -532,6 +532,36 @@ function parseSection(section: string): {
   return { contractUrl: null, pdfUrl: null, logLines: section.trim() };
 }
 
+/**
+ * Merge a new private-note entry into an existing private memo, keeping ALL
+ * existing text — staff's own notes outside the section AND prior system
+ * entries inside it — and appending the new line inside the
+ * "── FastTrax Web ──" section. Returns the full merged memo.
+ */
+function mergePrivateMemo(
+  existing: string,
+  note: string,
+  contractUrl: string | null,
+  pdfUrl: string | null,
+): string {
+  const startIdx = existing.indexOf(NOTES_SECTION_START);
+  const endIdx = existing.indexOf(NOTES_SECTION_END);
+
+  if (startIdx >= 0 && endIdx > startIdx) {
+    const before = existing.slice(0, startIdx);
+    const after = existing.slice(endIdx + NOTES_SECTION_END.length);
+    const sectionContent = existing.slice(startIdx + NOTES_SECTION_START.length, endIdx).trim();
+    const parsed = parseSection(sectionContent);
+    const url = contractUrl || parsed.contractUrl;
+    const pdf = pdfUrl || parsed.pdfUrl;
+    const updatedLog = parsed.logLines ? `${parsed.logLines}\n${note}` : note;
+    return `${before}${buildSection(url, pdf, updatedLog)}${after}`;
+  }
+
+  const sep = existing.trim() ? "\n\n" : "";
+  return `${existing}${sep}${buildSection(contractUrl, pdfUrl, note)}`;
+}
+
 export async function appendProjectPrivateNote(params: {
   centerCode: string;
   projectId: string;
@@ -539,17 +569,57 @@ export async function appendProjectPrivateNote(params: {
   contractUrl?: string;
   pdfUrl?: string;
 }): Promise<void> {
-  // Primary: Pandora direct Firebird update. /memo/private APPENDS one entry to
-  // the private "log of updates" — send just this line. Include contract/PDF
-  // links inline when passed (only on contract-sent / generate-pdf / resend).
-  // projectId is already a string (bmi_reservation_id is TEXT) — JSON.stringify
-  // is precision-safe; never Number() it.
+  // Private notes are a ROLLING LOG. Pandora /memo/private REPLACES the memo (it
+  // does NOT append server-side), so sending just the new line wiped prior
+  // entries and any staff-typed notes. We accumulate client-side: read the
+  // current memo, merge the new entry, then write the FULL merged text.
+  // (Public notes are intentionally replace-only — see updateProjectPublicNotes.)
+  // projectId is a string (bmi_reservation_id is TEXT) — JSON.stringify is
+  // precision-safe; never Number() it.
+  const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
+
+  // 1. Read the current private memo via the Office API (the same store Pandora
+  //    writes to). Hold the project + logs for the Office PUT fallback below.
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+
+  let project: Record<string, unknown>;
+  let logs: Array<{ public: boolean; memo: string; id: string }>;
+  let privateLog: { public: boolean; memo: string; id: string } | undefined;
+  try {
+    const getRes = await httpsRequest(
+      "GET",
+      `/api/${clientKey}/project/${params.projectId}`,
+      headers,
+    );
+    if (getRes.status >= 400) throw new Error(`GET project ${getRes.status}`);
+    project = JSON.parse(getRes.body);
+    logs = (project.logs || []) as Array<{ public: boolean; memo: string; id: string }>;
+    privateLog = logs.find((l) => !l.public);
+  } catch (err) {
+    // Never send a replacing write we couldn't base on the current text — that
+    // would wipe prior entries. Skip this (non-fatal) audit line instead.
+    console.warn(
+      `[bmi-office] private-note read failed for project ${params.projectId}; skipping append to avoid overwrite:`,
+      err,
+    );
+    return;
+  }
+
+  // 2. Merge the new entry into the existing memo (preserves staff text + prior
+  //    system entries).
+  const mergedMemo = mergePrivateMemo(
+    privateLog?.memo || "",
+    params.note,
+    params.contractUrl || null,
+    params.pdfUrl || null,
+  );
+
+  // 3. Primary write: Pandora /memo/private with the FULL merged memo (replace,
+  //    now carrying the accumulated text).
   try {
     const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
-    let memo = params.note;
-    if (params.contractUrl) memo += `\nContract: ${params.contractUrl}`;
-    if (params.pdfUrl) memo += `\nSigned PDF: ${params.pdfUrl}`;
     const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/memo/private`, {
       method: "POST",
       headers: {
@@ -559,7 +629,7 @@ export async function appendProjectPrivateNote(params: {
       body: JSON.stringify({
         locationID: locationId,
         projectId: params.projectId,
-        memo,
+        memo: mergedMemo,
       }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -568,39 +638,15 @@ export async function appendProjectPrivateNote(params: {
       return;
     }
     console.warn(
-      `[bmi-office] Pandora private-note append failed (${pandoraRes.status}), falling back to Office API`,
+      `[bmi-office] Pandora private-note write failed (${pandoraRes.status}), falling back to Office API`,
     );
   } catch (err) {
-    console.warn(
-      "[bmi-office] Pandora private-note append error, falling back to Office API:",
-      err,
-    );
+    console.warn("[bmi-office] Pandora private-note write error, falling back to Office API:", err);
   }
 
-  // Fallback: Office API GET-append-PUT into the "── FastTrax Web ──" section
-  const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
-  const token = await getOfficeToken(clientKey);
-  const headers = apiHeaders(token, clientKey);
-
-  const getRes = await httpsRequest(
-    "GET",
-    `/api/${clientKey}/project/${params.projectId}`,
-    headers,
-  );
-  if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
-  const project = JSON.parse(getRes.body);
-
-  const logs = (project.logs || []) as Array<{
-    public: boolean;
-    memo: string;
-    id: string;
-  }>;
-  const privateLog = logs.find((l) => !l.public);
-
-  const newMemo = buildSection(params.contractUrl || null, params.pdfUrl || null, params.note);
-
+  // 4. Fallback: Office API PUT the merged memo into the private log (create it
+  //    if none exists). Reuses the project + logs read in step 1.
   if (!privateLog) {
-    // No private log exists — create one via POST /projectLog
     const createRes = await httpsRequest(
       "POST",
       `/api/${clientKey}/projectLog`,
@@ -610,34 +656,16 @@ export async function appendProjectPrivateNote(params: {
         public: false,
         kind: 1,
         action: 7,
-        memo: newMemo,
+        memo: mergedMemo,
       }),
     );
     if (createRes.status >= 400) {
       throw new Error(`Failed to create private log: ${createRes.status}`);
     }
   } else {
-    const existing = privateLog.memo || "";
-    const startIdx = existing.indexOf(NOTES_SECTION_START);
-    const endIdx = existing.indexOf(NOTES_SECTION_END);
-
-    if (startIdx >= 0 && endIdx > startIdx) {
-      const before = existing.slice(0, startIdx);
-      const after = existing.slice(endIdx + NOTES_SECTION_END.length);
-      const sectionContent = existing.slice(startIdx + NOTES_SECTION_START.length, endIdx).trim();
-      const parsed = parseSection(sectionContent);
-      const url = params.contractUrl || parsed.contractUrl;
-      const pdf = params.pdfUrl || parsed.pdfUrl;
-      const updatedLog = parsed.logLines ? `${parsed.logLines}\n${params.note}` : params.note;
-      privateLog.memo = `${before}${buildSection(url, pdf, updatedLog)}${after}`;
-    } else {
-      const sep = existing.trim() ? "\n\n" : "";
-      privateLog.memo = `${existing}${sep}${newMemo}`;
-    }
-
+    privateLog.memo = mergedMemo;
     const minimal = toMinimalProject(project, ["logs"]);
     minimal.logs = logs;
-
     const putRes = await httpsRequest(
       "PUT",
       `/api/${clientKey}/project`,
@@ -649,7 +677,7 @@ export async function appendProjectPrivateNote(params: {
     }
   }
 
-  console.log(`[bmi-office] appended private note for project ${params.projectId}`);
+  console.log(`[bmi-office] appended private note for project ${params.projectId} via Office API`);
 }
 
 // ── Update project product price ───────────────────────────────────

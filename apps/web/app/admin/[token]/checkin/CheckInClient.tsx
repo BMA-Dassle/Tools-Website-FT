@@ -20,6 +20,13 @@ interface CheckinResponse {
   };
   currentlyCheckingIn: boolean;
   headsock: { detected: boolean; deducted: boolean; balance: number };
+  nextRace?: {
+    track: string | null;
+    raceType: string | null;
+    heatNumber: number | null;
+    scheduledStart: string | null;
+  } | null;
+  nextRaceStatus?: "found" | "none" | "unknown";
 }
 
 const TRACK_COLORS: Record<string, string> = {
@@ -305,6 +312,31 @@ export default function CheckInClient({ token, version }: Props) {
     }, FLASH_DURATION);
   }
 
+  // Preview the next-race screens (no API call) — paper-QR scan whose race
+  // isn't currently being called.
+  function previewNextRace(status: "found" | "none") {
+    const race =
+      status === "found"
+        ? { track: "blue", raceType: "Starter", heatNumber: 5, scheduledStart: null }
+        : null;
+    setLastResult({
+      success: false,
+      guest: null,
+      session: race ?? { track: null, raceType: null, heatNumber: null, scheduledStart: null },
+      currentlyCheckingIn: false,
+      headsock: { detected: false, deducted: false, balance: 0 },
+      nextRace: race,
+      nextRaceStatus: status,
+    });
+    setLastError("");
+    setScanState("result");
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => {
+      setScanState("idle");
+      setLastResult(null);
+    }, FLASH_DURATION);
+  }
+
   // Self-test
   async function runSelfTest() {
     try {
@@ -415,6 +447,46 @@ export default function CheckInClient({ token, version }: Props) {
             </p>
             <p className="text-white/80 text-lg text-center mt-2 max-w-md">{lastError}</p>
             {lastRaw && <p className="text-white/40 text-xs mt-4 font-mono">{lastRaw}</p>}
+          </>
+        ) : lastResult?.nextRaceStatus === "found" && lastResult.nextRace ? (
+          <>
+            <p
+              className="text-black/70 font-black uppercase tracking-widest text-center"
+              style={{ fontSize: "clamp(20px, 4vw, 32px)" }}
+            >
+              Next Race
+            </p>
+            <p
+              className="font-black uppercase text-center leading-tight mt-2"
+              style={{ fontSize: "clamp(40px, 10vw, 72px)", color: getTrackTextColor() }}
+            >
+              {lastResult.nextRace.track} {lastResult.nextRace.raceType}{" "}
+              {lastResult.nextRace.heatNumber ? `Heat ${lastResult.nextRace.heatNumber}` : ""}
+            </p>
+            {lastResult.nextRace.scheduledStart && (
+              <p
+                className="text-black/80 font-bold text-center mt-3"
+                style={{ fontSize: "clamp(24px, 6vw, 44px)" }}
+              >
+                {new Date(lastResult.nextRace.scheduledStart).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZone: "America/New_York",
+                })}
+              </p>
+            )}
+            {lastRaw && <p className="text-black/40 text-xs mt-4 font-mono">{lastRaw}</p>}
+          </>
+        ) : lastResult?.nextRaceStatus === "none" ? (
+          <>
+            <p
+              className="text-black font-black uppercase text-center"
+              style={{ fontSize: "clamp(36px, 8vw, 56px)" }}
+            >
+              No Upcoming Race Found
+            </p>
+            <p className="text-black/70 text-lg text-center mt-2">See Guest Services</p>
+            {lastRaw && <p className="text-black/40 text-xs mt-4 font-mono">{lastRaw}</p>}
           </>
         ) : lastResult?.guest ? (
           <>
@@ -727,6 +799,22 @@ export default function CheckInClient({ token, version }: Props) {
               style={{ backgroundColor: WARNING_COLOR }}
             >
               Preview Yellow
+            </button>
+            <button
+              type="button"
+              onClick={() => previewNextRace("found")}
+              className="px-3 py-1.5 rounded text-xs font-bold text-black"
+              style={{ backgroundColor: WARNING_COLOR }}
+            >
+              Preview Next Race
+            </button>
+            <button
+              type="button"
+              onClick={() => previewNextRace("none")}
+              className="px-3 py-1.5 rounded text-xs font-bold text-black"
+              style={{ backgroundColor: WARNING_COLOR }}
+            >
+              Preview No Race
             </button>
           </div>
 
