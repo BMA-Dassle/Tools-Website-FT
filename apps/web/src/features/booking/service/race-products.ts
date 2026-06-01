@@ -628,6 +628,112 @@ export function getRaceProductById(
   return RACE_PRODUCTS.find((p) => p.productId === pid) ?? null;
 }
 
+// ────────────────────────── $0 BMI build products ────────────────────────
+
+export interface RaceBuildTarget {
+  /** $0 BMI product id this variant books the heat against (holds it at $0). */
+  productId: string;
+  /** Page id whose dayplanner the build product lives on — must mirror the
+   *  priced product's heat times so the customer's picked heat resolves. */
+  pageId: string;
+}
+
+export interface RaceBuildPair {
+  /** Returning racer — heat only. */
+  raceOnly: RaceBuildTarget;
+  /** New racer's FIRST heat — bundles the $0 license so BMI records the racer
+   *  as licensed/"existing" for next time. */
+  withLicense: RaceBuildTarget;
+}
+
+/** All current $0 race build products live on one BMI page (49504534). */
+const BUILD_PAGE_ID = "49504534";
+const mkPair = (withLicenseId: string, raceOnlyId: string): RaceBuildPair => ({
+  withLicense: { productId: withLicenseId, pageId: BUILD_PAGE_ID },
+  raceOnly: { productId: raceOnlyId, pageId: BUILD_PAGE_ID },
+});
+
+/**
+ * $0 BMI "build" products — the reservation-only twins of the priced race
+ * products. Each holds a heat slot at $0; Square charges the real price from
+ * this registry. Two variants per race session, matched to BMI catalog names:
+ *   - withLicense → "… - New Web"     (new racer; bundles the $0 license so BMI
+ *                   records them as licensed/"existing")
+ *   - raceOnly    → "… - New Web NL"  (NL = No License; returning racer, or a
+ *                   new racer's 2nd+ heat)
+ *
+ * Keyed by `${category}:${tier}:${track}`. Junior and adult are SEPARATE BMI
+ * products (kept distinct in the catalog); weekday/weekend collapse — one build
+ * product per (category, tier, track) spans both schedules via its dayplanner.
+ * 14 sessions × 2 = 28 products, all on page 49504534.
+ *
+ * ⚠️ Each build product's dayplanner must mirror the priced product's heat times
+ * AND share its capacity, or the customer's picked heat won't resolve / will
+ * double-book. (BMI-side config — see tasks/zero-bmi-bill-model.md.)
+ */
+export const RACE_BUILD_PRODUCTS: Record<string, RaceBuildPair> = {
+  //                              withLicense ("New Web")  raceOnly ("New Web NL")
+  "adult:starter:Red": mkPair("49503727", "49503791"),
+  "adult:starter:Blue": mkPair("49504069", "49504143"),
+  "adult:starter:Mega": mkPair("49503904", "49503987"),
+  "adult:intermediate:Red": mkPair("49497496", "49497638"),
+  "adult:intermediate:Blue": mkPair("49495696", "49497117"),
+  "adult:intermediate:Mega": mkPair("49498672", "49499272"),
+  "adult:pro:Red": mkPair("49503215", "49503412"),
+  "adult:pro:Blue": mkPair("49501986", "49502099"),
+  "adult:pro:Mega": mkPair("49502297", "49502598"),
+  "junior:starter:Blue": mkPair("49501626", "49501755"),
+  "junior:intermediate:Blue": mkPair("49498220", "49498305"),
+  "junior:intermediate:Mega": mkPair("49499359", "49499922"),
+  "junior:pro:Blue": mkPair("49501400", "49501489"),
+  "junior:pro:Mega": mkPair("49500166", "49500772"),
+};
+
+/** Build-product key for a race product: `${category}:${tier}:${track}` (null when no track). */
+export function raceBuildKey(product: RaceProduct): string | null {
+  if (!product.track) return null;
+  return `${product.category}:${product.tier}:${product.track}`;
+}
+
+/**
+ * Fully-configured $0 build pair for a race product, or null when the $0 model
+ * isn't set up for it yet (no entry, or either variant id still blank → legacy).
+ */
+export function getRaceBuildPair(product: RaceProduct): RaceBuildPair | null {
+  const key = raceBuildKey(product);
+  if (!key) return null;
+  const pair = RACE_BUILD_PRODUCTS[key];
+  if (!pair || !pair.raceOnly.productId || !pair.withLicense.productId) return null;
+  return pair;
+}
+
+/**
+ * Resolve the BMI product + page to book a heat against.
+ *
+ * v2 $0 model: when the heat's product has a configured build pair, book the
+ * `raceOnly` or `withLicense` $0 twin — the heat is $0 on the BMI bill and
+ * Square charges the registry price. `withLicense` is true only for a NEW
+ * racer's FIRST heat. Until the $0 products are wired in (blank entries), this
+ * falls back to the priced product/page so the legacy flow is unchanged.
+ * Unknown ids (combo track components, addons) pass through unchanged.
+ */
+export function bmiBookingTarget(
+  productId: string | null | undefined,
+  opts: { withLicense?: boolean } = {},
+): { productId: string; pageId: string } {
+  const pid = productId == null ? "" : String(productId);
+  const p = getRaceProductById(pid);
+  if (p) {
+    const pair = getRaceBuildPair(p);
+    if (pair) {
+      const t = opts.withLicense ? pair.withLicense : pair.raceOnly;
+      return { productId: t.productId, pageId: t.pageId };
+    }
+    return { productId: p.productId, pageId: p.pageId };
+  }
+  return { productId: pid, pageId: pid };
+}
+
 /**
  * All race products for a given (schedule, racerType) pair. The wizard's
  * Product step calls this after the customer picks date + experience,

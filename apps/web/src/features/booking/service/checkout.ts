@@ -13,6 +13,8 @@ import type { Action } from "../state/machine";
 import type { BookingSession, RaceItem, AttractionItem } from "../state/types";
 import type { ContactInfo } from "../types";
 import { getRaceProductById } from "./race-products";
+import { raceUsesZeroBmiModel } from "./race";
+import { LICENSE_PRICE, calculateTax } from "./race-pricing";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import { getService } from "./index";
 
@@ -25,6 +27,9 @@ export interface BillLine {
   time?: string;
   lineId?: string;
   productGroup?: string;
+  /** BMI product id for this line — set on $0-model charge lines so the reserve
+   *  route resolves the Square catalog item without re-deriving from the session. */
+  bmiProductId?: string;
 }
 
 export interface BillOverview {
@@ -82,7 +87,17 @@ export async function runCheckout(
 
   // 4. Fetch bill overview for pricing
   onProgress("Loading totals…");
-  const overview = await fetchBillOverview(billId);
+  const bmiOverview = await fetchBillOverview(billId);
+
+  // v2 $0 model: the BMI bill is $0 (heats are $0 build products), so the real
+  // amount comes from the registry (race + license + FL tax), not the bill. Build
+  // a charge overview that drives BOTH the pay page and the Square cart, so the
+  // displayed price always equals what's charged.
+  const raceItems = sessionWithContact.items.filter((i): i is RaceItem => i.kind === "race");
+  const useZeroModel = raceItems.length > 0 && raceItems.every(raceUsesZeroBmiModel);
+  const overview = useZeroModel
+    ? buildZeroModelOverview(sessionWithContact, bmiOverview)
+    : bmiOverview;
 
   return { bmiBillId: billId, overview };
 }
@@ -441,16 +456,22 @@ export interface ReserveResult {
 export async function reserveBooking(params: ReserveParams): Promise<ReserveResult> {
   const { session, bmiBillId, overview, contact } = params;
 
-  const raceItem = session.items.find((i): i is RaceItem => i.kind === "race");
+  const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
+  const raceItem = raceItems[0];
   const bookingKind: "race" | "attraction" = raceItem ? "race" : "attraction";
 
   const centerCode = session.center ?? "fort-myers";
   const bmiClientKey = centerCode === "naples" ? "headpinznaples" : "headpinzftmyers";
 
+  const useZeroModel = raceItems.length > 0 && raceItems.every(raceUsesZeroBmiModel);
+  // The `overview` IS the charge in both models — legacy = BMI bill lines; zero
+  // model = registry race + license (+ any non-race BMI lines), built in
+  // buildZeroModelOverview. Mapping it straight to the Square cart guarantees the
+  // charge equals what the customer was shown (displayed price = charge-time price).
   const cartItems = overview.lines
     .filter((l) => l.amount > 0 || overview.isCreditOrder)
     .map((l) => ({
-      bmiProductId: resolveProductId(session, l) ?? "",
+      bmiProductId: l.bmiProductId ?? resolveProductId(session, l) ?? "",
       name: l.name,
       quantity: l.quantity,
       unitPriceCents: Math.round((l.amount * 100) / l.quantity),
@@ -489,6 +510,9 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
       bookingMetadata,
       cartItems,
       centerCode,
+      // $0 model: the whole BMI bill is $0 (heats + bundled license all $0), so
+      // confirm it as a $0 credit. Square holds the real money. Omitted on legacy.
+      bmiConfirmAmountCents: useZeroModel ? 0 : undefined,
     }),
   });
 
@@ -506,6 +530,68 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
     dayofTotalCents: data.dayofTotalCents,
     depositCents: data.depositCents,
   };
+}
+
+/** BMI license product id. The line's name ("FastTrax License") resolves to
+ *  SQ.LICENSE via NAME_CATALOG_MAP in the reserve route, so the unmapped id here
+ *  is fine — it's just carried for traceability. */
+const LICENSE_PRODUCT_ID = "43473520";
+
+/**
+ * Charge lines for the v2 $0 model from the hardcoded registry: one line per race
+ * product (priced from `RaceProduct.price`, grouped across all race items) plus a
+ * `FastTrax License` line ($4.99 × new racers). BMI holds the heats + bundled
+ * license at $0; these lines are what Square actually charges. `bmiProductId`
+ * lets the reserve route resolve each to its Square catalog object.
+ */
+function buildRaceChargeLines(session: BookingSession): BillLine[] {
+  const grouped = new Map<string, { name: string; unit: number; qty: number }>();
+  for (const item of session.items) {
+    if (item.kind !== "race") continue;
+    for (const heat of item.heats) {
+      if (!heat.productId) continue;
+      const product = getRaceProductById(heat.productId);
+      if (!product) continue;
+      const existing = grouped.get(heat.productId);
+      if (existing) existing.qty += 1;
+      else grouped.set(heat.productId, { name: product.name, unit: product.price, qty: 1 });
+    }
+  }
+  const lines: BillLine[] = [...grouped.entries()].map(([productId, l]) => ({
+    name: l.name,
+    quantity: l.qty,
+    amount: Math.round(l.unit * l.qty * 100) / 100,
+    bmiProductId: productId,
+  }));
+  const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
+  if (newRacerCount > 0) {
+    lines.push({
+      name: "FastTrax License",
+      quantity: newRacerCount,
+      amount: Math.round(LICENSE_PRICE * newRacerCount * 100) / 100,
+      bmiProductId: LICENSE_PRODUCT_ID,
+    });
+  }
+  return lines;
+}
+
+/**
+ * Build the charge overview for the v2 $0 model. The BMI bill is $0 (heats are $0
+ * build products), so the amount the customer pays comes from the registry: race
+ * lines + license, plus any non-race priced BMI lines (e.g. attractions), + FL
+ * tax. This is the single source for BOTH the pay page and the Square cart, so the
+ * two can't drift — `isCreditOrder` is false because real money is owed.
+ */
+function buildZeroModelOverview(session: BookingSession, bmiOverview: BillOverview): BillOverview {
+  const raceLines = buildRaceChargeLines(session);
+  // Non-race priced lines on the BMI bill (heats are $0, so amount>0 leaves only
+  // things like attractions). Race heats and the bundled license stay $0 on BMI.
+  const otherLines = bmiOverview.lines.filter((l) => l.amount > 0);
+  const lines = [...raceLines, ...otherLines];
+  const subtotal = Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+  const tax = calculateTax(subtotal);
+  const total = Math.round((subtotal + tax) * 100) / 100;
+  return { lines, subtotal, tax, total, cashOwed: total, creditApplied: 0, isCreditOrder: false };
 }
 
 function resolveProductId(session: BookingSession, line: BillLine): string | null {

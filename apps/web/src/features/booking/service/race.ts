@@ -21,6 +21,51 @@ const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
 const ADDON_PAGE_ID = "42730172";
 
+/**
+ * Is this RaceItem eligible for the v2 "$0 BMI build product + Square charges
+ * the registry price" model? Scope is SINGLE races only — combos, POV, and
+ * cross-activity add-ons stay on the legacy (BMI-priced) path. Requires every
+ * heat's product to have a configured $0 build pair (see RACE_BUILD_PRODUCTS),
+ * so this is a no-op until the $0 BMI products are created + wired in.
+ *
+ * When true: heats book against $0 BMI products (heat + bundled license are $0
+ * on the bill → the whole bill is a $0 credit) and Square charges the real
+ * registry race price + the license as their own lines.
+ */
+export function raceUsesZeroBmiModel(item: RaceItem): boolean {
+  if (item.heats.length === 0) return false;
+  if (item.povQuantity > 0) return false;
+  if (item.addons.some((a) => a.qty > 0)) return false;
+  for (const heat of item.heats) {
+    const product = getRaceProductById(heat.productId);
+    if (!product) return false;
+    if (product.packType === "combo") return false;
+    if (!getRaceBuildPair(product)) return false;
+  }
+  return true;
+}
+
+/**
+ * Heat indices that should book the `+license` $0 build product: the FIRST heat
+ * of each NEW racer. Guarantees a multi-heat new racer gets the license exactly
+ * once. Deterministic by heat order, so it's stable across retries and across
+ * bookHeatsOnAdvance / holdRaceItem. Harmless on the legacy path (the target
+ * resolver ignores `withLicense` when there's no build pair).
+ */
+function licenseHeatIndices(session: BookingSession, item: RaceItem): Set<number> {
+  const indices = new Set<number>();
+  const seen = new Set<string>();
+  for (let i = 0; i < item.heats.length; i++) {
+    const memberId = item.heats[i].assignedTo;
+    if (!memberId || seen.has(memberId)) continue;
+    const member = session.party.find((m) => m.id === memberId);
+    if (!member?.isNewRacer) continue;
+    seen.add(memberId);
+    indices.add(i);
+  }
+  return indices;
+}
+
 // ── bookHeatsOnAdvance: book unbooked heats when leaving heat picker ────
 
 export async function bookHeatsOnAdvance(
@@ -37,6 +82,7 @@ export async function bookHeatsOnAdvance(
   const unbooked = item.heats.filter((h) => !h.bmiLineId && h.heatId && h.productId);
   let bookedCount = 0;
   const totalToBook = unbooked.length;
+  const licenseHeats = licenseHeatIndices(session, item);
 
   for (let i = 0; i < item.heats.length; i++) {
     const heat = item.heats[i];
@@ -52,10 +98,15 @@ export async function bookHeatsOnAdvance(
       ? (session.party.find((m) => m.id === heat.assignedTo)?.bmiPersonId ?? null)
       : null;
 
+    // v2 books against the $0 build product (raceOnly, or the +license twin for
+    // a new racer's first heat); falls back to the priced product until the $0
+    // products are wired in. Build + priced share a dayplanner, so the picked
+    // heat time still resolves.
+    const target = bmiBookingTarget(heat.productId, { withLicense: licenseHeats.has(i) });
     const availability = await bmiAdapter.getAvailability({
       date: item.date!,
-      productId: heat.productId,
-      pageId: resolvePageId(heat.productId),
+      productId: target.productId,
+      pageId: target.pageId,
       quantity: 1,
     });
     const matchingProposal = findProposalForHeat(availability.proposals, heat.heatId);
@@ -64,7 +115,7 @@ export async function bookHeatsOnAdvance(
     }
 
     const result = await bmiAdapter.bookHeat({
-      productId: heat.productId,
+      productId: target.productId,
       quantity: 1,
       proposal: matchingProposal,
       orderId: billId,
@@ -100,6 +151,7 @@ export async function holdRaceItem(
   dispatch: Dispatch<Action>,
 ): Promise<RaceHoldResult> {
   let billId = session.bmiBillId;
+  const licenseHeats = licenseHeatIndices(session, item);
 
   // 1. Book each heat that hasn't been booked yet
   for (let i = 0; i < item.heats.length; i++) {
@@ -119,10 +171,15 @@ export async function holdRaceItem(
     // Build a minimal proposal from the heat pick. The heat picker
     // stored block.start as heatId — we reconstruct the proposal shape
     // that bmiAdapter.bookHeat expects.
+    // v2 books against the $0 build product (raceOnly, or the +license twin for
+    // a new racer's first heat); falls back to the priced product until the $0
+    // products are wired in. Build + priced share a dayplanner, so the picked
+    // heat time still resolves.
+    const target = bmiBookingTarget(heat.productId, { withLicense: licenseHeats.has(i) });
     const availability = await bmiAdapter.getAvailability({
       date: item.date!,
-      productId: heat.productId,
-      pageId: resolvePageId(heat.productId),
+      productId: target.productId,
+      pageId: target.pageId,
       quantity: 1,
     });
     const matchingProposal = findProposalForHeat(availability.proposals, heat.heatId);
@@ -131,7 +188,7 @@ export async function holdRaceItem(
     }
 
     const result = await bmiAdapter.bookHeat({
-      productId: heat.productId,
+      productId: target.productId,
       quantity: 1,
       proposal: matchingProposal,
       orderId: billId,
@@ -155,11 +212,13 @@ export async function holdRaceItem(
     throw new Error("No BMI bill — book at least one heat before checkout");
   }
 
-  // 2. Sell license for new racers (non-fatal)
+  // 2. Sell license for new racers (non-fatal). On the $0 model the license is
+  // bundled into the new racer's +license build product (recorded in BMI at $0,
+  // charged via Square), so the separate booking/sell is skipped.
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
   let licenseSold = false;
   if (newRacerCount > 0) {
-    licenseSold = await sellLicense(billId, newRacerCount);
+    licenseSold = raceUsesZeroBmiModel(item) ? true : await sellLicense(billId, newRacerCount);
   }
 
   // 3. Sell POV cameras (non-fatal)
@@ -353,16 +412,9 @@ async function ensurePersonId(
   }
 }
 
-// ── internal: resolve pageId for a BMI productId ────────────────────────
+// ── internal: race-products lookups (imports hoisted; used above) ───────
 
-import { getRaceProductById } from "./race-products";
-
-function resolvePageId(productId: string): string {
-  const product = getRaceProductById(productId);
-  if (product) return product.pageId;
-  // Fallback: use the product's own ID as page ID (some addon products do this)
-  return productId;
-}
+import { getRaceProductById, bmiBookingTarget, getRaceBuildPair } from "./race-products";
 
 // ── internal: find a proposal matching a heat's start time ──────────────
 

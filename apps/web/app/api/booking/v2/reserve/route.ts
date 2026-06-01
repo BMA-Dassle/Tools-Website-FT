@@ -108,6 +108,13 @@ interface ReserveRequest {
   bookingMetadata?: Record<string, unknown>;
   cartItems: CartItem[];
   centerCode: string;
+  /**
+   * v2 $0 model: confirm the BMI bill for THIS amount (its real total — race
+   * heats are $0, so it's just the license / other BMI-priced lines), decoupled
+   * from the full Square charge. 0 → confirm as a $0 credit. Omitted on the
+   * legacy path (falls back to the Square day-of total).
+   */
+  bmiConfirmAmountCents?: number;
 }
 
 // ── Resolve location from brand + center ───────────────────────────────
@@ -149,6 +156,12 @@ export async function POST(req: NextRequest) {
     const depositPct = body.depositPct ?? 100;
     const baseKey = randomBytes(8).toString("hex");
     const isCreditOrder = body.cartItems.every((ci) => ci.unitPriceCents === 0);
+    // BMI confirm amount is decoupled from the Square charge: when the caller
+    // passes an explicit bill total (the $0 model), confirm for that (0 = $0
+    // credit); otherwise fall back to the legacy "Square total" behavior.
+    const explicitConfirmCents = body.bmiConfirmAmountCents;
+    const bmiAsCredit =
+      explicitConfirmCents !== undefined ? explicitConfirmCents === 0 : isCreditOrder;
 
     // ── Step 1: Build Square day-of order ───────────────────────────────
     const taxCatalogId = LOCATION_TAX[locationId];
@@ -164,6 +177,11 @@ export async function POST(req: NextRequest) {
           catalog_object_id: catalogId,
           quantity: String(ci.quantity),
           base_price_money: { amount: ci.unitPriceCents, currency: "USD" },
+          // $0 model only: override the shared "Karting" catalog item's display
+          // name per the registry row. (Square may keep the catalog name on some
+          // API versions — verify on a test order; price + the shared catalog
+          // categorization still apply.) Legacy/attraction lines are untouched.
+          ...(body.bmiConfirmAmountCents !== undefined ? { name: ci.name } : {}),
         };
       }
       // Ad-hoc line item (unmapped product)
@@ -226,7 +244,10 @@ export async function POST(req: NextRequest) {
       cardApprovedCents: 0,
     };
 
-    if (depositCents > 0 && !isCreditOrder) {
+    // Charge the deposit whenever the Square total is positive — independent of
+    // how BMI is confirmed. In the $0 model the BMI bill is $0 (credit) but
+    // Square still charges the real registry price.
+    if (depositCents > 0) {
       if (!body.cardSourceId && !body.giftCardNonce) {
         return NextResponse.json(
           { error: "cardSourceId or giftCardNonce required for paid orders" },
@@ -281,10 +302,14 @@ export async function POST(req: NextRequest) {
       const paymentTime = new Date().toISOString();
 
       let bmiBody: string;
-      if (isCreditOrder) {
+      if (bmiAsCredit) {
         bmiBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${paymentTime}","amount":0,"orderId":${body.bmiBillId},"depositKind":2}`;
       } else {
-        bmiBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${paymentTime}","amount":${dayofTotalCents / 100},"orderId":${body.bmiBillId},"depositKind":0}`;
+        // Explicit BMI bill total ($0 model: the license/other lines) when
+        // provided, else the legacy Square day-of total.
+        const confirmDollars =
+          explicitConfirmCents !== undefined ? explicitConfirmCents / 100 : dayofTotalCents / 100;
+        bmiBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${paymentTime}","amount":${confirmDollars},"orderId":${body.bmiBillId},"depositKind":0}`;
       }
 
       const bmiUrl = `${BMI_API_URL}/public-booking/${clientKey}/payment/confirm`;
