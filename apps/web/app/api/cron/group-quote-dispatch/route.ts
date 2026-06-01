@@ -12,6 +12,7 @@ import {
   getGfQuoteByShortId,
   updateGfContractSent,
   updateGfQuoteDetails,
+  type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import {
   notifyContractSent,
@@ -148,16 +149,31 @@ async function processQueueItem(
   }
 
   let existing = await getGfQuoteByReservationId(item.reservationId);
+  let wasReset = false;
 
-  // If previous quote was cancelled/denied/expired, reset it for re-processing
+  // If previous quote was cancelled/denied/expired, reset it for re-processing.
+  // Sales re-flipping the BMI project back to "Send Contract" is the signal to
+  // clear any prior denial/cancellation and run it through the flow again
+  // (post-paid accounts re-request approval). We reset the row IN PLACE and keep
+  // `existing` pointing at it — re-inserting would violate the unique
+  // bmi_reservation_id index. We intentionally do NOT touch
+  // hermes_last_processed_at here so the debounce below lets this run proceed.
   if (existing && ["cancelled", "denied", "expired"].includes(existing.status)) {
+    const priorStatus = existing.status;
     const { sql } = await import("@/lib/db");
     const q = sql();
-    await q`UPDATE group_function_quotes SET
+    const reset = await q`UPDATE group_function_quotes SET
       status = 'pending',
       contract_sent_at = NULL,
       contract_status = NULL,
       contract_short_id = NULL,
+      approval_required = FALSE,
+      approved_at = NULL,
+      approved_by = NULL,
+      approval_memo = NULL,
+      denied_at = NULL,
+      denied_by = NULL,
+      denial_reason = NULL,
       deposit_paid_at = NULL,
       square_deposit_order_id = NULL,
       square_deposit_payment_id = NULL,
@@ -165,12 +181,13 @@ async function processQueueItem(
       square_gift_card_gan = NULL,
       square_dayof_order_id = NULL,
       signed_pdf_url = NULL,
-      hermes_last_processed_at = NOW(),
       updated_at = NOW()
-    WHERE id = ${existing.id}`;
-    existing = null;
+    WHERE id = ${existing.id}
+    RETURNING *`;
+    existing = (reset[0] as GroupFunctionQuote) ?? null;
+    wasReset = true;
     console.log(
-      `[group-quote-dispatch] reset cancelled quote for reservation=${item.reservationId}`,
+      `[group-quote-dispatch] reset ${priorStatus} quote for reservation=${item.reservationId} — re-processing`,
     );
   }
 
@@ -490,12 +507,15 @@ async function processQueueItem(
   // Check if post-paid account (requires management approval before sending).
   // isPostPaid is already computed above from the same products.
   if (isPostPaid && !existing?.approved_at) {
-    // Hold for approval — don't send contract yet
+    // Hold for approval — don't send the contract yet. Stamp
+    // hermes_last_processed_at so the debounce suppresses any re-scan that
+    // arrives before the BMI state change below has propagated.
     const q = (await import("@/lib/db")).sql();
     await q`UPDATE group_function_quotes SET
       contract_short_id = ${contractShortId},
       approval_required = TRUE,
       status = 'pending_approval',
+      hermes_last_processed_at = NOW(),
       updated_at = NOW()
     WHERE id = ${quoteId}`;
 
@@ -503,6 +523,30 @@ async function processQueueItem(
     if (pendingQuote) {
       notifyApprovalNeeded(pendingQuote).catch((err) =>
         console.error("[group-quote-dispatch] approval notify error:", err),
+      );
+    }
+
+    // Move the BMI project out of "Send Contract" → "Pending Signed Contract"
+    // so the scan stops re-triggering this approval request every run. The
+    // approval/decision happens out-of-band via /api/group-function/approve;
+    // a decline leaves the project here. Sales re-flipping the project back to
+    // "Send Contract" is what clears the denial and re-requests approval (see
+    // the reset block above).
+    try {
+      const { setProjectState } = await import("@/lib/bmi-office-actions");
+      const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+      if (scanCenter) {
+        await setProjectState({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          stateId: scanCenter.pendingSignedContractStateId,
+          label: "Pending Signed Contract",
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[group-quote-dispatch] failed to move ${item.reservationId} out of Send Contract (pending approval):`,
+        err,
       );
     }
 
@@ -522,7 +566,7 @@ async function processQueueItem(
   // Notify guest + planner (non-blocking)
   const updatedQuote = await getGfQuoteByShortId(contractShortId);
   if (updatedQuote) {
-    const notify = existing ? notifyContractUpdated : notifyContractSent;
+    const notify = existing && !wasReset ? notifyContractUpdated : notifyContractSent;
     notify(updatedQuote).catch((err) => console.error("[group-quote-dispatch] notify error:", err));
   }
 
