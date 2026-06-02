@@ -14,6 +14,7 @@ import {
   SquarePaymentError,
 } from "@/lib/square-gift-card";
 import { buildSquareLineItem } from "@/lib/plu-catalog-map";
+import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
  * Group function deposit payment endpoint.
@@ -344,6 +345,13 @@ export async function POST(req: NextRequest) {
       console.error("[gf-deposit] BMI Office update error:", err);
     }
 
+    firePortalWebhookAsync("payment.deposit_paid", {
+      documentId: quote.contract_short_id,
+      bmiCode: quote.bmi_reservation_id,
+      venue: quote.center_code,
+      status: "deposit_paid",
+    });
+
     return NextResponse.json({
       ok: true,
       action: "deposit_paid",
@@ -640,6 +648,13 @@ async function handleLegacyDeposit(
     } catch (err) {
       console.error("[gf-deposit-legacy] BMI Office update error:", err);
     }
+
+    firePortalWebhookAsync("payment.deposit_paid", {
+      documentId: quote.contract_short_id,
+      bmiCode: quote.bmi_reservation_id,
+      venue: quote.center_code,
+      status: "deposit_paid",
+    });
 
     return NextResponse.json({
       ok: true,

@@ -7,6 +7,7 @@ import {
 } from "@/lib/group-function-db";
 import { sql } from "@/lib/db";
 import { notifyContractSent, notifyPostPaidDenied } from "@/lib/group-function-notify";
+import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
  * POST /api/group-function/approve
@@ -97,6 +98,13 @@ export async function POST(req: NextRequest) {
       /* non-fatal */
     }
 
+    firePortalWebhookAsync("approval.approved", {
+      documentId: quote.contract_short_id,
+      bmiCode: quote.bmi_reservation_id,
+      venue: quote.center_code,
+      status: "contract_sent",
+    });
+
     console.log(`[approve] approved quote=${quote.id} by ${approverEmail}`);
     return NextResponse.json({ ok: true, action: "approved" });
   }
@@ -138,6 +146,13 @@ export async function POST(req: NextRequest) {
   } catch {
     /* non-fatal */
   }
+
+  firePortalWebhookAsync("document.denied", {
+    documentId: quote.contract_short_id,
+    bmiCode: quote.bmi_reservation_id,
+    venue: quote.center_code,
+    status: "denied",
+  });
 
   console.log(`[approve] denied quote=${quote.id} by ${approverEmail}: ${reason}`);
   return NextResponse.json({ ok: true, action: "denied" });

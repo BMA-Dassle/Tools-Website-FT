@@ -11,6 +11,7 @@ import { loadGiftCard } from "@/lib/square-gift-card";
 import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
+import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
  * 72-hour balance collection cron.
@@ -280,6 +281,13 @@ async function processBalanceCharge(
         /* non-fatal */
       }
 
+      firePortalWebhookAsync("payment.balance_charged", {
+        documentId: quote.contract_short_id,
+        bmiCode: quote.bmi_reservation_id,
+        venue: quote.center_code,
+        status: "balance_charged",
+      });
+
       return "auto_charged";
     } catch (err) {
       console.error(`[group-balance-charge] auto-charge failed for quote=${quote.id}:`, err);
@@ -336,6 +344,13 @@ async function processBalanceCharge(
     } catch {
       /* non-fatal */
     }
+
+    firePortalWebhookAsync("payment.balance_link_sent", {
+      documentId: quote.contract_short_id,
+      bmiCode: quote.bmi_reservation_id,
+      venue: quote.center_code,
+      status: "balance_link_sent",
+    });
 
     return "link_sent";
   } catch (err) {

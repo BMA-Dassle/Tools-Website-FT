@@ -21,6 +21,7 @@ import {
 } from "@/lib/group-function-notify";
 import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
 import { verifyCron } from "@/lib/cron-auth";
+import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
  * Group Quote Dispatch cron.
@@ -322,6 +323,12 @@ async function processQueueItem(
     ) {
       const q = (await import("@/lib/db")).sql();
       await q`UPDATE group_function_quotes SET status = 'resign_required', updated_at = NOW() WHERE id = ${existing.id}`;
+      firePortalWebhookAsync("document.resign_required", {
+        documentId: existing.contract_short_id,
+        bmiCode: item.reservationId,
+        venue: center.centerCode,
+        status: "resign_required",
+      });
       console.log(
         `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
           `(was ${existing.total_cents} → now ${totalCents})`,
@@ -550,6 +557,13 @@ async function processQueueItem(
       );
     }
 
+    firePortalWebhookAsync("approval.needed", {
+      documentId: contractShortId,
+      bmiCode: item.reservationId,
+      venue: center.centerCode,
+      status: "pending_approval",
+    });
+
     console.log(
       `[group-quote-dispatch] POST-PAID: pending approval for reservation=${item.reservationId} shortId=${contractShortId}`,
     );
@@ -569,6 +583,13 @@ async function processQueueItem(
     const notify = existing && !wasReset ? notifyContractUpdated : notifyContractSent;
     notify(updatedQuote).catch((err) => console.error("[group-quote-dispatch] notify error:", err));
   }
+
+  firePortalWebhookAsync(existing && !wasReset ? "document.updated" : "document.created", {
+    documentId: contractShortId,
+    bmiCode: item.reservationId,
+    venue: center.centerCode,
+    status: "contract_sent",
+  });
 
   // Log to BMI private notes
   try {
