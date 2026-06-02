@@ -22,6 +22,12 @@
   - Loyalty `resolveAudienceMember()` at checkout for squareCustomerId earning on race/attraction orders
   - v2 reserve route needs squareCustomerId + loyalty reward params for non-bowling bookings
 
+## v2 Checkout: Server-side atomic BMI payment/confirm
+- **Priority:** Medium (v2 checkout milestone)
+- **Context:** v1 confirms BMI payment client-side on the confirmation page after Square charges. PR #13 (2026-06-02) added retry + error UI as an immediate fix, but the architecture still has a gap if the browser closes between Square charge and confirmation page load.
+- **v2 fix:** Add `confirmBmi` postPaymentAction to `/api/square/pay` so Square charge + BMI confirm happen atomically server-side. Extract shared `lib/bmi-client.ts` for BMI auth + `confirmPayment()`. Wire into v2 checkout service.
+- **See:** [restructure-plan.md § v2 checkout: server-side atomic BMI payment/confirm](restructure-plan.md)
+
 ## SEO: HeadPinz metadata on shared /book routes
 - **Priority:** High
 - **Issue:** `headpinz.com/book/*` pages show FastTrax title/description in Google results because `/book` routes use the root layout metadata (FastTrax-branded), not the `/hp` layout
