@@ -17,6 +17,7 @@ import {
 } from "@/lib/booking-location";
 import type { BowlingSquareProduct, BowlingExperienceWithDetails } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
+import { KBF_ELIGIBILITY_HEADING, KBF_ELIGIBILITY_TEXT } from "@/components/kbf/EligibilityNotice";
 
 /**
  * BowlingWizard — shared wizard for Kids Bowl Free (v2) and Open Bowling.
@@ -2894,6 +2895,21 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   Kids Bowl Free — kids 15 and under bowl two free games per day, Mon–Thu open to
                   close, Fri until 5 PM. Sign in below or register in under 30 seconds.
                 </p>
+                <div
+                  className="rounded-xl px-4 py-3"
+                  style={{
+                    backgroundColor: "rgba(255,215,0,0.06)",
+                    border: `1px solid ${GOLD}40`,
+                  }}
+                >
+                  <div
+                    className="font-heading uppercase text-[10px] tracking-[3px] mb-1"
+                    style={{ color: GOLD }}
+                  >
+                    {KBF_ELIGIBILITY_HEADING}
+                  </div>
+                  <p className="text-white/65 text-xs leading-relaxed">{KBF_ELIGIBILITY_TEXT}</p>
+                </div>
                 <div className="flex gap-1 bg-white/5 rounded-lg p-1">
                   {(["email", "phone", "new"] as const).map((m) => (
                     <button
