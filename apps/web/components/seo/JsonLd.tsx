@@ -373,23 +373,95 @@ export function HeadPinzNaplesJsonLd() {
 
 // ── Recurring weekly events (Trivia Tuesday, Midnight Madness, Mega Track) ──
 //
-// Each emits a single Event with `eventSchedule` for weekly recurrence. Google
-// reads the byDay/repeatFrequency/scheduleTimezone fields to materialize the
-// next occurrence in rich results — no need to compute "next Friday" at
-// request time and re-stamp startDate every render.
+// IMPORTANT: Google's Event rich results IGNORE schema.org `eventSchedule` /
+// `Schedule` (byDay / repeatFrequency / scheduleTimezone). Google requires an
+// explicit ISO-8601 `startDate` ON the Event — it's one of the three required
+// fields (name, startDate, location), so an Event whose dates live only inside
+// a Schedule reads as "missing startDate" and is ineligible. We therefore
+// compute the NEXT occurrence at render time and emit a concrete
+// startDate/endDate per recurring day. (A prior version relied on
+// `eventSchedule` and was flagged in Search Console.)
 //
-// `scheduleTimezone: America/New_York` handles DST transitions automatically,
-// so the 7pm trivia stays 7pm local across the year without our code knowing
-// when DST flips.
+// Because these render on statically-built pages, the pages set
+// `export const revalidate` so the computed dates refresh instead of freezing
+// at build time.
+
+const SCHEMA_DAY_INDEX: Record<string, number> = {
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+};
+
+const EVENT_TZ = "America/New_York";
+
+/** ET UTC offset (e.g. "-04:00" / "-05:00") for the calendar date anchored by `noonUtc`. */
+function etUtcOffset(noonUtc: Date): string {
+  const name = new Intl.DateTimeFormat("en-US", {
+    timeZone: EVENT_TZ,
+    timeZoneName: "longOffset",
+  })
+    .formatToParts(noonUtc)
+    .find((p) => p.type === "timeZoneName")?.value; // e.g. "GMT-04:00"
+  const off = (name ?? "GMT-05:00").replace("GMT", "");
+  return off === "" ? "+00:00" : off;
+}
+
+/** ISO-8601 timestamp (with ET offset) for the calendar date in `noonUtc` at wall-clock `time`. */
+function etTimestamp(noonUtc: Date, time: string): string {
+  const y = noonUtc.getUTCFullYear();
+  const m = String(noonUtc.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(noonUtc.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}T${time}${etUtcOffset(noonUtc)}`;
+}
+
+/**
+ * Next upcoming occurrence of `dayName` in ET, as ISO-8601 startDate/endDate.
+ * Today counts as the occurrence when it matches — the weekly series always has
+ * an upcoming instance and the page revalidates daily, rolling it forward. We
+ * anchor at noon UTC so adding days never trips over a 2 AM DST boundary; the
+ * real ET offset for each resulting date is applied by `etTimestamp`.
+ */
+function nextOccurrence(
+  dayName: string,
+  startTime: string,
+  endTime: string,
+): { startDate: string; endDate: string } {
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: EVENT_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const y = Number(todayParts.find((p) => p.type === "year")!.value);
+  const mo = Number(todayParts.find((p) => p.type === "month")!.value);
+  const d = Number(todayParts.find((p) => p.type === "day")!.value);
+
+  const start = new Date(Date.UTC(y, mo - 1, d, 12));
+  const delta = (SCHEMA_DAY_INDEX[dayName] - start.getUTCDay() + 7) % 7;
+  start.setUTCDate(start.getUTCDate() + delta);
+
+  // Crosses midnight (e.g. 11:59 PM → 2 AM) → end lands on the next day.
+  const end = new Date(start);
+  if (endTime <= startTime) end.setUTCDate(end.getUTCDate() + 1);
+
+  return {
+    startDate: etTimestamp(start, startTime),
+    endDate: etTimestamp(end, endTime),
+  };
+}
 
 interface RecurringEventArgs {
   name: string;
   description: string;
   url: string;
   image: string;
-  byDay: string | string[]; // schema.org/Monday … schema.org/Sunday
-  startTime: string; // "HH:MM:SS"
-  endTime: string; // "HH:MM:SS" — if < startTime, Google reads end as next day
+  byDay: string | string[]; // "Monday" … "Sunday"
+  startTime: string; // "HH:MM:SS" (ET)
+  endTime: string; // "HH:MM:SS" (ET) — if ≤ startTime, the event ends the next day
   locationName: string;
   streetAddress: string;
   addressLocality: string;
@@ -401,6 +473,11 @@ interface RecurringEventArgs {
   price?: string;
 }
 
+/**
+ * Google-valid Event JSON-LD for a weekly event. Emits one Event per recurring
+ * day, each with a concrete next-occurrence startDate/endDate. Returns a single
+ * object for one day, or an array (multiple Events) for several.
+ */
 function recurringEventSchema({
   name,
   description,
@@ -419,41 +496,8 @@ function recurringEventSchema({
   price,
 }: RecurringEventArgs) {
   const days = Array.isArray(byDay) ? byDay : [byDay];
-  return {
-    "@context": "https://schema.org",
-    "@type": "Event",
-    name,
-    description,
-    url,
-    image: [image],
-    location: {
-      "@type": "Place",
-      name: locationName,
-      address: {
-        "@type": "PostalAddress",
-        streetAddress,
-        addressLocality,
-        addressRegion,
-        postalCode,
-        addressCountry: "US",
-      },
-    },
-    organizer: {
-      "@type": "Organization",
-      name: organizerName,
-      url: organizerUrl,
-    },
-    eventSchedule: {
-      "@type": "Schedule",
-      byDay: days.map((d) => `https://schema.org/${d}`),
-      startTime,
-      endTime,
-      repeatFrequency: "P1W",
-      scheduleTimezone: "America/New_York",
-    },
-    eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
-    eventStatus: "https://schema.org/EventScheduled",
-    ...(price !== undefined
+  const offers =
+    price !== undefined
       ? {
           offers: {
             "@type": "Offer",
@@ -463,8 +507,43 @@ function recurringEventSchema({
             url,
           },
         }
-      : {}),
-  };
+      : {};
+
+  const events = days.map((dayName) => {
+    const { startDate, endDate } = nextOccurrence(dayName, startTime, endTime);
+    return {
+      "@context": "https://schema.org",
+      "@type": "Event",
+      name,
+      description,
+      url,
+      image: [image],
+      startDate,
+      endDate,
+      eventStatus: "https://schema.org/EventScheduled",
+      eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+      location: {
+        "@type": "Place",
+        name: locationName,
+        address: {
+          "@type": "PostalAddress",
+          streetAddress,
+          addressLocality,
+          addressRegion,
+          postalCode,
+          addressCountry: "US",
+        },
+      },
+      organizer: {
+        "@type": "Organization",
+        name: organizerName,
+        url: organizerUrl,
+      },
+      ...offers,
+    };
+  });
+
+  return events.length === 1 ? events[0] : events;
 }
 
 export function TriviaTuesdayJsonLd() {

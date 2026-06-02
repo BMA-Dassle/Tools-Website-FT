@@ -1,5 +1,30 @@
 # Lessons Learned
 
+## Google ignores schema.org `eventSchedule` — Events need an explicit `startDate` (2026-06-02)
+
+Google Search Console flagged our recurring-event JSON-LD (Mega Track Tuesday,
+HeadPinz Trivia Tuesday, Midnight Madness) as ineligible. Root cause: the shared
+`recurringEventSchema` (`apps/web/components/seo/JsonLd.tsx`) described recurrence
+**only** via `eventSchedule` → `Schedule` (`byDay`/`repeatFrequency`/`scheduleTimezone`)
+and had **no `startDate`**.
+
+**Google's Event rich results do NOT read `eventSchedule`/`Schedule` at all.** It's
+valid schema.org (fine for other consumers) but Google-blind. Google requires an
+explicit ISO-8601 **`startDate` on the Event itself** — one of only three required
+fields (`name`, `startDate`, `location`). No `startDate` ⇒ "Missing field 'startDate'"
+⇒ ineligible. (`performer`/`offers`/`endDate` are recommended-only — yellow warnings,
+never the hard error.)
+
+Fix pattern for recurring events: compute the **next occurrence at render time** and
+emit a concrete `startDate`/`endDate` (ISO-8601 **with the DST-aware ET offset** —
+derive it via `Intl.DateTimeFormat(..., { timeZone, timeZoneName: "longOffset" })`,
+never hardcode `-05:00`). Emit **one Event per recurring day**. Anchor day math at
+**noon UTC** so adding days never trips the 2 AM DST boundary.
+
+Coupled gotcha: a computed "next occurrence" **freezes at build time** on statically
+rendered pages. Pages that render these schemas must set `export const revalidate`
+(we use daily) so the dates roll forward. Don't assume deploy cadence will refresh them.
+
 ## Pandora product `tax` is a RATE, not a dollar amount (2026-05-30)
 
 Each product in the Pandora `/v2/bmi/reservation` response carries `tax` as a
