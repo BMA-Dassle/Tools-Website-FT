@@ -25,13 +25,13 @@ export function LocalBusinessJsonLd() {
       {
         "@type": "OpeningHoursSpecification",
         dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"],
-        opens: "15:00",
+        opens: "13:00",
         closes: "23:00",
       },
       {
         "@type": "OpeningHoursSpecification",
         dayOfWeek: "Friday",
-        opens: "15:00",
+        opens: "13:00",
         closes: "00:00",
       },
       {
@@ -162,13 +162,13 @@ export function RestaurantJsonLd() {
       {
         "@type": "OpeningHoursSpecification",
         dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"],
-        opens: "15:00",
+        opens: "13:00",
         closes: "23:00",
       },
       {
         "@type": "OpeningHoursSpecification",
         dayOfWeek: "Friday",
-        opens: "15:00",
+        opens: "13:00",
         closes: "00:00",
       },
       {
@@ -565,7 +565,7 @@ export function MegaTrackTuesdayJsonLd() {
     url: "https://fasttraxent.com/racing",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
     byDay: "Tuesday",
-    startTime: "15:00:00",
+    startTime: "13:00:00",
     endTime: "23:00:00",
     locationName: "FastTrax Entertainment",
     streetAddress: "14501 Global Parkway",

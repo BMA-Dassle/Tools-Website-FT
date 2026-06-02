@@ -71,18 +71,18 @@ function isOperatingHoursET(): boolean {
   const minute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
   const hm = hour + minute / 60;
 
-  // Mon–Thu: 3 PM – midnight close (11 PM) — we keep stale entries until
+  // Mon–Thu: 1 PM – midnight close (11 PM) — we keep stale entries until
   // midnight so a heat called at 10:50 still displays at 10:55.
-  // Fri: 3 PM – 2 AM next day. Sat: 11 AM – 2 AM. Sun: 11 AM – 11 PM.
+  // Fri: 1 PM – 2 AM next day. Sat: 11 AM – 2 AM. Sun: 11 AM – 11 PM.
   // Keep entries visible a bit past close so the last heat finishes displaying.
   switch (day) {
     case "Mon":
     case "Tue":
     case "Wed":
     case "Thu":
-      return hm >= 15 || hm < 0.5; // 3 PM – 12:30 AM
+      return hm >= 13 || hm < 0.5; // 1 PM – 12:30 AM
     case "Fri":
-      return hm >= 15 || hm < 2.5; // 3 PM – 2:30 AM
+      return hm >= 13 || hm < 2.5; // 1 PM – 2:30 AM
     case "Sat":
       return hm >= 11 || hm < 2.5; // 11 AM – 2:30 AM
     case "Sun":

@@ -7,11 +7,11 @@ import { trackBookingClick } from "@/lib/analytics";
 
 const schedule: Record<number, { day: string; open: string; close: string }> = {
   0: { day: "SUNDAY", open: "11:00 AM", close: "11:00 PM" },
-  1: { day: "MONDAY", open: "3:00 PM", close: "11:00 PM" },
-  2: { day: "TUESDAY", open: "3:00 PM", close: "11:00 PM" },
-  3: { day: "WEDNESDAY", open: "3:00 PM", close: "11:00 PM" },
-  4: { day: "THURSDAY", open: "3:00 PM", close: "11:00 PM" },
-  5: { day: "FRIDAY", open: "3:00 PM", close: "12:00 AM" },
+  1: { day: "MONDAY", open: "1:00 PM", close: "11:00 PM" },
+  2: { day: "TUESDAY", open: "1:00 PM", close: "11:00 PM" },
+  3: { day: "WEDNESDAY", open: "1:00 PM", close: "11:00 PM" },
+  4: { day: "THURSDAY", open: "1:00 PM", close: "11:00 PM" },
+  5: { day: "FRIDAY", open: "1:00 PM", close: "12:00 AM" },
   6: { day: "SATURDAY", open: "11:00 AM", close: "12:00 AM" },
 };
 
