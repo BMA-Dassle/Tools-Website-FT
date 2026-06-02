@@ -1,6 +1,7 @@
 import { createHmac } from "crypto";
 
-const WEBHOOK_URL = process.env.PORTAL_WEBHOOK_URL || "";
+const WEBHOOK_URL =
+  process.env.PORTAL_WEBHOOK_URL || "https://portal.headpinz.com/api/webhooks/website-documents";
 const WEBHOOK_SECRET = process.env.PORTAL_WEBHOOK_SECRET || "";
 
 export type PortalWebhookEvent =
