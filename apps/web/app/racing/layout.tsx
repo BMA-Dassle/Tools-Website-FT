@@ -115,7 +115,7 @@ const racingFaqs = [
   {
     question: "What are the best things to do in Fort Myers when it rains?",
     answer:
-      "FastTrax is Fort Myers' top rainy day activity — 63,000 sq ft of fully indoor, climate-controlled entertainment including go-kart racing on multi-level tracks, 50+ arcade games, duckpin bowling, shuffleboard, and Nemo's Trackside. No weather worries. Open Mon-Thu 3-11 PM, Fri 3 PM-12 AM, Sat 11 AM-12 AM, Sun 11 AM-11 PM.",
+      "FastTrax is Fort Myers' top rainy day activity — 63,000 sq ft of fully indoor, climate-controlled entertainment including go-kart racing on multi-level tracks, 50+ arcade games, duckpin bowling, shuffleboard, and Nemo's Trackside. No weather worries. Open Mon-Thu 1-11 PM, Fri 1 PM-12 AM, Sat 11 AM-12 AM, Sun 11 AM-11 PM.",
   },
   {
     question: "Does FastTrax have birthday party packages?",

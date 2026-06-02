@@ -111,8 +111,8 @@ export default function Footer() {
               </p>
             )}
             <div className="pt-2 text-white/40 text-xs space-y-1">
-              <p>Mon–Thu: 3:00 PM – 11:00 PM</p>
-              <p>Fri: 3:00 PM – 12:00 AM</p>
+              <p>Mon–Thu: 1:00 PM – 11:00 PM</p>
+              <p>Fri: 1:00 PM – 12:00 AM</p>
               <p>Sat: 11:00 AM – 12:00 AM</p>
               <p>Sun: 11:00 AM – 11:00 PM</p>
             </div>
