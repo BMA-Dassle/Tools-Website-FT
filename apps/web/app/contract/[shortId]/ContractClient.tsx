@@ -463,6 +463,18 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
+      {/* Atmospheric bowling-alley bokeh background */}
+      <Image
+        src={`${BLOB}/headpinz/group-events-bowling-bg.png`}
+        alt=""
+        aria-hidden
+        fill
+        sizes="100vw"
+        className="object-cover fixed inset-0"
+        priority
+        unoptimized
+      />
+      <div className="fixed inset-0 bg-[#0a1628]/80" aria-hidden="true" />
       {/* Ambient background glows */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
         <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-[#E53935]/8 blur-[120px]" />
