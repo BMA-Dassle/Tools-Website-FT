@@ -464,26 +464,27 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Atmospheric bowling-alley bokeh background */}
-      <Image
-        src={`${BLOB}/headpinz/group-events-bowling-bg.png`}
-        alt=""
-        aria-hidden
-        fill
-        sizes="100vw"
-        className="object-cover fixed inset-0"
-        priority
-        unoptimized
-      />
-      <div className="fixed inset-0 bg-[#0a1628]/80" aria-hidden="true" />
-      {/* Ambient background glows */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-[#E53935]/8 blur-[120px]" />
-        <div className="absolute top-1/3 -right-40 h-[600px] w-[600px] rounded-full bg-[#00E2E5]/6 blur-[150px]" />
-        <div className="absolute bottom-1/4 left-1/4 h-[400px] w-[400px] rounded-full bg-[#9b51e0]/5 blur-[120px]" />
+      <div className="fixed inset-0 z-0" aria-hidden="true">
+        <Image
+          src={`${BLOB}/headpinz/group-events-bowling-bg.png`}
+          alt=""
+          fill
+          sizes="100vw"
+          className="object-cover"
+          priority
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-[#0a1628]/80" />
+        {/* Ambient background glows */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-[#E53935]/8 blur-[120px]" />
+          <div className="absolute top-1/3 -right-40 h-[600px] w-[600px] rounded-full bg-[#00E2E5]/6 blur-[150px]" />
+          <div className="absolute bottom-1/4 left-1/4 h-[400px] w-[400px] rounded-full bg-[#9b51e0]/5 blur-[120px]" />
+        </div>
       </div>
 
       {/* Hero */}
-      <div className="relative overflow-hidden">
+      <div className="relative z-10 overflow-hidden">
         <div className="absolute inset-0">
           <Image
             src={`${BLOB}/hero/racer-journey-bg.webp`}
@@ -533,7 +534,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
       {/* Update banner */}
       {updateBanner && (
-        <div className="mx-auto max-w-4xl px-4 pt-4">
+        <div className="relative z-10 mx-auto max-w-4xl px-4 pt-4">
           <div className="flex items-center gap-3 rounded-xl bg-amber-500/10 px-4 py-3 ring-1 ring-amber-500/20">
             <IconAlertTriangle size={20} className="flex-shrink-0 text-amber-400" />
             <p className="flex-1 text-sm font-semibold text-amber-300">{updateBanner}</p>
@@ -558,7 +559,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
       {/* Step indicator */}
       {step !== "done" && step !== "event" && (
-        <div className="mx-auto max-w-3xl px-4 py-5">
+        <div className="relative z-10 mx-auto max-w-3xl px-4 py-5">
           <div className="flex items-center justify-center gap-1">
             {STEPS.map((s, i) => {
               const isActive = s.key === step;
@@ -588,7 +589,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         </div>
       )}
 
-      <div className="mx-auto max-w-4xl px-4 pb-16">
+      <div className="relative z-10 mx-auto max-w-4xl px-4 pb-16">
         {/* ═══ Step 1: Review ═══ */}
         {step === "review" && (
           <>
@@ -645,9 +646,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                       <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-cyan-400">
                         Notes from {quote.plannerFirst || "Your Planner"}
                       </p>
-                      <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">
-                        {eventDetails?.notes || quote.notes}
-                      </p>
+                      <FormattedNotes text={eventDetails?.notes || quote.notes || ""} />
                     </div>
                   )}
                 </div>
@@ -1646,9 +1645,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-cyan-400">
                   Notes from {quote.plannerFirst || "Your Planner"}
                 </h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">
-                  {eventDetails.notes}
-                </p>
+                <FormattedNotes text={eventDetails.notes} />
               </div>
             )}
 
@@ -1871,6 +1868,39 @@ function EventCountdownInline({ eventDate }: { eventDate: string }) {
         <span className="text-gray-500">m</span>
         <span className="ml-1 text-gray-400">until your event</span>
       </div>
+    </div>
+  );
+}
+
+function FormattedNotes({ text }: { text: string }) {
+  const lines = text.split(/\n/).filter((l) => l.trim());
+  const keyValuePattern = /^([A-Za-z][A-Za-z0-9 /&'()-]+?)\s*:\s*(.+)$/;
+
+  const parsed = lines.map((line) => {
+    const match = line.match(keyValuePattern);
+    if (match) return { type: "kv" as const, label: match[1].trim(), value: match[2].trim() };
+    return { type: "text" as const, value: line.trim() };
+  });
+
+  const hasKv = parsed.some((p) => p.type === "kv");
+  if (!hasKv) {
+    return <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">{text}</p>;
+  }
+
+  return (
+    <div className="space-y-1.5 text-sm">
+      {parsed.map((item, i) =>
+        item.type === "kv" ? (
+          <div key={i} className="flex gap-2">
+            <span className="font-semibold text-gray-400 shrink-0">{item.label}:</span>
+            <span className="text-gray-300">{item.value}</span>
+          </div>
+        ) : (
+          <p key={i} className="text-gray-400 italic">
+            {item.value}
+          </p>
+        ),
+      )}
     </div>
   );
 }
