@@ -163,7 +163,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [agreeNoPrepay, setAgreeNoPrepay] = useState(false);
   const [agreePaymentDay, setAgreePaymentDay] = useState(false);
   const [agreePolicies, setAgreePolicies] = useState(false);
-  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(quote.isTaxExempt ? "yes" : null);
+  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(quote.isTaxExempt ? "yes" : "no");
   const [agreeUnderstand, setAgreeUnderstand] = useState(false);
 
   // Page-level acknowledgments
@@ -182,7 +182,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     (isFullPayment || isPostPaid || agreeNoPrepay) &&
     taxExempt !== null &&
     taxValid &&
-    agreeUnderstand;
+    (quote.isTaxExempt ? agreeUnderstand : true);
 
   // Compliance: capture IP + timestamp at sign time
   const [signedAt, setSignedAt] = useState<string | null>(null);
@@ -1117,130 +1117,113 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </label>
                 ))}
 
-                <div className="rounded-xl bg-white/5 p-4">
-                  <p className="mb-3 font-semibold text-white">Are you tax exempt?</p>
-                  {quote.isTaxExempt ? (
-                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-sm text-emerald-400">
-                      This event is tax exempt based on the event products. Please upload your DR-14
-                      certificate below.
-                    </div>
-                  ) : (
-                    <div className="flex gap-4">
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="radio"
-                          name="tax"
-                          checked={taxExempt === "yes"}
-                          onChange={() => setTaxExempt("yes")}
-                          className="h-4 w-4 text-cyan-500"
-                        />
-                        <span className="text-sm">Yes</span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="radio"
-                          name="tax"
-                          checked={taxExempt === "no"}
-                          onChange={() => setTaxExempt("no")}
-                          className="h-4 w-4 text-cyan-500"
-                        />
-                        <span className="text-sm">No</span>
-                      </label>
-                    </div>
-                  )}
-                  {taxExempt === "yes" && (
-                    <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
-                      <p className="mb-2 text-sm font-semibold text-amber-400">
-                        Upload DR-14 Tax Exempt Letter
-                      </p>
-                      <p className="mb-3 text-xs text-gray-400">
-                        Required to apply tax exemption. PDF, JPG, or PNG accepted.
-                      </p>
-                      {taxFileUrl ? (
-                        <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
-                          <svg
-                            className="h-4 w-4 flex-shrink-0"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span className="truncate">{taxFile?.name || "Uploaded"}</span>
-                        </div>
-                      ) : (
-                        <label
-                          className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${taxUploading ? "border-cyan-400/30 text-cyan-400" : "border-white/20 text-gray-400 hover:border-cyan-400/40 hover:text-cyan-300"}`}
-                        >
-                          {taxUploading ? (
-                            <>
-                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />{" "}
-                              Uploading...
-                            </>
-                          ) : (
-                            <>
+                {quote.isTaxExempt && (
+                  <>
+                    <div className="rounded-xl bg-white/5 p-4">
+                      <p className="mb-3 font-semibold text-white">Tax Exempt Event</p>
+                      <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-sm text-emerald-400">
+                        This event is tax exempt based on the event products. Please upload your
+                        DR-14 certificate below.
+                      </div>
+                      {taxExempt === "yes" && (
+                        <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+                          <p className="mb-2 text-sm font-semibold text-amber-400">
+                            Upload DR-14 Tax Exempt Letter
+                          </p>
+                          <p className="mb-3 text-xs text-gray-400">
+                            Required to apply tax exemption. PDF, JPG, or PNG accepted.
+                          </p>
+                          {taxFileUrl ? (
+                            <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
                               <svg
-                                className="h-5 w-5"
+                                className="h-4 w-4 flex-shrink-0"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
-                                strokeWidth={1.5}
+                                strokeWidth={2}
                               >
                                 <path
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
-                                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+                                  d="M5 13l4 4L19 7"
                                 />
-                              </svg>{" "}
-                              Choose file
-                            </>
+                              </svg>
+                              <span className="truncate">{taxFile?.name || "Uploaded"}</span>
+                            </div>
+                          ) : (
+                            <label
+                              className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${taxUploading ? "border-cyan-400/30 text-cyan-400" : "border-white/20 text-gray-400 hover:border-cyan-400/40 hover:text-cyan-300"}`}
+                            >
+                              {taxUploading ? (
+                                <>
+                                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />{" "}
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <svg
+                                    className="h-5 w-5"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+                                    />
+                                  </svg>{" "}
+                                  Choose file
+                                </>
+                              )}
+                              <input
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setTaxFile(file);
+                                  setTaxUploading(true);
+                                  try {
+                                    const form = new FormData();
+                                    form.append("file", file);
+                                    form.append("shortId", quote.contractShortId);
+                                    const res = await fetch("/api/group-function/upload-tax-doc", {
+                                      method: "POST",
+                                      body: form,
+                                    });
+                                    const data = await res.json();
+                                    if (data.url) setTaxFileUrl(data.url);
+                                    else setError(data.error || "Upload failed");
+                                  } catch {
+                                    setError("Upload failed. Please try again.");
+                                  } finally {
+                                    setTaxUploading(false);
+                                  }
+                                }}
+                              />
+                            </label>
                           )}
-                          <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              setTaxFile(file);
-                              setTaxUploading(true);
-                              try {
-                                const form = new FormData();
-                                form.append("file", file);
-                                form.append("shortId", quote.contractShortId);
-                                const res = await fetch("/api/group-function/upload-tax-doc", {
-                                  method: "POST",
-                                  body: form,
-                                });
-                                const data = await res.json();
-                                if (data.url) setTaxFileUrl(data.url);
-                                else setError(data.error || "Upload failed");
-                              } catch {
-                                setError("Upload failed. Please try again.");
-                              } finally {
-                                setTaxUploading(false);
-                              }
-                            }}
-                          />
-                        </label>
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
 
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
-                  <input
-                    type="checkbox"
-                    checked={agreeUnderstand}
-                    onChange={(e) => setAgreeUnderstand(e.target.checked)}
-                    className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
-                  />
-                  <span className="text-sm text-gray-300">
-                    I understand that my tax exempt answer cannot be changed at the time of the
-                    event.
-                  </span>
-                </label>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
+                      <input
+                        type="checkbox"
+                        checked={agreeUnderstand}
+                        onChange={(e) => setAgreeUnderstand(e.target.checked)}
+                        className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
+                      />
+                      <span className="text-sm text-gray-300">
+                        I understand that my tax exempt answer cannot be changed at the time of the
+                        event.
+                      </span>
+                    </label>
+                  </>
+                )}
               </div>
 
               {/* Signature */}
