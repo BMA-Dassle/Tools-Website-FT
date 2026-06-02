@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import KbfEligibilityNotice from "@/components/kbf/EligibilityNotice";
 
 export const metadata: Metadata = {
   title: "Book Kids Bowl Free Lane | HeadPinz",
@@ -182,6 +183,8 @@ export default function KBFBookPage() {
           </ul>
         </div>
       </section>
+
+      <KbfEligibilityNotice />
 
       {/* ====== LOCATION BOOKING CARDS ====== */}
       <section style={{ padding: "clamp(60px, 10vw, 100px) clamp(16px, 4vw, 32px)" }}>
