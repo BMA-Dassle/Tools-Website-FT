@@ -31,6 +31,11 @@ export default async function ContractPage(props: {
       ? "headpinz"
       : "fasttrax");
 
+  const priorPayments = (quote.prior_payments ?? []) as Array<{ amount: number }>;
+  const priorDepositCents = Math.round(
+    priorPayments.reduce((sum, p) => sum + (p.amount || 0), 0) * 100,
+  );
+
   return (
     <ContractClient
       quote={{
@@ -67,6 +72,8 @@ export default async function ContractPage(props: {
         status: quote.status,
         isTaxExempt: quote.is_tax_exempt,
         isPostPaid: quote.approval_required || false,
+        priorDepositCents:
+          !quote.deposit_paid_at && quote.status === "contract_sent" ? priorDepositCents : 0,
       }}
     />
   );

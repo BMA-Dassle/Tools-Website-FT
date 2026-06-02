@@ -52,6 +52,7 @@ interface QuoteProps {
   status: string;
   isTaxExempt: boolean;
   isPostPaid: boolean;
+  priorDepositCents: number;
 }
 
 type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done" | "event";
@@ -116,6 +117,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const isFullPayment = quote.balanceCents === 0;
   const isPostPaid = quote.isPostPaid;
+  const hasLegacyDeposit = quote.priorDepositCents > 0 && !quote.depositPaidAt;
+  const legacyChargeCents =
+    hasLegacyDeposit && isFullPayment ? Math.max(0, quote.totalCents - quote.priorDepositCents) : 0;
+  const cardOnFileOnly = hasLegacyDeposit && legacyChargeCents === 0;
   const STEPS = buildSteps(isFullPayment, isPostPaid);
 
   const [step, setStep] = useState<Step>(() => {
@@ -427,7 +432,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         body: JSON.stringify({
           contractShortId: quote.contractShortId,
           cardSourceId: result.token,
-          saveCard,
+          saveCard: hasLegacyDeposit ? true : saveCard,
         }),
       });
       const data = await res.json();
@@ -449,7 +454,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     } finally {
       setProcessing(false);
     }
-  }, [quote.contractShortId, saveCard]);
+  }, [quote.contractShortId, saveCard, hasLegacyDeposit]);
 
   const fmtDollars = (cents: number) =>
     `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -665,6 +670,58 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </div>
                   <p className="text-lg font-bold">{fmtDollars(quote.totalCents)}</p>
                 </div>
+              ) : hasLegacyDeposit ? (
+                <div className="space-y-3">
+                  {/* Prior deposit applied */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-xs font-bold text-emerald-400 ring-1 ring-emerald-400/40">
+                      <IconCircleCheck size={16} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-emerald-400">Previous Deposit Applied</p>
+                      <p className="text-sm text-gray-400">
+                        Your prior deposit has been credited to this event
+                      </p>
+                    </div>
+                    <p className="text-lg font-bold text-emerald-400">
+                      {fmtDollars(quote.priorDepositCents)}
+                    </p>
+                  </div>
+                  {cardOnFileOnly ? (
+                    <>
+                      <div className="ml-4 h-6 border-l border-dashed border-white/20" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/40">
+                          <IconCreditCard size={16} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">Card on File Required</p>
+                          <p className="text-sm text-gray-400">
+                            No additional deposit — your card will be saved for the remaining
+                            balance of {fmtDollars(quote.totalCents - quote.priorDepositCents)},
+                            charged 72 hours before the event
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="ml-4 h-6 border-l border-dashed border-white/20" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/40">
+                          1
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">Remaining Balance — Due Today</p>
+                          <p className="text-sm text-gray-400">
+                            Full payment required for events within 96 hours
+                          </p>
+                        </div>
+                        <p className="text-lg font-bold">{fmtDollars(legacyChargeCents)}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
@@ -841,9 +898,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   },
                   {
                     title: "Payments",
-                    text: isFullPayment
-                      ? "Full payment is required for events booked within 96 hours."
-                      : "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.",
+                    text: cardOnFileOnly
+                      ? "Your previous deposit has been applied. A card on file is required for the remaining balance, charged 72 hours before your event."
+                      : hasLegacyDeposit && legacyChargeCents > 0
+                        ? `Your previous deposit has been applied. The remaining balance of ${fmtDollars(legacyChargeCents)} is due today.`
+                        : isFullPayment
+                          ? "Full payment is required for events booked within 96 hours."
+                          : "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.",
                     Icon: IconCreditCard,
                   },
                   {
@@ -1024,11 +1085,15 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     set: setAgreeDeposit,
                     text: isPostPaid
                       ? "I understand this is a post-paid account and will be billed after the event."
-                      : isFullPayment
-                        ? "I agree to pay the full event total via credit card after completing this document."
-                        : "I agree to make a 50% deposit via credit card after completing this document.",
+                      : cardOnFileOnly
+                        ? "I understand my previous deposit has been applied and I agree to provide a card on file for the remaining balance."
+                        : hasLegacyDeposit && legacyChargeCents > 0
+                          ? `I agree to pay the remaining balance of ${fmtDollars(legacyChargeCents)} via credit card after completing this document.`
+                          : isFullPayment
+                            ? "I agree to pay the full event total via credit card after completing this document."
+                            : "I agree to make a 50% deposit via credit card after completing this document.",
                   },
-                  ...(!isFullPayment && !isPostPaid
+                  ...((!isFullPayment || cardOnFileOnly) && !isPostPaid
                     ? [
                         {
                           state: agreeNoPrepay,
@@ -1271,20 +1336,53 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </svg>
               <p className="font-semibold text-emerald-300">
                 Contract signed{signedAt ? ` at ${new Date(signedAt).toLocaleTimeString()}` : ""}!
-                Now secure your date.
+                {cardOnFileOnly ? " Save your card to confirm." : " Now secure your date."}
               </p>
             </div>
 
+            {hasLegacyDeposit && (
+              <div className="mb-4 flex items-center gap-3 rounded-xl bg-emerald-500/10 px-4 py-3 ring-1 ring-emerald-500/20">
+                <IconCircleCheck size={20} className="flex-shrink-0 text-emerald-400" />
+                <p className="text-sm text-emerald-300">
+                  Your previous deposit of <strong>{fmtDollars(quote.priorDepositCents)}</strong>{" "}
+                  has been applied to this event.
+                </p>
+              </div>
+            )}
+
             <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
-              <h2 className="mb-1 text-xl font-bold">Secure Your Event</h2>
+              <h2 className="mb-1 text-xl font-bold">
+                {cardOnFileOnly ? "Save Card on File" : "Secure Your Event"}
+              </h2>
               <p className="mb-6 text-sm text-gray-400">
-                {isFullPayment ? "Total" : "Deposit"}:{" "}
-                <span className="font-semibold text-white">
-                  {fmtDollars(quote.depositDueCents)}
-                </span>
-                {!isFullPayment &&
-                  quote.balanceCents > 0 &&
-                  ` — remaining ${fmtDollars(quote.balanceCents)} charged 72 hours before event.`}
+                {cardOnFileOnly ? (
+                  <>
+                    No additional payment required today. Your card will be saved for the remaining
+                    balance of{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(quote.totalCents - quote.priorDepositCents)}
+                    </span>
+                    , charged 72 hours before your event.
+                  </>
+                ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
+                  <>
+                    Remaining balance:{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(legacyChargeCents)}
+                    </span>{" "}
+                    (after {fmtDollars(quote.priorDepositCents)} prior deposit)
+                  </>
+                ) : (
+                  <>
+                    {isFullPayment ? "Total" : "Deposit"}:{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(quote.depositDueCents)}
+                    </span>
+                    {!isFullPayment &&
+                      quote.balanceCents > 0 &&
+                      ` — remaining ${fmtDollars(quote.balanceCents)} charged 72 hours before event.`}
+                  </>
+                )}
               </p>
 
               <div id="sq-card-container" className="mb-4 min-h-[50px] rounded-lg bg-white p-3" />
@@ -1304,7 +1402,15 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   />
                 </svg>
                 <p className="text-sm text-gray-300">
-                  {isFullPayment ? (
+                  {cardOnFileOnly ? (
+                    "Your card will be saved on file for the remaining balance, charged automatically 72 hours before your event."
+                  ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
+                    <>
+                      Your card will be charged{" "}
+                      <strong className="text-white">{fmtDollars(legacyChargeCents)}</strong> today
+                      and saved on file.
+                    </>
+                  ) : isFullPayment ? (
                     "Your card will be charged the full event total today."
                   ) : (
                     <>
@@ -1329,7 +1435,11 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               >
                 {processing
                   ? "Processing..."
-                  : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
+                  : cardOnFileOnly
+                    ? "Save Card & Confirm"
+                    : hasLegacyDeposit && legacyChargeCents > 0
+                      ? `Pay ${fmtDollars(legacyChargeCents)}`
+                      : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
               </button>
             </div>
           </>
@@ -1411,7 +1521,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-                      {isFullPayment ? "Paid in Full" : "Deposit Paid"}
+                      {isFullPayment ? "Paid in Full" : "Deposit Applied"}
                     </p>
                     <p className="text-2xl font-extrabold">{fmtDollars(quote.depositDueCents)}</p>
                   </div>
