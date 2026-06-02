@@ -517,7 +517,33 @@ export async function mintDigitalGiftCard(params: {
    *  back the mint (the card is still good and findable by GAN). */
   customerId?: string;
 }): Promise<MintGiftCardResult> {
+  // ── 0. Look up the catalog discount type ────────────────────────────
+  // FIXED_PERCENTAGE: Square computes amount from line price × %; do NOT
+  //   include amount_money (Square errors if you do).
+  // VARIABLE_AMOUNT: Square requires amount_money to be provided.
+  // FIXED_AMOUNT: amount is baked into the catalog object.
+  let discountIsVariable = false;
+  try {
+    const catRes = await fetch(`${SQUARE_BASE}/catalog/object/${params.discountCatalogObjectId}`, {
+      headers: sqHeaders(),
+    });
+    if (catRes.ok) {
+      const catData = await catRes.json();
+      const discountType = catData.object?.discount_data?.discount_type;
+      discountIsVariable = discountType === "VARIABLE_AMOUNT";
+    }
+  } catch {
+    // Non-fatal — fall back to no amount_money (existing behavior)
+  }
+
   // ── 1. Create order: $X eGiftCard line + $X catalog discount → $0 ─
+  const discount: Record<string, unknown> = {
+    catalog_object_id: params.discountCatalogObjectId,
+  };
+  if (discountIsVariable) {
+    discount.amount_money = { amount: params.amountCents, currency: "USD" };
+  }
+
   const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
     method: "POST",
     headers: sqHeaders(),
@@ -533,15 +559,7 @@ export async function mintDigitalGiftCard(params: {
             base_price_money: { amount: params.amountCents, currency: "USD" },
           },
         ],
-        // NOTE: do NOT include amount_money when the catalog_object_id
-        // references a FIXED_PERCENTAGE discount (Square errors out:
-        // "Do not provide a value for amount_money if you provide a
-        // catalog_object_id that references a fixed-percentage
-        // discount"). Square computes the amount from the line item's
-        // base_price_money × the discount percentage. Our prod discount
-        // (37C3SN4245TUCN3RF7XMNKPU "Gift Card - Guest Survey (500.088)")
-        // is 100% off so the line zeroes out cleanly.
-        discounts: [{ catalog_object_id: params.discountCatalogObjectId }],
+        discounts: [discount],
       },
     }),
   });
