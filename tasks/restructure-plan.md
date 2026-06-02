@@ -294,6 +294,16 @@ Separate PR after PR8 has baked. ~3-5 days plus design review.
 
 > **Phase 2 exit gate (per feature):** v2 surface in production behind its own URL or flag, ops sign-off, v1 redirects or scheduled for deletion in follow-up PR.
 
+#### v2 checkout: server-side atomic BMI payment/confirm
+
+**Context:** v1 race bookings confirm payment with BMI client-side on the confirmation page — after Square has already charged the card. If BMI `payment/confirm` fails (network, BMI hiccup, tab close), the booking strands in `pending_payment` while the customer is charged. A client-side retry was added to the shared confirmation page in PR #13 (2026-06-02) as an immediate fix, but the architectural gap remains.
+
+**v2 plan:**
+- Extract shared `lib/bmi-client.ts` with BMI auth + `confirmPayment()` (token cache, raw-string orderId interpolation for precision safety).
+- Add `confirmBmi` as a `postPaymentAction` kind in `/api/square/pay` — Square charge + BMI confirm happen in one server-side request. The confirmation page becomes a fallback/retry, not the primary path.
+- Wire `confirmBmi` into the v2 checkout service (`src/features/booking/service/checkout.ts`) when building the v2 payment step.
+- The shared confirmation page's retry logic (3 attempts, backoff, error UI) stays as belt-and-suspenders for both v1 and v2.
+
 ---
 
 ### Phase 3 — v1 migration backlog (opportunistic, no fixed order)

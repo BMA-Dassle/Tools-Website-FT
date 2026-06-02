@@ -261,6 +261,7 @@ export default function ConfirmationPage() {
    *  records. Either case where the resolved package has an
    *  `appetizerCode` set flips this to true. */
   const [rookiePack, setRookiePack] = useState(false);
+  const [confirmFailed, setConfirmFailed] = useState(false);
   const confirmStarted = useRef(false);
   const liveStatus = useTrackStatus();
   const currentRaces = liveStatus?.currentRaces ?? null;
@@ -358,49 +359,74 @@ export default function ConfirmationPage() {
         }[] = [];
 
         if (!isV2) {
-          // v1 path: client-side BMI payment/confirm
-          try {
-            for (let i = 0; i < allBillIds.length; i++) {
-              const bid = allBillIds[i];
-              const racerName = racerNames[i] || "";
-              let billAmount = amount;
-              if (allBillIds.length > 1) {
-                try {
-                  const ovRes = await fetch(
-                    `/api/sms?endpoint=bill%2Foverview&billId=${bid}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`,
-                  );
-                  const ov = await ovRes.json();
-                  const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-                  billAmount = cashT?.amount ?? 0;
-                } catch {
-                  billAmount = 0;
-                }
-              }
-
-              const depositKind = billAmount === 0 ? 2 : 0;
-              const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
-              const bmiCk = getBookingClientKey();
-              const qs = new URLSearchParams({
-                endpoint: "payment/confirm",
-                ...(bmiCk ? { clientKey: bmiCk } : {}),
-              });
-              const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: confirmBody,
-              });
-              const result = await confirmRes.json();
-              const resNum = result.reservationNumber || "";
-              const resCode = String(result.reservationCode || `r${bid}`);
-              if (resNum)
-                allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
-              if (i === 0) {
-                if (resCode) setReservationCode(resCode);
-                if (resNum) setReservationNumber(resNum);
+          // v1 path: client-side BMI payment/confirm (with retry)
+          for (let i = 0; i < allBillIds.length; i++) {
+            const bid = allBillIds[i];
+            const racerName = racerNames[i] || "";
+            let billAmount = amount;
+            if (allBillIds.length > 1) {
+              try {
+                const ovRes = await fetch(
+                  `/api/sms?endpoint=bill%2Foverview&billId=${bid}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`,
+                );
+                const ov = await ovRes.json();
+                const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+                billAmount = cashT?.amount ?? 0;
+              } catch {
+                billAmount = 0;
               }
             }
-          } catch {
-            // Non-fatal — may already be confirmed
+
+            const depositKind = billAmount === 0 ? 2 : 0;
+            const bmiCk = getBookingClientKey();
+            const qs = new URLSearchParams({
+              endpoint: "payment/confirm",
+              ...(bmiCk ? { clientKey: bmiCk } : {}),
+            });
+
+            let confirmed = false;
+            for (let attempt = 0; attempt < 3 && !confirmed; attempt++) {
+              try {
+                const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
+                const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: confirmBody,
+                });
+                if (!confirmRes.ok) {
+                  const errText = await confirmRes.text();
+                  console.error(
+                    `[payment/confirm] attempt ${attempt + 1} failed for bill ${bid}: ${confirmRes.status} ${errText}`,
+                  );
+                  if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+                  continue;
+                }
+                const result = await confirmRes.json();
+                const resNum = result.reservationNumber || "";
+                const resCode = String(result.reservationCode || `r${bid}`);
+                if (resNum) {
+                  allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
+                  confirmed = true;
+                } else {
+                  console.error(
+                    `[payment/confirm] attempt ${attempt + 1} for bill ${bid}: 200 but no reservationNumber`,
+                    result,
+                  );
+                  if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+                }
+              } catch (err) {
+                console.error(
+                  `[payment/confirm] attempt ${attempt + 1} for bill ${bid} threw:`,
+                  err,
+                );
+                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+              }
+            }
+            if (i === 0) {
+              const first = allConfirmations[0];
+              if (first?.resCode) setReservationCode(first.resCode);
+              if (first?.resNumber) setReservationNumber(first.resNumber);
+            }
           }
         }
         // v2 path: payment/confirm already happened server-side in /api/booking/v2/reserve
@@ -424,6 +450,13 @@ export default function ConfirmationPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let notificationPayload: Record<string, any> | null = null;
 
+        if (allConfirmations.length === 0 && allBillIds.length > 0) {
+          console.error(
+            `[confirmation] all payment/confirm attempts failed for bills: ${allBillIds.join(",")}`,
+          );
+          setConfirmFailed(true);
+        }
+
         if (allConfirmations.length > 0) {
           trackBookingComplete(allConfirmations.map((c) => c.resNumber).join(","));
           clearBookingLocation();
@@ -431,7 +464,7 @@ export default function ConfirmationPage() {
           // Update booking record with reservation data
           try {
             const primaryRes = allConfirmations[0];
-            await fetch("/api/booking-record", {
+            const patchRes = await fetch("/api/booking-record", {
               method: "PATCH",
               headers: { "content-type": "application/json", "x-api-key": BOOKING_API_KEY },
               body: JSON.stringify({
@@ -448,8 +481,9 @@ export default function ConfirmationPage() {
                 })),
               }),
             });
-          } catch {
-            /* non-fatal */
+            if (!patchRes.ok) console.error("[booking-record] PATCH failed:", patchRes.status);
+          } catch (err) {
+            console.error("[booking-record] PATCH threw:", err);
           }
 
           // Build notification payload (deferred send until waiver URL resolved)
@@ -1051,6 +1085,42 @@ export default function ConfirmationPage() {
                 Book an experience
               </Link>
             </div>
+          ) : confirmFailed ? (
+            <div className="space-y-4 max-w-md mx-auto">
+              <div className="w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-500/50 flex items-center justify-center mx-auto mb-4">
+                <svg
+                  className="w-10 h-10 text-amber-400"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                  />
+                </svg>
+              </div>
+              <h1 className="text-3xl md:text-4xl font-display uppercase tracking-widest text-white mb-2">
+                Almost there
+              </h1>
+              <p className="text-white/70 text-sm">
+                Your payment went through but we had trouble finalizing your reservation. Your seats
+                are held — please tap below to retry or see the front desk when you arrive.
+              </p>
+              <button
+                onClick={() => {
+                  setConfirmFailed(false);
+                  confirmStarted.current = false;
+                  setLoading(true);
+                  window.location.reload();
+                }}
+                className="mt-2 inline-block px-6 py-3 bg-[#00E2E5] text-black font-bold rounded-lg hover:bg-[#00E2E5]/80 transition"
+              >
+                Retry Confirmation
+              </button>
+            </div>
           ) : (
             <>
               <div className="w-20 h-20 rounded-full bg-[#00E2E5]/20 border-2 border-[#00E2E5]/50 flex items-center justify-center mx-auto mb-4">
@@ -1070,7 +1140,6 @@ export default function ConfirmationPage() {
               <p className="text-white/50 text-sm max-w-md mx-auto">
                 Your reservation is confirmed. Show your QR code at check-in when you arrive.
               </p>
-              {/* Reservation number shown on the card, not here */}
             </>
           )}
         </div>
