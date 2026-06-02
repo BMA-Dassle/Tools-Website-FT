@@ -98,52 +98,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 1. Create the day-of Square order (OPEN — staff redeems at event)
-  let dayofOrderId: string | undefined;
-  try {
-    const lineItems = (
-      quote.line_items as Array<{
-        name: string;
-        price: number;
-        tax: number;
-        qty: number;
-        total: number;
-        plu: string;
-      }>
-    ).map((p) => buildSquareLineItem(quote.center_code, p));
-
-    const serviceCharges =
-      quote.tax_cents > 0
-        ? [
-            {
-              name: "Service Charge",
-              amount_money: { amount: quote.tax_cents, currency: "USD" },
-              calculation_phase: "SUBTOTAL_PHASE",
-            },
-          ]
-        : [];
-
-    const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-dayof-${baseKey}`,
-        order: {
-          location_id: quote.square_location_id,
-          reference_id: `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40),
-          line_items: lineItems,
-          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
-        },
-      }),
-    });
-    const orderData = await orderRes.json();
-    if (orderRes.ok && orderData.order?.id) {
-      dayofOrderId = orderData.order.id;
-    } else {
-      console.error("[gf-deposit] day-of order creation failed:", orderData);
-    }
-  } catch (err: unknown) {
-    console.error("[gf-deposit] day-of order error:", err);
-  }
+  const dayofOrderId = await createDayofOrder(quote, baseKey);
 
   // 2. Create deposit order (single line, no tax — fraction of tax-inclusive total)
   const ganSuffix = quote.bmi_reservation_id.slice(-8);
@@ -391,53 +346,8 @@ async function handleLegacyDeposit(
   const chargeCents = isFullPayment ? Math.max(0, quote.total_cents - priorDepositCents) : 0;
 
   try {
-    // 1. Create day-of Square order (same as normal flow)
-    let dayofOrderId: string | undefined;
-    try {
-      const lineItems = (
-        quote.line_items as Array<{
-          name: string;
-          price: number;
-          tax: number;
-          qty: number;
-          total: number;
-          plu: string;
-        }>
-      ).map((p) => buildSquareLineItem(quote.center_code, p));
-
-      const serviceCharges =
-        quote.tax_cents > 0
-          ? [
-              {
-                name: "Service Charge",
-                amount_money: { amount: quote.tax_cents, currency: "USD" },
-                calculation_phase: "SUBTOTAL_PHASE",
-              },
-            ]
-          : [];
-
-      const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
-        method: "POST",
-        headers: sqHeaders(),
-        body: JSON.stringify({
-          idempotency_key: `gf-dayof-${baseKey}`,
-          order: {
-            location_id: quote.square_location_id,
-            reference_id: `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40),
-            line_items: lineItems,
-            service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
-          },
-        }),
-      });
-      const orderData = await orderRes.json();
-      if (orderRes.ok && orderData.order?.id) {
-        dayofOrderId = orderData.order.id;
-      } else {
-        console.error("[gf-deposit-legacy] day-of order creation failed:", orderData);
-      }
-    } catch (err: unknown) {
-      console.error("[gf-deposit-legacy] day-of order error:", err);
-    }
+    // 1. Create day-of Square order — try catalog IDs first, fall back to ad-hoc
+    const dayofOrderId = await createDayofOrder(quote, baseKey);
 
     // 2. Find/create Square customer
     const custResult = await findOrCreateSquareCustomer(quote);
@@ -723,4 +633,84 @@ async function findOrCreateSquareCustomer(quote: {
   }
 
   return null;
+}
+
+async function createDayofOrder(
+  quote: GroupFunctionQuote,
+  baseKey: string,
+): Promise<string | undefined> {
+  const rawItems = quote.line_items as Array<{
+    name: string;
+    price: number;
+    tax: number;
+    qty: number;
+    total: number;
+    plu: string;
+  }>;
+  const serviceCharges =
+    quote.tax_cents > 0
+      ? [
+          {
+            name: "Service Charge",
+            amount_money: { amount: quote.tax_cents, currency: "USD" },
+            calculation_phase: "SUBTOTAL_PHASE",
+          },
+        ]
+      : [];
+  const refId = `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40);
+
+  // Attempt 1: catalog-linked line items (PLU → catalog_object_id)
+  try {
+    const lineItems = rawItems.map((p) => buildSquareLineItem(quote.center_code, p));
+    const res = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-dayof-${baseKey}`,
+        order: {
+          location_id: quote.square_location_id,
+          reference_id: refId,
+          line_items: lineItems,
+          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.order?.id) return data.order.id;
+    console.warn("[gf-deposit] catalog day-of order failed, falling back to ad-hoc:", data);
+  } catch (err) {
+    console.warn("[gf-deposit] catalog day-of order error, falling back to ad-hoc:", err);
+  }
+
+  // Attempt 2: ad-hoc line items (name + price, no catalog link)
+  try {
+    const adHocItems = rawItems.map((p) => ({
+      name: p.name,
+      quantity: String(p.qty),
+      base_price_money: { amount: Math.round(p.price * 100), currency: "USD" },
+    }));
+    const res = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-dayof-adhoc-${baseKey}`,
+        order: {
+          location_id: quote.square_location_id,
+          reference_id: refId,
+          line_items: adHocItems,
+          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.order?.id) {
+      console.log("[gf-deposit] day-of order created via ad-hoc fallback:", data.order.id);
+      return data.order.id;
+    }
+    console.error("[gf-deposit] ad-hoc day-of order also failed:", data);
+  } catch (err) {
+    console.error("[gf-deposit] ad-hoc day-of order error:", err);
+  }
+
+  return undefined;
 }
