@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { FAQJsonLd, MegaTrackTuesdayJsonLd } from "@/components/seo/JsonLd";
 import { FASTTRAX_OG } from "@/lib/seo";
 
+// Daily ISR so MegaTrackTuesdayJsonLd's computed next-occurrence startDate
+// refreshes instead of freezing at build time.
+export const revalidate = 86400;
+
 export const metadata: Metadata = {
   title: "Indoor Go-Kart Racing & Qualifications – FastTrax Fort Myers",
   description:
