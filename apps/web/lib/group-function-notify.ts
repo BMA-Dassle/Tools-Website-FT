@@ -62,6 +62,27 @@ function resolvePlannerTeamsChatId(quote: GroupFunctionQuote): string | null {
   return null;
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function emailOk(result: PromiseSettledResult<unknown>): boolean {
+  if (result.status === "rejected") return false;
+  const v = result.value;
+  return !(v && typeof v === "object" && "ok" in v && !(v as { ok: boolean }).ok);
+}
+
+function memoLog(quote: GroupFunctionQuote, message: string): void {
+  import("@/lib/bmi-office-actions")
+    .then(({ appendProjectPrivateNote, noteTimestamp }) =>
+      appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] ${message}`,
+        contractUrl: `${baseUrl(quote)}/contract/${quote.contract_short_id}`,
+      }),
+    )
+    .catch(() => {});
+}
+
 // ── Contract Sent ───────────────────────────────────────────────────
 
 export async function notifyContractSent(quote: GroupFunctionQuote): Promise<void> {
@@ -101,6 +122,13 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
       console.error("[gf-notify] contractSent notification failed:", r.reason);
     }
   }
+
+  memoLog(
+    quote,
+    emailOk(results[1])
+      ? `Contract sent to ${quote.guest_email}`
+      : `Contract email FAILED to ${quote.guest_email}`,
+  );
 }
 
 // ── Contract Updated (before signing) ───────────────────────────────
@@ -141,6 +169,13 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
       console.error("[gf-notify] contractUpdated notification failed:", r.reason);
     }
   }
+
+  memoLog(
+    quote,
+    emailOk(results[1])
+      ? `Contract updated — resent to ${quote.guest_email}`
+      : `Contract update email FAILED to ${quote.guest_email}`,
+  );
 }
 
 // ── Deposit Paid ────────────────────────────────────────────────────
@@ -153,7 +188,10 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
           [
             `${quote.guest_first_name}, your deposit of ${dollars(quote.deposit_due_cents)} for ${quote.event_name || "your event"} has been received!`,
             primaryGan(quote) ? `Reference: ${primaryGan(quote)}` : "",
-            `Your remaining balance of ${dollars(quote.balance_cents)} will be charged 72 hours before your event.`,
+            quote.balance_cents > 0
+              ? `Your remaining balance of ${dollars(quote.balance_cents)} will be charged 72 hours before your event.`
+              : "",
+            `View your event: ${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_deposit`,
             `See you at ${quote.center_name}!`,
           ]
             .filter(Boolean)
@@ -181,6 +219,267 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
       console.error("[gf-notify] depositPaid notification failed:", r.reason);
     }
   }
+
+  memoLog(
+    quote,
+    `Deposit received — ${dollars(quote.deposit_due_cents)} confirmation sent to ${quote.guest_email}`,
+  );
+}
+
+// ── Waiver Reminder (sent 5 min after deposit) ─────────────────────
+
+const CLIENT_KEYS_NOTIFY: Record<string, string> = {
+  "fort-myers": "headpinzftmyers",
+  fasttrax: "headpinzftmyers",
+  naples: "headpinznaples",
+};
+
+export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<void> {
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const { hasWaiverRequiredActivities, fetchProject } = await import("@/lib/bmi-office-actions");
+  if (!hasWaiverRequiredActivities(items)) return;
+
+  const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
+  if (!project?.projectReference) {
+    console.warn(`[gf-notify] no projectReference for waiver email, skipping quote=${quote.id}`);
+    return;
+  }
+
+  const clientKey = CLIENT_KEYS_NOTIFY[quote.center_code] || "headpinzftmyers";
+  const waiverUrl = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_waiver`;
+
+  const waiverActivities = items
+    .filter((i) =>
+      ["laser tag", "gel blaster", "racing", "race", "nexus", "kart", "vip birthday"].some((w) =>
+        i.name.toLowerCase().includes(w),
+      ),
+    )
+    .map((i) => i.name);
+
+  const activityList =
+    waiverActivities.length > 0
+      ? waiverActivities
+          .map((a) => `<li style="margin:4px 0;font-size:14px;color:#333">${a}</li>`)
+          .join("")
+      : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, all participants for ${quote.event_name || "your event"} at ${quote.center_name} must complete a waiver before arriving.`,
+            `Please forward this link to everyone in your group:`,
+            waiverUrl,
+            `Questions? Contact ${plannerName(quote)}.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Waivers Required — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        "Waivers Required",
+        "Please complete waivers before your event",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your deposit is confirmed and we can't wait to see you! Before your event, <strong>every participant must complete a waiver</strong>.</p>
+
+        <div style="background:#fef3c7;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #f59e0b">
+          <p style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#92400e">Important: Waivers Are Mandatory</p>
+          <p style="margin:0 0 4px;font-size:13px;color:#78350f">Participants without a signed waiver will not be able to participate in the following activities:</p>
+          ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
+        </div>
+
+        <p style="margin:16px 0;font-size:14px;color:#475569">Please forward this email — or share the link below — with everyone attending your event. Getting waivers done early avoids delays at check-in!</p>
+
+        ${ctaButton("Complete Waivers Now", waiverUrl)}
+
+        <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
+          <p style="margin:0 0 8px;font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Share This Link With Your Group</p>
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+        </div>
+
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">You can also access the waiver link anytime from your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour deposit is confirmed! Before your event, every participant must complete a waiver.\n\nComplete waivers here: ${waiverUrl}\n\nPlease forward this link to everyone in your group. Incomplete waivers may delay check-in.\n\nQuestions? Contact ${plannerName(quote)}.\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] waiver reminder failed:", r.reason);
+    }
+  }
+
+  console.log(`[gf-notify] waiver reminder sent for quote=${quote.id}`);
+  memoLog(quote, `Waiver reminder sent to ${quote.guest_email}`);
+}
+
+// ── 7-Day Waiver Reminder ──────────────────────────────────────────
+
+export async function notify7DayWaiverReminder(
+  quote: GroupFunctionQuote,
+  waiverUrl: string,
+): Promise<void> {
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_7day_waiver`;
+
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const waiverActivities = items
+    .filter((i) =>
+      ["laser tag", "gel blaster", "racing", "race", "nexus", "kart", "vip birthday"].some((w) =>
+        i.name.toLowerCase().includes(w),
+      ),
+    )
+    .map((i) => i.name);
+
+  const activityList =
+    waiverActivities.length > 0
+      ? waiverActivities
+          .map((a) => `<li style="margin:4px 0;font-size:14px;color:#333">${a}</li>`)
+          .join("")
+      : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event ${quote.event_name || ""} is in 7 days! All participants must complete their waivers before arriving.`,
+            `Complete waivers: ${waiverUrl}`,
+            `Please share this link with your entire group.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      bcc: GF_BCC,
+      subject: `Action Required: Waivers Must Be Completed — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        "Waivers Must Be Completed Within 7 Days",
+        "Your event is coming up — don't wait!",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your event is just <strong>7 days away</strong>! To ensure a smooth experience, <strong>everyone attending must complete a waiver</strong> prior to your event.</p>
+
+        <div style="background:#fef3c7;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #f59e0b">
+          <p style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#92400e">Action Required: Waivers Must Be Completed</p>
+          <p style="margin:0 0 4px;font-size:13px;color:#78350f">This must be done within the next 7 days for the following activities:</p>
+          ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
+        </div>
+
+        <p style="margin:16px 0;font-size:14px;color:#dc2626;font-weight:bold">Failure to complete waivers in time may result in check-in delays or delays to your event.</p>
+
+        ${ctaButton("Complete Your Waiver Now", waiverUrl)}
+
+        <p style="margin:16px 0;font-size:14px;color:#475569">Make sure everyone in your group signs the waiver. Share this link:</p>
+
+        <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+        </div>
+
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">View your event details anytime on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour event is 7 days away! All participants must complete a waiver before arriving.\n\nComplete waivers: ${waiverUrl}\n\nPlease share this link with everyone in your group. Failure to complete waivers may result in check-in delays.\n\nIf text don't work, copy and paste the waiver link above.\n\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] 7-day waiver reminder failed:", r.reason);
+    }
+  }
+
+  console.log(`[gf-notify] 7-day waiver reminder sent for quote=${quote.id}`);
+  memoLog(quote, `7-day waiver reminder sent to ${quote.guest_email}`);
+}
+
+// ── 2-Day Final Waiver Warning ─────────────────────────────────────
+
+export async function notify2DayWaiverWarning(
+  quote: GroupFunctionQuote,
+  waiverUrl: string,
+): Promise<void> {
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_2day_waiver`;
+
+  const items = (quote.line_items || []) as Array<{ name: string }>;
+  const waiverActivities = items
+    .filter((i) =>
+      ["laser tag", "gel blaster", "racing", "race", "nexus", "kart", "vip birthday"].some((w) =>
+        i.name.toLowerCase().includes(w),
+      ),
+    )
+    .map((i) => i.name);
+
+  const activityList =
+    waiverActivities.length > 0
+      ? waiverActivities
+          .map((a) => `<li style="margin:4px 0;font-size:14px;color:#333">${a}</li>`)
+          .join("")
+      : "";
+
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `URGENT: ${quote.guest_first_name}, your event ${quote.event_name || ""} is in 2 days! Waivers must be completed NOW.`,
+            `Guests without a signed waiver will not be able to participate.`,
+            `Complete waivers: ${waiverUrl}`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      bcc: GF_BCC,
+      subject: `ONLY 2 DAYS LEFT — Complete Waivers Now! — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        "Only 2 Days Left to Complete Waiver!",
+        "This is your final reminder",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">${quote.guest_first_name}, your event is in <strong>2 days</strong>. If you or your guests have not signed the required waiver, it must be completed within the next <strong>48 hours</strong> to avoid delays at check-in.</p>
+
+        <div style="background:#fef2f2;border-radius:12px;padding:20px;margin:16px 0;border-left:4px solid #ef4444">
+          <p style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#dc2626">Guests without a signed waiver will not be able to participate</p>
+          <p style="margin:0;font-size:13px;color:#991b1b">This applies to the following activities at your event:</p>
+          ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
+        </div>
+
+        ${ctaButton("Complete Your Waiver Now", waiverUrl)}
+
+        <p style="margin:16px 0;font-size:14px;color:#475569"><strong>Make sure your entire group is ready.</strong> Share the waiver link below with anyone who still needs to sign:</p>
+
+        <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+        </div>
+
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">If you have already completed your waiver, please disregard this email. View event details on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+      ),
+      text: `URGENT: ${quote.guest_first_name}, your event is in 2 days!\n\nAll participants must complete their waiver within the next 48 hours.\n\nGuests without a signed waiver will not be able to participate.\n\nComplete waivers: ${waiverUrl}\n\nShare this link with your entire group.\n\nIf already completed, please disregard.\n\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] 2-day waiver warning failed:", r.reason);
+    }
+  }
+
+  console.log(`[gf-notify] 2-day waiver warning sent for quote=${quote.id}`);
+  memoLog(quote, `2-day waiver warning sent to ${quote.guest_email}`);
 }
 
 // ── Balance Charged ─────────────────────────────────────────────────
@@ -218,6 +517,8 @@ export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<v
       console.error("[gf-notify] balanceCharged notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Balance charged — ${dollars(quote.balance_cents)} via saved card`);
 }
 
 // ── Balance Link Sent ───────────────────────────────────────────────
@@ -257,6 +558,8 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
       console.error("[gf-notify] balanceLinkSent notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Balance payment link sent to ${quote.guest_email}`);
 }
 
 // ── 96-Hour Reminder (24hrs before balance charge) ─────────────────
@@ -344,6 +647,8 @@ export async function notify96HourReminder(
       console.error("[gf-notify] 96hr reminder failed:", r.reason);
     }
   }
+
+  memoLog(quote, `96-hour reminder sent to ${quote.guest_email}`);
 }
 
 // ── Balance Charged Receipt ────────────────────────────────────────
@@ -438,6 +743,8 @@ export async function notifyBalanceReceipt(
       console.error("[gf-notify] balance receipt failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Balance receipt sent to ${quote.guest_email}`);
 }
 
 // ── Event Cancelled ────────────────────────────────────────────────
@@ -502,6 +809,8 @@ export async function notifyEventCancelled(
       console.error("[gf-notify] cancellation notification failed:", r.reason);
     }
   }
+
+  memoLog(quote, `Cancellation notice sent to ${quote.guest_email}`);
 }
 
 // ── Post-Paid Approval ─────────────────────────────────────────────
@@ -509,9 +818,8 @@ export async function notifyEventCancelled(
 const APPROVAL_RECIPIENTS = ["eric@headpinz.com", "jacob@headpinz.com"];
 
 export async function notifyApprovalNeeded(quote: GroupFunctionQuote): Promise<void> {
-  const approveUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}/approve`;
-
   for (const to of APPROVAL_RECIPIENTS) {
+    const approveUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}/approve?for=${encodeURIComponent(to)}`;
     sendEmail({
       to,
       subject: `[APPROVAL NEEDED] Post-Paid: ${quote.event_name || quote.center_name}`,
@@ -536,6 +844,8 @@ export async function notifyApprovalNeeded(quote: GroupFunctionQuote): Promise<v
       text: `Post-paid approval needed for ${quote.event_name}\n\nCustomer: ${quote.guest_first_name} ${quote.guest_last_name}\nTotal: ${dollars(quote.total_cents)}\nPlanner: ${plannerName(quote)}\n\nReview: ${approveUrl}`,
     }).catch((err) => console.error("[gf-notify] approval email failed:", err));
   }
+
+  memoLog(quote, `Approval request sent to management`);
 }
 
 export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<void> {
@@ -566,6 +876,8 @@ export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<v
     ),
     text: `Post-paid account denied for ${quote.event_name}\n\n${quote.denial_reason ? `Reason: ${quote.denial_reason}\n\n` : ""}Please convert this to a standard deposit event or contact management.`,
   });
+
+  memoLog(quote, `Post-paid denied — planner notified`);
 }
 
 // ── Teams Adaptive Card ─────────────────────────────────────────────
@@ -782,7 +1094,7 @@ function buildContractSentHtml(quote: GroupFunctionQuote, contractUrl: string): 
 
     <table style="width:100%;margin:16px 0;border-collapse:collapse">
       ${pricingRow("Event Total", dollars(quote.total_cents))}
-      ${pricingRow("Deposit Due Today", dollars(quote.deposit_due_cents), true)}
+      ${pricingRow(quote.balance_cents > 0 ? "Deposit Due Today" : "Payment Due Today", dollars(quote.deposit_due_cents), true)}
       ${quote.balance_cents > 0 ? pricingRow("Balance (due 72hrs before)", dollars(quote.balance_cents)) : ""}
     </table>
 
@@ -801,7 +1113,7 @@ function buildContractUpdatedHtml(quote: GroupFunctionQuote, contractUrl: string
 
     <table style="width:100%;margin:16px 0;border-collapse:collapse">
       ${pricingRow("Event Total", dollars(quote.total_cents))}
-      ${pricingRow("Deposit Due", dollars(quote.deposit_due_cents), true)}
+      ${pricingRow(quote.balance_cents > 0 ? "Deposit Due" : "Payment Due", dollars(quote.deposit_due_cents), true)}
       ${quote.balance_cents > 0 ? pricingRow("Balance (due 72hrs before)", dollars(quote.balance_cents)) : ""}
     </table>
 
@@ -830,7 +1142,9 @@ function buildDepositPaidHtml(quote: GroupFunctionQuote): string {
       ${quote.balance_cents > 0 ? pricingRow("Remaining Balance", dollars(quote.balance_cents)) : ""}
     </table>
 
-    ${quote.balance_cents > 0 ? `<p style="margin:0;font-size:13px;color:#64748b;text-align:center">The remaining balance will be automatically charged 72 hours before your event.</p>` : ""}`,
+    ${quote.balance_cents > 0 ? `<p style="margin:0 0 16px;font-size:13px;color:#64748b;text-align:center">The remaining balance will be automatically charged 72 hours before your event.</p>` : ""}
+
+    ${ctaButton("View Your Event", `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_deposit`)}`,
   );
 }
 

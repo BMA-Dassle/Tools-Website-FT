@@ -3,6 +3,7 @@ import redis from "@/lib/redis";
 import { getAssignmentAtTime, type CameraAssignment } from "@/lib/camera-assign";
 import { getMatchByVideoCode, isVideoReadyForNotify, type VideoMatch } from "@/lib/video-match";
 import { logShadowDecision, type ShadowDecision } from "@/lib/vt3-shadow-log";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * VT3 shadow consumer — drains the Redis FIFO populated by the
@@ -51,6 +52,9 @@ interface QueuedEvent {
 }
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const url = new URL(req.url);
   const dryRun = url.searchParams.get("dryRun") === "1";
   const limit = Math.max(

@@ -1,5 +1,92 @@
 # Lessons Learned
 
+## Google ignores schema.org `eventSchedule` — Events need an explicit `startDate` (2026-06-02)
+
+Google Search Console flagged our recurring-event JSON-LD (Mega Track Tuesday,
+HeadPinz Trivia Tuesday, Midnight Madness) as ineligible. Root cause: the shared
+`recurringEventSchema` (`apps/web/components/seo/JsonLd.tsx`) described recurrence
+**only** via `eventSchedule` → `Schedule` (`byDay`/`repeatFrequency`/`scheduleTimezone`)
+and had **no `startDate`**.
+
+**Google's Event rich results do NOT read `eventSchedule`/`Schedule` at all.** It's
+valid schema.org (fine for other consumers) but Google-blind. Google requires an
+explicit ISO-8601 **`startDate` on the Event itself** — one of only three required
+fields (`name`, `startDate`, `location`). No `startDate` ⇒ "Missing field 'startDate'"
+⇒ ineligible. (`performer`/`offers`/`endDate` are recommended-only — yellow warnings,
+never the hard error.)
+
+Fix pattern for recurring events: compute the **next occurrence at render time** and
+emit a concrete `startDate`/`endDate` (ISO-8601 **with the DST-aware ET offset** —
+derive it via `Intl.DateTimeFormat(..., { timeZone, timeZoneName: "longOffset" })`,
+never hardcode `-05:00`). Emit **one Event per recurring day**. Anchor day math at
+**noon UTC** so adding days never trips the 2 AM DST boundary.
+
+Coupled gotcha: a computed "next occurrence" **freezes at build time** on statically
+rendered pages. Pages that render these schemas must set `export const revalidate`
+(we use daily) so the dates roll forward. Don't assume deploy cadence will refresh them.
+
+## Pandora product `tax` is a RATE, not a dollar amount (2026-05-30)
+
+Each product in the Pandora `/v2/bmi/reservation` response carries `tax` as a
+**per-line tax RATE** (e.g. `0.065` = 6.5%), NOT a dollar amount. Verified live on
+reservation `49220090`: every product had `tax: 0.065`.
+
+**Line tax = `rate × line-total`.** The old formula was:
+
+```ts
+taxTotal = products.reduce((s, p) => s + ((p.tax || 0) * p.total) / (p.price || 1), 0);
+```
+
+`(tax * total) / price` reduces to `rate × qty`, which under-counted tax by the unit
+price. On 49220090 it produced **$0.65** instead of **$63.76** (`0.065 × 980.95`). The
+bug was duplicated in two places, so it was extracted into one helper:
+[apps/web/lib/group-function-pricing.ts](apps/web/lib/group-function-pricing.ts)
+(`subtotalCents`, `taxCents`) — used by `bmi-scan`, both group-quote crons, and the backfill.
+
+Two coupled gotchas the tax bug had masked (tax was ≈$0, so nobody noticed):
+- **`total_cents` is the tax-INCLUSIVE grand total** everywhere (contract page, signed PDF,
+  Square deposit/day-of orders: deposit = total/2, balance = total − deposit). The dispatch
+  cron's normal path stored a tax-EXCLUSIVE total; now `+ taxCents`.
+- The sync cron recomputed tax **without** honoring `isTaxExempt(...)` (dispatch did) — fixed.
+
+Existing rows don't self-heal (dispatch only re-scans "Send Contract"; sync only recomputes
+tax on product change). One-time fix:
+[apps/web/app/api/cron/group-quote-tax-backfill/route.ts](apps/web/app/api/cron/group-quote-tax-backfill/route.ts)
+— recomputes unpaid quotes, reports (read-only) on already-paid quotes that under-collected.
+Run dry-run first: `curl -H "Authorization: Bearer $CRON_SECRET" .../api/cron/group-quote-tax-backfill?dryRun=1`,
+then `?dryRun=0`.
+
+## Post-paid approval requests must LEAVE "Send Contract" or they loop forever (2026-06-01)
+
+The group-quote-dispatch cron (`* * * * *`, every minute) scans BMI for projects in
+**"Send Contract"** state and processes each one. The normal (deposit) path transitions
+BMI **"Send Contract" → "Pending Signed Contract"** after sending, so the next scan skips it.
+The post-paid hold-for-approval branch did **not** — it set `status='pending_approval'`,
+fired `notifyApprovalNeeded()`, and returned, leaving the project in "Send Contract." Result:
+**an approval email to management every minute, forever — even after a decline.**
+
+Two coupled bugs:
+
+1. **The trigger is the BMI state, not the DB status.** Nothing can "wait for another Send
+   Contract" if the item never leaves Send Contract. Fix: the moment we hold for approval,
+   move BMI out of "Send Contract" (→ Pending Signed Contract), mirroring the sent path.
+   Then a decline sits dormant, and sales re-flipping to "Send Contract" is the deliberate
+   signal to re-request approval.
+
+2. **The reset block re-inserted and would hit the unique index.** When a `cancelled`/`denied`/
+   `expired` quote reappears, the reset block set `existing = null` then the create path called
+   `insertGfQuote` — which has **no `ON CONFLICT`** against the UNIQUE index on
+   `bmi_reservation_id` (`group-function-db.ts`). So "clear the denial and ask again" would have
+   thrown on the duplicate insert. Fix: reset the row **in place** (`UPDATE ... RETURNING *`),
+   keep `existing` pointing at it, and clear the approval/denial columns too
+   (`approved_at`, `denied_at`, `denial_reason`, `approval_memo`, …). Don't stamp
+   `hermes_last_processed_at` in the reset, or the 60s debounce skips the same-run reprocess.
+
+Lesson: any cron that consumes a BMI workflow state must transition the project OUT of that
+state on **every** terminal branch (sent, held-for-approval, error-park) — not just the happy
+path — or the scan re-triggers it indefinitely.
+[apps/web/app/api/cron/group-quote-dispatch/route.ts](apps/web/app/api/cron/group-quote-dispatch/route.ts)
+
 ## Neon sql template tag consumes `::type` as parameter type hints (2026-05-09)
 
 The `@neondatabase/serverless` `sql` tagged template treats `${value}::type`

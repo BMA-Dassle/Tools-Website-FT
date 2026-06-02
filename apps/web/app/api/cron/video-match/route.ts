@@ -14,6 +14,7 @@ import {
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
 import { getBlockState } from "@/lib/video-block";
 import { logCronRun } from "@/lib/sms-log";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/video-match
@@ -109,6 +110,9 @@ function overlayDiffers(m: VideoMatch, o: Overlay): boolean {
 }
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const force = new URL(req.url).searchParams.get("force") === "1";
   const started = Date.now();

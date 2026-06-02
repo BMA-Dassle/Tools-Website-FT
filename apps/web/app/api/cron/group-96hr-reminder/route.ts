@@ -3,6 +3,7 @@ import { sql, isDbConfigured } from "@/lib/db";
 import { type GroupFunctionQuote } from "@/lib/group-function-db";
 import { notify96HourReminder } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * 96-hour reminder cron.
@@ -22,6 +23,9 @@ const CLIENT_KEYS: Record<string, string> = {
 };
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });
   }
@@ -78,6 +82,18 @@ export async function GET(req: NextRequest) {
 
       // Record that reminder was sent
       await q`INSERT INTO contract_audit_log (quote_id, event, metadata) VALUES (${quote.id}, '96hr_reminder_sent', '{}')`;
+
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        await appendProjectPrivateNote({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          note: `[${noteTimestamp()}] 96-hour reminder sent | Balance: $${(quote.balance_cents / 100).toFixed(2)}`,
+        });
+      } catch {
+        /* non-fatal */
+      }
 
       sent++;
       console.log(`[group-96hr-reminder] sent for quote=${quote.id} event="${quote.event_name}"`);

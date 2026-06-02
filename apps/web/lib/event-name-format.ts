@@ -1,6 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-
-const GATEWAY_KEY = process.env.VERCEL_AI_GATEWAY_KEY || "";
+const GATEWAY_KEY = process.env.ANTHROPIC_API_KEY || process.env.VERCEL_AI_GATEWAY_KEY || "";
+const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/messages";
 
 const SYSTEM_PROMPT = `You format event names for a family entertainment center's contract system.
 
@@ -27,26 +26,37 @@ EXAMPLES:
 Return ONLY the formatted name. No explanations.`;
 
 export async function formatEventName(rawName: string): Promise<string> {
-  if (!GATEWAY_KEY || !rawName.trim()) return rawName;
+  if (!GATEWAY_KEY || !rawName.trim()) {
+    console.log(`[event-name-format] skipping: keySet=${!!GATEWAY_KEY} rawName="${rawName}"`);
+    return rawName;
+  }
+  console.log(`[event-name-format] calling AI Gateway for: "${rawName}"`);
 
   try {
-    const client = new Anthropic({
-      apiKey: GATEWAY_KEY,
-      baseURL: "https://ai-gateway.vercel.sh",
+    const res = await fetch(GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GATEWAY_KEY}`,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "anthropic/claude-3-5-haiku-20241022",
+        max_tokens: 100,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: rawName }],
+      }),
+      signal: AbortSignal.timeout(15_000),
     });
 
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 100,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: rawName }],
-    });
-
-    const result = response.content[0];
-    if (result.type === "text" && result.text.trim()) {
-      return result.text.trim();
+    if (!res.ok) {
+      console.error("[event-name-format] AI Gateway error:", res.status, await res.text());
+      return rawName;
     }
-    return rawName;
+
+    const data = await res.json();
+    const text = data.content?.[0]?.text?.trim();
+    return text || rawName;
   } catch (err) {
     console.error("[event-name-format] AI Gateway error:", err);
     return rawName;

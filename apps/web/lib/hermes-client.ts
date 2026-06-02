@@ -22,6 +22,7 @@ export interface HermesQueueItem {
   logId: number;
   center: string;
   centerName: string;
+  location?: string;
   subject: string;
   reservationId: string;
   event: {
@@ -106,15 +107,52 @@ export function resolveCenter(hermesCenter: string) {
 
 // ── API calls ───────────────────────────────────────────────────────
 
-export async function fetchPandaDocQueue(): Promise<HermesQueueItem[]> {
+export async function fetchHermesEnrichedEvents(): Promise<HermesQueueItem[]> {
   const res = await fetch(`${HERMES_BASE}/queue/pandadoc`, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
-    throw new Error(`Hermes /queue/pandadoc failed: ${res.status}`);
+    throw new Error(`Hermes enriched events failed: ${res.status}`);
   }
   return res.json();
+}
+
+const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
+
+export const PANDORA_LOCATION_IDS: Record<string, string> = {
+  "fort-myers": "TXBSQN0FEKQ11",
+  fasttrax: "LAB52GY480CJF",
+  naples: "PPTR5G2N0QXF7",
+};
+
+const HERMES_TO_PANDORA_LOCATION: Record<string, string> = {
+  "10.48.0.14": "TXBSQN0FEKQ11",
+  "10.48.0.14_FT": "LAB52GY480CJF",
+  "10.40.0.43": "PPTR5G2N0QXF7",
+};
+
+export async function fetchReservationDetail(
+  centerOrHermesCenter: string,
+  reservationId: string,
+): Promise<HermesQueueItem | null> {
+  const locationID =
+    PANDORA_LOCATION_IDS[centerOrHermesCenter] || HERMES_TO_PANDORA_LOCATION[centerOrHermesCenter];
+  if (!locationID) return null;
+  const key = process.env.SWAGGER_ADMIN_KEY || "";
+  const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({ locationID, reservationId }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) return null;
+  const body = await res.json();
+  if (!body.success) return null;
+  return body.data;
 }
 
 export async function completePandaDocQueue(params: {

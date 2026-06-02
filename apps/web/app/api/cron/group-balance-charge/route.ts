@@ -10,6 +10,7 @@ import {
 import { loadGiftCard } from "@/lib/square-gift-card";
 import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * 72-hour balance collection cron.
@@ -39,6 +40,9 @@ function sqHeaders() {
 }
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
 
   let quotes: GroupFunctionQuote[];
@@ -264,6 +268,18 @@ async function processBalanceCharge(
         );
       })().catch((err) => console.error("[group-balance-charge] receipt notify error:", err));
 
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        await appendProjectPrivateNote({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          note: `[${noteTimestamp()}] Balance charged: $${(quote.balance_cents / 100).toFixed(2)} via saved card`,
+        });
+      } catch {
+        /* non-fatal */
+      }
+
       return "auto_charged";
     } catch (err) {
       console.error(`[group-balance-charge] auto-charge failed for quote=${quote.id}:`, err);
@@ -309,6 +325,17 @@ async function processBalanceCharge(
       balance_payment_link_url: paymentLinkUrl,
       balance_link_sent_at: new Date().toISOString(),
     }).catch((err) => console.error("[group-balance-charge] notify error:", err));
+
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] Balance link sent: $${(quote.balance_cents / 100).toFixed(2)} (auto-charge failed)`,
+      });
+    } catch {
+      /* non-fatal */
+    }
 
     return "link_sent";
   } catch (err) {

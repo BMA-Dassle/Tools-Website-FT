@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import KbfEligibilityNotice from "@/components/kbf/EligibilityNotice";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
@@ -208,6 +209,8 @@ export default function KBFRegisterPage() {
           </div>
         </div>
       </section>
+
+      <KbfEligibilityNotice />
 
       {/* ====== SCHEDULE REMINDER ====== */}
       <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>

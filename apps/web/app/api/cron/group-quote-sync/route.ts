@@ -7,8 +7,9 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
-import { fetchReservationProducts } from "@/lib/hermes-client";
-import { notifyContractUpdated } from "@/lib/group-function-notify";
+import { fetchReservationProducts, fetchReservationDetail, isTaxExempt } from "@/lib/hermes-client";
+import { subtotalCents, taxCents as computeTaxCents } from "@/lib/group-function-pricing";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Group quote sync cron.
@@ -29,6 +30,9 @@ const HERMES_CENTER_MAP: Record<string, string> = {
 const SYNC_STATUSES = ["contract_sent", "deposit_paid", "balance_charged", "balance_link_sent"];
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: false, error: "DB not configured" }, { status: 500 });
   }
@@ -52,9 +56,28 @@ export async function GET(req: NextRequest) {
     changes?: string[];
   }> = [];
 
+  // Fetch planner data from Hermes for quotes missing it
+  const plannerMap = new Map<string, PlannerInfo>();
+  for (const quote of quotes) {
+    if (!quote.planner_first && !quote.planner_last) {
+      try {
+        const hermesCenter =
+          quote.center_code === "fasttrax" ? "10.48.0.14_FT" : HERMES_CENTER_MAP[quote.center_code];
+        if (hermesCenter) {
+          const hres = await fetchReservationDetail(hermesCenter, quote.bmi_reservation_id);
+          if (hres?.planner?.first || hres?.planner?.last || hres?.planner?.email) {
+            plannerMap.set(quote.bmi_reservation_id, hres.planner);
+          }
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+  }
+
   for (const quote of quotes) {
     try {
-      const result = await syncQuote(quote, dryRun);
+      const result = await syncQuote(quote, dryRun, plannerMap);
       results.push(result);
     } catch (err) {
       console.error(`[group-quote-sync] error syncing quote=${quote.id}:`, err);
@@ -71,36 +94,76 @@ export async function GET(req: NextRequest) {
   const updated = results.filter(
     (r) => r.action === "updated" || r.action === "resign_required",
   ).length;
+
+  // Send waiver reminders for quotes deposited 5+ minutes ago
+  let waiversSent = 0;
+  if (!dryRun) {
+    try {
+      const waiverDue = (await q`
+        SELECT * FROM group_function_quotes
+        WHERE deposit_paid_at IS NOT NULL
+          AND waiver_reminder_sent_at IS NULL
+          AND deposit_paid_at < NOW() - INTERVAL '5 minutes'
+          AND status NOT IN ('cancelled', 'denied', 'expired')
+          AND event_date > NOW()
+        LIMIT 5
+      `) as GroupFunctionQuote[];
+
+      for (const wq of waiverDue) {
+        try {
+          const { notifyWaiverReminder } = await import("@/lib/group-function-notify");
+          await notifyWaiverReminder(wq);
+          await q`UPDATE group_function_quotes SET waiver_reminder_sent_at = NOW() WHERE id = ${wq.id}`;
+          waiversSent++;
+        } catch (err) {
+          console.error(`[group-quote-sync] waiver reminder failed for quote=${wq.id}:`, err);
+          // Mark as sent anyway to avoid retrying failures forever
+          await q`UPDATE group_function_quotes SET waiver_reminder_sent_at = NOW() WHERE id = ${wq.id}`;
+        }
+      }
+    } catch (err) {
+      console.error("[group-quote-sync] waiver reminder query failed:", err);
+    }
+  }
+
   console.log(
     `[group-quote-sync] checked=${quotes.length} updated=${updated} ` +
-      `unchanged=${results.filter((r) => r.action === "unchanged").length}`,
+      `unchanged=${results.filter((r) => r.action === "unchanged").length}` +
+      (waiversSent > 0 ? ` waivers=${waiversSent}` : ""),
   );
 
-  return NextResponse.json({ ok: true, checked: quotes.length, updated, results });
+  return NextResponse.json({ ok: true, checked: quotes.length, updated, waiversSent, results });
 }
 
 const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");
 const normDate = (d: string | null | undefined) => {
   if (!d) return "";
   try {
-    // BMI stores local ET without timezone. DB may store UTC ISO or JS toString.
-    // Compare YYYY-MM-DD in ET to avoid timezone/format false positives.
-    const dt = new Date(d);
-    const etStr = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+    // BMI stores local ET without timezone (e.g. "2026-05-28T07:00:00").
+    // Append ET offset so JS doesn't treat it as UTC.
+    const raw = String(d);
+    const hasTimezone =
+      raw.includes("Z") || raw.includes("+") || /\d-\d{2}:\d{2}$/.test(raw) || raw.includes("GMT");
+    const dt = new Date(hasTimezone ? raw : `${raw}-04:00`);
+    if (isNaN(dt.getTime())) return "";
+    const etStr = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     const etTime = dt.toLocaleTimeString("en-GB", {
       timeZone: "America/New_York",
       hour: "2-digit",
       minute: "2-digit",
-    }); // HH:MM
+    });
     return `${etStr} ${etTime}`;
   } catch {
     return "";
   }
 };
 
+type PlannerInfo = { first: string; last: string; email: string; phone: string };
+
 async function syncQuote(
   quote: GroupFunctionQuote,
   dryRun: boolean,
+  plannerMap?: Map<string, PlannerInfo>,
 ): Promise<{ id: number; eventName: string; status: string; action: string; changes?: string[] }> {
   const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
   if (!project) {
@@ -216,6 +279,17 @@ async function syncQuote(
       );
     }
 
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] Cancelled${refundedPayments.length > 0 ? ` | Refunds: ${refundedPayments.join(", ")}` : ""}`,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     console.log(`[group-quote-sync] CANCELLED quote=${quote.id} event="${quote.event_name}"`);
     return {
       id: quote.id,
@@ -223,6 +297,16 @@ async function syncQuote(
       status: "cancelled",
       action: "cancelled",
       changes: ["BMI state: Cancellation"],
+    };
+  }
+
+  // Skip sync while BMI state is "Quote" (-2) — planner is mid-edit
+  if (bmiStateId === "-2") {
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: quote.status,
+      action: "skipped_quote_state",
     };
   }
 
@@ -245,16 +329,47 @@ async function syncQuote(
       changes.push(`customer_phone: ${quote.guest_phone} → ${customer.phone}`);
   }
 
+  // Backfill planner from Hermes if missing
+  if (!quote.planner_first && !quote.planner_last && plannerMap) {
+    const planner = plannerMap.get(quote.bmi_reservation_id);
+    if (planner) {
+      changes.push(`planner: (empty) → ${planner.first} ${planner.last}`);
+    }
+  }
+
   // Check event date
   const bmiDate = project.date as string | undefined;
   if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
     changes.push(`event_date: ${quote.event_date} → ${bmiDate}`);
   }
 
-  // Check event name
-  const bmiName = (project.name as string) || (project.displayName as string) || "";
+  // Check event name — AI format if changed
+  let bmiName = (project.name as string) || (project.displayName as string) || "";
   if (bmiName && bmiName !== quote.event_name) {
-    changes.push(`event_name: ${quote.event_name} → ${bmiName}`);
+    console.log(
+      `[group-quote-sync] name change detected quote=${quote.id}: DB="${quote.event_name}" BMI="${bmiName}"`,
+    );
+    try {
+      const { formatEventName } = await import("@/lib/event-name-format");
+      console.log(`[group-quote-sync] calling formatEventName with: "${bmiName}"`);
+      const formatted = await formatEventName(bmiName);
+      console.log(
+        `[group-quote-sync] formatEventName returned: "${formatted}" (changed=${formatted !== bmiName})`,
+      );
+      if (formatted !== bmiName) {
+        const { updateProjectName } = await import("@/lib/bmi-office-actions");
+        console.log(`[group-quote-sync] writing back formatted name to BMI...`);
+        updateProjectName({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          name: formatted,
+        }).catch((err) => console.warn(`[group-quote-sync] BMI name writeback failed:`, err));
+        bmiName = formatted;
+      }
+    } catch (err) {
+      console.error("[group-quote-sync] AI name format FAILED:", err);
+    }
+    // Name changes tracked separately — don't trigger contract update email
   }
 
   // Check products via Hermes
@@ -309,8 +424,12 @@ async function syncQuote(
     };
   }
 
-  // Apply contact/date/name changes
+  // Apply changes
   const updates: Record<string, unknown> = {};
+  // Name changes are silent (no email trigger) but still saved
+  if (bmiName && bmiName !== quote.event_name) {
+    updates.event_name = bmiName;
+  }
   if (customer) {
     if (customer.firstName !== quote.guest_first_name)
       updates.guest_first_name = customer.firstName;
@@ -320,10 +439,20 @@ async function syncQuote(
     if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone))
       updates.guest_phone = customer.phone;
   }
+  if (!quote.planner_first && !quote.planner_last && plannerMap) {
+    const planner = plannerMap.get(quote.bmi_reservation_id);
+    if (planner) {
+      updates.planner_first = planner.first;
+      updates.planner_last = planner.last;
+      updates.planner_email = planner.email;
+      updates.planner_phone = planner.phone;
+    }
+  }
   if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
     updates.event_date = bmiDate;
     // Reformat display date from raw BMI date (Hermes has AM/PM formatting bug)
-    const d = new Date(bmiDate + (bmiDate.includes("Z") || bmiDate.includes("+") ? "" : "-04:00"));
+    const hasTz = bmiDate.includes("Z") || bmiDate.includes("+") || /\d-\d{2}:\d{2}$/.test(bmiDate);
+    const d = new Date(hasTz ? bmiDate : `${bmiDate}-04:00`);
     updates.event_date_display =
       d.toLocaleDateString("en-US", {
         timeZone: "America/New_York",
@@ -342,13 +471,27 @@ async function syncQuote(
 
   // Update products if changed
   if (freshProducts && changes.some((c) => c.startsWith("products:"))) {
-    const totalBill = freshProducts.reduce((s, p) => s + p.total, 0);
-    const taxTotal = freshProducts.reduce(
-      (s, p) => s + ((p.tax || 0) * p.total) / (p.price || 1),
-      0,
-    );
-    const totalCents = Math.round((totalBill + taxTotal) * 100);
-    const taxCents = Math.round(taxTotal * 100);
+    // Verify and correct service charge tier
+    try {
+      const { verifyAndCorrectServiceCharge } = await import("@/lib/service-charge");
+      const scCheck = await verifyAndCorrectServiceCharge(
+        quote.center_code,
+        quote.bmi_reservation_id,
+        freshProducts,
+      );
+      if (scCheck.corrected) {
+        freshProducts = scCheck.products as typeof freshProducts;
+        console.log(`[group-quote-sync] service charge corrected for quote=${quote.id}`);
+      }
+    } catch (err) {
+      console.warn(`[group-quote-sync] service charge check failed for quote=${quote.id}:`, err);
+    }
+
+    // p.tax is a per-line RATE; line tax = rate × line-total. total_cents is the
+    // tax-inclusive grand total. Honor tax exemption like the dispatch cron does.
+    const taxExempt = isTaxExempt(freshProducts);
+    const taxCents = computeTaxCents(freshProducts, taxExempt);
+    const totalCents = subtotalCents(freshProducts) + taxCents;
     updates.line_items = freshProducts;
     updates.total_cents = totalCents;
     updates.tax_cents = taxCents;
@@ -363,6 +506,31 @@ async function syncQuote(
 
   if (Object.keys(updates).length > 0) {
     await updateGfQuoteDetails(quote.id, updates);
+
+    // Log changes to BMI private notes
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      const ts = noteTimestamp();
+      const allChanges = [...changes];
+      if (updates.event_name && updates.event_name !== quote.event_name) {
+        allChanges.push(`event_name → ${updates.event_name}`);
+      }
+      if (allChanges.length > 0) {
+        const summary = allChanges
+          .map((c) => {
+            if (c.startsWith("products:") || c.startsWith("event_name")) return c;
+            return c.split(":")[0];
+          })
+          .join(", ");
+        await appendProjectPrivateNote({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          note: `[${ts}] Updated: ${summary}`,
+        });
+      }
+    } catch {
+      /* non-fatal */
+    }
   }
 
   if (isSigned) {
@@ -402,14 +570,6 @@ async function syncQuote(
       metadata: { changes, trigger: "group-quote-sync" },
     });
 
-    // Notify about the update
-    const refreshed = await getGfQuoteByShortId(quote.contract_short_id!);
-    if (refreshed) {
-      notifyContractUpdated(refreshed).catch((err) =>
-        console.error(`[group-quote-sync] notify error for quote=${quote.id}:`, err),
-      );
-    }
-
     console.log(
       `[group-quote-sync] RESIGN REQUIRED quote=${quote.id} changes=[${changes.join(", ")}]`,
     );
@@ -422,15 +582,11 @@ async function syncQuote(
     };
   }
 
-  // Pre-deposit: just re-notify
-  const refreshed = await getGfQuoteByShortId(quote.contract_short_id!);
-  if (refreshed) {
-    notifyContractUpdated(refreshed).catch((err) =>
-      console.error(`[group-quote-sync] notify error for quote=${quote.id}:`, err),
-    );
-  }
-
-  console.log(`[group-quote-sync] updated quote=${quote.id} changes=[${changes.join(", ")}]`);
+  // Pre-deposit: flag changes only, do NOT email
+  // Sales must set BMI to "Send Contract" to trigger a resend
+  console.log(
+    `[group-quote-sync] flagged changes (no email) quote=${quote.id} changes=[${changes.join(", ")}]`,
+  );
   return {
     id: quote.id,
     eventName: quote.event_name || "",

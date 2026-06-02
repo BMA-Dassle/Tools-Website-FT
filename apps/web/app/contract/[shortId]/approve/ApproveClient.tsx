@@ -23,13 +23,37 @@ interface Props {
   approvedAt: string | null;
   deniedBy: string | null;
   denialReason: string | null;
+  approverEmail: string | null;
 }
 
 const fmtDollars = (cents: number) =>
   `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 
+function getWarnings(lineItems: Props["lineItems"]): { key: string; message: string }[] {
+  const warnings: { key: string; message: string }[] = [];
+  const hasYouth = lineItems.some((item) => item.name.toLowerCase().includes("youth"));
+  if (!hasYouth) {
+    warnings.push({
+      key: "no-youth",
+      message: "No youth products on this event. Why is this a post-paid account?",
+    });
+  }
+  const hasLegacy = lineItems.some((item) => item.name.toLowerCase().includes("legacy"));
+  if (hasLegacy) {
+    warnings.push({
+      key: "legacy",
+      message: "Legacy product detected. This pricing may be outdated.",
+    });
+  }
+  return warnings;
+}
+
 export default function ApproveClient(props: Props) {
-  const [email, setEmail] = useState("");
+  const warnings = getWarnings(props.lineItems);
+  const hasWarnings = warnings.length > 0;
+  const email = props.approverEmail || "";
+
+  const [memo, setMemo] = useState("");
   const [reason, setReason] = useState("");
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<"approved" | "denied" | null>(null);
@@ -37,10 +61,16 @@ export default function ApproveClient(props: Props) {
   const [showDeny, setShowDeny] = useState(false);
 
   const alreadyDecided = props.status !== "pending_approval";
+  const memoRequired = hasWarnings;
+  const canApprove = !memoRequired || memo.trim().length > 0;
 
   async function handleAction(action: "approve" | "deny") {
     if (!email) {
-      setError("Enter your email address");
+      setError("Missing approver email. Use the link from your approval email.");
+      return;
+    }
+    if (action === "approve" && memoRequired && !memo.trim()) {
+      setError("Please provide a memo acknowledging the warnings above.");
       return;
     }
     if (action === "deny" && !reason) {
@@ -58,6 +88,7 @@ export default function ApproveClient(props: Props) {
           action,
           email,
           reason: action === "deny" ? reason : undefined,
+          memo: action === "approve" ? memo || undefined : undefined,
         }),
       });
       const data = await res.json();
@@ -128,6 +159,18 @@ export default function ApproveClient(props: Props) {
         </div>
       )}
 
+      {/* Warnings */}
+      {!alreadyDecided && !result && warnings.length > 0 && (
+        <div className="mb-6 space-y-3">
+          {warnings.map((w) => (
+            <div key={w.key} className="rounded-2xl border border-red-500/30 bg-red-500/10 p-5">
+              <p className="font-semibold text-red-400">Warning</p>
+              <p className="mt-1 text-sm text-red-300/80">{w.message}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Event Details Card */}
       <div className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-[#071027]">
         <div className="border-b border-white/10 bg-white/5 px-6 py-3">
@@ -173,7 +216,7 @@ export default function ApproveClient(props: Props) {
           </div>
 
           {/* Customer + Planner */}
-          <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-4">
+          <div className="grid grid-cols-1 gap-4 border-t border-white/10 pt-4 sm:grid-cols-2">
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-500">
                 Customer
@@ -222,22 +265,11 @@ export default function ApproveClient(props: Props) {
       {/* Action Section */}
       {!alreadyDecided && !result && (
         <div className="rounded-2xl border border-white/10 bg-[#071027] p-6">
-          <div className="mb-4">
-            <label
-              htmlFor="approver-email"
-              className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400"
-            >
-              Your Email
-            </label>
-            <input
-              id="approver-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="eric@headpinz.com"
-              className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2.5 text-sm outline-none focus:border-cyan-400"
-            />
-          </div>
+          {!email && (
+            <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-400">
+              Missing approver identity. Please use the link from your approval email.
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-400">
@@ -245,12 +277,32 @@ export default function ApproveClient(props: Props) {
             </div>
           )}
 
+          {/* Memo for warnings */}
+          {hasWarnings && !showDeny && (
+            <div className="mb-4">
+              <label
+                htmlFor="approval-memo"
+                className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400"
+              >
+                Approval Memo <span className="text-red-400">(required)</span>
+              </label>
+              <textarea
+                id="approval-memo"
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                rows={2}
+                placeholder="Acknowledge the warnings above and explain why this approval is appropriate..."
+                className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2.5 text-sm outline-none focus:border-cyan-400"
+              />
+            </div>
+          )}
+
           {!showDeny ? (
             <div className="flex gap-3">
               <button
                 onClick={() => handleAction("approve")}
-                disabled={processing}
-                className="flex-1 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 py-3 text-lg font-bold shadow-lg shadow-emerald-500/20 disabled:opacity-40"
+                disabled={processing || !email || !canApprove}
+                className="flex-1 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 py-3 text-lg font-bold shadow-lg shadow-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {processing ? "Processing..." : "Approve"}
               </button>

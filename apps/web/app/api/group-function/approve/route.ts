@@ -23,11 +23,12 @@ const ALLOWED_APPROVERS = ["eric@headpinz.com", "jacob@headpinz.com"];
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { shortId, action, email, reason } = body as {
+  const { shortId, action, email, reason, memo } = body as {
     shortId: string;
     action: "approve" | "deny";
     email?: string;
     reason?: string;
+    memo?: string;
   };
 
   if (!shortId || !action) {
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
     await q`UPDATE group_function_quotes SET
       approved_at = NOW(),
       approved_by = ${approverEmail},
+      approval_memo = ${memo || null},
       updated_at = NOW()
     WHERE id = ${quote.id}`;
 
@@ -74,7 +76,7 @@ export async function POST(req: NextRequest) {
       quoteId: quote.id,
       event: "postpaid_approved",
       actorEmail: approverEmail,
-      metadata: {},
+      metadata: { memo: memo || null },
     });
 
     const updatedQuote = await getGfQuoteByShortId(shortId);
@@ -82,6 +84,17 @@ export async function POST(req: NextRequest) {
       notifyContractSent(updatedQuote).catch((err) =>
         console.error("[approve] notify error:", err),
       );
+    }
+
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${noteTimestamp()}] Post-paid approved by ${approverEmail}${memo ? ` | Memo: ${memo}` : ""}`,
+      });
+    } catch {
+      /* non-fatal */
     }
 
     console.log(`[approve] approved quote=${quote.id} by ${approverEmail}`);
@@ -113,6 +126,17 @@ export async function POST(req: NextRequest) {
     notifyPostPaidDenied(deniedQuote).catch((err) =>
       console.error("[approve] deny notify error:", err),
     );
+  }
+
+  try {
+    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+    await appendProjectPrivateNote({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      note: `[${noteTimestamp()}] Post-paid denied by ${approverEmail} | Reason: ${reason}`,
+    });
+  } catch {
+    /* non-fatal */
   }
 
   console.log(`[approve] denied quote=${quote.id} by ${approverEmail}: ${reason}`);

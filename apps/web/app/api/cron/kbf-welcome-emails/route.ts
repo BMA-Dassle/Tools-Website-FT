@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendWelcomeEmailBatch } from "@/lib/kbf-welcome-email";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Backfill cron — sends welcome emails to existing KBF registrations
@@ -23,6 +24,9 @@ import { sendWelcomeEmailBatch } from "@/lib/kbf-welcome-email";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const started = Date.now();
   const invoker = req.headers.get("x-vercel-cron")
     ? "vercel-cron"

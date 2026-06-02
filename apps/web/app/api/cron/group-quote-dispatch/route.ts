@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import {
-  fetchPandaDocQueue,
-  completePandaDocQueue,
   resolveCenter,
   selectTemplate,
+  isTaxExempt,
   type HermesQueueItem,
 } from "@/lib/hermes-client";
 import {
@@ -13,27 +12,37 @@ import {
   getGfQuoteByShortId,
   updateGfContractSent,
   updateGfQuoteDetails,
+  type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import {
   notifyContractSent,
   notifyContractUpdated,
   notifyApprovalNeeded,
 } from "@/lib/group-function-notify";
+import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * Group Quote Dispatch cron.
  *
- * Polls Hermes /queue/pandadoc for pending event quotes, creates
- * internal contracts (no PandaDoc), persists to Neon, and acknowledges.
+ * Scans BMI Office directly for events in "New Deposit Requested"
+ * state, creates internal contracts, persists to Neon, and sends
+ * contract emails.
+ *
+ * Replaces the Hermes queue-based approach to eliminate the
+ * "read = consumed" bug and Hermes polling dependency.
  *
  * Schedule: every 2 minutes via vercel.json.
  *
  * Query params:
- *   ?dryRun=1  — scan + report, no creation or Hermes completion
+ *   ?dryRun=1  — scan + report, no creation
  *   ?limit=N   — max items to process per run (default 5)
  */
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "5"), 20);
 
@@ -43,32 +52,34 @@ export async function GET(req: NextRequest) {
     error?: string;
   }> = [];
 
-  let queueItems: HermesQueueItem[];
+  let scannedItems: HermesQueueItem[];
   try {
-    queueItems = await fetchPandaDocQueue();
+    scannedItems = await scanForNewEvents();
   } catch (err) {
-    console.error("[group-quote-dispatch] Hermes queue fetch failed:", err);
-    return NextResponse.json({ ok: false, error: "Hermes queue fetch failed" }, { status: 502 });
+    console.error("[group-quote-dispatch] BMI scan failed:", err);
+    return NextResponse.json({ ok: false, error: "BMI scan failed" }, { status: 502 });
   }
 
-  const validItems = queueItems.filter((item) => !item.error).slice(0, limit);
+  // All scanned items are in "Send Contract" state — process all of them
+  // (sales explicitly requested send/resend by setting this state)
+  const itemsToProcess = scannedItems.slice(0, limit);
 
   if (dryRun) {
     return NextResponse.json({
       ok: true,
       dryRun: true,
-      total: queueItems.length,
-      valid: validItems.length,
-      items: validItems.map((i) => ({
+      scanned: scannedItems.length,
+      toProcess: itemsToProcess.length,
+      items: itemsToProcess.map((i) => ({
         reservationId: i.reservationId,
         centerName: i.centerName,
         eventName: i.event.name,
-        depositDue: i.depositDue,
+        totalBill: i.totalBill,
       })),
     });
   }
 
-  for (const item of validItems) {
+  for (const item of itemsToProcess) {
     try {
       const result = await processQueueItem(item);
       results.push(result);
@@ -83,20 +94,27 @@ export async function GET(req: NextRequest) {
   }
 
   console.log(
-    `[group-quote-dispatch] processed=${results.length} ` +
+    `[group-quote-dispatch] scanned=${scannedItems.length} processed=${results.length} ` +
       `created=${results.filter((r) => r.action === "created").length} ` +
-      `skipped=${results.filter((r) => r.action === "skipped").length} ` +
+      `resent=${results.filter((r) => r.action === "resent").length} ` +
       `errors=${results.filter((r) => r.action === "error").length}`,
   );
 
-  return NextResponse.json({ ok: true, results });
+  return NextResponse.json({
+    ok: true,
+    scanned: scannedItems.length,
+    processed: results.length,
+    results,
+  });
 }
 
 function formatEventDate(dateRaw: string): string {
   // BMI dates are local ET without timezone (e.g. "2026-10-17T11:30:00")
   // Hermes has a bug in its moment format string (MM instead of mm)
   // so we format it ourselves
-  const d = new Date(dateRaw + (dateRaw.includes("Z") || dateRaw.includes("+") ? "" : "-04:00"));
+  const hasTimezone =
+    dateRaw.includes("Z") || dateRaw.includes("+") || /\d-\d{2}:\d{2}$/.test(dateRaw);
+  const d = new Date(hasTimezone ? dateRaw : `${dateRaw}-04:00`);
   return (
     d.toLocaleDateString("en-US", {
       timeZone: "America/New_York",
@@ -130,31 +148,74 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: "skipped_unknown_center" };
   }
 
-  const existing = await getGfQuoteByReservationId(item.reservationId);
+  let existing = await getGfQuoteByReservationId(item.reservationId);
+  let wasReset = false;
+
+  // If previous quote was cancelled/denied/expired, reset it for re-processing.
+  // Sales re-flipping the BMI project back to "Send Contract" is the signal to
+  // clear any prior denial/cancellation and run it through the flow again
+  // (post-paid accounts re-request approval). We reset the row IN PLACE and keep
+  // `existing` pointing at it — re-inserting would violate the unique
+  // bmi_reservation_id index. We intentionally do NOT touch
+  // hermes_last_processed_at here so the debounce below lets this run proceed.
+  if (existing && ["cancelled", "denied", "expired"].includes(existing.status)) {
+    const priorStatus = existing.status;
+    const { sql } = await import("@/lib/db");
+    const q = sql();
+    const reset = await q`UPDATE group_function_quotes SET
+      status = 'pending',
+      contract_sent_at = NULL,
+      contract_status = NULL,
+      contract_short_id = NULL,
+      approval_required = FALSE,
+      approved_at = NULL,
+      approved_by = NULL,
+      approval_memo = NULL,
+      denied_at = NULL,
+      denied_by = NULL,
+      denial_reason = NULL,
+      deposit_paid_at = NULL,
+      square_deposit_order_id = NULL,
+      square_deposit_payment_id = NULL,
+      square_gift_card_id = NULL,
+      square_gift_card_gan = NULL,
+      square_dayof_order_id = NULL,
+      signed_pdf_url = NULL,
+      updated_at = NOW()
+    WHERE id = ${existing.id}
+    RETURNING *`;
+    existing = (reset[0] as GroupFunctionQuote) ?? null;
+    wasReset = true;
+    console.log(
+      `[group-quote-dispatch] reset ${priorStatus} quote for reservation=${item.reservationId} — re-processing`,
+    );
+  }
 
   // Debounce: skip if processed within the last 60 seconds
   if (
     existing?.hermes_last_processed_at &&
     Date.now() - new Date(existing.hermes_last_processed_at).getTime() < 60_000
   ) {
-    await completePandaDocQueue({
-      center: item.center,
-      queueId: item.queueId,
-      logId: item.logId,
-      message: `${item.customer.email} (debounced)`,
-    });
     return { reservationId: item.reservationId, action: "debounced" };
   }
 
-  const totalCents = Math.round(item.totalBill * 100);
-  const taxCents = Math.round(item.tax * 100);
+  const taxExempt = isTaxExempt(item.products);
+  const taxCents = taxExempt ? 0 : Math.round(item.tax * 100);
+  // total_cents is the tax-inclusive grand total (matches the sync cron, deposit
+  // route, and contract display). item.totalBill is the pre-tax subtotal.
+  let totalCents = Math.round(item.totalBill * 100) + taxCents;
+  const isPostPaid = selectTemplate(item) === "postpay";
 
-  // Events within 96 hours: require full payment upfront (no time for
-  // the deposit → 72hr balance charge cycle)
+  // Post-paid: no deposit, full amount billed day-of
+  // Events within 96 hours: full payment upfront
   const eventTime = new Date(item.event.dateRaw).getTime();
   const hoursUntilEvent = (eventTime - Date.now()) / 3_600_000;
-  const fullPaymentRequired = hoursUntilEvent <= 96;
-  const depositDueCents = fullPaymentRequired ? totalCents : Math.round(item.depositDue * 100);
+  const fullPaymentRequired = !isPostPaid && hoursUntilEvent <= 96;
+  let depositDueCents = isPostPaid
+    ? 0
+    : fullPaymentRequired
+      ? totalCents
+      : Math.round(totalCents / 2);
 
   // No-changes check: if pricing/products match, update contact info and re-send
   if (existing && existing.contract_sent_at) {
@@ -185,12 +246,35 @@ async function processQueueItem(
           console.error("[group-quote-dispatch] resend notify error:", err),
         );
       }
-      await completePandaDocQueue({
-        center: item.center,
-        queueId: item.queueId,
-        logId: item.logId,
-        message: `${item.customer.email} (resent)`,
-      });
+      // Transition back to Pending Signed Contract
+      try {
+        const { setProjectState } = await import("@/lib/bmi-office-actions");
+        const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+        if (scanCenter) {
+          await setProjectState({
+            centerCode: center.centerCode,
+            projectId: item.reservationId,
+            stateId: scanCenter.pendingSignedContractStateId,
+            label: "Pending Signed Contract",
+          });
+        }
+      } catch {
+        /* non-fatal */
+      }
+      // Log to BMI private notes
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        const contractUrl = `${center.baseUrl}/contract/${existing.contract_short_id}`;
+        await appendProjectPrivateNote({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          note: `[${noteTimestamp()}] Contract resent to ${item.customer.email}`,
+          contractUrl,
+        });
+      } catch {
+        /* non-fatal */
+      }
       console.log(
         `[group-quote-dispatch] pricing unchanged, updated contacts + resent link for reservation=${item.reservationId}`,
       );
@@ -244,12 +328,20 @@ async function processQueueItem(
       );
     }
 
-    await completePandaDocQueue({
-      center: item.center,
-      queueId: item.queueId,
-      logId: item.logId,
-      message: `${item.customer.email} (post-sign update${priceChanged ? " — price changed" : ""})`,
-    });
+    // Log to BMI private notes
+    try {
+      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+      const contractUrl = `${center.baseUrl}/contract/${existing.contract_short_id}`;
+      await appendProjectPrivateNote({
+        centerCode: center.centerCode,
+        projectId: item.reservationId,
+        note: `[${noteTimestamp()}] Contract updated${priceChanged ? " (price changed — resign required)" : ""}`,
+        contractUrl,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     console.log(
       `[group-quote-dispatch] post-sign data update for reservation=${item.reservationId}${priceChanged ? " (PRICE CHANGED)" : ""}`,
     );
@@ -257,6 +349,30 @@ async function processQueueItem(
       reservationId: item.reservationId,
       action: priceChanged ? "resign_required" : "updated_data",
     };
+  }
+
+  // Verify and correct service charge tier before processing
+  let activeProducts = item.products;
+  try {
+    const { verifyAndCorrectServiceCharge } = await import("@/lib/service-charge");
+    const scCheck = await verifyAndCorrectServiceCharge(
+      center.centerCode,
+      item.reservationId,
+      item.products,
+    );
+    if (scCheck.corrected) {
+      activeProducts = scCheck.products;
+      const oldTotal = totalCents;
+      // Recalculate from corrected products so DB stays consistent with BMI
+      totalCents = Math.round(activeProducts.reduce((s, p) => s + p.total, 0) * 100) + taxCents;
+      depositDueCents = fullPaymentRequired ? totalCents : Math.round(totalCents / 2);
+      console.log(
+        `[group-quote-dispatch] service charge corrected for reservation=${item.reservationId} ` +
+          `(total ${oldTotal} → ${totalCents})`,
+      );
+    }
+  } catch (err) {
+    console.warn("[group-quote-dispatch] service charge check failed:", err);
   }
 
   // AI cleanup: format event name + clean up notes grammar
@@ -339,7 +455,7 @@ async function processQueueItem(
       tax_cents: taxCents,
       deposit_due_cents: depositDueCents,
       balance_cents: balanceCents,
-      line_items: item.products,
+      line_items: activeProducts,
       prior_payments: item.payments,
       planner_first: item.planner.first,
       planner_last: item.planner.last,
@@ -381,38 +497,56 @@ async function processQueueItem(
       tax_cents: taxCents,
       deposit_due_cents: depositDueCents,
       balance_cents: balanceCents,
-      line_items: item.products,
+      line_items: activeProducts,
       prior_payments: item.payments,
+      is_tax_exempt: taxExempt,
     });
     quoteId = quote.id;
   }
 
-  // Check if post-paid account (requires management approval before sending)
-  const isPostPaid = selectTemplate(item) === "postpay";
-
+  // Check if post-paid account (requires management approval before sending).
+  // isPostPaid is already computed above from the same products.
   if (isPostPaid && !existing?.approved_at) {
-    // Hold for approval — don't send contract yet
+    // Hold for approval — don't send the contract yet. Stamp
+    // hermes_last_processed_at so the debounce suppresses any re-scan that
+    // arrives before the BMI state change below has propagated.
     const q = (await import("@/lib/db")).sql();
     await q`UPDATE group_function_quotes SET
       contract_short_id = ${contractShortId},
       approval_required = TRUE,
       status = 'pending_approval',
+      hermes_last_processed_at = NOW(),
       updated_at = NOW()
     WHERE id = ${quoteId}`;
-
-    const now = new Date();
-    const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
-    await completePandaDocQueue({
-      center: item.center,
-      queueId: item.queueId,
-      logId: item.logId,
-      message: `${item.customer.email} (pending approval) ${dateStr}`,
-    });
 
     const pendingQuote = await getGfQuoteByShortId(contractShortId);
     if (pendingQuote) {
       notifyApprovalNeeded(pendingQuote).catch((err) =>
         console.error("[group-quote-dispatch] approval notify error:", err),
+      );
+    }
+
+    // Move the BMI project out of "Send Contract" → "Pending Signed Contract"
+    // so the scan stops re-triggering this approval request every run. The
+    // approval/decision happens out-of-band via /api/group-function/approve;
+    // a decline leaves the project here. Sales re-flipping the project back to
+    // "Send Contract" is what clears the denial and re-requests approval (see
+    // the reset block above).
+    try {
+      const { setProjectState } = await import("@/lib/bmi-office-actions");
+      const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+      if (scanCenter) {
+        await setProjectState({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          stateId: scanCenter.pendingSignedContractStateId,
+          label: "Pending Signed Contract",
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[group-quote-dispatch] failed to move ${item.reservationId} out of Send Contract (pending approval):`,
+        err,
       );
     }
 
@@ -429,21 +563,45 @@ async function processQueueItem(
     contract_sent_at: new Date().toISOString(),
   });
 
-  // Complete the Hermes queue item
-  const now = new Date();
-  const dateStr = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
-  await completePandaDocQueue({
-    center: item.center,
-    queueId: item.queueId,
-    logId: item.logId,
-    message: `${item.customer.email} ${dateStr}`,
-  });
-
   // Notify guest + planner (non-blocking)
   const updatedQuote = await getGfQuoteByShortId(contractShortId);
   if (updatedQuote) {
-    const notify = existing ? notifyContractUpdated : notifyContractSent;
+    const notify = existing && !wasReset ? notifyContractUpdated : notifyContractSent;
     notify(updatedQuote).catch((err) => console.error("[group-quote-dispatch] notify error:", err));
+  }
+
+  // Log to BMI private notes
+  try {
+    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+    const contractUrl = `${center.baseUrl}/contract/${contractShortId}`;
+    const ts = noteTimestamp();
+    await appendProjectPrivateNote({
+      centerCode: center.centerCode,
+      projectId: item.reservationId,
+      note: `[${ts}] Contract sent to ${item.customer.email}`,
+      contractUrl,
+    });
+  } catch {
+    /* non-fatal */
+  }
+
+  // Transition BMI state from "Send Contract" → "Pending Signed Contract"
+  try {
+    const { setProjectState } = await import("@/lib/bmi-office-actions");
+    const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+    if (scanCenter) {
+      await setProjectState({
+        centerCode: center.centerCode,
+        projectId: item.reservationId,
+        stateId: scanCenter.pendingSignedContractStateId,
+        label: "Pending Signed Contract",
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[group-quote-dispatch] failed to set Pending Signed Contract for ${item.reservationId}:`,
+      err,
+    );
   }
 
   console.log(

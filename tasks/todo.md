@@ -1,43 +1,26 @@
 # Open Tasks
 
-## PR-B3.5: Shared Deposit + Reservations Infrastructure (IN PROGRESS — 2026-05-27)
-- **Branch:** `feat/booking-b2-race`
-- **What shipped (all deliverables build-verified):**
-  - D1: Neon reservations schema widened — `ReservationProductKind` now "kbf" | "open" | "race" | "attraction", `booking_metadata` JSONB column, `productKinds` filter param on `listBowlingReservations()`
-  - D2: Shared deposit service — `createDepositAndCharge()` + `rollbackDeposit()` extracted from bowling-orders into `features/booking/service/deposit.ts`
-  - D2b: Square catalog map — 57+ race + 12+ attraction BMI product IDs mapped to Square catalog variation IDs in `features/booking/data/square-catalog-map.ts`
-  - D2 addon: GAN regex updated for RACE/ATTR prefixes in `square-gift-card.ts`
-  - D3: v2 Reserve API route at `/api/booking/v2/reserve` — builds Square day-of order (catalog line items + county tax), charges deposit via shared service, confirms BMI payment server-side (bigint-safe), persists Neon reservation
-  - D4: v2 checkout wiring — `reserveBooking()` in checkout.ts, `onTokenize` prop on PaymentForm for tokenize-only mode, CheckoutStep calls reserve route instead of /api/square/pay, confirmation page skips payment/confirm for v2=1 bookings
-  - D5: Admin dashboard — product kind badges (Race=green, Attr=orange alongside existing KBF=purple, Open=blue), kind filter tabs with counts, `bmiBillId`/`bmiReservationNumber` fields on Reservation interface
-- **Still needs:** end-to-end smoke test with real Square sandbox + BMI staging, then commit + push
-
-## PR-B2.5: Session Persistence + Cross-Sell + Timer Expiry (DONE — 2026-05-25)
-- **Branch:** `feat/booking-b2-race` @ `d120b614` · pushed
-- **What shipped:**
-  - `usePersistedReducer` hook — sessionStorage persistence, SSR-safe (hydrates post-mount via `restoreSession` action)
-  - Cross-sell navigation — BookingFlow detects incoming activity not in cart, adds it after hydration
-  - ReservationTimer `forwardRef` + `useImperativeHandle` exposing `refresh()`
-  - ReservationExpiredModal — blocking modal with Extend Time / Start Over
-  - MiniCartV2 — floating cart button on `/book/v2` landing page
-  - LeaveConfirmModal no longer clears session; copy says "progress is saved"
-  - CheckoutStep calls `clearBookingSession()` before redirect
-- **Known bug:** New racers can remove license from cart (cart remove button not guarded for mandatory items)
-- **Still needs manual testing:** timer expiry (10-min wait), cross-sell round-trip, tab restore persistence
-
 ## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-05-28)
-- **Branch:** `feat/booking-b2-race`
-- **What shipped (all deliverables build-verified):**
-  - D1: Type extensions — BowlingItem/KbfItem with 30+ fields (experience, QAMF, shoes, food, pricing), LoyaltyState on BookingSession, 5 new reducer actions
-  - D2: Bowling service — `service/bowling.ts` with hold/confirm/cancel/reserve, wired into `getService()` for bowling + kbf
-  - D3: 7 bowling step components — BowlingPlayers, BowlingSlots (calendar+hours+minutes), BowlingTier (Regular/VIP video cards), BowlingOffer (experience cards + QAMF hold), BowlingShoes (rental add-ons), BowlingAttractions, BowlingFood (pizza-bowl modifiers)
-  - D4: 2 KBF steps — KbfIdentity (lookup → OTP → verify composite), KbfBowlers (family member selection)
-  - D5: Hold timer generalized — ReservationTimer handles both BMI and QAMF holds with auto-extend
-  - D6: Checkout integration — bowling path in CheckoutStep routes to `bowlingReserve()` → `/api/bowling/v2/reserve`
-  - D6b: Shared loyalty — LoyaltySection component for HeadPinz Rewards (earning + redeeming) at checkout for ALL HeadPinz bookings
-  - D7: Step registry — all placeholders replaced with real components
-  - D8: Deposit unification — bowling reserve migrated from `/api/square/bowling-orders` to shared `createDepositAndCharge()`
-- **Still needs:** DiscountCodeInput for mid-flow entry on bowling slots, end-to-end testing
+- **Branch:** `feat/booking-b2-race` @ `9d127c90` · merged with main 2026-05-28
+- **What shipped (all build-verified):**
+  - D1: Type extensions — BowlingItem/KbfItem with 30+ fields, LoyaltyState on BookingSession, 5 new reducer actions
+  - D2: Bowling service — `service/bowling.ts` (hold/confirm/cancel/reserve) wired into `getService()`
+  - D3: 7 bowling step components — Players, Slots, Tier, Offer (QAMF hold), Shoes, Attractions, Food
+  - D4: 2 KBF steps — KbfIdentity (lookup→OTP→verify), KbfBowlers (family member selection)
+  - D5: Hold timer generalized — ReservationTimer handles BMI + QAMF with 8-min auto-extend
+  - D6: Checkout bowling path → `bowlingReserve()` → `/api/bowling/v2/reserve`
+  - D6b: Shared HeadPinz Loyalty — LoyaltySection at checkout for ALL HeadPinz bookings (earning + redeeming)
+  - D7: Step registry — all bowling/kbf placeholders replaced with real components
+  - D8: Deposit unification — bowling reserve uses `createDepositAndCharge()`, same as race/attraction
+  - D9: DiscountCodeInput on bowling slots step
+- **Still needs before go-live:**
+  - Smoke test with QAMF staging + Square sandbox
+  - BowlingOfferStep line-item building refinement (v1 handles duration multipliers, per-lane scaling, combo items)
+  - BowlingSlotsStep needs HP_LOCATIONS integration (static fallback hours currently)
+  - BowlingAttractionsStep needs real BMI slot-booking (shows "Coming soon" placeholder)
+  - CheckoutStep bowling review needs proper line-item names from Square products (currently synthetic)
+  - Loyalty `resolveAudienceMember()` at checkout for squareCustomerId earning on race/attraction orders
+  - v2 reserve route needs squareCustomerId + loyalty reward params for non-bowling bookings
 
 ## SEO: HeadPinz metadata on shared /book routes
 - **Priority:** High

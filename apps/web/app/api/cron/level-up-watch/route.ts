@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "ioredis";
+import { verifyCron } from "@/lib/cron-auth";
 
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
@@ -113,7 +114,10 @@ function formatLap(ms: number): string {
  *   Qualified {level} membership. If so, send email/SMS and clear watch.
  *   If 15 min passed with no membership, give up.
  */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2, lazyConnect: true });
   try {
     await redis.connect();

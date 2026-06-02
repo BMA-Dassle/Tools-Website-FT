@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG } from "@/lib/seo";
+import KbfEligibilityNotice from "@/components/kbf/EligibilityNotice";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
@@ -287,6 +288,8 @@ export default function KidsBowlFreePage() {
             </div>
           </div>
         </section>
+
+        <KbfEligibilityNotice />
 
         {/* ====== LOCATIONS ====== */}
         <section style={{ padding: "0 clamp(16px, 4vw, 32px) clamp(60px, 10vw, 100px)" }}>

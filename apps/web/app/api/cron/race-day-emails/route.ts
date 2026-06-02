@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "ioredis";
+import { verifyCron } from "@/lib/cron-auth";
 
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
 const BOOKING_API_KEY = "CMXDJ9fct3--Js6u_c_mXUKGcv1GbbBBspVSuipdiT4";
@@ -13,6 +14,9 @@ const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
  * starts in 60-75 minutes. Sends the race-day email if not already sent.
  */
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2, lazyConnect: true });
   try {
     await redis.connect();

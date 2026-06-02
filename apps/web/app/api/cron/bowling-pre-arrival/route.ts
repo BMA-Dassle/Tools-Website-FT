@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTodayReservationsNeedingLaneReady } from "@/lib/bowling-db";
 import { getReservation, listLanes } from "@/lib/qamf-bowling";
 import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/bowling-pre-arrival
@@ -94,6 +95,9 @@ async function resolveLanePhase(
 // ── Handler ─────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   const invoker = req.headers.get("x-vercel-cron") ? "vercel-cron" : "manual";
 

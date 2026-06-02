@@ -50,16 +50,26 @@ interface QuoteProps {
   depositPaidAt: string | null;
   giftCardGan: string | null;
   status: string;
+  isTaxExempt: boolean;
+  isPostPaid: boolean;
 }
 
 type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done" | "event";
-const STEPS: { key: Step; label: string; short: string }[] = [
-  { key: "review", label: "Review", short: "Review" },
-  { key: "tips", label: "Event Info", short: "Info" },
-  { key: "policy", label: "Policies", short: "Policy" },
-  { key: "sign", label: "Agree & Sign", short: "Sign" },
-  { key: "pay", label: "Deposit", short: "Pay" },
-];
+function buildSteps(
+  isFullPayment: boolean,
+  isPostPaid: boolean,
+): { key: Step; label: string; short: string }[] {
+  const steps: { key: Step; label: string; short: string }[] = [
+    { key: "review", label: "Review", short: "Review" },
+    { key: "tips", label: "Event Info", short: "Info" },
+    { key: "policy", label: "Policies", short: "Policy" },
+    { key: "sign", label: "Agree & Sign", short: "Sign" },
+  ];
+  if (!isPostPaid) {
+    steps.push({ key: "pay", label: isFullPayment ? "Payment" : "Deposit", short: "Pay" });
+  }
+  return steps;
+}
 
 export default function ContractClient({ quote }: { quote: QuoteProps }) {
   if (quote.status === "cancelled" || quote.status === "denied") {
@@ -104,6 +114,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     );
   }
 
+  const isFullPayment = quote.balanceCents === 0;
+  const isPostPaid = quote.isPostPaid;
+  const STEPS = buildSteps(isFullPayment, isPostPaid);
+
   const [step, setStep] = useState<Step>(() => {
     if (quote.status === "resign_required") return "review";
     if (quote.depositPaidAt) return "event";
@@ -144,7 +158,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [agreeNoPrepay, setAgreeNoPrepay] = useState(false);
   const [agreePaymentDay, setAgreePaymentDay] = useState(false);
   const [agreePolicies, setAgreePolicies] = useState(false);
-  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(null);
+  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(quote.isTaxExempt ? "yes" : null);
   const [agreeUnderstand, setAgreeUnderstand] = useState(false);
 
   // Page-level acknowledgments
@@ -159,7 +173,11 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const taxValid = taxExempt === "no" || (taxExempt === "yes" && Boolean(taxFileUrl));
   const allAgreed =
-    agreeDeposit && agreeNoPrepay && taxExempt !== null && taxValid && agreeUnderstand;
+    agreeDeposit &&
+    (isFullPayment || isPostPaid || agreeNoPrepay) &&
+    taxExempt !== null &&
+    taxValid &&
+    agreeUnderstand;
 
   // Compliance: capture IP + timestamp at sign time
   const [signedAt, setSignedAt] = useState<string | null>(null);
@@ -364,6 +382,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         }).catch(() => {});
         setUpdateBanner(null);
         setStep("event");
+      } else if (isPostPaid) {
+        setStep("event");
       } else {
         setStep("pay");
       }
@@ -437,7 +457,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const stepIdx = STEPS.findIndex((s) => s.key === step);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative overflow-hidden">
+      {/* Ambient background glows */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+        <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-[#E53935]/8 blur-[120px]" />
+        <div className="absolute top-1/3 -right-40 h-[600px] w-[600px] rounded-full bg-[#00E2E5]/6 blur-[150px]" />
+        <div className="absolute bottom-1/4 left-1/4 h-[400px] w-[400px] rounded-full bg-[#9b51e0]/5 blur-[120px]" />
+      </div>
+
       {/* Hero */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
@@ -623,33 +650,54 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
             {/* Payment schedule */}
             <div className="mb-8 rounded-2xl border border-white/10 bg-[#071027] p-5">
               <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
-                Payment Schedule
+                {isPostPaid ? "Billing" : "Payment Schedule"}
               </h3>
-              <div className="space-y-3">
+              {isPostPaid ? (
                 <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/40">
-                    1
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-xs font-bold text-emerald-400 ring-1 ring-emerald-400/40">
+                    <IconCreditCard size={16} />
                   </div>
                   <div className="flex-1">
-                    <p className="font-semibold">50% Deposit — Due Today</p>
-                    <p className="text-sm text-gray-400">Due upon signing your contract</p>
-                  </div>
-                  <p className="text-lg font-bold">{fmtDollars(quote.depositDueCents)}</p>
-                </div>
-                <div className="ml-4 h-6 border-l border-dashed border-white/20" />
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-xs font-bold text-gray-500">
-                    2
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold">Remaining Balance — 72 Hours Before Event</p>
+                    <p className="font-semibold">Post-Paid Account</p>
                     <p className="text-sm text-gray-400">
-                      Automatically charged to your card on file
+                      No deposit required — billed after your event
                     </p>
                   </div>
-                  <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
+                  <p className="text-lg font-bold">{fmtDollars(quote.totalCents)}</p>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/40">
+                      1
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold">
+                        {isFullPayment ? "Full Payment — Due Today" : "50% Deposit — Due Today"}
+                      </p>
+                      <p className="text-sm text-gray-400">Due upon signing your contract</p>
+                    </div>
+                    <p className="text-lg font-bold">{fmtDollars(quote.depositDueCents)}</p>
+                  </div>
+                  {!isFullPayment && (
+                    <>
+                      <div className="ml-4 h-6 border-l border-dashed border-white/20" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-xs font-bold text-gray-500">
+                          2
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">Remaining Balance — 72 Hours Before Event</p>
+                          <p className="text-sm text-gray-400">
+                            Automatically charged to your card on file
+                          </p>
+                        </div>
+                        <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Planner card with avatar + contact icons */}
@@ -793,7 +841,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   },
                   {
                     title: "Payments",
-                    text: "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.",
+                    text: isFullPayment
+                      ? "Full payment is required for events booked within 96 hours."
+                      : "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.",
                     Icon: IconCreditCard,
                   },
                   {
@@ -898,7 +948,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   },
                   {
                     title: "Guest Participants",
-                    text: "Changes must be made 3+ business days in advance. Guest count may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher.",
+                    text: "Guest count may be updated more than 72 hours before your event. Headcount may increase but not decrease more than 15%. You'll be billed for the guaranteed count or actual attendance, whichever is higher.",
                     Icon: IconUsers,
                   },
                 ].map((item, i) => (
@@ -912,6 +962,18 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     </div>
                   </div>
                 ))}
+                <div className="flex gap-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-500/15">
+                    <IconAlertTriangle size={20} className="text-red-400" stroke={1.5} />
+                  </div>
+                  <div>
+                    <p className="mb-1 font-semibold text-red-400">Within 72 Hours of Event</p>
+                    <p className="text-sm leading-relaxed text-red-300/80">
+                      All headcounts and sales are final. Our team and vendors need time to prepare
+                      for your event — changes cannot be made within 72 hours.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -960,13 +1022,21 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   {
                     state: agreeDeposit,
                     set: setAgreeDeposit,
-                    text: "I agree to make a 50% deposit via credit card after completing this document.",
+                    text: isPostPaid
+                      ? "I understand this is a post-paid account and will be billed after the event."
+                      : isFullPayment
+                        ? "I agree to pay the full event total via credit card after completing this document."
+                        : "I agree to make a 50% deposit via credit card after completing this document.",
                   },
-                  {
-                    state: agreeNoPrepay,
-                    set: setAgreeNoPrepay,
-                    text: "I understand that the remaining balance will be automatically charged to my card on file 72 hours prior to the event.",
-                  },
+                  ...(!isFullPayment && !isPostPaid
+                    ? [
+                        {
+                          state: agreeNoPrepay,
+                          set: setAgreeNoPrepay,
+                          text: "I understand that the remaining balance will be automatically charged to my card on file 72 hours prior to the event.",
+                        },
+                      ]
+                    : []),
                 ].map((item, i) => (
                   <label
                     key={i}
@@ -984,28 +1054,35 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
                 <div className="rounded-xl bg-white/5 p-4">
                   <p className="mb-3 font-semibold text-white">Are you tax exempt?</p>
-                  <div className="flex gap-4">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="tax"
-                        checked={taxExempt === "yes"}
-                        onChange={() => setTaxExempt("yes")}
-                        className="h-4 w-4 text-cyan-500"
-                      />
-                      <span className="text-sm">Yes</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="tax"
-                        checked={taxExempt === "no"}
-                        onChange={() => setTaxExempt("no")}
-                        className="h-4 w-4 text-cyan-500"
-                      />
-                      <span className="text-sm">No</span>
-                    </label>
-                  </div>
+                  {quote.isTaxExempt ? (
+                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-sm text-emerald-400">
+                      This event is tax exempt based on the event products. Please upload your DR-14
+                      certificate below.
+                    </div>
+                  ) : (
+                    <div className="flex gap-4">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="radio"
+                          name="tax"
+                          checked={taxExempt === "yes"}
+                          onChange={() => setTaxExempt("yes")}
+                          className="h-4 w-4 text-cyan-500"
+                        />
+                        <span className="text-sm">Yes</span>
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="radio"
+                          name="tax"
+                          checked={taxExempt === "no"}
+                          onChange={() => setTaxExempt("no")}
+                          className="h-4 w-4 text-cyan-500"
+                        />
+                        <span className="text-sm">No</span>
+                      </label>
+                    </div>
+                  )}
                   {taxExempt === "yes" && (
                     <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
                       <p className="mb-2 text-sm font-semibold text-amber-400">
@@ -1201,11 +1278,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
             <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
               <h2 className="mb-1 text-xl font-bold">Secure Your Event</h2>
               <p className="mb-6 text-sm text-gray-400">
-                Deposit:{" "}
+                {isFullPayment ? "Total" : "Deposit"}:{" "}
                 <span className="font-semibold text-white">
                   {fmtDollars(quote.depositDueCents)}
                 </span>
-                {quote.balanceCents > 0 &&
+                {!isFullPayment &&
+                  quote.balanceCents > 0 &&
                   ` — remaining ${fmtDollars(quote.balanceCents)} charged 72 hours before event.`}
               </p>
 
@@ -1226,9 +1304,15 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   />
                 </svg>
                 <p className="text-sm text-gray-300">
-                  Your card will be saved on file. The remaining balance of{" "}
-                  <strong className="text-white">{fmtDollars(quote.balanceCents)}</strong> will be
-                  automatically charged 72 hours prior to your event.
+                  {isFullPayment ? (
+                    "Your card will be charged the full event total today."
+                  ) : (
+                    <>
+                      Your card will be saved on file. The remaining balance of{" "}
+                      <strong className="text-white">{fmtDollars(quote.balanceCents)}</strong> will
+                      be automatically charged 72 hours prior to your event.
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -1243,7 +1327,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 disabled={processing}
                 className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-4 text-lg font-bold text-white shadow-lg shadow-cyan-500/20 disabled:opacity-50"
               >
-                {processing ? "Processing..." : `Pay ${fmtDollars(quote.depositDueCents)} Deposit`}
+                {processing
+                  ? "Processing..."
+                  : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
               </button>
             </div>
           </>
@@ -1325,7 +1411,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-                      Deposit Paid
+                      {isFullPayment ? "Paid in Full" : "Deposit Paid"}
                     </p>
                     <p className="text-2xl font-extrabold">{fmtDollars(quote.depositDueCents)}</p>
                   </div>
@@ -1338,7 +1424,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-                      Balance Due (72hrs before)
+                      {isFullPayment ? "Balance" : "Balance Due (72hrs before)"}
                     </p>
                     <p className="text-2xl font-extrabold">{fmtDollars(quote.balanceCents)}</p>
                   </div>

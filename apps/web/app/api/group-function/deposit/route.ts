@@ -290,10 +290,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update BMI Office: status + record payment (must complete before response)
+    // Update BMI Office: status + record payment + private note
     try {
-      const { updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities } =
-        await import("@/lib/bmi-office-actions");
+      const {
+        updateProjectStatus,
+        recordProjectPayment,
+        hasWaiverRequiredActivities,
+        appendProjectPrivateNote,
+      } = await import("@/lib/bmi-office-actions");
       const items = (quote.line_items || []) as Array<{ name: string }>;
       await updateProjectStatus({
         centerCode: quote.center_code,
@@ -304,6 +308,16 @@ export async function POST(req: NextRequest) {
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
         amountDollars: quote.deposit_due_cents / 100,
+      });
+
+      const { noteTimestamp } = await import("@/lib/bmi-office-actions");
+      const contractUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`;
+      const ts = noteTimestamp();
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: `[${ts}] Deposit paid: $${(quote.deposit_due_cents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((quote.total_cents - quote.deposit_due_cents) / 100).toFixed(2)}`,
+        contractUrl,
       });
     } catch (err) {
       console.error("[gf-deposit] BMI Office update error:", err);

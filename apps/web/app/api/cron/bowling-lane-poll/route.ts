@@ -9,6 +9,7 @@ import {
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { getReservation } from "@/lib/qamf-bowling";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/bowling-lane-poll
@@ -42,6 +43,9 @@ interface PollResult {
 }
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const started = Date.now();
   const allResults: PollResult[] = [];
 

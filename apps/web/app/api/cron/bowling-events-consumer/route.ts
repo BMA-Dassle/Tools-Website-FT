@@ -15,6 +15,7 @@ import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 import { getReservation } from "@/lib/qamf-bowling";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/bowling-events-consumer
@@ -139,6 +140,9 @@ async function handleCancellation(
 }
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();
 

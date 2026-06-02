@@ -11,6 +11,10 @@ import {
 } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG } from "@/lib/seo";
 
+// Daily ISR so the recurring-event JSON-LD (Trivia Tuesday, Midnight Madness)
+// computed next-occurrence startDates refresh instead of freezing at build time.
+export const revalidate = 86400;
+
 export const metadata: Metadata = {
   title: "HeadPinz Fort Myers FL | Best Bowling Center, Laser Tag & Arcade",
   description:

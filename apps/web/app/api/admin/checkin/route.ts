@@ -207,6 +207,58 @@ async function checkInViaPandora(personId: string, sessionId: string): Promise<C
   }
 }
 
+interface NextRace {
+  track: string | null;
+  raceType: string | null;
+  heatNumber: number | null;
+  scheduledStart: string | null;
+}
+
+type NextRaceResult =
+  | { status: "found"; race: NextRace }
+  | { status: "none" }
+  | { status: "unknown" };
+
+/**
+ * Look up a racer's next upcoming race via Pandora.
+ *   GET /v2/bmi/race/next/{locationID}/{person|participant}/{id}
+ * 404 = no race scheduled for that racer. Any transient failure returns
+ * "unknown" so callers never assert "no race" when Pandora was just slow/down.
+ *
+ * NOTE: `id` goes straight into the URL path as a string — never Number()/
+ * JSON.stringify a person/participant ID (BMI ID precision rule).
+ */
+async function fetchNextRace(
+  idType: "person" | "participant",
+  id: string,
+): Promise<NextRaceResult> {
+  try {
+    const res = await fetch(
+      `${PANDORA_BASE}/v2/bmi/race/next/${FASTTRAX_LOCATION_ID}/${idType}/${id}`,
+      { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(3000) },
+    );
+    if (res.status === 404) return { status: "none" };
+    if (!res.ok) return { status: "unknown" };
+    const json = await res.json();
+    const data = json?.data;
+    if (!data) return { status: "unknown" };
+    // Read each field with the documented races/current name plus the obvious
+    // shorter alias, so the track / type / race number all survive regardless of
+    // which naming the race/next payload uses.
+    return {
+      status: "found",
+      race: {
+        track: (data.trackName ?? data.track)?.toLowerCase() ?? null,
+        raceType: data.raceType ?? data.type ?? null,
+        heatNumber: data.heatNumber ?? data.raceNumber ?? null,
+        scheduledStart: data.scheduledStart ?? null,
+      },
+    };
+  } catch {
+    return { status: "unknown" };
+  }
+}
+
 // --------------- POST: Check in a guest ---------------
 
 export async function POST(req: NextRequest) {
@@ -279,15 +331,51 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // If we still don't have a sessionId or personId (paper QR not found in active sessions),
-  // return a yellow warning — we can't check them in without knowing the session
+  // If we still don't have a sessionId or personId (paper QR not found in active
+  // sessions), return a yellow warning — we can't check them in without knowing the
+  // session. But if this was a bare paper-QR participant ID, look up their next
+  // upcoming race so staff can tell them when to come back instead of a dead-end
+  // "not found".
   if (!sessionId || !personId || !/^\d+$/.test(sessionId) || !/^\d+$/.test(personId)) {
+    const emptySession = { track: null, raceType: null, heatNumber: null, scheduledStart: null };
+    const noHeadsock = { detected: false, deducted: false, balance: 0 };
+
+    if (paperQrParticipantId) {
+      const next = await fetchNextRace("participant", paperQrParticipantId);
+      if (next.status === "found") {
+        return NextResponse.json({
+          success: false,
+          guest: null,
+          session: next.race,
+          currentlyCheckingIn: false,
+          headsock: noHeadsock,
+          nextRace: next.race,
+          nextRaceStatus: "found",
+        });
+      }
+      if (next.status === "none") {
+        return NextResponse.json({
+          success: false,
+          guest: null,
+          session: emptySession,
+          currentlyCheckingIn: false,
+          headsock: noHeadsock,
+          nextRace: null,
+          nextRaceStatus: "none",
+          detail: "No upcoming race found",
+        });
+      }
+      // "unknown" — Pandora was slow/errored; fall through to the generic
+      // not-found response below rather than claiming they have no race.
+    }
+
     return NextResponse.json({
       success: false,
       guest: null,
-      session: { track: null, raceType: null, heatNumber: null, scheduledStart: null },
+      session: emptySession,
       currentlyCheckingIn: false,
-      headsock: { detected: false, deducted: false, balance: 0 },
+      headsock: noHeadsock,
+      nextRaceStatus: "unknown",
       detail: "Participant not found in any active session",
     });
   }

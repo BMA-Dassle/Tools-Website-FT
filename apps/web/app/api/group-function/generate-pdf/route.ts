@@ -92,5 +92,23 @@ export async function POST(req: NextRequest) {
     text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${blob.url}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(quote.deposit_due_cents / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
   });
 
+  // Update BMI private notes with contract links
+  try {
+    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+    const contractPageUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}`;
+    const pdfUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}/pdf`;
+    const ts = noteTimestamp();
+
+    await appendProjectPrivateNote({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      note: `[${ts}] Contract signed`,
+      contractUrl: contractPageUrl,
+      pdfUrl,
+    });
+  } catch (err) {
+    console.error("[generate-pdf] BMI private note update failed:", err);
+  }
+
   return NextResponse.json({ ok: true, pdfUrl: blob.url });
 }

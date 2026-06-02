@@ -7,6 +7,7 @@ import {
   type QueuedSend,
 } from "@/lib/sms-quota";
 import { logSms, logCronRun } from "@/lib/sms-log";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * SMS retry sweep — runs every minute to drain due retries across BOTH crons,
@@ -25,6 +26,9 @@ import { logSms, logCronRun } from "@/lib/sms-log";
  * Cron schedule: `* * * * *` (every minute) in vercel.json.
  */
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const started = Date.now();
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
 

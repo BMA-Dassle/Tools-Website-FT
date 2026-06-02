@@ -137,6 +137,10 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denied_at TIMESTAMPTZ`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denied_by TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS denial_reason TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS approval_memo TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS is_tax_exempt BOOLEAN NOT NULL DEFAULT FALSE`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS tax_file_url TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS waiver_reminder_sent_at TIMESTAMPTZ`;
 
   // Immutable audit trail
   await q`
@@ -260,6 +264,10 @@ export interface GroupFunctionQuote {
   denied_at: string | null;
   denied_by: string | null;
   denial_reason: string | null;
+  approval_memo: string | null;
+  is_tax_exempt: boolean;
+  tax_file_url: string | null;
+  waiver_reminder_sent_at: string | null;
   otp_verified_at: string | null;
   otp_method: string | null;
   signer_ip: string | null;
@@ -305,6 +313,7 @@ export interface InsertGfQuoteParams {
   prior_payments: unknown[];
   pandadoc_template?: string;
   pandadoc_template_id?: string;
+  is_tax_exempt?: boolean;
 }
 
 export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupFunctionQuote> {
@@ -321,7 +330,7 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
       total_cents, tax_cents, deposit_due_cents, balance_cents,
       line_items, prior_payments,
       pandadoc_template, pandadoc_template_id,
-      status
+      is_tax_exempt, hermes_last_processed_at, status
     ) VALUES (
       ${params.bmi_reservation_id},
       ${params.hermes_queue_id ?? null},
@@ -355,6 +364,8 @@ export async function insertGfQuote(params: InsertGfQuoteParams): Promise<GroupF
       ${JSON.stringify(params.prior_payments)},
       ${params.pandadoc_template ?? null},
       ${params.pandadoc_template_id ?? null},
+      ${params.is_tax_exempt ?? false},
+      NOW(),
       'pending'
     )
     RETURNING *
@@ -411,6 +422,7 @@ export async function getQuotesNeedingBalanceCharge(): Promise<GroupFunctionQuot
     WHERE status = 'deposit_paid'
       AND event_date - INTERVAL '72 hours' <= NOW()
       AND event_date > NOW()
+      AND (approval_required IS NULL OR approval_required = FALSE)
     ORDER BY event_date ASC
   `;
   return rows as GroupFunctionQuote[];
@@ -618,6 +630,17 @@ export async function updateGfQuoteDetails(
     guest_email?: string;
     guest_phone?: string;
     hermes_last_processed_at?: string;
+    status?: string;
+    contract_sent_at?: string | null;
+    contract_status?: string | null;
+    contract_short_id?: string | null;
+    deposit_paid_at?: string | null;
+    square_deposit_order_id?: string | null;
+    square_deposit_payment_id?: string | null;
+    square_gift_card_id?: string | null;
+    square_gift_card_gan?: string | null;
+    square_dayof_order_id?: string | null;
+    signed_pdf_url?: string | null;
   },
 ): Promise<void> {
   await ensureGfSchema();
@@ -645,6 +668,17 @@ export async function updateGfQuoteDetails(
       guest_email = COALESCE(${fields.guest_email ?? null}, guest_email),
       guest_phone = COALESCE(${fields.guest_phone ?? null}, guest_phone),
       hermes_last_processed_at = COALESCE(${fields.hermes_last_processed_at ?? null}::timestamptz, hermes_last_processed_at),
+      status = CASE WHEN ${"status" in fields} THEN ${fields.status ?? null} ELSE status END,
+      contract_sent_at = CASE WHEN ${"contract_sent_at" in fields} THEN ${fields.contract_sent_at ?? null}::timestamptz ELSE contract_sent_at END,
+      contract_status = CASE WHEN ${"contract_status" in fields} THEN ${fields.contract_status ?? null} ELSE contract_status END,
+      contract_short_id = CASE WHEN ${"contract_short_id" in fields} THEN ${fields.contract_short_id ?? null} ELSE contract_short_id END,
+      deposit_paid_at = CASE WHEN ${"deposit_paid_at" in fields} THEN ${fields.deposit_paid_at ?? null}::timestamptz ELSE deposit_paid_at END,
+      square_deposit_order_id = CASE WHEN ${"square_deposit_order_id" in fields} THEN ${fields.square_deposit_order_id ?? null} ELSE square_deposit_order_id END,
+      square_deposit_payment_id = CASE WHEN ${"square_deposit_payment_id" in fields} THEN ${fields.square_deposit_payment_id ?? null} ELSE square_deposit_payment_id END,
+      square_gift_card_id = CASE WHEN ${"square_gift_card_id" in fields} THEN ${fields.square_gift_card_id ?? null} ELSE square_gift_card_id END,
+      square_gift_card_gan = CASE WHEN ${"square_gift_card_gan" in fields} THEN ${fields.square_gift_card_gan ?? null} ELSE square_gift_card_gan END,
+      square_dayof_order_id = CASE WHEN ${"square_dayof_order_id" in fields} THEN ${fields.square_dayof_order_id ?? null} ELSE square_dayof_order_id END,
+      signed_pdf_url = CASE WHEN ${"signed_pdf_url" in fields} THEN ${fields.signed_pdf_url ?? null} ELSE signed_pdf_url END,
       updated_at = NOW()
     WHERE id = ${id}
   `;

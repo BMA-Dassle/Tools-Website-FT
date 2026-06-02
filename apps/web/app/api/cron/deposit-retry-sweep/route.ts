@@ -5,6 +5,7 @@ import {
   recordRetryAttempt,
   type DepositFailureRow,
 } from "@/lib/bmi-deposit-retry";
+import { verifyCron } from "@/lib/cron-auth";
 
 /**
  * BMI deposit retry sweep — drains the `bmi_deposit_failures` table.
@@ -132,6 +133,9 @@ async function flipPovClaimRedisFlag(personId: string): Promise<void> {
 }
 
 export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
   const started = Date.now();
   const url = new URL(req.url);
   const dryRun = url.searchParams.get("dryRun") === "1";
