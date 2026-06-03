@@ -1,8 +1,8 @@
 # Restructure Status
 
-**Last updated:** 2026-05-27 by Claude (PR-B3.5 session)
-**Current phase:** Phase 2 — First v2 feature (booking) — PR-B2 (race) + PR-B3 (attractions) landed, PR-B3.5 (shared deposit infrastructure) in progress
-**Next up:** PR-B3.5 verification + merge, then PR-B4 (Race-pack v2)
+**Last updated:** 2026-06-02 by Claude (PR-B5 bowling session)
+**Current phase:** Phase 2 — First v2 feature (booking) — PR-B2 (race) + PR-B3 (attractions) + PR-B3.5 (deposit) + PR-B5 (bowling/KBF) in progress
+**Next up:** PR-B5 smoke test (QAMF staging + Square sandbox), then PR-B4 (Race-pack v2)
 
 > Read [tasks/restructure-plan.md](restructure-plan.md) for the full plan, conventions, and migration backlog.
 

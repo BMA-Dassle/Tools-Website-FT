@@ -441,6 +441,9 @@ export interface ReserveParams {
   savedCardId?: string;
   giftCardNonce?: string;
   squareCustomerId?: string;
+  loyaltyAccountId?: string;
+  rewardTierId?: string;
+  rewardDiscountCents?: number;
 }
 
 export interface ReserveResult {
@@ -500,6 +503,13 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
       cardSourceId: cardSourceId ?? undefined,
       giftCardNonce: params.giftCardNonce ?? undefined,
       squareCustomerId: params.squareCustomerId ?? undefined,
+      ...(params.loyaltyAccountId ? { loyaltyAccountId: params.loyaltyAccountId } : {}),
+      ...(params.rewardTierId
+        ? {
+            rewardTierId: params.rewardTierId,
+            rewardDiscountCents: params.rewardDiscountCents,
+          }
+        : {}),
       contact: {
         firstName: contact.firstName,
         lastName: contact.lastName,
@@ -609,6 +619,60 @@ function resolveProductId(session: BookingSession, line: BillLine): string | nul
     }
   }
   return null;
+}
+
+// ── Unified reserve (all item types, one Square Order) ──────────────────
+
+export interface ReserveAllParams {
+  session: BookingSession;
+  contact: ContactInfo;
+  cardSourceId?: string;
+  giftCardNonce?: string;
+  squareCustomerId?: string;
+  loyaltyAccountId?: string;
+  rewardTierId?: string;
+  rewardDiscountCents?: number;
+}
+
+export interface ReserveAllResult {
+  neonIds: number[];
+  shortCodes: string[];
+  qamfReservationIds: string[];
+  bmiReservationNumber: string | null;
+  bmiReservationCode: string | null;
+  squareDayofOrderId: string;
+  giftCardGan: string | null;
+  depositCents: number;
+  totalCents: number;
+}
+
+export async function reserveAll(params: ReserveAllParams): Promise<ReserveAllResult> {
+  const res = await fetch("/api/booking/v2/reserve-all", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      session: params.session,
+      contact: {
+        firstName: params.contact.firstName,
+        lastName: params.contact.lastName,
+        email: params.contact.email,
+        phone: params.contact.phone,
+      },
+      cardSourceId: params.cardSourceId,
+      giftCardNonce: params.giftCardNonce,
+      squareCustomerId: params.squareCustomerId,
+      loyaltyAccountId: params.loyaltyAccountId,
+      rewardTierId: params.rewardTierId,
+      rewardDiscountCents: params.rewardDiscountCents,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || "Reservation failed");
+  }
+
+  return data as ReserveAllResult;
 }
 
 // ── Confirmation URL builder ────────────────────────────────────────────

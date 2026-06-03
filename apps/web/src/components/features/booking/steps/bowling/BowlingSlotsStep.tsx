@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
+import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 import { DiscountCodeInput } from "./DiscountCodeInput";
 
 const CORAL = "#fd5b56";
@@ -119,7 +120,12 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
   function getHoursSync(dateStr: string): number[] {
     const dow = new Date(`${dateStr}T12:00:00`).getDay();
     const isWeekend = dow === 5 || dow === 6;
-    const range = isWeekend ? { open: 11, close: 26 } : { open: 11, close: 24 };
+    const loc = HP_LOCATIONS[center.hpSlug];
+    const range = loc
+      ? parseHoursRange(isWeekend ? loc.hoursWeekend : loc.hours)
+      : isWeekend
+        ? { open: 11, close: 26 }
+        : { open: 11, close: 24 };
     let hours = Array.from({ length: range.close - range.open }, (_, i) => i + range.open);
     const td = todayYmd();
     const nm = etNowMinutes();

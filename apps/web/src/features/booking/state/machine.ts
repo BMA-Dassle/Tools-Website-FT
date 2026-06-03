@@ -119,9 +119,6 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
         activeItemId: action.item.id,
         cursors: { ...state.cursors, [action.item.id]: 0 },
       };
-      // Adding a KbfItem auto-initializes the session-level KBF identity
-      // if it isn't already present (verify once per session, reuse for
-      // subsequent KBF items).
       if (action.item.kind === "kbf" && !next.kbfIdentity) {
         next.kbfIdentity = newKbfIdentity();
       }

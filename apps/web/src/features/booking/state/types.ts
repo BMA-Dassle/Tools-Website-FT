@@ -263,10 +263,25 @@ interface BowlingCommon {
   qamfReservationId: string | null;
   /** QAMF center ID (numeric, e.g. 9172 or 3148). */
   qamfCenterId: number | null;
-  /** Resolved line items sent to the reserve route. */
-  lineItems: Array<{ squareProductId: number; quantity: number }>;
+  /** Resolved line items sent to the reserve route. Enriched with metadata for checkout display + quote building. */
+  lineItems: Array<{
+    squareProductId: number;
+    quantity: number;
+    label?: string;
+    priceCents?: number;
+    depositPct?: number;
+    squareCatalogObjectId?: string;
+  }>;
   /** $0 pass-through items (pizza/soda) for Square order visibility. */
   rawItems: Array<{ catalogObjectId: string; name: string; quantity: number; note?: string }>;
+  /** Shoe product metadata for checkout display + quote building. Populated by ShoesStep. */
+  shoeProducts?: Array<{
+    id: number;
+    label: string;
+    priceCents: number;
+    depositPct: number;
+    squareCatalogObjectId: string;
+  }>;
   /** Pre-created Square day-of order from the quote step. */
   quoteDayofOrderId: string | null;
   quoteTotalCents: number;

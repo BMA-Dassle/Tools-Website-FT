@@ -107,6 +107,15 @@ describe("activities-catalog", () => {
       expect(slugs).toContain("laser-tag");
       expect(slugs).toContain("kbf");
     });
+
+    it("mixed cart: bowling + attractions coexist in cross-sell", () => {
+      const bowling = newItem("bowling");
+      const session = sessionWithItems({ items: [bowling], center: "fort-myers" });
+      const kinds = crossSellFor(session).map((o) => o.kind);
+      expect(kinds).toContain("race");
+      expect(kinds).toContain("attraction");
+      expect(kinds).toContain("kbf");
+    });
   });
 
   describe("squareBookingActivity", () => {

@@ -1,11 +1,11 @@
 # Open Tasks
 
-## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-05-28)
-- **Branch:** `feat/booking-b2-race` @ `9d127c90` · merged with main 2026-05-28
+## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-06-02)
+- **Branch:** `feat/booking-b2-race` · merged with main 2026-06-02
 - **What shipped (all build-verified):**
   - D1: Type extensions — BowlingItem/KbfItem with 30+ fields, LoyaltyState on BookingSession, 5 new reducer actions
   - D2: Bowling service — `service/bowling.ts` (hold/confirm/cancel/reserve) wired into `getService()`
-  - D3: 7 bowling step components — Players, Slots, Tier, Offer (QAMF hold), Shoes, Attractions, Food
+  - D3: 7 bowling step components — Players, Slots, Tier, Offer (QAMF hold), Shoes, Attractions (info-only), Food
   - D4: 2 KBF steps — KbfIdentity (lookup→OTP→verify), KbfBowlers (family member selection)
   - D5: Hold timer generalized — ReservationTimer handles BMI + QAMF with 8-min auto-extend
   - D6: Checkout bowling path → `bowlingReserve()` → `/api/bowling/v2/reserve`
@@ -13,14 +13,16 @@
   - D7: Step registry — all bowling/kbf placeholders replaced with real components
   - D8: Deposit unification — bowling reserve uses `createDepositAndCharge()`, same as race/attraction
   - D9: DiscountCodeInput on bowling slots step
+  - D10 (2026-06-02): BowlingSlotsStep → HP_LOCATIONS for real center hours
+  - D11 (2026-06-02): BowlingOfferStep — duration picker for hourly, line-item enrichment (label/price/catalog/deposit%), per-lane vs per-person multipliers, product overrides
+  - D12 (2026-06-02): Checkout quote fetch from `/api/square/bowling-orders/quote` + real line-item display (product names, per-line amounts, booking fee, tax, deposit breakdown)
+  - D13 (2026-06-02): BowlingShoesStep stores shoe product metadata for checkout name resolution
+  - D14 (2026-06-02): BowlingAttractionsStep → info-only (attractions are separate cart items, same as racing)
+  - D15 (2026-06-02): Loyalty params wired to BMI reserve path (loyaltyAccountId, rewardTierId, rewardDiscountCents)
+  - D16 (2026-06-02): Mixed-cart guard — bowling (QAMF) and race/attraction (BMI) can't share a checkout; cross-sell + reducer reject incompatible adds
 - **Still needs before go-live:**
   - Smoke test with QAMF staging + Square sandbox
-  - BowlingOfferStep line-item building refinement (v1 handles duration multipliers, per-lane scaling, combo items)
-  - BowlingSlotsStep needs HP_LOCATIONS integration (static fallback hours currently)
-  - BowlingAttractionsStep needs real BMI slot-booking (shows "Coming soon" placeholder)
-  - CheckoutStep bowling review needs proper line-item names from Square products (currently synthetic)
-  - Loyalty `resolveAudienceMember()` at checkout for squareCustomerId earning on race/attraction orders
-  - v2 reserve route needs squareCustomerId + loyalty reward params for non-bowling bookings
+  - Full Square Loyalty API reward creation in BMI reserve route (currently applies discount only; bowling route has full implementation)
 
 ## v2 Checkout: Server-side atomic BMI payment/confirm
 - **Priority:** Medium (v2 checkout milestone)

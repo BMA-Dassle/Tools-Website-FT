@@ -47,10 +47,31 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
 
     const shoeLineItems = Object.entries(next)
       .filter(([, q]) => q > 0)
-      .map(([id, q]) => ({ squareProductId: Number(id), quantity: q }));
+      .map(([id, q]) => {
+        const prod = products.find((p) => p.id === Number(id));
+        return {
+          squareProductId: Number(id),
+          quantity: q,
+          label: prod?.label,
+          priceCents: prod?.priceCents,
+          depositPct: prod?.depositPct,
+          squareCatalogObjectId: prod?.squareCatalogObjectId,
+        };
+      });
+
+    const shoeProductsMeta = products
+      .filter((p) => (next[p.id] ?? 0) > 0)
+      .map((p) => ({
+        id: p.id,
+        label: p.label,
+        priceCents: p.priceCents,
+        depositPct: p.depositPct,
+        squareCatalogObjectId: p.squareCatalogObjectId,
+      }));
 
     onChange({
       shoeSelections: next,
+      shoeProducts: shoeProductsMeta.length > 0 ? shoeProductsMeta : undefined,
       lineItems: [
         ...item.lineItems.filter((li) => !products.some((p) => p.id === li.squareProductId)),
         ...shoeLineItems,

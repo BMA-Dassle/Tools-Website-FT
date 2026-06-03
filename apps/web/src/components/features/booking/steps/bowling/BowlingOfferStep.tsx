@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BowlingItem, KbfItem, StepDef, BookingSession } from "~/features/booking";
-import type { BowlingExperienceWithDetails } from "@/lib/bowling-db";
+import type {
+  BowlingExperienceWithDetails,
+  BowlingExperienceDurationOption,
+} from "@/lib/bowling-db";
 
 const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
@@ -96,12 +99,15 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     item.kind === "bowling"
       ? (item as BowlingItem).playerCount
       : (item as KbfItem).bowlers.length + (item as KbfItem).paidAdults;
+  const laneCount = Math.max(1, Math.ceil(playerCount / 6));
 
   const [experiences, setExperiences] = useState<BowlingExperienceWithDetails[]>([]);
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [holdBusy, setHoldBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDurationOpt, setSelectedDurationOpt] =
+    useState<BowlingExperienceDurationOption | null>(null);
 
   // Load experiences
   useEffect(() => {
@@ -169,19 +175,56 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     })();
   }, [centerId, playerCount, item.date, item.hour, item.minute, kind]);
 
-  async function selectSlot(exp: BowlingExperienceWithDetails, slot: AvailabilitySlot) {
+  function buildLineItems(
+    exp: BowlingExperienceWithDetails,
+    durationOpt: BowlingExperienceDurationOption | null,
+  ) {
+    const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
+    const qtyMultiplier = isPerLane ? laneCount : playerCount;
+    const durationMultiplier = durationOpt?.squareMultiplier ?? 1;
+
+    return exp.items.map((ei) => {
+      const isPrimary = ei.sortOrder === 0;
+      const useOverride = isPrimary && durationOpt?.overrideSquareProductId;
+
+      return {
+        squareProductId: useOverride ? durationOpt!.overrideSquareProductId! : ei.squareProductId,
+        quantity: isPrimary
+          ? ei.quantity * qtyMultiplier * durationMultiplier
+          : ei.quantity * laneCount,
+        label: ei.label,
+        priceCents: useOverride
+          ? (durationOpt!.overridePriceCents ?? ei.priceCents)
+          : ei.priceCents,
+        depositPct: useOverride
+          ? (durationOpt!.overrideDepositPct ?? ei.depositPct)
+          : ei.depositPct,
+        squareCatalogObjectId: useOverride
+          ? (durationOpt!.overrideCatalogObjectId ?? ei.squareCatalogObjectId)
+          : ei.squareCatalogObjectId,
+      };
+    });
+  }
+
+  async function selectSlot(
+    exp: BowlingExperienceWithDetails,
+    slot: AvailabilitySlot,
+    durationOpt: BowlingExperienceDurationOption | null,
+  ) {
     setHoldBusy(true);
     setError(null);
 
     try {
-      // Create QAMF hold
+      // Use duration option's QAMF optionId when available
+      const effectiveOptionId = durationOpt?.qamfOptionId ?? slot.optionId;
+
       const holdRes = await fetch("/api/bowling/v2/reserve/hold", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           centerId,
           webOfferId: slot.webOfferId,
-          optionId: slot.optionId,
+          optionId: effectiveOptionId,
           optionType: slot.optionType,
           bookedAt: slot.bookedAt,
           players: playerCount,
@@ -196,16 +239,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       }
 
       const qamfReservationId = holdData.qamfReservationId as string;
-
-      // Build line items from experience
-      const lineItems = exp.items.map((ei) => ({
-        squareProductId: ei.squareProductId,
-        quantity:
-          ei.quantity *
-          (exp.kind === "hourly" || ei.sortOrder === 0
-            ? Math.max(1, Math.ceil(playerCount / 6))
-            : playerCount),
-      }));
+      const lineItems = buildLineItems(exp, durationOpt);
 
       dispatch({
         type: "setBowlingHold",
@@ -218,12 +252,14 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         experienceId: exp.id,
         experienceSlug: exp.slug,
         webOfferId: slot.webOfferId,
-        optionId: slot.optionId ?? null,
+        optionId: effectiveOptionId ?? null,
         optionType: slot.optionType ?? null,
         bookedAt: slot.bookedAt,
         lineItems,
         rawItems: [],
         hasBookingFee: true,
+        durationMinutes: durationOpt?.durationMinutes ?? null,
+        durationMultiplier: durationOpt?.squareMultiplier ?? 1,
       } as Partial<BowlingLikeItem>);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Hold creation failed");
@@ -279,7 +315,8 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
           const primaryItem = exp.items.find((i) => i.sortOrder === 0);
           const priceCents = primaryItem?.priceCents ?? 0;
-          const isPerLane = exp.kind === "hourly";
+          const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
+          const hasDurationOptions = exp.durationOptions.length > 0;
 
           return (
             <div
@@ -308,8 +345,8 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                 </div>
               </div>
 
-              {/* Price + time slots */}
               <div className="p-4">
+                {/* Price display */}
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-lg font-bold text-white">
                     {centsToDollars(priceCents)}
@@ -327,7 +364,45 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                   )}
                 </div>
 
-                {expSlots.length === 0 ? (
+                {/* Duration options (hourly experiences only) */}
+                {hasDurationOptions && (
+                  <div className="mb-3">
+                    <div className="mb-1.5 text-[10px] uppercase tracking-wider text-white/30">
+                      Duration
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {exp.durationOptions.map((opt) => {
+                        const isActive =
+                          selectedDurationOpt?.id === opt.id && item.experienceId === exp.id;
+                        const optPrice = opt.overridePriceCents ?? priceCents;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setSelectedDurationOpt(isActive ? null : opt)}
+                            className="rounded-lg px-3 py-2 text-sm font-medium transition-all"
+                            style={{
+                              backgroundColor: isActive ? accent : `${accent}15`,
+                              color: isActive ? "#0a1628" : accent,
+                              fontWeight: isActive ? 800 : 500,
+                              boxShadow: isActive ? `0 0 12px ${accent}60` : undefined,
+                            }}
+                          >
+                            {opt.label}
+                            <span className="ml-1.5 text-xs opacity-60">
+                              {centsToDollars(optPrice)}/{isPerLane ? "lane" : "person"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Require duration selection for hourly before showing times */}
+                {hasDurationOptions && !selectedDurationOpt ? (
+                  <p className="text-xs text-white/30">Select a duration to see available times</p>
+                ) : expSlots.length === 0 ? (
                   <p className="text-xs text-white/30">No availability at this time</p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
@@ -339,7 +414,13 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                           key={`${slot.webOfferId}-${slot.bookedAt}-${i}`}
                           type="button"
                           disabled={holdBusy}
-                          onClick={() => void selectSlot(exp, slot)}
+                          onClick={() =>
+                            void selectSlot(
+                              exp,
+                              slot,
+                              hasDurationOptions ? selectedDurationOpt : null,
+                            )
+                          }
                           className="rounded-lg px-3 py-2 text-sm font-medium transition-all disabled:opacity-50"
                           style={{
                             backgroundColor: isSelected ? accent : `${accent}15`,

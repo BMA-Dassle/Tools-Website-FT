@@ -13,6 +13,7 @@ import {
   resolveSquareCustomer,
   buildConfirmationUrl,
   reserveBooking,
+  reserveAll,
   type BillOverview,
 } from "~/features/booking/service/checkout";
 import { bowlingReserve } from "~/features/booking/service/bowling";
@@ -72,65 +73,82 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
   // ── Contact phase ─────────────────────────────────────────────
 
-  const isBowlingOnly = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
+  const hasBowling = session.items.some((i) => i.kind === "bowling" || i.kind === "kbf");
+  const hasBmi = session.items.some((i) => i.kind === "race" || i.kind === "attraction");
 
   async function handleContactSubmit() {
     if (!isValidContact) return;
     dispatch({ type: "setContact", patch: contact });
+    setPhase({ step: "booking", progress: "Preparing your order…" });
 
-    if (isBowlingOnly) {
-      // Bowling path: build review from item quote data (no BMI bill)
-      setPhase({ step: "booking", progress: "Preparing your order…" });
-      try {
-        const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf") as
-          | BowlingItem
-          | KbfItem;
+    try {
+      // Step 1: Book BMI heats (if any race/attraction items)
+      let bmiBillId: string | null = null;
+      let bmiOverview: BillOverview | null = null;
+      if (hasBmi) {
+        setPhase({ step: "booking", progress: "Booking activities…" });
+        const result = await runCheckout(session, contact, dispatch, (msg) =>
+          setPhase({ step: "booking", progress: msg }),
+        );
+        bmiBillId = result.bmiBillId;
+        bmiOverview = result.overview;
+      }
 
-        const overview: BillOverview = {
-          lines: bowlingItem.lineItems.map((li) => ({
-            name: `Line item ${li.squareProductId}`,
+      // Step 2: Build combined review from all items
+      setPhase({ step: "booking", progress: "Calculating your total…" });
+      const reviewLines: BillOverview["lines"] = [];
+
+      // Bowling line items
+      for (const item of session.items) {
+        if (item.kind !== "bowling" && item.kind !== "kbf") continue;
+        for (const li of item.lineItems) {
+          reviewLines.push({
+            name: li.label ?? `Item #${li.squareProductId}`,
             quantity: li.quantity,
-            amount: 0,
-          })),
-          subtotal: bowlingItem.quoteTotalCents / 100,
-          tax: 0,
-          total: bowlingItem.quoteTotalCents / 100,
-          cashOwed: bowlingItem.quoteDepositCents / 100,
-          creditApplied: 0,
-          isCreditOrder: bowlingItem.quoteDepositCents <= 0,
-        };
-
-        // If we have a quote, use those numbers
-        if (bowlingItem.quoteTotalCents > 0) {
-          const depositDollars = bowlingItem.quoteDepositCents / 100;
-          const totalDollars = bowlingItem.quoteTotalCents / 100;
-          overview.subtotal = totalDollars;
-          overview.total = totalDollars;
-          overview.cashOwed = depositDollars;
+            amount: ((li.priceCents ?? 0) * li.quantity) / 100,
+          });
         }
+        if (item.hasBookingFee) {
+          reviewLines.push({ name: "Booking Fee", quantity: 1, amount: 2.99 });
+        }
+      }
 
-        const syntheticBillId = `bowl-${bowlingItem.qamfReservationId ?? bowlingItem.id}`;
-        setPhase({ step: "review", overview, bmiBillId: syntheticBillId });
-      } catch (err) {
-        setPhase({
-          step: "error",
-          message: err instanceof Error ? err.message : "Checkout failed",
+      // BMI line items (from the overview)
+      if (bmiOverview) {
+        for (const line of bmiOverview.lines) {
+          reviewLines.push(line);
+        }
+      }
+
+      // Estimate totals from the review lines (the server computes the
+      // authoritative total with tax; this is for display)
+      const preTaxSubtotal = reviewLines.reduce((s, l) => s + l.amount, 0);
+      const rewardDiscountCents = session.loyalty?.selectedRewardTier?.discountCents ?? 0;
+
+      const overview: BillOverview = {
+        lines: reviewLines,
+        subtotal: preTaxSubtotal,
+        tax: bmiOverview?.tax ?? 0,
+        total: preTaxSubtotal + (bmiOverview?.tax ?? 0),
+        cashOwed: Math.max(0, preTaxSubtotal + (bmiOverview?.tax ?? 0) - rewardDiscountCents / 100),
+        creditApplied: bmiOverview?.creditApplied ?? 0,
+        isCreditOrder: preTaxSubtotal <= 0,
+      };
+
+      if (rewardDiscountCents > 0) {
+        overview.lines.push({
+          name: "HeadPinz Rewards",
+          quantity: 1,
+          amount: -(rewardDiscountCents / 100),
         });
       }
-      return;
-    }
 
-    // BMI path: race/attraction
-    setPhase({ step: "booking", progress: "Starting checkout…" });
-    try {
-      const result = await runCheckout(session, contact, dispatch, (msg) =>
-        setPhase({ step: "booking", progress: msg }),
-      );
-      setPhase({ step: "review", overview: result.overview, bmiBillId: result.bmiBillId });
+      const syntheticBillId = bmiBillId ?? `cart-${session.items[0]?.id ?? "0"}`;
+      setPhase({ step: "review", overview, bmiBillId: syntheticBillId });
     } catch (err) {
       setPhase({
         step: "error",
-        message: err instanceof Error ? err.message : "Booking failed",
+        message: err instanceof Error ? err.message : "Checkout failed",
       });
     }
   }
@@ -369,8 +387,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             {overview.isCreditOrder ? "Review & Confirm" : "Review & Pay"}
           </h2>
           <p className="mt-1 text-sm text-white/50">
-            Your heat{session.items.length > 1 ? "s are" : " is"} reserved. Complete your booking
-            below.
+            Your activities are reserved. Complete your booking below.
           </p>
         </div>
 
@@ -501,71 +518,45 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     }) {
       setPhase({ step: "confirming", bmiBillId });
       try {
-        if (isBowlingOnly) {
-          // Bowling reserve path — QAMF + Square via /api/bowling/v2/reserve
-          const bowlingItem = session.items.find(
-            (i) => i.kind === "bowling" || i.kind === "kbf",
-          ) as BowlingItem | KbfItem;
+        // Unified reserve — one Square order, one charge, all item types
+        const result = await reserveAll({
+          session,
+          contact,
+          cardSourceId: params.savedCardId ?? params.cardNonce ?? undefined,
+          giftCardNonce: params.giftCardNonce ?? undefined,
+          squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
+          loyaltyAccountId: session.loyalty?.accountId,
+          rewardTierId: session.loyalty?.selectedRewardTier?.id,
+          rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
+        });
 
-          const result = await bowlingReserve({
-            session,
-            item: bowlingItem,
-            contact,
-            cardToken: params.cardNonce ?? undefined,
-            giftCardNonce: params.giftCardNonce ?? undefined,
-            squareCustomerId: session.loyalty?.customerId,
-            loyaltyAccountId: session.loyalty?.accountId,
-            loyaltyAction: session.loyalty
-              ? session.loyalty.isNewSignup
-                ? "signup"
-                : "existing"
-              : undefined,
-            rewardTierId: session.loyalty?.selectedRewardTier?.id,
-            rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
-            smsOptIn: contact.smsOptIn,
-          });
+        void recordClickwrap({
+          billId: bmiBillId,
+          email: contact.email,
+          phone: contact.phone,
+          firstName: contact.firstName,
+          amountCents: Math.round(overview.cashOwed * 100),
+          bookingType: hasBowling ? "bowling" : "racing",
+        });
 
-          void recordClickwrap({
-            billId: `bowl-${result.qamfReservationId}`,
-            email: contact.email,
-            phone: contact.phone,
-            firstName: contact.firstName,
-            amountCents: Math.round(overview.cashOwed * 100),
-            bookingType: "attractions",
-          });
+        clearBookingSession();
 
-          clearBookingSession();
+        // Redirect to appropriate confirmation page
+        if (result.shortCodes.length > 0) {
+          const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
           const confirmBase =
-            bowlingItem.kind === "kbf"
+            bowlingItem?.kind === "kbf"
               ? "/hp/book/kids-bowl-free/confirmation"
               : "/hp/book/bowling/confirmation";
-          window.location.href = result.shortCode
-            ? `${confirmBase}?code=${result.shortCode}`
-            : `${confirmBase}?neonId=${result.neonId}`;
-        } else {
-          // BMI reserve path — race/attraction via /api/booking/v2/reserve
-          await reserveBooking({
+          window.location.href = `${confirmBase}?code=${result.shortCodes[0]}`;
+        } else if (result.bmiReservationNumber || session.bmiBillId) {
+          window.location.href = buildConfirmationUrl(
             session,
-            bmiBillId,
-            overview,
-            contact,
-            cardSourceId: params.cardNonce ?? undefined,
-            savedCardId: params.savedCardId ?? undefined,
-            giftCardNonce: params.giftCardNonce ?? undefined,
-            squareCustomerId,
-          });
-
-          void recordClickwrap({
-            billId: bmiBillId,
-            email: contact.email,
-            phone: contact.phone,
-            firstName: contact.firstName,
-            amountCents: Math.round(overview.cashOwed * 100),
-            bookingType: "racing",
-          });
-
-          clearBookingSession();
-          window.location.href = buildConfirmationUrl(session, bmiBillId, true);
+            session.bmiBillId ?? bmiBillId,
+            true,
+          );
+        } else {
+          window.location.href = `/book/confirmation?neonId=${result.neonIds[0] ?? ""}`;
         }
       } catch (err) {
         setPhase({

@@ -9,6 +9,8 @@ import {
   type PartyMember,
   type RaceHeatAssignment,
   type RaceItem,
+  type AttractionItem,
+  type BowlingItem,
 } from "./types";
 
 function seedSession(): BookingSession {
@@ -55,6 +57,16 @@ describe("reducer — cart items", () => {
       patch: { slug: "gel-blaster", qty: 4 } as Partial<typeof attraction>,
     });
     expect(s2.items[0]).toMatchObject({ slug: "gel-blaster", qty: 4 });
+  });
+
+  it("addItem allows mixed carts (bowling + race)", () => {
+    const s0 = seedSession();
+    const race = newItem("race");
+    const s1 = reducer(s0, { type: "addItem", item: race });
+    const bowling = newItem("bowling");
+    const s2 = reducer(s1, { type: "addItem", item: bowling });
+    expect(s2.items).toHaveLength(2);
+    expect(s2.items.map((i) => i.kind).sort()).toEqual(["bowling", "race"]);
   });
 
   it("removeItem drops the item, drops the cursor, clears activeItemId if matched", () => {
@@ -137,35 +149,21 @@ describe("reducer — party roster", () => {
   it("removePartyMember filters attraction/bowling assignedTo[] arrays", () => {
     const alex = makeMember();
     const bob = makeMember({ firstName: "Bob" });
-    const attractionId = "i-att";
-    const bowlingId = "i-bowl";
+    const attraction = {
+      ...newItem("attraction"),
+      assignedTo: [alex.id, bob.id],
+      slug: "gel-blaster",
+      qty: 2,
+    };
+    const bowling = { ...newItem("bowling"), assignedTo: [alex.id, bob.id] };
     const initial: BookingSession = {
       ...seedSession(),
       party: [alex, bob],
-      items: [
-        {
-          id: attractionId,
-          kind: "attraction",
-          slug: "gel-blaster",
-          date: null,
-          slot: null,
-          qty: 2,
-          assignedTo: [alex.id, bob.id],
-        },
-        {
-          id: bowlingId,
-          kind: "bowling",
-          variant: "open",
-          date: null,
-          hour: null,
-          laneCount: 1,
-          assignedTo: [alex.id, bob.id],
-        },
-      ],
+      items: [attraction, bowling],
     };
     const after = reducer(initial, { type: "removePartyMember", id: alex.id });
-    const att = after.items.find((i) => i.id === attractionId);
-    const bowl = after.items.find((i) => i.id === bowlingId);
+    const att = after.items.find((i) => i.id === attraction.id);
+    const bowl = after.items.find((i) => i.id === bowling.id);
     expect(att?.kind === "attraction" && att.assignedTo).toEqual([bob.id]);
     expect(bowl?.kind === "bowling" && bowl.assignedTo).toEqual([bob.id]);
   });
