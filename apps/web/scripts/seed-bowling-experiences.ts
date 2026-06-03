@@ -18,8 +18,8 @@
  *  kbf-vip               kbf     yes   Mon-Fri       FM:153 / Naples:134
  *  regular-mon-thur      hourly  no    Mon-Thu       FM:154 / Naples:118  (1.5hr + 2hr)
  *  vip-mon-thur          hourly  yes   Mon-Thu       FM:155 / Naples:119  (1.5hr + 2hr)
- *  fun-4-all             open    no    Mon-Thu       FM:156 / Naples:120
- *  fun-4-all-vip         open    yes   Mon-Thu       FM:157 / Naples:121
+ *  fun-4-all             open    no    Mon-Thu       FM:154 / Naples:118  (Time 90min, shared w/ regular-mon-thur)
+ *  fun-4-all-vip         open    yes   Mon-Thu       FM:155 / Naples:119  (Time 90min, shared w/ vip-mon-thur)
  *  pizza-bowl            open    no    Sun           stub — QAMF IDs TBD  (is_active=false)
  *  pizza-bowl-vip        open    yes   Sun           stub — QAMF IDs TBD  (is_active=false)
  *  regular-fri-sun       hourly  no    Fri-Sun       FM:158 / Naples:124
@@ -398,6 +398,8 @@ async function main() {
   ]);
 
   // ── 5. Fun 4 All Regular ────────────────────────────────────────────────────
+  // Shares the same QAMF web offer as regular-mon-thur (Time 1.5hr).
+  // QAMF turns on the lane in Time mode (90 min) instead of Unlimited.
   console.log("\n── Fun 4 All Regular");
   const f4aRegId = await upsertExperience({
     slug: "fun-4-all",
@@ -406,26 +408,30 @@ async function main() {
     isVip: false,
     sortOrder: 30,
     isActive: true,
-    description: "Unlimited bowling + shoes included — Monday through Thursday",
+    description: "1.5 hours unlimited bowling + shoes included — Monday through Thursday",
     daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({
     experienceId: f4aRegId,
     centerCode: FM,
-    qamfWebOfferId: 156,
-    qamfOptionType: "Unlimited",
-    qamfOptionId: 156,
+    qamfWebOfferId: 154, // same as regular-mon-thur
+    qamfOptionType: "Time",
+    qamfOptionId: 1227, // 1.5hr option
   });
   await upsertOffer({
     experienceId: f4aRegId,
     centerCode: NAPLES,
-    qamfWebOfferId: 120,
-    qamfOptionType: "Unlimited",
-    qamfOptionId: 120,
+    qamfWebOfferId: 118, // same as regular-mon-thur
+    qamfOptionType: "Time",
+    qamfOptionId: 939, // 1.5hr option
   });
   await setItems(f4aRegId, [{ catalogObjectId: CAT.FUN_4_ALL, quantity: 1 }]);
 
+  // Deactivate old Unlimited offers for Fun 4 All (replaced by shared Time offers above)
+  await sql`UPDATE bowling_experience_offers SET is_active = FALSE WHERE qamf_web_offer_id IN (156, 120) AND experience_id = ${f4aRegId}`;
+
   // ── 6. Fun 4 All VIP ────────────────────────────────────────────────────────
+  // Shares the same QAMF web offer as vip-mon-thur (Time 1.5hr).
   console.log("\n── Fun 4 All VIP");
   const f4aVipId = await upsertExperience({
     slug: "fun-4-all-vip",
@@ -434,27 +440,30 @@ async function main() {
     isVip: true,
     sortOrder: 31,
     isActive: true,
-    description: "Unlimited VIP bowling + shoes included — Monday through Thursday",
+    description: "1.5 hours unlimited VIP bowling + shoes included — Monday through Thursday",
     daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({
     experienceId: f4aVipId,
     centerCode: FM,
-    qamfWebOfferId: 157,
-    qamfOptionType: "Unlimited",
-    qamfOptionId: 157,
+    qamfWebOfferId: 155, // same as vip-mon-thur
+    qamfOptionType: "Time",
+    qamfOptionId: 1235, // 1.5hr option
   });
   await upsertOffer({
     experienceId: f4aVipId,
     centerCode: NAPLES,
-    qamfWebOfferId: 121,
-    qamfOptionType: "Unlimited",
-    qamfOptionId: 121,
+    qamfWebOfferId: 119, // same as vip-mon-thur
+    qamfOptionType: "Time",
+    qamfOptionId: 947, // 1.5hr option
   });
   await setItems(f4aVipId, [
     { catalogObjectId: CAT.FUN_4_ALL_VIP, quantity: 1 },
     { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
   ]);
+
+  // Deactivate old Unlimited offers for Fun 4 All VIP
+  await sql`UPDATE bowling_experience_offers SET is_active = FALSE WHERE qamf_web_offer_id IN (157, 121) AND experience_id = ${f4aVipId}`;
 
   // ── 7. Pizza Bowl Regular (ACTIVE — QAMF IDs confirmed 2026-05-08) ─────────
   console.log("\n── Pizza Bowl Regular");

@@ -383,7 +383,7 @@ export async function POST(req: NextRequest) {
   // This must run before pricing so VIP upcharges are included.
   let kbfIsVip = false;
   if (productKind === "kbf") {
-    const experience = await getBowlingExperienceByOffer(centerCode, webOfferId);
+    const experience = await getBowlingExperienceByOffer(centerCode, webOfferId, "kbf");
     kbfIsVip = experience?.isVip ?? false;
   }
 

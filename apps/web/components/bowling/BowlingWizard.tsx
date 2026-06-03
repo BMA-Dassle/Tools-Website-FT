@@ -717,6 +717,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
+  const [selectedExperienceId, setSelectedExperienceId] = useState<number | null>(null);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
   // Track what we last fetched to skip redundant QAMF calls
@@ -1084,10 +1085,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const kbfBowlers = bowlerSelections.filter((b) => b.selected);
   const activePlayerCount = kind === "kbf" ? kbfBowlers.length : playerCount;
 
-  // Experience matching the selected QAMF slot
-  const selectedExperience = selectedSlot
-    ? (experiences.find((e) => e.qamfWebOfferId === selectedSlot.webOfferId) ?? null)
-    : null;
+  // Experience matching the user's selection. When two experiences share
+  // the same QAMF web offer (e.g. Fun 4 All + hourly both use offer 154),
+  // selectedExperienceId disambiguates which card the user clicked.
+  const selectedExperience = selectedExperienceId
+    ? (experiences.find((e) => e.id === selectedExperienceId) ?? null)
+    : selectedSlot
+      ? (experiences.find((e) => e.qamfWebOfferId === selectedSlot.webOfferId) ?? null)
+      : null;
 
   // Whether the selected experience already includes shoes (skip shoes step)
   const selectedIncludesShoes = selectedExperience
@@ -1496,6 +1501,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       setSlotsError(null);
       setAvailableSlots([]);
       setSelectedSlot(null);
+      setSelectedExperienceId(null);
       // Do NOT reset selectedHour/selectedMinute here — we want to preserve the
       // user's time selection while the fetch runs so the UI stays filled in.
 
@@ -2182,6 +2188,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             // handle messaging/refetch — don't trample its UI.
             if (!opts?.silent) {
               setSelectedSlot(null);
+              setSelectedExperienceId(null);
               setError(
                 "That time was just taken. We've refreshed the available slots — pick another.",
               );
@@ -3186,6 +3193,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       setSelectedDate(bookableDateRange()[0] ?? todayYmd());
                       setAvailableSlots([]);
                       setSelectedSlot(null);
+                      setSelectedExperienceId(null);
                       setSlotsError(null);
                       setStep("reschedule");
                     }}
@@ -3381,11 +3389,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             const offerSlots = availableSlots.filter(
                               (s) => s.webOfferId === exp.qamfWebOfferId,
                             );
-                            const isSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
+                            const isSelected = selectedExperienceId === exp.id;
                             const hasSlots = offerSlots.length > 0;
                             return (
                               <div
-                                key={exp.qamfWebOfferId}
+                                key={exp.id}
                                 className={`w-full rounded-xl overflow-hidden transition-all flex flex-col ${!hasSlots && availableSlots.length > 0 ? "opacity-50" : ""}`}
                                 style={{
                                   backgroundColor: "rgba(7,16,39,0.5)",
@@ -3398,8 +3406,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                   className="w-full text-left p-4"
                                   onClick={() => {
                                     if (!hasSlots && availableSlots.length > 0) return;
-                                    if (selectedSlot?.webOfferId !== exp.qamfWebOfferId)
+                                    if (selectedExperienceId !== exp.id) {
                                       setSelectedSlot(null);
+                                      setSelectedExperienceId(null);
+                                    }
                                   }}
                                 >
                                   <h3 className="font-heading uppercase text-white text-sm tracking-wider">
@@ -3418,13 +3428,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                       <div className="flex flex-wrap gap-1.5">
                                         {offerSlots.map((s) => {
                                           const on =
+                                            selectedExperienceId === exp.id &&
                                             selectedSlot?.bookedAt === s.bookedAt &&
                                             selectedSlot?.webOfferId === s.webOfferId;
                                           return (
                                             <button
                                               key={s.bookedAt}
                                               type="button"
-                                              onClick={() => setSelectedSlot(s)}
+                                              onClick={() => {
+                                                setSelectedSlot(s);
+                                                setSelectedExperienceId(exp.id);
+                                              }}
                                               className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-body transition-all"
                                               style={{
                                                 backgroundColor: on
@@ -4753,7 +4767,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                       );
                       const hasSlots = offerSlots.length > 0;
-                      const isExpSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
+                      const isExpSelected = selectedExperienceId === exp.id;
                       const includesShoes = display.includesShoes ?? false;
 
                       // Base lane/game item for pricing
@@ -4778,7 +4792,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
                       return (
                         <div
-                          key={exp.qamfWebOfferId}
+                          key={exp.id}
                           className="w-full rounded-xl overflow-hidden"
                           style={{
                             border: `1.78px solid ${isExpSelected ? `${accent}88` : isSpecial ? `${accent}50` : `${accent}28`}`,
@@ -4912,6 +4926,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                           if (!firstSlot) return;
                                           const slot = { ...firstSlot, optionId: opt.qamfOptionId };
                                           setSelectedSlot(slot);
+                                          setSelectedExperienceId(exp.id);
                                           if (!holdBusy) void createHold(slot);
                                         }}
                                         className="flex flex-col items-center rounded-xl p-4 min-w-[110px] transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
@@ -4961,6 +4976,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                   <div className="flex flex-wrap gap-2">
                                     {offerSlots.map((s) => {
                                       const on =
+                                        selectedExperienceId === exp.id &&
                                         selectedSlot?.bookedAt === s.bookedAt &&
                                         selectedSlot?.webOfferId === s.webOfferId;
                                       return (
@@ -4969,6 +4985,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                           type="button"
                                           onClick={() => {
                                             setSelectedSlot(s);
+                                            setSelectedExperienceId(exp.id);
                                             if (!holdBusy) void createHold(s);
                                           }}
                                           className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
@@ -5023,6 +5040,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                     <div className="flex flex-wrap gap-2">
                                       {offerSlots.map((s) => {
                                         const on =
+                                          selectedExperienceId === exp.id &&
                                           selectedSlot?.bookedAt === s.bookedAt &&
                                           selectedSlot?.webOfferId === s.webOfferId;
                                         return (
@@ -5031,6 +5049,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                             type="button"
                                             onClick={() => {
                                               setSelectedSlot(s);
+                                              setSelectedExperienceId(exp.id);
                                               if (!holdBusy) void createHold(s);
                                             }}
                                             className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
@@ -5062,6 +5081,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       type="button"
                       onClick={() => {
                         setSelectedSlot(null);
+                        setSelectedExperienceId(null);
                         setStep("tier");
                       }}
                       className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
@@ -5232,9 +5252,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             // session over a VIP availability blip.
                             setSelectedTier("vip");
                             setSelectedSlot(vipUpgradeSlot);
+                            if (vipUpgradeExperience)
+                              setSelectedExperienceId(vipUpgradeExperience.id);
                             setShowVipUpgrade(false);
                             const vipIncludesShoes = vipDisplay.includesShoes ?? false;
                             const regularFallbackSlot = selectedSlot;
+                            const regularFallbackExpId = selectedExperienceId;
                             void createHoldAndAdvance(
                               vipUpgradeSlot,
                               vipIncludesShoes,
@@ -5248,6 +5271,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                       // Revert UI back to the regular slot
                                       setSelectedTier("regular");
                                       setSelectedSlot(regularFallbackSlot);
+                                      setSelectedExperienceId(regularFallbackExpId);
                                       setError(
                                         "That VIP lane was just taken — keeping your regular lane.",
                                       );

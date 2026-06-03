@@ -106,6 +106,8 @@ export async function ensureBowlingSchema(): Promise<void> {
   // ── bowling_experience_offers ────────────────────────────────────
   // Maps an experience to the QAMF web offer ID at a specific center.
   // Same experience → different offer IDs per center.
+  // Multiple experiences CAN share the same web offer (e.g. Fun 4 All
+  // and hourly lane rental both use the same QAMF Time offer).
   await q`
     CREATE TABLE IF NOT EXISTS bowling_experience_offers (
       id                  SERIAL  PRIMARY KEY,
@@ -115,9 +117,13 @@ export async function ensureBowlingSchema(): Promise<void> {
       qamf_option_type    TEXT,          -- 'Game' | 'Time' | 'Unlimited'
       qamf_option_id      INTEGER,
       is_active           BOOLEAN NOT NULL DEFAULT TRUE,
-      UNIQUE (center_code, qamf_web_offer_id)
+      UNIQUE (experience_id, center_code)
     )
   `;
+  // Migrate: drop the old unique constraint if it exists (was center_code + web_offer_id,
+  // now experience_id + center_code to allow shared offers).
+  await q`ALTER TABLE bowling_experience_offers DROP CONSTRAINT IF EXISTS bowling_experience_offers_center_code_qamf_web_offer_id_key`;
+  await q`CREATE UNIQUE INDEX IF NOT EXISTS beo_exp_center ON bowling_experience_offers(experience_id, center_code)`;
   await q`CREATE INDEX IF NOT EXISTS beo_center ON bowling_experience_offers(center_code, qamf_web_offer_id)`;
   await q`CREATE INDEX IF NOT EXISTS beo_exp    ON bowling_experience_offers(experience_id)`;
 
@@ -1815,27 +1821,41 @@ export async function getBowlingExperiences(
 
 /**
  * Look up the experience for a specific QAMF web offer ID at a center.
- * Used when a QAMF availability slot needs to be matched to an experience.
+ * When multiple experiences share a web offer (e.g. Fun 4 All + hourly),
+ * pass `kind` to disambiguate. Without `kind`, returns the first match.
  */
 export async function getBowlingExperienceByOffer(
   centerCode: string,
   qamfWebOfferId: number,
+  kind?: BowlingExperienceKind,
 ): Promise<BowlingExperienceWithDetails | null> {
   if (!isDbConfigured()) return null;
   await ensureBowlingSchema();
   const q = sql();
 
-  const offerRows = await q`
-    SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
-    FROM bowling_experiences e
-    JOIN bowling_experience_offers eo
-      ON eo.experience_id    = e.id
-     AND eo.center_code       = ${centerCode}
-     AND eo.qamf_web_offer_id = ${qamfWebOfferId}
-     AND eo.is_active          = TRUE
-    WHERE e.is_active = TRUE
-    LIMIT 1
-  `;
+  const offerRows = kind
+    ? await q`
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        FROM bowling_experiences e
+        JOIN bowling_experience_offers eo
+          ON eo.experience_id    = e.id
+         AND eo.center_code       = ${centerCode}
+         AND eo.qamf_web_offer_id = ${qamfWebOfferId}
+         AND eo.is_active          = TRUE
+        WHERE e.is_active = TRUE AND e.kind = ${kind}
+        LIMIT 1
+      `
+    : await q`
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        FROM bowling_experiences e
+        JOIN bowling_experience_offers eo
+          ON eo.experience_id    = e.id
+         AND eo.center_code       = ${centerCode}
+         AND eo.qamf_web_offer_id = ${qamfWebOfferId}
+         AND eo.is_active          = TRUE
+        WHERE e.is_active = TRUE
+        LIMIT 1
+      `;
 
   if (!offerRows.length) return null;
   const row = offerRows[0] as Record<string, unknown>;
@@ -1885,7 +1905,8 @@ export async function upsertBowlingExperience(
 
 /**
  * Upsert a per-center QAMF web offer mapping for an experience.
- * Matches on (center_code, qamf_web_offer_id).
+ * Matches on (experience_id, center_code) — one offer row per experience per center.
+ * Multiple experiences CAN share the same qamf_web_offer_id.
  */
 export async function upsertBowlingExperienceOffer(
   o: Omit<BowlingExperienceOffer, "id">,
@@ -1899,11 +1920,11 @@ export async function upsertBowlingExperienceOffer(
     VALUES
       (${o.experienceId}, ${o.centerCode}, ${o.qamfWebOfferId},
        ${o.qamfOptionType ?? null}, ${o.qamfOptionId ?? null}, ${o.isActive})
-    ON CONFLICT (center_code, qamf_web_offer_id) DO UPDATE SET
-      experience_id    = EXCLUDED.experience_id,
-      qamf_option_type = EXCLUDED.qamf_option_type,
-      qamf_option_id   = EXCLUDED.qamf_option_id,
-      is_active        = EXCLUDED.is_active
+    ON CONFLICT (experience_id, center_code) DO UPDATE SET
+      qamf_web_offer_id = EXCLUDED.qamf_web_offer_id,
+      qamf_option_type  = EXCLUDED.qamf_option_type,
+      qamf_option_id    = EXCLUDED.qamf_option_id,
+      is_active         = EXCLUDED.is_active
     RETURNING *
   `;
   const row = rows[0] as Record<string, unknown>;
