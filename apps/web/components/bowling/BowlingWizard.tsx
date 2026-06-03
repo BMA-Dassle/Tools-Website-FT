@@ -333,6 +333,7 @@ interface AvailabilitySlot {
   optionId?: number;
   optionType?: "Game" | "Time" | "Unlimited";
   optionMinutes?: number;
+  availableTimeOptionIds?: number[];
 }
 
 interface ExistingReservation {
@@ -1555,6 +1556,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             optionId,
             optionType,
             optionMinutes,
+            availableTimeOptionIds: timeOpts.map((t) => t.Id),
           };
         });
       }
@@ -4918,66 +4920,76 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                               {isHourly && exp.durationOptions.length > 0 ? (
                                 /* Duration tiles (Open Bowling Mon-Thur style) */
                                 <div className="flex gap-3 flex-wrap">
-                                  {exp.durationOptions.map((opt) => {
-                                    // Use the override product price if set (e.g. 1hr item for 2hr),
-                                    // otherwise fall back to the base experience item price.
-                                    const unitCents = opt.overridePriceCents ?? baseItemCents;
-                                    const optCents = Math.round(unitCents * opt.squareMultiplier);
-                                    const isOn =
-                                      isExpSelected && selectedSlot?.optionId === opt.qamfOptionId;
-                                    const firstSlot = offerSlots[0];
-                                    return (
-                                      <button
-                                        key={opt.qamfOptionId}
-                                        type="button"
-                                        disabled={!hasSlots}
-                                        onClick={() => {
-                                          if (!firstSlot) return;
-                                          const slot = { ...firstSlot, optionId: opt.qamfOptionId };
-                                          setSelectedSlot(slot);
-                                          setSelectedExperienceId(exp.id);
-                                          if (!holdBusy) void createHold(slot);
-                                        }}
-                                        className="flex flex-col items-center rounded-xl p-4 min-w-[110px] transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
-                                        style={{
-                                          backgroundColor: isOn ? accent : `${accent}14`,
-                                          border: `1.5px solid ${isOn ? accent : `${accent}45`}`,
-                                          boxShadow: isOn ? `0 0 14px ${accent}40` : undefined,
-                                        }}
-                                      >
-                                        <span
-                                          className="font-body font-bold text-sm uppercase tracking-wider"
+                                  {exp.durationOptions
+                                    .filter((opt) => {
+                                      if (!offerSlots.length) return true;
+                                      const ids = offerSlots[0].availableTimeOptionIds;
+                                      return !ids?.length || ids.includes(opt.qamfOptionId);
+                                    })
+                                    .map((opt) => {
+                                      // Use the override product price if set (e.g. 1hr item for 2hr),
+                                      // otherwise fall back to the base experience item price.
+                                      const unitCents = opt.overridePriceCents ?? baseItemCents;
+                                      const optCents = Math.round(unitCents * opt.squareMultiplier);
+                                      const isOn =
+                                        isExpSelected &&
+                                        selectedSlot?.optionId === opt.qamfOptionId;
+                                      const firstSlot = offerSlots[0];
+                                      return (
+                                        <button
+                                          key={opt.qamfOptionId}
+                                          type="button"
+                                          disabled={!hasSlots}
+                                          onClick={() => {
+                                            if (!firstSlot) return;
+                                            const slot = {
+                                              ...firstSlot,
+                                              optionId: opt.qamfOptionId,
+                                            };
+                                            setSelectedSlot(slot);
+                                            setSelectedExperienceId(exp.id);
+                                            if (!holdBusy) void createHold(slot);
+                                          }}
+                                          className="flex flex-col items-center rounded-xl p-4 min-w-[110px] transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
                                           style={{
-                                            color: isOn ? "#0a1628" : "rgba(255,255,255,0.7)",
+                                            backgroundColor: isOn ? accent : `${accent}14`,
+                                            border: `1.5px solid ${isOn ? accent : `${accent}45`}`,
+                                            boxShadow: isOn ? `0 0 14px ${accent}40` : undefined,
                                           }}
                                         >
-                                          {opt.label}
-                                        </span>
-                                        <span
-                                          className="font-heading text-xl font-bold mt-1"
-                                          style={{ color: isOn ? "#0a1628" : accent }}
-                                        >
-                                          {centsToDollars(optCents)}
-                                        </span>
-                                        <span
-                                          className="font-body text-[11px] mt-0.5"
-                                          style={{
-                                            color: isOn ? "#0a162890" : "rgba(255,255,255,0.35)",
-                                          }}
-                                        >
-                                          per lane
-                                        </span>
-                                        {isOn && (
                                           <span
-                                            className="text-xs mt-1"
-                                            style={{ color: "#0a1628" }}
+                                            className="font-body font-bold text-sm uppercase tracking-wider"
+                                            style={{
+                                              color: isOn ? "#0a1628" : "rgba(255,255,255,0.7)",
+                                            }}
                                           >
-                                            ✓ Selected
+                                            {opt.label}
                                           </span>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
+                                          <span
+                                            className="font-heading text-xl font-bold mt-1"
+                                            style={{ color: isOn ? "#0a1628" : accent }}
+                                          >
+                                            {centsToDollars(optCents)}
+                                          </span>
+                                          <span
+                                            className="font-body text-[11px] mt-0.5"
+                                            style={{
+                                              color: isOn ? "#0a162890" : "rgba(255,255,255,0.35)",
+                                            }}
+                                          >
+                                            per lane
+                                          </span>
+                                          {isOn && (
+                                            <span
+                                              className="text-xs mt-1"
+                                              style={{ color: "#0a1628" }}
+                                            >
+                                              ✓ Selected
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
                                 </div>
                               ) : isHourly ? (
                                 /* Hourly but no duration options — just time chips */
@@ -5019,8 +5031,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                     {/* Near-closing notice: shorter duration available */}
                                     {exp.slug.includes("fun-4-all") &&
                                       offerSlots.length > 0 &&
+                                      exp.qamfOptionId &&
                                       offerSlots.every(
-                                        (s) => s.optionMinutes && s.optionMinutes < 90,
+                                        (s) =>
+                                          s.availableTimeOptionIds?.length &&
+                                          !s.availableTimeOptionIds.includes(exp.qamfOptionId!),
                                       ) && (
                                         <div
                                           className="mb-3 px-3 py-2 rounded-lg text-center font-body text-xs"
