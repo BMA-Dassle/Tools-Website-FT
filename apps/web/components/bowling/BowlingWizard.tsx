@@ -4736,7 +4736,26 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                   );
                 }
-                return true; // hourly: always show, may show SOLD OUT
+                // Hourly: hide when QAMF has no matching duration options
+                if (exp.kind === "hourly" && exp.durationOptions.length > 0) {
+                  const matchingSlots = availableSlots.filter(
+                    (s) =>
+                      s.webOfferId === exp.qamfWebOfferId &&
+                      (selectedHour === null ||
+                        slotHourET(s.bookedAt, selectedDate) === selectedHour) &&
+                      (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
+                  );
+                  if (matchingSlots.length > 0) {
+                    const ids = matchingSlots[0].availableTimeOptionIds;
+                    if (ids?.length) {
+                      const hasValidDuration = exp.durationOptions.some((d) =>
+                        ids.includes(d.qamfOptionId),
+                      );
+                      if (!hasValidDuration) return false;
+                    }
+                  }
+                }
+                return true;
               });
 
               // Specials (open kind) always on top, hourly lane rentals below.
@@ -5077,36 +5096,55 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                         </span>
                                       ) : null}
                                     </div>
-                                    {/* Time chips */}
-                                    <div className="flex flex-wrap gap-2">
-                                      {offerSlots.map((s) => {
-                                        const on =
-                                          selectedExperienceId === exp.id &&
-                                          selectedSlot?.bookedAt === s.bookedAt &&
-                                          selectedSlot?.webOfferId === s.webOfferId;
-                                        return (
-                                          <button
-                                            key={s.bookedAt}
-                                            type="button"
-                                            onClick={() => {
-                                              setSelectedSlot(s);
-                                              setSelectedExperienceId(exp.id);
-                                              if (!holdBusy) void createHold(s);
-                                            }}
-                                            className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
-                                            style={{
-                                              backgroundColor: on ? accent : `${accent}1a`,
-                                              color: on ? "#0a1628" : accent,
-                                              border: `1px solid ${on ? accent : `${accent}55`}`,
-                                              boxShadow: on ? `0 0 10px ${accent}40` : undefined,
-                                            }}
-                                          >
-                                            {formatTime(s.bookedAt)}
-                                            {on && <span className="ml-1.5">✓</span>}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
+                                    {/* Time chips — auto-select when only one slot */}
+                                    {offerSlots.length === 1 && selectedExperienceId !== exp.id ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedSlot(offerSlots[0]);
+                                          setSelectedExperienceId(exp.id);
+                                          if (!holdBusy) void createHold(offerSlots[0]);
+                                        }}
+                                        className="w-full rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.01]"
+                                        style={{
+                                          backgroundColor: `${accent}1a`,
+                                          color: accent,
+                                          border: `1px solid ${accent}55`,
+                                        }}
+                                      >
+                                        Select {formatTime(offerSlots[0].bookedAt)}
+                                      </button>
+                                    ) : (
+                                      <div className="flex flex-wrap gap-2">
+                                        {offerSlots.map((s) => {
+                                          const on =
+                                            selectedExperienceId === exp.id &&
+                                            selectedSlot?.bookedAt === s.bookedAt &&
+                                            selectedSlot?.webOfferId === s.webOfferId;
+                                          return (
+                                            <button
+                                              key={s.bookedAt}
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedSlot(s);
+                                                setSelectedExperienceId(exp.id);
+                                                if (!holdBusy) void createHold(s);
+                                              }}
+                                              className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
+                                              style={{
+                                                backgroundColor: on ? accent : `${accent}1a`,
+                                                color: on ? "#0a1628" : accent,
+                                                border: `1px solid ${on ? accent : `${accent}55`}`,
+                                                boxShadow: on ? `0 0 10px ${accent}40` : undefined,
+                                              }}
+                                            >
+                                              {formatTime(s.bookedAt)}
+                                              {on && <span className="ml-1.5">✓</span>}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 )
                               )}
