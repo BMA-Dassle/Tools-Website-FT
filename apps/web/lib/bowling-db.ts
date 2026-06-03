@@ -137,6 +137,42 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS beo_center ON bowling_experience_offers(center_code, qamf_web_offer_id)`;
   await q`CREATE INDEX IF NOT EXISTS beo_exp    ON bowling_experience_offers(experience_id)`;
 
+  // One-time migration: Fun 4 All switched from Unlimited to shared Time offers.
+  // Old: FM=156/Naples=120, VIP FM=157/Naples=121
+  // New: FM=154/Naples=118, VIP FM=155/Naples=119 (shared with hourly lane rental)
+  await q`
+    UPDATE bowling_experience_offers eo
+    SET qamf_web_offer_id = CASE
+          WHEN eo.qamf_web_offer_id = 156 THEN 154
+          WHEN eo.qamf_web_offer_id = 120 THEN 118
+        END,
+        qamf_option_type = 'Time',
+        qamf_option_id = CASE
+          WHEN eo.center_code = 'TXBSQN0FEKQ11' THEN 1227
+          WHEN eo.center_code = 'PPTR5G2N0QXF7' THEN 939
+        END
+    FROM bowling_experiences e
+    WHERE e.id = eo.experience_id
+      AND e.slug = 'fun-4-all'
+      AND eo.qamf_web_offer_id IN (156, 120)
+  `;
+  await q`
+    UPDATE bowling_experience_offers eo
+    SET qamf_web_offer_id = CASE
+          WHEN eo.qamf_web_offer_id = 157 THEN 155
+          WHEN eo.qamf_web_offer_id = 121 THEN 119
+        END,
+        qamf_option_type = 'Time',
+        qamf_option_id = CASE
+          WHEN eo.center_code = 'TXBSQN0FEKQ11' THEN 1235
+          WHEN eo.center_code = 'PPTR5G2N0QXF7' THEN 947
+        END
+    FROM bowling_experiences e
+    WHERE e.id = eo.experience_id
+      AND e.slug = 'fun-4-all-vip'
+      AND eo.qamf_web_offer_id IN (157, 121)
+  `;
+
   // center_code on items: NULL = all centers, value = center-specific (e.g. FM-only Chips & Salsa)
   await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS center_code TEXT`;
 
