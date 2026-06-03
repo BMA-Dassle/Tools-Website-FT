@@ -83,10 +83,14 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     })();
   }, [centerCode, kind]);
 
-  const tierExperiences = useMemo(
-    () => experiences.filter((e) => (item.tier === "vip" ? e.isVip : !e.isVip)),
-    [experiences, item.tier],
-  );
+  const tierExperiences = useMemo(() => {
+    const dow = item.date ? new Date(`${item.date}T12:00:00`).getDay() : new Date().getDay();
+    return experiences.filter(
+      (e) =>
+        (item.tier === "vip" ? e.isVip : !e.isVip) &&
+        (!e.daysOfWeek.length || e.daysOfWeek.includes(dow)),
+    );
+  }, [experiences, item.tier, item.date]);
 
   // Fetch availability — parse QAMF response including availableTimeOptionIds
   useEffect(() => {
