@@ -199,3 +199,34 @@ what the user saw.
   zero availability."
 - Client: `fetchSlots` retries once on 502/504 with a 750ms backoff
   before surfacing the error.
+
+## 2026-06-02 — BMI orderId ≠ projectId: payment/confirm doesn't prevent auto-cancel
+
+**Context:** Customer race reservations with recorded payment were being
+auto-cancelled by BMI system cron (userUpdatedId=-1) hours after booking.
+
+**Root cause:** BMI's `booking/book` returns an `orderId` that is no longer
+the same as the internal `projectId` (now offset by +1). `payment/confirm`
+records the payment against the orderId, but the project at orderId+1 is
+not marked as confirmed. BMI's auto-cancel cron sees an unconfirmed project
+and cancels it.
+
+**Evidence:** 3 test bookings on 2026-06-02 all showed consistent +1 offset:
+  - W38433: orderId=63000000003675359, projectId=63000000003675360
+  - W38445: orderId=63000000003675520, projectId=63000000003675521
+  - W38446: orderId=63000000003675533, projectId=63000000003675534
+
+Older bookings had orderId == projectId (offset 0). This is a recent BMI-side change.
+
+**Temp workaround (REMOVE when BMI fixes):** After `payment/confirm` succeeds in
+`/api/booking/v2/reserve`, call Pandora `POST /v2/bmi/reservation/state` with
+`projectId = orderId+1` and `stateID = "-3"` (Confirmation). This is idempotent —
+if BMI fixes payment/confirm, setting -3 on an already-confirmed project is a no-op.
+
+A cron at `/api/cron/bmi-cancel-sweep` runs every 5 min as a safety net,
+scanning the dayplanner for cancelled-with-online-payment reservations and
+recovering them via Pandora.
+
+**Rule:** Both the v2/reserve Pandora call and the sweep cron must be removed
+once BMI confirms the fix. Search for `BMI_AUTOCANCEL_WORKAROUND` to find all
+workaround code.

@@ -98,6 +98,9 @@ interface ReserveRequest {
   cardSourceId?: string;
   giftCardNonce?: string;
   squareCustomerId?: string;
+  loyaltyAccountId?: string;
+  rewardTierId?: string;
+  rewardDiscountCents?: number;
   contact: {
     firstName: string;
     lastName: string;
@@ -224,10 +227,79 @@ export async function POST(req: NextRequest) {
     if (!dayofOrderId) {
       return NextResponse.json({ error: "Day-of order returned no ID" }, { status: 500 });
     }
-    const dayofTotalCents: number = dayofOrderData.order?.total_money?.amount ?? 0;
+    let dayofTotalCents: number = dayofOrderData.order?.total_money?.amount ?? 0;
+
+    // ── Step 1b: Loyalty reward (before deposit) ───────────────────────
+    let loyaltyRewardId: string | undefined;
+    const rewardDiscountCents = body.rewardDiscountCents ?? 0;
+
+    if (body.rewardTierId && body.loyaltyAccountId && dayofOrderId && SQUARE_TOKEN) {
+      try {
+        const createRes = await fetch(`${SQUARE_BASE}/loyalty/rewards`, {
+          method: "POST",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            reward: {
+              loyalty_account_id: body.loyaltyAccountId,
+              reward_tier_id: body.rewardTierId,
+              order_id: dayofOrderId,
+            },
+            idempotency_key: `reward-${dayofOrderId}-${body.rewardTierId}`,
+          }),
+        });
+        const createData = await createRes.json();
+        if (createRes.ok && createData.reward?.id) {
+          loyaltyRewardId = createData.reward.id;
+          console.log(
+            `[v2/reserve] Loyalty reward created: ${loyaltyRewardId} (${rewardDiscountCents}c off)`,
+          );
+
+          // Re-fetch order total — Square adjusts it after reward attachment
+          try {
+            const orderRes = await fetch(`${SQUARE_BASE}/orders/${dayofOrderId}`, {
+              headers: sqHeaders(),
+            });
+            if (orderRes.ok) {
+              const orderData = await orderRes.json();
+              const adjusted = orderData.order?.total_money?.amount;
+              if (typeof adjusted === "number") {
+                dayofTotalCents = adjusted;
+              }
+            }
+          } catch {
+            // Non-fatal — fall back to pre-reward total
+          }
+        } else {
+          const err = createData.errors?.[0];
+          console.error(`[v2/reserve] Reward creation failed: ${err?.code}: ${err?.detail}`);
+        }
+      } catch (err) {
+        console.error("[v2/reserve] Loyalty reward error:", err);
+        if (loyaltyRewardId) {
+          await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
+            method: "DELETE",
+            headers: sqHeaders(),
+          }).catch(() => {});
+          loyaltyRewardId = undefined;
+        }
+      }
+    }
+
+    // If a reward discount was requested but the reward wasn't created, fail
+    if (rewardDiscountCents > 0 && !loyaltyRewardId) {
+      return NextResponse.json(
+        {
+          error: "Your reward couldn't be applied right now. Please try again.",
+          code: "REWARD_FAILED",
+        },
+        { status: 422 },
+      );
+    }
 
     // ── Step 2: Deposit ─────────────────────────────────────────────────
-    const depositCents = Math.round((dayofTotalCents * depositPct) / 100);
+    const depositCents = loyaltyRewardId
+      ? Math.round((dayofTotalCents * depositPct) / 100)
+      : Math.max(0, Math.round((dayofTotalCents * depositPct) / 100) - rewardDiscountCents);
     let depositResult: {
       depositOrderId: string | null;
       depositPaymentId: string | null;
@@ -349,6 +421,46 @@ export async function POST(req: NextRequest) {
       console.log(
         `[v2/reserve] BMI confirmed: reservationNumber=${reservationNumber} reservationCode=${reservationCode}`,
       );
+
+      // BMI_AUTOCANCEL_WORKAROUND — remove when BMI fixes payment/confirm
+      // Step 3b: Set project state to Confirmation (-3) via Pandora.
+      //
+      // BMI's payment/confirm records the payment but does NOT set the
+      // project-level confirm flag. A system cron (userUpdatedId=-1)
+      // auto-cancels unconfirmed projects ~168 min later.
+      //
+      // The projectId is orderId+1 (confirmed across multiple test
+      // bookings 2026-06-02). Pandora's state endpoint accepts the
+      // projectId and writes directly to Firebird.
+      //
+      // Workaround until BMI fixes payment/confirm.
+      const projectIdNum = (Number(body.bmiBillId.slice(-10)) + 1).toString();
+      const projectId = body.bmiBillId.slice(0, -projectIdNum.length) + projectIdNum;
+      try {
+        const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+        const pandoraLocationId = body.bookingKind === "race" ? "LAB52GY480CJF" : "TXBSQN0FEKQ11";
+        const pandoraRes = await fetch(
+          "https://bma-pandora-api.azurewebsites.net/v2/bmi/reservation/state",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${pandoraKey}`,
+            },
+            body: JSON.stringify({
+              locationID: pandoraLocationId,
+              projectId,
+              stateID: "-3",
+            }),
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
+        console.log(
+          `[v2/reserve] Pandora project ${projectId} state → -3 (Confirmation): ${pandoraRes.ok ? "OK" : pandoraRes.status}`,
+        );
+      } catch (pandoraErr) {
+        console.error("[v2/reserve] Pandora state update failed (non-fatal):", pandoraErr);
+      }
     } catch (err) {
       console.error("[v2/reserve] BMI confirm error:", err);
       if (depositResult.depositOrderId) {
@@ -389,6 +501,8 @@ export async function POST(req: NextRequest) {
           notes: `v2 ${body.bookingKind} booking`,
           bookingSource: "web",
           squareCustomerId: body.squareCustomerId ?? undefined,
+          squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
+          rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
           bookingMetadata: body.bookingMetadata ?? undefined,
         },
         body.cartItems.map((ci) => ({
