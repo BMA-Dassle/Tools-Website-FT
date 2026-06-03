@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BowlingItem, KbfItem, StepDef, BookingSession } from "~/features/booking";
@@ -270,6 +270,20 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     if (!ids?.length) return true;
     return exp.durationOptions.some((d) => ids.includes(d.qamfOptionId));
   });
+
+  // Auto-select: when there's one non-hourly experience with one slot,
+  // skip the time-chip click — user already picked the time on the slots step.
+  const autoSelectDone = useRef(false);
+  useEffect(() => {
+    if (loading || autoSelectDone.current || holdBusy || item.bookedAt) return;
+    const nonHourly = visibleExperiences.filter((e) => e.durationOptions.length === 0);
+    if (nonHourly.length !== 1) return;
+    const exp = nonHourly[0];
+    const expSlots = relevantSlots.filter((s) => s.webOfferId === exp.qamfWebOfferId);
+    if (expSlots.length !== 1) return;
+    autoSelectDone.current = true;
+    void selectSlot(exp, expSlots[0], null);
+  }, [loading, visibleExperiences, relevantSlots, holdBusy, item.bookedAt]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

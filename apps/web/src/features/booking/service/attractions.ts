@@ -38,12 +38,21 @@ export function resolveAttractionContext(
   const config = ATTRACTIONS[slug];
   if (!config) return null;
 
-  const location: LocationKey =
+  let location: LocationKey =
     config.location === "both"
       ? session.entryBrand === "headpinz"
         ? "headpinz"
         : "fasttrax"
       : config.location;
+
+  // Fallback: if no products exist at the resolved location (e.g. gel-blaster
+  // at "fasttrax"), try the center-based location instead.
+  if (!config.products.some((p) => p.location === location)) {
+    const centerLoc = session.center === "naples" ? "naples" : "headpinz";
+    if (config.products.some((p) => p.location === centerLoc)) {
+      location = centerLoc;
+    }
+  }
 
   return { config, location, clientKey: getClientKey(config, location) };
 }
