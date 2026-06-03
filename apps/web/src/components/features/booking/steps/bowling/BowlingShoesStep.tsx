@@ -153,11 +153,13 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
   );
 };
 
+const SHOES_INCLUDED_SLUGS = ["fun-4-all", "fun-4-all-vip", "pizza-bowl", "pizza-bowl-vip"];
+
 const BowlingShoesStep: StepDef<BowlingItem> = {
   id: "bowling-shoes",
   title: "Shoes",
   Component: BowlingShoesStepComponent as StepDef<BowlingItem>["Component"],
-  isVisible: () => true,
+  isVisible: (item) => !SHOES_INCLUDED_SLUGS.includes(item.experienceSlug ?? ""),
   canAdvance: () => true,
 };
 

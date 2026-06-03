@@ -127,6 +127,12 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
         ? { open: 11, close: 26 }
         : { open: 11, close: 24 };
     let hours = Array.from({ length: range.close - range.open }, (_, i) => i + range.open);
+
+    // KBF Friday: cap at 5 PM (v1 parity — BowlingWizard.tsx:1430)
+    if (item.kind === "kbf" && dow === 5) {
+      hours = hours.filter((h) => h < 17);
+    }
+
     const td = todayYmd();
     const nm = etNowMinutes();
     if (dateStr === td) {
