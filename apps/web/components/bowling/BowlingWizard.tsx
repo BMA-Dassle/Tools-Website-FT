@@ -332,6 +332,7 @@ interface AvailabilitySlot {
   webOfferDescription?: string;
   optionId?: number;
   optionType?: "Game" | "Time" | "Unlimited";
+  optionMinutes?: number;
 }
 
 interface ExistingReservation {
@@ -1513,7 +1514,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           Description?: string;
           Options?: {
             Game?: { Id: number; GamesPerPlayer?: number }[];
-            Time?: { Id: number }[];
+            Time?: { Id: number; Minutes?: number }[];
             Unlimited?: { Id: number }[];
           };
         };
@@ -1522,6 +1523,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       function parseRaw(raw: RawSlot[]): AvailabilitySlot[] {
         // Server already filters to valid offers for this day-of-week.
         // Client just maps to our internal slot type.
+        // Server strips Time options that exceed closing time, so the
+        // longest remaining Time option is the best available duration.
         return raw.map((a) => {
           const gameOpts = a.WebOffer.Options?.Game ?? [];
           const twoGame = gameOpts.find((g) => g.GamesPerPlayer === 2) ?? gameOpts[0];
@@ -1529,12 +1532,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           const unlimOpts = a.WebOffer.Options?.Unlimited ?? [];
           let optionId: number | undefined;
           let optionType: "Game" | "Time" | "Unlimited" | undefined;
+          let optionMinutes: number | undefined;
           if (twoGame) {
             optionId = twoGame.Id;
             optionType = "Game";
           } else if (timeOpts[0]) {
-            optionId = timeOpts[0].Id;
+            const longest = timeOpts.reduce((best, t) =>
+              (t.Minutes ?? 0) > (best.Minutes ?? 0) ? t : best,
+            );
+            optionId = longest.Id;
             optionType = "Time";
+            optionMinutes = longest.Minutes;
           } else if (unlimOpts[0]) {
             optionId = unlimOpts[0].Id;
             optionType = "Unlimited";
@@ -1546,6 +1554,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             webOfferDescription: a.WebOffer.Description,
             optionId,
             optionType,
+            optionMinutes,
           };
         });
       }
@@ -5007,6 +5016,23 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 /* 'open' kind (Fun 4 All / Pizza Bowl / KBF) */
                                 hasSlots && (
                                   <div>
+                                    {/* Near-closing notice: shorter duration available */}
+                                    {exp.slug.includes("fun-4-all") &&
+                                      offerSlots.length > 0 &&
+                                      offerSlots.every(
+                                        (s) => s.optionMinutes && s.optionMinutes < 90,
+                                      ) && (
+                                        <div
+                                          className="mb-3 px-3 py-2 rounded-lg text-center font-body text-xs"
+                                          style={{
+                                            backgroundColor: "#FFD70018",
+                                            border: "1px solid #FFD70040",
+                                            color: "#FFD700",
+                                          }}
+                                        >
+                                          Only 1 hour available near closing
+                                        </div>
+                                      )}
                                     {/* Price row */}
                                     <div className="flex items-baseline gap-2 mb-3">
                                       <span

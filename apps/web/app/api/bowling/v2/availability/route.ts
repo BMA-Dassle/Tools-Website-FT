@@ -377,15 +377,35 @@ export async function GET(req: NextRequest) {
       })
       .sort((a, b) => a.BookedAt.localeCompare(b.BookedAt));
 
-    // Filter slots that would run past closing time
-    availabilities = availabilities.filter((a) => {
-      const mins =
-        durationMinOver ??
-        (a.WebOffer?.Options as { Time?: Array<{ Minutes?: number }> })?.Time?.[0]?.Minutes ??
-        undefined;
-      if (!mins || mins <= 0) return true; // no duration info → keep (game/unlimited)
-      return !slotExceedsClose(a.BookedAt, mins, closeHour);
-    });
+    // Filter slots that would run past closing time.
+    // For Time offers with multiple duration options (e.g. 60min + 90min),
+    // strip individual options that exceed close but keep the slot if at
+    // least one option still fits. This lets Fun 4 All fall back to a
+    // shorter duration near closing instead of disappearing entirely.
+    availabilities = availabilities
+      .map((a) => {
+        if (durationMinOver) {
+          return slotExceedsClose(a.BookedAt, durationMinOver, closeHour) ? null : a;
+        }
+        const timeOpts = (
+          a.WebOffer?.Options as { Time?: Array<{ Id: string | number; Minutes?: number }> }
+        )?.Time;
+        if (!timeOpts?.length) return a; // Game/Unlimited — keep as-is
+        const validTimeOpts = timeOpts.filter(
+          (t) =>
+            !t.Minutes || t.Minutes <= 0 || !slotExceedsClose(a.BookedAt, t.Minutes, closeHour),
+        );
+        if (validTimeOpts.length === 0) return null;
+        if (validTimeOpts.length === timeOpts.length) return a;
+        return {
+          ...a,
+          WebOffer: {
+            ...a.WebOffer,
+            Options: { ...a.WebOffer.Options, Time: validTimeOpts },
+          },
+        };
+      })
+      .filter((a): a is NonNullable<typeof a> => a !== null);
 
     console.log(
       `[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length} errors=${probeErrors} raw=${results.reduce((n, r) => n + r.Availabilities.length, 0)} filtered=${availabilities.length}`,
