@@ -123,6 +123,16 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Migrate: drop the old unique constraint if it exists (was center_code + web_offer_id,
   // now experience_id + center_code to allow shared offers).
   await q`ALTER TABLE bowling_experience_offers DROP CONSTRAINT IF EXISTS bowling_experience_offers_center_code_qamf_web_offer_id_key`;
+  // Deduplicate before creating unique index: keep only the most recently inserted
+  // row per (experience_id, center_code). Stale duplicates exist when an experience
+  // was re-seeded with a different web offer ID under the old constraint.
+  await q`
+    DELETE FROM bowling_experience_offers a
+    USING bowling_experience_offers b
+    WHERE a.experience_id = b.experience_id
+      AND a.center_code   = b.center_code
+      AND a.id < b.id
+  `;
   await q`CREATE UNIQUE INDEX IF NOT EXISTS beo_exp_center ON bowling_experience_offers(experience_id, center_code)`;
   await q`CREATE INDEX IF NOT EXISTS beo_center ON bowling_experience_offers(center_code, qamf_web_offer_id)`;
   await q`CREATE INDEX IF NOT EXISTS beo_exp    ON bowling_experience_offers(experience_id)`;
