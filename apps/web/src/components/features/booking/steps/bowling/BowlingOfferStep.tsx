@@ -21,53 +21,13 @@ interface AvailabilitySlot {
   webOfferTitle: string;
   optionId?: number;
   optionType?: "Game" | "Time" | "Unlimited";
+  availableTimeOptionIds?: number[];
 }
 
 const QAMF_CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
 };
-
-function slotHourET(iso: string, bookingDate?: string): number {
-  try {
-    const dt = new Date(iso);
-    const parts = new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      hourCycle: "h23",
-      timeZone: "America/New_York",
-    }).formatToParts(dt);
-    const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-    if (isNaN(h)) return -1;
-    if (bookingDate && h < 9) {
-      const yr = parts.find((p) => p.type === "year")?.value ?? "1970";
-      const mo = parts.find((p) => p.type === "month")?.value ?? "01";
-      const dy = parts.find((p) => p.type === "day")?.value ?? "01";
-      const slotYmd = `${yr}-${mo}-${dy}`;
-      if (slotYmd > bookingDate) return h + 24;
-    }
-    return h;
-  } catch {
-    return -1;
-  }
-}
-
-function slotMinuteET(iso: string): number {
-  try {
-    const m = parseInt(
-      new Date(iso).toLocaleString("en-US", {
-        minute: "2-digit",
-        timeZone: "America/New_York",
-      }),
-      10,
-    );
-    return isNaN(m) ? 0 : m;
-  } catch {
-    return 0;
-  }
-}
 
 function formatTime(iso: string): string {
   try {
@@ -109,7 +69,6 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const [selectedDurationOpt, setSelectedDurationOpt] =
     useState<BowlingExperienceDurationOption | null>(null);
 
-  // Load experiences
   useEffect(() => {
     const kindParam = kind === "kbf" ? "&kind=kbf" : "";
     void (async () => {
@@ -124,13 +83,12 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     })();
   }, [centerCode, kind]);
 
-  // Filter to selected tier
   const tierExperiences = useMemo(
     () => experiences.filter((e) => (item.tier === "vip" ? e.isVip : !e.isVip)),
     [experiences, item.tier],
   );
 
-  // Fetch availability for selected date/time
+  // Fetch availability — parse QAMF response including availableTimeOptionIds
   useEffect(() => {
     if (!item.date || item.hour === null || item.minute === null) return;
     setLoading(true);
@@ -147,23 +105,41 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             WebOffer: {
               Id: number | string;
               Title?: string;
-              Options?: Record<string, Array<{ Id: number }>>;
+              Options?: Record<string, Array<{ Id: number; Minutes?: number }>>;
             };
-          }) => ({
-            bookedAt: a.BookedAt,
-            webOfferId:
-              typeof a.WebOffer.Id === "string" ? parseInt(a.WebOffer.Id, 10) : a.WebOffer.Id,
-            webOfferTitle: a.WebOffer.Title ?? "",
-            optionId:
-              a.WebOffer.Options?.Game?.[0]?.Id ??
-              a.WebOffer.Options?.Time?.[0]?.Id ??
-              a.WebOffer.Options?.Unlimited?.[0]?.Id,
-            optionType: a.WebOffer.Options?.Time
-              ? "Time"
-              : a.WebOffer.Options?.Unlimited
-                ? "Unlimited"
-                : "Game",
-          }),
+          }) => {
+            const twoGame = a.WebOffer.Options?.Game?.find((g: { Id: number }) => g.Id);
+            const timeOpts = a.WebOffer.Options?.Time ?? [];
+            const unlimOpts = a.WebOffer.Options?.Unlimited ?? [];
+
+            let optionId: number | undefined;
+            let optionType: "Game" | "Time" | "Unlimited" = "Game";
+
+            if (twoGame) {
+              optionId = twoGame.Id;
+              optionType = "Game";
+            } else if (timeOpts[0]) {
+              const longest = timeOpts.reduce(
+                (best, t) => ((t.Minutes ?? 0) > (best.Minutes ?? 0) ? t : best),
+                timeOpts[0],
+              );
+              optionId = longest.Id;
+              optionType = "Time";
+            } else if (unlimOpts[0]) {
+              optionId = unlimOpts[0].Id;
+              optionType = "Unlimited";
+            }
+
+            return {
+              bookedAt: a.BookedAt,
+              webOfferId:
+                typeof a.WebOffer.Id === "string" ? parseInt(a.WebOffer.Id, 10) : a.WebOffer.Id,
+              webOfferTitle: a.WebOffer.Title ?? "",
+              optionId,
+              optionType,
+              availableTimeOptionIds: timeOpts.map((t) => t.Id),
+            };
+          },
         );
         setSlots(avail);
       } catch {
@@ -215,7 +191,6 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     setError(null);
 
     try {
-      // Use duration option's QAMF optionId when available
       const effectiveOptionId = durationOpt?.qamfOptionId ?? slot.optionId;
 
       const holdRes = await fetch("/api/bowling/v2/reserve/hold", {
@@ -279,9 +254,18 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     );
   }
 
-  // Group slots by experience
   const expOfferIds = new Set(tierExperiences.map((e) => e.qamfWebOfferId));
   const relevantSlots = slots.filter((s) => expOfferIds.has(s.webOfferId));
+
+  // Filter out hourly experience cards when no duration options are valid at this time
+  const visibleExperiences = tierExperiences.filter((exp) => {
+    if (exp.durationOptions.length === 0) return true;
+    const expSlots = relevantSlots.filter((s) => s.webOfferId === exp.qamfWebOfferId);
+    if (expSlots.length === 0) return true;
+    const ids = expSlots[0].availableTimeOptionIds;
+    if (!ids?.length) return true;
+    return exp.durationOptions.some((d) => ids.includes(d.qamfOptionId));
+  });
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -298,14 +282,14 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         </div>
       )}
 
-      {tierExperiences.length === 0 && !loading && (
+      {visibleExperiences.length === 0 && !loading && (
         <p className="py-8 text-center text-sm text-white/40">
           No packages available for this date and time. Try a different time.
         </p>
       )}
 
       <div className="space-y-4">
-        {tierExperiences.map((exp) => {
+        {visibleExperiences.map((exp) => {
           const expSlots = relevantSlots.filter((s) => s.webOfferId === exp.qamfWebOfferId);
           const isVip = exp.isVip;
           const accent = isVip ? GOLD : CORAL;
@@ -317,6 +301,29 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           const priceCents = primaryItem?.priceCents ?? 0;
           const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
           const hasDurationOptions = exp.durationOptions.length > 0;
+
+          // Filter duration buttons to only show options QAMF confirms are available
+          const validDurationOptions = hasDurationOptions
+            ? exp.durationOptions.filter((opt) => {
+                if (!expSlots.length) return true;
+                const ids = expSlots[0].availableTimeOptionIds;
+                return !ids?.length || ids.includes(opt.qamfOptionId);
+              })
+            : [];
+
+          // Fun 4 All near-closing notice: primary option (90min) not available
+          const isFunForAll = exp.slug.includes("fun-4-all");
+          const showNearClosingNotice =
+            isFunForAll &&
+            expSlots.length > 0 &&
+            exp.qamfOptionId != null &&
+            expSlots.every(
+              (s) =>
+                s.availableTimeOptionIds?.length &&
+                !s.availableTimeOptionIds.includes(exp.qamfOptionId!),
+            );
+
+          const isSelected = item.experienceId === exp.id;
 
           return (
             <div
@@ -346,6 +353,16 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
               </div>
 
               <div className="p-4">
+                {/* Near-closing notice for Fun 4 All */}
+                {showNearClosingNotice && (
+                  <div
+                    className="mb-3 rounded-lg px-3 py-2 text-center text-xs font-medium"
+                    style={{ backgroundColor: `${GOLD}18`, color: GOLD }}
+                  >
+                    Only 1 hour available near closing
+                  </div>
+                )}
+
                 {/* Price display */}
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-lg font-bold text-white">
@@ -364,14 +381,14 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                   )}
                 </div>
 
-                {/* Duration options (hourly experiences only) */}
-                {hasDurationOptions && (
+                {/* Duration options — filtered by QAMF available option IDs */}
+                {validDurationOptions.length > 0 && (
                   <div className="mb-3">
                     <div className="mb-1.5 text-[10px] uppercase tracking-wider text-white/30">
                       Duration
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {exp.durationOptions.map((opt) => {
+                      {validDurationOptions.map((opt) => {
                         const isActive =
                           selectedDurationOpt?.id === opt.id && item.experienceId === exp.id;
                         const optPrice = opt.overridePriceCents ?? priceCents;
@@ -399,16 +416,36 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                   </div>
                 )}
 
-                {/* Require duration selection for hourly before showing times */}
+                {/* Time slots */}
                 {hasDurationOptions && !selectedDurationOpt ? (
                   <p className="text-xs text-white/30">Select a duration to see available times</p>
                 ) : expSlots.length === 0 ? (
                   <p className="text-xs text-white/30">No availability at this time</p>
+                ) : expSlots.length === 1 && !isSelected ? (
+                  /* Auto-select UX: single slot gets a full-width button */
+                  <button
+                    type="button"
+                    disabled={holdBusy}
+                    onClick={() =>
+                      void selectSlot(
+                        exp,
+                        expSlots[0],
+                        hasDurationOptions ? selectedDurationOpt : null,
+                      )
+                    }
+                    className="w-full rounded-full px-4 py-3 text-sm font-bold uppercase tracking-wider transition-all hover:scale-[1.01] disabled:opacity-50"
+                    style={{
+                      backgroundColor: `${accent}1a`,
+                      color: accent,
+                      border: `1px solid ${accent}55`,
+                    }}
+                  >
+                    Select {formatTime(expSlots[0].bookedAt)}
+                  </button>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {expSlots.map((slot, i) => {
-                      const isSelected =
-                        item.webOfferId === slot.webOfferId && item.bookedAt === slot.bookedAt;
+                      const isSlotSelected = isSelected && item.bookedAt === slot.bookedAt;
                       return (
                         <button
                           key={`${slot.webOfferId}-${slot.bookedAt}-${i}`}
@@ -423,12 +460,13 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                           }
                           className="rounded-lg px-3 py-2 text-sm font-medium transition-all disabled:opacity-50"
                           style={{
-                            backgroundColor: isSelected ? accent : `${accent}15`,
-                            color: isSelected ? "#0a1628" : accent,
-                            fontWeight: isSelected ? 800 : 500,
-                            boxShadow: isSelected ? `0 0 12px ${accent}60` : undefined,
+                            backgroundColor: isSlotSelected ? accent : `${accent}15`,
+                            color: isSlotSelected ? "#0a1628" : accent,
+                            fontWeight: isSlotSelected ? 800 : 500,
+                            boxShadow: isSlotSelected ? `0 0 12px ${accent}60` : undefined,
                           }}
                         >
+                          {isSlotSelected ? "✓ " : ""}
                           {formatTime(slot.bookedAt)}
                         </button>
                       );

@@ -530,14 +530,18 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
         });
 
+        const effectiveBillId = session.bmiBillId ?? bmiBillId;
+
         void recordClickwrap({
-          billId: bmiBillId,
+          billId: effectiveBillId,
           email: contact.email,
           phone: contact.phone,
           firstName: contact.firstName,
           amountCents: Math.round(overview.cashOwed * 100),
           bookingType: hasBowling ? "bowling" : "racing",
         });
+
+        await saveBookingDetails(session, effectiveBillId, overview, contact);
 
         clearBookingSession();
 
