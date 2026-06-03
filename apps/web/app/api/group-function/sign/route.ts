@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getGfQuoteByShortId, appendAuditLog } from "@/lib/group-function-db";
 import { computeDocumentSeal } from "@/lib/contract-seal";
 import { sql } from "@/lib/db";
+import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
  * Record the guest's signature, compute document seal, update Neon.
@@ -128,6 +129,13 @@ export async function POST(req: NextRequest) {
 
     console.log(`[sign] post-paid quote ${quote.id} confirmed (no deposit)`);
   }
+
+  firePortalWebhookAsync("document.signed", {
+    documentId: quote.contract_short_id,
+    bmiCode: quote.bmi_reservation_id,
+    venue: quote.center_code,
+    status: quote.status,
+  });
 
   return NextResponse.json({ ok: true, seal, signedAt });
 }

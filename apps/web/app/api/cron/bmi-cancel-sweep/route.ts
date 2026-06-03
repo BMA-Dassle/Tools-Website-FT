@@ -17,9 +17,11 @@ import { verifyCron } from "@/lib/cron-auth";
  */
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
-const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
-const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "JGMxbjFlbGxv";
-const OFFICE_PASS = Buffer.from(OFFICE_PASS_B64, "base64").toString();
+const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "";
+const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "";
+const OFFICE_PASS = OFFICE_PASS_B64
+  ? Buffer.from(OFFICE_PASS_B64, "base64").toString()
+  : process.env.BMI_OFFICE_PASSWORD || "";
 const SMS_VERSION = "6251006 202511051229";
 const CLIENT_KEY = "headpinzftmyers";
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";

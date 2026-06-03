@@ -218,15 +218,11 @@ and cancels it.
 
 Older bookings had orderId == projectId (offset 0). This is a recent BMI-side change.
 
-**Temp workaround (REMOVE when BMI fixes):** After `payment/confirm` succeeds in
-`/api/booking/v2/reserve`, call Pandora `POST /v2/bmi/reservation/state` with
-`projectId = orderId+1` and `stateID = "-3"` (Confirmation). This is idempotent —
-if BMI fixes payment/confirm, setting -3 on an already-confirmed project is a no-op.
+**Temp workaround (REMOVE when BMI fixes):** A cron at `/api/cron/bmi-cancel-sweep`
+runs every 5 min as a safety net, scanning the dayplanner for cancelled-with-
+online-payment reservations and recovering them via Pandora. The v2/reserve route
+(on feat/booking-b2-race) also sets state proactively after payment/confirm.
 
-A cron at `/api/cron/bmi-cancel-sweep` runs every 5 min as a safety net,
-scanning the dayplanner for cancelled-with-online-payment reservations and
-recovering them via Pandora.
-
-**Rule:** Both the v2/reserve Pandora call and the sweep cron must be removed
+**Rule:** Both the sweep cron and the v2/reserve Pandora call must be removed
 once BMI confirms the fix. Search for `BMI_AUTOCANCEL_WORKAROUND` to find all
 workaround code.

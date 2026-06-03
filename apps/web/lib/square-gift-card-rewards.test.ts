@@ -70,8 +70,22 @@ afterEach(() => {
 });
 
 describe("mintDigitalGiftCard (order + discount pattern)", () => {
-  function wireSuccessfulMintMocks() {
+  function wireCatalogMock(
+    mock: ReturnType<typeof installFetchMock>,
+    discountType = "FIXED_PERCENTAGE",
+  ) {
+    mock.when(
+      (c) => c.url.startsWith(`${SQUARE_BASE}/catalog/object/`) && c.method === "GET",
+      () => ({
+        status: 200,
+        body: { object: { discount_data: { discount_type: discountType } } },
+      }),
+    );
+  }
+
+  function wireSuccessfulMintMocks(discountType = "FIXED_PERCENTAGE") {
     const mock = installFetchMock();
+    wireCatalogMock(mock, discountType);
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/orders` && c.method === "POST",
       () => ({
@@ -193,8 +207,34 @@ describe("mintDigitalGiftCard (order + discount pattern)", () => {
     });
   });
 
+  it("includes amount_money on discount when catalog type is VARIABLE_AMOUNT", async () => {
+    const mock = wireSuccessfulMintMocks("VARIABLE_AMOUNT");
+
+    await mintDigitalGiftCard({
+      locationId: "LOC_TEST",
+      amountCents: 500,
+      baseKey: "var123",
+      discountCatalogObjectId: "DISC_VAR",
+    });
+
+    const orderCall = mock.calls.find(
+      (c) => c.url === `${SQUARE_BASE}/orders` && c.method === "POST",
+    )!;
+    expect(orderCall.body).toMatchObject({
+      order: {
+        discounts: [
+          {
+            catalog_object_id: "DISC_VAR",
+            amount_money: { amount: 500, currency: "USD" },
+          },
+        ],
+      },
+    });
+  });
+
   it("throws SquarePaymentError when order creation fails", async () => {
     const mock = installFetchMock();
+    wireCatalogMock(mock);
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/orders`,
       () => ({
@@ -217,6 +257,7 @@ describe("mintDigitalGiftCard (order + discount pattern)", () => {
 
   it("throws on missing order.id or line_items[0].uid", async () => {
     const mock = installFetchMock();
+    wireCatalogMock(mock);
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/orders`,
       () => ({ status: 200, body: { order: {} } }),
@@ -233,6 +274,7 @@ describe("mintDigitalGiftCard (order + discount pattern)", () => {
 
   it("throws when pay-order fails", async () => {
     const mock = installFetchMock();
+    wireCatalogMock(mock);
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/orders` && c.method === "POST",
       () => ({
@@ -256,6 +298,7 @@ describe("mintDigitalGiftCard (order + discount pattern)", () => {
 
   it("throws when gift-card create fails (after order was paid — operator must clean up)", async () => {
     const mock = installFetchMock();
+    wireCatalogMock(mock);
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/orders` && c.method === "POST",
       () => ({ status: 200, body: { order: { id: "ord_1", line_items: [{ uid: "li_1" }] } } }),
@@ -280,6 +323,7 @@ describe("mintDigitalGiftCard (order + discount pattern)", () => {
 
   it("throws when ACTIVATE-by-order fails", async () => {
     const mock = installFetchMock();
+    wireCatalogMock(mock);
     mock.when(
       (c) => c.url === `${SQUARE_BASE}/orders` && c.method === "POST",
       () => ({ status: 200, body: { order: { id: "ord_1", line_items: [{ uid: "li_1" }] } } }),

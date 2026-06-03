@@ -332,6 +332,8 @@ interface AvailabilitySlot {
   webOfferDescription?: string;
   optionId?: number;
   optionType?: "Game" | "Time" | "Unlimited";
+  optionMinutes?: number;
+  availableTimeOptionIds?: number[];
 }
 
 interface ExistingReservation {
@@ -717,6 +719,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
+  const [selectedExperienceId, setSelectedExperienceId] = useState<number | null>(null);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
   // Track what we last fetched to skip redundant QAMF calls
@@ -1084,10 +1087,14 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const kbfBowlers = bowlerSelections.filter((b) => b.selected);
   const activePlayerCount = kind === "kbf" ? kbfBowlers.length : playerCount;
 
-  // Experience matching the selected QAMF slot
-  const selectedExperience = selectedSlot
-    ? (experiences.find((e) => e.qamfWebOfferId === selectedSlot.webOfferId) ?? null)
-    : null;
+  // Experience matching the user's selection. When two experiences share
+  // the same QAMF web offer (e.g. Fun 4 All + hourly both use offer 154),
+  // selectedExperienceId disambiguates which card the user clicked.
+  const selectedExperience = selectedExperienceId
+    ? (experiences.find((e) => e.id === selectedExperienceId) ?? null)
+    : selectedSlot
+      ? (experiences.find((e) => e.qamfWebOfferId === selectedSlot.webOfferId) ?? null)
+      : null;
 
   // Whether the selected experience already includes shoes (skip shoes step)
   const selectedIncludesShoes = selectedExperience
@@ -1496,6 +1503,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       setSlotsError(null);
       setAvailableSlots([]);
       setSelectedSlot(null);
+      setSelectedExperienceId(null);
       // Do NOT reset selectedHour/selectedMinute here — we want to preserve the
       // user's time selection while the fetch runs so the UI stays filled in.
 
@@ -1507,7 +1515,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           Description?: string;
           Options?: {
             Game?: { Id: number; GamesPerPlayer?: number }[];
-            Time?: { Id: number }[];
+            Time?: { Id: number; Minutes?: number }[];
             Unlimited?: { Id: number }[];
           };
         };
@@ -1516,6 +1524,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       function parseRaw(raw: RawSlot[]): AvailabilitySlot[] {
         // Server already filters to valid offers for this day-of-week.
         // Client just maps to our internal slot type.
+        // Server strips Time options that exceed closing time, so the
+        // longest remaining Time option is the best available duration.
         return raw.map((a) => {
           const gameOpts = a.WebOffer.Options?.Game ?? [];
           const twoGame = gameOpts.find((g) => g.GamesPerPlayer === 2) ?? gameOpts[0];
@@ -1523,12 +1533,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
           const unlimOpts = a.WebOffer.Options?.Unlimited ?? [];
           let optionId: number | undefined;
           let optionType: "Game" | "Time" | "Unlimited" | undefined;
+          let optionMinutes: number | undefined;
           if (twoGame) {
             optionId = twoGame.Id;
             optionType = "Game";
           } else if (timeOpts[0]) {
-            optionId = timeOpts[0].Id;
+            const longest = timeOpts.reduce((best, t) =>
+              (t.Minutes ?? 0) > (best.Minutes ?? 0) ? t : best,
+            );
+            optionId = longest.Id;
             optionType = "Time";
+            optionMinutes = longest.Minutes;
           } else if (unlimOpts[0]) {
             optionId = unlimOpts[0].Id;
             optionType = "Unlimited";
@@ -1540,6 +1555,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             webOfferDescription: a.WebOffer.Description,
             optionId,
             optionType,
+            optionMinutes,
+            availableTimeOptionIds: timeOpts.map((t) => t.Id),
           };
         });
       }
@@ -2182,6 +2199,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             // handle messaging/refetch — don't trample its UI.
             if (!opts?.silent) {
               setSelectedSlot(null);
+              setSelectedExperienceId(null);
               setError(
                 "That time was just taken. We've refreshed the available slots — pick another.",
               );
@@ -3186,6 +3204,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       setSelectedDate(bookableDateRange()[0] ?? todayYmd());
                       setAvailableSlots([]);
                       setSelectedSlot(null);
+                      setSelectedExperienceId(null);
                       setSlotsError(null);
                       setStep("reschedule");
                     }}
@@ -3381,11 +3400,11 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             const offerSlots = availableSlots.filter(
                               (s) => s.webOfferId === exp.qamfWebOfferId,
                             );
-                            const isSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
+                            const isSelected = selectedExperienceId === exp.id;
                             const hasSlots = offerSlots.length > 0;
                             return (
                               <div
-                                key={exp.qamfWebOfferId}
+                                key={exp.id}
                                 className={`w-full rounded-xl overflow-hidden transition-all flex flex-col ${!hasSlots && availableSlots.length > 0 ? "opacity-50" : ""}`}
                                 style={{
                                   backgroundColor: "rgba(7,16,39,0.5)",
@@ -3398,8 +3417,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                   className="w-full text-left p-4"
                                   onClick={() => {
                                     if (!hasSlots && availableSlots.length > 0) return;
-                                    if (selectedSlot?.webOfferId !== exp.qamfWebOfferId)
+                                    if (selectedExperienceId !== exp.id) {
                                       setSelectedSlot(null);
+                                      setSelectedExperienceId(null);
+                                    }
                                   }}
                                 >
                                   <h3 className="font-heading uppercase text-white text-sm tracking-wider">
@@ -3418,13 +3439,17 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                       <div className="flex flex-wrap gap-1.5">
                                         {offerSlots.map((s) => {
                                           const on =
+                                            selectedExperienceId === exp.id &&
                                             selectedSlot?.bookedAt === s.bookedAt &&
                                             selectedSlot?.webOfferId === s.webOfferId;
                                           return (
                                             <button
                                               key={s.bookedAt}
                                               type="button"
-                                              onClick={() => setSelectedSlot(s)}
+                                              onClick={() => {
+                                                setSelectedSlot(s);
+                                                setSelectedExperienceId(exp.id);
+                                              }}
                                               className="px-2.5 py-1.5 rounded-lg text-xs font-bold font-body transition-all"
                                               style={{
                                                 backgroundColor: on
@@ -4711,7 +4736,26 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                   );
                 }
-                return true; // hourly: always show, may show SOLD OUT
+                // Hourly: hide when QAMF has no matching duration options
+                if (exp.kind === "hourly" && exp.durationOptions.length > 0) {
+                  const matchingSlots = availableSlots.filter(
+                    (s) =>
+                      s.webOfferId === exp.qamfWebOfferId &&
+                      (selectedHour === null ||
+                        slotHourET(s.bookedAt, selectedDate) === selectedHour) &&
+                      (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
+                  );
+                  if (matchingSlots.length > 0) {
+                    const ids = matchingSlots[0].availableTimeOptionIds;
+                    if (ids?.length) {
+                      const hasValidDuration = exp.durationOptions.some((d) =>
+                        ids.includes(d.qamfOptionId),
+                      );
+                      if (!hasValidDuration) return false;
+                    }
+                  }
+                }
+                return true;
               });
 
               // Specials (open kind) always on top, hourly lane rentals below.
@@ -4753,7 +4797,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                           (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
                       );
                       const hasSlots = offerSlots.length > 0;
-                      const isExpSelected = selectedSlot?.webOfferId === exp.qamfWebOfferId;
+                      const isExpSelected = selectedExperienceId === exp.id;
                       const includesShoes = display.includesShoes ?? false;
 
                       // Base lane/game item for pricing
@@ -4778,7 +4822,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
 
                       return (
                         <div
-                          key={exp.qamfWebOfferId}
+                          key={exp.id}
                           className="w-full rounded-xl overflow-hidden"
                           style={{
                             border: `1.78px solid ${isExpSelected ? `${accent}88` : isSpecial ? `${accent}50` : `${accent}28`}`,
@@ -4895,65 +4939,76 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                               {isHourly && exp.durationOptions.length > 0 ? (
                                 /* Duration tiles (Open Bowling Mon-Thur style) */
                                 <div className="flex gap-3 flex-wrap">
-                                  {exp.durationOptions.map((opt) => {
-                                    // Use the override product price if set (e.g. 1hr item for 2hr),
-                                    // otherwise fall back to the base experience item price.
-                                    const unitCents = opt.overridePriceCents ?? baseItemCents;
-                                    const optCents = Math.round(unitCents * opt.squareMultiplier);
-                                    const isOn =
-                                      isExpSelected && selectedSlot?.optionId === opt.qamfOptionId;
-                                    const firstSlot = offerSlots[0];
-                                    return (
-                                      <button
-                                        key={opt.qamfOptionId}
-                                        type="button"
-                                        disabled={!hasSlots}
-                                        onClick={() => {
-                                          if (!firstSlot) return;
-                                          const slot = { ...firstSlot, optionId: opt.qamfOptionId };
-                                          setSelectedSlot(slot);
-                                          if (!holdBusy) void createHold(slot);
-                                        }}
-                                        className="flex flex-col items-center rounded-xl p-4 min-w-[110px] transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
-                                        style={{
-                                          backgroundColor: isOn ? accent : `${accent}14`,
-                                          border: `1.5px solid ${isOn ? accent : `${accent}45`}`,
-                                          boxShadow: isOn ? `0 0 14px ${accent}40` : undefined,
-                                        }}
-                                      >
-                                        <span
-                                          className="font-body font-bold text-sm uppercase tracking-wider"
+                                  {exp.durationOptions
+                                    .filter((opt) => {
+                                      if (!offerSlots.length) return true;
+                                      const ids = offerSlots[0].availableTimeOptionIds;
+                                      return !ids?.length || ids.includes(opt.qamfOptionId);
+                                    })
+                                    .map((opt) => {
+                                      // Use the override product price if set (e.g. 1hr item for 2hr),
+                                      // otherwise fall back to the base experience item price.
+                                      const unitCents = opt.overridePriceCents ?? baseItemCents;
+                                      const optCents = Math.round(unitCents * opt.squareMultiplier);
+                                      const isOn =
+                                        isExpSelected &&
+                                        selectedSlot?.optionId === opt.qamfOptionId;
+                                      const firstSlot = offerSlots[0];
+                                      return (
+                                        <button
+                                          key={opt.qamfOptionId}
+                                          type="button"
+                                          disabled={!hasSlots}
+                                          onClick={() => {
+                                            if (!firstSlot) return;
+                                            const slot = {
+                                              ...firstSlot,
+                                              optionId: opt.qamfOptionId,
+                                            };
+                                            setSelectedSlot(slot);
+                                            setSelectedExperienceId(exp.id);
+                                            if (!holdBusy) void createHold(slot);
+                                          }}
+                                          className="flex flex-col items-center rounded-xl p-4 min-w-[110px] transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
                                           style={{
-                                            color: isOn ? "#0a1628" : "rgba(255,255,255,0.7)",
+                                            backgroundColor: isOn ? accent : `${accent}14`,
+                                            border: `1.5px solid ${isOn ? accent : `${accent}45`}`,
+                                            boxShadow: isOn ? `0 0 14px ${accent}40` : undefined,
                                           }}
                                         >
-                                          {opt.label}
-                                        </span>
-                                        <span
-                                          className="font-heading text-xl font-bold mt-1"
-                                          style={{ color: isOn ? "#0a1628" : accent }}
-                                        >
-                                          {centsToDollars(optCents)}
-                                        </span>
-                                        <span
-                                          className="font-body text-[11px] mt-0.5"
-                                          style={{
-                                            color: isOn ? "#0a162890" : "rgba(255,255,255,0.35)",
-                                          }}
-                                        >
-                                          per lane
-                                        </span>
-                                        {isOn && (
                                           <span
-                                            className="text-xs mt-1"
-                                            style={{ color: "#0a1628" }}
+                                            className="font-body font-bold text-sm uppercase tracking-wider"
+                                            style={{
+                                              color: isOn ? "#0a1628" : "rgba(255,255,255,0.7)",
+                                            }}
                                           >
-                                            ✓ Selected
+                                            {opt.label}
                                           </span>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
+                                          <span
+                                            className="font-heading text-xl font-bold mt-1"
+                                            style={{ color: isOn ? "#0a1628" : accent }}
+                                          >
+                                            {centsToDollars(optCents)}
+                                          </span>
+                                          <span
+                                            className="font-body text-[11px] mt-0.5"
+                                            style={{
+                                              color: isOn ? "#0a162890" : "rgba(255,255,255,0.35)",
+                                            }}
+                                          >
+                                            per lane
+                                          </span>
+                                          {isOn && (
+                                            <span
+                                              className="text-xs mt-1"
+                                              style={{ color: "#0a1628" }}
+                                            >
+                                              ✓ Selected
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
                                 </div>
                               ) : isHourly ? (
                                 /* Hourly but no duration options — just time chips */
@@ -4961,6 +5016,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                   <div className="flex flex-wrap gap-2">
                                     {offerSlots.map((s) => {
                                       const on =
+                                        selectedExperienceId === exp.id &&
                                         selectedSlot?.bookedAt === s.bookedAt &&
                                         selectedSlot?.webOfferId === s.webOfferId;
                                       return (
@@ -4969,6 +5025,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                           type="button"
                                           onClick={() => {
                                             setSelectedSlot(s);
+                                            setSelectedExperienceId(exp.id);
                                             if (!holdBusy) void createHold(s);
                                           }}
                                           className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
@@ -4990,6 +5047,26 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                 /* 'open' kind (Fun 4 All / Pizza Bowl / KBF) */
                                 hasSlots && (
                                   <div>
+                                    {/* Near-closing notice: shorter duration available */}
+                                    {exp.slug.includes("fun-4-all") &&
+                                      offerSlots.length > 0 &&
+                                      exp.qamfOptionId &&
+                                      offerSlots.every(
+                                        (s) =>
+                                          s.availableTimeOptionIds?.length &&
+                                          !s.availableTimeOptionIds.includes(exp.qamfOptionId!),
+                                      ) && (
+                                        <div
+                                          className="mb-3 px-3 py-2 rounded-lg text-center font-body text-xs"
+                                          style={{
+                                            backgroundColor: "#FFD70018",
+                                            border: "1px solid #FFD70040",
+                                            color: "#FFD700",
+                                          }}
+                                        >
+                                          Only 1 hour available near closing
+                                        </div>
+                                      )}
                                     {/* Price row */}
                                     <div className="flex items-baseline gap-2 mb-3">
                                       <span
@@ -5019,34 +5096,55 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                         </span>
                                       ) : null}
                                     </div>
-                                    {/* Time chips */}
-                                    <div className="flex flex-wrap gap-2">
-                                      {offerSlots.map((s) => {
-                                        const on =
-                                          selectedSlot?.bookedAt === s.bookedAt &&
-                                          selectedSlot?.webOfferId === s.webOfferId;
-                                        return (
-                                          <button
-                                            key={s.bookedAt}
-                                            type="button"
-                                            onClick={() => {
-                                              setSelectedSlot(s);
-                                              if (!holdBusy) void createHold(s);
-                                            }}
-                                            className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
-                                            style={{
-                                              backgroundColor: on ? accent : `${accent}1a`,
-                                              color: on ? "#0a1628" : accent,
-                                              border: `1px solid ${on ? accent : `${accent}55`}`,
-                                              boxShadow: on ? `0 0 10px ${accent}40` : undefined,
-                                            }}
-                                          >
-                                            {formatTime(s.bookedAt)}
-                                            {on && <span className="ml-1.5">✓</span>}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
+                                    {/* Time chips — auto-select when only one slot */}
+                                    {offerSlots.length === 1 && selectedExperienceId !== exp.id ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedSlot(offerSlots[0]);
+                                          setSelectedExperienceId(exp.id);
+                                          if (!holdBusy) void createHold(offerSlots[0]);
+                                        }}
+                                        className="w-full rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.01]"
+                                        style={{
+                                          backgroundColor: `${accent}1a`,
+                                          color: accent,
+                                          border: `1px solid ${accent}55`,
+                                        }}
+                                      >
+                                        Select {formatTime(offerSlots[0].bookedAt)}
+                                      </button>
+                                    ) : (
+                                      <div className="flex flex-wrap gap-2">
+                                        {offerSlots.map((s) => {
+                                          const on =
+                                            selectedExperienceId === exp.id &&
+                                            selectedSlot?.bookedAt === s.bookedAt &&
+                                            selectedSlot?.webOfferId === s.webOfferId;
+                                          return (
+                                            <button
+                                              key={s.bookedAt}
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedSlot(s);
+                                                setSelectedExperienceId(exp.id);
+                                                if (!holdBusy) void createHold(s);
+                                              }}
+                                              className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
+                                              style={{
+                                                backgroundColor: on ? accent : `${accent}1a`,
+                                                color: on ? "#0a1628" : accent,
+                                                border: `1px solid ${on ? accent : `${accent}55`}`,
+                                                boxShadow: on ? `0 0 10px ${accent}40` : undefined,
+                                              }}
+                                            >
+                                              {formatTime(s.bookedAt)}
+                                              {on && <span className="ml-1.5">✓</span>}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 )
                               )}
@@ -5062,6 +5160,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       type="button"
                       onClick={() => {
                         setSelectedSlot(null);
+                        setSelectedExperienceId(null);
                         setStep("tier");
                       }}
                       className="flex-1 rounded-full px-4 py-3 font-body font-bold text-xs sm:text-sm uppercase tracking-wider text-white/80 hover:text-white border border-white/15 hover:border-white/30 transition-colors"
@@ -5232,9 +5331,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                             // session over a VIP availability blip.
                             setSelectedTier("vip");
                             setSelectedSlot(vipUpgradeSlot);
+                            if (vipUpgradeExperience)
+                              setSelectedExperienceId(vipUpgradeExperience.id);
                             setShowVipUpgrade(false);
                             const vipIncludesShoes = vipDisplay.includesShoes ?? false;
                             const regularFallbackSlot = selectedSlot;
+                            const regularFallbackExpId = selectedExperienceId;
                             void createHoldAndAdvance(
                               vipUpgradeSlot,
                               vipIncludesShoes,
@@ -5248,6 +5350,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                       // Revert UI back to the regular slot
                                       setSelectedTier("regular");
                                       setSelectedSlot(regularFallbackSlot);
+                                      setSelectedExperienceId(regularFallbackExpId);
                                       setError(
                                         "That VIP lane was just taken — keeping your regular lane.",
                                       );

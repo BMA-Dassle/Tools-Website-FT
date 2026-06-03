@@ -52,6 +52,7 @@ interface QuoteProps {
   status: string;
   isTaxExempt: boolean;
   isPostPaid: boolean;
+  priorDepositCents: number;
 }
 
 type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done" | "event";
@@ -116,6 +117,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const isFullPayment = quote.balanceCents === 0;
   const isPostPaid = quote.isPostPaid;
+  const hasLegacyDeposit = quote.priorDepositCents > 0 && !quote.depositPaidAt;
+  const legacyChargeCents =
+    hasLegacyDeposit && isFullPayment ? Math.max(0, quote.totalCents - quote.priorDepositCents) : 0;
+  const cardOnFileOnly = hasLegacyDeposit && legacyChargeCents === 0;
   const STEPS = buildSteps(isFullPayment, isPostPaid);
 
   const [step, setStep] = useState<Step>(() => {
@@ -158,7 +163,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [agreeNoPrepay, setAgreeNoPrepay] = useState(false);
   const [agreePaymentDay, setAgreePaymentDay] = useState(false);
   const [agreePolicies, setAgreePolicies] = useState(false);
-  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(quote.isTaxExempt ? "yes" : null);
+  const [taxExempt, setTaxExempt] = useState<"yes" | "no" | null>(quote.isTaxExempt ? "yes" : "no");
   const [agreeUnderstand, setAgreeUnderstand] = useState(false);
 
   // Page-level acknowledgments
@@ -177,7 +182,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     (isFullPayment || isPostPaid || agreeNoPrepay) &&
     taxExempt !== null &&
     taxValid &&
-    agreeUnderstand;
+    (quote.isTaxExempt ? agreeUnderstand : true);
 
   // Compliance: capture IP + timestamp at sign time
   const [signedAt, setSignedAt] = useState<string | null>(null);
@@ -427,7 +432,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         body: JSON.stringify({
           contractShortId: quote.contractShortId,
           cardSourceId: result.token,
-          saveCard,
+          saveCard: hasLegacyDeposit ? true : saveCard,
         }),
       });
       const data = await res.json();
@@ -449,7 +454,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     } finally {
       setProcessing(false);
     }
-  }, [quote.contractShortId, saveCard]);
+  }, [quote.contractShortId, saveCard, hasLegacyDeposit]);
 
   const fmtDollars = (cents: number) =>
     `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -458,15 +463,28 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Ambient background glows */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-[#E53935]/8 blur-[120px]" />
-        <div className="absolute top-1/3 -right-40 h-[600px] w-[600px] rounded-full bg-[#00E2E5]/6 blur-[150px]" />
-        <div className="absolute bottom-1/4 left-1/4 h-[400px] w-[400px] rounded-full bg-[#9b51e0]/5 blur-[120px]" />
+      {/* Atmospheric bowling-alley bokeh background */}
+      <div className="fixed inset-0 z-0" aria-hidden="true">
+        <Image
+          src={`${BLOB}/headpinz/group-events-bowling-bg.png`}
+          alt=""
+          fill
+          sizes="100vw"
+          className="object-cover"
+          priority
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-[#0a1628]/80" />
+        {/* Ambient background glows */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-[#E53935]/8 blur-[120px]" />
+          <div className="absolute top-1/3 -right-40 h-[600px] w-[600px] rounded-full bg-[#00E2E5]/6 blur-[150px]" />
+          <div className="absolute bottom-1/4 left-1/4 h-[400px] w-[400px] rounded-full bg-[#9b51e0]/5 blur-[120px]" />
+        </div>
       </div>
 
       {/* Hero */}
-      <div className="relative overflow-hidden">
+      <div className="relative z-10 overflow-hidden">
         <div className="absolute inset-0">
           <Image
             src={`${BLOB}/hero/racer-journey-bg.webp`}
@@ -516,7 +534,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
       {/* Update banner */}
       {updateBanner && (
-        <div className="mx-auto max-w-4xl px-4 pt-4">
+        <div className="relative z-10 mx-auto max-w-4xl px-4 pt-4">
           <div className="flex items-center gap-3 rounded-xl bg-amber-500/10 px-4 py-3 ring-1 ring-amber-500/20">
             <IconAlertTriangle size={20} className="flex-shrink-0 text-amber-400" />
             <p className="flex-1 text-sm font-semibold text-amber-300">{updateBanner}</p>
@@ -541,7 +559,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
       {/* Step indicator */}
       {step !== "done" && step !== "event" && (
-        <div className="mx-auto max-w-3xl px-4 py-5">
+        <div className="relative z-10 mx-auto max-w-3xl px-4 py-5">
           <div className="flex items-center justify-center gap-1">
             {STEPS.map((s, i) => {
               const isActive = s.key === step;
@@ -571,7 +589,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         </div>
       )}
 
-      <div className="mx-auto max-w-4xl px-4 pb-16">
+      <div className="relative z-10 mx-auto max-w-4xl px-4 pb-16">
         {/* ═══ Step 1: Review ═══ */}
         {step === "review" && (
           <>
@@ -628,9 +646,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                       <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-cyan-400">
                         Notes from {quote.plannerFirst || "Your Planner"}
                       </p>
-                      <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">
-                        {eventDetails?.notes || quote.notes}
-                      </p>
+                      <FormattedNotes text={eventDetails?.notes || quote.notes || ""} />
                     </div>
                   )}
                 </div>
@@ -664,6 +680,58 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     </p>
                   </div>
                   <p className="text-lg font-bold">{fmtDollars(quote.totalCents)}</p>
+                </div>
+              ) : hasLegacyDeposit ? (
+                <div className="space-y-3">
+                  {/* Prior deposit applied */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-xs font-bold text-emerald-400 ring-1 ring-emerald-400/40">
+                      <IconCircleCheck size={16} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-emerald-400">Previous Deposit Applied</p>
+                      <p className="text-sm text-gray-400">
+                        Your prior deposit has been credited to this event
+                      </p>
+                    </div>
+                    <p className="text-lg font-bold text-emerald-400">
+                      {fmtDollars(quote.priorDepositCents)}
+                    </p>
+                  </div>
+                  {cardOnFileOnly ? (
+                    <>
+                      <div className="ml-4 h-6 border-l border-dashed border-white/20" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/40">
+                          <IconCreditCard size={16} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">Card on File Required</p>
+                          <p className="text-sm text-gray-400">
+                            No additional deposit — your card will be saved for the remaining
+                            balance of {fmtDollars(quote.totalCents - quote.priorDepositCents)},
+                            charged 72 hours before the event
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="ml-4 h-6 border-l border-dashed border-white/20" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-400 ring-1 ring-cyan-400/40">
+                          1
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">Remaining Balance — Due Today</p>
+                          <p className="text-sm text-gray-400">
+                            Full payment required for events within 96 hours
+                          </p>
+                        </div>
+                        <p className="text-lg font-bold">{fmtDollars(legacyChargeCents)}</p>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -841,9 +909,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   },
                   {
                     title: "Payments",
-                    text: isFullPayment
-                      ? "Full payment is required for events booked within 96 hours."
-                      : "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.",
+                    text: cardOnFileOnly
+                      ? "Your previous deposit has been applied. A card on file is required for the remaining balance, charged 72 hours before your event."
+                      : hasLegacyDeposit && legacyChargeCents > 0
+                        ? `Your previous deposit has been applied. The remaining balance of ${fmtDollars(legacyChargeCents)} is due today.`
+                        : isFullPayment
+                          ? "Full payment is required for events booked within 96 hours."
+                          : "A 50% deposit secures your event via our online system. The remaining balance is charged 72 hours before your event.",
                     Icon: IconCreditCard,
                   },
                   {
@@ -1024,11 +1096,15 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     set: setAgreeDeposit,
                     text: isPostPaid
                       ? "I understand this is a post-paid account and will be billed after the event."
-                      : isFullPayment
-                        ? "I agree to pay the full event total via credit card after completing this document."
-                        : "I agree to make a 50% deposit via credit card after completing this document.",
+                      : cardOnFileOnly
+                        ? "I understand my previous deposit has been applied and I agree to provide a card on file for the remaining balance."
+                        : hasLegacyDeposit && legacyChargeCents > 0
+                          ? `I agree to pay the remaining balance of ${fmtDollars(legacyChargeCents)} via credit card after completing this document.`
+                          : isFullPayment
+                            ? "I agree to pay the full event total via credit card after completing this document."
+                            : "I agree to make a 50% deposit via credit card after completing this document.",
                   },
-                  ...(!isFullPayment && !isPostPaid
+                  ...((!isFullPayment || cardOnFileOnly) && !isPostPaid
                     ? [
                         {
                           state: agreeNoPrepay,
@@ -1052,130 +1128,113 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </label>
                 ))}
 
-                <div className="rounded-xl bg-white/5 p-4">
-                  <p className="mb-3 font-semibold text-white">Are you tax exempt?</p>
-                  {quote.isTaxExempt ? (
-                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-sm text-emerald-400">
-                      This event is tax exempt based on the event products. Please upload your DR-14
-                      certificate below.
-                    </div>
-                  ) : (
-                    <div className="flex gap-4">
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="radio"
-                          name="tax"
-                          checked={taxExempt === "yes"}
-                          onChange={() => setTaxExempt("yes")}
-                          className="h-4 w-4 text-cyan-500"
-                        />
-                        <span className="text-sm">Yes</span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="radio"
-                          name="tax"
-                          checked={taxExempt === "no"}
-                          onChange={() => setTaxExempt("no")}
-                          className="h-4 w-4 text-cyan-500"
-                        />
-                        <span className="text-sm">No</span>
-                      </label>
-                    </div>
-                  )}
-                  {taxExempt === "yes" && (
-                    <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
-                      <p className="mb-2 text-sm font-semibold text-amber-400">
-                        Upload DR-14 Tax Exempt Letter
-                      </p>
-                      <p className="mb-3 text-xs text-gray-400">
-                        Required to apply tax exemption. PDF, JPG, or PNG accepted.
-                      </p>
-                      {taxFileUrl ? (
-                        <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
-                          <svg
-                            className="h-4 w-4 flex-shrink-0"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span className="truncate">{taxFile?.name || "Uploaded"}</span>
-                        </div>
-                      ) : (
-                        <label
-                          className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${taxUploading ? "border-cyan-400/30 text-cyan-400" : "border-white/20 text-gray-400 hover:border-cyan-400/40 hover:text-cyan-300"}`}
-                        >
-                          {taxUploading ? (
-                            <>
-                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />{" "}
-                              Uploading...
-                            </>
-                          ) : (
-                            <>
+                {quote.isTaxExempt && (
+                  <>
+                    <div className="rounded-xl bg-white/5 p-4">
+                      <p className="mb-3 font-semibold text-white">Tax Exempt Event</p>
+                      <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-sm text-emerald-400">
+                        This event is tax exempt based on the event products. Please upload your
+                        DR-14 certificate below.
+                      </div>
+                      {taxExempt === "yes" && (
+                        <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+                          <p className="mb-2 text-sm font-semibold text-amber-400">
+                            Upload DR-14 Tax Exempt Letter
+                          </p>
+                          <p className="mb-3 text-xs text-gray-400">
+                            Required to apply tax exemption. PDF, JPG, or PNG accepted.
+                          </p>
+                          {taxFileUrl ? (
+                            <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
                               <svg
-                                className="h-5 w-5"
+                                className="h-4 w-4 flex-shrink-0"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
-                                strokeWidth={1.5}
+                                strokeWidth={2}
                               >
                                 <path
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
-                                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+                                  d="M5 13l4 4L19 7"
                                 />
-                              </svg>{" "}
-                              Choose file
-                            </>
+                              </svg>
+                              <span className="truncate">{taxFile?.name || "Uploaded"}</span>
+                            </div>
+                          ) : (
+                            <label
+                              className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${taxUploading ? "border-cyan-400/30 text-cyan-400" : "border-white/20 text-gray-400 hover:border-cyan-400/40 hover:text-cyan-300"}`}
+                            >
+                              {taxUploading ? (
+                                <>
+                                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />{" "}
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <svg
+                                    className="h-5 w-5"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+                                    />
+                                  </svg>{" "}
+                                  Choose file
+                                </>
+                              )}
+                              <input
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setTaxFile(file);
+                                  setTaxUploading(true);
+                                  try {
+                                    const form = new FormData();
+                                    form.append("file", file);
+                                    form.append("shortId", quote.contractShortId);
+                                    const res = await fetch("/api/group-function/upload-tax-doc", {
+                                      method: "POST",
+                                      body: form,
+                                    });
+                                    const data = await res.json();
+                                    if (data.url) setTaxFileUrl(data.url);
+                                    else setError(data.error || "Upload failed");
+                                  } catch {
+                                    setError("Upload failed. Please try again.");
+                                  } finally {
+                                    setTaxUploading(false);
+                                  }
+                                }}
+                              />
+                            </label>
                           )}
-                          <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              setTaxFile(file);
-                              setTaxUploading(true);
-                              try {
-                                const form = new FormData();
-                                form.append("file", file);
-                                form.append("shortId", quote.contractShortId);
-                                const res = await fetch("/api/group-function/upload-tax-doc", {
-                                  method: "POST",
-                                  body: form,
-                                });
-                                const data = await res.json();
-                                if (data.url) setTaxFileUrl(data.url);
-                                else setError(data.error || "Upload failed");
-                              } catch {
-                                setError("Upload failed. Please try again.");
-                              } finally {
-                                setTaxUploading(false);
-                              }
-                            }}
-                          />
-                        </label>
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
 
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
-                  <input
-                    type="checkbox"
-                    checked={agreeUnderstand}
-                    onChange={(e) => setAgreeUnderstand(e.target.checked)}
-                    className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
-                  />
-                  <span className="text-sm text-gray-300">
-                    I understand that my tax exempt answer cannot be changed at the time of the
-                    event.
-                  </span>
-                </label>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3">
+                      <input
+                        type="checkbox"
+                        checked={agreeUnderstand}
+                        onChange={(e) => setAgreeUnderstand(e.target.checked)}
+                        className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-600 bg-gray-800 text-cyan-500"
+                      />
+                      <span className="text-sm text-gray-300">
+                        I understand that my tax exempt answer cannot be changed at the time of the
+                        event.
+                      </span>
+                    </label>
+                  </>
+                )}
               </div>
 
               {/* Signature */}
@@ -1271,20 +1330,53 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </svg>
               <p className="font-semibold text-emerald-300">
                 Contract signed{signedAt ? ` at ${new Date(signedAt).toLocaleTimeString()}` : ""}!
-                Now secure your date.
+                {cardOnFileOnly ? " Save your card to confirm." : " Now secure your date."}
               </p>
             </div>
 
+            {hasLegacyDeposit && (
+              <div className="mb-4 flex items-center gap-3 rounded-xl bg-emerald-500/10 px-4 py-3 ring-1 ring-emerald-500/20">
+                <IconCircleCheck size={20} className="flex-shrink-0 text-emerald-400" />
+                <p className="text-sm text-emerald-300">
+                  Your previous deposit of <strong>{fmtDollars(quote.priorDepositCents)}</strong>{" "}
+                  has been applied to this event.
+                </p>
+              </div>
+            )}
+
             <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
-              <h2 className="mb-1 text-xl font-bold">Secure Your Event</h2>
+              <h2 className="mb-1 text-xl font-bold">
+                {cardOnFileOnly ? "Save Card on File" : "Secure Your Event"}
+              </h2>
               <p className="mb-6 text-sm text-gray-400">
-                {isFullPayment ? "Total" : "Deposit"}:{" "}
-                <span className="font-semibold text-white">
-                  {fmtDollars(quote.depositDueCents)}
-                </span>
-                {!isFullPayment &&
-                  quote.balanceCents > 0 &&
-                  ` — remaining ${fmtDollars(quote.balanceCents)} charged 72 hours before event.`}
+                {cardOnFileOnly ? (
+                  <>
+                    No additional payment required today. Your card will be saved for the remaining
+                    balance of{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(quote.totalCents - quote.priorDepositCents)}
+                    </span>
+                    , charged 72 hours before your event.
+                  </>
+                ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
+                  <>
+                    Remaining balance:{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(legacyChargeCents)}
+                    </span>{" "}
+                    (after {fmtDollars(quote.priorDepositCents)} prior deposit)
+                  </>
+                ) : (
+                  <>
+                    {isFullPayment ? "Total" : "Deposit"}:{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(quote.depositDueCents)}
+                    </span>
+                    {!isFullPayment &&
+                      quote.balanceCents > 0 &&
+                      ` — remaining ${fmtDollars(quote.balanceCents)} charged 72 hours before event.`}
+                  </>
+                )}
               </p>
 
               <div id="sq-card-container" className="mb-4 min-h-[50px] rounded-lg bg-white p-3" />
@@ -1304,7 +1396,15 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   />
                 </svg>
                 <p className="text-sm text-gray-300">
-                  {isFullPayment ? (
+                  {cardOnFileOnly ? (
+                    "Your card will be saved on file for the remaining balance, charged automatically 72 hours before your event."
+                  ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
+                    <>
+                      Your card will be charged{" "}
+                      <strong className="text-white">{fmtDollars(legacyChargeCents)}</strong> today
+                      and saved on file.
+                    </>
+                  ) : isFullPayment ? (
                     "Your card will be charged the full event total today."
                   ) : (
                     <>
@@ -1329,7 +1429,11 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               >
                 {processing
                   ? "Processing..."
-                  : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
+                  : cardOnFileOnly
+                    ? "Save Card & Confirm"
+                    : hasLegacyDeposit && legacyChargeCents > 0
+                      ? `Pay ${fmtDollars(legacyChargeCents)}`
+                      : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
               </button>
             </div>
           </>
@@ -1411,7 +1515,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-                      {isFullPayment ? "Paid in Full" : "Deposit Paid"}
+                      {isFullPayment ? "Paid in Full" : "Deposit Applied"}
                     </p>
                     <p className="text-2xl font-extrabold">{fmtDollars(quote.depositDueCents)}</p>
                   </div>
@@ -1541,9 +1645,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-cyan-400">
                   Notes from {quote.plannerFirst || "Your Planner"}
                 </h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">
-                  {eventDetails.notes}
-                </p>
+                <FormattedNotes text={eventDetails.notes} />
               </div>
             )}
 
@@ -1766,6 +1868,39 @@ function EventCountdownInline({ eventDate }: { eventDate: string }) {
         <span className="text-gray-500">m</span>
         <span className="ml-1 text-gray-400">until your event</span>
       </div>
+    </div>
+  );
+}
+
+function FormattedNotes({ text }: { text: string }) {
+  const lines = text.split(/\n/).filter((l) => l.trim());
+  const keyValuePattern = /^([A-Za-z][A-Za-z0-9 /&'()-]+?)\s*:\s*(.+)$/;
+
+  const parsed = lines.map((line) => {
+    const match = line.match(keyValuePattern);
+    if (match) return { type: "kv" as const, label: match[1].trim(), value: match[2].trim() };
+    return { type: "text" as const, value: line.trim() };
+  });
+
+  const hasKv = parsed.some((p) => p.type === "kv");
+  if (!hasKv) {
+    return <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">{text}</p>;
+  }
+
+  return (
+    <div className="space-y-1.5 text-sm">
+      {parsed.map((item, i) =>
+        item.type === "kv" ? (
+          <div key={i} className="flex gap-2">
+            <span className="font-semibold text-gray-400 shrink-0">{item.label}:</span>
+            <span className="text-gray-300">{item.value}</span>
+          </div>
+        ) : (
+          <p key={i} className="text-gray-400 italic">
+            {item.value}
+          </p>
+        ),
+      )}
     </div>
   );
 }

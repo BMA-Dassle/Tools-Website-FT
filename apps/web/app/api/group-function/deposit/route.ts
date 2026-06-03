@@ -7,8 +7,14 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { notifyDepositPaid } from "@/lib/group-function-notify";
-import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
+import {
+  authorizeMultiTender,
+  mintDigitalGiftCard,
+  loadGiftCard,
+  SquarePaymentError,
+} from "@/lib/square-gift-card";
 import { buildSquareLineItem } from "@/lib/plu-catalog-map";
+import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
  * Group function deposit payment endpoint.
@@ -24,6 +30,13 @@ import { buildSquareLineItem } from "@/lib/plu-catalog-map";
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 const SQUARE_VERSION = "2024-12-18";
+const LEGACY_DEPOSIT_DISCOUNT_ID =
+  process.env.SQUARE_LEGACY_DEPOSIT_DISCOUNT_ID || "RN4EW6G4KYCGZ3HYI4AHMZSB";
+
+function computePriorDepositCents(quote: GroupFunctionQuote): number {
+  const payments = (quote.prior_payments ?? []) as Array<{ amount: number }>;
+  return Math.round(payments.reduce((sum, p) => sum + (p.amount || 0), 0) * 100);
+}
 
 function sqHeaders() {
   return {
@@ -69,59 +82,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (quote.deposit_due_cents <= 0) {
+  const priorDepositCents = computePriorDepositCents(quote);
+
+  if (quote.deposit_due_cents <= 0 && priorDepositCents <= 0) {
     return NextResponse.json({ error: "No deposit due" }, { status: 400 });
   }
 
   const baseKey = randomBytes(8).toString("hex");
 
-  // 1. Create the day-of Square order (OPEN — staff redeems at event)
-  let dayofOrderId: string | undefined;
-  try {
-    const lineItems = (
-      quote.line_items as Array<{
-        name: string;
-        price: number;
-        tax: number;
-        qty: number;
-        total: number;
-        plu: string;
-      }>
-    ).map((p) => buildSquareLineItem(quote.center_code, p));
-
-    const serviceCharges =
-      quote.tax_cents > 0
-        ? [
-            {
-              name: "Service Charge",
-              amount_money: { amount: quote.tax_cents, currency: "USD" },
-              calculation_phase: "SUBTOTAL_PHASE",
-            },
-          ]
-        : [];
-
-    const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-dayof-${baseKey}`,
-        order: {
-          location_id: quote.square_location_id,
-          reference_id: `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40),
-          line_items: lineItems,
-          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
-        },
-      }),
-    });
-    const orderData = await orderRes.json();
-    if (orderRes.ok && orderData.order?.id) {
-      dayofOrderId = orderData.order.id;
-    } else {
-      console.error("[gf-deposit] day-of order creation failed:", orderData);
-    }
-  } catch (err: unknown) {
-    console.error("[gf-deposit] day-of order error:", err);
+  // ═══ Legacy deposit flow ═══
+  // Prior BMI deposit exists — convert to complimentary gift card,
+  // charge only the difference (if within 96hr), and save card on file.
+  if (priorDepositCents > 0) {
+    return handleLegacyDeposit(quote, priorDepositCents, cardSourceId, baseKey);
   }
+
+  // 1. Create the day-of Square order (OPEN — staff redeems at event)
+  const dayofOrderId = await createDayofOrder(quote, baseKey);
 
   // 2. Create deposit order (single line, no tax — fraction of tax-inclusive total)
   const ganSuffix = quote.bmi_reservation_id.slice(-8);
@@ -323,6 +300,13 @@ export async function POST(req: NextRequest) {
       console.error("[gf-deposit] BMI Office update error:", err);
     }
 
+    firePortalWebhookAsync("payment.deposit_paid", {
+      documentId: quote.contract_short_id,
+      bmiCode: quote.bmi_reservation_id,
+      venue: quote.center_code,
+      status: "deposit_paid",
+    });
+
     return NextResponse.json({
       ok: true,
       action: "deposit_paid",
@@ -337,6 +321,264 @@ export async function POST(req: NextRequest) {
     // Track failed attempt
     const attempts = await updateGfDepositAttempt(quote.id, `${errCode}: ${errMsg}`);
     console.error(`[gf-deposit] attempt #${attempts} failed:`, errCode, errMsg);
+
+    if (err instanceof SquarePaymentError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 402 });
+    }
+    return NextResponse.json(
+      { error: "Payment processing failed. Please try again." },
+      { status: 500 },
+    );
+  }
+}
+
+async function handleLegacyDeposit(
+  quote: GroupFunctionQuote,
+  priorDepositCents: number,
+  cardSourceId: string | undefined,
+  baseKey: string,
+): Promise<NextResponse> {
+  if (!cardSourceId) {
+    return NextResponse.json({ error: "Card is required" }, { status: 400 });
+  }
+
+  const isFullPayment = quote.balance_cents === 0;
+  const chargeCents = isFullPayment ? Math.max(0, quote.total_cents - priorDepositCents) : 0;
+
+  try {
+    // 1. Create day-of Square order — try catalog IDs first, fall back to ad-hoc
+    const dayofOrderId = await createDayofOrder(quote, baseKey);
+
+    // 2. Find/create Square customer
+    const custResult = await findOrCreateSquareCustomer(quote);
+    const squareCustomerId = custResult ?? undefined;
+
+    // 3. Create complimentary gift card for the prior deposit amount
+    const compGc = await mintDigitalGiftCard({
+      locationId: quote.square_location_id,
+      amountCents: priorDepositCents,
+      baseKey: `${baseKey}-comp`,
+      discountCatalogObjectId: LEGACY_DEPOSIT_DISCOUNT_ID,
+      customerId: squareCustomerId,
+    });
+
+    console.log(
+      `[gf-deposit-legacy] complimentary GC: ${compGc.gan} $${(priorDepositCents / 100).toFixed(2)}`,
+    );
+
+    // 4. Charge the card if needed (96hr case) and LOAD the GC
+    let depositOrderId: string | undefined;
+    let depositPaymentId: string | undefined;
+
+    if (chargeCents > 0) {
+      // Create deposit order for the charge amount
+      const depOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `gf-dep-order-${baseKey}`,
+          order: {
+            location_id: quote.square_location_id,
+            reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
+            line_items: [
+              {
+                name: "Group Event Balance (Legacy Deposit Applied)",
+                quantity: "1",
+                base_price_money: { amount: chargeCents, currency: "USD" },
+              },
+            ],
+          },
+        }),
+      });
+      const depOrderData = await depOrderRes.json();
+      if (!depOrderRes.ok || !depOrderData.order?.id) {
+        throw new Error(`Deposit order failed: ${JSON.stringify(depOrderData).slice(0, 300)}`);
+      }
+      depositOrderId = depOrderData.order.id as string;
+
+      const multiTender = await authorizeMultiTender({
+        orderId: depositOrderId,
+        locationId: quote.square_location_id,
+        totalCents: chargeCents,
+        baseKey,
+        cardSourceId,
+        note: `GF Balance: ${quote.event_name || ""} (legacy deposit applied)`,
+      });
+      depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
+
+      // LOAD the complimentary gift card with the charged amount
+      await loadGiftCard({
+        giftCardId: compGc.giftCardId,
+        locationId: quote.square_location_id,
+        amountCents: chargeCents,
+        baseKey: `${baseKey}-load`,
+        buyerPaymentInstrumentIds: depositPaymentId ? [depositPaymentId] : [],
+      });
+
+      console.log(
+        `[gf-deposit-legacy] charged $${(chargeCents / 100).toFixed(2)}, loaded onto GC ${compGc.gan}`,
+      );
+    }
+
+    // 5. Save card on file
+    let savedCardId: string | undefined;
+
+    if (depositPaymentId && squareCustomerId) {
+      // Card was charged — save from payment ID
+      const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `gf-card-${baseKey}`,
+          source_id: depositPaymentId,
+          card: { customer_id: squareCustomerId },
+        }),
+      });
+      const cardData = await cardRes.json();
+      if (cardRes.ok && cardData.card?.id) {
+        savedCardId = cardData.card.id;
+      } else {
+        console.error("[gf-deposit-legacy] card save from payment failed:", cardData);
+      }
+    } else if (squareCustomerId) {
+      // No charge — save card from nonce via verify + save pattern
+      try {
+        const verifyRes = await fetch(`${SQUARE_BASE}/payments`, {
+          method: "POST",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            idempotency_key: `gf-verify-${baseKey}`,
+            source_id: cardSourceId,
+            amount_money: { amount: 0, currency: "USD" },
+            location_id: quote.square_location_id,
+            autocomplete: false,
+          }),
+        });
+        const verifyData = await verifyRes.json();
+        const verifyPaymentId = verifyData.payment?.id;
+
+        if (verifyPaymentId) {
+          // Cancel the $0 auth
+          await fetch(`${SQUARE_BASE}/payments/${verifyPaymentId}/cancel`, {
+            method: "POST",
+            headers: sqHeaders(),
+          });
+        }
+
+        // Save from nonce
+        const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
+          method: "POST",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            idempotency_key: `gf-card-${baseKey}`,
+            source_id: cardSourceId,
+            card: { customer_id: squareCustomerId },
+          }),
+        });
+        const cardData = await cardRes.json();
+        if (cardRes.ok && cardData.card?.id) {
+          savedCardId = cardData.card.id;
+          console.log(`[gf-deposit-legacy] card saved (no charge): ${savedCardId}`);
+        } else {
+          console.error("[gf-deposit-legacy] card save from nonce failed:", cardData);
+        }
+      } catch (err) {
+        console.error("[gf-deposit-legacy] card verify/save error:", err);
+      }
+    }
+
+    const gcIds = JSON.stringify([compGc.giftCardId]);
+    const gcGans = JSON.stringify([compGc.gan]);
+    const totalDeposited = priorDepositCents + chargeCents;
+    const balanceCents = Math.max(0, quote.total_cents - totalDeposited);
+
+    // 6. Update Neon
+    await updateGfDepositPaid(quote.id, {
+      square_deposit_order_id: depositOrderId || `legacy-comp-${baseKey}`,
+      square_deposit_payment_id: depositPaymentId || `legacy-comp-${baseKey}`,
+      square_gift_card_id: gcIds,
+      square_gift_card_gan: gcGans,
+      square_customer_id: squareCustomerId,
+      saved_card_id: savedCardId,
+      square_dayof_order_id: dayofOrderId,
+      deposit_paid_at: new Date().toISOString(),
+      balance_cents: balanceCents,
+    });
+
+    // Also update deposit_due_cents to reflect actual deposited amount
+    const { sql } = await import("@/lib/db");
+    const q = sql();
+    await q`UPDATE group_function_quotes SET deposit_due_cents = ${totalDeposited} WHERE id = ${quote.id}`;
+
+    // 7. Notify + BMI Office notes
+    const updatedQuote = await getGfQuoteByShortId(quote.contract_short_id!);
+    if (updatedQuote) {
+      notifyDepositPaid(updatedQuote).catch((err) =>
+        console.error("[gf-deposit-legacy] notify error:", err),
+      );
+    }
+
+    try {
+      const {
+        updateProjectStatus,
+        recordProjectPayment,
+        hasWaiverRequiredActivities,
+        appendProjectPrivateNote,
+        noteTimestamp,
+      } = await import("@/lib/bmi-office-actions");
+      const items = (quote.line_items || []) as Array<{ name: string }>;
+      await updateProjectStatus({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        hasWaiverActivities: hasWaiverRequiredActivities(items),
+      });
+      if (chargeCents > 0) {
+        await recordProjectPayment({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          amountDollars: chargeCents / 100,
+        });
+      }
+
+      const contractUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`;
+      const ts = noteTimestamp();
+      const parts = [
+        `[${ts}] Legacy deposit: $${(priorDepositCents / 100).toFixed(2)} → GC ${compGc.gan}`,
+      ];
+      if (chargeCents > 0) {
+        parts.push(`+ charged $${(chargeCents / 100).toFixed(2)}`);
+      }
+      parts.push(`| Balance: $${(balanceCents / 100).toFixed(2)}`);
+      await appendProjectPrivateNote({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        note: parts.join(" "),
+        contractUrl,
+      });
+    } catch (err) {
+      console.error("[gf-deposit-legacy] BMI Office update error:", err);
+    }
+
+    firePortalWebhookAsync("payment.deposit_paid", {
+      documentId: quote.contract_short_id,
+      bmiCode: quote.bmi_reservation_id,
+      venue: quote.center_code,
+      status: "deposit_paid",
+    });
+
+    return NextResponse.json({
+      ok: true,
+      action: "legacy_deposit_applied",
+      giftCardGan: gcGans,
+      priorDepositCents,
+      chargeCents,
+      balanceCents,
+    });
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errCode = err instanceof SquarePaymentError ? err.code : "UNKNOWN";
+    const attempts = await updateGfDepositAttempt(quote.id, `${errCode}: ${errMsg}`);
+    console.error(`[gf-deposit-legacy] attempt #${attempts} failed:`, errCode, errMsg);
 
     if (err instanceof SquarePaymentError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 402 });
@@ -391,4 +633,84 @@ async function findOrCreateSquareCustomer(quote: {
   }
 
   return null;
+}
+
+async function createDayofOrder(
+  quote: GroupFunctionQuote,
+  baseKey: string,
+): Promise<string | undefined> {
+  const rawItems = quote.line_items as Array<{
+    name: string;
+    price: number;
+    tax: number;
+    qty: number;
+    total: number;
+    plu: string;
+  }>;
+  const serviceCharges =
+    quote.tax_cents > 0
+      ? [
+          {
+            name: "Service Charge",
+            amount_money: { amount: quote.tax_cents, currency: "USD" },
+            calculation_phase: "SUBTOTAL_PHASE",
+          },
+        ]
+      : [];
+  const refId = `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40);
+
+  // Attempt 1: catalog-linked line items (PLU → catalog_object_id)
+  try {
+    const lineItems = rawItems.map((p) => buildSquareLineItem(quote.center_code, p));
+    const res = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-dayof-${baseKey}`,
+        order: {
+          location_id: quote.square_location_id,
+          reference_id: refId,
+          line_items: lineItems,
+          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.order?.id) return data.order.id;
+    console.warn("[gf-deposit] catalog day-of order failed, falling back to ad-hoc:", data);
+  } catch (err) {
+    console.warn("[gf-deposit] catalog day-of order error, falling back to ad-hoc:", err);
+  }
+
+  // Attempt 2: ad-hoc line items (name + price, no catalog link)
+  try {
+    const adHocItems = rawItems.map((p) => ({
+      name: p.name,
+      quantity: String(p.qty),
+      base_price_money: { amount: Math.round(p.price * 100), currency: "USD" },
+    }));
+    const res = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `gf-dayof-adhoc-${baseKey}`,
+        order: {
+          location_id: quote.square_location_id,
+          reference_id: refId,
+          line_items: adHocItems,
+          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.order?.id) {
+      console.log("[gf-deposit] day-of order created via ad-hoc fallback:", data.order.id);
+      return data.order.id;
+    }
+    console.error("[gf-deposit] ad-hoc day-of order also failed:", data);
+  } catch (err) {
+    console.error("[gf-deposit] ad-hoc day-of order error:", err);
+  }
+
+  return undefined;
 }
