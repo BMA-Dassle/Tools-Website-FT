@@ -9,19 +9,20 @@ import { verifyCron } from "@/lib/cron-auth";
  *
  * BMI_AUTOCANCEL_WORKAROUND — remove when BMI fixes payment/confirm.
  *
- * BMI's payment/confirm auto-cancels paid online reservations (sets
- * stateId=-4, userUpdatedId=-1) "a bit later" despite a successful payment.
- * This safety-net cron scans the BMI Office dayplanner for those cancellations
- * and recovers them by setting stateId back to -3 (Confirmation) via Pandora.
+ * BMI's payment/confirm has two known failure modes:
+ *   1. Auto-cancel: sets stateId=-4 (userUpdatedId=-1) despite successful payment
+ *   2. Stuck payment: state stays at -101 ("Payment started") and never
+ *      transitions to -3 (Confirmation), even though payment was recorded
+ *
+ * This cron scans the BMI Office dayplanner for both states and recovers
+ * them by setting stateId to -3 (Confirmation) via Pandora.
  *
  * Runs every 5 minutes. Recovery (-3 on an already-confirmed project) is a no-op.
  *
- * RECOVERY GATE (hybrid — recover iff one holds, AND not intentionally cancelled):
- *   (A) the project's reservation number matches one of OUR booking records
- *       (bookingrecord:res:{number}) whose status === "confirmed"; OR
- *   (B) userUpdatedId === "-1"  (BMI's auto-cancel signature — our own/staff
- *       cancels go through the Office API as user "API2", a different id)
- *       AND the project has >= 1 payment record.
+ * RECOVERY GATE:
+ *   (A) confirmed booking-record in our DB
+ *   (B) stateId=-4 + userUpdatedId=-1 (auto-cancel) + has payment
+ *   (C) stateId=-101 (Payment started) + has online payment
  * A booking-record explicitly marked cancelled/refunded is never recovered.
  *
  * ?dryRun=1 — inspect only: reports what WOULD be recovered/skipped, no writes.
@@ -137,10 +138,15 @@ interface RecoveryDetail {
   guest: string;
   projectId: string;
   date: string;
+  stateId: string;
+  stateName: string;
   cancelledBy: string;
   cancelledByName: string;
   reason: string;
 }
+
+// States that need recovery: -4 = Cancellation, -101 = Payment started (stuck)
+const RECOVERABLE_STATES = new Set(["-4", "-101"]);
 interface CenterResult {
   clientKey: string;
   scannedProjects: number;
@@ -210,17 +216,31 @@ async function sweepCenter(
 
   result.scannedProjects = projects.length;
   const cutoff = new Date(today + "T00:00:00");
-  const cancelled = projects.filter(
-    (p) => String(p.stateId) === "-4" && new Date(p.date) >= cutoff,
+  const needsRecovery = projects.filter(
+    (p) => RECOVERABLE_STATES.has(String(p.stateId)) && new Date(p.date) >= cutoff,
   );
-  result.checked = cancelled.length;
+  result.checked = needsRecovery.length;
+
+  // Count by state for logging
+  const byCancelledState: Record<string, number> = {};
+  for (const p of needsRecovery) {
+    const s = String(p.stateId);
+    byCancelledState[s] = (byCancelledState[s] || 0) + 1;
+  }
 
   console.log(
-    `[bmi-cancel-sweep] ${center.clientKey}: ${projects.length} projects, ${cancelled.length} cancelled`,
+    `[bmi-cancel-sweep] ${center.clientKey}: ${projects.length} projects, ` +
+      `${needsRecovery.length} need recovery ` +
+      `(${
+        Object.entries(byCancelledState)
+          .map(([k, v]) => `state${k}=${v}`)
+          .join(", ") || "none"
+      })`,
   );
 
-  for (const p of cancelled) {
+  for (const p of needsRecovery) {
     const num = String(p.number || "");
+    const pStateId = String(p.stateId);
     const record = await lookupRecord(num);
     const recordStatus = record?.status;
     const recordCancelled =
@@ -239,25 +259,38 @@ async function sweepCenter(
     }
     const proj = parseWithRawIds<{
       userUpdatedId?: string | number;
-      payments?: unknown[];
+      payments?: Array<{ payMethodId?: string | number; deviceCreated?: string; amount?: number }>;
     }>(projRes.body);
     const userUpdatedId = String(proj.userUpdatedId ?? "");
-    const hasPayment = Array.isArray(proj.payments) && proj.payments.length > 0;
+    const payments = Array.isArray(proj.payments) ? proj.payments : [];
+    const hasPayment = payments.length > 0;
+    const hasOnlinePayment = payments.some(
+      (pay) =>
+        String(pay.payMethodId) === "42603617" ||
+        pay.deviceCreated === "Online Booking" ||
+        pay.deviceCreated === "Online Office",
+    );
     const isAutoCancel = userUpdatedId === "-1";
 
-    // Hybrid recovery gate.
+    // Recovery gate — depends on the stuck state.
     let recover = false;
     let reason: string;
     if (recordCancelled) {
       reason = `intentional: booking-record ${recordStatus || "cancelled"}`;
+    } else if (pStateId === "-101" && hasOnlinePayment) {
+      // Payment started + online payment = payment/confirm didn't finish
+      recover = true;
+      reason = "C: state -101 (Payment started) + online payment";
     } else if (recordConfirmed) {
       recover = true;
       reason = "A: confirmed booking-record";
     } else if (isAutoCancel && hasPayment) {
       recover = true;
       reason = "B: userUpdatedId=-1 + payment";
+    } else if (pStateId === "-101") {
+      reason = `state -101 but no online payment (pay=${hasPayment})`;
     } else {
-      reason = `no-gate (uu=${userUpdatedId || "?"}, pay=${hasPayment}, rec=${recordStatus || "none"})`;
+      reason = `no-gate (state=${pStateId}, uu=${userUpdatedId || "?"}, pay=${hasPayment}, rec=${recordStatus || "none"})`;
     }
 
     const guest = (p.displayName || p.name || "?").trim();
@@ -297,11 +330,18 @@ async function sweepCenter(
         signal: AbortSignal.timeout(10_000),
       });
       if (pandoraRes.ok) {
+        const stateNames: Record<string, string> = {
+          "-4": "Cancellation",
+          "-101": "Payment started",
+          "-100": "Pending online",
+        };
         const detail: RecoveryDetail = {
           wNumber: num,
           guest,
           projectId: String(p.id),
           date: p.date,
+          stateId: pStateId,
+          stateName: stateNames[pStateId] || pStateId,
           cancelledBy: userUpdatedId,
           cancelledByName,
           reason,
@@ -309,6 +349,7 @@ async function sweepCenter(
         result.recovered.push(detail);
         console.log(
           `[bmi-cancel-sweep] RECOVERED ${label} project=${p.id} date=${p.date} ` +
+            `state=${pStateId}(${stateNames[pStateId] || "?"}) ` +
             `cancelledBy=${cancelledByName} gate=${reason}`,
         );
       } else {

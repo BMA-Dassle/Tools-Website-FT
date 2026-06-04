@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
     // Pass request body as raw text to avoid JSON number precision loss on orderId
     const bodyStr = await req.text();
     console.log(`[BMI POST] ${url}`);
-    if (endpoint.startsWith("booking/book")) {
+    if (endpoint.startsWith("booking/book") || endpoint === "payment/confirm") {
       console.log(`[BMI POST body] ${bodyStr.substring(0, 500)}`);
     }
 
@@ -178,8 +178,17 @@ export async function POST(req: NextRequest) {
     // Return raw text for booking endpoints to avoid JSON number precision loss
     // (orderId values exceed Number.MAX_SAFE_INTEGER)
     const rawText = await upstream.text();
-    if (endpoint.startsWith("booking/")) {
-      console.log(`[BMI POST response] ${rawText.substring(0, 500)}`);
+    if (endpoint.startsWith("booking/") || endpoint === "payment/confirm") {
+      console.log(`[BMI POST response] status=${upstream.status} ${rawText.substring(0, 500)}`);
+    }
+    if (endpoint === "payment/confirm") {
+      const orderIdMatch = bodyStr.match(/"orderId"\s*:\s*(\d+)/);
+      const resNumMatch = rawText.match(/"reservationNumber"\s*:\s*"(W\d+)"/);
+      console.log(
+        `[payment/confirm] orderId=${orderIdMatch?.[1] || "?"} → ` +
+          `HTTP ${upstream.status} W=${resNumMatch?.[1] || "none"} ` +
+          `client=${clientKey}`,
+      );
     }
     return new NextResponse(rawText, {
       status: upstream.status,
