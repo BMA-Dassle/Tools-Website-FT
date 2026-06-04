@@ -132,10 +132,20 @@ interface SkipEntry {
   number: string;
   reason: string;
 }
+interface RecoveryDetail {
+  wNumber: string;
+  guest: string;
+  projectId: string;
+  date: string;
+  cancelledBy: string;
+  cancelledByName: string;
+  reason: string;
+}
 interface CenterResult {
   clientKey: string;
+  scannedProjects: number;
   checked: number;
-  recovered: string[];
+  recovered: RecoveryDetail[];
   wouldRecover: string[];
   skipped: SkipEntry[];
   error?: string;
@@ -149,6 +159,7 @@ async function sweepCenter(
 ): Promise<CenterResult> {
   const result: CenterResult = {
     clientKey: center.clientKey,
+    scannedProjects: 0,
     checked: 0,
     recovered: [],
     wouldRecover: [],
@@ -197,11 +208,16 @@ async function sweepCenter(
   const dp = parseWithRawIds<{ reservations?: { projects?: DpProject[] } }>(dpRes.body);
   const projects = dp.reservations?.projects || [];
 
+  result.scannedProjects = projects.length;
   const cutoff = new Date(today + "T00:00:00");
   const cancelled = projects.filter(
     (p) => String(p.stateId) === "-4" && new Date(p.date) >= cutoff,
   );
   result.checked = cancelled.length;
+
+  console.log(
+    `[bmi-cancel-sweep] ${center.clientKey}: ${projects.length} projects, ${cancelled.length} cancelled`,
+  );
 
   for (const p of cancelled) {
     const num = String(p.number || "");
@@ -244,7 +260,17 @@ async function sweepCenter(
       reason = `no-gate (uu=${userUpdatedId || "?"}, pay=${hasPayment}, rec=${recordStatus || "none"})`;
     }
 
-    const label = `${num} ${(p.displayName || p.name || "?").trim()}`;
+    const guest = (p.displayName || p.name || "?").trim();
+    const label = `${num} "${guest}"`;
+    const cancelledByName =
+      userUpdatedId === "-1"
+        ? "SYSTEM_CRON"
+        : userUpdatedId === "-17"
+          ? "ONLINE_BOOKING"
+          : userUpdatedId
+            ? `user_${userUpdatedId}`
+            : "unknown";
+
     if (!recover) {
       result.skipped.push({ number: num, reason });
       continue;
@@ -271,8 +297,20 @@ async function sweepCenter(
         signal: AbortSignal.timeout(10_000),
       });
       if (pandoraRes.ok) {
-        result.recovered.push(label);
-        console.log(`[bmi-cancel-sweep] recovered ${label} (${center.clientKey}) — ${reason}`);
+        const detail: RecoveryDetail = {
+          wNumber: num,
+          guest,
+          projectId: String(p.id),
+          date: p.date,
+          cancelledBy: userUpdatedId,
+          cancelledByName,
+          reason,
+        };
+        result.recovered.push(detail);
+        console.log(
+          `[bmi-cancel-sweep] RECOVERED ${label} project=${p.id} date=${p.date} ` +
+            `cancelledBy=${cancelledByName} gate=${reason}`,
+        );
       } else {
         result.skipped.push({ number: num, reason: `recover failed ${pandoraRes.status}` });
       }
@@ -310,10 +348,18 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const totalRecovered = centers.reduce((s, c) => s + c.recovered.length, 0);
+  if (totalRecovered === 0) {
+    console.log(
+      `[bmi-cancel-sweep] clean run — ${centers.reduce((s, c) => s + c.checked, 0)} cancelled checked, 0 recoveries`,
+    );
+  }
+
   return NextResponse.json({
     dryRun,
+    scannedProjects: centers.reduce((s, c) => s + c.scannedProjects, 0),
     checked: centers.reduce((s, c) => s + c.checked, 0),
-    recovered: centers.reduce((s, c) => s + c.recovered.length, 0),
+    recovered: totalRecovered,
     wouldRecover: centers.reduce((s, c) => s + c.wouldRecover.length, 0),
     centers,
   });
