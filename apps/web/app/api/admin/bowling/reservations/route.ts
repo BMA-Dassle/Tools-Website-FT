@@ -65,7 +65,16 @@ export async function GET(req: NextRequest) {
       survey: surveyMap.get(String(r.id)) ?? null,
     }));
 
-    // Group function events for the same date
+    // Group function events for the same date.
+    // `center` is a Square location ID (bowling reservations use it); group
+    // function quotes use center_code ('fort-myers', 'naples', 'fasttrax').
+    // Map so the filter works for both.
+    const GF_CENTER_MAP: Record<string, string> = {
+      TXBSQN0FEKQ11: "fort-myers",
+      LAB52GY480CJF: "fasttrax",
+      PPTR5G2N0QXF7: "naples",
+    };
+    const gfCenter = center ? GF_CENTER_MAP[center] : undefined;
     const q = sql();
     const gfRows = await q`
       SELECT id, contract_short_id, event_name, event_number, event_date, event_date_display,
@@ -78,7 +87,7 @@ export async function GET(req: NextRequest) {
       FROM group_function_quotes
       WHERE event_date::date = ${date}::date
         AND status NOT IN ('cancelled', 'denied')
-        ${center ? q`AND center_code = ${center}` : q``}
+        ${gfCenter ? q`AND center_code = ${gfCenter}` : q``}
       ORDER BY event_date ASC
     `;
     const groupEvents = gfRows.map((r: Record<string, unknown>) => ({
