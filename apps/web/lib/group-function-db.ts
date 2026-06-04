@@ -554,6 +554,27 @@ export async function updateGfBalanceCharged(
   `;
 }
 
+/**
+ * Full-prepay events (entire amount collected at deposit — booked within 96h — so the
+ * gift card is already fully loaded) have no balance to charge. Advance them straight to
+ * 'balance_charged' so the day-of payout + close crons pick them up. No Square balance
+ * order/payment exists, so those columns stay null. Guarded to deposit_paid to avoid
+ * clobbering any other state.
+ */
+export async function updateGfBalancePrepaid(id: number): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    UPDATE group_function_quotes SET
+      balance_cents = 0,
+      balance_paid_at = COALESCE(balance_paid_at, NOW()),
+      balance_payment_method = 'prepaid',
+      status = 'balance_charged',
+      updated_at = NOW()
+    WHERE id = ${id} AND status = 'deposit_paid'
+  `;
+}
+
 export async function updateGfBalanceLinkSent(
   id: number,
   fields: {

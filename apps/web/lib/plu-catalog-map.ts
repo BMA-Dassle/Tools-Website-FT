@@ -22,6 +22,13 @@ export function buildSquareLineItem(
     return {
       catalog_object_id: product.plu,
       quantity: String(product.qty),
+      // Group-function catalog variations are variably priced, so Square rejects the order
+      // ("variably priced and requires a value for base_price_money") unless we send an
+      // explicit price even when the line is catalog-linked.
+      base_price_money: {
+        amount: Math.round(product.price * 100),
+        currency: "USD",
+      },
     };
   }
 

@@ -82,3 +82,99 @@ export function stringifyWithRawIds(
 
   return body;
 }
+
+/**
+ * Default set of BMI/Pandora ID field names that must survive parsing as
+ * full-precision strings. These are the 17-digit identifiers that exceed
+ * Number.MAX_SAFE_INTEGER; every one is typed as `string` throughout the app.
+ */
+export const BMI_ID_FIELDS = [
+  "id",
+  "personId",
+  "personID",
+  "orderId",
+  "orderItemId",
+  "billId",
+  "billLineId",
+  "reservationId",
+  "projectId",
+  "guardianID",
+] as const;
+
+/**
+ * The INBOUND counterpart to `stringifyWithRawIds`.
+ *
+ * `JSON.parse` (and `Response.json()`, which uses it) silently rounds any
+ * unquoted integer above Number.MAX_SAFE_INTEGER — a 17-digit BMI id like
+ * `63000000003675359` is read back as `63000000003675360` (+1). A TypeScript
+ * annotation of `string` does NOT prevent this: the runtime value is a rounded
+ * `number`. The corruption happens the instant the body is parsed, BEFORE any
+ * outbound `stringifyWithRawIds` protection can run — so reading the response
+ * losslessly is the only fix.
+ *
+ * `parseWithRawIds` pre-quotes the numeric values of the named id fields in the
+ * raw JSON TEXT, then `JSON.parse`s. The quoted values come back as strings,
+ * preserving every digit. This is the generalized form of the `res.text()` +
+ * regex pattern already used by `bookRaceHeat()` / `extractRawOrderId`.
+ *
+ * Constraints / behavior:
+ * - Only the LISTED fields are quoted; all other JSON is untouched. Pass a
+ *   custom `idFields` to cover endpoint-specific names.
+ * - Values already quoted by the source (some BMI endpoints return string ids)
+ *   are left as-is — a `"` follows the colon, so the numeric branch never matches.
+ * - These fields are always identifiers, so quoting even a small value is safe
+ *   (downstream types them as `string`).
+ * - Like the existing `extractRawOrderId` regex, this matches on the raw text.
+ *   A string VALUE that embeds an escaped, fully-quoted `"orderId":123` token
+ *   could in theory be rewritten; BMI/Pandora payloads don't produce that shape,
+ *   and the risk is identical to the regex pattern already relied on in `data.ts`.
+ *
+ * @param jsonText  Raw response text (use `await res.text()`, never `res.json()`).
+ * @param idFields  Id field names to preserve. Defaults to {@link BMI_ID_FIELDS}.
+ */
+export function parseWithRawIds<T = unknown>(
+  jsonText: string,
+  idFields: readonly string[] = BMI_ID_FIELDS,
+): T {
+  let text = jsonText;
+  for (const field of idFields) {
+    // "field": 633...  ->  "field": "633..."
+    // The trailing `(\d+)` only matches an UNQUOTED number, so an id the source
+    // already quoted (a `"` after the colon) is skipped.
+    const re = new RegExp(`("${field}"\\s*:\\s*)(\\d+)`, "g");
+    text = text.replace(re, '$1"$2"');
+  }
+  return JSON.parse(text) as T;
+}
+
+/**
+ * Inverse of {@link parseWithRawIds}, for the read-modify-write pattern against
+ * BMI Office endpoints (GET a project → change one field → PUT it back).
+ *
+ * After `parseWithRawIds`, an object's id fields are full-precision STRINGS.
+ * `JSON.stringify` would then emit them as `"id":"633..."` (quoted), but BMI's
+ * project endpoints emit — and validate against — RAW NUMERIC tokens. This
+ * re-emits the listed id fields as raw numbers, producing a body byte-faithful
+ * to what the GET returned (minus whatever non-id field you intentionally
+ * changed). Precision is never lost: the digits came from a string, not a
+ * rounded `number`.
+ *
+ * Unlike {@link stringifyWithRawIds} (which injects a fixed set of top-level ids
+ * onto a payload), this rewrites EVERY occurrence, including nested ids such as
+ * `persons[].id` or `logs[].id`.
+ *
+ * @param obj       Object whose id fields are digit strings (e.g. from parseWithRawIds).
+ * @param idFields  Id field names to re-emit as numbers. Defaults to {@link BMI_ID_FIELDS}.
+ */
+export function serializeWithRawIds(
+  obj: unknown,
+  idFields: readonly string[] = BMI_ID_FIELDS,
+): string {
+  let body = JSON.stringify(obj);
+  for (const field of idFields) {
+    // "field":"633..."  ->  "field":633...   (null / non-digit values untouched)
+    const re = new RegExp(`("${field}"\\s*:\\s*)"(\\d+)"`, "g");
+    body = body.replace(re, "$1$2");
+  }
+  return body;
+}
