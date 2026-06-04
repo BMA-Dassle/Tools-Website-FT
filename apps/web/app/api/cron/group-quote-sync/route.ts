@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { sql, isDbConfigured } from "@/lib/db";
 import {
   updateGfQuoteDetails,
@@ -9,6 +10,7 @@ import {
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
 import { fetchReservationProducts, fetchReservationDetail, isTaxExempt } from "@/lib/hermes-client";
 import { subtotalCents, taxCents as computeTaxCents } from "@/lib/group-function-pricing";
+import { createDayofOrder } from "@/lib/group-function-dayof";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -126,13 +128,60 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Self-heal: create any missing day-of Square orders. createDayofOrder is best-effort at
+  // deposit time and was never retried, so a transient Square failure (or line_items not yet
+  // synced) left events with no day-of order — silently excluding them from the day-of payout
+  // cron. Backfill them here so every deposit-paid event always gets one.
+  let dayofBackfilled = 0;
+  if (!dryRun) {
+    try {
+      const missingDayof = (await q`
+        SELECT * FROM group_function_quotes
+        WHERE deposit_paid_at IS NOT NULL
+          AND (square_dayof_order_id IS NULL OR square_dayof_order_id = '')
+          AND status NOT IN ('cancelled', 'denied', 'expired')
+          AND event_date > NOW() - INTERVAL '1 day'
+        ORDER BY event_date ASC
+        LIMIT 10
+      `) as GroupFunctionQuote[];
+
+      for (const mq of missingDayof) {
+        try {
+          const orderId = await createDayofOrder(mq, randomBytes(8).toString("hex"));
+          if (orderId) {
+            await q`UPDATE group_function_quotes SET square_dayof_order_id = ${orderId}, updated_at = NOW()
+              WHERE id = ${mq.id} AND (square_dayof_order_id IS NULL OR square_dayof_order_id = '')`;
+            dayofBackfilled++;
+            console.log(
+              `[group-quote-sync] backfilled day-of order quote=${mq.id} order=${orderId}`,
+            );
+          } else {
+            console.error(`[group-quote-sync] day-of order backfill returned no id quote=${mq.id}`);
+          }
+        } catch (err) {
+          console.error(`[group-quote-sync] day-of order backfill failed quote=${mq.id}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error("[group-quote-sync] day-of backfill query failed:", err);
+    }
+  }
+
   console.log(
     `[group-quote-sync] checked=${quotes.length} updated=${updated} ` +
       `unchanged=${results.filter((r) => r.action === "unchanged").length}` +
-      (waiversSent > 0 ? ` waivers=${waiversSent}` : ""),
+      (waiversSent > 0 ? ` waivers=${waiversSent}` : "") +
+      (dayofBackfilled > 0 ? ` dayofBackfilled=${dayofBackfilled}` : ""),
   );
 
-  return NextResponse.json({ ok: true, checked: quotes.length, updated, waiversSent, results });
+  return NextResponse.json({
+    ok: true,
+    checked: quotes.length,
+    updated,
+    waiversSent,
+    dayofBackfilled,
+    results,
+  });
 }
 
 const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");

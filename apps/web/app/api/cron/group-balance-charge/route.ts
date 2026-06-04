@@ -4,6 +4,7 @@ import {
   getQuotesNeedingBalanceCharge,
   updateGfBalanceCharged,
   updateGfBalanceLinkSent,
+  updateGfBalancePrepaid,
   parseGiftCardIds,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
@@ -98,7 +99,13 @@ export async function GET(req: NextRequest) {
 async function processBalanceCharge(
   quote: GroupFunctionQuote,
 ): Promise<"auto_charged" | "link_sent"> {
-  if (quote.balance_cents <= 0) return "auto_charged";
+  if (quote.balance_cents <= 0) {
+    // Full-prepay (booked within 96h): entire amount taken at deposit, gift card already
+    // loaded. Nothing to charge — advance status so the day-of payout/close crons run.
+    // Without this, prepaid events stay 'deposit_paid' forever and never pay out day-of.
+    await updateGfBalancePrepaid(quote.id);
+    return "auto_charged";
+  }
 
   // Staleness check: warn if quote hasn't been updated in 30+ days
   const daysSinceUpdate = (Date.now() - new Date(quote.updated_at).getTime()) / 86_400_000;
