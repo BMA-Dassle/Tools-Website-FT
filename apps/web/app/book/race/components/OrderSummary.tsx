@@ -737,21 +737,20 @@ export default function OrderSummary({
         /* non-fatal */
       }
 
-      // Credit order — skip Square, confirm each bill directly with BMI
+      // Credit order — skip Square, confirm each bill server-side
       if (isCreditOrder) {
         const resNumbers: { billId: string; racer: string; resNum: string }[] = [];
         for (const bill of bills) {
           try {
-            const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${bill.billId},"depositKind":2}`;
-            const pcCk = getBookingClientKey();
-            const qs = new URLSearchParams({
-              endpoint: "payment/confirm",
-              ...(pcCk ? { clientKey: pcCk } : {}),
-            });
-            const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
+            const confirmRes = await fetch("/api/booking/confirm", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: confirmBody,
+              body: JSON.stringify({
+                billId: bill.billId,
+                amount: 0,
+                clientKey: getBookingClientKey() || undefined,
+                depositKind: 2,
+              }),
             });
             const confirmResult = await confirmRes.json();
             resNumbers.push({
@@ -759,12 +758,6 @@ export default function OrderSummary({
               racer: bill.racerName,
               resNum: confirmResult.reservationNumber || "",
             });
-            console.log(
-              "[payment/confirm credit]",
-              bill.billId,
-              bill.racerName,
-              confirmResult.reservationNumber,
-            );
           } catch {
             /* non-fatal */
           }

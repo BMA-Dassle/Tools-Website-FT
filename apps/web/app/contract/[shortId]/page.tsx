@@ -1,6 +1,12 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
-import { getGfQuoteByShortId, appendAuditLog } from "@/lib/group-function-db";
+import {
+  getGfQuoteByShortId,
+  appendAuditLog,
+  getContractVersions,
+  diffSnapshots,
+  type ContractVersion,
+} from "@/lib/group-function-db";
 import ContractClient from "./ContractClient";
 
 export default async function ContractPage(props: {
@@ -35,6 +41,26 @@ export default async function ContractPage(props: {
   const priorDepositCents = Math.round(
     priorPayments.reduce((sum, p) => sum + (p.amount || 0), 0) * 100,
   );
+
+  // Fetch contract versions for history display
+  const versions = await getContractVersions(quote.id).catch(() => [] as ContractVersion[]);
+
+  // Compute diffs between the two most recent versions for the "What Changed" card
+  let latestDiffs: Array<{ field: string; label: string; before: string; after: string }> = [];
+  let latestChanges: string[] = [];
+  if (versions.length >= 2) {
+    const prev = versions[versions.length - 2];
+    const curr = versions[versions.length - 1];
+    latestDiffs = diffSnapshots(prev.snapshot, curr.snapshot);
+    latestChanges = curr.changes || [];
+  }
+
+  const signedPdfHistory = (quote.signed_pdf_history ?? []) as Array<{
+    url: string;
+    signedAt: string | null;
+    archivedAt: string;
+    reason: string;
+  }>;
 
   return (
     <ContractClient
@@ -74,6 +100,26 @@ export default async function ContractPage(props: {
         isPostPaid: quote.approval_required || false,
         priorDepositCents:
           !quote.deposit_paid_at && quote.status === "contract_sent" ? priorDepositCents : 0,
+        savedCardLast4: quote.saved_card_last4,
+        savedCardBrand: quote.saved_card_brand,
+        versions: versions.map((v) => ({
+          versionNumber: v.version_number,
+          snapshot: {
+            ...v.snapshot,
+            line_items: v.snapshot.line_items as Array<{
+              name: string;
+              price: number;
+              qty: number;
+              total: number;
+            }>,
+          },
+          changes: v.changes,
+          trigger: v.trigger,
+          createdAt: v.created_at,
+        })),
+        latestDiffs,
+        latestChanges,
+        signedPdfHistory,
       }}
     />
   );

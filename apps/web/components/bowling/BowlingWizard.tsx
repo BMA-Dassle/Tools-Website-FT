@@ -2610,8 +2610,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             centerId: center.qamfId,
             kind,
             webOfferId: selectedSlot.webOfferId,
-            optionId: selectedSlot.optionId ?? selectedExperience?.qamfOptionId ?? undefined,
-            optionType: selectedSlot.optionType ?? selectedExperience?.qamfOptionType ?? undefined,
+            optionId: selectedExperience?.qamfOptionId ?? selectedSlot.optionId ?? undefined,
+            optionType: selectedExperience?.qamfOptionType ?? selectedSlot.optionType ?? undefined,
             bookedAt: selectedSlot.bookedAt,
             service: "BookForLater",
             players,
@@ -5101,9 +5101,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          setSelectedSlot(offerSlots[0]);
+                                          const slot = exp.qamfOptionId
+                                            ? { ...offerSlots[0], optionId: exp.qamfOptionId }
+                                            : offerSlots[0];
+                                          setSelectedSlot(slot);
                                           setSelectedExperienceId(exp.id);
-                                          if (!holdBusy) void createHold(offerSlots[0]);
+                                          if (!holdBusy) void createHold(slot);
                                         }}
                                         className="w-full rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.01]"
                                         style={{
@@ -5126,9 +5129,12 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                               key={s.bookedAt}
                                               type="button"
                                               onClick={() => {
-                                                setSelectedSlot(s);
+                                                const slot = exp.qamfOptionId
+                                                  ? { ...s, optionId: exp.qamfOptionId }
+                                                  : s;
+                                                setSelectedSlot(slot);
                                                 setSelectedExperienceId(exp.id);
-                                                if (!holdBusy) void createHold(s);
+                                                if (!holdBusy) void createHold(slot);
                                               }}
                                               className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
                                               style={{

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 
 interface GfQuote {
   id: number;
@@ -69,12 +70,23 @@ function fmtDate(iso: string): string {
   }
 }
 
+interface VersionEntry {
+  versionNumber: number;
+  changes: string[];
+  trigger: string;
+  createdAt: string;
+  diffs: Array<{ field: string; label: string; before: string; after: string }>;
+}
+
 export default function GroupFunctionsClient({ token }: { token: string }) {
   const [quotes, setQuotes] = useState<GfQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [historyQuoteId, setHistoryQuoteId] = useState<number | null>(null);
+  const [versions, setVersions] = useState<VersionEntry[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -94,6 +106,26 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
       setLoading(false);
     }
   }, [token, statusFilter]);
+
+  const loadVersions = useCallback(
+    async (quoteId: number) => {
+      setHistoryQuoteId(quoteId);
+      setVersionsLoading(true);
+      try {
+        const res = await fetch(
+          `/api/admin/group-functions/versions?token=${token}&quoteId=${quoteId}`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setVersions(data.versions ?? []);
+        }
+      } catch {
+        /* */
+      }
+      setVersionsLoading(false);
+    },
+    [token],
+  );
 
   useEffect(() => {
     void load();
@@ -383,6 +415,21 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                           PAY LINK
                         </a>
                       )}
+                      <button
+                        onClick={() => loadVersions(q.id)}
+                        style={{
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          fontSize: "0.65rem",
+                          fontWeight: 600,
+                          backgroundColor: "rgba(245,158,11,0.15)",
+                          color: "#f59e0b",
+                          border: "1px solid rgba(245,158,11,0.3)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        HISTORY
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -396,6 +443,130 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
         <p style={{ color: "#64748b", textAlign: "center", marginTop: "2rem" }}>
           No group function quotes found.
         </p>
+      )}
+
+      {/* Version History Modal */}
+      {historyQuoteId !== null && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 50,
+          }}
+          {...modalBackdropProps(() => setHistoryQuoteId(null))}
+        >
+          <div
+            style={{
+              backgroundColor: "#1e293b",
+              borderRadius: 12,
+              border: "1px solid rgba(148,163,184,0.2)",
+              maxWidth: 600,
+              width: "90%",
+              maxHeight: "80vh",
+              overflowY: "auto",
+              padding: "1.5rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "1rem",
+              }}
+            >
+              <h2 style={{ fontSize: "1.1rem", fontWeight: 700 }}>
+                Contract History — Quote #{historyQuoteId}
+              </h2>
+              <button
+                onClick={() => setHistoryQuoteId(null)}
+                style={{
+                  color: "#94a3b8",
+                  fontSize: "1.2rem",
+                  cursor: "pointer",
+                  background: "none",
+                  border: "none",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {versionsLoading && <p style={{ color: "#94a3b8" }}>Loading...</p>}
+
+            {!versionsLoading && versions.length === 0 && (
+              <p style={{ color: "#64748b" }}>No version history recorded yet.</p>
+            )}
+
+            {!versionsLoading && versions.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {versions.map((v) => (
+                  <div
+                    key={v.versionNumber}
+                    style={{
+                      padding: "0.75rem",
+                      borderRadius: 8,
+                      backgroundColor: "rgba(15,23,42,0.6)",
+                      border: "1px solid rgba(148,163,184,0.1)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "0.5rem",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                        Version {v.versionNumber}
+                      </span>
+                      <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                        {new Date(v.createdAt).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                        {" · "}
+                        {v.trigger}
+                      </span>
+                    </div>
+
+                    {v.diffs.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                        {v.diffs.map((d, i) => (
+                          <div key={i} style={{ fontSize: "0.75rem" }}>
+                            <span style={{ color: "#94a3b8" }}>{d.label}: </span>
+                            <span style={{ color: "#ef4444", textDecoration: "line-through" }}>
+                              {d.before}
+                            </span>
+                            <span style={{ color: "#64748b" }}> → </span>
+                            <span style={{ color: "#22c55e" }}>{d.after}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {v.diffs.length === 0 && v.changes.length > 0 && (
+                      <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                        {v.changes.join(", ")}
+                      </div>
+                    )}
+
+                    {v.diffs.length === 0 && v.changes.length === 0 && (
+                      <div style={{ fontSize: "0.75rem", color: "#64748b" }}>Initial version</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

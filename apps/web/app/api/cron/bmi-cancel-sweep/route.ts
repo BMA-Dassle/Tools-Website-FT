@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import https from "https";
+import { parseWithRawIds } from "@ft/db";
+import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -7,13 +9,23 @@ import { verifyCron } from "@/lib/cron-auth";
  *
  * BMI_AUTOCANCEL_WORKAROUND — remove when BMI fixes payment/confirm.
  *
- * Safety-net cron that scans the BMI Office dayplanner for online
- * reservations that have been cancelled (stateId=-4) despite having
- * an external online payment (payMethodId=42603617). Recovers them
- * by setting stateId back to -3 (Confirmation) via Pandora.
+ * BMI's payment/confirm has two known failure modes:
+ *   1. Auto-cancel: sets stateId=-4 (userUpdatedId=-1) despite successful payment
+ *   2. Stuck payment: state stays at -101 ("Payment started") and never
+ *      transitions to -3 (Confirmation), even though payment was recorded
  *
- * Runs every 5 minutes. Non-destructive: setting -3 on an already-
- * confirmed project is a no-op.
+ * This cron scans the BMI Office dayplanner for both states and recovers
+ * them by setting stateId to -3 (Confirmation) via Pandora.
+ *
+ * Runs every 5 minutes. Recovery (-3 on an already-confirmed project) is a no-op.
+ *
+ * RECOVERY GATE:
+ *   (A) confirmed booking-record in our DB
+ *   (B) stateId=-4 + userUpdatedId=-1 (auto-cancel) + has payment
+ *   (C) stateId=-101 (Payment started) + has online payment
+ * A booking-record explicitly marked cancelled/refunded is never recovered.
+ *
+ * ?dryRun=1 — inspect only: reports what WOULD be recovered/skipped, no writes.
  */
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
@@ -23,10 +35,19 @@ const OFFICE_PASS = OFFICE_PASS_B64
   ? Buffer.from(OFFICE_PASS_B64, "base64").toString()
   : process.env.BMI_OFFICE_PASSWORD || "";
 const SMS_VERSION = "6251006 202511051229";
-const CLIENT_KEY = "headpinzftmyers";
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
-const PANDORA_LOCATION = "LAB52GY480CJF";
+
+/**
+ * Both BMI instances. clientKey = Office API tenant; pandoraLocation = the
+ * location id Pandora's /reservation/state expects for that tenant.
+ * (Source: PANDORA_LOCATION_IDS / CLIENT_KEYS in lib/bmi-office-actions.ts.
+ * ftmyers racing recovers via the fasttrax location, matching prior behavior.)
+ */
+const CENTERS = [
+  { clientKey: "headpinzftmyers", pandoraLocation: "LAB52GY480CJF" },
+  { clientKey: "headpinznaples", pandoraLocation: "PPTR5G2N0QXF7" },
+] as const;
 
 function officeReq(
   method: string,
@@ -56,41 +77,123 @@ function officeReq(
   });
 }
 
-async function getOfficeToken(): Promise<string> {
+async function getOfficeToken(clientKey: string): Promise<string> {
   const res = await officeReq(
     "POST",
     "/auth/token",
     {
       "Content-Type": "application/x-www-form-urlencoded",
-      clientkey: CLIENT_KEY,
+      clientkey: clientKey,
       "x-fast-version": SMS_VERSION,
     },
     `grant_type=password&username=${OFFICE_USER}&password=${encodeURIComponent(OFFICE_PASS)}`,
   );
-  if (res.status !== 200) throw new Error(`Office auth failed: ${res.status}`);
+  if (res.status !== 200) throw new Error(`Office auth failed (${clientKey}): ${res.status}`);
   return JSON.parse(res.body).access_token;
 }
 
-export async function GET(req: NextRequest) {
-  const denied = verifyCron(req);
-  if (denied) return denied;
+interface DpProject {
+  id: string;
+  number: string;
+  name: string | null;
+  displayName: string | null;
+  stateId: string;
+  kindId: string;
+  personId: string;
+  date: string;
+  persons: number;
+}
 
-  const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const twoWeeksOut = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
+interface BookingRecord {
+  status?: string;
+  cancelledAt?: string;
+  refundedAt?: string;
+}
 
-  const token = await getOfficeToken();
+/**
+ * Look up our authoritative booking record for a BMI reservation number.
+ * bookingrecord:res:{number} -> billId -> bookingrecord:{billId} (full JSON).
+ * Redis failures are non-fatal (treated as "no record").
+ */
+async function lookupRecord(reservationNumber: string): Promise<BookingRecord | null> {
+  if (!reservationNumber) return null;
+  try {
+    const billId = await redis.get(`bookingrecord:res:${reservationNumber}`);
+    if (!billId) return null;
+    const raw = await redis.get(`bookingrecord:${billId}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as BookingRecord;
+  } catch (err) {
+    console.warn(`[bmi-cancel-sweep] booking-record lookup failed for ${reservationNumber}:`, err);
+    return null;
+  }
+}
+
+interface SkipEntry {
+  number: string;
+  reason: string;
+}
+interface RecoveryDetail {
+  wNumber: string;
+  guest: string;
+  projectId: string;
+  date: string;
+  stateId: string;
+  stateName: string;
+  cancelledBy: string;
+  cancelledByName: string;
+  reason: string;
+}
+
+// States that need recovery:
+//   -4   = Cancellation (auto-cancelled by BMI cron)
+//   -101 = Payment started (payment/confirm stuck mid-transition)
+//   -102 = Paid online (payment recorded but project not confirmed)
+const RECOVERABLE_STATES = new Set(["-4", "-101", "-102"]);
+interface CenterResult {
+  clientKey: string;
+  scannedProjects: number;
+  checked: number;
+  recovered: RecoveryDetail[];
+  wouldRecover: string[];
+  skipped: SkipEntry[];
+  error?: string;
+}
+
+async function sweepCenter(
+  center: (typeof CENTERS)[number],
+  today: string,
+  till: string,
+  dryRun: boolean,
+): Promise<CenterResult> {
+  const result: CenterResult = {
+    clientKey: center.clientKey,
+    scannedProjects: 0,
+    checked: 0,
+    recovered: [],
+    wouldRecover: [],
+    skipped: [],
+  };
+
+  let token: string;
+  try {
+    token = await getOfficeToken(center.clientKey);
+  } catch (err) {
+    result.error = err instanceof Error ? err.message : "auth failed";
+    return result;
+  }
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
-    "x-session-id": `sweep-${Date.now()}`,
-    clientkey: CLIENT_KEY,
+    "x-session-id": `sweep-${center.clientKey}`,
+    clientkey: center.clientKey,
   };
 
-  // Get all resource IDs
-  const metaRes = await officeReq("GET", `/api/${CLIENT_KEY}/metadata`, headers);
+  // Resource ids for the dayplanner query.
+  const metaRes = await officeReq("GET", `/api/${center.clientKey}/metadata`, headers);
   if (metaRes.status >= 400) {
-    return NextResponse.json({ error: "metadata failed" }, { status: 502 });
+    result.error = `metadata ${metaRes.status}`;
+    return result;
   }
   const meta = JSON.parse(metaRes.body);
   const ids = new Set<string>();
@@ -100,66 +203,121 @@ export async function GET(req: NextRequest) {
   }
   const resourceParam = [...ids].map((id) => `resourceIds=${id}`).join("&");
 
-  // Scan dayplanner
   const dpRes = await officeReq(
     "GET",
-    `/api/${CLIENT_KEY}/dayPlanner?${resourceParam}&from=${today}&till=${twoWeeksOut}&showAll=true`,
+    `/api/${center.clientKey}/dayPlanner?${resourceParam}&from=${today}&till=${till}&showAll=true`,
     headers,
   );
   if (dpRes.status >= 400) {
-    return NextResponse.json({ error: "dayplanner failed" }, { status: 502 });
+    result.error = `dayplanner ${dpRes.status}`;
+    return result;
   }
 
-  interface DpProject {
-    id: string;
-    number: string;
-    name: string | null;
-    displayName: string | null;
-    stateId: string;
-    kindId: string;
-    personId: string;
-    date: string;
-    persons: number;
-  }
+  // Lossless parse — some personIds are 17-digit and would round under JSON.parse.
+  const dp = parseWithRawIds<{ reservations?: { projects?: DpProject[] } }>(dpRes.body);
+  const projects = dp.reservations?.projects || [];
 
-  const dp = JSON.parse(dpRes.body);
-  const projects: DpProject[] = dp.reservations?.projects || [];
-
-  // Filter: cancelled + named + future
+  result.scannedProjects = projects.length;
   const cutoff = new Date(today + "T00:00:00");
-  const cancelled = projects.filter((p) => {
-    if (String(p.stateId) !== "-4") return false;
-    const name = (p.name || p.displayName || "").trim();
-    if (name === "Online" || name === "") return false;
-    if (String(p.personId) === "-6") return false;
-    return new Date(p.date) >= cutoff;
-  });
+  const needsRecovery = projects.filter(
+    (p) => RECOVERABLE_STATES.has(String(p.stateId)) && new Date(p.date) >= cutoff,
+  );
+  result.checked = needsRecovery.length;
 
-  // Check each for external online payment
-  const recovered: string[] = [];
-  const checked = cancelled.length;
+  // Count by state for logging
+  const byCancelledState: Record<string, number> = {};
+  for (const p of needsRecovery) {
+    const s = String(p.stateId);
+    byCancelledState[s] = (byCancelledState[s] || 0) + 1;
+  }
 
-  for (const p of cancelled) {
-    const orderId = String(p.id);
-    const projRes = await officeReq("GET", `/api/${CLIENT_KEY}/project/${orderId}`, headers);
-    if (projRes.status >= 400) continue;
+  console.log(
+    `[bmi-cancel-sweep] ${center.clientKey}: ${projects.length} projects, ` +
+      `${needsRecovery.length} need recovery ` +
+      `(${
+        Object.entries(byCancelledState)
+          .map(([k, v]) => `state${k}=${v}`)
+          .join(", ") || "none"
+      })`,
+  );
 
-    const proj = JSON.parse(projRes.body);
-    const payments = (proj.payments || []) as Array<{
-      payMethodId: string;
-      deviceCreated: string;
-      userCreatedId: string;
-    }>;
+  for (const p of needsRecovery) {
+    const num = String(p.number || "");
+    const pStateId = String(p.stateId);
+    const record = await lookupRecord(num);
+    const recordStatus = record?.status;
+    const recordCancelled =
+      !!record &&
+      (recordStatus === "cancelled" ||
+        recordStatus === "refunded" ||
+        !!record.cancelledAt ||
+        !!record.refundedAt);
+    const recordConfirmed = recordStatus === "confirmed";
+
+    // Read userUpdatedId + payments from the full project entity.
+    const projRes = await officeReq("GET", `/api/${center.clientKey}/project/${p.id}`, headers);
+    if (projRes.status >= 400) {
+      result.skipped.push({ number: num, reason: `project GET ${projRes.status}` });
+      continue;
+    }
+    const proj = parseWithRawIds<{
+      userUpdatedId?: string | number;
+      payments?: Array<{ payMethodId?: string | number; deviceCreated?: string; amount?: number }>;
+    }>(projRes.body);
+    const userUpdatedId = String(proj.userUpdatedId ?? "");
+    const payments = Array.isArray(proj.payments) ? proj.payments : [];
+    const hasPayment = payments.length > 0;
     const hasOnlinePayment = payments.some(
       (pay) =>
         String(pay.payMethodId) === "42603617" ||
         pay.deviceCreated === "Online Booking" ||
-        String(pay.userCreatedId) === "-17",
+        pay.deviceCreated === "Online Office",
     );
+    const isAutoCancel = userUpdatedId === "-1";
 
-    if (!hasOnlinePayment) continue;
+    // Recovery gate — depends on the stuck state.
+    let recover = false;
+    let reason: string;
+    if (recordCancelled) {
+      reason = `intentional: booking-record ${recordStatus || "cancelled"}`;
+    } else if ((pStateId === "-101" || pStateId === "-102") && hasOnlinePayment) {
+      // -101 Payment started / -102 Paid online + online payment = stuck
+      recover = true;
+      reason = `C: state ${pStateId} + online payment`;
+    } else if (recordConfirmed) {
+      recover = true;
+      reason = "A: confirmed booking-record";
+    } else if (isAutoCancel && hasPayment) {
+      recover = true;
+      reason = "B: userUpdatedId=-1 + payment";
+    } else if (pStateId === "-101" || pStateId === "-102") {
+      reason = `state ${pStateId} but no online payment (pay=${hasPayment})`;
+    } else {
+      reason = `no-gate (state=${pStateId}, uu=${userUpdatedId || "?"}, pay=${hasPayment}, rec=${recordStatus || "none"})`;
+    }
 
-    // Recover via Pandora
+    const guest = (p.displayName || p.name || "?").trim();
+    const label = `${num} "${guest}"`;
+    const cancelledByName =
+      userUpdatedId === "-1"
+        ? "SYSTEM_CRON"
+        : userUpdatedId === "-17"
+          ? "ONLINE_BOOKING"
+          : userUpdatedId
+            ? `user_${userUpdatedId}`
+            : "unknown";
+
+    if (!recover) {
+      result.skipped.push({ number: num, reason });
+      continue;
+    }
+    if (dryRun) {
+      result.wouldRecover.push(`${label} [${reason}]`);
+      continue;
+    }
+
+    // Recover: reset to Confirmation (-3) via Pandora. projectId is the exact
+    // (string) project id from the dayplanner.
     try {
       const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/state`, {
         method: "POST",
@@ -168,24 +326,105 @@ export async function GET(req: NextRequest) {
           Authorization: `Bearer ${PANDORA_KEY}`,
         },
         body: JSON.stringify({
-          locationID: PANDORA_LOCATION,
-          projectId: orderId,
+          locationID: center.pandoraLocation,
+          projectId: String(p.id),
           stateID: "-3",
         }),
         signal: AbortSignal.timeout(10_000),
       });
       if (pandoraRes.ok) {
-        recovered.push(`${p.number} ${(p.displayName || p.name || "?").trim()}`);
-        console.log(`[bmi-cancel-sweep] recovered ${p.number} (${orderId})`);
+        const stateNames: Record<string, string> = {
+          "-4": "Cancellation",
+          "-100": "Pending online",
+          "-101": "Payment started",
+          "-102": "Paid online",
+        };
+        const detail: RecoveryDetail = {
+          wNumber: num,
+          guest,
+          projectId: String(p.id),
+          date: p.date,
+          stateId: pStateId,
+          stateName: stateNames[pStateId] || pStateId,
+          cancelledBy: userUpdatedId,
+          cancelledByName,
+          reason,
+        };
+        result.recovered.push(detail);
+        console.log(
+          `[bmi-cancel-sweep] RECOVERED ${label} project=${p.id} date=${p.date} ` +
+            `state=${pStateId}(${stateNames[pStateId] || "?"}) ` +
+            `cancelledBy=${cancelledByName} gate=${reason}`,
+        );
+
+        // Persist to Redis for BMI evidence
+        try {
+          const logEntry = JSON.stringify({
+            ...detail,
+            center: center.clientKey,
+            recoveredAt: new Date().toISOString(),
+            payments: payments.map((pay) => ({
+              amount: pay.amount,
+              payMethodId: String(pay.payMethodId ?? ""),
+              device: pay.deviceCreated ?? "",
+            })),
+          });
+          await redis.lpush("bmi:sweep:log", logEntry);
+          await redis.ltrim("bmi:sweep:log", 0, 999);
+        } catch {
+          // Redis failure is non-fatal
+        }
+      } else {
+        result.skipped.push({ number: num, reason: `recover failed ${pandoraRes.status}` });
       }
     } catch (err) {
-      console.error(`[bmi-cancel-sweep] failed to recover ${p.number}:`, err);
+      console.error(`[bmi-cancel-sweep] recover error ${label}:`, err);
+      result.skipped.push({ number: num, reason: "recover exception" });
     }
   }
 
+  return result;
+}
+
+export async function GET(req: NextRequest) {
+  const denied = verifyCron(req);
+  if (denied) return denied;
+
+  const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const till = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
+
+  const centers: CenterResult[] = [];
+  for (const center of CENTERS) {
+    try {
+      centers.push(await sweepCenter(center, today, till, dryRun));
+    } catch (err) {
+      centers.push({
+        clientKey: center.clientKey,
+        scannedProjects: 0,
+        checked: 0,
+        recovered: [],
+        wouldRecover: [],
+        skipped: [],
+        error: err instanceof Error ? err.message : "sweep failed",
+      });
+    }
+  }
+
+  const totalRecovered = centers.reduce((s, c) => s + c.recovered.length, 0);
+  if (totalRecovered === 0) {
+    console.log(
+      `[bmi-cancel-sweep] clean run — ${centers.reduce((s, c) => s + c.checked, 0)} cancelled checked, 0 recoveries`,
+    );
+  }
+
   return NextResponse.json({
-    checked,
-    recovered: recovered.length,
-    recoveredList: recovered,
+    dryRun,
+    scannedProjects: centers.reduce((s, c) => s + c.scannedProjects, 0),
+    checked: centers.reduce((s, c) => s + c.checked, 0),
+    recovered: totalRecovered,
+    wouldRecover: centers.reduce((s, c) => s + c.wouldRecover.length, 0),
+    centers,
   });
 }

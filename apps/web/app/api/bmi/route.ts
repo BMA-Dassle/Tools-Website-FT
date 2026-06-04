@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import https from "https";
+import redis from "@/lib/redis";
 
 // ── Config from env ───────────────────────────────────────────────────────────
 
@@ -137,6 +139,182 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// ── Office API (SMS-Timing) — post-confirm state verification ────────────────
+
+const OFFICE_HOST = "office-api22.sms-timing.com";
+const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "";
+const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "";
+const OFFICE_PASS = OFFICE_PASS_B64
+  ? Buffer.from(OFFICE_PASS_B64, "base64").toString()
+  : process.env.BMI_OFFICE_PASSWORD || "";
+const SMS_VERSION = "6251006 202511051229";
+
+function officeReq(
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+  body?: string,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      hostname: OFFICE_HOST,
+      path,
+      method,
+      headers: { ...headers, "Content-Type": "application/json" },
+    };
+    const r = https.request(opts, (res) => {
+      let data = "";
+      res.on("data", (c: string) => (data += c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 500, body: data }));
+    });
+    r.on("error", reject);
+    r.setTimeout(15_000, () => {
+      r.destroy();
+      reject(new Error("Timeout"));
+    });
+    if (body) r.write(body);
+    r.end();
+  });
+}
+
+let officeTokenCache: { token: string; expiry: number; clientKey: string } | null = null;
+
+async function getOfficeToken(clientKey: string): Promise<string> {
+  if (
+    officeTokenCache &&
+    officeTokenCache.clientKey === clientKey &&
+    Date.now() < officeTokenCache.expiry - 60_000
+  ) {
+    return officeTokenCache.token;
+  }
+  const res = await officeReq(
+    "POST",
+    "/auth/token",
+    {
+      "Content-Type": "application/x-www-form-urlencoded",
+      clientkey: clientKey,
+      "x-fast-version": SMS_VERSION,
+    },
+    `grant_type=password&username=${OFFICE_USER}&password=${encodeURIComponent(OFFICE_PASS)}`,
+  );
+  if (res.status !== 200) throw new Error(`Office auth: ${res.status}`);
+  const data = JSON.parse(res.body);
+  const token = data.access_token;
+  officeTokenCache = { token, clientKey, expiry: Date.now() + 3500_000 };
+  return token;
+}
+
+/**
+ * After payment/confirm returns 200, check BMI's own Office API to see
+ * what state the project is actually in. Logs the result to Redis as
+ * irrefutable evidence of the orderId/projectId mismatch and stuck states.
+ */
+async function verifyPostConfirm(
+  clientKey: string,
+  orderId: string,
+  wNumber: string,
+): Promise<void> {
+  try {
+    const token = await getOfficeToken(clientKey);
+    const h: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "x-fast-version": SMS_VERSION,
+      "x-session-id": `verify-${Date.now()}`,
+      clientkey: clientKey,
+    };
+
+    // 1. Search by W-number to find the projectId
+    const searchRes = await officeReq(
+      "GET",
+      `/api/${clientKey}/search?token=${wNumber}&maxResults=3`,
+      h,
+    );
+    const searchResults = searchRes.status < 400 ? JSON.parse(searchRes.body) : [];
+    const projectResult = Array.isArray(searchResults)
+      ? searchResults.find((r: { kind?: number }) => r.kind === 2)
+      : null;
+    const projectId = projectResult?.localId ? String(projectResult.localId) : null;
+
+    // 2. Fetch project at orderId (what booking/book returned)
+    const projAtOrderId = await officeReq("GET", `/api/${clientKey}/project/${orderId}`, h);
+
+    // 3. Fetch project at projectId (what search returned)
+    let projAtProjectId: { status: number; body: string } | null = null;
+    if (projectId && projectId !== orderId) {
+      projAtProjectId = await officeReq("GET", `/api/${clientKey}/project/${projectId}`, h);
+    }
+
+    function extractState(res: { status: number; body: string } | null) {
+      if (!res || res.status >= 400)
+        return { httpStatus: res?.status ?? 0, stateId: null, userUpdatedId: null };
+      try {
+        const p = JSON.parse(res.body);
+        return {
+          httpStatus: res.status,
+          stateId: String(p.stateId ?? "?"),
+          userUpdatedId: String(p.userUpdatedId ?? "?"),
+        };
+      } catch {
+        return { httpStatus: res.status, stateId: null, userUpdatedId: null };
+      }
+    }
+
+    const orderIdState = extractState(projAtOrderId);
+    const projectIdState = projectId ? extractState(projAtProjectId) : null;
+
+    const stateNames: Record<string, string> = {
+      "-1": "New",
+      "-2": "Reservation",
+      "-3": "Confirmation",
+      "-4": "Cancellation",
+      "-5": "Arrived",
+      "-100": "Pending online",
+      "-101": "Payment started",
+      "-102": "Paid online",
+    };
+
+    const logEntry = {
+      type: "post-confirm-verify",
+      timestamp: new Date().toISOString(),
+      clientKey,
+      wNumber,
+      orderId,
+      projectId,
+      orderIdMatchesProjectId: orderId === projectId,
+      offset: projectId ? String(BigInt(projectId) - BigInt(orderId)) : null,
+      orderIdLookup: {
+        ...orderIdState,
+        stateName: stateNames[orderIdState.stateId ?? ""] || orderIdState.stateId,
+      },
+      projectIdLookup: projectIdState
+        ? {
+            ...projectIdState,
+            stateName: stateNames[projectIdState.stateId ?? ""] || projectIdState.stateId,
+          }
+        : null,
+      isConfirmed: orderIdState.stateId === "-3" || projectIdState?.stateId === "-3",
+      verdict:
+        orderIdState.stateId === "-3" || projectIdState?.stateId === "-3"
+          ? "OK — project in Confirmation"
+          : orderId !== projectId
+            ? `BUG — orderId≠projectId (offset ${projectId ? BigInt(projectId) - BigInt(orderId) : "?"}), ` +
+              `neither in Confirmation (orderId=${orderIdState.stateId}, projectId=${projectIdState?.stateId})`
+            : `BUG — payment/confirm returned 200 but project state is ${orderIdState.stateId} (${stateNames[orderIdState.stateId ?? ""] || "?"})`,
+    };
+
+    await redis.lpush("bmi:api:log", JSON.stringify(logEntry));
+    await redis.ltrim("bmi:api:log", 0, 4999);
+
+    console.log(
+      `[post-confirm-verify] ${wNumber} orderId=${orderId} projectId=${projectId || "same"} ` +
+        `offset=${logEntry.offset || "0"} orderIdState=${orderIdState.stateId} ` +
+        `projectIdState=${projectIdState?.stateId || "n/a"} → ${logEntry.isConfirmed ? "OK" : "BUG"}`,
+    );
+  } catch (err) {
+    console.error("[post-confirm-verify] failed:", err);
+  }
+}
+
 // ── POST handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -164,9 +342,6 @@ export async function POST(req: NextRequest) {
     // Pass request body as raw text to avoid JSON number precision loss on orderId
     const bodyStr = await req.text();
     console.log(`[BMI POST] ${url}`);
-    if (endpoint.startsWith("booking/book")) {
-      console.log(`[BMI POST body] ${bodyStr.substring(0, 500)}`);
-    }
 
     const upstream = await fetch(url, {
       method: "POST",
@@ -175,11 +350,55 @@ export async function POST(req: NextRequest) {
       cache: "no-store",
     });
 
-    // Return raw text for booking endpoints to avoid JSON number precision loss
-    // (orderId values exceed Number.MAX_SAFE_INTEGER)
     const rawText = await upstream.text();
-    if (endpoint.startsWith("booking/")) {
-      console.log(`[BMI POST response] ${rawText.substring(0, 500)}`);
+    console.log(`[BMI POST] ${endpoint} → ${upstream.status} (${rawText.length} bytes)`);
+
+    // Log all booking-related calls to Redis for BMI evidence
+    const LOGGED_ENDPOINTS = [
+      "booking/book",
+      "booking/sell",
+      "booking/memo",
+      "booking/removeItem",
+      "payment/confirm",
+      "person/registerContactPerson",
+      "person/registerProjectPerson",
+    ];
+    const orderIdMatch = bodyStr.match(/"orderId"\s*:\s*(\d+)/);
+    const resNumMatch = rawText.match(/"reservationNumber"\s*:\s*"(W\d+)"/);
+    const personIdMatch = bodyStr.match(/"personId"\s*:\s*(\d+)/);
+
+    if (LOGGED_ENDPOINTS.some((e) => endpoint.startsWith(e))) {
+      try {
+        const logEntry = JSON.stringify({
+          endpoint,
+          timestamp: new Date().toISOString(),
+          clientKey,
+          httpStatus: upstream.status,
+          orderId: orderIdMatch?.[1] || null,
+          wNumber: resNumMatch?.[1] || null,
+          personId: personIdMatch?.[1] || null,
+          request: bodyStr.substring(0, 1000),
+          response: rawText.substring(0, 1000),
+        });
+        await redis.lpush("bmi:api:log", logEntry);
+        await redis.ltrim("bmi:api:log", 0, 4999);
+      } catch {
+        // Redis failure is non-fatal
+      }
+    }
+
+    // After successful payment/confirm, verify the project state via
+    // BMI's own Office API and log the result. This is the smoking gun:
+    // "Your API said 200 OK but your Office shows state -101."
+    if (
+      endpoint === "payment/confirm" &&
+      upstream.status === 200 &&
+      orderIdMatch?.[1] &&
+      resNumMatch?.[1]
+    ) {
+      // Brief delay to let BMI's internal state settle
+      await new Promise((r) => setTimeout(r, 2000));
+      await verifyPostConfirm(clientKey, orderIdMatch[1], resNumMatch[1]);
     }
     return new NextResponse(rawText, {
       status: upstream.status,

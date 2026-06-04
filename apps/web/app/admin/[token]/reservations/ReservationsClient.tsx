@@ -2507,10 +2507,29 @@ export default function ReservationsClient({ token }: { token: string }) {
                             marginTop: 4,
                           }}
                         >
-                          <span style={{ color: "#22c55e", fontWeight: 600 }}>
+                          <span
+                            style={{
+                              color: ge.depositPaidAt ? "#22c55e" : "#94a3b8",
+                              fontWeight: 600,
+                            }}
+                          >
                             Deposit: {fmtD(ge.depositDueCents)}
+                            {ge.depositPaidAt ? " ✓ Paid" : ""}
                           </span>
-                          <span>Balance: {fmtD(ge.balanceCents)}</span>
+                          <span
+                            style={{
+                              color:
+                                ge.balanceCents > 0 && !ge.balancePaidAt
+                                  ? "#f59e0b"
+                                  : ge.balancePaidAt
+                                    ? "#22c55e"
+                                    : undefined,
+                            }}
+                          >
+                            Balance{!ge.balancePaidAt && ge.balanceCents > 0 ? " Due" : ""}:{" "}
+                            {fmtD(ge.balanceCents)}
+                            {ge.balancePaidAt ? " ✓ Paid" : ""}
+                          </span>
                           <span style={{ fontWeight: 700 }}>Total: {fmtD(ge.totalCents)}</span>
                         </div>
                         <div

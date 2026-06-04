@@ -13,7 +13,7 @@ import {
   loadGiftCard,
   SquarePaymentError,
 } from "@/lib/square-gift-card";
-import { buildSquareLineItem } from "@/lib/plu-catalog-map";
+import { createDayofOrder } from "@/lib/group-function-dayof";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
@@ -222,6 +222,8 @@ export async function POST(req: NextRequest) {
     // The nonce is consumed by the payment; the paymentId is the handle to save from.
     // See: https://developer.squareup.com/docs/cards-api/walkthrough/card-from-payment-id
     let savedCardId: string | undefined;
+    let savedCardLast4: string | undefined;
+    let savedCardBrand: string | undefined;
     let squareCustomerId: string | undefined;
 
     const custResult = await findOrCreateSquareCustomer(quote);
@@ -240,7 +242,11 @@ export async function POST(req: NextRequest) {
       const cardData = await cardRes.json();
       if (cardRes.ok && cardData.card?.id) {
         savedCardId = cardData.card.id;
-        console.log(`[gf-deposit] card saved: ${savedCardId} for customer ${squareCustomerId}`);
+        savedCardLast4 = cardData.card.last_4 || undefined;
+        savedCardBrand = cardData.card.card_brand || undefined;
+        console.log(
+          `[gf-deposit] card saved: ${savedCardId} (${savedCardBrand} ...${savedCardLast4}) for customer ${squareCustomerId}`,
+        );
       } else {
         console.error("[gf-deposit] card save FAILED:", JSON.stringify(cardData).slice(0, 500));
       }
@@ -258,6 +264,15 @@ export async function POST(req: NextRequest) {
       deposit_paid_at: new Date().toISOString(),
       balance_cents: quote.total_cents - quote.deposit_due_cents,
     });
+
+    if (savedCardLast4 || savedCardBrand) {
+      const { sql: sqlFn } = await import("@/lib/db");
+      const q = sqlFn();
+      await q`UPDATE group_function_quotes SET
+        saved_card_last4 = ${savedCardLast4 ?? null},
+        saved_card_brand = ${savedCardBrand ?? null}
+      WHERE id = ${quote.id}`;
+    }
 
     // Notify guest + planner (non-blocking)
     const updatedQuote = await getGfQuoteByShortId(quote.contract_short_id!);
@@ -422,6 +437,8 @@ async function handleLegacyDeposit(
 
     // 5. Save card on file
     let savedCardId: string | undefined;
+    let savedCardLast4: string | undefined;
+    let savedCardBrand: string | undefined;
 
     if (depositPaymentId && squareCustomerId) {
       // Card was charged — save from payment ID
@@ -437,6 +454,8 @@ async function handleLegacyDeposit(
       const cardData = await cardRes.json();
       if (cardRes.ok && cardData.card?.id) {
         savedCardId = cardData.card.id;
+        savedCardLast4 = cardData.card.last_4 || undefined;
+        savedCardBrand = cardData.card.card_brand || undefined;
       } else {
         console.error("[gf-deposit-legacy] card save from payment failed:", cardData);
       }
@@ -478,6 +497,8 @@ async function handleLegacyDeposit(
         const cardData = await cardRes.json();
         if (cardRes.ok && cardData.card?.id) {
           savedCardId = cardData.card.id;
+          savedCardLast4 = cardData.card.last_4 || undefined;
+          savedCardBrand = cardData.card.card_brand || undefined;
           console.log(`[gf-deposit-legacy] card saved (no charge): ${savedCardId}`);
         } else {
           console.error("[gf-deposit-legacy] card save from nonce failed:", cardData);
@@ -505,10 +526,14 @@ async function handleLegacyDeposit(
       balance_cents: balanceCents,
     });
 
-    // Also update deposit_due_cents to reflect actual deposited amount
+    // Also update deposit_due_cents + card display info
     const { sql } = await import("@/lib/db");
     const q = sql();
-    await q`UPDATE group_function_quotes SET deposit_due_cents = ${totalDeposited} WHERE id = ${quote.id}`;
+    await q`UPDATE group_function_quotes SET
+      deposit_due_cents = ${totalDeposited},
+      saved_card_last4 = ${savedCardLast4 ?? null},
+      saved_card_brand = ${savedCardBrand ?? null}
+    WHERE id = ${quote.id}`;
 
     // 7. Notify + BMI Office notes
     const updatedQuote = await getGfQuoteByShortId(quote.contract_short_id!);
@@ -635,82 +660,5 @@ async function findOrCreateSquareCustomer(quote: {
   return null;
 }
 
-async function createDayofOrder(
-  quote: GroupFunctionQuote,
-  baseKey: string,
-): Promise<string | undefined> {
-  const rawItems = quote.line_items as Array<{
-    name: string;
-    price: number;
-    tax: number;
-    qty: number;
-    total: number;
-    plu: string;
-  }>;
-  const serviceCharges =
-    quote.tax_cents > 0
-      ? [
-          {
-            name: "Service Charge",
-            amount_money: { amount: quote.tax_cents, currency: "USD" },
-            calculation_phase: "SUBTOTAL_PHASE",
-          },
-        ]
-      : [];
-  const refId = `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40);
-
-  // Attempt 1: catalog-linked line items (PLU → catalog_object_id)
-  try {
-    const lineItems = rawItems.map((p) => buildSquareLineItem(quote.center_code, p));
-    const res = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-dayof-${baseKey}`,
-        order: {
-          location_id: quote.square_location_id,
-          reference_id: refId,
-          line_items: lineItems,
-          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
-        },
-      }),
-    });
-    const data = await res.json();
-    if (res.ok && data.order?.id) return data.order.id;
-    console.warn("[gf-deposit] catalog day-of order failed, falling back to ad-hoc:", data);
-  } catch (err) {
-    console.warn("[gf-deposit] catalog day-of order error, falling back to ad-hoc:", err);
-  }
-
-  // Attempt 2: ad-hoc line items (name + price, no catalog link)
-  try {
-    const adHocItems = rawItems.map((p) => ({
-      name: p.name,
-      quantity: String(p.qty),
-      base_price_money: { amount: Math.round(p.price * 100), currency: "USD" },
-    }));
-    const res = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-dayof-adhoc-${baseKey}`,
-        order: {
-          location_id: quote.square_location_id,
-          reference_id: refId,
-          line_items: adHocItems,
-          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
-        },
-      }),
-    });
-    const data = await res.json();
-    if (res.ok && data.order?.id) {
-      console.log("[gf-deposit] day-of order created via ad-hoc fallback:", data.order.id);
-      return data.order.id;
-    }
-    console.error("[gf-deposit] ad-hoc day-of order also failed:", data);
-  } catch (err) {
-    console.error("[gf-deposit] ad-hoc day-of order error:", err);
-  }
-
-  return undefined;
-}
+// createDayofOrder moved to @/lib/group-function-dayof (shared with the group-quote-sync
+// self-heal backfill so a deposit-time failure is retried instead of orphaning the event).

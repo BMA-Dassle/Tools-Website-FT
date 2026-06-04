@@ -674,20 +674,15 @@ export default function GroupEventPage() {
         }
       }
 
-      // Close the combined bill at $0 — use raw string injection to avoid
-      // Number() precision loss on large BMI orderIds (see CLAUDE.md)
+      // Server-side idempotent confirm — safe against double-fires
       if (orderId) {
-        const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${orderId},"depositKind":2}`;
-        const confirmRes = await fetch(
-          "/api/bmi?" + new URLSearchParams({ endpoint: "payment/confirm" }),
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: confirmBody,
-          },
-        );
+        const confirmRes = await fetch("/api/booking/confirm", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ billId: orderId, amount: 0, depositKind: 2 }),
+        });
         if (!confirmRes.ok) {
-          console.error("[group-event] payment/confirm failed:", await confirmRes.text());
+          console.error("[group-event] confirm failed:", await confirmRes.text());
         }
       }
 

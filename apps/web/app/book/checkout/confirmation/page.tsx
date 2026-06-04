@@ -36,14 +36,11 @@ export default function CheckoutConfirmation() {
           /* skip */
         }
 
-        // Confirm payment
-        const depositKind = amount === 0 ? 2 : 0;
-        const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${amount},"orderId":${billId},"depositKind":${depositKind}}`;
-        const qs = new URLSearchParams({ endpoint: "payment/confirm" });
-        const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
+        // Server-side idempotent confirm — safe against page reloads
+        const confirmRes = await fetch("/api/booking/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: confirmBody,
+          body: JSON.stringify({ billId, amount }),
         });
         const result = await confirmRes.json();
         if (result.reservationNumber) {

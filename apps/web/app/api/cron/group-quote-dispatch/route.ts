@@ -12,6 +12,8 @@ import {
   getGfQuoteByShortId,
   updateGfContractSent,
   updateGfQuoteDetails,
+  createContractVersion,
+  extractContractSnapshot,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import {
@@ -229,6 +231,12 @@ async function processQueueItem(
       existingProducts.length === item.products.length;
 
     if (pricingUnchanged) {
+      await createContractVersion({
+        quoteId: existing.id,
+        snapshot: extractContractSnapshot(existing),
+        changes: ["contact/notes update (pricing unchanged)"],
+        trigger: "dispatch_cron",
+      }).catch((err) => console.warn("[group-quote-dispatch] snapshot error:", err));
       await updateGfQuoteDetails(existing.id, {
         guest_first_name: item.customer.first,
         guest_last_name: item.customer.last,
@@ -294,6 +302,16 @@ async function processQueueItem(
   ) {
     const priceChanged = existing.total_cents !== totalCents;
     const balanceCents = totalCents - existing.deposit_due_cents;
+    const postSignChanges: string[] = [];
+    if (priceChanged) postSignChanges.push(`total: ${existing.total_cents} → ${totalCents}`);
+    if (existing.event_name !== item.event.name)
+      postSignChanges.push(`event_name: ${existing.event_name} → ${item.event.name}`);
+    await createContractVersion({
+      quoteId: existing.id,
+      snapshot: extractContractSnapshot(existing),
+      changes: postSignChanges.length > 0 ? postSignChanges : ["post-sign data update"],
+      trigger: "dispatch_cron",
+    }).catch((err) => console.warn("[group-quote-dispatch] snapshot error:", err));
     await updateGfQuoteDetails(existing.id, {
       event_name: item.event.name,
       event_number: item.event.number,
@@ -329,6 +347,18 @@ async function processQueueItem(
         venue: center.centerCode,
         status: "resign_required",
       });
+      // Notify guest + planner that re-signature is needed
+      try {
+        const refreshed = await getGfQuoteByShortId(existing.contract_short_id!);
+        if (refreshed) {
+          notifyContractUpdated(refreshed).catch((err) =>
+            console.error("[group-quote-dispatch] resign notify error:", err),
+          );
+        }
+      } catch {
+        /* non-fatal */
+      }
+
       console.log(
         `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
           `(was ${existing.total_cents} → now ${totalCents})`,
@@ -452,6 +482,15 @@ async function processQueueItem(
 
   let quoteId: number;
   if (existing) {
+    await createContractVersion({
+      quoteId: existing.id,
+      snapshot: extractContractSnapshot(existing),
+      changes:
+        existing.total_cents !== totalCents
+          ? [`total: ${existing.total_cents} → ${totalCents}`]
+          : ["pre-sign re-dispatch"],
+      trigger: "dispatch_cron",
+    }).catch((err) => console.warn("[group-quote-dispatch] snapshot error:", err));
     await updateGfQuoteDetails(existing.id, {
       event_name: eventName,
       event_number: item.event.number,
@@ -509,6 +548,12 @@ async function processQueueItem(
       is_tax_exempt: taxExempt,
     });
     quoteId = quote.id;
+    await createContractVersion({
+      quoteId: quote.id,
+      snapshot: extractContractSnapshot(quote),
+      changes: [],
+      trigger: "initial",
+    }).catch((err) => console.warn("[group-quote-dispatch] initial snapshot error:", err));
   }
 
   // Check if post-paid account (requires management approval before sending).

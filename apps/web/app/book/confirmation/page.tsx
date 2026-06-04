@@ -346,7 +346,6 @@ export default function ConfirmationPage() {
         // Confirm payment on ALL bills (multi-bill for per-person credits)
         const billIdsParam = params.get("billIds");
         const racerNamesParam = params.get("racerNames");
-        const isV2 = params.get("v2") === "1";
         const allBillIds = billIdsParam ? billIdsParam.split(",") : [id!];
         const racerNames = racerNamesParam
           ? racerNamesParam.split(",").map(decodeURIComponent)
@@ -358,78 +357,60 @@ export default function ConfirmationPage() {
           resCode: string;
         }[] = [];
 
-        if (!isV2) {
-          // v1 path: client-side BMI payment/confirm (with retry)
-          for (let i = 0; i < allBillIds.length; i++) {
-            const bid = allBillIds[i];
-            const racerName = racerNames[i] || "";
-            let billAmount = amount;
-            if (allBillIds.length > 1) {
-              try {
-                const ovRes = await fetch(
-                  `/api/sms?endpoint=bill%2Foverview&billId=${bid}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`,
-                );
-                const ov = await ovRes.json();
-                const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
-                billAmount = cashT?.amount ?? 0;
-              } catch {
-                billAmount = 0;
-              }
-            }
-
-            const depositKind = billAmount === 0 ? 2 : 0;
-            const bmiCk = getBookingClientKey();
-            const qs = new URLSearchParams({
-              endpoint: "payment/confirm",
-              ...(bmiCk ? { clientKey: bmiCk } : {}),
-            });
-
-            let confirmed = false;
-            for (let attempt = 0; attempt < 3 && !confirmed; attempt++) {
-              try {
-                const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
-                const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: confirmBody,
-                });
-                if (!confirmRes.ok) {
-                  const errText = await confirmRes.text();
-                  console.error(
-                    `[payment/confirm] attempt ${attempt + 1} failed for bill ${bid}: ${confirmRes.status} ${errText}`,
-                  );
-                  if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-                  continue;
-                }
-                const result = await confirmRes.json();
-                const resNum = result.reservationNumber || "";
-                const resCode = String(result.reservationCode || `r${bid}`);
-                if (resNum) {
-                  allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
-                  confirmed = true;
-                } else {
-                  console.error(
-                    `[payment/confirm] attempt ${attempt + 1} for bill ${bid}: 200 but no reservationNumber`,
-                    result,
-                  );
-                  if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-                }
-              } catch (err) {
-                console.error(
-                  `[payment/confirm] attempt ${attempt + 1} for bill ${bid} threw:`,
-                  err,
-                );
-                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-              }
-            }
-            if (i === 0) {
-              const first = allConfirmations[0];
-              if (first?.resCode) setReservationCode(first.resCode);
-              if (first?.resNumber) setReservationNumber(first.resNumber);
+        for (let i = 0; i < allBillIds.length; i++) {
+          const bid = allBillIds[i];
+          const racerName = racerNames[i] || "";
+          let billAmount = amount;
+          if (allBillIds.length > 1) {
+            try {
+              const ovRes = await fetch(
+                `/api/sms?endpoint=bill%2Foverview&billId=${bid}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`,
+              );
+              const ov = await ovRes.json();
+              const cashT = ov.total?.find((t: { depositKind: number }) => t.depositKind === 0);
+              billAmount = cashT?.amount ?? 0;
+            } catch {
+              billAmount = 0;
             }
           }
+
+          // Server-side idempotent confirm — safe against page reloads,
+          // double-fires, and React re-renders. Never calls BMI twice
+          // for the same billId.
+          try {
+            const confirmRes = await fetch("/api/booking/confirm", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                billId: bid,
+                amount: billAmount,
+                clientKey: getBookingClientKey() || undefined,
+              }),
+            });
+            if (confirmRes.ok) {
+              const result = await confirmRes.json();
+              const resNum = result.reservationNumber || "";
+              const resCode = String(result.reservationCode || `r${bid}`);
+              if (resNum) {
+                allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
+              }
+              if (result.alreadyConfirmed) {
+                console.log(`[confirm] ${bid} already confirmed → ${resNum}`);
+              }
+            } else {
+              const errText = await confirmRes.text();
+              console.error(`[confirm] ${bid} failed: ${confirmRes.status} ${errText}`);
+            }
+          } catch (err) {
+            console.error(`[confirm] ${bid} threw:`, err);
+          }
+
+          if (i === 0) {
+            const first = allConfirmations[0];
+            if (first?.resCode) setReservationCode(first.resCode);
+            if (first?.resNumber) setReservationNumber(first.resNumber);
+          }
         }
-        // v2 path: payment/confirm already happened server-side in /api/booking/v2/reserve
         setConfirmations(allConfirmations);
 
         // Generate QR codes per racer

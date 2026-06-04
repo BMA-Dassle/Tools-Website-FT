@@ -1,5 +1,43 @@
 # Lessons Learned
 
+## Full-prepay group events never paid out day-of — two coupled bugs (2026-06-03)
+
+"Hayes Birthday Party" should have auto-paid on the event day, but `/api/cron/group-dayof-pay`
+reported `checked=0`. Real-DB inspection found two independent root causes in the group-function
+payment pipeline:
+
+**1. The status machine didn't model "fully funded at deposit."** Events booked within 96h
+require full payment upfront (`fullPaymentRequired` in `group-quote-dispatch`:
+`deposit_due_cents = total_cents` ⇒ `balance_cents = 0`). The ONLY code that advances
+`deposit_paid → balance_charged` is the balance-charge cron's `processBalanceCharge`, which
+opened with `if (quote.balance_cents <= 0) return "auto_charged";` — returning WITHOUT setting
+status. So prepaid events stayed `deposit_paid` forever, and BOTH `group-dayof-pay` and
+`group-dayof-close` (which gate on `status='balance_charged'`) silently skipped them. Once the
+event time passed, balance-charge stopped selecting them too (its `event_date > NOW()` guard) ⇒
+permanently orphaned: gift card fully funded, day-of order OPEN and never paid. Fix:
+`updateGfBalancePrepaid()` advances $0-balance deposits to `balance_charged`.
+
+**2. Day-of order catalog creation always failed; the lone ad-hoc fallback had no retry.**
+`buildSquareLineItem` sent `catalog_object_id` + `quantity` but no `base_price_money`. Group
+catalog variations are *variably priced*, so Square hard-rejected every catalog attempt:
+`"variably priced and requires a value for base_price_money"`. The system limped on the ad-hoc
+fallback, but a single transient failure of that one attempt at deposit time orphaned the
+day-of order with no retry (10 events had accumulated a NULL `square_dayof_order_id`). Fixes:
+(a) include `base_price_money` on catalog line items; (b) self-heal — `group-quote-sync` now
+backfills any deposit-paid event missing its day-of order, via a shared `createDayofOrder` in
+`lib/group-function-dayof.ts` (single source of truth; was previously duplicated 3×).
+
+**Guardrails:**
+- A payment state machine MUST handle the $0 / already-funded edge explicitly. A short-circuit
+  `return` that skips the state transition is a silent trap — the "nothing to do" branch still
+  has to advance state.
+- Best-effort creation of an external resource on a hot path must be retried/self-healed, never
+  fire-once-or-orphan. Sweep or surface the failures.
+- When two crons gate on the same status, one missed transition breaks BOTH — trace every
+  consumer of a status before assuming a quote will progress.
+- Verify against real data: `node --env-file=apps/web/.env.local -e "<neon SELECT>"` pinpointed
+  the exact failing column far faster than reasoning from code alone.
+
 ## Google ignores schema.org `eventSchedule` — Events need an explicit `startDate` (2026-06-02)
 
 Google Search Console flagged our recurring-event JSON-LD (Mega Track Tuesday,
@@ -314,6 +352,75 @@ body = body.slice(0, -1) + `,"personId":${pid}}`;
 - `bill/overview` — billId as query param (string, safe)
 
 **Pattern to follow:** See `bookRaceHeat()` in `data.ts` for the canonical example of raw JSON injection.
+
+### INBOUND is the other half — `res.json()` corrupts ids BEFORE outbound protection runs (2026-06-03)
+
+`stringifyWithRawIds` only protects the OUTBOUND direction. The dual bug bit us in production
+(v1 booking off-by-one): the instant a BMI/Pandora **response** is read with `res.json()` or
+`JSON.parse`, any 17-digit id that comes back as a bare JSON **number** is rounded to the nearest
+multiple of 8 — `63000000003675359` → `63000000003675360` (+1). In the 2⁵⁵–2⁵⁶ band, **7 of 8**
+ids corrupt, so this silently worsens as BMI's id counters climb / volume grows. A later raw
+outbound injection can't help — the value was already destroyed on the way in.
+
+**The TypeScript trap:** a field typed `personId: string` does NOT make it a string at runtime.
+`JSON.parse` returns a `number` for `"personID": 633…`; the `as string` cast is a compile-time
+lie. Don't trust the type — control the parse.
+
+**What the 2026-06-03 audit actually found — MAGNITUDE matters, check it before "fixing":**
+The instinct was to point at the obvious id sites, but live prod probing refuted every one. Don't
+repeat these dead ends — each id space has a different width:
+
+| Path | 17-digit `63…`? | Wire form | How we read it | Verdict |
+| --- | --- | --- | --- | --- |
+| Race/attraction booking `orderId`/`billId`/`orderItemId` (public-booking API) | **yes** | unquoted number | `res.text()` + regex (`extractRawOrderId`) | **safe** |
+| BMI **Office** project entity `id`/`personId`/`number` (`office-api22…`) | no — 7–8 digit | **quoted string** (`"id":"8031234"`) | `JSON.parse` | **safe** |
+| **Pandora** person `personID` (`docs/pandora-api.md`) | no — 6-digit Firebird | quoted string (`"id":"713365"`) | `res.json()` | **safe** |
+| QAMF bowling reservation ids / both Node bridges | no | string / n/a | — | **safe** |
+
+So in OUR code, the 17-digit numbers exist only in the **public-booking** API, and that path
+already reads them as raw text + regex. **A `: string` TS annotation doesn't guarantee runtime
+safety — but neither does a 17-digit-looking field guarantee danger. Probe the real bytes before
+assuming a precision bug.**
+
+**ROOT CAUSE OF THE 2026-06-03 INCIDENT = BMI's `payment/confirm`, server-side (NOT our code).**
+Confirmed by repro on W38433/W38445/W38446: we send the booking's correct raw `orderId`
+(e.g. `…675359`) at `payment/confirm` ([OrderSummary.tsx](apps/web/app/book/race/components/OrderSummary.tsx)
+injects `"orderId":${bill.billId}` as a raw token, `bill.billId` = the regex `rawOrderId`), yet
+BMI creates/links the **project at `…675360` = `Number(orderId)`** (GET `project/…359`→404,
+`project/…360`→200). Since we never send `…360`, BMI is rounding the orderId through `JSON.parse`
+on **their** end. It "started recently" because older orderIds were coincidentally multiples of 8
+(e.g. `…670152`, offset 0); as the counter climbed, `Number()` now lands `+1`. Compounded by a
+**known BMI bug** — `payment/confirm` auto-cancels paid online reservations (`stateId -4`,
+`userUpdatedId -1`) — which we already document and work around in
+[`bmi-cancel-sweep`](apps/web/app/api/cron/bmi-cancel-sweep/route.ts) ("remove when BMI fixes
+payment/confirm"). **Fix belongs to BMI; our mitigation is the recovery cron.** `parseWithRawIds`
+does NOT fix this — our parse was never the problem.
+
+**Our durable mitigation = the recovery cron, hardened** (BMI must still fix the parse at source).
+Since we can't stop BMI's auto-cancel, [`bmi-cancel-sweep`](apps/web/app/api/cron/bmi-cancel-sweep/route.ts)
+resets BMI-auto-cancelled paid reservations `-4 → -3`. A prod audit found it was leaving paid
+reservations dead: hardcoded to **ftmyers only** (Naples never recovered), gated on **stale payment
+markers** (`payMethodId=42603617` matched 0/73), and **hard-skipping** name="Online"/`personId=-6`.
+Reworked to: run **both centers**; recover on a **hybrid gate** — match to a confirmed
+booking-record (`bookingrecord:res:{number}`, [booking-record/route.ts](apps/web/app/api/booking-record/route.ts))
+OR (`userUpdatedId === "-1"` [BMI's auto-cancel signature] + has-payment + not intentionally
+cancelled); parse responses with `parseWithRawIds`; `?dryRun=1` for safe inspection.
+**Key discriminator:** BMI's auto-cancel stamps `userUpdatedId = -1`; our intentional cancels go via
+the Office API as user `API2`, so they carry a different id — that's how recovery avoids re-activating
+refunds. `parseWithRawIds`/`serializeWithRawIds` remain in `@ft/db` as the documented inbound tools
+(the cron uses `parseWithRawIds`); the speculative `bmi-office-actions`/`bmi-attraction-cancel` edits
+were reverted (those Office ids are small quoted strings — no precision loss there).
+
+**Rule:** never `res.json()` / `JSON.parse` a BMI or Pandora response that carries ids. Use one of:
+- `parseWithRawIds(await res.text())` (`@ft/db`) — quotes id fields before parsing so they come
+  back as full-precision strings. The inbound counterpart to `stringifyWithRawIds`.
+- For GET→mutate→PUT round-trips, pair it with `serializeWithRawIds(obj)` — re-emits ids as the
+  raw numeric tokens BMI expects (handles nested ids like `persons[].id`, which
+  `stringifyWithRawIds`'s top-level injection can't).
+- Or the original `res.text()` + regex extraction (`extractRawOrderId` in `data.ts`).
+
+**Don't `JSON.stringify` an id ARRAY either** (e.g. `personsByIds`): a `string[]` quotes the ids,
+a `number[]` rounds them. Build the body as raw tokens: `'[' + ids.join(',') + ']'` (digit-validated).
 
 ## CRITICAL: Shared top-level routes need middleware update for HeadPinz (2026-04-30)
 

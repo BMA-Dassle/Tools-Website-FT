@@ -42,7 +42,8 @@ Old code at `apps/web/{components,lib}/` keeps working unchanged. Migrate opport
 Each rule below comes from a real production incident. Violating any of these is a senior-level
 mistake — read the linked lesson before working in the affected area.
 
-- **NEVER use `Number()` or `JSON.stringify()` on BMI personId / billId / orderId.** They exceed `Number.MAX_SAFE_INTEGER`. Use raw-text JSON injection. See [tasks/lessons.md § BMI ID Precision](tasks/lessons.md).
+- **NEVER use `Number()` or `JSON.stringify()` on BMI personId / billId / orderId.** They exceed `Number.MAX_SAFE_INTEGER`. Use raw-text JSON injection (`stringifyWithRawIds` from `@ft/db`). See [tasks/lessons.md § BMI ID Precision](tasks/lessons.md).
+- **NEVER `res.json()` / `JSON.parse()` a BMI or Pandora response that carries an id** (personId/billId/orderId/reservationId/projectId/orderItemId/billLineId). Standard parsing rounds 17-digit ids (the production off-by-one). Use `parseWithRawIds(await res.text())` from `@ft/db` (pair with `serializeWithRawIds` for GET→mutate→PUT round-trips). A `: string` type annotation does NOT prevent the corruption. See [tasks/lessons.md § BMI ID Precision → INBOUND](tasks/lessons.md).
 - **NEVER add a new top-level page that uses `headers()` to switch on host without updating `isSharedTopLevelRoute` in `middleware.ts`** (PR3+: `SHARED_TOP_LEVEL_ROUTES` in `@ft/shared`). HeadPinz visitors will 404 otherwise.
 - **NEVER install Shadcn/ui** or any other component-library kit. Custom components in `src/components/ui/` only.
 - **NEVER introduce an ORM** (Prisma / Drizzle / Kysely). Raw SQL via `@neondatabase/serverless` stays — BMI precision constraint forbids ORMs that auto-cast bigints through JSON.

@@ -132,15 +132,12 @@ export default function RacePackConfirmation() {
           return;
         }
 
-        // Legacy BMI booking/sell flow: confirm the payment with BMI
-        // so it commits the order and assigns credits.
+        // Server-side idempotent confirm — safe against page reloads
         const amt = details?.amount ? parseFloat(details.amount) : 0;
-        const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${amt},"orderId":${billId},"depositKind":0}`;
-        const qs = new URLSearchParams({ endpoint: "payment/confirm" });
-        const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
+        const confirmRes = await fetch("/api/booking/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: confirmBody,
+          body: JSON.stringify({ billId, amount: amt }),
         });
         const result = await confirmRes.json();
         if (result.reservationNumber) setResNumber(result.reservationNumber);
