@@ -546,12 +546,23 @@ async function syncQuote(
     updates.line_items = freshProducts;
     updates.total_cents = totalCents;
     updates.tax_cents = taxCents;
+    const eventDateStr = (updates.event_date as string) || quote.event_date;
+    const eventTime = new Date(eventDateStr).getTime();
+    const hoursUntilEvent = (eventTime - Date.now()) / 3_600_000;
+
     if (!isSigned) {
-      const depositDueCents = Math.round(totalCents / 2);
+      const fullPaymentRequired = hoursUntilEvent <= 96;
+      const depositDueCents = fullPaymentRequired ? totalCents : Math.round(totalCents / 2);
       updates.deposit_due_cents = depositDueCents;
       updates.balance_cents = totalCents - depositDueCents;
     } else {
-      updates.balance_cents = totalCents - quote.deposit_due_cents;
+      // Post-signing: deposit was already paid at the original amount.
+      // If event is now within 96 hours, update deposit_due_cents to the full
+      // amount so the contract page reflects full payment required.
+      if (hoursUntilEvent <= 96) {
+        updates.deposit_due_cents = totalCents;
+      }
+      updates.balance_cents = Math.max(0, totalCents - quote.deposit_due_cents);
     }
   }
 
@@ -626,6 +637,17 @@ async function syncQuote(
       event: "resign_required_auto",
       metadata: { changes, trigger: "group-quote-sync" },
     });
+
+    // Notify guest + planner that re-signature is needed
+    try {
+      const refreshed = await getGfQuoteByShortId(quote.contract_short_id!);
+      if (refreshed) {
+        const { notifyContractUpdated } = await import("@/lib/group-function-notify");
+        await notifyContractUpdated(refreshed);
+      }
+    } catch (err) {
+      console.error(`[group-quote-sync] resign notify error for quote=${quote.id}:`, err);
+    }
 
     console.log(
       `[group-quote-sync] RESIGN REQUIRED quote=${quote.id} changes=[${changes.join(", ")}]`,

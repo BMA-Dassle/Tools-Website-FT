@@ -142,13 +142,16 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     );
   }
 
+  const isResign = quote.status === "resign_required" && Boolean(quote.depositPaidAt);
   const isFullPayment = quote.balanceCents === 0;
   const isPostPaid = quote.isPostPaid;
   const hasLegacyDeposit = quote.priorDepositCents > 0 && !quote.depositPaidAt;
   const legacyChargeCents =
     hasLegacyDeposit && isFullPayment ? Math.max(0, quote.totalCents - quote.priorDepositCents) : 0;
   const cardOnFileOnly = hasLegacyDeposit && legacyChargeCents === 0;
-  const STEPS = buildSteps(isFullPayment, isPostPaid);
+  const STEPS = isResign
+    ? buildSteps(true, false).filter((s) => s.key !== "pay")
+    : buildSteps(isFullPayment, isPostPaid);
 
   const [step, setStep] = useState<Step>(() => {
     if (quote.status === "resign_required") return "review";
@@ -845,7 +848,41 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-400">
                 {isPostPaid ? "Billing" : "Payment Schedule"}
               </h3>
-              {isPostPaid ? (
+              {isResign ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-xs font-bold text-emerald-400 ring-1 ring-emerald-400/40">
+                      <IconCircleCheck size={16} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-emerald-400">Deposit Already Paid</p>
+                      <p className="text-sm text-gray-400">
+                        Your deposit has been applied — just re-confirm below
+                      </p>
+                    </div>
+                    <p className="text-lg font-bold text-emerald-400">
+                      {fmtDollars(quote.depositDueCents)}
+                    </p>
+                  </div>
+                  {quote.balanceCents > 0 && (
+                    <>
+                      <div className="ml-4 h-6 border-l border-dashed border-white/20" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-xs font-bold text-gray-500">
+                          <IconCreditCard size={16} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold">Remaining Balance — {balanceChargeDate}</p>
+                          <p className="text-sm text-gray-400">
+                            Automatically charged to your card on file
+                          </p>
+                        </div>
+                        <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : isPostPaid ? (
                 <div className="flex items-center gap-3">
                   <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-xs font-bold text-emerald-400 ring-1 ring-emerald-400/40">
                     <IconCreditCard size={16} />

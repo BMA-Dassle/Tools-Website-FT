@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { modalBackdropProps } from "@/lib/a11y";
 
 interface GfQuote {
   id: number;
@@ -456,7 +457,7 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
             justifyContent: "center",
             zIndex: 50,
           }}
-          onClick={() => setHistoryQuoteId(null)}
+          {...modalBackdropProps(() => setHistoryQuoteId(null))}
         >
           <div
             style={{
@@ -469,7 +470,6 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
               overflowY: "auto",
               padding: "1.5rem",
             }}
-            onClick={(e) => e.stopPropagation()}
           >
             <div
               style={{

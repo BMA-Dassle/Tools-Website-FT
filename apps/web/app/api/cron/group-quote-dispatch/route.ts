@@ -347,6 +347,18 @@ async function processQueueItem(
         venue: center.centerCode,
         status: "resign_required",
       });
+      // Notify guest + planner that re-signature is needed
+      try {
+        const refreshed = await getGfQuoteByShortId(existing.contract_short_id!);
+        if (refreshed) {
+          notifyContractUpdated(refreshed).catch((err) =>
+            console.error("[group-quote-dispatch] resign notify error:", err),
+          );
+        }
+      } catch {
+        /* non-fatal */
+      }
+
       console.log(
         `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
           `(was ${existing.total_cents} → now ${totalCents})`,
