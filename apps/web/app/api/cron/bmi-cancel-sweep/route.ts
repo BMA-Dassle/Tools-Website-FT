@@ -339,6 +339,7 @@ export async function GET(req: NextRequest) {
     } catch (err) {
       centers.push({
         clientKey: center.clientKey,
+        scannedProjects: 0,
         checked: 0,
         recovered: [],
         wouldRecover: [],
