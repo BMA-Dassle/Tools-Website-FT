@@ -143,6 +143,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   }
 
   const isResign = quote.status === "resign_required" && Boolean(quote.depositPaidAt);
+  const depositPaidCents = isResign
+    ? Math.max(0, quote.totalCents - quote.balanceCents)
+    : quote.depositDueCents;
   const isFullPayment = quote.balanceCents === 0;
   const isPostPaid = quote.isPostPaid;
   const hasLegacyDeposit = quote.priorDepositCents > 0 && !quote.depositPaidAt;
@@ -496,17 +499,18 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const stepIdx = STEPS.findIndex((s) => s.key === step);
 
+  const balanceChargeDateObj = new Date(new Date(quote.eventDate).getTime() - 72 * 3_600_000);
+  const balanceChargePast = balanceChargeDateObj.getTime() < Date.now();
   const balanceChargeDate = (() => {
     try {
-      const d = new Date(new Date(quote.eventDate).getTime() - 72 * 3_600_000);
       return (
-        d.toLocaleDateString("en-US", {
+        balanceChargeDateObj.toLocaleDateString("en-US", {
           timeZone: "America/New_York",
           month: "short",
           day: "numeric",
         }) +
         " " +
-        d.toLocaleTimeString("en-US", {
+        balanceChargeDateObj.toLocaleTimeString("en-US", {
           timeZone: "America/New_York",
           hour: "numeric",
           minute: "2-digit",
@@ -861,20 +865,25 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                       </p>
                     </div>
                     <p className="text-lg font-bold text-emerald-400">
-                      {fmtDollars(quote.depositDueCents)}
+                      {fmtDollars(depositPaidCents)}
                     </p>
                   </div>
                   {quote.balanceCents > 0 && (
                     <>
                       <div className="ml-4 h-6 border-l border-dashed border-white/20" />
                       <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-xs font-bold text-gray-500">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-400/20 text-xs font-bold text-amber-400 ring-1 ring-amber-400/40">
                           <IconCreditCard size={16} />
                         </div>
                         <div className="flex-1">
-                          <p className="font-semibold">Remaining Balance — {balanceChargeDate}</p>
+                          <p className="font-semibold">
+                            Remaining Balance
+                            {balanceChargePast ? " — Charge Pending" : ` — ${balanceChargeDate}`}
+                          </p>
                           <p className="text-sm text-gray-400">
-                            Automatically charged to your card on file
+                            {balanceChargePast
+                              ? "Will be charged to your card on file after re-confirmation"
+                              : "Automatically charged to your card on file"}
                           </p>
                         </div>
                         <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>

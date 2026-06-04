@@ -556,12 +556,8 @@ async function syncQuote(
       updates.deposit_due_cents = depositDueCents;
       updates.balance_cents = totalCents - depositDueCents;
     } else {
-      // Post-signing: deposit was already paid at the original amount.
-      // If event is now within 96 hours, update deposit_due_cents to the full
-      // amount so the contract page reflects full payment required.
-      if (hoursUntilEvent <= 96) {
-        updates.deposit_due_cents = totalCents;
-      }
+      // Post-signing: deposit_due_cents is the amount actually paid — don't
+      // overwrite it. Balance is whatever remains after the original deposit.
       updates.balance_cents = Math.max(0, totalCents - quote.deposit_due_cents);
     }
   }
