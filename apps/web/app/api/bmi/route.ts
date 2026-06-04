@@ -165,9 +165,6 @@ export async function POST(req: NextRequest) {
     // Pass request body as raw text to avoid JSON number precision loss on orderId
     const bodyStr = await req.text();
     console.log(`[BMI POST] ${url}`);
-    if (endpoint.startsWith("booking/book") || endpoint === "payment/confirm") {
-      console.log(`[BMI POST body] ${bodyStr.substring(0, 500)}`);
-    }
 
     const upstream = await fetch(url, {
       method: "POST",
@@ -176,39 +173,38 @@ export async function POST(req: NextRequest) {
       cache: "no-store",
     });
 
-    // Return raw text for booking endpoints to avoid JSON number precision loss
-    // (orderId values exceed Number.MAX_SAFE_INTEGER)
     const rawText = await upstream.text();
-    if (endpoint.startsWith("booking/") || endpoint === "payment/confirm") {
-      console.log(`[BMI POST response] status=${upstream.status} ${rawText.substring(0, 500)}`);
-    }
-    if (endpoint === "payment/confirm") {
+    console.log(`[BMI POST] ${endpoint} → ${upstream.status} (${rawText.length} bytes)`);
+
+    // Log all booking-related calls to Redis for BMI evidence
+    const LOGGED_ENDPOINTS = [
+      "booking/book",
+      "booking/sell",
+      "booking/memo",
+      "booking/removeItem",
+      "payment/confirm",
+      "person/registerContactPerson",
+      "person/registerProjectPerson",
+    ];
+    if (LOGGED_ENDPOINTS.some((e) => endpoint.startsWith(e))) {
       const orderIdMatch = bodyStr.match(/"orderId"\s*:\s*(\d+)/);
       const resNumMatch = rawText.match(/"reservationNumber"\s*:\s*"(W\d+)"/);
-      const depositKindMatch = bodyStr.match(/"depositKind"\s*:\s*(\d+)/);
-      const amountMatch = bodyStr.match(/"amount"\s*:\s*([\d.]+)/);
-      console.log(
-        `[payment/confirm] orderId=${orderIdMatch?.[1] || "?"} → ` +
-          `HTTP ${upstream.status} W=${resNumMatch?.[1] || "none"} ` +
-          `client=${clientKey}`,
-      );
+      const personIdMatch = bodyStr.match(/"personId"\s*:\s*(\d+)/);
 
-      // Persist to Redis for BMI evidence
       try {
         const logEntry = JSON.stringify({
-          type: "payment/confirm",
+          endpoint,
           timestamp: new Date().toISOString(),
           clientKey,
-          orderId: orderIdMatch?.[1] || null,
-          depositKind: depositKindMatch?.[1] || null,
-          amount: amountMatch?.[1] || null,
           httpStatus: upstream.status,
+          orderId: orderIdMatch?.[1] || null,
           wNumber: resNumMatch?.[1] || null,
-          responseRaw: rawText.substring(0, 500),
-          requestRaw: bodyStr.substring(0, 500),
+          personId: personIdMatch?.[1] || null,
+          request: bodyStr.substring(0, 1000),
+          response: rawText.substring(0, 1000),
         });
-        await redis.lpush("bmi:confirm:log", logEntry);
-        await redis.ltrim("bmi:confirm:log", 0, 999);
+        await redis.lpush("bmi:api:log", logEntry);
+        await redis.ltrim("bmi:api:log", 0, 4999);
       } catch {
         // Redis failure is non-fatal
       }

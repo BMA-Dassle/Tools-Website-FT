@@ -145,8 +145,11 @@ interface RecoveryDetail {
   reason: string;
 }
 
-// States that need recovery: -4 = Cancellation, -101 = Payment started (stuck)
-const RECOVERABLE_STATES = new Set(["-4", "-101"]);
+// States that need recovery:
+//   -4   = Cancellation (auto-cancelled by BMI cron)
+//   -101 = Payment started (payment/confirm stuck mid-transition)
+//   -102 = Paid online (payment recorded but project not confirmed)
+const RECOVERABLE_STATES = new Set(["-4", "-101", "-102"]);
 interface CenterResult {
   clientKey: string;
   scannedProjects: number;
@@ -277,18 +280,18 @@ async function sweepCenter(
     let reason: string;
     if (recordCancelled) {
       reason = `intentional: booking-record ${recordStatus || "cancelled"}`;
-    } else if (pStateId === "-101" && hasOnlinePayment) {
-      // Payment started + online payment = payment/confirm didn't finish
+    } else if ((pStateId === "-101" || pStateId === "-102") && hasOnlinePayment) {
+      // -101 Payment started / -102 Paid online + online payment = stuck
       recover = true;
-      reason = "C: state -101 (Payment started) + online payment";
+      reason = `C: state ${pStateId} + online payment`;
     } else if (recordConfirmed) {
       recover = true;
       reason = "A: confirmed booking-record";
     } else if (isAutoCancel && hasPayment) {
       recover = true;
       reason = "B: userUpdatedId=-1 + payment";
-    } else if (pStateId === "-101") {
-      reason = `state -101 but no online payment (pay=${hasPayment})`;
+    } else if (pStateId === "-101" || pStateId === "-102") {
+      reason = `state ${pStateId} but no online payment (pay=${hasPayment})`;
     } else {
       reason = `no-gate (state=${pStateId}, uu=${userUpdatedId || "?"}, pay=${hasPayment}, rec=${recordStatus || "none"})`;
     }
@@ -332,8 +335,9 @@ async function sweepCenter(
       if (pandoraRes.ok) {
         const stateNames: Record<string, string> = {
           "-4": "Cancellation",
-          "-101": "Payment started",
           "-100": "Pending online",
+          "-101": "Payment started",
+          "-102": "Paid online",
         };
         const detail: RecoveryDetail = {
           wNumber: num,
