@@ -86,16 +86,14 @@ export default function AttractionConfirmationPage() {
     }
 
     try {
-      // Confirm payment with BMI
-      const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${billId},"depositKind":0}`;
-      const qs = new URLSearchParams({ endpoint: "payment/confirm" });
-      const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
+      // Server-side idempotent confirm — safe against page reloads
+      const confirmRes = await fetch("/api/booking/confirm", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: confirmBody,
+        body: JSON.stringify({ billId, amount: 0 }),
       });
       const confirmResult = await confirmRes.json();
-      const resNumber = confirmResult.reservationNumber || confirmResult.confirmationNumber || "";
+      const resNumber = confirmResult.reservationNumber || "";
 
       // Get the final order overview
       const overviewRes = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${billId}`);

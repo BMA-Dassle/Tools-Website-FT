@@ -374,48 +374,37 @@ export default function ConfirmationPage() {
             }
           }
 
-          const depositKind = billAmount === 0 ? 2 : 0;
-          const bmiCk = getBookingClientKey();
-          const qs = new URLSearchParams({
-            endpoint: "payment/confirm",
-            ...(bmiCk ? { clientKey: bmiCk } : {}),
-          });
-
-          let confirmed = false;
-          for (let attempt = 0; attempt < 3 && !confirmed; attempt++) {
-            try {
-              const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${billAmount},"orderId":${bid},"depositKind":${depositKind}}`;
-              const confirmRes = await fetch(`/api/bmi?${qs.toString()}`, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: confirmBody,
-              });
-              if (!confirmRes.ok) {
-                const errText = await confirmRes.text();
-                console.error(
-                  `[payment/confirm] attempt ${attempt + 1} failed for bill ${bid}: ${confirmRes.status} ${errText}`,
-                );
-                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-                continue;
-              }
+          // Server-side idempotent confirm — safe against page reloads,
+          // double-fires, and React re-renders. Never calls BMI twice
+          // for the same billId.
+          try {
+            const confirmRes = await fetch("/api/booking/confirm", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                billId: bid,
+                amount: billAmount,
+                clientKey: getBookingClientKey() || undefined,
+              }),
+            });
+            if (confirmRes.ok) {
               const result = await confirmRes.json();
               const resNum = result.reservationNumber || "";
               const resCode = String(result.reservationCode || `r${bid}`);
               if (resNum) {
                 allConfirmations.push({ billId: bid, racerName, resNumber: resNum, resCode });
-                confirmed = true;
-              } else {
-                console.error(
-                  `[payment/confirm] attempt ${attempt + 1} for bill ${bid}: 200 but no reservationNumber`,
-                  result,
-                );
-                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
               }
-            } catch (err) {
-              console.error(`[payment/confirm] attempt ${attempt + 1} for bill ${bid} threw:`, err);
-              if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+              if (result.alreadyConfirmed) {
+                console.log(`[confirm] ${bid} already confirmed → ${resNum}`);
+              }
+            } else {
+              const errText = await confirmRes.text();
+              console.error(`[confirm] ${bid} failed: ${confirmRes.status} ${errText}`);
             }
+          } catch (err) {
+            console.error(`[confirm] ${bid} threw:`, err);
           }
+
           if (i === 0) {
             const first = allConfirmations[0];
             if (first?.resCode) setReservationCode(first.resCode);
