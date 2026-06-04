@@ -74,7 +74,6 @@ export async function POST(req: NextRequest) {
       AND br.status NOT IN ('cancelled', 'completed')
       AND br.booked_at > NOW()
       AND brl.label ILIKE '%fun 4 all%'
-      AND br.inserted_at >= '2026-06-02'
     ORDER BY br.booked_at ASC
   `;
 
@@ -134,17 +133,24 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Check the current QAMF reservation's Time option
+    // Check the current QAMF reservation's Time option (or if it's still Unlimited)
     try {
       const qamfRes = await getReservation(centerId, row.qamf_reservation_id);
       const timeOpts = qamfRes.WebOffer?.Options?.Time ?? [];
+      const unlimOpts = qamfRes.WebOffer?.Options?.Unlimited ?? [];
       const currentOpt = timeOpts[0]?.Id;
       entry.currentOptionId = typeof currentOpt === "number" ? currentOpt : null;
 
+      // Already on the correct Time option
       if (currentOpt === mapping.correct) {
         entry.action = "already_correct";
         results.push(entry);
         continue;
+      }
+
+      // Detect Unlimited-mode reservations (pre-switch bookings)
+      if (unlimOpts.length > 0 && timeOpts.length === 0) {
+        entry.currentOptionId = -((unlimOpts[0]?.Id as number) ?? 0); // negative = Unlimited
       }
 
       if (dryRun) {
