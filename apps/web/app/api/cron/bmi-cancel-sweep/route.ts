@@ -352,6 +352,24 @@ async function sweepCenter(
             `state=${pStateId}(${stateNames[pStateId] || "?"}) ` +
             `cancelledBy=${cancelledByName} gate=${reason}`,
         );
+
+        // Persist to Redis for BMI evidence
+        try {
+          const logEntry = JSON.stringify({
+            ...detail,
+            center: center.clientKey,
+            recoveredAt: new Date().toISOString(),
+            payments: payments.map((pay) => ({
+              amount: pay.amount,
+              payMethodId: String(pay.payMethodId ?? ""),
+              device: pay.deviceCreated ?? "",
+            })),
+          });
+          await redis.lpush("bmi:sweep:log", logEntry);
+          await redis.ltrim("bmi:sweep:log", 0, 999);
+        } catch {
+          // Redis failure is non-fatal
+        }
       } else {
         result.skipped.push({ number: num, reason: `recover failed ${pandoraRes.status}` });
       }

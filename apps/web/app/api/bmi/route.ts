@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import redis from "@/lib/redis";
 
 // ── Config from env ───────────────────────────────────────────────────────────
 
@@ -184,11 +185,33 @@ export async function POST(req: NextRequest) {
     if (endpoint === "payment/confirm") {
       const orderIdMatch = bodyStr.match(/"orderId"\s*:\s*(\d+)/);
       const resNumMatch = rawText.match(/"reservationNumber"\s*:\s*"(W\d+)"/);
+      const depositKindMatch = bodyStr.match(/"depositKind"\s*:\s*(\d+)/);
+      const amountMatch = bodyStr.match(/"amount"\s*:\s*([\d.]+)/);
       console.log(
         `[payment/confirm] orderId=${orderIdMatch?.[1] || "?"} → ` +
           `HTTP ${upstream.status} W=${resNumMatch?.[1] || "none"} ` +
           `client=${clientKey}`,
       );
+
+      // Persist to Redis for BMI evidence
+      try {
+        const logEntry = JSON.stringify({
+          type: "payment/confirm",
+          timestamp: new Date().toISOString(),
+          clientKey,
+          orderId: orderIdMatch?.[1] || null,
+          depositKind: depositKindMatch?.[1] || null,
+          amount: amountMatch?.[1] || null,
+          httpStatus: upstream.status,
+          wNumber: resNumMatch?.[1] || null,
+          responseRaw: rawText.substring(0, 500),
+          requestRaw: bodyStr.substring(0, 500),
+        });
+        await redis.lpush("bmi:confirm:log", logEntry);
+        await redis.ltrim("bmi:confirm:log", 0, 999);
+      } catch {
+        // Redis failure is non-fatal
+      }
     }
     return new NextResponse(rawText, {
       status: upstream.status,
