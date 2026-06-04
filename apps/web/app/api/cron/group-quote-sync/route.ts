@@ -5,6 +5,8 @@ import {
   updateGfQuoteDetails,
   getGfQuoteByShortId,
   appendAuditLog,
+  createContractVersion,
+  extractContractSnapshot,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
@@ -554,6 +556,12 @@ async function syncQuote(
   }
 
   if (Object.keys(updates).length > 0) {
+    await createContractVersion({
+      quoteId: quote.id,
+      snapshot: extractContractSnapshot(quote),
+      changes,
+      trigger: "sync_cron",
+    }).catch((err) => console.warn("[group-quote-sync] snapshot error:", err));
     await updateGfQuoteDetails(quote.id, updates);
 
     // Log changes to BMI private notes

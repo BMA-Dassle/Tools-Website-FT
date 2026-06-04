@@ -40,6 +40,8 @@ export async function GET(req: NextRequest) {
     notes: quote.notes,
     lineItemsHash,
     signedPdfUrl: quote.signed_pdf_url,
+    savedCardLast4: quote.saved_card_last4,
+    savedCardBrand: quote.saved_card_brand,
     updatedAt: quote.updated_at,
   });
 }

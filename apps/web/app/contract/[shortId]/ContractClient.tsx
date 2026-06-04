@@ -53,6 +53,33 @@ interface QuoteProps {
   isTaxExempt: boolean;
   isPostPaid: boolean;
   priorDepositCents: number;
+  savedCardLast4: string | null;
+  savedCardBrand: string | null;
+  versions: Array<{
+    versionNumber: number;
+    snapshot: {
+      event_name: string | null;
+      event_date_display: string | null;
+      guest_count: number | null;
+      total_cents: number;
+      tax_cents: number;
+      deposit_due_cents: number;
+      balance_cents: number;
+      line_items: Array<{ name: string; price: number; qty: number; total: number }>;
+      [key: string]: unknown;
+    };
+    changes: string[];
+    trigger: string;
+    createdAt: string;
+  }>;
+  latestDiffs: Array<{ field: string; label: string; before: string; after: string }>;
+  latestChanges: string[];
+  signedPdfHistory: Array<{
+    url: string;
+    signedAt: string | null;
+    archivedAt: string;
+    reason: string;
+  }>;
 }
 
 type Step = "review" | "tips" | "policy" | "sign" | "pay" | "done" | "event";
@@ -138,6 +165,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   );
   const [updateBanner, setUpdateBanner] = useState<string | null>(updateBannerInit);
   const [signedPdfUrl, setSignedPdfUrl] = useState<string | null>(null);
+  const [cardLast4, setCardLast4] = useState(quote.savedCardLast4);
+  const [cardBrand, setCardBrand] = useState(quote.savedCardBrand);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [giftCardGan, setGiftCardGan] = useState(quote.giftCardGan);
@@ -229,6 +259,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       }
       lastHash.current = statusData.lineItemsHash;
       if (statusData.signedPdfUrl && !signedPdfUrl) setSignedPdfUrl(statusData.signedPdfUrl);
+      if (statusData.savedCardLast4) setCardLast4(statusData.savedCardLast4);
+      if (statusData.savedCardBrand) setCardBrand(statusData.savedCardBrand);
 
       // Fetch event details if on event page
       if (step === "event") {
@@ -461,6 +493,33 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const stepIdx = STEPS.findIndex((s) => s.key === step);
 
+  const balanceChargeDate = (() => {
+    try {
+      const d = new Date(new Date(quote.eventDate).getTime() - 72 * 3_600_000);
+      return (
+        d.toLocaleDateString("en-US", {
+          timeZone: "America/New_York",
+          month: "short",
+          day: "numeric",
+        }) +
+        " " +
+        d.toLocaleTimeString("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })
+      );
+    } catch {
+      return "72 hours before event";
+    }
+  })();
+
+  const viewingVersion =
+    selectedVersion !== null
+      ? quote.versions.find((v) => v.versionNumber === selectedVersion)
+      : null;
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Atmospheric bowling-alley bokeh background */}
@@ -557,6 +616,59 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         </div>
       )}
 
+      {/* What Changed card — shown during resign flow */}
+      {updateBanner && quote.latestDiffs.length > 0 && (
+        <div className="relative z-10 mx-auto max-w-4xl px-4 pt-3">
+          <div className="rounded-2xl border border-cyan-400/20 bg-[#071027] p-5">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-cyan-400">
+              What Changed
+            </h3>
+            <div className="space-y-2">
+              {quote.latestDiffs.map((d, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-amber-400/10 text-[10px] text-amber-400">
+                    ▸
+                  </span>
+                  <div>
+                    <span className="font-semibold text-gray-300">{d.label}: </span>
+                    <span className="text-gray-500 line-through">{d.before}</span>
+                    <span className="mx-1.5 text-gray-600">→</span>
+                    <span className="font-medium text-white">{d.after}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {quote.versions.length > 1 && (
+              <div className="mt-4 flex items-center gap-2 border-t border-white/10 pt-3">
+                <span className="text-xs text-gray-500">View previous version:</span>
+                <select
+                  value={selectedVersion ?? ""}
+                  onChange={(e) =>
+                    setSelectedVersion(e.target.value ? Number(e.target.value) : null)
+                  }
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-gray-300"
+                >
+                  <option value="">Current Contract</option>
+                  {quote.versions
+                    .slice(0, -1)
+                    .reverse()
+                    .map((v) => (
+                      <option key={v.versionNumber} value={v.versionNumber}>
+                        Version {v.versionNumber} (
+                        {new Date(v.createdAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                        )
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Step indicator */}
       {step !== "done" && step !== "event" && (
         <div className="relative z-10 mx-auto max-w-3xl px-4 py-5">
@@ -590,8 +702,73 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       )}
 
       <div className="relative z-10 mx-auto max-w-4xl px-4 pb-16">
+        {/* Previous version overlay */}
+        {viewingVersion && step === "review" && (
+          <div className="mb-6 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-amber-400">
+                Version {viewingVersion.versionNumber} —{" "}
+                {new Date(viewingVersion.createdAt).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </h3>
+              <button
+                onClick={() => setSelectedVersion(null)}
+                className="rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/20"
+              >
+                Back to Current
+              </button>
+            </div>
+            <h4 className="mb-3 text-lg font-bold">
+              {viewingVersion.snapshot.event_name || "(no name)"}
+            </h4>
+            <div className="mb-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-gray-500">Date & Time</p>
+                <p className="font-semibold">{viewingVersion.snapshot.event_date_display || ""}</p>
+              </div>
+              {viewingVersion.snapshot.guest_count && (
+                <div>
+                  <p className="text-xs text-gray-500">Guests</p>
+                  <p className="font-semibold">{viewingVersion.snapshot.guest_count}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-gray-500">Total</p>
+                <p className="text-lg font-bold">
+                  {fmtDollars(viewingVersion.snapshot.total_cents)}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-1.5 border-t border-white/10 pt-3">
+              {(viewingVersion.snapshot.line_items || []).map((item, i) => (
+                <div key={i} className="flex justify-between text-sm">
+                  <span className="text-gray-400">
+                    {item.name} <span className="text-gray-600">x{item.qty}</span>
+                  </span>
+                  <span className="font-medium">{fmtDollars(Math.round(item.total * 100))}</span>
+                </div>
+              ))}
+              {viewingVersion.snapshot.tax_cents > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Tax</span>
+                  <span className="font-medium">
+                    {fmtDollars(viewingVersion.snapshot.tax_cents)}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between border-t border-white/10 pt-2 text-sm font-bold">
+                <span>Total</span>
+                <span>{fmtDollars(viewingVersion.snapshot.total_cents)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ═══ Step 1: Review ═══ */}
-        {step === "review" && (
+        {step === "review" && !viewingVersion && (
           <>
             {/* Event details card with racing image */}
             <div className="mb-8 overflow-hidden rounded-2xl border border-white/10 bg-[#071027]">
@@ -755,9 +932,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                           2
                         </div>
                         <div className="flex-1">
-                          <p className="font-semibold">Remaining Balance — 72 Hours Before Event</p>
+                          <p className="font-semibold">Remaining Balance — {balanceChargeDate}</p>
                           <p className="text-sm text-gray-400">
-                            Automatically charged to your card on file
+                            Automatically charged to your card on file, 72 hours before your event
                           </p>
                         </div>
                         <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
@@ -1528,9 +1705,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-                      {isFullPayment ? "Balance" : "Balance Due (72hrs before)"}
+                      {isFullPayment ? "Balance" : `Balance Due — ${balanceChargeDate}`}
                     </p>
                     <p className="text-2xl font-extrabold">{fmtDollars(quote.balanceCents)}</p>
+                    {!isFullPayment && cardLast4 && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        {cardBrand || "Card"} ending in {cardLast4}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1778,6 +1960,60 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 <IconCalendarEvent size={16} /> Add to Calendar
               </a>
             </div>
+
+            {/* Previous signed contracts */}
+            {quote.signedPdfHistory.length > 0 && (
+              <div className="rounded-2xl border border-white/10 bg-[#071027] p-5">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-400">
+                  Previous Contracts
+                </h3>
+                <div className="space-y-2">
+                  {quote.signedPdfHistory.map((h, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-sm"
+                    >
+                      <div>
+                        <span className="text-gray-300">
+                          Version {i + 1}
+                          {h.signedAt && (
+                            <span className="ml-1 text-gray-500">
+                              — signed{" "}
+                              {new Date(h.signedAt).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                          )}
+                        </span>
+                        {h.reason && (
+                          <p className="mt-0.5 text-xs text-gray-600">Updated: {h.reason}</p>
+                        )}
+                      </div>
+                      <a
+                        href={h.url}
+                        target="_blank"
+                        rel="noopener"
+                        className="flex-shrink-0 rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/20"
+                      >
+                        View PDF
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Contract version indicator */}
+            {quote.versions.length > 0 && (
+              <div className="text-center">
+                <p className="text-xs text-gray-600">
+                  Contract Version {quote.versions.length} (Current)
+                  {quote.versions.length > 1 &&
+                    ` — ${quote.versions.length - 1} previous update${quote.versions.length > 2 ? "s" : ""}`}
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

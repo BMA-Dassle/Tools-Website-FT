@@ -97,10 +97,12 @@ export async function POST(req: NextRequest) {
     const last4 = cardData.card.last_4 || "";
     const brand = cardData.card.card_brand || "";
 
-    // Update the quote with the new card
+    // Update the quote with the new card + display info
     const q = sql();
     await q`UPDATE group_function_quotes SET
       saved_card_id = ${newCardId},
+      saved_card_last4 = ${last4},
+      saved_card_brand = ${brand},
       updated_at = NOW()
     WHERE id = ${quote.id}`;
 

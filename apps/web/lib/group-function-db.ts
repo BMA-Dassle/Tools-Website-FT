@@ -173,6 +173,25 @@ export async function ensureGfSchema(): Promise<void> {
     ON group_function_quotes(pandadoc_document_id)
     WHERE pandadoc_document_id IS NOT NULL`;
 
+  // Card-on-file display columns
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS saved_card_last4 TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS saved_card_brand TEXT`;
+
+  // Contract version snapshots
+  await q`
+    CREATE TABLE IF NOT EXISTS contract_versions (
+      id              BIGSERIAL PRIMARY KEY,
+      quote_id        INTEGER NOT NULL,
+      version_number  INTEGER NOT NULL,
+      snapshot        JSONB NOT NULL,
+      changes         JSONB DEFAULT '[]',
+      trigger         TEXT NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS cv_quote ON contract_versions(quote_id)`;
+  await q`CREATE UNIQUE INDEX IF NOT EXISTS cv_quote_version ON contract_versions(quote_id, version_number)`;
+
   schemaReady = true;
 }
 
@@ -274,6 +293,8 @@ export interface GroupFunctionQuote {
   signer_ua: string | null;
   signature_type: string | null;
   signature_data: string | null;
+  saved_card_last4: string | null;
+  saved_card_brand: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -813,4 +834,160 @@ export async function listGfQuotes(opts?: {
     LIMIT ${limit}
   `;
   return rows as GroupFunctionQuote[];
+}
+
+// ── Contract version snapshots ─────────────────────────────────────
+
+export interface ContractSnapshot {
+  event_name: string | null;
+  event_number: string | null;
+  event_date: string;
+  event_date_display: string | null;
+  guest_count: number | null;
+  notes: string | null;
+  guest_first_name: string;
+  guest_last_name: string;
+  guest_email: string;
+  guest_phone: string | null;
+  planner_first: string | null;
+  planner_last: string | null;
+  planner_email: string | null;
+  planner_phone: string | null;
+  total_cents: number;
+  tax_cents: number;
+  deposit_due_cents: number;
+  balance_cents: number;
+  line_items: unknown[];
+}
+
+export interface ContractVersion {
+  id: number;
+  quote_id: number;
+  version_number: number;
+  snapshot: ContractSnapshot;
+  changes: string[];
+  trigger: string;
+  created_at: string;
+}
+
+export function extractContractSnapshot(quote: GroupFunctionQuote): ContractSnapshot {
+  return {
+    event_name: quote.event_name,
+    event_number: quote.event_number,
+    event_date: quote.event_date,
+    event_date_display: quote.event_date_display,
+    guest_count: quote.guest_count,
+    notes: quote.notes,
+    guest_first_name: quote.guest_first_name,
+    guest_last_name: quote.guest_last_name,
+    guest_email: quote.guest_email,
+    guest_phone: quote.guest_phone,
+    planner_first: quote.planner_first,
+    planner_last: quote.planner_last,
+    planner_email: quote.planner_email,
+    planner_phone: quote.planner_phone,
+    total_cents: quote.total_cents,
+    tax_cents: quote.tax_cents,
+    deposit_due_cents: quote.deposit_due_cents,
+    balance_cents: quote.balance_cents,
+    line_items: quote.line_items,
+  };
+}
+
+export async function createContractVersion(params: {
+  quoteId: number;
+  snapshot: ContractSnapshot;
+  changes?: string[];
+  trigger: string;
+}): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  const nextVersion = await q`
+    SELECT COALESCE(MAX(version_number), 0) + 1 AS next
+    FROM contract_versions WHERE quote_id = ${params.quoteId}
+  `;
+  const versionNumber = (nextVersion[0] as { next: number }).next;
+  await q`
+    INSERT INTO contract_versions (quote_id, version_number, snapshot, changes, trigger)
+    VALUES (
+      ${params.quoteId},
+      ${versionNumber},
+      ${JSON.stringify(params.snapshot)}::jsonb,
+      ${JSON.stringify(params.changes ?? [])}::jsonb,
+      ${params.trigger}
+    )
+  `;
+}
+
+export async function getContractVersions(quoteId: number): Promise<ContractVersion[]> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM contract_versions
+    WHERE quote_id = ${quoteId}
+    ORDER BY version_number ASC
+  `;
+  return rows as ContractVersion[];
+}
+
+export interface FieldDiff {
+  field: string;
+  label: string;
+  before: string;
+  after: string;
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  event_name: "Event Name",
+  event_number: "Event Number",
+  event_date_display: "Event Date",
+  guest_count: "Guest Count",
+  notes: "Notes",
+  guest_first_name: "Guest First Name",
+  guest_last_name: "Guest Last Name",
+  guest_email: "Guest Email",
+  guest_phone: "Guest Phone",
+  planner_first: "Planner First Name",
+  planner_last: "Planner Last Name",
+  planner_email: "Planner Email",
+  planner_phone: "Planner Phone",
+  total_cents: "Total",
+  tax_cents: "Tax",
+  deposit_due_cents: "Deposit",
+  balance_cents: "Balance",
+  line_items: "Products",
+};
+
+function formatFieldValue(field: string, value: unknown): string {
+  if (value === null || value === undefined) return "(empty)";
+  if (field.endsWith("_cents") && typeof value === "number") {
+    return `$${(value / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  }
+  if (field === "line_items" && Array.isArray(value)) {
+    return value
+      .map(
+        (li: { name?: string; qty?: number; total?: number }) =>
+          `${li.name || "?"} x${li.qty ?? 1}`,
+      )
+      .join(", ");
+  }
+  return String(value);
+}
+
+export function diffSnapshots(a: ContractSnapshot, b: ContractSnapshot): FieldDiff[] {
+  const diffs: FieldDiff[] = [];
+  for (const key of Object.keys(FIELD_LABELS) as Array<keyof ContractSnapshot>) {
+    if (key === "event_date") continue;
+    const av = JSON.stringify(a[key]);
+    const bv = JSON.stringify(b[key]);
+    if (av !== bv) {
+      diffs.push({
+        field: key,
+        label: FIELD_LABELS[key] || key,
+        before: formatFieldValue(key, a[key]),
+        after: formatFieldValue(key, b[key]),
+      });
+    }
+  }
+  return diffs;
 }
