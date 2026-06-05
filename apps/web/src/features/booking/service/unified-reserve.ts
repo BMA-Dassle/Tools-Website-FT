@@ -9,8 +9,16 @@
  */
 import { randomBytes } from "crypto";
 import { createDepositAndCharge, rollbackDeposit, DepositPaymentError } from "./deposit";
-import { confirmQamfReservation, extendReservation } from "./qamf-confirm";
 import { confirmBmiPayment } from "./bmi-confirm";
+import {
+  createReservation,
+  getReservation,
+  setReservationCustomer,
+  setReservationStatus,
+  patchReservation,
+  setLanePlayers,
+  extendReservation,
+} from "@/lib/qamf-bowling";
 import {
   lookupCatalogId,
   lookupCatalogIdByName,
@@ -457,31 +465,125 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
       name: `Bowler ${i + 1}`,
     }));
 
+    const guest = {
+      name: `${contact.firstName} ${contact.lastName}`.trim(),
+      phone: contact.phone ?? "",
+      email: contact.email ?? "",
+    };
+    const bookedAt = item.bookedAt ?? new Date().toISOString();
+    const webOfferId = item.webOfferId ?? 0;
+    const optionId = item.optionId;
+    const optionType = item.optionType ?? "Game";
+    const service = "BookForLater";
+
+    const qamfOptions: Record<string, Array<{ Id: number }>> = {};
+    if (optionId) {
+      if (optionType === "Time") qamfOptions.Time = [{ Id: optionId }];
+      else if (optionType === "Unlimited") qamfOptions.Unlimited = [{ Id: optionId }];
+      else qamfOptions.Game = [{ Id: optionId }];
+    }
+
     log(
       `[unified-reserve] QAMF confirm: centerId=${centerId} holdId=${item.qamfReservationId ?? "NONE"} ` +
-        `webOfferId=${item.webOfferId} optionId=${item.optionId} bookedAt=${item.bookedAt} players=${playerCount}`,
+        `webOfferId=${webOfferId} optionId=${optionId} bookedAt=${bookedAt} players=${playerCount}`,
     );
 
-    try {
-      const qamfResult = await confirmQamfReservation({
-        centerId,
-        qamfReservationId: item.qamfReservationId ?? undefined,
-        bookedAt: item.bookedAt ?? new Date().toISOString(),
-        webOfferId: item.webOfferId ?? 0,
-        optionId: item.optionId ?? undefined,
-        optionType: item.optionType ?? undefined,
-        guest: {
-          name: `${contact.firstName} ${contact.lastName}`.trim(),
-          phone: contact.phone ?? "",
-          email: contact.email ?? "",
-        },
-        players,
-      });
+    // ── QAMF confirm — INLINE from v1 bowling reserve (proven working) ──
+    let qamfReservationId: string;
+    let qamfConfirmed = false;
+    let qamfLanes: Array<{ Id?: string; LaneNumber: number }> = [];
 
-      log(
-        `[unified-reserve] QAMF result: id=${qamfResult.qamfReservationId} confirmed=${qamfResult.confirmed} laneId=${qamfResult.laneId}`,
-      );
-      qamfReservationIds.push(qamfResult.qamfReservationId);
+    async function attachAndConfirm(resId: string): Promise<boolean> {
+      await setReservationCustomer(centerId, resId, {
+        Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
+      });
+      return setReservationStatus(centerId, resId, "Confirmed");
+    }
+
+    try {
+      if (item.qamfReservationId) {
+        qamfReservationId = item.qamfReservationId;
+        log(`[unified-reserve] Hold-first path: ${qamfReservationId}`);
+
+        let holdCustomerAttached = false;
+        try {
+          await Promise.all([
+            setReservationCustomer(centerId, qamfReservationId, {
+              Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
+            }),
+            patchReservation(centerId, qamfReservationId, {
+              Title: `${guest.name} (${players.length}p)`,
+            }).catch(() => {}),
+          ]);
+          holdCustomerAttached = true;
+          log(`[unified-reserve] Customer attached to ${qamfReservationId}`);
+        } catch (err) {
+          log(
+            `[unified-reserve] Customer attach failed: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+
+        if (holdCustomerAttached) {
+          qamfConfirmed = await setReservationStatus(centerId, qamfReservationId, "Confirmed");
+          log(`[unified-reserve] Status confirm result: ${qamfConfirmed}`);
+        }
+
+        if (!qamfConfirmed) {
+          log(`[unified-reserve] Hold confirm failed — creating fresh`);
+          const reservation = await createReservation(centerId, {
+            BookedAt: bookedAt,
+            Title: `${guest.name} (${players.length}p)`,
+            Customer: {
+              Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
+            },
+            WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
+            TotalPlayers: players.length,
+          });
+          qamfReservationId = reservation.Id;
+          qamfLanes = reservation.Lanes ?? [];
+          log(`[unified-reserve] Fresh reservation: ${qamfReservationId}`);
+          qamfConfirmed = await attachAndConfirm(qamfReservationId).catch(() => false);
+        }
+      } else {
+        log(`[unified-reserve] No hold — creating fresh`);
+        const reservation = await createReservation(centerId, {
+          BookedAt: bookedAt,
+          Title: `${guest.name} (${players.length}p)`,
+          Customer: {
+            Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
+          },
+          WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
+          TotalPlayers: players.length,
+        });
+        qamfReservationId = reservation.Id;
+        qamfLanes = reservation.Lanes ?? [];
+        qamfConfirmed = await attachAndConfirm(qamfReservationId).catch(() => false);
+      }
+
+      // Fetch lanes if not captured from createReservation
+      if (qamfLanes.length === 0) {
+        try {
+          const laneRes = await getReservation(centerId, qamfReservationId);
+          qamfLanes = laneRes.Lanes ?? [];
+        } catch {
+          /* non-fatal */
+        }
+      }
+
+      // Push player names to QAMF
+      if (qamfLanes.length > 0) {
+        const lane = qamfLanes[0];
+        const laneId = lane.Id ?? String(lane.LaneNumber);
+        setLanePlayers(
+          centerId,
+          qamfReservationId,
+          laneId,
+          players.map((p) => ({ Name: p.name || "Bowler", ActivateBumpers: false })),
+        ).catch(() => {});
+      }
+
+      log(`[unified-reserve] QAMF done: id=${qamfReservationId} confirmed=${qamfConfirmed}`);
+      qamfReservationIds.push(qamfReservationId);
 
       // Neon reservation for bowling
       const centerCode = session.center ?? "fort-myers";
@@ -492,7 +594,7 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
           {
             centerCode,
             productKind,
-            qamfReservationId: qamfResult.qamfReservationId,
+            qamfReservationId,
             squareDepositOrderId: depositResult.depositOrderId ?? undefined,
             squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
             squareDayofOrderId,
@@ -500,7 +602,7 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
             squareGiftCardGan: depositResult.giftCardGan ?? undefined,
             depositCents,
             totalCents: dayofTotalCents,
-            status: qamfResult.confirmed ? "confirmed" : "confirm_pending",
+            status: qamfConfirmed ? "confirmed" : "confirm_pending",
             bookedAt: item.bookedAt ?? new Date().toISOString(),
             playerCount,
             guestName: `${contact.firstName} ${contact.lastName}`.trim(),
