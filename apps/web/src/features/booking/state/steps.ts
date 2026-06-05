@@ -70,7 +70,6 @@ import {
   RaceHeatPickerStepJunior,
 } from "~/components/features/booking/steps/race/RaceHeatPickerStep";
 import { RacePovStep } from "~/components/features/booking/steps/race/RacePovStep";
-import { RaceAddonsStep } from "~/components/features/booking/steps/race/RaceAddonsStep";
 import {
   AttractionProductStep,
   AttractionDateStep,
@@ -81,7 +80,6 @@ import BowlingSlotsStep from "~/components/features/booking/steps/bowling/Bowlin
 import BowlingTierStep from "~/components/features/booking/steps/bowling/BowlingTierStep";
 import BowlingOfferStep from "~/components/features/booking/steps/bowling/BowlingOfferStep";
 import BowlingShoesStep from "~/components/features/booking/steps/bowling/BowlingShoesStep";
-import BowlingAttractionsStep from "~/components/features/booking/steps/bowling/BowlingAttractionsStep";
 import BowlingFoodStep from "~/components/features/booking/steps/bowling/BowlingFoodStep";
 import KbfIdentityStep from "~/components/features/booking/steps/bowling/KbfIdentityStep";
 import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowlersStep";
@@ -94,14 +92,6 @@ import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowle
  */
 export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [
-    // v1 parity: v1's race wizard order is
-    //   experience → party → date → product → heat → pov → addons → contact → summary
-    // v2 collapses `experience` into the per-member roster inside RacePartyStep
-    // (party members carry isNewRacer themselves) and moves contact + summary
-    // out to session-level steps launched from CartView at checkout time.
-    // Product + Heat split into Adult/Junior variants gated by isVisible so a
-    // single-category party only sees its own pair — same UX outcome as v1's
-    // internal bookingCategory cycling.
     RacePartyStep as StepDef,
     RaceDateStep as StepDef,
     RaceProductStepAdult as StepDef,
@@ -109,9 +99,8 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     RaceProductStepJunior as StepDef,
     RaceHeatPickerStepJunior as StepDef,
     RacePovStep as StepDef,
-    RaceAddonsStep as StepDef,
-    // License (auto-sold during BMI bookHeat) + Contact + Pay are NOT per-item
-    // steps — they live at checkout (commit 10).
+    // Add-ons removed — user returns to activity picker after completing
+    // race steps and adds attractions as separate cart items.
   ],
   attraction: [
     AttractionProductStep as StepDef,
@@ -124,7 +113,8 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     BowlingTierStep as StepDef,
     BowlingOfferStep as StepDef,
     BowlingShoesStep as StepDef,
-    BowlingAttractionsStep as StepDef,
+    // Attractions step removed — user returns to activity picker and
+    // adds attractions as separate cart items.
     BowlingFoodStep as StepDef,
   ],
   kbf: [
@@ -134,6 +124,5 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     BowlingTierStep as StepDef,
     BowlingOfferStep as StepDef,
     BowlingShoesStep as StepDef,
-    BowlingAttractionsStep as StepDef,
   ],
 };
