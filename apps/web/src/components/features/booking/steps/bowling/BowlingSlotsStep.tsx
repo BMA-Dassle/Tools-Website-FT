@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 import { DiscountCodeInput } from "./DiscountCodeInput";
@@ -87,14 +87,39 @@ function parseHoursRange(hoursStr: string): { open: number; close: number } {
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
-const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item, onChange }) => {
+const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
+  item,
+  session,
+  onChange,
+}) => {
   const centerId = item.qamfCenterId ?? 9172;
   const center = CENTERS[centerId] ?? CENTERS[9172];
 
   const earliest = effectiveToday();
   const maxDate = addDays(todayYmd(), 30);
 
+  // Auto-select date from other cart items if this is a new item with no date
+  useEffect(() => {
+    if (item.date) return;
+    for (const other of session.items) {
+      if (other.id === item.id) continue;
+      const d = "date" in other ? (other as { date?: string | null }).date : null;
+      if (d && d >= earliest && d <= maxDate) {
+        onChange({ date: d } as Partial<BowlingLikeItem>);
+        return;
+      }
+    }
+  }, []);
+
   const [calMonth, setCalMonth] = useState(() => {
+    // Start calendar on the cart date if available
+    const cartDate =
+      (item.date ??
+      session.items.find(
+        (o) => o.id !== item.id && "date" in o && (o as { date?: string | null }).date,
+      )?.kind)
+        ? null
+        : null;
     const d = item.date ? new Date(`${item.date}T12:00:00`) : new Date();
     return d.getMonth();
   });
