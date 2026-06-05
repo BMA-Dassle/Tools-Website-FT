@@ -377,9 +377,30 @@ function AttractionCard({
         <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
           {offering.displayName}
         </h3>
-        <p className="font-body mb-4 flex-1 text-sm leading-relaxed text-white/50">
+        <p className="font-body mb-3 flex-1 text-sm leading-relaxed text-white/50">
           {offering.blurb}
         </p>
+
+        {/* Venue badge */}
+        <div className="mb-3 flex items-center gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={
+              offering.kind === "race" ||
+              offering.slug === "duck-pin" ||
+              offering.slug === "shuffly"
+                ? "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
+                : "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/HP_logo.png"
+            }
+            alt=""
+            className="h-4 w-auto opacity-60"
+          />
+          <span className="text-[11px] text-white/35">
+            {offering.kind === "race" || offering.slug === "duck-pin" || offering.slug === "shuffly"
+              ? "FastTrax Entertainment"
+              : "HeadPinz Entertainment"}
+          </span>
+        </div>
 
         <div
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
