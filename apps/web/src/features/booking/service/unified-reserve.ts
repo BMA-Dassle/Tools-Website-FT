@@ -527,6 +527,12 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
         if (holdCustomerAttached) {
           qamfConfirmed = await setReservationStatus(centerId, qamfReservationId, "Confirmed");
           log(`[unified-reserve] Status confirm result: ${qamfConfirmed}`);
+          // Rename title AFTER confirm (hold title stays "Hold (Np)" otherwise)
+          if (qamfConfirmed) {
+            patchReservation(centerId, qamfReservationId, {
+              Title: `${guest.name} (${players.length}p)`,
+            }).catch(() => {});
+          }
         }
 
         if (!qamfConfirmed) {
