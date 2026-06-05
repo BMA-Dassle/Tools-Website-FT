@@ -518,53 +518,95 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     }) {
       setPhase({ step: "confirming", bmiBillId });
       try {
-        // Unified reserve — one Square order, one charge, all item types
-        // Inject bmiBillId from the phase (set during handleContactSubmit
-        // by runCheckout) into the session — without this the server skips
-        // BMI payment/confirm and the reservation stays "Payment started".
-        const sessionWithBill = { ...session, bmiBillId: bmiBillId || session.bmiBillId };
-        const result = await reserveAll({
-          session: sessionWithBill,
-          contact,
-          cardSourceId: params.savedCardId ?? params.cardNonce ?? undefined,
-          giftCardNonce: params.giftCardNonce ?? undefined,
-          squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
-          loyaltyAccountId: session.loyalty?.accountId,
-          rewardTierId: session.loyalty?.selectedRewardTier?.id,
-          rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
-        });
+        const bowlingOnly = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
 
-        const effectiveBillId = session.bmiBillId ?? bmiBillId;
+        if (bowlingOnly) {
+          // Bowling-only: use the proven v1 bowling reserve route (QAMF + Square)
+          const bowlingItem = session.items.find(
+            (i) => i.kind === "bowling" || i.kind === "kbf",
+          ) as BowlingItem | KbfItem;
 
-        void recordClickwrap({
-          billId: effectiveBillId,
-          email: contact.email,
-          phone: contact.phone,
-          firstName: contact.firstName,
-          amountCents: Math.round(overview.cashOwed * 100),
-          bookingType: hasBowling ? "bowling" : "racing",
-        });
+          const result = await bowlingReserve({
+            session,
+            item: bowlingItem,
+            contact,
+            cardToken: params.cardNonce ?? undefined,
+            giftCardNonce: params.giftCardNonce ?? undefined,
+            squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
+            loyaltyAccountId: session.loyalty?.accountId,
+            loyaltyAction: session.loyalty
+              ? session.loyalty.isNewSignup
+                ? "signup"
+                : "existing"
+              : undefined,
+            rewardTierId: session.loyalty?.selectedRewardTier?.id,
+            rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
+            smsOptIn: contact.smsOptIn,
+          });
 
-        await saveBookingDetails(session, effectiveBillId, overview, contact);
+          void recordClickwrap({
+            billId: `bowl-${result.qamfReservationId}`,
+            email: contact.email,
+            phone: contact.phone,
+            firstName: contact.firstName,
+            amountCents: Math.round(overview.cashOwed * 100),
+            bookingType: "bowling",
+          });
 
-        clearBookingSession();
+          await saveBookingDetails(session, `bowl-${result.qamfReservationId}`, overview, contact);
+          clearBookingSession();
 
-        // Redirect to appropriate confirmation page
-        if (result.shortCodes.length > 0) {
-          const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
           const confirmBase =
-            bowlingItem?.kind === "kbf"
+            bowlingItem.kind === "kbf"
               ? "/hp/book/kids-bowl-free/confirmation"
               : "/hp/book/bowling/confirmation";
-          window.location.href = `${confirmBase}?code=${result.shortCodes[0]}`;
-        } else if (result.bmiReservationNumber || session.bmiBillId) {
-          window.location.href = buildConfirmationUrl(
-            session,
-            session.bmiBillId ?? bmiBillId,
-            true,
-          );
+          window.location.href = result.shortCode
+            ? `${confirmBase}?code=${result.shortCode}`
+            : `${confirmBase}?neonId=${result.neonId}`;
         } else {
-          window.location.href = `/book/confirmation?neonId=${result.neonIds[0] ?? ""}`;
+          // Mixed or BMI-only: unified reserve (one Square order for everything)
+          const sessionWithBill = { ...session, bmiBillId: bmiBillId || session.bmiBillId };
+          const result = await reserveAll({
+            session: sessionWithBill,
+            contact,
+            cardSourceId: params.savedCardId ?? params.cardNonce ?? undefined,
+            giftCardNonce: params.giftCardNonce ?? undefined,
+            squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
+            loyaltyAccountId: session.loyalty?.accountId,
+            rewardTierId: session.loyalty?.selectedRewardTier?.id,
+            rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
+          });
+
+          const effectiveBillId = session.bmiBillId ?? bmiBillId;
+
+          void recordClickwrap({
+            billId: effectiveBillId,
+            email: contact.email,
+            phone: contact.phone,
+            firstName: contact.firstName,
+            amountCents: Math.round(overview.cashOwed * 100),
+            bookingType: hasBmi ? "racing" : "bowling",
+          });
+
+          await saveBookingDetails(session, effectiveBillId, overview, contact);
+          clearBookingSession();
+
+          if (result.shortCodes.length > 0) {
+            const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
+            const confirmBase =
+              bowlingItem?.kind === "kbf"
+                ? "/hp/book/kids-bowl-free/confirmation"
+                : "/hp/book/bowling/confirmation";
+            window.location.href = `${confirmBase}?code=${result.shortCodes[0]}`;
+          } else if (result.bmiReservationNumber || session.bmiBillId) {
+            window.location.href = buildConfirmationUrl(
+              session,
+              session.bmiBillId ?? bmiBillId,
+              true,
+            );
+          } else {
+            window.location.href = `/book/confirmation?neonId=${result.neonIds[0] ?? ""}`;
+          }
         }
       } catch (err) {
         setPhase({
