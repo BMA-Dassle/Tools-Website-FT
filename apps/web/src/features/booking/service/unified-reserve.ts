@@ -485,7 +485,8 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
 
     log(
       `[unified-reserve] QAMF confirm: centerId=${centerId} holdId=${item.qamfReservationId ?? "NONE"} ` +
-        `webOfferId=${webOfferId} optionId=${optionId} bookedAt=${bookedAt} players=${playerCount}`,
+        `webOfferId=${webOfferId} optionId=${optionId} bookedAt=${bookedAt} players=${playerCount} ` +
+        `guest=${JSON.stringify(guest)}`,
     );
 
     // ── QAMF confirm — INLINE from v1 bowling reserve (proven working) ──
