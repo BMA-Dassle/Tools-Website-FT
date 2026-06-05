@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import https from "https";
 import redis from "@/lib/redis";
 
 /**
@@ -55,6 +56,174 @@ function bmiHeaders(token: string) {
     "Accept-Language": "en",
   };
 }
+
+// ── Office API (SMS-Timing) — post-confirm state verification ────────────────
+
+const OFFICE_HOST = "office-api22.sms-timing.com";
+const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "";
+const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "";
+const OFFICE_PASS = OFFICE_PASS_B64
+  ? Buffer.from(OFFICE_PASS_B64, "base64").toString()
+  : process.env.BMI_OFFICE_PASSWORD || "";
+const SMS_VERSION = "6251006 202511051229";
+
+function officeReq(
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+  body?: string,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      hostname: OFFICE_HOST,
+      path,
+      method,
+      headers: { ...headers, "Content-Type": "application/json" },
+    };
+    const r = https.request(opts, (res) => {
+      let data = "";
+      res.on("data", (c: string) => (data += c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 500, body: data }));
+    });
+    r.on("error", reject);
+    r.setTimeout(15_000, () => {
+      r.destroy();
+      reject(new Error("Timeout"));
+    });
+    if (body) r.write(body);
+    r.end();
+  });
+}
+
+let officeTokenCache: { token: string; expiry: number; clientKey: string } | null = null;
+
+async function getOfficeToken(clientKey: string): Promise<string> {
+  if (
+    officeTokenCache &&
+    officeTokenCache.clientKey === clientKey &&
+    Date.now() < officeTokenCache.expiry - 60_000
+  ) {
+    return officeTokenCache.token;
+  }
+  const res = await officeReq(
+    "POST",
+    "/auth/token",
+    {
+      "Content-Type": "application/x-www-form-urlencoded",
+      clientkey: clientKey,
+      "x-fast-version": SMS_VERSION,
+    },
+    `grant_type=password&username=${OFFICE_USER}&password=${encodeURIComponent(OFFICE_PASS)}`,
+  );
+  if (res.status !== 200) throw new Error(`Office auth: ${res.status}`);
+  const data = JSON.parse(res.body);
+  officeTokenCache = { token: data.access_token, clientKey, expiry: Date.now() + 3500_000 };
+  return data.access_token;
+}
+
+const STATE_NAMES: Record<string, string> = {
+  "-1": "New",
+  "-2": "Reservation",
+  "-3": "Confirmation",
+  "-4": "Cancellation",
+  "-5": "Arrived",
+  "-100": "Pending online",
+  "-101": "Payment started",
+  "-102": "Paid online",
+};
+
+async function verifyPostConfirm(
+  clientKey: string,
+  orderId: string,
+  wNumber: string,
+): Promise<void> {
+  try {
+    const token = await getOfficeToken(clientKey);
+    const h: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "x-fast-version": SMS_VERSION,
+      "x-session-id": `verify-${Date.now()}`,
+      clientkey: clientKey,
+    };
+
+    const searchRes = await officeReq(
+      "GET",
+      `/api/${clientKey}/search?token=${wNumber}&maxResults=3`,
+      h,
+    );
+    const searchResults = searchRes.status < 400 ? JSON.parse(searchRes.body) : [];
+    const projectResult = Array.isArray(searchResults)
+      ? searchResults.find((r: { kind?: number }) => r.kind === 2)
+      : null;
+    const projectId = projectResult?.localId ? String(projectResult.localId) : null;
+
+    const projAtOrderId = await officeReq("GET", `/api/${clientKey}/project/${orderId}`, h);
+
+    let projAtProjectId: { status: number; body: string } | null = null;
+    if (projectId && projectId !== orderId) {
+      projAtProjectId = await officeReq("GET", `/api/${clientKey}/project/${projectId}`, h);
+    }
+
+    function extractState(res: { status: number; body: string } | null) {
+      if (!res || res.status >= 400)
+        return { httpStatus: res?.status ?? 0, stateId: null, userUpdatedId: null };
+      try {
+        const p = JSON.parse(res.body);
+        return {
+          httpStatus: res.status,
+          stateId: String(p.stateId ?? "?"),
+          userUpdatedId: String(p.userUpdatedId ?? "?"),
+        };
+      } catch {
+        return { httpStatus: res.status, stateId: null, userUpdatedId: null };
+      }
+    }
+
+    const orderIdState = extractState(projAtOrderId);
+    const projectIdState = projectId ? extractState(projAtProjectId) : null;
+
+    const logEntry = {
+      type: "post-confirm-verify",
+      timestamp: new Date().toISOString(),
+      clientKey,
+      wNumber,
+      orderId,
+      projectId,
+      orderIdMatchesProjectId: orderId === projectId,
+      offset: projectId ? String(BigInt(projectId) - BigInt(orderId)) : null,
+      orderIdLookup: {
+        ...orderIdState,
+        stateName: STATE_NAMES[orderIdState.stateId ?? ""] || orderIdState.stateId,
+      },
+      projectIdLookup: projectIdState
+        ? {
+            ...projectIdState,
+            stateName: STATE_NAMES[projectIdState.stateId ?? ""] || projectIdState.stateId,
+          }
+        : null,
+      isConfirmed: orderIdState.stateId === "-3" || projectIdState?.stateId === "-3",
+      verdict:
+        orderIdState.stateId === "-3" || projectIdState?.stateId === "-3"
+          ? "OK — project in Confirmation"
+          : orderId !== projectId
+            ? `BUG — orderId≠projectId (offset ${projectId ? BigInt(projectId) - BigInt(orderId) : "?"}), ` +
+              `neither in Confirmation (orderId=${orderIdState.stateId}, projectId=${projectIdState?.stateId})`
+            : `BUG — state is ${orderIdState.stateId} (${STATE_NAMES[orderIdState.stateId ?? ""] || "?"}), not Confirmation`,
+    };
+
+    await redis.lpush("bmi:api:log", JSON.stringify(logEntry));
+    await redis.ltrim("bmi:api:log", 0, 4999);
+
+    console.log(
+      `[post-confirm-verify] ${wNumber} orderId=${orderId} projectId=${projectId || "same"} ` +
+        `offset=${logEntry.offset || "0"} state=${projectIdState?.stateId || orderIdState.stateId} → ${logEntry.isConfirmed ? "OK" : "BUG"}`,
+    );
+  } catch (err) {
+    console.error("[post-confirm-verify] failed:", err);
+  }
+}
+
+// ── Redis keys ───────────────────────────────────────────────────────────────
 
 const REDIS_KEY_PREFIX = "bmi:confirmed:";
 const REDIS_TTL = 86400 * 7; // 7 days
@@ -190,6 +359,10 @@ export async function POST(req: NextRequest) {
     console.log(
       `[booking/confirm] OK ${reservationNumber} for bill ${billId} (bmiStatus=${bmiStatus})`,
     );
+
+    // Verify project state via BMI's own Office API — 2s delay for BMI internal propagation
+    await new Promise((r) => setTimeout(r, 2000));
+    await verifyPostConfirm(clientKey, billId, reservationNumber);
 
     return NextResponse.json({ ...result, alreadyConfirmed: false });
   } catch (err) {
