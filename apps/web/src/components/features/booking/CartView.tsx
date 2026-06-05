@@ -186,28 +186,43 @@ function CartItemCard({
   if (item.kind === "attraction") {
     return <AttractionCartCard item={item} session={session} onEdit={onEdit} onRemove={onRemove} />;
   }
+  // Estimated total for bowling/kbf from enriched lineItems
+  const bowlingEstimate =
+    item.kind === "bowling" || item.kind === "kbf"
+      ? item.lineItems.reduce((s, li) => s + (li.priceCents ?? 0) * li.quantity, 0) / 100 +
+        (item.hasBookingFee ? 2.99 : 0)
+      : 0;
+
   return (
-    <li className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-4 text-sm transition-colors hover:border-white/20">
-      <div>
-        <div className="font-semibold text-white">{otherItemTitle(item)}</div>
-        <div className="mt-0.5 text-xs text-white/40">{otherItemSummary(item)}</div>
+    <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm transition-colors hover:border-white/20">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-white">{otherItemTitle(item)}</div>
+          <div className="mt-0.5 text-xs text-white/40">{otherItemSummary(item)}</div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
+          >
+            Remove
+          </button>
+        </div>
       </div>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
-        >
-          Edit
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
-        >
-          Remove
-        </button>
-      </div>
+      {bowlingEstimate > 0 && (
+        <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-sm">
+          <span className="text-xs uppercase tracking-wider text-white/40">Est. total</span>
+          <span className="font-bold text-[#00E2E5]">${bowlingEstimate.toFixed(2)}</span>
+        </div>
+      )}
     </li>
   );
 }
