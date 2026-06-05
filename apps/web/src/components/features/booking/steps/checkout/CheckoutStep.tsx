@@ -561,7 +561,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
               ? "/hp/book/kids-bowl-free/confirmation"
               : "/hp/book/bowling/confirmation";
           window.location.href = result.shortCode
-            ? `${confirmBase}?code=${result.shortCode}`
+            ? `${confirmBase}?code=${result.shortCode}&neonId=${result.neonId}`
             : `${confirmBase}?neonId=${result.neonId}`;
         } else {
           // Mixed or BMI-only: unified reserve (one Square order for everything)
@@ -591,21 +591,24 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           await saveBookingDetails(session, effectiveBillId, overview, contact);
           clearBookingSession();
 
-          if (result.shortCodes.length > 0) {
+          // Mixed cart: use /book/confirmation (race confirmation) which shows all items
+          if (hasBmi && effectiveBillId) {
+            window.location.href = buildConfirmationUrl(session, effectiveBillId, true);
+          } else if (result.shortCodes.length > 0) {
             const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
             const confirmBase =
               bowlingItem?.kind === "kbf"
                 ? "/hp/book/kids-bowl-free/confirmation"
                 : "/hp/book/bowling/confirmation";
             window.location.href = `${confirmBase}?code=${result.shortCodes[0]}`;
-          } else if (result.bmiReservationNumber || session.bmiBillId) {
-            window.location.href = buildConfirmationUrl(
-              session,
-              session.bmiBillId ?? bmiBillId,
-              true,
-            );
           } else {
-            window.location.href = `/book/confirmation?neonId=${result.neonIds[0] ?? ""}`;
+            // Fallback: bowling confirmation with neonId
+            const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
+            const confirmBase =
+              bowlingItem?.kind === "kbf"
+                ? "/hp/book/kids-bowl-free/confirmation"
+                : "/hp/book/bowling/confirmation";
+            window.location.href = `${confirmBase}?neonId=${result.neonIds[0] ?? ""}`;
           }
         }
       } catch (err) {
