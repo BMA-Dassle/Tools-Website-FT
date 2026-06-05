@@ -591,7 +591,7 @@ function PackageCard({
       perUnit: 0,
       quantity: 1,
       lineTotal: 0,
-      freeNote: "1 per group · race day only",
+      freeNote: `${pkg.appetizerNote ?? "1 per group"} · race day only`,
     });
   }
 

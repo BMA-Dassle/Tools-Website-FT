@@ -136,6 +136,13 @@ export interface PackageDefinition {
    *  Same for Rookie Pack and Ultimate Qualifier today (RACEAPP);
    *  the field exists so future packages can diverge. */
   appetizerCode?: string;
+  /** Per-package qualifier for the appetizer offer. Rookie Pack is
+   *  "1 per group"; Ultimate Qualifier is "1 per 3 purchases". */
+  appetizerNote?: string;
+  /** Menu items the appetizer code is valid for. Differs between
+   *  packages — Rookie Pack offers the GF variant of Mac & Cheese;
+   *  Ultimate Qualifier lists Bruschetta - Regular instead. */
+  appetizerItems?: string[];
 
   /** Per-racer bundle total. Optional — if omitted, the auto-sum
    *  helper computes it from `races` + license/POV booleans. */
@@ -182,12 +189,19 @@ const ROOKIE_PACK_ENABLED =
 const ULTIMATE_QUALIFIER_ENABLED =
   (process.env.NEXT_PUBLIC_ULTIMATE_QUALIFIER_ENABLED || "true").toLowerCase() !== "false";
 
+// Shared appetizer items per package — factored out so the picker
+// card, confirmation page, and email all pull from the same list.
+const RP_APPETIZER_NOTE = "1 per group";
+const RP_APPETIZER_ITEMS = ["Bruschetta", "GF Mac & Cheese Bites", "Fried Zucchini Sticks"];
+const UQ_APPETIZER_NOTE = "1 per 3 purchases";
+const UQ_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
+
 // Shared Ultimate Qualifier copy — the per-track / per-schedule
 // variants only differ in their race component productIds, so the
 // long description, disclaimer body, and bill memo are factored out
 // here. Update once and every variant inherits it.
 const UQ_LONG =
-  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (one per group, dine-in only). This ultimate pack also includes your license.";
+  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only). This ultimate pack also includes your license.";
 
 const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
   title: "Heads Up — Ultimate Qualifier",
@@ -236,6 +250,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: RP_APPETIZER_NOTE,
+    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -270,6 +286,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: RP_APPETIZER_NOTE,
+    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -302,6 +320,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: RP_APPETIZER_NOTE,
+    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack-weekday-junior",
     displayOrder: 20,
   },
@@ -334,6 +354,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: RP_APPETIZER_NOTE,
+    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -364,6 +386,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: RP_APPETIZER_NOTE,
+    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack-weekend-junior",
     displayOrder: 20,
   },
@@ -386,6 +410,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: RP_APPETIZER_NOTE,
+    appetizerItems: RP_APPETIZER_ITEMS,
     price: LICENSE_PRICE + POV_PRICE,
     cartLineKey: "rookie-pack",
   },
@@ -445,6 +471,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: UQ_APPETIZER_NOTE,
+    appetizerItems: UQ_APPETIZER_ITEMS,
     // No explicit `price` — let the auto-sum helper compute it from
     // the components above + license + POV. Update once finalized.
     cartLineKey: "ultimate-qualifier-mega",
@@ -499,6 +527,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: UQ_APPETIZER_NOTE,
+    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekday",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
@@ -549,6 +579,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: UQ_APPETIZER_NOTE,
+    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekday-junior",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
@@ -595,6 +627,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: UQ_APPETIZER_NOTE,
+    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekend",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
@@ -643,6 +677,8 @@ const PACKAGES: PackageDefinition[] = [
     includesLicense: true,
     includesPov: true,
     appetizerCode: "RACEAPP",
+    appetizerNote: UQ_APPETIZER_NOTE,
+    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekend-junior",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,

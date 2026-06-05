@@ -598,24 +598,42 @@ export async function POST(req: NextRequest) {
         )
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
 
-      // Rookie Pack — append a small free-appetizer call-out before
-      // </body> when the booking opted in. The actual coupon code
-      // lives on the confirmation page only; this email just tells
-      // the racer to look there.
-      if (isRookiePack) {
-        const rookieBlock = `
+      // Free appetizer call-out — appended before </body> for any
+      // package that carries an appetizerCode. Copy adapts to the
+      // package (Rookie Pack = "1 per group", Ultimate Qualifier =
+      // "1 per 3 purchases", different menu items). The actual
+      // coupon code lives on the confirmation page only; this email
+      // just tells the racer to look there.
+      {
+        const { getPackageIgnoreFlag } = await import("@/lib/packages");
+        const emailPkg = resolvedPackageId ? getPackageIgnoreFlag(resolvedPackageId) : null;
+        if (emailPkg?.appetizerCode) {
+          const pkgLabel = emailPkg.name;
+          const note = emailPkg.appetizerNote ?? "1 per group";
+          const items = emailPkg.appetizerItems ?? [
+            "Bruschetta",
+            "GF Mac & Cheese Bites",
+            "Fried Zucchini Sticks",
+          ];
+          const itemsStr =
+            items.length > 1
+              ? items.slice(0, -1).join(", ") + ", or " + items[items.length - 1]
+              : items[0];
+          const noteDisplay =
+            note === "1 per group" ? "One free appetizer per group" : `Free appetizer (${note})`;
+          const appetizerBlock = `
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 20px;max-width:600px;">
   <tr><td style="padding:0 20px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FEF3C7;border:2px solid #F59E0B;border-radius:14px;">
       <tr><td style="padding:18px 22px;font-family:Arial,sans-serif;color:#1F2937;">
-        <p style="margin:0 0 6px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#92400E;font-weight:bold;">Rookie Pack — Included</p>
+        <p style="margin:0 0 6px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#92400E;font-weight:bold;">${pkgLabel} — Included</p>
         <h3 style="margin:0 0 8px;font-size:20px;color:#111827;">🍴 Your Free Appetizer at Nemo's</h3>
         <p style="margin:0 0 8px;font-size:14px;color:#374151;line-height:1.5;">
           Join us <strong>upstairs at Nemo's</strong> before or after your race. Your coupon
           code is on your confirmation page — open the link above to grab it.
         </p>
         <p style="margin:0;font-size:12px;color:#6B7280;">
-          One free appetizer per group (Bruschetta, GF Mac &amp; Cheese Bites, or Fried Zucchini Sticks).
+          ${noteDisplay} (${itemsStr}).
           Dine-in only · <strong style="color:#92400E;">Valid race day only</strong>.
         </p>
       </td></tr>
@@ -623,7 +641,8 @@ export async function POST(req: NextRequest) {
   </td></tr>
 </table>
 </body>`;
-        html = html.replace("</body>", rookieBlock);
+          html = html.replace("</body>", appetizerBlock);
+        }
       }
 
       // Waiver section already handled by ^WaiverSection()$ placeholder
