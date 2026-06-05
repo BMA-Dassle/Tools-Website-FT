@@ -1039,8 +1039,7 @@ export default function ConfirmationPage() {
     null;
 
   return (
-    <div className="min-h-screen bg-[#000418]">
-      <BrandNav />
+    <div className="min-h-screen bg-[#000418] pt-32 sm:pt-36">
       {expressLane && (
         <style>{`
           @keyframes expressGlow {
