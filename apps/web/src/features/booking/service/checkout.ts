@@ -367,6 +367,7 @@ export async function saveBookingDetails(
     experienceSlug: b.experienceSlug,
     laneCount: b.laneCount,
     playerCount: b.kind === "bowling" ? b.playerCount : undefined,
+    qamfReservationId: b.qamfReservationId,
   }));
 
   // Express Lane: all returning racers must have valid Pandora waivers.

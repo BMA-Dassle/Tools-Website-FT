@@ -1044,7 +1044,7 @@ export default function ConfirmationPage() {
     null;
 
   return (
-    <div className="min-h-screen bg-[#000418] pt-32 sm:pt-36">
+    <div className="min-h-screen bg-[#000418]">
       {expressLane && (
         <style>{`
           @keyframes expressGlow {
@@ -1696,7 +1696,7 @@ export default function ConfirmationPage() {
               ).map((a, i) => (
                 <div
                   key={`attr-${i}`}
-                  className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
+                  className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden max-w-3xl mx-auto"
                 >
                   <div className="p-4 sm:p-8">
                     <p className="text-[#00E2E5] font-bold text-2xl sm:text-3xl capitalize">
@@ -1755,13 +1755,19 @@ export default function ConfirmationPage() {
                   experienceSlug?: string;
                   laneCount?: number;
                   playerCount?: number;
+                  qamfReservationId?: string;
                 }>
               ).map((b, i) => (
                 <div
                   key={`bowl-${i}`}
-                  className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.03] overflow-hidden"
+                  className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.03] overflow-hidden max-w-3xl mx-auto"
                 >
                   <div className="p-4 sm:p-8">
+                    {b.qamfReservationId && (
+                      <p className="text-emerald-400 font-bold text-xl mb-1">
+                        {b.qamfReservationId}
+                      </p>
+                    )}
                     <p className="text-emerald-400 font-bold text-2xl sm:text-3xl capitalize">
                       {b.experienceSlug?.replace(/-/g, " ") ?? "Bowling"}
                     </p>
