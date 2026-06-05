@@ -100,14 +100,16 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
     return times;
   }, [session.items, item.id, item.date]);
 
+  const SAME_CENTER_BUFFER_MS = 15 * 60_000;
   const CROSS_BUILDING_BUFFER_MS = 30 * 60_000;
 
   function isConflict(blockStart: string): boolean {
     const slotMs = new Date(blockStart.replace(/Z$/, "")).getTime();
     if (isNaN(slotMs)) return false;
-    const slotEnd = slotMs + 15 * 60_000; // assume 15-min attraction duration
+    const slotEnd = slotMs + 15 * 60_000;
     for (const bt of bookedTimes) {
-      const buffer = bt.building !== thisBuilding ? CROSS_BUILDING_BUFFER_MS : 0;
+      const buffer =
+        bt.building !== thisBuilding ? CROSS_BUILDING_BUFFER_MS : SAME_CENTER_BUFFER_MS;
       if (slotMs < bt.endMs + buffer && slotEnd > bt.startMs - buffer) return true;
     }
     return false;
