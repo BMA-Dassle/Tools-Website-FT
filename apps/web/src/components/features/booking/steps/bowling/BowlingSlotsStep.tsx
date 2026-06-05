@@ -117,19 +117,13 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   }, []);
 
   const [calMonth, setCalMonth] = useState(() => {
-    // Start calendar on the cart date if available
-    const cartDate =
-      (item.date ??
-      session.items.find(
-        (o) => o.id !== item.id && "date" in o && (o as { date?: string | null }).date,
-      )?.kind)
-        ? null
-        : null;
-    const d = item.date ? new Date(`${item.date}T12:00:00`) : new Date();
+    const seed = item.date ?? cartDate;
+    const d = seed ? new Date(`${seed}T12:00:00`) : new Date();
     return d.getMonth();
   });
   const [calYear, setCalYear] = useState(() => {
-    const d = item.date ? new Date(`${item.date}T12:00:00`) : new Date();
+    const seed = item.date ?? cartDate;
+    const d = seed ? new Date(`${seed}T12:00:00`) : new Date();
     return d.getFullYear();
   });
 
