@@ -647,6 +647,28 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
       } catch (err) {
         console.error("[unified-reserve] Neon insert (bowling) failed (non-fatal):", err);
       }
+
+      // Final QAMF title + notes patch (v1 does this AFTER everything else)
+      // The earlier parallel patch during hold-first often fails silently.
+      // This final patch runs after confirm + neon + short code — reliable.
+      const finalTitle = `${guest.name} (${players.length}p)`;
+      const depositDollars = depositCents > 0 ? `$${(depositCents / 100).toFixed(2)}` : "$0";
+      const shortCode = shortCodes[shortCodes.length - 1];
+      const finalNotes = [
+        `Deposit ${depositDollars} paid`,
+        shortCode ? `headpinz.com/s/${shortCode}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      try {
+        await patchReservation(centerId, qamfReservationId, {
+          Title: finalTitle,
+          Notes: finalNotes,
+        });
+        log(`[unified-reserve] Final patch OK: title="${finalTitle}"`);
+      } catch (err) {
+        log(`[unified-reserve] Final patch FAILED: ${err instanceof Error ? err.message : err}`);
+      }
     } catch (err) {
       // QAMF failed after deposit — rollback deposit
       if (depositResult.depositOrderId) {
