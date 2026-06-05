@@ -81,15 +81,17 @@ export function CartView({
         <p className="mt-6 text-sm text-white/50">No items yet.</p>
       ) : (
         <ul className="mt-6 space-y-3">
-          {session.items.map((item) => (
-            <CartItemCard
-              key={item.id}
-              item={item}
-              session={session}
-              onEdit={() => onEditItem(item.id)}
-              onRemove={() => onRemoveItem(item.id)}
-            />
-          ))}
+          {[...session.items]
+            .sort((a, b) => itemSortMs(a) - itemSortMs(b))
+            .map((item) => (
+              <CartItemCard
+                key={item.id}
+                item={item}
+                session={session}
+                onEdit={() => onEditItem(item.id)}
+                onRemove={() => onRemoveItem(item.id)}
+              />
+            ))}
         </ul>
       )}
 
@@ -430,7 +432,6 @@ function AttractionCartCard({
 
   const product = config?.products.find((p) => p.productId === item.productId);
   const title = product?.name ?? findOffering(item.slug ?? "")?.displayName ?? "Attraction";
-  const accentColor = config?.color ?? "#00E2E5";
 
   const dateLabel = item.date
     ? new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
@@ -488,9 +489,7 @@ function AttractionCartCard({
       {total > 0 && (
         <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-sm">
           <span className="text-xs uppercase tracking-wider text-white/40">Est. total</span>
-          <span className="font-bold" style={{ color: accentColor }}>
-            ${total.toFixed(2)}
-          </span>
+          <span className="font-bold text-[#00E2E5]">${total.toFixed(2)}</span>
         </div>
       )}
 
@@ -638,33 +637,87 @@ function otherItemTitle(item: SessionItem): string {
   return findOffering(item.kind)?.displayName ?? item.kind;
 }
 
+/** Epoch ms for sorting cart items chronologically. Items without a
+ *  resolved time sort last. */
+function itemSortMs(item: SessionItem): number {
+  const FAR = Number.MAX_SAFE_INTEGER;
+  switch (item.kind) {
+    case "race": {
+      const starts = item.heats
+        .map((h) => (h.heatId ? Date.parse(h.heatId.replace(/Z$/, "")) : NaN))
+        .filter((n) => Number.isFinite(n));
+      return starts.length ? Math.min(...starts) : FAR;
+    }
+    case "attraction":
+      return item.slot ? Date.parse(item.slot.replace(/Z$/, "")) || FAR : FAR;
+    case "bowling":
+    case "kbf": {
+      if (item.bookedAt) return Date.parse(item.bookedAt.replace(/Z$/, "")) || FAR;
+      if (item.date && item.hour != null) {
+        return Date.parse(`${item.date}T${String(item.hour % 24).padStart(2, "0")}:00:00`) || FAR;
+      }
+      return FAR;
+    }
+    default:
+      return FAR;
+  }
+}
+
+function fmtCartDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  return new Date(`${dateStr}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function fmtCartTime(hour: number | null, minute: number | null): string | null {
+  if (hour == null) return null;
+  const m = minute ?? 0;
+  const ampm = hour % 24 >= 12 ? "PM" : "AM";
+  const hr = hour % 12 || 12;
+  return `${hr}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function fmtCartIsoTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  return new Date(iso.replace(/Z$/, "")).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 function otherItemSummary(item: SessionItem): string {
   switch (item.kind) {
     case "race":
       return "";
     case "attraction":
       return [
-        item.date,
-        item.slot,
-        `qty ${item.qty}`,
-        item.assignedTo.length > 0 ? `${item.assignedTo.length} assigned` : null,
+        fmtCartDate(item.date),
+        fmtCartIsoTime(item.slot),
+        `${item.qty} ${item.qty === 1 ? "person" : "people"}`,
       ]
         .filter(Boolean)
         .join(" · ");
     case "bowling":
       return [
-        item.date,
-        item.hour != null ? `${item.hour}:00` : null,
-        `${item.laneCount} lane(s)`,
-        item.assignedTo.length > 0 ? `${item.assignedTo.length} players` : null,
+        fmtCartDate(item.date),
+        fmtCartTime(item.hour, item.minute),
+        `${item.laneCount} lane${item.laneCount === 1 ? "" : "s"}`,
+        item.playerCount > 0
+          ? `${item.playerCount} bowler${item.playerCount === 1 ? "" : "s"}`
+          : null,
       ]
         .filter(Boolean)
         .join(" · ");
     case "kbf":
       return [
-        item.bookedAt,
+        fmtCartDate(item.date),
+        fmtCartTime(item.hour, item.minute),
         `${item.bowlers.length} bowler${item.bowlers.length === 1 ? "" : "s"}`,
-        item.paidAdults > 0 ? `${item.paidAdults} adult(s)` : null,
+        item.paidAdults > 0 ? `${item.paidAdults} adult${item.paidAdults === 1 ? "" : "s"}` : null,
       ]
         .filter(Boolean)
         .join(" · ");
