@@ -381,26 +381,28 @@ function AttractionCard({
           {offering.blurb}
         </p>
 
-        {/* Venue badge */}
-        <div className="mb-3 flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={
-              offering.kind === "race" ||
-              offering.slug === "duck-pin" ||
-              offering.slug === "shuffly"
-                ? "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
-                : "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/HP_logo.png"
-            }
-            alt=""
-            className="h-4 w-auto opacity-60"
-          />
-          <span className="text-[11px] text-white/35">
-            {offering.kind === "race" || offering.slug === "duck-pin" || offering.slug === "shuffly"
-              ? "FastTrax Entertainment"
-              : "HeadPinz Entertainment"}
-          </span>
-        </div>
+        {/* Venue badge — which building this activity lives in */}
+        {(() => {
+          const isFastTrax =
+            offering.kind === "race" || offering.slug === "duck-pin" || offering.slug === "shuffly";
+          return (
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-white/50">
+                Located within
+              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={
+                  isFastTrax
+                    ? "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
+                    : "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
+                }
+                alt={isFastTrax ? "FastTrax Entertainment" : "HeadPinz Entertainment"}
+                className="h-5 w-auto"
+              />
+            </div>
+          );
+        })()}
 
         <div
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
