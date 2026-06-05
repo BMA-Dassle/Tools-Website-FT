@@ -283,14 +283,6 @@ function AttractionCard({
   gold: string;
 }) {
   const inScope = applied ? isOfferingInPromoScope(offering, applied) : false;
-  // Multi-center offerings show a generic label; single-center pin to the actual complex.
-  const locationLabel =
-    offering.centers.length > 1
-      ? "Fort Myers & Naples"
-      : offering.centers[0] === "naples"
-        ? "HeadPinz Naples"
-        : "Fort Myers";
-
   const cardColor = offering.accentColor ?? accent;
 
   return (
@@ -314,31 +306,6 @@ function AttractionCard({
           />
         )}
         <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
-
-        {/* Location pill */}
-        <div className="absolute left-3 top-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-xs font-medium text-white/70 backdrop-blur-sm">
-            <svg
-              className="h-3 w-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-            {locationLabel}
-          </span>
-        </div>
 
         {/* Duration OR promo eligibility badge — eligibility wins when applied */}
         <div className="absolute right-3 top-3">
