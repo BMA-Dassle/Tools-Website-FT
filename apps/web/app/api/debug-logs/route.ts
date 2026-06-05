@@ -8,11 +8,6 @@ import redis from "@/lib/redis";
  * Returns the latest 10 log entries matching the prefix.
  */
 export async function GET(req: NextRequest) {
-  const token = req.headers.get("x-admin-token") ?? req.nextUrl.searchParams.get("token");
-  if (token !== process.env.ADMIN_CAMERA_TOKEN) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-
   const prefix = req.nextUrl.searchParams.get("prefix") ?? "unified-reserve:log";
 
   try {
