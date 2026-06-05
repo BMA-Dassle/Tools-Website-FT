@@ -133,82 +133,6 @@ export function BookingFlow({
       );
     }
 
-    // After completing an activity: show "Add to Your Visit" picker
-    if (showAddMore && session.items.length > 0) {
-      const offerings = crossSellFor(session);
-      return (
-        <div className={brandClass}>
-          <section className="mx-auto max-w-2xl p-4 sm:p-6">
-            <h1 className="text-2xl font-semibold text-white sm:text-3xl">Add to Your Visit</h1>
-            <p className="mt-1 text-sm text-white/40">
-              {session.items.length} item{session.items.length !== 1 ? "s" : ""} booked. Add more or
-              checkout.
-            </p>
-
-            {/* Compact booked items */}
-            <div className="mt-4 space-y-2">
-              {session.items.map((it) => (
-                <div
-                  key={it.id}
-                  className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm"
-                >
-                  <span className="text-white/70">
-                    {"slug" in it && it.slug
-                      ? (findOffering(it.slug)?.displayName ?? it.kind)
-                      : (findOffering(it.kind)?.displayName ?? it.kind)}
-                  </span>
-                  <span className="text-xs text-emerald-400">✓ Booked</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Available activities */}
-            {offerings.length > 0 && (
-              <div className="mt-6">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-[#00E2E5]">
-                  Available Activities
-                </h2>
-                <ul className="mt-3 grid grid-cols-2 gap-2">
-                  {offerings.map((o) => (
-                    <li key={o.slug}>
-                      <Link
-                        href={`/book/${o.slug}/v2`}
-                        className="block rounded-lg border border-white/10 bg-white/[0.03] p-3 text-center transition-all hover:border-white/20 hover:bg-white/[0.06]"
-                      >
-                        <div className="text-sm font-semibold text-white">{o.displayName}</div>
-                        <div className="mt-0.5 text-xs text-white/40">{o.blurb}</div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
-              <button
-                type="button"
-                onClick={() => setShowAddMore(false)}
-                className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
-              >
-                View Cart
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddMore(false);
-                  setCheckoutActive(true);
-                }}
-                className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white"
-              >
-                Checkout →
-              </button>
-            </div>
-          </section>
-        </div>
-      );
-    }
-
     return (
       <div className={brandClass}>
         <CartView
@@ -250,7 +174,9 @@ export function BookingFlow({
   const advanceToNextStep = () => {
     if (isLastStep) {
       dispatch({ type: "setActiveItem", id: null });
-      setShowAddMore(true);
+      // Navigate to the landing page which shows "Add to Your Visit"
+      // when the session has items. Session survives via sessionStorage.
+      window.location.href = "/book/v2";
     } else {
       dispatch({ type: "next" });
     }

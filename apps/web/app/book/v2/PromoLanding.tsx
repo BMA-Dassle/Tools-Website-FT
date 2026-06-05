@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -59,6 +59,21 @@ export function PromoLanding({
 
   const [input, setInput] = useState(seedCode);
   const [applied, setApplied] = useState<AppliedPromo | null>(seededPromo);
+
+  // Detect existing cart items from sessionStorage
+  const [cartItemCount, setCartItemCount] = useState(0);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("booking_session");
+      if (raw) {
+        const session = JSON.parse(raw);
+        setCartItemCount(Array.isArray(session.items) ? session.items.length : 0);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const hasCart = cartItemCount > 0;
   const [rejected, setRejected] = useState(seedRejected);
   const [submitting, setSubmitting] = useState(false);
 
@@ -118,7 +133,7 @@ export function PromoLanding({
             className="mb-3 font-bold uppercase"
             style={{ color: accent, fontSize: "12px", letterSpacing: "3px" }}
           >
-            Book Online
+            {hasCart ? "Your Visit" : "Book Online"}
           </div>
           <h1
             className="font-display font-black uppercase italic text-white"
@@ -129,15 +144,34 @@ export function PromoLanding({
               marginBottom: "16px",
             }}
           >
-            Pick your experience
+            {hasCart ? "Add to your visit" : "Pick your experience"}
           </h1>
           <p
             className="font-body mx-auto text-white/60"
             style={{ fontSize: "clamp(14px, 1.8vw, 18px)", lineHeight: 1.6, maxWidth: "52ch" }}
           >
-            Choose your activity to get started. Have a promo code? Drop it in first and we&apos;ll
-            mark which experiences it&apos;s good for.
+            {hasCart
+              ? `${cartItemCount} activit${cartItemCount === 1 ? "y" : "ies"} booked. Add more or head to checkout.`
+              : "Choose your activity to get started. Have a promo code? Drop it in first and we'll mark which experiences it's good for."}
           </p>
+
+          {/* Checkout bar when cart has items */}
+          {hasCart && (
+            <div className="mt-6 flex items-center justify-center gap-4">
+              <Link
+                href="/book/race/v2"
+                className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+              >
+                View Cart ({cartItemCount})
+              </Link>
+              <Link
+                href="/book/race/v2?checkout=1"
+                className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
+              >
+                Checkout →
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 
