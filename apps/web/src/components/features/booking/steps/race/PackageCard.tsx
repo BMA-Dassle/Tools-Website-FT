@@ -101,7 +101,10 @@ export function PackageCard({ pkg, racerCount, date, isSelected, onSelect }: Pac
           <li className="flex items-baseline justify-between gap-2">
             <span>
               <span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s
-              <span className="text-white/40"> (1 per group · race day only)</span>
+              <span className="text-white/40">
+                {" "}
+                ({pkg.appetizerNote ?? "1 per group"} · race day only)
+              </span>
             </span>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
               Included

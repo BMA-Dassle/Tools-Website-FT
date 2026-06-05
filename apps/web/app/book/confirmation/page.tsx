@@ -252,15 +252,16 @@ export default function ConfirmationPage() {
     }[]
   >([]);
   const [checkinQrByPerson, setCheckinQrByPerson] = useState<Record<string, string>>({});
-  /** Rookie Pack opt-in flag from the booking record. When true, we
-   *  render the "Free Appetizer at Nemo's — code RACEAPP" card on
-   *  the confirmation page. Set in OrderSummary at booking time.
-   *  Now derived from the centralized package registry —
-   *  `bookingRecord.package` (new) wins, falling back to
-   *  `bookingRecord.rookiePack: true` (legacy field) for old
-   *  records. Either case where the resolved package has an
-   *  `appetizerCode` set flips this to true. */
-  const [rookiePack, setRookiePack] = useState(false);
+  /** Appetizer info derived from the booking's package. Carries the
+   *  per-package note ("1 per group" vs "1 per 3 purchases") and
+   *  valid menu items so the confirmation card renders the right
+   *  copy for Rookie Pack vs Ultimate Qualifier. `null` = no
+   *  appetizer promo for this booking. */
+  const [appetizerInfo, setAppetizerInfo] = useState<{
+    note: string;
+    items: string[];
+    packageLabel: string;
+  } | null>(null);
   const [confirmFailed, setConfirmFailed] = useState(false);
   const confirmStarted = useRef(false);
   const liveStatus = useTrackStatus();
@@ -557,23 +558,33 @@ export default function ConfirmationPage() {
         //  2. `bookingRecord.rookiePack: true` (legacy field on
         //     pre-deploy bookings) — fall back to the rookie-pack
         //     definition for the appetizer.
-        // Either path flips the local `rookiePack` flag on, which
-        // gates the existing appetizer card render below — keeps the
-        // UX identical for both Rookie Pack and Ultimate Qualifier
-        // until we split per-package copy.
         try {
           const { getPackageIgnoreFlag } = await import("@/lib/packages");
           const pkgId = bookingRecord?.package as string | null | undefined;
-          let appetizerCode: string | undefined;
-          if (pkgId) {
-            appetizerCode = getPackageIgnoreFlag(pkgId)?.appetizerCode;
-          } else if (bookingRecord?.rookiePack === true) {
-            appetizerCode = getPackageIgnoreFlag("rookie-pack")?.appetizerCode;
+          const pkg = pkgId
+            ? getPackageIgnoreFlag(pkgId)
+            : bookingRecord?.rookiePack === true
+              ? getPackageIgnoreFlag("rookie-pack")
+              : null;
+          if (pkg?.appetizerCode) {
+            setAppetizerInfo({
+              note: pkg.appetizerNote ?? "1 per group",
+              items: pkg.appetizerItems ?? [
+                "Bruschetta",
+                "GF Mac & Cheese Bites",
+                "Fried Zucchini Sticks",
+              ],
+              packageLabel: pkg.name,
+            });
           }
-          if (appetizerCode) setRookiePack(true);
         } catch {
-          // Fall back to legacy behavior on any import / lookup error.
-          if (bookingRecord?.rookiePack === true) setRookiePack(true);
+          if (bookingRecord?.rookiePack === true) {
+            setAppetizerInfo({
+              note: "1 per group",
+              items: ["Bruschetta", "GF Mac & Cheese Bites", "Fried Zucchini Sticks"],
+              packageLabel: "Rookie Pack",
+            });
+          }
         }
 
         // Build race groups — group racers by heat for display tiles
@@ -902,11 +913,7 @@ export default function ConfirmationPage() {
               brand: isHpLoc ? "headpinz" : "fasttrax",
               location: resolvedLocation,
               expressLane: allWaiversValid,
-              // Rookie Pack flag — adds a "free appetizer at Nemo's"
-              // line to the SMS + email pointing to the confirmation
-              // link for the actual code (we don't leak the code in
-              // forwarded messages).
-              rookiePack,
+              rookiePack: !!appetizerInfo,
               // Forward the packageId from the saved booking record so
               // sales_log captures it (Ultimate Qualifier, Rookie Pack,
               // future packages). Without this, /api/admin/sales/list
@@ -1818,17 +1825,12 @@ export default function ConfirmationPage() {
               </div>
             )}
 
-            {/* Rookie Pack — Free Appetizer at Nemo's. The promo code is
-              shown here on-page only. Confirmation SMS + email hint
-              "see your confirmation page for the appetizer code" so
-              the code itself doesn't leak through forwarded messages.
-
-              Width matches the POV Camera Codes section above
-              (lg:col-span-2). On desktop we split into two columns so
-              the extra width pays off — left side carries the
-              messaging, right side carries the dominant coupon-code
-              card. Mobile stacks. */}
-            {rookiePack && (
+            {/* Free Appetizer at Nemo's — per-package copy (Rookie Pack
+              vs Ultimate Qualifier). The promo code is shown here
+              on-page only; SMS + email hint "see your confirmation
+              page for the appetizer code" so the code itself doesn't
+              leak through forwarded messages. */}
+            {appetizerInfo && (
               <div className="lg:col-span-2 mt-6 rounded-2xl border-2 border-amber-400/50 bg-amber-500/10 overflow-hidden">
                 <div className="p-5 sm:p-8 grid gap-6 lg:grid-cols-[minmax(0,1fr),minmax(0,360px)] lg:items-center">
                   {/* LEFT — messaging + appetizer choices */}
@@ -1838,7 +1840,7 @@ export default function ConfirmationPage() {
                         🍴
                       </span>
                       <p className="text-amber-300 text-xs font-bold uppercase tracking-widest">
-                        Rookie Pack — Included
+                        {appetizerInfo.packageLabel} — Included
                       </p>
                     </div>
                     <h3 className="text-2xl font-display uppercase tracking-widest text-white mb-2">
@@ -1846,17 +1848,24 @@ export default function ConfirmationPage() {
                     </h3>
                     <p className="text-white/70 text-sm leading-relaxed mb-4">
                       Join us upstairs at <strong className="text-white">Nemo&apos;s</strong> before
-                      or after your race. Show this code at the bar — one free appetizer per group.
+                      or after your race. Show this code at the bar —{" "}
+                      {appetizerInfo.note === "1 per group"
+                        ? "one free appetizer per group"
+                        : `free appetizer (${appetizerInfo.note})`}
+                      .
                     </p>
                     <div className="space-y-1.5 text-xs text-white/60">
                       <p className="font-semibold text-white/80">Choose one:</p>
                       <ul className="ml-4 space-y-0.5 list-disc list-inside marker:text-amber-400/60">
-                        <li>Bruschetta</li>
-                        <li>GF Mac &amp; Cheese Bites</li>
-                        <li>Fried Zucchini Sticks</li>
+                        {appetizerInfo.items.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
                       </ul>
                       <p className="text-white/40 pt-2">
-                        One per group · Dine-in only · Race day only
+                        {appetizerInfo.note === "1 per group"
+                          ? "One per group"
+                          : `${appetizerInfo.note[0].toUpperCase()}${appetizerInfo.note.slice(1)}`}{" "}
+                        · Dine-in only · Race day only
                       </p>
                     </div>
                   </div>
