@@ -20,6 +20,11 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
   const [products, setProducts] = useState<BowlingSquareProduct[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const playerCount =
+    item.kind === "bowling"
+      ? (item as BowlingItem).playerCount
+      : (item as KbfItem).bowlers.length + (item as KbfItem).paidAdults;
+
   useEffect(() => {
     setLoading(true);
     void (async () => {
@@ -28,7 +33,38 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
           `/api/bowling/v2/square-products?centerCode=${centerCode}&kind=addon_shoe`,
         );
         const data = await res.json();
-        setProducts(Array.isArray(data) ? data : []);
+        const fetched: BowlingSquareProduct[] = Array.isArray(data) ? data : [];
+        setProducts(fetched);
+
+        // Default: pre-add shoes for the whole group if none selected yet
+        const hasShoes = Object.values(item.shoeSelections).some((q) => q > 0);
+        if (!hasShoes && fetched.length > 0 && playerCount > 0) {
+          const defaultProduct = fetched[0];
+          const shoeLineItem = {
+            squareProductId: defaultProduct.id,
+            quantity: playerCount,
+            label: defaultProduct.label,
+            priceCents: defaultProduct.priceCents,
+            depositPct: defaultProduct.depositPct,
+            squareCatalogObjectId: defaultProduct.squareCatalogObjectId,
+          };
+          onChange({
+            shoeSelections: { [defaultProduct.id]: playerCount },
+            shoeProducts: [
+              {
+                id: defaultProduct.id,
+                label: defaultProduct.label,
+                priceCents: defaultProduct.priceCents,
+                depositPct: defaultProduct.depositPct,
+                squareCatalogObjectId: defaultProduct.squareCatalogObjectId,
+              },
+            ],
+            lineItems: [
+              ...item.lineItems.filter((li) => !fetched.some((p) => p.id === li.squareProductId)),
+              shoeLineItem,
+            ],
+          } as Partial<BowlingLikeItem>);
+        }
       } catch {
         setProducts([]);
       } finally {
