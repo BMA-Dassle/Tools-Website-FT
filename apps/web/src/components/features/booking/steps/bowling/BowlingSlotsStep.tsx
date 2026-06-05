@@ -98,16 +98,21 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const earliest = effectiveToday();
   const maxDate = addDays(todayYmd(), 30);
 
+  // Is there a date on another cart item we can inherit?
+  const cartDate = session.items.reduce<string | null>((found, other) => {
+    if (found) return found;
+    if (other.id === item.id) return null;
+    const d = "date" in other ? (other as { date?: string | null }).date : null;
+    return d && d >= earliest && d <= maxDate ? d : null;
+  }, null);
+
+  const [showCalendar, setShowCalendar] = useState(!cartDate);
+
   // Auto-select date from other cart items if this is a new item with no date
   useEffect(() => {
     if (item.date) return;
-    for (const other of session.items) {
-      if (other.id === item.id) continue;
-      const d = "date" in other ? (other as { date?: string | null }).date : null;
-      if (d && d >= earliest && d <= maxDate) {
-        onChange({ date: d } as Partial<BowlingLikeItem>);
-        return;
-      }
+    if (cartDate) {
+      onChange({ date: cartDate } as Partial<BowlingLikeItem>);
     }
   }, []);
 
@@ -234,81 +239,105 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {/* Calendar */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="mb-3 text-center text-xs uppercase tracking-[3px] text-white/35">
-            Date
-          </div>
-          <div className="mb-3 flex items-center justify-between">
+        {/* Compact date confirmation when inherited from cart */}
+        {!showCalendar ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-[#fd5b56]/20 bg-[#fd5b56]/5 p-5 text-center">
+            <p className="text-xs uppercase tracking-[3px] text-white/35">Date</p>
+            <p className="mt-2 text-sm text-white/50">Same day as your other activities</p>
+            <p className="mt-1 text-lg font-bold text-white">
+              {selectedDate
+                ? new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                  })
+                : ""}
+            </p>
             <button
               type="button"
-              onClick={() => {
-                if (calMonth === 0) {
-                  setCalMonth(11);
-                  setCalYear(calYear - 1);
-                } else setCalMonth(calMonth - 1);
-              }}
-              className="p-2 text-white/50 hover:text-white"
-              aria-label="Previous month"
+              onClick={() => setShowCalendar(true)}
+              className="mt-3 text-xs text-white/40 underline hover:text-white/60"
             >
-              &larr;
-            </button>
-            <span className="text-sm font-bold text-white">{monthName}</span>
-            <button
-              type="button"
-              onClick={() => {
-                if (calMonth === 11) {
-                  setCalMonth(0);
-                  setCalYear(calYear + 1);
-                } else setCalMonth(calMonth + 1);
-              }}
-              className="p-2 text-white/50 hover:text-white"
-              aria-label="Next month"
-            >
-              &rarr;
+              Choose a different date
             </button>
           </div>
-          <div className="mb-1 grid grid-cols-7">
-            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
-              <div key={d} className="py-1 text-center text-[12px] text-white/30">
-                {d}
-              </div>
-            ))}
+        ) : (
+          /* Calendar */
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <div className="mb-3 text-center text-xs uppercase tracking-[3px] text-white/35">
+              Date
+            </div>
+            <div className="mb-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  if (calMonth === 0) {
+                    setCalMonth(11);
+                    setCalYear(calYear - 1);
+                  } else setCalMonth(calMonth - 1);
+                }}
+                className="p-2 text-white/50 hover:text-white"
+                aria-label="Previous month"
+              >
+                &larr;
+              </button>
+              <span className="text-sm font-bold text-white">{monthName}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (calMonth === 11) {
+                    setCalMonth(0);
+                    setCalYear(calYear + 1);
+                  } else setCalMonth(calMonth + 1);
+                }}
+                className="p-2 text-white/50 hover:text-white"
+                aria-label="Next month"
+              >
+                &rarr;
+              </button>
+            </div>
+            <div className="mb-1 grid grid-cols-7">
+              {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+                <div key={d} className="py-1 text-center text-[12px] text-white/30">
+                  {d}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {Array.from({ length: firstDay }).map((_, i) => (
+                <div key={`pad-${i}`} />
+              ))}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day = i + 1;
+                const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const bookable = isBookableDate(dateStr);
+                const isSelected = dateStr === selectedDate;
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    disabled={!bookable}
+                    onClick={() => selectDate(dateStr)}
+                    className="aspect-square rounded-lg text-sm font-medium transition-all duration-150"
+                    style={{
+                      backgroundColor: isSelected
+                        ? CORAL
+                        : bookable
+                          ? "rgba(253,91,86,0.15)"
+                          : "transparent",
+                      color: isSelected ? "#0a1628" : bookable ? CORAL : "rgba(255,255,255,0.18)",
+                      fontWeight: isSelected ? 800 : 500,
+                      cursor: bookable ? "pointer" : "not-allowed",
+                      boxShadow: isSelected ? `0 0 14px ${CORAL}60` : undefined,
+                    }}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="grid grid-cols-7 gap-1">
-            {Array.from({ length: firstDay }).map((_, i) => (
-              <div key={`pad-${i}`} />
-            ))}
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const day = i + 1;
-              const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              const bookable = isBookableDate(dateStr);
-              const isSelected = dateStr === selectedDate;
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  disabled={!bookable}
-                  onClick={() => selectDate(dateStr)}
-                  className="aspect-square rounded-lg text-sm font-medium transition-all duration-150"
-                  style={{
-                    backgroundColor: isSelected
-                      ? CORAL
-                      : bookable
-                        ? "rgba(253,91,86,0.15)"
-                        : "transparent",
-                    color: isSelected ? "#0a1628" : bookable ? CORAL : "rgba(255,255,255,0.18)",
-                    fontWeight: isSelected ? 800 : 500,
-                    cursor: bookable ? "pointer" : "not-allowed",
-                    boxShadow: isSelected ? `0 0 14px ${CORAL}60` : undefined,
-                  }}
-                >
-                  {day}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        )}
 
         {/* Hour + minute chips */}
         <div ref={hoursRef} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
