@@ -648,18 +648,51 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
         console.error("[unified-reserve] Neon insert (bowling) failed (non-fatal):", err);
       }
 
-      // Final QAMF title + notes patch (v1 does this AFTER everything else)
-      // The earlier parallel patch during hold-first often fails silently.
-      // This final patch runs after confirm + neon + short code — reliable.
+      // Final QAMF title + notes patch (v1 parity — includes shoe status,
+      // line items, deposit, short URL, and attraction add-ons)
       const finalTitle = `${guest.name} (${players.length}p)`;
-      const depositDollars = depositCents > 0 ? `$${(depositCents / 100).toFixed(2)}` : "$0";
       const shortCode = shortCodes[shortCodes.length - 1];
-      const finalNotes = [
-        `Deposit ${depositDollars} paid`,
-        shortCode ? `headpinz.com/s/${shortCode}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n");
+
+      const finalParts: string[] = [];
+
+      // Shoe status — first line so staff see it at a glance
+      const hasShoeAddOn = item.lineItems.some((li) =>
+        (li.label ?? "").toLowerCase().includes("shoe"),
+      );
+      const shoesIncluded =
+        item.experienceSlug?.includes("fun-4-all") || item.experienceSlug?.includes("pizza-bowl");
+      let shoeLine: string;
+      if (hasShoeAddOn) {
+        const shoeQty = item.lineItems
+          .filter((li) => (li.label ?? "").toLowerCase().includes("shoe"))
+          .reduce((s, li) => s + li.quantity, 0);
+        shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
+      } else if (shoesIncluded) {
+        shoeLine = "Shoes included";
+      } else {
+        shoeLine = "SHOES NOT INCLUDED";
+      }
+      if (shortCode) shoeLine += ` | headpinz.com/s/${shortCode}`;
+      finalParts.push(shoeLine);
+
+      // Line items summary
+      if (item.lineItems.length > 0) {
+        const itemParts = item.lineItems.map((li) => {
+          const total = (li.priceCents ?? 0) * li.quantity;
+          const totalStr = `$${(total / 100).toFixed(2)}`;
+          return li.quantity > 1
+            ? `${li.quantity}x ${li.label ?? "Item"} ${totalStr}`
+            : `${li.label ?? "Item"} ${totalStr}`;
+        });
+        finalParts.push(itemParts.join(" + "));
+      }
+
+      // Tax-inclusive deposit
+      if (depositCents > 0) {
+        finalParts.push(`Deposit $${(depositCents / 100).toFixed(2)} paid (incl. tax)`);
+      }
+
+      const finalNotes = finalParts.join("\n");
       try {
         await patchReservation(centerId, qamfReservationId, {
           Title: finalTitle,
