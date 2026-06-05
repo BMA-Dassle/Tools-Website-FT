@@ -1257,7 +1257,10 @@ export default function OrderSummary({
                             <span>
                               <span className="text-emerald-400">✓</span> Free Appetizer at
                               Nemo&apos;s
-                              <span className="text-white/40"> (1 per group · race day only)</span>
+                              <span className="text-white/40">
+                                {" "}
+                                ({cardPkg.appetizerNote ?? "1 per 3 purchases"} · race day only)
+                              </span>
                             </span>
                             <span className="text-emerald-300 font-semibold text-[11px] uppercase tracking-wider">
                               Included
@@ -1375,7 +1378,9 @@ export default function OrderSummary({
                             <span>
                               <span className="text-emerald-400">✓</span> Free Appetizer at
                               Nemo&apos;s{" "}
-                              <span className="text-white/40">(1 per group · race day only)</span>
+                              <span className="text-white/40">
+                                (1 per 3 purchases · race day only)
+                              </span>
                             </span>
                             <span className="text-emerald-300 font-semibold">FREE</span>
                           </li>

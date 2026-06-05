@@ -152,7 +152,9 @@ export default function PovUpsell({
                     <span className="text-emerald-400">✓</span>
                     <span>
                       Free Appetizer at Nemo&apos;s{" "}
-                      <span className="text-white/40">(1 per group · dine-in · race day only)</span>
+                      <span className="text-white/40">
+                        (1 per 3 purchases · dine-in · race day only)
+                      </span>
                     </span>
                   </li>
                 </ul>
