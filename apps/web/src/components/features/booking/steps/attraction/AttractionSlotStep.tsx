@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { AttractionItem, StepDef } from "~/features/booking";
+import type { AttractionItem, RaceItem, StepDef } from "~/features/booking";
+import type { BookingSession } from "~/features/booking/state/types";
 import { bmiAdapter, type BmiBlock, type BmiProposal } from "~/features/booking/data/bmi";
-import { resolveAttractionContext } from "~/features/booking/service/attractions";
+import { resolveAttractionContext, ATTRACTIONS } from "~/features/booking/service/attractions";
 
 interface SlotOption {
   proposal: BmiProposal;
@@ -47,6 +48,70 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
 
   const accentColor = ctx?.config.color ?? "#00E2E5";
   const isPerPerson = ctx?.config.bookingMode === "per-person";
+
+  // Resolve this attraction's building for conflict buffer calculation
+  const thisBuilding: "fasttrax" | "headpinz" = useMemo(() => {
+    if (!ctx) return "headpinz";
+    return ctx.location === "fasttrax" ? "fasttrax" : "headpinz";
+  }, [ctx]);
+
+  // Gather booked times from other cart items on the same date for conflict detection
+  const bookedTimes = useMemo(() => {
+    const times: Array<{ startMs: number; endMs: number; building: "fasttrax" | "headpinz" }> = [];
+    if (!item.date) return times;
+
+    for (const other of session.items) {
+      if (other.id === item.id) continue;
+
+      if (other.kind === "race") {
+        const race = other as RaceItem;
+        for (const h of race.heats) {
+          if (!h.heatId) continue;
+          const ms = new Date(h.heatId.replace(/Z$/, "")).getTime();
+          if (isNaN(ms)) continue;
+          times.push({ startMs: ms, endMs: ms + 30 * 60_000, building: "fasttrax" });
+        }
+      }
+
+      if (other.kind === "attraction") {
+        const attr = other as AttractionItem;
+        if (!attr.slot || !attr.date || attr.date !== item.date) continue;
+        const ms = new Date(attr.slot.replace(/Z$/, "")).getTime();
+        if (isNaN(ms)) continue;
+        const attrConfig = attr.slug ? ATTRACTIONS[attr.slug] : null;
+        const attrBuilding: "fasttrax" | "headpinz" =
+          attrConfig?.location === "fasttrax" ? "fasttrax" : "headpinz";
+        times.push({ startMs: ms, endMs: ms + 15 * 60_000, building: attrBuilding });
+      }
+
+      if (other.kind === "bowling" || other.kind === "kbf") {
+        const bowl = other as {
+          bookedAt?: string | null;
+          durationMinutes?: number | null;
+          date?: string | null;
+        };
+        if (!bowl.bookedAt || bowl.date !== item.date) continue;
+        const ms = new Date(bowl.bookedAt.replace(/Z$/, "")).getTime();
+        if (isNaN(ms)) continue;
+        const dur = bowl.durationMinutes ?? 90;
+        times.push({ startMs: ms, endMs: ms + dur * 60_000, building: "headpinz" });
+      }
+    }
+    return times;
+  }, [session.items, item.id, item.date]);
+
+  const CROSS_BUILDING_BUFFER_MS = 30 * 60_000;
+
+  function isConflict(blockStart: string): boolean {
+    const slotMs = new Date(blockStart.replace(/Z$/, "")).getTime();
+    if (isNaN(slotMs)) return false;
+    const slotEnd = slotMs + 15 * 60_000; // assume 15-min attraction duration
+    for (const bt of bookedTimes) {
+      const buffer = bt.building !== thisBuilding ? CROSS_BUILDING_BUFFER_MS : 0;
+      if (slotMs < bt.endMs + buffer && slotEnd > bt.startMs - buffer) return true;
+    }
+    return false;
+  }
 
   useEffect(() => {
     if (!item.productId || !item.pageId || !item.date) return;
@@ -132,6 +197,8 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {slots.map(({ proposal, block }) => {
             const isFull = block.freeSpots < (isPerPerson ? item.qty : 1);
+            const hasConflict = isConflict(block.start);
+            const isDisabled = isFull || hasConflict;
             const isSelected = item.slot === block.start;
             const price =
               block.prices?.find((p) => p.depositKind === 0 && p.kind === 0)?.amount ?? null;
@@ -140,10 +207,10 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
               <button
                 key={block.start}
                 type="button"
-                disabled={isFull}
+                disabled={isDisabled}
                 onClick={() => onChange({ slot: block.start, slotProposal: proposal })}
                 className={`rounded-xl border-2 p-3 text-center transition-colors ${
-                  isFull
+                  isDisabled
                     ? "cursor-not-allowed border-white/5 bg-white/[0.01] opacity-40"
                     : isSelected
                       ? "bg-white/[0.06]"
@@ -165,7 +232,13 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
                   <span className="mt-0.5 block text-xs text-white/40">${price.toFixed(2)}</span>
                 )}
                 <span className="mt-1 block text-[10px] text-white/30">
-                  {isFull ? "Full" : block.freeSpots <= 3 ? `${block.freeSpots} left` : "Available"}
+                  {hasConflict
+                    ? "Conflicts with booking"
+                    : isFull
+                      ? "Full"
+                      : block.freeSpots <= 3
+                        ? `${block.freeSpots} left`
+                        : "Available"}
                 </span>
               </button>
             );

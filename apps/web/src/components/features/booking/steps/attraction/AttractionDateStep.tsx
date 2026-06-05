@@ -65,8 +65,25 @@ const AttractionDateStepComponent: StepDef<AttractionItem>["Component"] = ({
   const today = useMemo(() => new Date(), []);
   const todayStr = toISO(today.getFullYear(), today.getMonth(), today.getDate());
 
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  // Default date from existing cart items (race date, bowling date, or another attraction)
+  const cartDate = useMemo(() => {
+    if (item.date) return item.date;
+    for (const other of session.items) {
+      if (other.id === item.id) continue;
+      const d = "date" in other ? (other as { date?: string | null }).date : null;
+      if (d) return d;
+    }
+    return null;
+  }, [item.date, item.id, session.items]);
+
+  const [viewYear, setViewYear] = useState(() => {
+    if (cartDate) return parseInt(cartDate.split("-")[0], 10);
+    return today.getFullYear();
+  });
+  const [viewMonth, setViewMonth] = useState(() => {
+    if (cartDate) return parseInt(cartDate.split("-")[1], 10) - 1;
+    return today.getMonth();
+  });
   const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,12 +130,25 @@ const AttractionDateStepComponent: StepDef<AttractionItem>["Component"] = ({
           }
         } else {
           setReady(true);
+          // Auto-select the cart date if it's available and no date picked yet
+          if (!item.date && cartDate && futureDates.includes(cartDate)) {
+            onChange({ date: cartDate });
+          }
         }
       } else {
         setReady(true);
       }
     });
-  }, [viewYear, viewMonth, fetchAvailability, checkedNoFuture, todayStr]);
+  }, [
+    viewYear,
+    viewMonth,
+    fetchAvailability,
+    checkedNoFuture,
+    todayStr,
+    cartDate,
+    item.date,
+    onChange,
+  ]);
 
   const monthLabel = MONTH_LABEL(viewYear, viewMonth);
   const total = daysInMonth(viewYear, viewMonth);
