@@ -648,15 +648,24 @@ function PackageCard({
           caveat visible. */}
       <ul className="space-y-1 text-xs text-white/75 mb-2">
         {lines.map((l) => (
-          <li key={l.key} className="flex items-baseline justify-between gap-2">
-            <span>
-              <span className="text-emerald-400">✓</span> {l.label}
-              {l.quantity > 1 && <span className="text-white/40"> × {l.quantity}</span>}
-              {l.freeNote && <span className="text-white/40"> ({l.freeNote})</span>}
-            </span>
-            <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">
-              Included
-            </span>
+          <li key={l.key}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span>
+                <span className="text-emerald-400">✓</span> {l.label}
+                {l.quantity > 1 && <span className="text-white/40"> × {l.quantity}</span>}
+                {l.freeNote && <span className="text-white/40"> ({l.freeNote})</span>}
+              </span>
+              <span className="text-emerald-300/80 font-semibold text-[11px] uppercase tracking-wider">
+                Included
+              </span>
+            </div>
+            {l.key === "appetizer" && pkg.appetizerItems && (
+              <ul className="ml-5 mt-0.5 space-y-0 text-[11px] text-white/40 list-disc list-inside marker:text-amber-400/40">
+                {pkg.appetizerItems.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

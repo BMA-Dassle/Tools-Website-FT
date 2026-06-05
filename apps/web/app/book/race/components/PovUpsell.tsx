@@ -148,14 +148,21 @@ export default function PovUpsell({
                       <span className="text-white/40">(per racer · $7 at check-in)</span>
                     </span>
                   </li>
-                  <li className="flex items-baseline gap-2">
-                    <span className="text-emerald-400">✓</span>
-                    <span>
-                      Free Appetizer at Nemo&apos;s{" "}
-                      <span className="text-white/40">
-                        (1 per 3 purchases · dine-in · race day only)
+                  <li>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-emerald-400">✓</span>
+                      <span>
+                        Free Appetizer at Nemo&apos;s{" "}
+                        <span className="text-white/40">
+                          (1 per 3 purchases · dine-in · race day only)
+                        </span>
                       </span>
-                    </span>
+                    </div>
+                    <ul className="ml-5 mt-0.5 space-y-0 text-[11px] text-white/40 list-disc list-inside marker:text-amber-400/40">
+                      <li>Bruschetta - Regular</li>
+                      <li>Fried Zucchini Sticks</li>
+                      <li>Mac &amp; Cheese Bites</li>
+                    </ul>
                   </li>
                 </ul>
                 <p className="text-[11px] text-amber-400/80 mt-2">

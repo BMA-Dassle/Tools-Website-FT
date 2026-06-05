@@ -1253,18 +1253,27 @@ export default function OrderSummary({
                           </li>
                         )}
                         {cardPkg.appetizerCode && (
-                          <li className="flex items-baseline justify-between gap-2">
-                            <span>
-                              <span className="text-emerald-400">✓</span> Free Appetizer at
-                              Nemo&apos;s
-                              <span className="text-white/40">
-                                {" "}
-                                ({cardPkg.appetizerNote ?? "1 per 3 purchases"} · race day only)
+                          <li>
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span>
+                                <span className="text-emerald-400">✓</span> Free Appetizer at
+                                Nemo&apos;s
+                                <span className="text-white/40">
+                                  {" "}
+                                  ({cardPkg.appetizerNote ?? "1 per 3 purchases"} · race day only)
+                                </span>
                               </span>
-                            </span>
-                            <span className="text-emerald-300 font-semibold text-[11px] uppercase tracking-wider">
-                              Included
-                            </span>
+                              <span className="text-emerald-300 font-semibold text-[11px] uppercase tracking-wider">
+                                Included
+                              </span>
+                            </div>
+                            {cardPkg.appetizerItems && (
+                              <ul className="ml-5 mt-0.5 space-y-0 text-[11px] text-white/40 list-disc list-inside marker:text-amber-400/40">
+                                {cardPkg.appetizerItems.map((item) => (
+                                  <li key={item}>{item}</li>
+                                ))}
+                              </ul>
+                            )}
                           </li>
                         )}
                       </ul>
@@ -1374,15 +1383,22 @@ export default function OrderSummary({
                               ${(povPerRacer * racers).toFixed(2)}
                             </span>
                           </li>
-                          <li className="flex items-baseline justify-between gap-2">
-                            <span>
-                              <span className="text-emerald-400">✓</span> Free Appetizer at
-                              Nemo&apos;s{" "}
-                              <span className="text-white/40">
-                                (1 per 3 purchases · race day only)
+                          <li>
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span>
+                                <span className="text-emerald-400">✓</span> Free Appetizer at
+                                Nemo&apos;s{" "}
+                                <span className="text-white/40">
+                                  (1 per 3 purchases · race day only)
+                                </span>
                               </span>
-                            </span>
-                            <span className="text-emerald-300 font-semibold">FREE</span>
+                              <span className="text-emerald-300 font-semibold">FREE</span>
+                            </div>
+                            <ul className="ml-5 mt-0.5 space-y-0 text-[11px] text-white/40 list-disc list-inside marker:text-amber-400/40">
+                              <li>Bruschetta - Regular</li>
+                              <li>Fried Zucchini Sticks</li>
+                              <li>Mac &amp; Cheese Bites</li>
+                            </ul>
                           </li>
                         </ul>
                         <div className="flex items-baseline justify-between text-xs pt-2 border-t border-white/[0.06]">
