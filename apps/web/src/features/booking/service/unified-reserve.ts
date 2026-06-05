@@ -440,6 +440,11 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
       name: `Bowler ${i + 1}`,
     }));
 
+    console.log(
+      `[unified-reserve] QAMF confirm: centerId=${centerId} holdId=${item.qamfReservationId ?? "NONE"} ` +
+        `webOfferId=${item.webOfferId} optionId=${item.optionId} bookedAt=${item.bookedAt} players=${playerCount}`,
+    );
+
     try {
       const qamfResult = await confirmQamfReservation({
         centerId,
@@ -456,6 +461,9 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
         players,
       });
 
+      console.log(
+        `[unified-reserve] QAMF result: id=${qamfResult.qamfReservationId} confirmed=${qamfResult.confirmed} laneId=${qamfResult.laneId}`,
+      );
       qamfReservationIds.push(qamfResult.qamfReservationId);
 
       // Neon reservation for bowling

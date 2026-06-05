@@ -86,6 +86,7 @@ export async function confirmQamfReservation(input: QamfConfirmInput): Promise<Q
 
   if (input.qamfReservationId) {
     qamfReservationId = input.qamfReservationId;
+    console.log(`[qamf-confirm] Hold-first path: ${qamfReservationId}`);
 
     let holdCustomerAttached = false;
     try {
@@ -103,25 +104,35 @@ export async function confirmQamfReservation(input: QamfConfirmInput): Promise<Q
         }).catch(() => {}),
       ]);
       holdCustomerAttached = true;
-    } catch {
-      // Hold expired — fall through to fresh
+      console.log(`[qamf-confirm] Customer attached to ${qamfReservationId}`);
+    } catch (err) {
+      console.error(
+        `[qamf-confirm] Customer attach failed (hold expired?):`,
+        err instanceof Error ? err.message : err,
+      );
     }
 
     if (holdCustomerAttached) {
       qamfConfirmed = await setReservationStatus(centerId, qamfReservationId, "Confirmed");
+      console.log(`[qamf-confirm] Status confirm result: ${qamfConfirmed}`);
     }
 
     if (!qamfConfirmed) {
+      console.log(`[qamf-confirm] Confirm failed — creating fresh reservation`);
       const fresh = await createFresh();
       qamfReservationId = fresh.id;
       qamfLanes = fresh.lanes;
+      console.log(`[qamf-confirm] Fresh reservation: ${qamfReservationId}`);
       qamfConfirmed = await attachAndConfirm(qamfReservationId).catch(() => false);
+      console.log(`[qamf-confirm] Fresh confirm result: ${qamfConfirmed}`);
     }
   } else {
+    console.log(`[qamf-confirm] No hold ID — creating fresh reservation`);
     const fresh = await createFresh();
     qamfReservationId = fresh.id;
     qamfLanes = fresh.lanes;
     qamfConfirmed = await attachAndConfirm(qamfReservationId).catch(() => false);
+    console.log(`[qamf-confirm] Fresh confirm result: ${qamfConfirmed}`);
   }
 
   if (qamfLanes.length === 0) {
