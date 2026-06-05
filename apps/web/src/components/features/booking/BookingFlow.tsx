@@ -139,7 +139,13 @@ export function BookingFlow({
           session={session}
           urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
-          onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+          onRemoveItem={(id) => {
+            dispatch({ type: "removeItem", id });
+            // Last item removed → go back to activity picker
+            if (session.items.length <= 1) {
+              window.location.href = "/book/v2";
+            }
+          }}
           onCheckout={() => setCheckoutActive(true)}
         />
       </div>
@@ -160,7 +166,13 @@ export function BookingFlow({
           session={session}
           urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
-          onRemoveItem={(id) => dispatch({ type: "removeItem", id })}
+          onRemoveItem={(id) => {
+            dispatch({ type: "removeItem", id });
+            // Last item removed → go back to activity picker
+            if (session.items.length <= 1) {
+              window.location.href = "/book/v2";
+            }
+          }}
           onCheckout={() => setCheckoutActive(true)}
         />
       </div>
