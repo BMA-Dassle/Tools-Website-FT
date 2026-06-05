@@ -163,7 +163,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     const qtyMultiplier = isPerLane ? laneCount : playerCount;
     const durationMultiplier = durationOpt?.squareMultiplier ?? 1;
 
-    return exp.items.map((ei) => {
+    return (exp.items ?? []).map((ei) => {
       const isPrimary = ei.sortOrder === 0;
       const useOverride = isPrimary && durationOpt?.overrideSquareProductId;
 
@@ -268,7 +268,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     if (expSlots.length === 0) return true;
     const ids = expSlots[0].availableTimeOptionIds;
     if (!ids?.length) return true;
-    return exp.durationOptions.some((d) => ids.includes(d.qamfOptionId));
+    return (exp.durationOptions ?? []).some((d) => ids.includes(d.qamfOptionId));
   });
 
   // Auto-select: when there's one non-hourly experience with one slot,
@@ -318,11 +318,11 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           const primaryItem = exp.items.find((i) => i.sortOrder === 0);
           const priceCents = primaryItem?.priceCents ?? 0;
           const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
-          const hasDurationOptions = exp.durationOptions.length > 0;
+          const hasDurationOptions = (exp.durationOptions?.length ?? 0) > 0;
 
           // Filter duration buttons to only show options QAMF confirms are available
           const validDurationOptions = hasDurationOptions
-            ? exp.durationOptions.filter((opt) => {
+            ? (exp.durationOptions ?? []).filter((opt) => {
                 if (!expSlots.length) return true;
                 const ids = expSlots[0].availableTimeOptionIds;
                 return !ids?.length || ids.includes(opt.qamfOptionId);
