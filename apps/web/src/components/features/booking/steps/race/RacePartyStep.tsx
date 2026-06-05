@@ -18,6 +18,7 @@ interface LinkedPerson {
   firstName: string;
   lastName: string;
   birthdate: string | null;
+  waiverValid?: boolean;
 }
 
 const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispatch }) => {
@@ -89,18 +90,19 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
       : null;
     const category: "adult" | "junior" = age !== null && age < 13 ? "junior" : "adult";
 
-    dispatch({
-      type: "addPartyMember",
-      member: newPartyMember({
-        firstName: person.fullName.split(" ")[0] || person.fullName,
-        lastName: person.fullName.split(" ").slice(1).join(" ") || undefined,
-        bmiPersonId: person.personId,
-        isNewRacer: false,
-        category,
-        isBillingCustomer: true,
-        memberships: person.memberships,
-      }),
+    const member = newPartyMember({
+      firstName: person.fullName.split(" ")[0] || person.fullName,
+      lastName: person.fullName.split(" ").slice(1).join(" ") || undefined,
+      bmiPersonId: person.personId,
+      isNewRacer: false,
+      category,
+      isBillingCustomer: true,
+      memberships: person.memberships,
+      waiverValid: person.waiverValid,
+      creditBalances: person.creditBalances,
     });
+
+    dispatch({ type: "addPartyMember", member });
 
     dispatch({
       type: "setContact",
@@ -111,6 +113,22 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
         phone: person.phone || undefined,
       },
     });
+
+    // Fetch Pandora waiver status (non-blocking — badge appears when fetch completes)
+    if (person.personId) {
+      fetch(`/api/pandora?personId=${person.personId}&picture=false`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && typeof data.valid === "boolean") {
+            dispatch({
+              type: "updatePartyMember",
+              id: member.id,
+              patch: { waiverValid: data.valid },
+            });
+          }
+        })
+        .catch(() => {});
+    }
 
     // Fetch linked family members from Pandora
     fetchLinkedPersons(person.personId);
@@ -143,13 +161,14 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
               firstName: first,
               lastName: last,
               birthdate: p.birthdate || null,
+              waiverValid: p.valid === true,
             } satisfies LinkedPerson;
           } catch {
             return null;
           }
         }),
       );
-      setLinkedPersons(details.filter((p): p is LinkedPerson => p !== null));
+      setLinkedPersons(details.filter(Boolean) as LinkedPerson[]);
     } catch {
       /* non-fatal */
     } finally {
@@ -203,6 +222,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
         isNewRacer: false,
         category,
         memberships,
+        waiverValid: lp.waiverValid,
       }),
     });
   }
@@ -307,6 +327,41 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
           Add everyone in your party. You can assign them to heats next.
         </p>
       </div>
+
+      {/* Express Lane banner */}
+      {session.party.length > 0 &&
+        session.party.some((m) => !m.isNewRacer) &&
+        (() => {
+          const returning = session.party.filter((m) => !m.isNewRacer);
+          const allValid = returning.every((m) => m.waiverValid === true);
+          const someValid = returning.some((m) => m.waiverValid === true);
+          if (allValid) {
+            return (
+              <div className="mx-auto max-w-md rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-center">
+                <div className="text-sm font-semibold text-emerald-400">
+                  ⚡ Express Lane Eligible
+                </div>
+                <p className="mt-1 text-xs text-emerald-400/70">
+                  All racers have valid waivers — skip Guest Services on race day!
+                </p>
+              </div>
+            );
+          }
+          if (someValid) {
+            return (
+              <div className="mx-auto max-w-md rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-center">
+                <div className="text-sm font-semibold text-amber-400">
+                  ⚡ Some Racers Express Lane Eligible
+                </div>
+                <p className="mt-1 text-xs text-amber-400/70">
+                  Racers with valid waivers can use Express Lane. Others will check in at Guest
+                  Services.
+                </p>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
       <div className="mx-auto max-w-md space-y-3">
         {session.party.length === 0 ? (

@@ -276,7 +276,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const atCap = pickedBlocks.length >= heatsNeeded;
 
     const anyNewInCategory = racers.some((r) => r.isNewRacer);
-    const leadCutoffMs = anyNewInCategory ? Date.now() + NEW_RACER_LEAD_MINUTES * 60_000 : 0;
+    const allReturningHaveWaivers =
+      !anyNewInCategory &&
+      session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
+    const leadMinutes = allReturningHaveWaivers ? 0 : NEW_RACER_LEAD_MINUTES;
+    const leadCutoffMs = anyNewInCategory ? Date.now() + leadMinutes * 60_000 : 0;
 
     const allProposals = useMemo<TrackedProposal[]>(() => {
       const list: TrackedProposal[] = [];

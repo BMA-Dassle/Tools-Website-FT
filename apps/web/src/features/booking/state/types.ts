@@ -76,6 +76,11 @@ export interface PartyMember {
    * this, even verified Pro racers see Starter-only products.
    */
   memberships?: string[];
+  /** Pandora waiver validity — true when the racer has a current, unexpired waiver.
+   *  Drives Express Lane eligibility (skip Guest Services at check-in). */
+  waiverValid?: boolean;
+  /** Race credit balances from BMI (e.g. [{kind: "Starter Race", balance: 3}]). */
+  creditBalances?: Array<{ kind: string; balance: number }>;
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */
@@ -562,6 +567,8 @@ export function newPartyMember(args: {
   category?: "adult" | "junior";
   isBillingCustomer?: boolean;
   memberships?: string[];
+  waiverValid?: boolean;
+  creditBalances?: Array<{ kind: string; balance: number }>;
 }): PartyMember {
   return {
     id: newItemId(),
@@ -572,6 +579,8 @@ export function newPartyMember(args: {
     category: args.category,
     isBillingCustomer: args.isBillingCustomer,
     memberships: args.memberships,
+    waiverValid: args.waiverValid,
+    creditBalances: args.creditBalances,
   };
 }
 

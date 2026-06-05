@@ -346,13 +346,14 @@ export async function saveBookingDetails(
   );
 
   const rookiePack = raceItems.some((r) => r.rookiePack === true);
-  // Premium Package selection — v1's confirmation page reads this from
-  // the booking-record (as `bookingRecord.package`) and forwards it to
-  // /api/notifications/booking-confirmation, which writes it to
-  // sales_log.package_id so the admin dashboard's package breakdowns
-  // count v2 bookings correctly. Picking the first non-null id; v2
-  // race carts only support one packageId per RaceItem today.
   const packageId = raceItems.find((r) => r.packageId)?.packageId ?? null;
+
+  // Express Lane: all returning racers must have valid Pandora waivers.
+  // The confirmation page reads bookingRecord.fastLane to skip the live
+  // Pandora re-check and immediately show the green express lane experience.
+  const returningRacers = session.party.filter((m) => m.bmiPersonId);
+  const fastLane =
+    returningRacers.length > 0 && returningRacers.every((m) => m.waiverValid === true);
 
   try {
     await fetch("/api/booking-record", {
@@ -380,9 +381,8 @@ export async function saveBookingDetails(
         createdAt: new Date().toISOString(),
         status: "pending_payment",
         rookiePack,
-        // v1's confirmation page reads `bookingRecord.package` (singular
-        // key, not `packageId`) — match that contract for sales_log.
         package: packageId,
+        fastLane: fastLane || undefined,
       }),
     });
   } catch {
