@@ -348,6 +348,27 @@ export async function saveBookingDetails(
   const rookiePack = raceItems.some((r) => r.rookiePack === true);
   const packageId = raceItems.find((r) => r.packageId)?.packageId ?? null;
 
+  // Attraction bookings — store slot times for confirmation page display
+  const attractionItems = session.items.filter((i): i is AttractionItem => i.kind === "attraction");
+  const attractionBookings = attractionItems.map((a) => ({
+    slug: a.slug,
+    date: a.date,
+    slot: a.slot,
+    qty: a.qty,
+    price: a.price,
+  }));
+
+  // Bowling bookings — store time/experience for confirmation page display
+  const bowlingItems = session.items.filter((i) => i.kind === "bowling" || i.kind === "kbf");
+  const bowlingBookings = bowlingItems.map((b) => ({
+    kind: b.kind,
+    date: b.date,
+    bookedAt: b.bookedAt,
+    experienceSlug: b.experienceSlug,
+    laneCount: b.laneCount,
+    playerCount: b.kind === "bowling" ? b.playerCount : undefined,
+  }));
+
   // Express Lane: all returning racers must have valid Pandora waivers.
   // The confirmation page reads bookingRecord.fastLane to skip the live
   // Pandora re-check and immediately show the green express lane experience.
@@ -383,6 +404,8 @@ export async function saveBookingDetails(
         rookiePack,
         package: packageId,
         fastLane: fastLane || undefined,
+        attractions: attractionBookings.length > 0 ? attractionBookings : undefined,
+        bowling: bowlingBookings.length > 0 ? bowlingBookings : undefined,
       }),
     });
   } catch {
