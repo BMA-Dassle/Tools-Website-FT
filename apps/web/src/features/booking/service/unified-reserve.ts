@@ -19,7 +19,12 @@ import {
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
 import { LICENSE_PRICE } from "./race-pricing";
-import { insertBowlingReservation, type ReservationProductKind } from "@/lib/bowling-db";
+import {
+  insertBowlingReservation,
+  updateBowlingReservationShortCode,
+  type ReservationProductKind,
+} from "@/lib/bowling-db";
+import { shortenUrl } from "@/lib/short-url";
 import type {
   BookingSession,
   BowlingItem,
@@ -28,6 +33,7 @@ import type {
   AttractionItem,
 } from "../state/types";
 import type { ContactInfo } from "../types";
+import redis from "@/lib/redis";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -429,6 +435,17 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
   let bmiReservationCode: string | null = null;
 
   // QAMF confirmations (bowling/kbf)
+  const logKey = `unified-reserve:log:${baseKey}`;
+  const logEntries: string[] = [];
+  const log = (msg: string) => {
+    console.log(msg);
+    logEntries.push(`${new Date().toISOString()} ${msg}`);
+  };
+
+  log(
+    `[unified-reserve] bowlingItems=${bowlingItems.length} raceItems=${raceItems.length} attractionItems=${attractionItems.length}`,
+  );
+
   for (const item of bowlingItems) {
     const centerId = item.qamfCenterId ?? 9172;
     const playerCount =
@@ -440,7 +457,7 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
       name: `Bowler ${i + 1}`,
     }));
 
-    console.log(
+    log(
       `[unified-reserve] QAMF confirm: centerId=${centerId} holdId=${item.qamfReservationId ?? "NONE"} ` +
         `webOfferId=${item.webOfferId} optionId=${item.optionId} bookedAt=${item.bookedAt} players=${playerCount}`,
     );
@@ -461,7 +478,7 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
         players,
       });
 
-      console.log(
+      log(
         `[unified-reserve] QAMF result: id=${qamfResult.qamfReservationId} confirmed=${qamfResult.confirmed} laneId=${qamfResult.laneId}`,
       );
       qamfReservationIds.push(qamfResult.qamfReservationId);
@@ -503,7 +520,21 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
           })),
         );
         neonIds.push(reservation.id);
-        if (reservation.shortCode) shortCodes.push(reservation.shortCode);
+
+        // Generate short code for confirmation URL (same as v1 bowling reserve)
+        try {
+          const confirmBase =
+            item.kind === "kbf"
+              ? "/hp/book/kids-bowl-free/confirmation"
+              : "/hp/book/bowling/confirmation";
+          const code = await shortenUrl(`${confirmBase}?code=_TMP_`);
+          await shortenUrl(`${confirmBase}?code=${code}`, code);
+          updateBowlingReservationShortCode(reservation.id, code).catch(() => {});
+          shortCodes.push(code);
+        } catch {
+          // Fall back to reservation.shortCode if shortenUrl fails
+          if (reservation.shortCode) shortCodes.push(reservation.shortCode);
+        }
       } catch (err) {
         console.error("[unified-reserve] Neon insert (bowling) failed (non-fatal):", err);
       }
@@ -516,6 +547,11 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
       }
       throw err;
     }
+  }
+
+  // Persist QAMF logs to Redis for debugging (avoids Vercel log truncation)
+  if (logEntries.length > 0) {
+    redis.set(logKey, JSON.stringify(logEntries), "EX", 86400).catch(() => {});
   }
 
   // BMI confirmations (race/attraction)
