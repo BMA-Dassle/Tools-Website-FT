@@ -154,89 +154,99 @@ export function PromoLanding({
               ? `${cartItemCount} activit${cartItemCount === 1 ? "y" : "ies"} booked. Add more or head to checkout.`
               : "Choose your activity to get started. Have a promo code? Drop it in first and we'll mark which experiences it's good for."}
           </p>
+        </div>
+      </section>
 
-          {/* Checkout bar when cart has items */}
-          {hasCart && (
-            <div className="mt-6 flex items-center justify-center gap-4">
+      {hasCart ? (
+        /* Cart checkout bar — replaces promo input when items are booked */
+        <section className="px-4 pb-6 sm:pb-8">
+          <div className="mx-auto flex max-w-2xl items-center justify-between rounded-2xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-6 py-4">
+            <div>
+              <p className="text-sm font-semibold text-white">
+                {cartItemCount} activit{cartItemCount === 1 ? "y" : "ies"} in your cart
+              </p>
+              <p className="text-xs text-white/40">Add more below or checkout when ready</p>
+            </div>
+            <div className="flex items-center gap-3">
               <Link
                 href="/book/race/v2"
-                className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+                className="rounded-lg border border-white/15 px-4 py-2 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
               >
-                View Cart ({cartItemCount})
+                View Cart
               </Link>
               <Link
                 href="/book/race/v2?checkout=1"
-                className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
+                className="rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
               >
                 Checkout →
               </Link>
             </div>
-          )}
-        </div>
-      </section>
-
-      {/* Promo input */}
-      <section className="px-4 pb-6 sm:pb-8">
-        <div className="mx-auto max-w-md">
-          <form onSubmit={submitCode} className="flex flex-wrap items-end gap-2">
-            <label className="min-w-40 flex-1">
-              <span
-                className="block font-bold uppercase text-white/40"
-                style={{ fontSize: "11px", letterSpacing: "2.5px" }}
-              >
-                Promo code
-              </span>
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value.toUpperCase())}
-                placeholder="MAY20WEEKDAY"
-                autoComplete="off"
-                className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm uppercase tracking-wider text-white placeholder-white/30 focus:bg-white/8 focus:outline-none"
-                style={{ borderColor: applied ? `${accent}55` : undefined }}
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={submitting || input.trim() === (applied?.code ?? "")}
-              className="rounded-full px-6 py-3 font-body text-sm font-bold uppercase tracking-wider transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-              style={{ backgroundColor: accent, color: "#0a1628" }}
-            >
-              {submitting ? "…" : applied ? "Update" : "Apply"}
-            </button>
-          </form>
-
-          {applied && (
-            <div
-              className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
-              style={{ borderColor: `${accent}40`, backgroundColor: `${accent}12` }}
-            >
-              <div className="text-sm" style={{ color: accent }}>
-                <span className="font-bold">{applied.code}</span> applied —{" "}
-                {applied.mechanic === "percent" && applied.amountPct != null
-                  ? `${applied.amountPct}% off`
-                  : applied.mechanic === "fixed" && applied.amountCents != null
-                    ? `$${(applied.amountCents / 100).toFixed(2)} off`
-                    : ""}{" "}
-                <span className="text-white/50">— eligible experiences marked below.</span>
-              </div>
+          </div>
+        </section>
+      ) : (
+        /* Promo input — shown when no cart */
+        <section className="px-4 pb-6 sm:pb-8">
+          <div className="mx-auto max-w-md">
+            <form onSubmit={submitCode} className="flex flex-wrap items-end gap-2">
+              <label className="min-w-40 flex-1">
+                <span
+                  className="block font-bold uppercase text-white/40"
+                  style={{ fontSize: "11px", letterSpacing: "2.5px" }}
+                >
+                  Promo code
+                </span>
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value.toUpperCase())}
+                  placeholder="MAY20WEEKDAY"
+                  autoComplete="off"
+                  className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm uppercase tracking-wider text-white placeholder-white/30 focus:bg-white/8 focus:outline-none"
+                  style={{ borderColor: applied ? `${accent}55` : undefined }}
+                />
+              </label>
               <button
-                type="button"
-                onClick={clearCode}
-                className="text-xs text-white/50 transition-colors hover:text-white"
+                type="submit"
+                disabled={submitting || input.trim() === (applied?.code ?? "")}
+                className="rounded-full px-6 py-3 font-body text-sm font-bold uppercase tracking-wider transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                style={{ backgroundColor: accent, color: "#0a1628" }}
               >
-                Clear
+                {submitting ? "…" : applied ? "Update" : "Apply"}
               </button>
-            </div>
-          )}
-          {rejected && !applied && (
-            <p className="mt-3 text-center text-sm text-amber-400/80">
-              We couldn&apos;t apply that code. It may be expired, fully used, or not yet active.
-              Pick an activity below to continue without it.
-            </p>
-          )}
-        </div>
-      </section>
+            </form>
+
+            {applied && (
+              <div
+                className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
+                style={{ borderColor: `${accent}40`, backgroundColor: `${accent}12` }}
+              >
+                <div className="text-sm" style={{ color: accent }}>
+                  <span className="font-bold">{applied.code}</span> applied —{" "}
+                  {applied.mechanic === "percent" && applied.amountPct != null
+                    ? `${applied.amountPct}% off`
+                    : applied.mechanic === "fixed" && applied.amountCents != null
+                      ? `$${(applied.amountCents / 100).toFixed(2)} off`
+                      : ""}{" "}
+                  <span className="text-white/50">— eligible experiences marked below.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearCode}
+                  className="text-xs text-white/50 transition-colors hover:text-white"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+            {rejected && !applied && (
+              <p className="mt-3 text-center text-sm text-amber-400/80">
+                We couldn&apos;t apply that code. It may be expired, fully used, or not yet active.
+                Pick an activity below to continue without it.
+              </p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Attraction grid */}
       <section className="px-4 pb-12 sm:pb-20">
