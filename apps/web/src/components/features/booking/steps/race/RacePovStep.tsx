@@ -146,14 +146,21 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
                       </span>
                     </span>
                   </li>
-                  <li className="flex items-baseline gap-2">
-                    <span className="text-emerald-400">✓</span>
-                    <span>
-                      Free Appetizer at Nemo&apos;s{" "}
-                      <span className="text-white/40">
-                        (1 per 3 purchases · dine-in · race day only)
+                  <li>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-emerald-400">✓</span>
+                      <span>
+                        Free Appetizer at Nemo&apos;s{" "}
+                        <span className="text-white/40">
+                          (1 per 3 purchases · dine-in · race day only)
+                        </span>
                       </span>
-                    </span>
+                    </div>
+                    <ul className="ml-5 mt-0.5 list-inside list-disc space-y-0 text-[11px] text-white/40 marker:text-amber-400/40">
+                      <li>Bruschetta - Regular</li>
+                      <li>Fried Zucchini Sticks</li>
+                      <li>Mac &amp; Cheese Bites</li>
+                    </ul>
                   </li>
                 </ul>
                 <p className="mt-2 text-[11px] text-amber-400/80">

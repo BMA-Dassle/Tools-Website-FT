@@ -98,17 +98,26 @@ export function PackageCard({ pkg, racerCount, date, isSelected, onSelect }: Pac
           </li>
         )}
         {pkg.appetizerCode && (
-          <li className="flex items-baseline justify-between gap-2">
-            <span>
-              <span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s
-              <span className="text-white/40">
-                {" "}
-                ({pkg.appetizerNote ?? "1 per group"} · race day only)
+          <li>
+            <div className="flex items-baseline justify-between gap-2">
+              <span>
+                <span className="text-emerald-400">✓</span> Free Appetizer at Nemo&apos;s
+                <span className="text-white/40">
+                  {" "}
+                  ({pkg.appetizerNote ?? "1 per group"} · race day only)
+                </span>
               </span>
-            </span>
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
-              Included
-            </span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+                Included
+              </span>
+            </div>
+            {pkg.appetizerItems && (
+              <ul className="ml-5 mt-0.5 list-inside list-disc space-y-0 text-[11px] text-white/40 marker:text-amber-400/40">
+                {pkg.appetizerItems.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
           </li>
         )}
       </ul>

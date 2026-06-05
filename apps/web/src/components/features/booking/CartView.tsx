@@ -345,7 +345,20 @@ function RaceCartCard({
           )}
           {pkg.includesPov && <ExtraRow icon="✓" label="POV Race Video included" amount={null} />}
           {pkg.appetizerCode && (
-            <ExtraRow icon="✓" label="Free Appetizer at Nemo's included" amount={null} />
+            <>
+              <ExtraRow
+                icon="✓"
+                label={`Free Appetizer at Nemo's (${pkg.appetizerNote ?? "1 per group"})`}
+                amount={null}
+              />
+              {pkg.appetizerItems && (
+                <div className="ml-6 space-y-0 text-[11px] text-white/40">
+                  {pkg.appetizerItems.map((mi) => (
+                    <div key={mi}>· {mi}</div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           {item.addons.map((a) => (
             <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
