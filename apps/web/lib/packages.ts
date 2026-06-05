@@ -191,8 +191,8 @@ const ULTIMATE_QUALIFIER_ENABLED =
 
 // Shared appetizer items per package — factored out so the picker
 // card, confirmation page, and email all pull from the same list.
-const RP_APPETIZER_NOTE = "1 per group";
-const RP_APPETIZER_ITEMS = ["Bruschetta", "GF Mac & Cheese Bites", "Fried Zucchini Sticks"];
+const RP_APPETIZER_NOTE = "1 per 3 purchases";
+const RP_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
 const UQ_APPETIZER_NOTE = "1 per 3 purchases";
 const UQ_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
 
@@ -216,7 +216,7 @@ const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
 };
 
 const ROOKIE_LONG =
-  "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (one per group, dine-in only).";
+  "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only).";
 
 const PACKAGES: PackageDefinition[] = [
   // ── Rookie Pack — Mega (Tuesday) ──────────────────────────────────────────
