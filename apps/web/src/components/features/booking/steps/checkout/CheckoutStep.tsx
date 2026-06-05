@@ -94,11 +94,11 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         bmiOverview = result.overview;
       }
 
-      // Step 2: Build combined review from all items
+      // Step 2: Build combined review from all items with schedule info
       setPhase({ step: "booking", progress: "Calculating your total…" });
       const reviewLines: BillOverview["lines"] = [];
 
-      // Bowling line items
+      // Bowling line items — include bookedAt time
       for (const item of session.items) {
         if (item.kind !== "bowling" && item.kind !== "kbf") continue;
         for (const li of item.lineItems) {
@@ -106,6 +106,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             name: li.label ?? `Item #${li.squareProductId}`,
             quantity: li.quantity,
             amount: ((li.priceCents ?? 0) * li.quantity) / 100,
+            time: item.bookedAt ?? undefined,
           });
         }
         if (item.hasBookingFee) {
@@ -113,7 +114,20 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         }
       }
 
-      // BMI line items (from the overview)
+      // Attraction line items — include slot time
+      for (const item of session.items) {
+        if (item.kind !== "attraction") continue;
+        const attrName =
+          item.slug?.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) ?? "Activity";
+        reviewLines.push({
+          name: `${attrName}${item.qty > 1 ? ` (${item.qty} people)` : ""}`,
+          quantity: item.qty,
+          amount: item.price * item.qty,
+          time: item.slot ?? undefined,
+        });
+      }
+
+      // BMI line items (from the overview — race heats already have time)
       if (bmiOverview) {
         for (const line of bmiOverview.lines) {
           reviewLines.push(line);
