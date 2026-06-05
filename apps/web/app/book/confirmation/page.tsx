@@ -1681,115 +1681,126 @@ export default function ConfirmationPage() {
                   })()}
             </div>
 
-            {/* Activity schedule cards — attractions + bowling from booking record */}
+            {/* Activity cards — same style as race cards above */}
             {bookingRec?.attractions &&
               Array.isArray(bookingRec.attractions) &&
-              bookingRec.attractions.length > 0 && (
-                <div className="lg:col-span-2 mt-4 space-y-3">
-                  <h3 className="font-display text-white text-lg uppercase tracking-widest">
-                    Your Activities
-                  </h3>
-                  {(
-                    bookingRec.attractions as Array<{
-                      slug?: string;
-                      date?: string;
-                      slot?: string;
-                      qty?: number;
-                      price?: number;
-                    }>
-                  ).map((a, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-                    >
-                      <div>
-                        <p className="text-white text-sm font-semibold capitalize">
-                          {a.slug?.replace(/-/g, " ") ?? "Activity"}
+              bookingRec.attractions.length > 0 &&
+              (
+                bookingRec.attractions as Array<{
+                  slug?: string;
+                  date?: string;
+                  slot?: string;
+                  qty?: number;
+                  price?: number;
+                }>
+              ).map((a, i) => (
+                <div
+                  key={`attr-${i}`}
+                  className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
+                >
+                  <div className="p-4 sm:p-8">
+                    <p className="text-[#00E2E5] font-bold text-2xl sm:text-3xl capitalize">
+                      {a.slug?.replace(/-/g, " ") ?? "Activity"}
+                    </p>
+                    {(a.qty ?? 0) > 1 && (
+                      <p className="text-white font-display text-lg uppercase tracking-wider mt-1">
+                        {a.qty} People
+                      </p>
+                    )}
+                    {a.date && (
+                      <p className="text-white/50 text-sm mt-1">
+                        {new Date(a.date + "T12:00:00").toLocaleDateString("en-US", {
+                          weekday: "long",
+                          month: "long",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                    )}
+                    {a.slot && (
+                      <div className="mt-3">
+                        <p className="text-amber-400 text-xs font-bold uppercase tracking-wider">
+                          Session Time
                         </p>
-                        <p className="text-white/40 text-xs">
-                          {a.date
-                            ? new Date(a.date + "T12:00:00").toLocaleDateString("en-US", {
-                                weekday: "short",
-                                month: "short",
-                                day: "numeric",
-                              })
-                            : ""}
-                          {a.slot && (
-                            <>
-                              {" · "}
-                              {new Date(a.slot.replace(/Z$/, "")).toLocaleTimeString("en-US", {
-                                hour: "numeric",
-                                minute: "2-digit",
-                                hour12: true,
-                              })}
-                            </>
-                          )}
-                          {(a.qty ?? 0) > 1 && ` · ${a.qty} people`}
+                        <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">
+                          {new Date(a.slot.replace(/Z$/, "")).toLocaleTimeString("en-US", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                          })}
                         </p>
+                        <p className="text-white/30 text-xs">
+                          HeadPinz — Check in at the front desk
+                        </p>
+                        <p className="text-white/20 text-xs">14513 Global Parkway, Fort Myers</p>
                       </div>
-                      {(a.price ?? 0) > 0 && (
-                        <span className="text-[#00E2E5] text-sm font-bold">
-                          ${((a.price ?? 0) * (a.qty ?? 1)).toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+                    )}
+                    {(a.price ?? 0) > 0 && (
+                      <p className="text-white/40 text-xs mt-3">
+                        ${((a.price ?? 0) * (a.qty ?? 1)).toFixed(2)} — paid at center
+                      </p>
+                    )}
+                  </div>
                 </div>
-              )}
+              ))}
 
             {bookingRec?.bowling &&
               Array.isArray(bookingRec.bowling) &&
-              bookingRec.bowling.length > 0 && (
-                <div className="lg:col-span-2 mt-4 space-y-3">
-                  <h3 className="font-display text-white text-lg uppercase tracking-widest">
-                    Bowling
-                  </h3>
-                  {(
-                    bookingRec.bowling as Array<{
-                      kind?: string;
-                      date?: string;
-                      bookedAt?: string;
-                      experienceSlug?: string;
-                      laneCount?: number;
-                      playerCount?: number;
-                    }>
-                  ).map((b, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-                    >
-                      <div>
-                        <p className="text-white text-sm font-semibold capitalize">
-                          {b.experienceSlug?.replace(/-/g, " ") ?? "Bowling"}
+              bookingRec.bowling.length > 0 &&
+              (
+                bookingRec.bowling as Array<{
+                  kind?: string;
+                  date?: string;
+                  bookedAt?: string;
+                  experienceSlug?: string;
+                  laneCount?: number;
+                  playerCount?: number;
+                }>
+              ).map((b, i) => (
+                <div
+                  key={`bowl-${i}`}
+                  className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.03] overflow-hidden"
+                >
+                  <div className="p-4 sm:p-8">
+                    <p className="text-emerald-400 font-bold text-2xl sm:text-3xl capitalize">
+                      {b.experienceSlug?.replace(/-/g, " ") ?? "Bowling"}
+                    </p>
+                    <p className="text-white font-display text-lg uppercase tracking-wider mt-1">
+                      {b.laneCount ?? 1} Lane{(b.laneCount ?? 1) > 1 ? "s" : ""}
+                      {(b.playerCount ?? 0) > 0 && ` · ${b.playerCount} Bowlers`}
+                    </p>
+                    {b.date && (
+                      <p className="text-white/50 text-sm mt-1">
+                        {new Date(b.date + "T12:00:00").toLocaleDateString("en-US", {
+                          weekday: "long",
+                          month: "long",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                    )}
+                    {b.bookedAt && (
+                      <div className="mt-3">
+                        <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
+                          Lane Time
                         </p>
-                        <p className="text-white/40 text-xs">
-                          {b.date
-                            ? new Date(b.date + "T12:00:00").toLocaleDateString("en-US", {
-                                weekday: "short",
-                                month: "short",
-                                day: "numeric",
-                              })
-                            : ""}
-                          {b.bookedAt && (
-                            <>
-                              {" · "}
-                              {new Date(b.bookedAt).toLocaleTimeString("en-US", {
-                                hour: "numeric",
-                                minute: "2-digit",
-                                hour12: true,
-                                timeZone: "America/New_York",
-                              })}
-                            </>
-                          )}
-                          {(b.laneCount ?? 0) > 0 &&
-                            ` · ${b.laneCount} lane${(b.laneCount ?? 0) > 1 ? "s" : ""}`}
-                          {(b.playerCount ?? 0) > 0 && ` · ${b.playerCount} bowlers`}
+                        <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">
+                          {new Date(b.bookedAt).toLocaleTimeString("en-US", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                            timeZone: "America/New_York",
+                          })}
                         </p>
+                        <p className="text-white/30 text-xs">
+                          HeadPinz — Show this confirmation at the front desk
+                        </p>
+                        <p className="text-white/20 text-xs">14513 Global Parkway, Fort Myers</p>
                       </div>
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </div>
-              )}
+              ))}
 
             {/* POV Camera Codes
               The codes below are the actual unlock keys for the
