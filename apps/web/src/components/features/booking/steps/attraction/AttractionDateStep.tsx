@@ -177,6 +177,9 @@ const AttractionDateStepComponent: StepDef<AttractionItem>["Component"] = ({
     viewYear > today.getFullYear() ||
     (viewYear === today.getFullYear() && viewMonth > today.getMonth());
 
+  // When date is pre-selected from cart, show compact confirmation
+  const [showCalendar, setShowCalendar] = useState(!cartDate);
+
   return (
     <div className="space-y-6">
       <div className="text-center">
@@ -187,13 +190,37 @@ const AttractionDateStepComponent: StepDef<AttractionItem>["Component"] = ({
         </p>
       </div>
 
-      {!ready && (
+      {/* Pre-selected date from cart — compact confirmation */}
+      {item.date && !showCalendar && (
+        <div className="mx-auto max-w-sm rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 text-center">
+          <p className="text-sm text-white/50">Same day as your other activities</p>
+          <p className="mt-1 text-lg font-bold text-white">
+            {new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowCalendar(true)}
+            className="mt-2 text-xs text-white/40 underline hover:text-white/60"
+          >
+            Choose a different date
+          </button>
+        </div>
+      )}
+
+      {!ready && showCalendar && (
         <div className="flex h-48 items-center justify-center">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
         </div>
       )}
 
-      <div className="mx-auto max-w-sm" style={{ display: ready ? undefined : "none" }}>
+      <div
+        className="mx-auto max-w-sm"
+        style={{ display: ready && showCalendar ? undefined : "none" }}
+      >
         <div className="mb-4 flex items-center justify-between">
           <button
             type="button"
