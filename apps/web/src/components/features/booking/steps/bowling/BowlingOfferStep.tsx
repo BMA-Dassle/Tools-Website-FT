@@ -88,7 +88,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     return experiences.filter(
       (e) =>
         (item.tier === "vip" ? e.isVip : !e.isVip) &&
-        (!e.daysOfWeek.length || e.daysOfWeek.includes(dow)),
+        (!Array.isArray(e.daysOfWeek) || e.daysOfWeek.length === 0 || e.daysOfWeek.includes(dow)),
     );
   }, [experiences, item.tier, item.date]);
 
@@ -263,7 +263,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   // Filter out hourly experience cards when no duration options are valid at this time
   const visibleExperiences = tierExperiences.filter((exp) => {
-    if (exp.durationOptions.length === 0) return true;
+    if (!exp.durationOptions?.length) return true;
     const expSlots = relevantSlots.filter((s) => s.webOfferId === exp.qamfWebOfferId);
     if (expSlots.length === 0) return true;
     const ids = expSlots[0].availableTimeOptionIds;
@@ -276,7 +276,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const autoSelectDone = useRef(false);
   useEffect(() => {
     if (loading || autoSelectDone.current || holdBusy || item.bookedAt) return;
-    const nonHourly = visibleExperiences.filter((e) => e.durationOptions.length === 0);
+    const nonHourly = visibleExperiences.filter((e) => !e.durationOptions?.length);
     if (nonHourly.length !== 1) return;
     const exp = nonHourly[0];
     const expSlots = relevantSlots.filter((s) => s.webOfferId === exp.qamfWebOfferId);

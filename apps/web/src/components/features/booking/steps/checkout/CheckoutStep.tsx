@@ -519,8 +519,12 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
       setPhase({ step: "confirming", bmiBillId });
       try {
         // Unified reserve — one Square order, one charge, all item types
+        // Inject bmiBillId from the phase (set during handleContactSubmit
+        // by runCheckout) into the session — without this the server skips
+        // BMI payment/confirm and the reservation stays "Payment started".
+        const sessionWithBill = { ...session, bmiBillId: bmiBillId || session.bmiBillId };
         const result = await reserveAll({
-          session,
+          session: sessionWithBill,
           contact,
           cardSourceId: params.savedCardId ?? params.cardNonce ?? undefined,
           giftCardNonce: params.giftCardNonce ?? undefined,
