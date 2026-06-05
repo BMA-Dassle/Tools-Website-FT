@@ -93,8 +93,6 @@ export function CartView({
         </ul>
       )}
 
-      <AdditionalActivities session={session} />
-
       {hasItems && (
         <div className="mt-8 flex justify-end">
           <button
