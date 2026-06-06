@@ -14,6 +14,7 @@ import {
   PreRaceCard,
   TICKET_PULSE_CSS,
   minutesUntil,
+  sameEtDayOrUnknown,
 } from "../../t/[id]/cards";
 import ImportantRaceInfo from "../../t/[id]/ImportantRaceInfo";
 import FullScreenTicket from "../../t/[id]/FullScreenTicket";
@@ -234,9 +235,18 @@ export default function GroupETicketView({ group, initial }: Props) {
               { cache: "no-store", signal: ac.signal },
             );
             if (!res.ok) return null;
-            const json = (await res.json()) as { codes?: string[]; cached?: boolean };
+            const json = (await res.json()) as {
+              codes?: string[];
+              cached?: boolean;
+              claimedAt?: string;
+            };
             const codes = Array.isArray(json.codes) ? json.codes : [];
-            return { personId: t.personId, codes, cached: !!json.cached };
+            return {
+              personId: t.personId,
+              codes,
+              cached: !!json.cached,
+              claimedAt: json.claimedAt,
+            };
           } catch {
             return null;
           }
@@ -246,9 +256,16 @@ export default function GroupETicketView({ group, initial }: Props) {
       setPovByPerson((prev) => {
         const next = { ...prev };
         for (const r of results) {
-          if (r && r.codes.length > 0) {
-            next[r.personId] = { codes: r.codes, cached: r.cached };
-          }
+          if (!r || r.codes.length === 0) continue;
+          // Only surface a voucher when the claim shares an ET day with one of
+          // this person's heats — keeps a prior-day claim (90-day per-person
+          // key) off an unrelated heat's ticket. Same-day moves still match.
+          const sameDay = group.members.some(
+            (m) =>
+              String(m.personId) === r.personId &&
+              sameEtDayOrUnknown(r.claimedAt, m.scheduledStart),
+          );
+          if (sameDay) next[r.personId] = { codes: r.codes, cached: r.cached };
         }
         return next;
       });

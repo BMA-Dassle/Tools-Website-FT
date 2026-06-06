@@ -14,6 +14,7 @@ import {
   PreRaceCard,
   TICKET_PULSE_CSS,
   minutesUntil,
+  sameEtDayOrUnknown,
 } from "./cards";
 import ImportantRaceInfo from "./ImportantRaceInfo";
 import FullScreenTicket from "./FullScreenTicket";
@@ -184,8 +185,20 @@ export default function ETicketView({
           { cache: "no-store", signal: ac.signal },
         );
         if (!res.ok) return;
-        const json = (await res.json()) as { codes?: string[]; cached?: boolean };
-        if (Array.isArray(json.codes) && json.codes.length > 0) {
+        const json = (await res.json()) as {
+          codes?: string[];
+          cached?: boolean;
+          claimedAt?: string;
+        };
+        // Only surface the voucher on its own race day — a credit claimed on a
+        // prior day (per-person key lives 90 days) must not show up on an
+        // unrelated heat's ticket. Same-day moves still match (different heat,
+        // same day).
+        if (
+          Array.isArray(json.codes) &&
+          json.codes.length > 0 &&
+          sameEtDayOrUnknown(json.claimedAt, ticket.scheduledStart)
+        ) {
           setPovCodes(json.codes);
           setPovCached(!!json.cached);
         }

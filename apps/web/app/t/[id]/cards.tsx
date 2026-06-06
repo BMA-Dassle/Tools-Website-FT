@@ -56,6 +56,32 @@ export function minutesUntil(iso: string): number {
   return Math.round((then - now) / 60_000);
 }
 
+/** America/New_York calendar day (YYYY-MM-DD) for an ISO timestamp, or null. */
+export function etDay(iso: string): string | null {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return null;
+  }
+}
+
+/** True when two timestamps fall on the same ET day. Lenient: if either is
+ *  missing/unparseable we return true so we never wrongly suppress a voucher
+ *  on bad/absent data. Used to keep a POV voucher on its own race day's ticket
+ *  (a credit claimed weeks ago shouldn't surface on an unrelated heat). */
+export function sameEtDayOrUnknown(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return true;
+  const da = etDay(a);
+  const db = etDay(b);
+  if (!da || !db) return true;
+  return da === db;
+}
+
 function badgeFor(d: CardDetails): string {
   return `${d.track} ${d.raceType} ${d.heatNumber}`;
 }
