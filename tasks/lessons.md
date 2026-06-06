@@ -1,5 +1,41 @@
 # Lessons Learned
 
+## Two crons sharing one trigger raced — `dayof-close` stranded `dayof-pay` (2026-06-05)
+
+Quote #3286 (LSI Companies, $2,649.09) showed Deposit ✓ / Balance ✓ in admin but its Square
+day-of order sat OPEN, unpaid. Gift cards were fully funded and untouched. Root cause: a
+read-modify race between two crons that gate on the *identical* trigger
+`status = 'balance_charged' AND event_date <= NOW()`:
+
+- `group-dayof-pay` (`*/5`) applies the gift card to the day-of order, sets `dayof_paid_at`. Does
+  NOT change status.
+- `group-dayof-close` (`*/15`) flips status → `completed`, with NO check that the day-of order was
+  paid first.
+
+Both fire together at minute `:00` — the first tick where a just-arrived event qualifies. Close
+won the race (`updated_at` 16:00:37Z for a 16:00:00Z event), flipped status to `completed`, and
+from then on pay's `WHERE status = 'balance_charged'` never matched again. Tell-tale: BOTH
+`dayof_paid_at` AND `dayof_payment_error` were NULL — a real pay failure sets the error, so null/null
+means the row was never even selected. Blast radius was 3 events (#3286, #1354, #H2986), all OPEN in
+Square. Fix: gate close on `(square_dayof_order_id IS NULL OR dayof_paid_at IS NOT NULL)` to enforce
+pay-before-close.
+
+**Guardrails:**
+- Two crons gating on the same status is a latent race whenever one is a precondition of the other.
+  Don't just check they both *select* the right rows (the 2026-06-03 lesson) — check their *relative
+  ordering* when they fire in the same tick. The dependent cron (close) must gate on the producer's
+  completion marker (`dayof_paid_at`), not on the shared upstream status alone.
+- A transition cron that has nothing to do must STILL be ordered behind the work it depends on.
+  "Mark it done" must verify "is it actually done," never just "did the upstream status flip."
+- Diagnosing null/null vs null/error distinguishes "never attempted" from "attempted and failed" —
+  always pull both the success timestamp and the error column together.
+- Remediate stranded orders by replaying the producer's logic with ITS idempotency keys
+  (`gf-dayof-pay-{id}-{i}`), not by flipping status back upstream — flipping back re-arms the same
+  race against the still-deployed buggy cron.
+
+See also the 2026-06-03 lesson below — same pipeline, complementary failure mode (missed transition
+vs. raced transition).
+
 ## Full-prepay group events never paid out day-of — two coupled bugs (2026-06-03)
 
 "Hayes Birthday Party" should have auto-paid on the event day, but `/api/cron/group-dayof-pay`
