@@ -14,6 +14,21 @@ describe("checkinQrPayload", () => {
     expect(checkinQrPayload("111", "222")).toBe("FT:111:222");
   });
 
+  it("appends participantId as a 4th segment when present", () => {
+    expect(checkinQrPayload(12345, 67890, 49976218)).toBe("FT:12345:67890:49976218");
+    expect(checkinQrPayload("111", "222", "333")).toBe("FT:111:222:333");
+  });
+
+  it("omits the 4th segment when participantId is absent", () => {
+    expect(checkinQrPayload(12345, 67890)).toBe("FT:12345:67890");
+    expect(checkinQrPayload(12345, 67890, null)).toBe("FT:12345:67890");
+    expect(checkinQrPayload(12345, 67890, "")).toBe("FT:12345:67890");
+  });
+
+  it("throws on non-digit participantId", () => {
+    expect(() => checkinQrPayload("123", "456", "abc")).toThrow("participantId");
+  });
+
   it("throws on empty personId", () => {
     expect(() => checkinQrPayload("", "123")).toThrow("personId");
   });
@@ -46,6 +61,14 @@ describe("parseCheckinQr", () => {
     });
   });
 
+  it("parses a 4-part payload with participantId", () => {
+    expect(parseCheckinQr("FT:12345:67890:49976218")).toEqual({
+      personId: "12345",
+      sessionId: "67890",
+      participantId: "49976218",
+    });
+  });
+
   it("trims whitespace", () => {
     expect(parseCheckinQr("  FT:123:456  ")).toEqual({
       personId: "123",
@@ -69,8 +92,12 @@ describe("parseCheckinQr", () => {
     expect(parseCheckinQr("FT:123:abc")).toBeNull();
   });
 
-  it("returns null for too many segments", () => {
+  it("returns null for a non-digit participantId", () => {
     expect(parseCheckinQr("FT:123:456:extra")).toBeNull();
+  });
+
+  it("returns null for too many segments (5-part)", () => {
+    expect(parseCheckinQr("FT:123:456:789:000")).toBeNull();
   });
 
   it("returns null for empty string", () => {
