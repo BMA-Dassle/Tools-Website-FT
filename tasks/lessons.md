@@ -1,5 +1,41 @@
 # Lessons Learned
 
+## Square ignores `base_price_money` on FIXED_PRICING catalog items — price overrides lost (2026-06-05)
+
+#3286's day-of Square order rang three "GF Race Blue Starter Fri-Sun" lines at **$26.99**
+instead of the quoted **$399.99** override, and dropped the $324.44 service-charge line —
+under-charging by **$1,464.53** (which sat unredeemed on the gift card). Root cause in
+`createDayofOrder` → `buildSquareLineItem`: it linked every PLU as `catalog_object_id` +
+`base_price_money`. **Square only honors `base_price_money` on a catalog-linked line item when
+the variation is VARIABLE_PRICING; for FIXED_PRICING it silently discards our price and charges
+the catalog price.** The race catalog item is FIXED_PRICING $26.99, so the $399.99 override
+vanished. Pizza/VIP "worked" only because their quote price equalled the catalog price.
+
+Cruel irony: the ad-hoc *fallback* (name + base_price_money, no catalog link) is the CORRECT
+path — Square always honors price on ad-hoc lines. Events whose PLUs failed the catalog attempt
+(#1354, #H2986) fell back to ad-hoc and priced perfectly; the "preferred" catalog path is the
+one that corrupts overrides. Whether an event is hit is luck-of-the-draw on PLU validity.
+
+Fix: `fetchCatalogPriceInfo` batch-retrieves pricing_type + price per PLU; `buildSquareLineItem`
+keeps the catalog link only when the price WILL be honored (VARIABLE_PRICING, or FIXED price ==
+quote price) and otherwise builds an ad-hoc line so the override sticks. Preserves catalog
+reporting for non-overridden items; guarantees correctness for overridden ones.
+
+**Guardrails:**
+- A `: string`-typed price field that "looks sent" can still be ignored by the upstream API.
+  When an external system has its own source of truth (catalog price), verify it actually USED
+  your value — diff the created resource against what you sent, don't assume the POST honored it.
+- The reliable mispricing detector is **order total vs. quote total**, not the code path. Sweep
+  all day-of orders (`order.total_money` vs `total_cents`) to find every drifted event; gap≈0
+  with catalog links just means no override existed, not that the path is safe.
+- Remediating a completed, mispriced Square order = refund the gift-card payment, rebuild the
+  order ad-hoc with override prices, then **multi-tender capture via PayOrder** (`POST
+  /orders/{id}/pay` with all `payment_ids`). `autocomplete:true` on a partial gift-card payment
+  fails "payment total does not match order total"; create each payment `autocomplete:false`
+  then PayOrder them together. A failed payment STILL burns its idempotency key.
+- Separate "never attempted" (null/null) from "attempted, ignored" (price present but order
+  shows catalog price) — they point at different bugs.
+
 ## Full-prepay group events never paid out day-of — two coupled bugs (2026-06-03)
 
 "Hayes Birthday Party" should have auto-paid on the event day, but `/api/cron/group-dayof-pay`
