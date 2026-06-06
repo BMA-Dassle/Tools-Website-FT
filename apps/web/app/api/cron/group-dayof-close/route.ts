@@ -9,10 +9,21 @@ import { verifyCron } from "@/lib/cron-auth";
  * Runs every 15 minutes. Finds group function quotes where:
  *   - status = 'balance_charged' (fully paid)
  *   - event_date has passed (event time, not just date)
+ *   - the day-of order has already been paid (dayof_paid_at set), OR
+ *     there is no day-of order to pay (square_dayof_order_id IS NULL)
  *   - NOT a bowling-only event (bowling uses QAMF webhooks)
  *
  * Auto-completes the quote — the gift card has 100% of the total,
  * staff redeems it at the Square POS against the day-of order.
+ *
+ * The `dayof_paid_at` guard is critical: group-dayof-pay (every 5 min) and
+ * this cron (every 15 min) both trigger on `status = 'balance_charged' AND
+ * event_date <= NOW()`. Both fire at minute :00 — the first moment a just-arrived
+ * event qualifies. Without the guard, this cron can flip status → 'completed'
+ * before pay applies the gift card; pay's `WHERE status = 'balance_charged'`
+ * then never matches again and the day-of order is stranded OPEN forever.
+ * Gating on dayof_paid_at enforces pay-before-close. (Incident: 2026-06-05,
+ * quotes #3286/#1354/#H2986 stranded.)
  *
  * Query params:
  *   ?dryRun=1  — scan + report, no status changes
@@ -33,6 +44,7 @@ export async function GET(req: NextRequest) {
     SELECT * FROM group_function_quotes
     WHERE status = 'balance_charged'
       AND event_date <= NOW()
+      AND (square_dayof_order_id IS NULL OR dayof_paid_at IS NOT NULL)
     ORDER BY event_date ASC
     LIMIT 50
   `) as GroupFunctionQuote[];
