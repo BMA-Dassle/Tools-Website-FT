@@ -772,9 +772,7 @@ export async function GET(req: NextRequest) {
             });
           }
           const body = c.moveFrom
-            ? buildSingleMoveSmsBody(member, c.moveFrom, url, SHORT_CTA, {
-                guardian: isGuardianFlavored,
-              })
+            ? buildSingleMoveSmsBody(member, c.moveFrom, url, SHORT_CTA)
             : isGuardianFlavored
               ? buildGuardianSingleSmsBody(member, url)
               : buildSingleSmsBody(c.session.name, member, url);
