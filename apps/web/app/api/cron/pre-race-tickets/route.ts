@@ -4,8 +4,11 @@ import redis from "@/lib/redis";
 import {
   upsertRaceTicket,
   upsertGroupTicket,
+  getParticipantTicketRef,
+  supersedeMovedTicket,
   type RaceTicket,
   type GroupTicketMember,
+  type ParticipantTicketRef,
 } from "@/lib/race-tickets";
 import {
   canonicalizePhone,
@@ -16,6 +19,7 @@ import {
   type ContactCandidate,
   type Participant,
 } from "@/lib/participant-contact";
+import { buildSingleMoveSmsBody, buildGroupMoveSmsBody } from "@/lib/race-move-sms";
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
@@ -62,6 +66,11 @@ interface Candidate {
   trackDisplay: string;
   participant: Participant;
   resolved?: ContactCandidate | null;
+  /** Set on a FRESH candidate when we detect the racer was moved here from a
+   *  different (still-upcoming) heat — carries the OLD heat detail + ticket id
+   *  so the SMS can say "was X → now Y" and the old ticket can be superseded.
+   *  Keyed off the stable participantId. */
+  moveFrom?: ParticipantTicketRef | null;
 }
 
 function resourceToTrackDisplay(r: string): string {
@@ -465,10 +474,68 @@ function buildGroupEmailHtml(
 </body></html>`;
 }
 
+/**
+ * Move-aware email — used when at least one fresh email recipient was moved to
+ * a different heat. Movers show "was X → now Y"; everyone else their normal
+ * line. Works for a single recipient (1 entry) or a shared inbox / guardian
+ * (N entries). Mirrors the move SMS framing.
+ */
+function buildMoveEmailHtml(
+  entries: { member: GroupTicketMember; movedFrom?: ParticipantTicketRef | null }[],
+  shortUrl: string,
+  recipient: "racer" | "guardian",
+): string {
+  const sorted = [...entries].sort(
+    (a, b) =>
+      new Date(a.member.scheduledStart).getTime() - new Date(b.member.scheduledStart).getTime(),
+  );
+  const heading = recipient === "guardian" ? `A race time changed` : `Your race time changed`;
+  const rows = sorted
+    .map(({ member: m, movedFrom }) => {
+      const newLine = `${m.track} Heat ${m.heatNumber} (${m.raceType}) · ${formatTimeET(m.scheduledStart)}`;
+      if (movedFrom) {
+        const oldLine = `${movedFrom.track} Heat ${movedFrom.heatNumber} (${movedFrom.raceType}) · ${formatTimeET(movedFrom.scheduledStart)}`;
+        return `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">
+      <strong style="color:#1a1a1a">${m.firstName}</strong> — moved<br/>
+      <span style="color:#999;text-decoration:line-through">${oldLine}</span><br/>
+      <span style="color:#1a1a1a;font-weight:bold">→ ${newLine}</span>
+    </td></tr>`;
+      }
+      return `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">
+      <strong style="color:#1a1a1a">${m.firstName}</strong>
+      <span style="color:#555"> — ${newLine}</span>
+    </td></tr>`;
+    })
+    .join("");
+  return `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden">
+        <tr><td style="background:#E41C1D;padding:22px 28px;color:#fff;text-align:center">
+          <p style="margin:0 0 4px 0;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;opacity:0.9">FastTrax Entertainment</p>
+          <h1 style="margin:0;font-size:26px;letter-spacing:-0.5px">${heading}</h1>
+        </td></tr>
+        <tr><td style="padding:26px 28px">
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">Your race assignment changed — here are the latest details.</p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
+          <p style="margin:0 0 20px 0;font-size:14px;line-height:1.5;color:#555">Show the e-ticket screen at check-in — no paper ticket needed.</p>
+          <p style="text-align:center;margin:24px 0">
+            <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View Updated E-Ticket</a>
+          </p>
+          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">14501 Global Parkway, Fort Myers FL 33913</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
 function memberFromCandidate(c: Candidate): GroupTicketMember {
   return {
     sessionId: c.session.sessionId,
     personId: c.participant.personId,
+    participantId: c.participant.participantId,
     firstName: c.participant.firstName || "Racer",
     lastName: c.participant.lastName || "",
     scheduledStart: c.session.scheduledStart,
@@ -480,6 +547,26 @@ function memberFromCandidate(c: Candidate): GroupTicketMember {
 
 function dedupKey(c: Candidate): string {
   return `alert:pre-race:${c.session.sessionId}:${c.participant.personId}`;
+}
+
+/**
+ * Detect whether a FRESH candidate is a MOVE: the same (stable) participantId
+ * was last notified about a DIFFERENT, still-upcoming heat. Returns the old
+ * heat ref (for "was X → now Y" framing + supersede) or null.
+ *
+ * Unambiguous vs. a second booking, which always gets a NEW participantId.
+ * Only a move when the old heat hasn't started yet — once it has, the racer
+ * presumably raced it and the new heat is just their next race.
+ */
+async function detectMove(c: Candidate): Promise<ParticipantTicketRef | null> {
+  const pid = c.participant.participantId;
+  if (pid == null || !String(pid).trim()) return null;
+  const ref = await getParticipantTicketRef(pid);
+  if (!ref) return null;
+  if (String(ref.sessionId) === String(c.session.sessionId)) return null; // same heat
+  const oldStart = new Date(ref.scheduledStart).getTime();
+  if (isNaN(oldStart) || oldStart <= Date.now()) return null; // old heat already underway
+  return ref;
 }
 
 // Concurrency lock key + TTL. With an every-minute schedule, a run that
@@ -517,6 +604,7 @@ export async function GET(req: NextRequest) {
   let groupedSmsSends = 0;
   let singleSmsSends = 0;
   let emailSends = 0;
+  let movesDetected = 0;
   // Drain any retries due now — 429s and transient failures self-heal without
   // having to wait for the main scan to re-identify the racer as fresh.
   const retryStats = !dryRun
@@ -591,6 +679,11 @@ export async function GET(req: NextRequest) {
           skipped++;
           continue;
         }
+        // Fresh SMS candidate — detect a move now (reads the participant index
+        // BEFORE any ticket upsert this run rewrites it). Drives "was X → now
+        // Y" framing + old-ticket supersede in section 3.
+        c.moveFrom = await detectMove(c);
+        if (c.moveFrom) movesDetected++;
         if (!freshSmsByPhone.has(phone)) freshSmsByPhone.set(phone, []);
         freshSmsByPhone.get(phone)!.push(c);
       } else if (resolved.email) {
@@ -605,6 +698,10 @@ export async function GET(req: NextRequest) {
           skipped++;
           continue;
         }
+        // Fresh email candidate — same move detection as SMS so move-framed
+        // email + old-ticket supersede fire for phone-less racers too.
+        c.moveFrom = await detectMove(c);
+        if (c.moveFrom) movesDetected++;
         if (!freshEmailByEmail.has(emailKey)) freshEmailByEmail.set(emailKey, []);
         freshEmailByEmail.get(emailKey)!.push(c);
       } else {
@@ -636,6 +733,7 @@ export async function GET(req: NextRequest) {
           sessionId: c.session.sessionId,
           locationId: FASTTRAX_LOCATION_ID,
           personId: c.participant.personId,
+          participantId: c.participant.participantId,
           firstName: c.participant.firstName || "Racer",
           lastName: c.participant.lastName || "",
           email: c.participant.email || undefined,
@@ -650,7 +748,7 @@ export async function GET(req: NextRequest) {
 
         if (dryRun) {
           console.log(
-            `[pre-race DRY] would sms ${phone} (1 racer: ${c.participant.firstName} ${c.participant.lastName}, session=${c.session.sessionId}${isGuardianFlavored ? ", via guardian" : ""})`,
+            `[pre-race DRY] would sms ${phone} (1 racer: ${c.participant.firstName} ${c.participant.lastName}, session=${c.session.sessionId}${isGuardianFlavored ? ", via guardian" : ""}${c.moveFrom ? `, MOVED from session ${c.moveFrom.sessionId}` : ""})`,
           );
           continue;
         }
@@ -659,9 +757,27 @@ export async function GET(req: NextRequest) {
           const ticketId = await upsertRaceTicket(ticket);
           const { code, url } = await shortenUrl(`${BASE}/t/${ticketId}`);
           const member = memberFromCandidate(c);
-          const body = isGuardianFlavored
-            ? buildGuardianSingleSmsBody(member, url)
-            : buildSingleSmsBody(c.session.name, member, url);
+          // Move case: supersede the OLD ticket (single OR group page) so it
+          // shows a "your race moved" card pointing here, and use the from→to
+          // SMS body.
+          if (c.moveFrom) {
+            await supersedeMovedTicket(c.moveFrom, c.participant.participantId!, {
+              ticketId,
+              group: false,
+              sessionId: ticket.sessionId,
+              heatNumber: ticket.heatNumber,
+              track: ticket.track,
+              raceType: ticket.raceType,
+              scheduledStart: ticket.scheduledStart,
+            });
+          }
+          const body = c.moveFrom
+            ? buildSingleMoveSmsBody(member, c.moveFrom, url, SHORT_CTA, {
+                guardian: isGuardianFlavored,
+              })
+            : isGuardianFlavored
+              ? buildGuardianSingleSmsBody(member, url)
+              : buildSingleSmsBody(c.session.name, member, url);
           const ok = await sendSms(phone, body, {
             sessionIds: [c.session.sessionId],
             personIds: [c.participant.personId],
@@ -689,8 +805,12 @@ export async function GET(req: NextRequest) {
 
       if (dryRun) {
         const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
+        const moves = fresh.filter((c) => c.moveFrom);
+        const moveNote = moves.length
+          ? `, MOVES: ${moves.map((c) => `${c.participant.firstName}(${c.moveFrom!.sessionId}→${c.session.sessionId})`).join(", ")}`
+          : "";
         console.log(
-          `[pre-race DRY] would sms ${phone} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`,
+          `[pre-race DRY] would sms ${phone} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""}${moveNote})`,
         );
         continue;
       }
@@ -704,9 +824,33 @@ export async function GET(req: NextRequest) {
           guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
         });
         const { code, url } = await shortenUrl(`${BASE}/g/${groupId}`);
-        const body = isGuardianFlavored
-          ? buildGuardianGroupSmsBody(members, url)
-          : buildGroupSmsBody(members, url);
+        // If any FRESH member in this bucket moved, send the combined
+        // move-aware body (per-racer "moved — was X, now Y" lines for movers,
+        // normal lines for the rest). Only fresh candidates carry moveFrom.
+        const anyMoved = fresh.some((c) => c.moveFrom);
+        const entries = all.map((c) => ({
+          member: memberFromCandidate(c),
+          movedFrom: c.moveFrom ?? null,
+        }));
+        // Supersede each moved member's OLD ticket (single or group) → points
+        // at this new group page.
+        for (const c of fresh) {
+          if (!c.moveFrom) continue;
+          await supersedeMovedTicket(c.moveFrom, c.participant.participantId!, {
+            ticketId: groupId,
+            group: true,
+            sessionId: c.session.sessionId,
+            heatNumber: c.session.heatNumber,
+            track: c.trackDisplay,
+            raceType: c.session.type,
+            scheduledStart: c.session.scheduledStart,
+          });
+        }
+        const body = anyMoved
+          ? buildGroupMoveSmsBody(entries, url, SHORT_CTA, { guardian: isGuardianFlavored })
+          : isGuardianFlavored
+            ? buildGuardianGroupSmsBody(members, url)
+            : buildGroupSmsBody(members, url);
         const ok = await sendSms(phone, body, {
           sessionIds: Array.from(new Set(members.map((m) => m.sessionId))),
           personIds: members.map((m) => m.personId),
@@ -756,6 +900,7 @@ export async function GET(req: NextRequest) {
             sessionId: c.session.sessionId,
             locationId: FASTTRAX_LOCATION_ID,
             personId: c.participant.personId,
+            participantId: c.participant.participantId,
             firstName: c.participant.firstName || "Racer",
             lastName: c.participant.lastName || "",
             email: c.participant.email || undefined,
@@ -818,6 +963,7 @@ export async function GET(req: NextRequest) {
           sessionId: c.session.sessionId,
           locationId: FASTTRAX_LOCATION_ID,
           personId: c.participant.personId,
+          participantId: c.participant.participantId,
           firstName: c.participant.firstName || "Racer",
           lastName: c.participant.lastName || "",
           email: c.participant.email || undefined,
@@ -832,7 +978,7 @@ export async function GET(req: NextRequest) {
 
         if (dryRun) {
           console.log(
-            `[pre-race DRY] would email ${displayEmail} (${c.participant.firstName} ${c.participant.lastName}, session=${c.session.sessionId}${isGuardianFlavored ? ", via guardian" : ""})`,
+            `[pre-race DRY] would email ${displayEmail} (${c.participant.firstName} ${c.participant.lastName}, session=${c.session.sessionId}${isGuardianFlavored ? ", via guardian" : ""}${c.moveFrom ? `, MOVED from session ${c.moveFrom.sessionId}` : ""})`,
           );
           continue;
         }
@@ -840,18 +986,38 @@ export async function GET(req: NextRequest) {
         try {
           const ticketId = await upsertRaceTicket(ticket);
           const { url } = await shortenUrl(`${BASE}/t/${ticketId}`);
-          const subject = isGuardianFlavored
-            ? `E-ticket for ${c.participant.firstName || "your racer"} · ${c.session.type} Race on ${c.trackDisplay} Track`
-            : `Your FastTrax e-ticket · ${c.session.type} Race on ${c.trackDisplay} Track`;
-          const html = isGuardianFlavored
-            ? buildGroupEmailHtml([memberFromCandidate(c)], url, "guardian")
-            : buildEmailHtml(
-                c.participant.firstName || "Racer",
-                c.trackDisplay,
-                c.session.type,
-                c.session.scheduledStart,
+          // Move case: supersede the old ticket + use the move-framed email.
+          if (c.moveFrom) {
+            await supersedeMovedTicket(c.moveFrom, c.participant.participantId!, {
+              ticketId,
+              group: false,
+              sessionId: ticket.sessionId,
+              heatNumber: ticket.heatNumber,
+              track: ticket.track,
+              raceType: ticket.raceType,
+              scheduledStart: ticket.scheduledStart,
+            });
+          }
+          const subject = c.moveFrom
+            ? `Your FastTrax race time changed · now ${c.session.type} on ${c.trackDisplay} Track`
+            : isGuardianFlavored
+              ? `E-ticket for ${c.participant.firstName || "your racer"} · ${c.session.type} Race on ${c.trackDisplay} Track`
+              : `Your FastTrax e-ticket · ${c.session.type} Race on ${c.trackDisplay} Track`;
+          const html = c.moveFrom
+            ? buildMoveEmailHtml(
+                [{ member: memberFromCandidate(c), movedFrom: c.moveFrom }],
                 url,
-              );
+                isGuardianFlavored ? "guardian" : "racer",
+              )
+            : isGuardianFlavored
+              ? buildGroupEmailHtml([memberFromCandidate(c)], url, "guardian")
+              : buildEmailHtml(
+                  c.participant.firstName || "Racer",
+                  c.trackDisplay,
+                  c.session.type,
+                  c.session.scheduledStart,
+                  url,
+                );
           const ok = await sendEmail(displayEmail, subject, html);
           if (ok) {
             await redis.set(dedupKey(c), "1", "EX", DEDUP_TTL);
@@ -873,8 +1039,12 @@ export async function GET(req: NextRequest) {
 
       if (dryRun) {
         const names = members.map((m) => `${m.firstName} ${m.lastName}`).join(", ");
+        const moves = fresh.filter((c) => c.moveFrom);
+        const moveNote = moves.length
+          ? `, MOVES: ${moves.map((c) => `${c.participant.firstName}(${c.moveFrom!.sessionId}→${c.session.sessionId})`).join(", ")}`
+          : "";
         console.log(
-          `[pre-race DRY] would email ${displayEmail} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""})`,
+          `[pre-race DRY] would email ${displayEmail} for ${members.length} members: ${names} (fresh=${fresh.length}${isGuardianFlavored ? ", via guardian" : ""}${moveNote})`,
         );
         continue;
       }
@@ -890,10 +1060,32 @@ export async function GET(req: NextRequest) {
           guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
         });
         const { url } = await shortenUrl(`${BASE}/g/${groupId}`);
-        const subject = isGuardianFlavored
-          ? `E-tickets for your racers`
-          : `Your FastTrax e-tickets`;
-        const html = buildGroupEmailHtml(members, url, isGuardianFlavored ? "guardian" : "racer");
+        // Supersede moved members' old tickets → point at this new group page.
+        const anyMoved = fresh.some((c) => c.moveFrom);
+        for (const c of fresh) {
+          if (!c.moveFrom) continue;
+          await supersedeMovedTicket(c.moveFrom, c.participant.participantId!, {
+            ticketId: groupId,
+            group: true,
+            sessionId: c.session.sessionId,
+            heatNumber: c.session.heatNumber,
+            track: c.trackDisplay,
+            raceType: c.session.type,
+            scheduledStart: c.session.scheduledStart,
+          });
+        }
+        const subject = anyMoved
+          ? `Your FastTrax race times changed`
+          : isGuardianFlavored
+            ? `E-tickets for your racers`
+            : `Your FastTrax e-tickets`;
+        const html = anyMoved
+          ? buildMoveEmailHtml(
+              all.map((c) => ({ member: memberFromCandidate(c), movedFrom: c.moveFrom ?? null })),
+              url,
+              isGuardianFlavored ? "guardian" : "racer",
+            )
+          : buildGroupEmailHtml(members, url, isGuardianFlavored ? "guardian" : "racer");
         const ok = await sendEmail(displayEmail, subject, html);
         if (ok) {
           for (const c of fresh) {
@@ -941,6 +1133,7 @@ export async function GET(req: NextRequest) {
       groupedSmsSends,
       singleSmsSends,
       emailSends,
+      movesDetected,
       retries: retryStats,
     });
   } catch (err) {

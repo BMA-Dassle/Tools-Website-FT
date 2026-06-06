@@ -389,6 +389,107 @@ export function InvalidCard({ details }: { details?: CardDetails }) {
   );
 }
 
+/** New-heat detail rendered by MovedCard (mirror of RaceTicket.movedTo). */
+export interface MovedHeat {
+  ticketId: string;
+  /** New ticket is a group page (/g) vs a single ticket (/t). */
+  group?: boolean;
+  heatNumber: number;
+  track: string;
+  raceType: string;
+  scheduledStart: string;
+}
+
+/**
+ * Shown when this ticket's racer was moved to a different heat. Replaces the
+ * ambiguous InvalidCard with a clear "was X → now Y" and a button to the new
+ * ticket. The card's own `details` is the OLD heat; `movedTo` is the new one.
+ */
+export function MovedCard({ details, movedTo }: { details: CardDetails; movedTo: MovedHeat }) {
+  const newColor = TRACK_COLORS[movedTo.track.toLowerCase()] || "#00E2E5";
+  const newBadge = `${movedTo.track} ${movedTo.raceType} ${movedTo.heatNumber}`;
+  return (
+    <div
+      className="rounded-2xl overflow-hidden border-2"
+      style={{
+        borderColor: "#F59E0B",
+        background: "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.03))",
+      }}
+    >
+      <div
+        className="px-4 py-3"
+        style={{
+          backgroundColor: "rgba(245,158,11,0.2)",
+          borderBottom: "1px solid rgba(245,158,11,0.5)",
+        }}
+      >
+        <p
+          className="font-bold uppercase tracking-wider text-center"
+          style={{ fontSize: "clamp(14px, 2.5vw, 18px)", color: "#fbbf24" }}
+        >
+          Your Race Moved
+        </p>
+      </div>
+
+      <div className="p-5 sm:p-6 text-center">
+        <p
+          className="text-white font-display uppercase tracking-wider leading-none mb-5"
+          style={{ fontSize: "clamp(30px, 9vw, 52px)" }}
+        >
+          {fullNameOf(details)}
+        </p>
+
+        {/* WAS — old heat, dimmed */}
+        <p className="text-white/40 text-[11px] uppercase tracking-widest mb-1">Was</p>
+        <span
+          className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full opacity-60 mb-1"
+          style={{
+            color: trackColorFor(details),
+            backgroundColor: `${trackColorFor(details)}20`,
+            border: `1px solid ${trackColorFor(details)}40`,
+          }}
+        >
+          {badgeFor(details)}
+        </span>
+        <p className="text-white/45 text-sm line-through">{formatTime(details.scheduledStart)}</p>
+
+        <p className="text-[#F59E0B] text-2xl my-2" aria-hidden="true">
+          ↓
+        </p>
+
+        {/* NOW — new heat, highlighted */}
+        <p className="text-[#fbbf24] text-[11px] uppercase tracking-widest mb-1 font-bold">Now</p>
+        <span
+          className="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-2"
+          style={{
+            color: newColor,
+            backgroundColor: `${newColor}20`,
+            border: `1px solid ${newColor}50`,
+          }}
+        >
+          {newBadge}
+        </span>
+        <p
+          className="text-white font-display uppercase tracking-wider leading-none"
+          style={{ fontSize: "clamp(40px, 13vw, 64px)" }}
+        >
+          {formatTime(movedTo.scheduledStart)}
+        </p>
+        <p className="text-white/50 text-xs mt-2">{formatDate(movedTo.scheduledStart)}</p>
+
+        <a
+          href={`/${movedTo.group ? "g" : "t"}/${movedTo.ticketId}`}
+          className="mt-6 inline-block w-full rounded-xl px-4 py-3 font-bold uppercase tracking-wider text-sm active:scale-[0.99] transition-all"
+          style={{ backgroundColor: "#F59E0B", color: "#1a1a1a" }}
+        >
+          View Updated E-Ticket
+        </a>
+        <p className="text-white/30 text-xs mt-4">Need help? Call (239) 481-9666</p>
+      </div>
+    </div>
+  );
+}
+
 export function PastCard({ details }: { details: CardDetails }) {
   const trackColor = trackColorFor(details);
   return (
