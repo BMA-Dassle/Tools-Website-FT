@@ -15,6 +15,7 @@ import {
   SquarePaymentError,
 } from "@/lib/square-gift-card";
 import { createDayofOrder } from "@/lib/group-function-dayof";
+import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
@@ -101,8 +102,12 @@ export async function POST(req: NextRequest) {
   // 1. Create the day-of Square order (OPEN — staff redeems at event)
   const dayofOrderId = await createDayofOrder(quote, baseKey);
 
-  // 2. Create deposit order (single line, no tax — fraction of tax-inclusive total)
+  // 2. Create deposit order. Break out the service charge into its own line so the
+  //    portal's Service Charges page detects it. The full contract service charge is
+  //    collected on the deposit (capped at the deposit amount).
   const ganSuffix = quote.bmi_reservation_id.slice(-8);
+  const serviceChargeCents = serviceChargeCentsFromLineItems(quote.line_items);
+  const depositServiceCharge = Math.min(serviceChargeCents, quote.deposit_due_cents);
 
   try {
     const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
@@ -113,13 +118,11 @@ export async function POST(req: NextRequest) {
         order: {
           location_id: quote.square_location_id,
           reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
-          line_items: [
-            {
-              name: "Group Event Deposit",
-              quantity: "1",
-              base_price_money: { amount: quote.deposit_due_cents, currency: "USD" },
-            },
-          ],
+          line_items: buildPaymentLineItems(
+            "Group Event Deposit",
+            quote.deposit_due_cents,
+            depositServiceCharge,
+          ),
         },
       }),
     });
@@ -225,10 +228,9 @@ export async function POST(req: NextRequest) {
     let savedCardId: string | undefined;
     let savedCardLast4: string | undefined;
     let savedCardBrand: string | undefined;
-    let squareCustomerId: string | undefined;
 
     const custResult = await findOrCreateSquareCustomer(quote);
-    squareCustomerId = custResult ?? undefined;
+    const squareCustomerId = custResult ?? undefined;
 
     if (saveCard && multiTender.cardPaymentId && squareCustomerId) {
       const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
@@ -388,6 +390,10 @@ async function handleLegacyDeposit(
 
     if (chargeCents > 0) {
       // Create deposit order for the charge amount
+      const legacyServiceCharge = Math.min(
+        serviceChargeCentsFromLineItems(quote.line_items),
+        chargeCents,
+      );
       const depOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
         method: "POST",
         headers: sqHeaders(),
@@ -396,13 +402,11 @@ async function handleLegacyDeposit(
           order: {
             location_id: quote.square_location_id,
             reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
-            line_items: [
-              {
-                name: "Group Event Balance (Legacy Deposit Applied)",
-                quantity: "1",
-                base_price_money: { amount: chargeCents, currency: "USD" },
-              },
-            ],
+            line_items: buildPaymentLineItems(
+              "Group Event Balance (Legacy Deposit Applied)",
+              chargeCents,
+              legacyServiceCharge,
+            ),
           },
         }),
       });

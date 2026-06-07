@@ -9,6 +9,7 @@ import {
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { loadBalanceOntoGiftCards } from "@/lib/square-gift-card";
+import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
@@ -117,6 +118,14 @@ async function processBalanceCharge(
 
   const baseKey = randomBytes(8).toString("hex");
 
+  // Service charge is collected on the deposit first; only the remainder (usually $0)
+  // lands on the balance. Break it out so the portal's Service Charges page detects it.
+  const serviceChargeCents = serviceChargeCentsFromLineItems(quote.line_items);
+  const balanceServiceCharge = Math.max(
+    0,
+    serviceChargeCents - Math.min(serviceChargeCents, quote.deposit_due_cents),
+  );
+
   // Path A: auto-charge saved card
   if (quote.saved_card_id && quote.square_customer_id) {
     try {
@@ -129,16 +138,11 @@ async function processBalanceCharge(
           order: {
             location_id: quote.square_location_id,
             reference_id: `GF Balance: ${quote.event_number || ""}`.slice(0, 40),
-            line_items: [
-              {
-                name: "Group Event Balance",
-                quantity: "1",
-                base_price_money: {
-                  amount: quote.balance_cents,
-                  currency: "USD",
-                },
-              },
-            ],
+            line_items: buildPaymentLineItems(
+              "Group Event Balance",
+              quote.balance_cents,
+              balanceServiceCharge,
+            ),
           },
         }),
       });
