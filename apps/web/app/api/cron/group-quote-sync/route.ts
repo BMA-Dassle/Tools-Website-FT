@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { sql, isDbConfigured } from "@/lib/db";
 import {
+  ensureGfSchema,
   updateGfQuoteDetails,
   getGfQuoteByShortId,
   appendAuditLog,
@@ -42,6 +43,9 @@ export async function GET(req: NextRequest) {
   }
 
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
+  // Ensure the schema (incl. collected_cents) + one-time backfill have run before we read
+  // quotes — the post-signing recompute depends on collected_cents being populated.
+  await ensureGfSchema();
   const q = sql();
 
   const quotes = (await q`
@@ -556,9 +560,11 @@ async function syncQuote(
       updates.deposit_due_cents = depositDueCents;
       updates.balance_cents = totalCents - depositDueCents;
     } else {
-      // Post-signing: deposit_due_cents is the amount actually paid — don't
-      // overwrite it. Balance is whatever remains after the original deposit.
-      updates.balance_cents = Math.max(0, totalCents - quote.deposit_due_cents);
+      // Post-signing: balance is whatever remains after money ALREADY COLLECTED
+      // (deposit + any balance already charged), NOT just the deposit. Using
+      // deposit_due here double-charges a paid-in-full event on the re-sign delta.
+      // collected_cents is maintained at every collection point; see group-function-db.
+      updates.balance_cents = Math.max(0, totalCents - quote.collected_cents);
     }
   }
 

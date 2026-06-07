@@ -8,7 +8,7 @@ import {
   parseGiftCardIds,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
-import { loadGiftCard } from "@/lib/square-gift-card";
+import { loadBalanceOntoGiftCards } from "@/lib/square-gift-card";
 import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
@@ -170,57 +170,14 @@ async function processBalanceCharge(
       }
       const balancePaymentId = payData.payment?.id as string;
 
-      // LOAD gift cards with balance amount ($2k max per card)
-      const gcIds = parseGiftCardIds(quote.square_gift_card_id);
-      const GC_MAX_CENTS = 200_000;
-      let loadRemaining = quote.balance_cents;
-      for (let i = 0; i < gcIds.length && loadRemaining > 0; i++) {
-        const loadAmount = Math.min(loadRemaining, GC_MAX_CENTS);
-        await loadGiftCard({
-          giftCardId: gcIds[i],
-          locationId: quote.square_location_id,
-          amountCents: loadAmount,
-          baseKey: `${baseKey}-${i}`,
-          buyerPaymentInstrumentIds: [balancePaymentId],
-        });
-        loadRemaining -= loadAmount;
-      }
-      // If balance exceeds existing cards' capacity, create new cards
-      let newGcIndex = gcIds.length;
-      while (loadRemaining > 0) {
-        const chunkCents = Math.min(loadRemaining, GC_MAX_CENTS);
-        const gcRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
-          method: "POST",
-          headers: sqHeaders(),
-          body: JSON.stringify({
-            idempotency_key: `gf-bal-gc-${baseKey}-${newGcIndex}`,
-            location_id: quote.square_location_id,
-            gift_card: { type: "DIGITAL" },
-          }),
-        });
-        const gcData = await gcRes.json();
-        if (gcRes.ok && gcData.gift_card?.id) {
-          await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
-            method: "POST",
-            headers: sqHeaders(),
-            body: JSON.stringify({
-              idempotency_key: `gf-bal-gc-act-${baseKey}-${newGcIndex}`,
-              gift_card_activity: {
-                type: "ACTIVATE",
-                location_id: quote.square_location_id,
-                gift_card_id: gcData.gift_card.id,
-                activate_activity_details: {
-                  amount_money: { amount: chunkCents, currency: "USD" },
-                  buyer_payment_instrument_ids: [balancePaymentId],
-                },
-              },
-            }),
-          });
-          gcIds.push(gcData.gift_card.id);
-        }
-        loadRemaining -= chunkCents;
-        newGcIndex++;
-      }
+      // LOAD gift cards with balance amount ($2k max per card; overflow → new cards)
+      await loadBalanceOntoGiftCards({
+        giftCardIds: parseGiftCardIds(quote.square_gift_card_id),
+        locationId: quote.square_location_id,
+        amountCents: quote.balance_cents,
+        baseKey,
+        buyerPaymentInstrumentIds: [balancePaymentId],
+      });
 
       await updateGfBalanceCharged(quote.id, {
         square_balance_order_id: balanceOrderId,
@@ -321,6 +278,9 @@ async function processBalanceCharge(
       throw new Error(`Payment link failed: ${JSON.stringify(linkData).slice(0, 200)}`);
     }
     const paymentLinkUrl = linkData.payment_link.url as string;
+    // Capture the link id + its backing order id so the reconcile poller can detect payment.
+    const paymentLinkId = linkData.payment_link.id as string | undefined;
+    const paymentLinkOrderId = linkData.payment_link.order_id as string | undefined;
 
     await updateGfBalanceLinkSent(quote.id, {
       balance_payment_link_url: paymentLinkUrl,
@@ -329,6 +289,8 @@ async function processBalanceCharge(
       balance_last_error: quote.saved_card_id
         ? "Auto-charge failed, sent payment link"
         : "No saved card, sent payment link",
+      square_balance_link_id: paymentLinkId,
+      square_balance_order_id: paymentLinkOrderId,
     });
 
     console.log(

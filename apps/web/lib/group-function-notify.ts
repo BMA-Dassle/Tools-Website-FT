@@ -521,6 +521,104 @@ export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<v
   memoLog(quote, `Balance charged — ${dollars(quote.balance_cents)} via saved card`);
 }
 
+// ── Re-price: delta charged after re-sign ───────────────────────────
+
+/**
+ * A paid-in-full event was re-priced UP and, after the guest re-signed, we
+ * charged the difference to the card on file (and loaded the gift cards).
+ * Receipt to guest + planner.
+ */
+export async function notifyRepriceCharged(
+  quote: GroupFunctionQuote,
+  deltaCents: number,
+  cardLast4?: string,
+): Promise<void> {
+  const cardLine = cardLast4 ? ` to your card ending in ${cardLast4}` : " to your card on file";
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event total for ${quote.event_name || "your event"} was updated to ${dollars(quote.total_cents)}.`,
+            `We charged the ${dollars(deltaCents)} difference${cardLine}.`,
+            `You're all set for ${quote.event_date_display || "your event"}!`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Balance Adjustment — ${quote.event_name || quote.center_name}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#0a1628">
+        <h2 style="color:#0a1628">Your event total was updated</h2>
+        <p>Hi ${quote.guest_first_name},</p>
+        <p>Your event <strong>${quote.event_name || quote.center_name}</strong> on
+        ${quote.event_date_display || ""} was updated to a new total of
+        <strong>${dollars(quote.total_cents)}</strong>.</p>
+        <p>We charged the difference of <strong>${dollars(deltaCents)}</strong>${cardLine}.
+        Your event is fully paid and confirmed.</p>
+        <p>Questions? Just reply to this email to reach ${plannerName(quote)}.</p>
+        <p>Thank you!<br/>${quote.center_name}</p>
+      </div>`,
+      text: `Hi ${quote.guest_first_name},\n\nYour event total for ${quote.event_name} was updated to ${dollars(quote.total_cents)}. We charged the ${dollars(deltaCents)} difference${cardLine}. Your event is fully paid and confirmed.\n\nThank you!\n${quote.center_name}`,
+    }),
+
+    updateContractTeamsCard(quote, "balance_charged"),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] repriceCharged notification failed:", r.reason);
+    }
+  }
+
+  memoLog(
+    quote,
+    `Re-price charged — ${dollars(deltaCents)} difference collected (new total ${dollars(quote.total_cents)})`,
+  );
+}
+
+/**
+ * A paid-in-full event was re-priced DOWN below what was collected. We do NOT
+ * auto-refund — alert staff to issue the refund in Square.
+ */
+export async function notifyRepriceRefundOwed(
+  quote: GroupFunctionQuote,
+  overageCents: number,
+): Promise<void> {
+  const staffTo = quote.planner_email || GF_BCC[0];
+  await sendEmail({
+    to: staffTo,
+    toName: plannerName(quote),
+    cc: plannerCc(quote),
+    bcc: GF_BCC,
+    subject: `ACTION: Refund owed — ${quote.event_name || quote.center_name}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#0a1628">
+      <h2 style="color:#b91c1c">Refund owed — manual action required</h2>
+      <p>Event <strong>${quote.event_name || quote.center_name}</strong>
+      (${quote.event_number || quote.bmi_reservation_id}) on ${quote.event_date_display || ""}
+      was re-priced down.</p>
+      <p>New total: <strong>${dollars(quote.total_cents)}</strong><br/>
+      Collected: <strong>${dollars(quote.collected_cents)}</strong><br/>
+      <strong style="color:#b91c1c">Overage to refund: ${dollars(overageCents)}</strong></p>
+      <p>Original balance payment: ${quote.square_balance_payment_id || "n/a"}<br/>
+      Deposit payment: ${quote.square_deposit_payment_id || "n/a"}</p>
+      <p>Issue the refund in the Square dashboard. No automatic refund was made.</p>
+    </div>`,
+    text: `Refund owed — ${quote.event_name} (${quote.event_number || quote.bmi_reservation_id}). New total ${dollars(quote.total_cents)}, collected ${dollars(quote.collected_cents)}, overage to refund ${dollars(overageCents)}. Balance payment ${quote.square_balance_payment_id || "n/a"}, deposit payment ${quote.square_deposit_payment_id || "n/a"}. Issue refund in Square; no auto-refund made.`,
+  }).catch((err) => console.error("[gf-notify] repriceRefundOwed email failed:", err));
+
+  memoLog(
+    quote,
+    `Re-price DOWN — refund owed ${dollars(overageCents)} (new total ${dollars(quote.total_cents)}, collected ${dollars(quote.collected_cents)}). Manual Square refund required.`,
+  );
+}
+
 // ── Balance Link Sent ───────────────────────────────────────────────
 
 export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<void> {

@@ -11,6 +11,7 @@ import {
   authorizeMultiTender,
   mintDigitalGiftCard,
   loadGiftCard,
+  findOrCreateSquareCustomer,
   SquarePaymentError,
 } from "@/lib/square-gift-card";
 import { createDayofOrder } from "@/lib/group-function-dayof";
@@ -615,50 +616,6 @@ async function handleLegacyDeposit(
   }
 }
 
-async function findOrCreateSquareCustomer(quote: {
-  guest_email: string;
-  guest_first_name: string;
-  guest_last_name: string;
-  guest_phone: string | null;
-  square_location_id: string;
-}): Promise<string | null> {
-  // Search by email
-  const searchRes = await fetch(`${SQUARE_BASE}/customers/search`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      query: {
-        filter: {
-          email_address: { exact: quote.guest_email },
-        },
-      },
-      limit: 1,
-    }),
-  });
-  const searchData = await searchRes.json();
-  if (searchRes.ok && searchData.customers?.[0]?.id) {
-    return searchData.customers[0].id;
-  }
-
-  // Create new customer
-  const createRes = await fetch(`${SQUARE_BASE}/customers`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: `gf-cust-${quote.guest_email}-${Date.now()}`,
-      given_name: quote.guest_first_name,
-      family_name: quote.guest_last_name,
-      email_address: quote.guest_email,
-      phone_number: quote.guest_phone || undefined,
-    }),
-  });
-  const createData = await createRes.json();
-  if (createRes.ok && createData.customer?.id) {
-    return createData.customer.id;
-  }
-
-  return null;
-}
-
+// findOrCreateSquareCustomer moved to @/lib/square-gift-card (shared with the reprice flow).
 // createDayofOrder moved to @/lib/group-function-dayof (shared with the group-quote-sync
 // self-heal backfill so a deposit-time failure is retried instead of orphaning the event).

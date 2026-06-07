@@ -55,6 +55,7 @@ interface QuoteProps {
   priorDepositCents: number;
   savedCardLast4: string | null;
   savedCardBrand: string | null;
+  hasCardOnFile: boolean;
   versions: Array<{
     versionNumber: number;
     snapshot: {
@@ -152,8 +153,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const legacyChargeCents =
     hasLegacyDeposit && isFullPayment ? Math.max(0, quote.totalCents - quote.priorDepositCents) : 0;
   const cardOnFileOnly = hasLegacyDeposit && legacyChargeCents === 0;
+  // On re-sign of a paid-in-full event that's now priced UP, we charge the difference
+  // (quote.balanceCents) to the card on file. If there's no card on file, the re-sign keeps the
+  // pay step so the guest adds one; otherwise the delta is charged server-side on completion.
+  const resignNeedsCard = isResign && quote.balanceCents > 0 && !quote.hasCardOnFile;
   const STEPS = isResign
-    ? buildSteps(true, false).filter((s) => s.key !== "pay")
+    ? buildSteps(true, false).filter((s) => s.key !== "pay" || resignNeedsCard)
     : buildSteps(isFullPayment, isPostPaid);
 
   const [step, setStep] = useState<Step>(() => {
@@ -379,6 +384,34 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const hasSig = sigType === "type" ? typedSig.trim().length > 2 : true;
 
+  // Finalize a re-sign: settle any price delta (charges the card on file or a captured card,
+  // flags staff on a decrease) and regenerate the signed PDF. Throws on a charge failure.
+  const settleResign = useCallback(
+    async (cardSourceId?: string) => {
+      const res = await fetch("/api/group-function/resign-settle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shortId: quote.contractShortId,
+          cardSourceId,
+          saveCard: Boolean(cardSourceId),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Could not finalize your update.");
+      }
+      // Regenerate signed PDF with the updated data (non-blocking).
+      fetch("/api/group-function/generate-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shortId: quote.contractShortId }),
+      }).catch(() => {});
+      return data;
+    },
+    [quote.contractShortId],
+  );
+
   const handleSign = useCallback(async () => {
     if (!allAgreed || !hasSig) return;
     setProcessing(true);
@@ -410,21 +443,26 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         return;
       }
       setSignedAt(data.signedAt);
-      // If already paid (resign flow), skip payment and go to event page
+      // Resign flow (already paid): record the re-sign, then settle any price difference.
       if (alreadyPaid) {
         fetch("/api/group-function/audit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ shortId: quote.contractShortId, event: "re-signed" }),
         }).catch(() => {});
-        // Regenerate signed PDF with updated data
-        fetch("/api/group-function/generate-pdf", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ shortId: quote.contractShortId }),
-        }).catch(() => {});
-        setUpdateBanner(null);
-        setStep("event");
+        if (resignNeedsCard) {
+          // Need a card to charge the difference — collect it on the pay step.
+          setStep("pay");
+        } else {
+          // Card on file (or no money owed): settle the delta server-side, then confirm.
+          try {
+            await settleResign();
+            setUpdateBanner(null);
+            setStep("event");
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Could not finalize your update.");
+          }
+        }
       } else if (isPostPaid) {
         setStep("event");
       } else {
@@ -448,6 +486,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     policyAcknowledged,
     taxExempt,
     taxFileUrl,
+    isPostPaid,
+    alreadyPaid,
+    resignNeedsCard,
+    settleResign,
   ]);
 
   const handlePay = useCallback(async () => {
@@ -462,6 +504,19 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       if (result.status !== "OK" || !result.token) {
         setError(result.errors?.[0]?.message || "Card validation failed.");
         setProcessing(false);
+        return;
+      }
+      // Resign card-capture: charge the price difference to the new card + save it on file.
+      if (isResign) {
+        try {
+          await settleResign(result.token);
+          setUpdateBanner(null);
+          setStep("event");
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not collect the balance difference.");
+        } finally {
+          setProcessing(false);
+        }
         return;
       }
       const res = await fetch("/api/group-function/deposit", {
@@ -492,7 +547,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     } finally {
       setProcessing(false);
     }
-  }, [quote.contractShortId, saveCard, hasLegacyDeposit]);
+  }, [quote.contractShortId, saveCard, hasLegacyDeposit, isResign, settleResign]);
 
   const fmtDollars = (cents: number) =>
     `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -1553,7 +1608,11 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </svg>
               <p className="font-semibold text-emerald-300">
                 Contract signed{signedAt ? ` at ${new Date(signedAt).toLocaleTimeString()}` : ""}!
-                {cardOnFileOnly ? " Save your card to confirm." : " Now secure your date."}
+                {isResign
+                  ? " Add a card to confirm your changes."
+                  : cardOnFileOnly
+                    ? " Save your card to confirm."
+                    : " Now secure your date."}
               </p>
             </div>
 
@@ -1569,10 +1628,24 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
             <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
               <h2 className="mb-1 text-xl font-bold">
-                {cardOnFileOnly ? "Save Card on File" : "Secure Your Event"}
+                {isResign
+                  ? "Confirm Your Changes"
+                  : cardOnFileOnly
+                    ? "Save Card on File"
+                    : "Secure Your Event"}
               </h2>
               <p className="mb-6 text-sm text-gray-400">
-                {cardOnFileOnly ? (
+                {isResign ? (
+                  <>
+                    Your event total is now{" "}
+                    <span className="font-semibold text-white">{fmtDollars(quote.totalCents)}</span>
+                    . Add a card to pay the{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(quote.balanceCents)}
+                    </span>{" "}
+                    difference and confirm.
+                  </>
+                ) : cardOnFileOnly ? (
                   <>
                     No additional payment required today. Your card will be saved for the remaining
                     balance of{" "}
@@ -1619,7 +1692,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   />
                 </svg>
                 <p className="text-sm text-gray-300">
-                  {cardOnFileOnly ? (
+                  {isResign ? (
+                    <>
+                      Your card will be charged{" "}
+                      <strong className="text-white">{fmtDollars(quote.balanceCents)}</strong> now
+                      and saved on file for any future changes.
+                    </>
+                  ) : cardOnFileOnly ? (
                     "Your card will be saved on file for the remaining balance, charged automatically 72 hours before your event."
                   ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
                     <>
@@ -1652,11 +1731,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               >
                 {processing
                   ? "Processing..."
-                  : cardOnFileOnly
-                    ? "Save Card & Confirm"
-                    : hasLegacyDeposit && legacyChargeCents > 0
-                      ? `Pay ${fmtDollars(legacyChargeCents)}`
-                      : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
+                  : isResign
+                    ? `Pay ${fmtDollars(quote.balanceCents)} & Confirm`
+                    : cardOnFileOnly
+                      ? "Save Card & Confirm"
+                      : hasLegacyDeposit && legacyChargeCents > 0
+                        ? `Pay ${fmtDollars(legacyChargeCents)}`
+                        : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
               </button>
             </div>
           </>

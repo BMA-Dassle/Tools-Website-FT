@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGfQuoteByShortId, appendAuditLog } from "@/lib/group-function-db";
-import { sql } from "@/lib/db";
 
 /**
  * Append an audit log entry from the client.
  *
  * POST /api/group-function/audit
  * Body: { shortId, event, metadata? }
+ *
+ * NOTE: re-sign completion no longer flips status here — the contract page calls
+ * /api/group-function/resign-settle, which restores status (deposit_paid or
+ * balance_charged) and settles any re-price delta. See that route.
  */
 
 export async function POST(req: NextRequest) {
@@ -34,12 +37,6 @@ export async function POST(req: NextRequest) {
     actorUa: ua,
     metadata,
   });
-
-  // If re-signed, restore status to deposit_paid
-  if (event === "re-signed" && quote.status === "resign_required") {
-    const q = sql();
-    await q`UPDATE group_function_quotes SET status = 'deposit_paid', updated_at = NOW() WHERE id = ${quote.id}`;
-  }
 
   return NextResponse.json({ ok: true });
 }

@@ -142,6 +142,27 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS tax_file_url TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS waiver_reminder_sent_at TIMESTAMPTZ`;
 
+  // Money actually collected to date (cents). Universal rule: amount_due = total_cents - collected_cents.
+  // Set at every real collection point (deposit, balance charge, prepaid, link reconcile, reprice).
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS collected_cents INTEGER NOT NULL DEFAULT 0`;
+  // Square order id behind a balance payment LINK, captured at link creation so the
+  // reconcile poller can detect when the customer pays it.
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS square_balance_link_id TEXT`;
+
+  // One-time backfill of collected_cents for rows that predate the column.
+  // Idempotent: guarded by collected_cents = 0, so it touches 0 rows after the first run.
+  // Keyed on the actual money facts (not status): if the balance was paid, the whole total was
+  // collected; otherwise a paid deposit collected (total - remaining balance).
+  await q`
+    UPDATE group_function_quotes SET collected_cents = total_cents
+    WHERE balance_paid_at IS NOT NULL AND collected_cents = 0 AND total_cents > 0
+  `;
+  await q`
+    UPDATE group_function_quotes SET collected_cents = GREATEST(0, total_cents - balance_cents)
+    WHERE balance_paid_at IS NULL AND deposit_paid_at IS NOT NULL
+      AND collected_cents = 0 AND total_cents > 0
+  `;
+
   // Immutable audit trail
   await q`
     CREATE TABLE IF NOT EXISTS contract_audit_log (
@@ -240,6 +261,7 @@ export interface GroupFunctionQuote {
   tax_cents: number;
   deposit_due_cents: number;
   balance_cents: number;
+  collected_cents: number;
   line_items: unknown[];
   prior_payments: unknown[];
   pandadoc_template: string | null;
@@ -258,6 +280,7 @@ export interface GroupFunctionQuote {
   deposit_paid_at: string | null;
   square_balance_order_id: string | null;
   square_balance_payment_id: string | null;
+  square_balance_link_id: string | null;
   balance_paid_at: string | null;
   balance_payment_method: string | null;
   balance_payment_link_url: string | null;
@@ -452,10 +475,13 @@ export async function getQuotesNeedingBalanceCharge(): Promise<GroupFunctionQuot
 export async function getQuotesWithPendingBalanceLinks(): Promise<GroupFunctionQuote[]> {
   await ensureGfSchema();
   const q = sql();
+  // Grace window past the event: a customer may pay the link the day of (or shortly after) the
+  // event. We still need to reconcile + load the day-of gift cards. Bounded so long-abandoned
+  // links eventually drop out of the poll.
   const rows = await q`
     SELECT * FROM group_function_quotes
     WHERE status = 'balance_link_sent'
-      AND event_date > NOW()
+      AND event_date > NOW() - INTERVAL '14 days'
     ORDER BY event_date ASC
   `;
   return rows as GroupFunctionQuote[];
@@ -545,6 +571,7 @@ export async function updateGfDepositPaid(
       square_dayof_order_id = ${fields.square_dayof_order_id ?? null},
       deposit_paid_at = ${fields.deposit_paid_at},
       balance_cents = ${fields.balance_cents},
+      collected_cents = GREATEST(0, total_cents - ${fields.balance_cents}),
       status = 'deposit_paid',
       updated_at = NOW()
     WHERE id = ${id}
@@ -569,6 +596,7 @@ export async function updateGfBalanceCharged(
       balance_paid_at = ${fields.balance_paid_at},
       balance_payment_method = ${fields.balance_payment_method},
       balance_cents = 0,
+      collected_cents = total_cents,
       status = 'balance_charged',
       updated_at = NOW()
     WHERE id = ${id}
@@ -588,6 +616,7 @@ export async function updateGfBalancePrepaid(id: number): Promise<void> {
   await q`
     UPDATE group_function_quotes SET
       balance_cents = 0,
+      collected_cents = total_cents,
       balance_paid_at = COALESCE(balance_paid_at, NOW()),
       balance_payment_method = 'prepaid',
       status = 'balance_charged',
@@ -603,6 +632,9 @@ export async function updateGfBalanceLinkSent(
     balance_link_sent_at: string;
     balance_charge_attempts: number;
     balance_last_error?: string;
+    /** Square payment-link id + its backing order id, captured so the reconcile poller can detect payment. */
+    square_balance_link_id?: string;
+    square_balance_order_id?: string;
   },
 ): Promise<void> {
   await ensureGfSchema();
@@ -613,10 +645,68 @@ export async function updateGfBalanceLinkSent(
       balance_link_sent_at = ${fields.balance_link_sent_at},
       balance_charge_attempts = ${fields.balance_charge_attempts},
       balance_last_error = ${fields.balance_last_error ?? null},
+      square_balance_link_id = COALESCE(${fields.square_balance_link_id ?? null}, square_balance_link_id),
+      square_balance_order_id = COALESCE(${fields.square_balance_order_id ?? null}, square_balance_order_id),
       status = 'balance_link_sent',
       updated_at = NOW()
     WHERE id = ${id}
   `;
+}
+
+/**
+ * Settle a re-price delta on a paid-in-full event after the guest re-signs.
+ * Advances resign_required → balance_charged, bumps collected_cents by the
+ * charged delta, and (new-card path) records the saved card. Guarded on
+ * resign_required so a duplicate settle call is a no-op.
+ */
+export async function updateGfRepriceCharged(
+  id: number,
+  fields: {
+    collected_cents: number;
+    saved_card_id?: string;
+    saved_card_last4?: string;
+    saved_card_brand?: string;
+    square_customer_id?: string;
+  },
+): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      collected_cents = ${fields.collected_cents},
+      balance_cents = 0,
+      balance_paid_at = COALESCE(balance_paid_at, NOW()),
+      saved_card_id = COALESCE(${fields.saved_card_id ?? null}, saved_card_id),
+      saved_card_last4 = COALESCE(${fields.saved_card_last4 ?? null}, saved_card_last4),
+      saved_card_brand = COALESCE(${fields.saved_card_brand ?? null}, saved_card_brand),
+      square_customer_id = COALESCE(${fields.square_customer_id ?? null}, square_customer_id),
+      status = 'balance_charged',
+      updated_at = NOW()
+    WHERE id = ${id} AND status = 'resign_required'
+    RETURNING id
+  `;
+  return rows.length; // 1 = applied, 0 = already settled / not in resign_required
+}
+
+/**
+ * Finalize a re-sign that needs no charge (deposit-only resign → deposit_paid,
+ * or a paid-in-full event whose total didn't increase → balance_charged).
+ * Guarded on resign_required for idempotency.
+ */
+export async function updateGfResignNoCharge(
+  id: number,
+  targetStatus: "deposit_paid" | "balance_charged",
+): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      status = ${targetStatus},
+      updated_at = NOW()
+    WHERE id = ${id} AND status = 'resign_required'
+    RETURNING id
+  `;
+  return rows.length;
 }
 
 export async function updateGfStatus(id: number, status: GfQuoteStatus): Promise<void> {
