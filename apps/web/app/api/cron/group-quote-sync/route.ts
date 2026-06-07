@@ -213,6 +213,23 @@ const normDate = (d: string | null | undefined) => {
   }
 };
 
+// True once the event's start time has passed. Parses BMI's tz-less ET strings
+// the same way normDate does. Used to stop pre-event contract maintenance
+// (re-sign / "contract updated" emails) for events that have already happened.
+const isEventOver = (d: string | null | undefined): boolean => {
+  if (!d) return false;
+  try {
+    const raw = String(d);
+    const hasTimezone =
+      raw.includes("Z") || raw.includes("+") || /\d-\d{2}:\d{2}$/.test(raw) || raw.includes("GMT");
+    const dt = new Date(hasTimezone ? raw : `${raw}-04:00`);
+    if (isNaN(dt.getTime())) return false;
+    return dt.getTime() < Date.now();
+  } catch {
+    return false;
+  }
+};
+
 type PlannerInfo = { first: string; last: string; email: string; phone: string };
 
 async function syncQuote(
@@ -362,6 +379,23 @@ async function syncQuote(
       eventName: quote.event_name || "",
       status: quote.status,
       action: "skipped_quote_state",
+    };
+  }
+
+  // Event is over — stop pre-event contract maintenance. A signed/paid contract
+  // for a past event must NEVER be flipped to resign_required or re-emailed.
+  // A non-converging Hermes product diff was doing exactly that every 5 min,
+  // spamming the guest with "Contract Updated" long after the event ended.
+  // (Cancellation handling above still applies; nothing below this point —
+  // re-sign, "contract updated" email, version churn — is useful once the event
+  // has happened.) Uses the live BMI date so a reschedule into the future resumes sync.
+  const effectiveDate = (project.date as string | undefined) || quote.event_date;
+  if (isEventOver(effectiveDate)) {
+    return {
+      id: quote.id,
+      eventName: quote.event_name || "",
+      status: quote.status,
+      action: "skipped_past_event",
     };
   }
 

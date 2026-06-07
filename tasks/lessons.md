@@ -1,5 +1,42 @@
 # Lessons Learned
 
+## `group-quote-sync` re-emailed "Contract Updated" every 5 min for a past, signed event (2026-06-07)
+
+Annalisa Birthday Party (HeadPinz Naples, Jun 6 4:15 PM) blasted the guest a "Contract Updated —
+please re-sign" email every 5 minutes — continuing well past midnight, after the event was already
+over. Three things compounded:
+
+1. **Past events stay in scope.** The sync query selects `event_date > NOW() - INTERVAL '7 days'`
+   AND status includes `resign_required` — so a finished event keeps getting picked up for a week.
+2. **A signed/paid event gets force-re-signed.** `isSigned = quote.status !== "contract_sent"` is
+   true for `deposit_paid`/`balance_charged`/`resign_required`. When any change is detected, the
+   cron archives the PDF, flips status → `resign_required`, and fires `notifyContractUpdated`.
+3. **The diff never converges.** The Hermes product comparison reported a "products changed" delta
+   on *every* run, so step 2 repeated indefinitely. (Suspect: stored `line_items` carry the
+   service-charge-corrected total while Hermes returns the raw amount, or a float `total` / ordering
+   mismatch — each run re-detects the same "change.")
+
+Result: an infinite re-sign/email loop at the `*/5` cron cadence, matching the inbox exactly.
+
+**Fix (emergency):** added an `isEventOver()` guard in `syncQuote` — once the event's start time has
+passed, return early (`skipped_past_event`) before any change detection, re-sign, or email. A
+finished event must NEVER be flipped to `resign_required` or re-emailed. Cancellation handling is
+left intact (it runs before the guard). Uses the live BMI `project.date` so a reschedule into the
+future resumes sync.
+
+**Guardrails:**
+- Any cron that emails/charges/re-signs a customer must gate on "is this event still in the future?"
+  A past-dated row is almost never a valid target for a customer-facing, pre-event action.
+- A change-detection loop that *acts* on every detected change MUST converge: after writing the
+  "corrected" value, the next read has to compare equal. If the source (Hermes) and the persisted
+  store can never match (because we mutate before persisting), you have an infinite trigger. Verify
+  convergence, not just "did it detect a change."
+- `status !== "contract_sent"` is a fragile proxy for "signed." `resign_required` is unsigned but
+  trips it — re-arming the very loop that set the status. Prefer an explicit signed marker
+  (`contract_signed_at`) when gating destructive/customer-facing transitions.
+- TODO follow-up: fix the non-converging product diff so an *upcoming* event can't loop the same way
+  before its date. The past-event guard only covers events that have already happened.
+
 ## Two crons sharing one trigger raced — `dayof-close` stranded `dayof-pay` (2026-06-05)
 
 Quote #3286 (LSI Companies, $2,649.09) showed Deposit ✓ / Balance ✓ in admin but its Square
