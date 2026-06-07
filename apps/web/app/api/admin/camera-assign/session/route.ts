@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listAssignmentsForSession } from "@/lib/camera-assign";
 import { getSessionBlockSnapshot } from "@/lib/video-block";
+import { businessDayETRange, businessDayWeekdayET } from "@/lib/race-business-day";
 
 /**
  * GET /api/admin/camera-assign/session
@@ -107,23 +108,21 @@ function rangeETForDays(
   return { startDate: start.toISOString(), endDate: end.toISOString() };
 }
 
-/** Today's ET-local-string range — matches the cron's `todayETRange`
- *  in app/api/cron/pre-race-tickets/route.ts. Critical that camera-
- *  assign uses the EXACT same format as the cron, otherwise the
- *  sessions cache key differs and we never hit the cron-warmed cache.
- *  Symptom of mismatch: 404 "sessionId not found" because cacheOnly
- *  reads return empty. */
+/** Today's ET-local-string range, on the racing business day (2 AM ET
+ *  rollover) so a race night that runs past midnight still resolves its
+ *  own heats. See lib/race-business-day.ts.
+ *
+ *  Shape matches the cron's `todayETRange` in
+ *  app/api/cron/pre-race-tickets/route.ts (`${ymd}T00:00:00` ..
+ *  `T23:59:59`). During normal hours business-day == calendar-day, so
+ *  the /api/pandora/sessions cache key still lines up with the cron-
+ *  warmed entries. Between midnight and 2 AM the cron warms the NEXT
+ *  calendar day (its forward window is correct for ITS job), but the
+ *  camera-assign page's own loadDay/loadHeats polls fetch the prior-day
+ *  window live every 30s and write it through to the 30-min Redis cache —
+ *  so cacheOnly reads here stay warm while the page is open. */
 function todayETRange(): { startDate: string; endDate: string } {
-  const ymd = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  return {
-    startDate: `${ymd}T00:00:00`,
-    endDate: `${ymd}T23:59:59`,
-  };
+  return businessDayETRange();
 }
 
 /** Three sessions-fetch modes:
@@ -244,10 +243,9 @@ export async function GET(req: NextRequest) {
     // normally, 12s+ during Pandora outages, so trimming wasted ones
     // cuts load and makes the page snappier.
     const requestedResource = trackSlugToResource(trackParam);
-    const weekdayET = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      weekday: "short",
-    }).format(new Date());
+    // Business-day weekday (2 AM ET rollover) so a Tuesday Mega night
+    // still resolves Mega heats up to 2 AM Wednesday.
+    const weekdayET = businessDayWeekdayET();
     const isMegaDay = weekdayET === "Tue";
     const resources: readonly string[] = requestedResource
       ? [requestedResource]

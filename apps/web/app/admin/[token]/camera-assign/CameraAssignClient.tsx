@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { businessDayWeekdayET } from "@/lib/race-business-day";
 
 /**
  * Camera-assignment UI.
@@ -239,10 +240,10 @@ const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string
  *  never sees a track that isn't running, and prevents the page
  *  from accidentally querying it. */
 function visibleTrackSlugsET(): Array<Exclude<TrackSlug, "">> {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-  }).format(new Date());
+  // Business-day weekday (2 AM ET rollover) so a Tuesday Mega night keeps
+  // the Mega chip selectable until 2 AM Wednesday while staff finish
+  // scanning. See lib/race-business-day.ts.
+  const weekday = businessDayWeekdayET();
   return weekday === "Tue" ? ["mega"] : ["blue", "red"];
 }
 

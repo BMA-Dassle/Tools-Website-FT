@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSmsLog } from "@/lib/sms-log";
+import { businessDayYmdET } from "@/lib/race-business-day";
 
 /**
  * GET /api/admin/camera-assign/heats
@@ -56,13 +57,11 @@ function trackSlugToResource(slug: string | null): (typeof TRACK_RESOURCES)[numb
   return null;
 }
 
+// Racing business day (2 AM ET rollover) — drives which day's SMS log we
+// read for the "called" pills, so a post-midnight race night still shows
+// the heats called earlier that night. See lib/race-business-day.ts.
 function todayETYmd(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  return businessDayYmdET();
 }
 
 export async function GET(req: NextRequest) {
