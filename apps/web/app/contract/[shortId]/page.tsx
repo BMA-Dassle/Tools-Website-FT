@@ -102,6 +102,7 @@ export default async function ContractPage(props: {
           !quote.deposit_paid_at && quote.status === "contract_sent" ? priorDepositCents : 0,
         savedCardLast4: quote.saved_card_last4,
         savedCardBrand: quote.saved_card_brand,
+        hasCardOnFile: Boolean(quote.saved_card_id),
         versions: versions.map((v) => ({
           versionNumber: v.version_number,
           snapshot: {

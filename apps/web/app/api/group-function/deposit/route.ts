@@ -11,9 +11,11 @@ import {
   authorizeMultiTender,
   mintDigitalGiftCard,
   loadGiftCard,
+  findOrCreateSquareCustomer,
   SquarePaymentError,
 } from "@/lib/square-gift-card";
 import { createDayofOrder } from "@/lib/group-function-dayof";
+import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 /**
@@ -100,8 +102,12 @@ export async function POST(req: NextRequest) {
   // 1. Create the day-of Square order (OPEN — staff redeems at event)
   const dayofOrderId = await createDayofOrder(quote, baseKey);
 
-  // 2. Create deposit order (single line, no tax — fraction of tax-inclusive total)
+  // 2. Create deposit order. Break out the service charge into its own line so the
+  //    portal's Service Charges page detects it. The full contract service charge is
+  //    collected on the deposit (capped at the deposit amount).
   const ganSuffix = quote.bmi_reservation_id.slice(-8);
+  const serviceChargeCents = serviceChargeCentsFromLineItems(quote.line_items);
+  const depositServiceCharge = Math.min(serviceChargeCents, quote.deposit_due_cents);
 
   try {
     const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
@@ -112,13 +118,11 @@ export async function POST(req: NextRequest) {
         order: {
           location_id: quote.square_location_id,
           reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
-          line_items: [
-            {
-              name: "Group Event Deposit",
-              quantity: "1",
-              base_price_money: { amount: quote.deposit_due_cents, currency: "USD" },
-            },
-          ],
+          line_items: buildPaymentLineItems(
+            "Group Event Deposit",
+            quote.deposit_due_cents,
+            depositServiceCharge,
+          ),
         },
       }),
     });
@@ -224,10 +228,9 @@ export async function POST(req: NextRequest) {
     let savedCardId: string | undefined;
     let savedCardLast4: string | undefined;
     let savedCardBrand: string | undefined;
-    let squareCustomerId: string | undefined;
 
     const custResult = await findOrCreateSquareCustomer(quote);
-    squareCustomerId = custResult ?? undefined;
+    const squareCustomerId = custResult ?? undefined;
 
     if (saveCard && multiTender.cardPaymentId && squareCustomerId) {
       const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
@@ -387,6 +390,10 @@ async function handleLegacyDeposit(
 
     if (chargeCents > 0) {
       // Create deposit order for the charge amount
+      const legacyServiceCharge = Math.min(
+        serviceChargeCentsFromLineItems(quote.line_items),
+        chargeCents,
+      );
       const depOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
         method: "POST",
         headers: sqHeaders(),
@@ -395,13 +402,11 @@ async function handleLegacyDeposit(
           order: {
             location_id: quote.square_location_id,
             reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
-            line_items: [
-              {
-                name: "Group Event Balance (Legacy Deposit Applied)",
-                quantity: "1",
-                base_price_money: { amount: chargeCents, currency: "USD" },
-              },
-            ],
+            line_items: buildPaymentLineItems(
+              "Group Event Balance (Legacy Deposit Applied)",
+              chargeCents,
+              legacyServiceCharge,
+            ),
           },
         }),
       });
@@ -615,50 +620,6 @@ async function handleLegacyDeposit(
   }
 }
 
-async function findOrCreateSquareCustomer(quote: {
-  guest_email: string;
-  guest_first_name: string;
-  guest_last_name: string;
-  guest_phone: string | null;
-  square_location_id: string;
-}): Promise<string | null> {
-  // Search by email
-  const searchRes = await fetch(`${SQUARE_BASE}/customers/search`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      query: {
-        filter: {
-          email_address: { exact: quote.guest_email },
-        },
-      },
-      limit: 1,
-    }),
-  });
-  const searchData = await searchRes.json();
-  if (searchRes.ok && searchData.customers?.[0]?.id) {
-    return searchData.customers[0].id;
-  }
-
-  // Create new customer
-  const createRes = await fetch(`${SQUARE_BASE}/customers`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: `gf-cust-${quote.guest_email}-${Date.now()}`,
-      given_name: quote.guest_first_name,
-      family_name: quote.guest_last_name,
-      email_address: quote.guest_email,
-      phone_number: quote.guest_phone || undefined,
-    }),
-  });
-  const createData = await createRes.json();
-  if (createRes.ok && createData.customer?.id) {
-    return createData.customer.id;
-  }
-
-  return null;
-}
-
+// findOrCreateSquareCustomer moved to @/lib/square-gift-card (shared with the reprice flow).
 // createDayofOrder moved to @/lib/group-function-dayof (shared with the group-quote-sync
 // self-heal backfill so a deposit-time failure is retried instead of orphaning the event).

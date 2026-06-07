@@ -65,6 +65,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/group-balance-link-reconcile",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/group-dayof-close",
       "schedule": "*/15 * * * *"
     },

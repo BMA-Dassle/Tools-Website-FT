@@ -1,5 +1,11 @@
 # Open Tasks
 
+## Group-Function: re-price after paid-in-full (IMPLEMENTED — 2026-06-06)
+- **Plan + impl log:** [group-function-paid-in-full-reprice.md](group-function-paid-in-full-reprice.md)
+- **Problem:** A BMI edit on a *paid-in-full* event recomputed balance as `total − deposit_due`, ignoring the balance already collected → re-sign re-charged it → **overcharge**. No path to charge just the delta. Also: paid Square balance links were never reconciled.
+- **Scope (Eric):** Only paid-in-full events. Resign required regardless. Increase → charge difference + load gift cards (card on file, or capture a card on re-sign). Decrease → flag staff, no auto-refund. Deposit-phase flows untouched.
+- **Status:** PR-1 + PR-2 implemented on branch `feat/gf-balance-link-reconcile`; typecheck/lint/prettier clean. **Not committed; not live-smoke-tested.** Verify §6 before go-live.
+
 ## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-05-28)
 - **Branch:** `feat/booking-b2-race` @ `9d127c90` · merged with main 2026-05-28
 - **What shipped (all build-verified):**
