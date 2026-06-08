@@ -1,14 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
   emptySession,
   getActiveItem,
   newItem,
   STEP_REGISTRY,
-  crossSellFor,
-  findOffering,
   type Activity,
   type AttractionItem,
   type Brand,
@@ -22,6 +19,7 @@ import { CheckoutStep } from "./steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "./steps/race/HeightAgeConfirmModal";
 import { bookHeatsOnAdvance, cancelRaceOrder } from "~/features/booking/service/race";
 import { bookAttractionOnAdvance } from "~/features/booking/service/attractions";
+import { releaseItemBmiLines, releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTimer";
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
 
@@ -48,7 +46,6 @@ export function BookingFlow({
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial);
   const [checkoutActive, setCheckoutActive] = useState(false);
-  const [showAddMore, setShowAddMore] = useState(false);
   const [showHeightConfirm, setShowHeightConfirm] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState<string>("Reserving your heats…");
@@ -115,6 +112,36 @@ export function BookingFlow({
     prevCursorRef.current = currentCursor;
   }, [currentCursor]);
 
+  // Remove a whole cart item, releasing any BMI bill lines it booked early (race
+  // heats / attraction slot) so it isn't still confirmed at checkout. Last item
+  // → back to the activity picker.
+  const handleRemoveItem = async (id: string) => {
+    const item = session.items.find((i) => i.id === id);
+    const wasLast = session.items.length <= 1;
+    dispatch({ type: "removeItem", id });
+    if (item) await releaseItemBmiLines(session, item);
+    if (wasLast) {
+      window.location.href = "/book/v2";
+    }
+  };
+
+  // Remove a SINGLE heat (all racer entries for that product + time) from a race
+  // item in the cart. Releases its early-booked BMI line so the bill matches the
+  // cart; if it was the item's last heat, drops the whole item.
+  const handleRemoveHeat = async (itemId: string, productId: string, heatId: string) => {
+    const item = session.items.find((i) => i.id === itemId);
+    if (!item || item.kind !== "race") return;
+    const removed = item.heats.filter((h) => h.productId === productId && h.heatId === heatId);
+    if (removed.length === 0) return;
+    const remaining = item.heats.filter((h) => !(h.productId === productId && h.heatId === heatId));
+    if (remaining.length === 0) {
+      await handleRemoveItem(itemId);
+      return;
+    }
+    dispatch({ type: "updateItem", id: itemId, patch: { heats: remaining } });
+    await releaseHeatBmiLines(session, removed);
+  };
+
   if (!activeItem) {
     if (checkoutActive) {
       return (
@@ -125,7 +152,6 @@ export function BookingFlow({
               dispatch={dispatch}
               onBack={() => {
                 setCheckoutActive(false);
-                setShowAddMore(false);
               }}
             />
           </div>
@@ -139,13 +165,8 @@ export function BookingFlow({
           session={session}
           urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
-          onRemoveItem={(id) => {
-            dispatch({ type: "removeItem", id });
-            // Last item removed → go back to activity picker
-            if (session.items.length <= 1) {
-              window.location.href = "/book/v2";
-            }
-          }}
+          onRemoveItem={handleRemoveItem}
+          onRemoveHeat={handleRemoveHeat}
           onCheckout={() => setCheckoutActive(true)}
         />
       </div>
@@ -166,13 +187,8 @@ export function BookingFlow({
           session={session}
           urlCode={urlCode ?? null}
           onEditItem={(id) => dispatch({ type: "setActiveItem", id })}
-          onRemoveItem={(id) => {
-            dispatch({ type: "removeItem", id });
-            // Last item removed → go back to activity picker
-            if (session.items.length <= 1) {
-              window.location.href = "/book/v2";
-            }
-          }}
+          onRemoveItem={handleRemoveItem}
+          onRemoveHeat={handleRemoveHeat}
           onCheckout={() => setCheckoutActive(true)}
         />
       </div>

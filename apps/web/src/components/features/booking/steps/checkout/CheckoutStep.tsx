@@ -9,13 +9,14 @@ import {
   runCheckout,
   recordClickwrap,
   saveBookingDetails,
-  confirmCreditOrder,
   resolveSquareCustomer,
   buildConfirmationUrl,
   reserveBooking,
   reserveAll,
+  applyCreditRedemptionsToOverview,
   type BillOverview,
 } from "~/features/booking/service/checkout";
+import { eligibleCreditsForMember } from "~/features/booking/data/race-credits";
 import { bowlingReserve } from "~/features/booking/service/bowling";
 import { clearBookingSession } from "~/features/booking/hooks";
 import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm";
@@ -65,6 +66,52 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
   const contact: ContactInfo = { firstName, lastName, email, phone, smsOptIn };
 
+  // ── Race-credit redemption (explicit per-racer choice) ──────────
+  // personId -> chosen depositKindId. Offered ONLY to returning racers / linked
+  // family (bmiPersonId && !isNewRacer) who hold a credit eligible for the race
+  // day. Credits are non-transferable — each racer spends only their own.
+  const [creditChoices, setCreditChoices] = useState<Record<string, string>>({});
+
+  const raceItem = session.items.find((i): i is RaceItem => i.kind === "race") ?? null;
+  const raceDate = raceItem?.date ?? null;
+
+  const heatCountForMember = (memberId: string): number => {
+    let n = 0;
+    for (const it of session.items) {
+      if (it.kind !== "race") continue;
+      for (const h of it.heats) if (h.assignedTo === memberId) n += 1;
+    }
+    return n;
+  };
+
+  const creditEligible = session.party
+    .filter((m) => m.bmiPersonId && !m.isNewRacer)
+    .map((m) => ({
+      member: m,
+      heats: heatCountForMember(m.id),
+      credits: eligibleCreditsForMember(m.creditBalances, raceDate),
+    }))
+    .filter((e) => e.heats > 0 && e.credits.length > 0);
+
+  // Party + session carrying each racer's redemption choice, threaded into the
+  // reserve calls. A heat assigned to a member with redeemCreditKindId is charged
+  // $0 by Square and draws down one of that member's credits server-side.
+  const partyWithChoices = session.party.map((m) =>
+    m.bmiPersonId && creditChoices[m.bmiPersonId]
+      ? { ...m, redeemCreditKindId: creditChoices[m.bmiPersonId] }
+      : { ...m, redeemCreditKindId: null },
+  );
+  const sessionForReserve: BookingSession = { ...session, party: partyWithChoices };
+
+  function toggleCredit(personId: string, depositKindId: string, on: boolean) {
+    setCreditChoices((prev) => {
+      const next = { ...prev };
+      if (on) next[personId] = depositKindId;
+      else delete next[personId];
+      return next;
+    });
+  }
+
   const isValidContact =
     firstName.trim().length > 0 &&
     lastName.trim().length > 0 &&
@@ -73,7 +120,6 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
   // ── Contact phase ─────────────────────────────────────────────
 
-  const hasBowling = session.items.some((i) => i.kind === "bowling" || i.kind === "kbf");
   const hasBmi = session.items.some((i) => i.kind === "race" || i.kind === "attraction");
 
   async function handleContactSubmit() {
@@ -169,7 +215,11 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
   // ── Review → Payment transition ───────────────────────────────
 
-  async function handleConfirm(overview: BillOverview, bmiBillId: string) {
+  async function handleConfirm(
+    reserveSession: BookingSession,
+    overview: BillOverview,
+    bmiBillId: string,
+  ) {
     void recordClickwrap({
       billId: bmiBillId,
       email: contact.email,
@@ -179,19 +229,19 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
       bookingType: "racing",
     });
 
-    await saveBookingDetails(session, bmiBillId, overview, contact);
+    await saveBookingDetails(reserveSession, bmiBillId, overview, contact);
 
     if (overview.isCreditOrder) {
       setPhase({ step: "confirming", bmiBillId });
       try {
         await reserveBooking({
-          session,
+          session: reserveSession,
           bmiBillId,
           overview,
           contact,
         });
         clearBookingSession();
-        window.location.href = buildConfirmationUrl(session, bmiBillId, true);
+        window.location.href = buildConfirmationUrl(reserveSession, bmiBillId, true);
       } catch (err) {
         setPhase({
           step: "error",
@@ -202,7 +252,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     }
 
     // Cash order — resolve Square customer for saved cards
-    const hasReturning = session.party.some((m) => !!m.bmiPersonId);
+    const hasReturning = reserveSession.party.some((m) => !!m.bmiPersonId);
     let sqCustomer: Awaited<ReturnType<typeof resolveSquareCustomer>> = {};
     if (hasReturning) {
       sqCustomer = await resolveSquareCustomer(contact);
@@ -246,7 +296,10 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     });
 
     clearBookingSession();
-    window.location.href = buildConfirmationUrl(session, bmiBillId);
+    // Fallback path: PaymentForm only reaches onSuccess when no onTokenize is
+    // wired (we always wire handleTokenize, so this is effectively dead today).
+    // Route to v2 anyway so a future non-tokenize flow doesn't drop v2 carts on v1.
+    window.location.href = buildConfirmationUrl(session, bmiBillId, true);
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -376,7 +429,11 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
   }
 
   if (phase.step === "review") {
-    const { overview, bmiBillId } = phase;
+    const { overview: baseOverview, bmiBillId } = phase;
+    // Recompute the displayed charge with any per-racer credit redemptions applied
+    // (redeemed race lines → $0). The SAME overview is sent to the reserve call,
+    // so the displayed price always equals what's charged.
+    const overview = applyCreditRedemptionsToOverview(baseOverview, sessionForReserve);
     // Build a heatId -> [racer names] map from session.items so we can
     // append "— Alex, Sarah" to each race line in the review pane.
     // Without this the cart shows just "Starter Race Red x 1" with no
@@ -415,6 +472,51 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             <span className="text-white/50">{email}</span>
           </div>
         </div>
+
+        {/* Pay with a race credit — returning racers / linked family only.
+            Non-transferable: each racer can spend only their own credits. */}
+        {creditEligible.length > 0 && (
+          <div className="space-y-3 rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/5 p-4">
+            <p className="text-sm font-semibold text-white">Pay with a race credit</p>
+            {creditEligible.map(({ member, heats, credits }) => {
+              const credit = credits[0];
+              const personId = member.bmiPersonId as string;
+              const checked = creditChoices[personId] === credit.depositKindId;
+              const enough = credit.balance >= heats;
+              return (
+                <label
+                  key={member.id}
+                  className={`flex items-center justify-between gap-3 ${
+                    enough ? "cursor-pointer" : "opacity-50"
+                  }`}
+                >
+                  <span className="min-w-0 text-sm text-white/70">
+                    <span className="font-medium text-white">
+                      {member.firstName}
+                      {member.lastName ? ` ${member.lastName}` : ""}
+                    </span>
+                    <span className="text-white/40">
+                      {" · "}
+                      {credit.label} ({credit.balance} available)
+                      {heats > 1 ? ` · uses ${heats}` : ""}
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    aria-label={`Use a ${credit.label} for ${member.firstName}`}
+                    checked={checked}
+                    disabled={!enough}
+                    onChange={(e) => toggleCredit(personId, credit.depositKindId, e.target.checked)}
+                    className="h-4 w-4 shrink-0 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
+                  />
+                </label>
+              );
+            })}
+            <p className="text-xs text-white/40">
+              Credits aren&apos;t transferable — each racer can only use their own.
+            </p>
+          </div>
+        )}
 
         {/* Line items */}
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-4">
@@ -504,7 +606,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           </button>
           <button
             type="button"
-            onClick={() => handleConfirm(overview, bmiBillId)}
+            onClick={() => handleConfirm(sessionForReserve, overview, bmiBillId)}
             disabled={!clickwrapAccepted}
             title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
             className="inline-flex items-center gap-2 rounded-xl bg-[#00E2E5] px-8 py-4 text-base font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -578,8 +680,13 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             ? `${confirmBase}?code=${result.shortCode}&neonId=${result.neonId}`
             : `${confirmBase}?neonId=${result.neonId}`;
         } else {
-          // Mixed or BMI-only: unified reserve (one Square order for everything)
-          const sessionWithBill = { ...session, bmiBillId: bmiBillId || session.bmiBillId };
+          // Mixed or BMI-only: unified reserve (one Square order for everything).
+          // sessionForReserve carries each racer's credit-redemption choice so the
+          // server zeroes those race lines + deducts the credits.
+          const sessionWithBill = {
+            ...sessionForReserve,
+            bmiBillId: bmiBillId || session.bmiBillId,
+          };
           const result = await reserveAll({
             session: sessionWithBill,
             contact,
@@ -602,12 +709,12 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             bookingType: hasBmi ? "racing" : "bowling",
           });
 
-          await saveBookingDetails(session, effectiveBillId, overview, contact);
+          await saveBookingDetails(sessionForReserve, effectiveBillId, overview, contact);
           clearBookingSession();
 
           // Mixed cart: use /book/confirmation (race confirmation) which shows all items
           if (hasBmi && effectiveBillId) {
-            window.location.href = buildConfirmationUrl(session, effectiveBillId, true);
+            window.location.href = buildConfirmationUrl(sessionForReserve, effectiveBillId, true);
           } else if (result.shortCodes.length > 0) {
             const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
             const confirmBase =

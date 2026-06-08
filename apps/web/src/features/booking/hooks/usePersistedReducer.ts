@@ -7,11 +7,33 @@ import { reducer } from "../state/machine";
 
 const STORAGE_KEY = "booking_session";
 
+/**
+ * Bump whenever the session SHAPE or the step-registry ORDER changes. A
+ * persisted in-progress session from an older build is then discarded instead of
+ * resuming with a stale per-item cursor (which would skip a newly-inserted step,
+ * e.g. the up-front contact step) or pre-filled state from a prior flow.
+ *
+ * v2 (2026-06-07): inserted the required ContactStep, shifting step indices.
+ */
+const SCHEMA_VERSION = 2;
+
+interface PersistedEnvelope {
+  v: number;
+  session: BookingSession;
+}
+
 function readSession(): BookingSession | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as BookingSession;
+    const parsed = JSON.parse(raw) as Partial<PersistedEnvelope>;
+    if (parsed?.v !== SCHEMA_VERSION || !parsed.session) {
+      // Older build (or pre-versioning raw session) — discard so the customer
+      // starts the current flow cleanly rather than mid-way with stale data.
+      sessionStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return parsed.session;
   } catch {
     return null;
   }
@@ -19,7 +41,8 @@ function readSession(): BookingSession | null {
 
 function writeSession(session: BookingSession): void {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    const envelope: PersistedEnvelope = { v: SCHEMA_VERSION, session };
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
   } catch {
     /* storage full or disabled — non-fatal */
   }

@@ -8,8 +8,9 @@
  * Per restructuring rules: business logic lives here, API route is a thin shell.
  */
 import { randomBytes } from "crypto";
-import { createDepositAndCharge, rollbackDeposit, DepositPaymentError } from "./deposit";
+import { createDepositAndCharge } from "./deposit";
 import { confirmBmiPayment } from "./bmi-confirm";
+import { reserveBaseKey } from "./reserve-idempotency";
 import {
   createReservation,
   getReservation,
@@ -27,9 +28,16 @@ import {
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
 import { LICENSE_PRICE } from "./race-pricing";
+import { redemptionsFromSession } from "../data/race-credits";
+import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
 import {
   insertBowlingReservation,
   updateBowlingReservationShortCode,
+  findReusableReservation,
+  getBowlingReservationByBillId,
+  updateBowlingReservationConfirmed,
+  updateBowlingReservationConfirmFailed,
+  updateBowlingReservationSquareIds,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
 import { shortenUrl } from "@/lib/short-url";
@@ -180,6 +188,13 @@ function buildCombinedLineItems(session: BookingSession): {
     >();
     for (const heat of raceItem.heats) {
       if (!heat.productId) continue;
+      // Credit-redeemed heats are charged $0 by Square (one credit is deducted
+      // instead), so drop them from the day-of charge. Rule mirrors
+      // applyCreditRedemptionsToOverview / redemptionsFromSession.
+      const assigned = heat.assignedTo
+        ? session.party.find((m) => m.id === heat.assignedTo)
+        : undefined;
+      if (assigned?.redeemCreditKindId) continue;
       const product = getRaceProductById(heat.productId);
       if (!product) continue;
       const existing = grouped.get(heat.productId);
@@ -256,12 +271,112 @@ function buildCombinedLineItems(session: BookingSession): {
   return { sqLineItems, depositPct };
 }
 
+// ── Route-entry idempotency guard + lock ──────────────────────────────
+
+/**
+ * Rebuild a UnifiedReserveResult for an already-confirmed BMI bill from the
+ * `bmi:confirmed` cache + the Neon row — NO Square / BMI calls. confirmBmiPayment
+ * is NOT idempotent (a 2nd confirm reverts BMI state), so this short-circuit is
+ * what makes a retry / double-submit safe for the race + attraction path.
+ * Returns null when the bill hasn't been confirmed yet.
+ */
+async function unifiedCachedSuccess(bmiBillId: string): Promise<UnifiedReserveResult | null> {
+  let cached: unknown;
+  try {
+    cached = await redis.get(`bmi:confirmed:${bmiBillId}`);
+  } catch {
+    return null;
+  }
+  if (!cached) return null;
+  let c: { reservationNumber?: string; reservationCode?: string };
+  try {
+    c = typeof cached === "string" ? JSON.parse(cached) : (cached as typeof c);
+  } catch {
+    return null;
+  }
+  const row = await getBowlingReservationByBillId(bmiBillId).catch(() => null);
+  return {
+    neonIds: row?.id ? [row.id] : [],
+    shortCodes: [],
+    qamfReservationIds: [],
+    bmiReservationNumber: c.reservationNumber ?? row?.bmiReservationNumber ?? null,
+    bmiReservationCode: c.reservationCode ?? null,
+    squareDayofOrderId: row?.squareDayofOrderId ?? "",
+    giftCardGan: row?.squareGiftCardGan ?? null,
+    depositCents: row?.depositCents ?? 0,
+    totalCents: row?.totalCents ?? 0,
+  };
+}
+
+export class ReserveInProgressError extends Error {
+  code = "RESERVE_IN_PROGRESS";
+  constructor() {
+    super("A booking for this reservation is already in progress.");
+  }
+}
+
 // ── Main orchestrator ─────────────────────────────────────────────────
 
+/**
+ * Public entry: idempotency guard (already-confirmed short-circuit + per-session
+ * NX lock) wrapped around the charge/confirm fan-out. The lock prevents two
+ * concurrent submits from both fanning out (QAMF createReservation has no
+ * idempotency key); the deterministic baseKey inside makes Square replay-safe.
+ */
 export async function unifiedReserve(input: UnifiedReserveInput): Promise<UnifiedReserveResult> {
+  const { session } = input;
+  const bowlingItems = session.items.filter(isBowlingLike);
+  // Stable per-session anchor for the seed + lock. bmiBillId for BMI sessions;
+  // the Square session order or QAMF hold id otherwise.
+  const seedSource =
+    session.bmiBillId ?? session.squareOrderId ?? bowlingItems[0]?.qamfReservationId ?? null;
+
+  // 1) Already confirmed? Return the first call's result (no second charge /
+  //    confirm). Only meaningful for BMI sessions (the cache key is the bill).
+  if (session.bmiBillId) {
+    const cached = await unifiedCachedSuccess(session.bmiBillId).catch(() => null);
+    if (cached) return cached;
+  }
+
+  // 2) In-flight? NX lock keyed on the session anchor.
+  const lockKey = seedSource ? `reserve:lock:${seedSource}` : null;
+  let lockHeld = false;
+  if (lockKey) {
+    try {
+      lockHeld = (await redis.set(lockKey, "1", "EX", 120, "NX")) === "OK";
+    } catch {
+      lockHeld = true; // Redis down — deterministic keys still prevent a double charge
+    }
+    if (!lockHeld) {
+      if (session.bmiBillId) {
+        for (let i = 0; i < 6; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          const cached = await unifiedCachedSuccess(session.bmiBillId).catch(() => null);
+          if (cached) return cached;
+        }
+      }
+      throw new ReserveInProgressError();
+    }
+  }
+
+  try {
+    return await unifiedReserveInner(input, seedSource);
+  } finally {
+    if (lockKey && lockHeld) {
+      await redis.del(lockKey).catch(() => {});
+    }
+  }
+}
+
+async function unifiedReserveInner(
+  input: UnifiedReserveInput,
+  seedSource: string | null,
+): Promise<UnifiedReserveResult> {
   const { session, contact } = input;
   const locationId = resolveLocationId(session);
-  const baseKey = randomBytes(8).toString("hex");
+  // Deterministic idempotency seed — same session anchor → same Square keys on
+  // every retry, so all 7 keys replay the SAME order / payment / gift card.
+  const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
 
   const bowlingItems = session.items.filter(isBowlingLike);
   const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
@@ -284,6 +399,15 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
 
   if (sqLineItems.length === 0) {
     throw new Error("No line items to charge");
+  }
+
+  // ── 2b. Validate credit redemptions (charge-time re-eval) ─────────
+  // Re-check each redeeming racer's LIVE balance before charging. Throws
+  // CreditRedemptionError (→ 400 in the route) on a stale/insufficient balance,
+  // so we never charge or give a free race on a credit they no longer hold.
+  const creditRedemptions = redemptionsFromSession(session);
+  if (creditRedemptions.length > 0) {
+    await validateCreditRedemptions(creditRedemptions);
   }
 
   // ── 3. Create ONE Square day-of order ─────────────────────────────
@@ -402,7 +526,15 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
     }
 
     const ganPrefix = bowlingItems.length > 0 ? "HPFM" : raceItems.length > 0 ? "RACE" : "ATTR";
-    const ganSuffix = baseKey.slice(0, 8);
+    // Stable GAN suffix from the session anchor (matches reserve's bill.slice(-8))
+    // so a retry replays gc-${baseKey} with the SAME requested GAN — one card,
+    // never a second.
+    const ganSuffix = (
+      session.bmiBillId ??
+      bowlingItems[0]?.qamfReservationId ??
+      seedSource ??
+      baseKey
+    ).slice(-8);
 
     try {
       const dr = await createDepositAndCharge({
@@ -703,12 +835,11 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
         log(`[unified-reserve] Final patch FAILED: ${err instanceof Error ? err.message : err}`);
       }
     } catch (err) {
-      // QAMF failed after deposit — rollback deposit
-      if (depositResult.depositOrderId) {
-        await rollbackDeposit(depositResult.depositOrderId, {
-          card: depositResult.depositPaymentId ?? undefined,
-        });
-      }
+      // QAMF failed after the deposit was CAPTURED. Do NOT roll back — a captured
+      // payment can't be voided and the funds back the gift card. The bowling row
+      // (written above as confirm_pending when QAMF didn't confirm) is driven
+      // forward by the bowling-confirm-retry cron.
+      console.error("[unified-reserve] QAMF confirm failed (deposit retained):", err);
       throw err;
     }
   }
@@ -721,60 +852,66 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
   // BMI confirmations (race/attraction)
   if (hasBmi && session.bmiBillId) {
     const clientKey = resolveBmiClientKey(session);
+    const bmiBillId = session.bmiBillId;
     const useZeroModel = raceItems.length > 0;
+    const centerCode = session.center ?? "fort-myers";
+    const bookingKind: ReservationProductKind = raceItems.length > 0 ? "race" : "attraction";
 
+    // Build the BMI reservation lines + metadata up front so we can anchor the
+    // row BEFORE confirming (the deposit is already CAPTURED at this point).
+    const bmiLines = [
+      ...raceItems.flatMap((r) =>
+        r.heats
+          .filter((h) => h.productId)
+          .map((h) => {
+            const product = getRaceProductById(h.productId!);
+            return {
+              label: product?.name ?? "Race",
+              quantity: 1,
+              unitPriceCents: Math.round((product?.price ?? 0) * 100),
+            };
+          }),
+      ),
+      ...attractionItems.map((a) => ({
+        label: a.slug ?? "Attraction",
+        quantity: a.qty,
+        unitPriceCents: Math.round(a.price * 100),
+      })),
+    ];
+
+    const bookingMetadata: Record<string, unknown> = {};
+    if (raceItems.length > 0) {
+      bookingMetadata.heats = raceItems[0].heats.map((h) => ({
+        productId: h.productId,
+        track: h.track,
+        heatId: h.heatId,
+        assignedTo: h.assignedTo,
+      }));
+      bookingMetadata.racerNames = session.party.map((m) => m.firstName);
+    }
+
+    // ── Durable anchor (confirm_pending) BEFORE BMI confirm ───────────
+    // A captured deposit must never be stranded without a record. If confirm
+    // fails, this row stays confirm_pending/confirm_failed and the
+    // race-confirm-reconcile cron drives it forward (money stays on the gift
+    // card — never auto-refunded). Idempotent per (bill, kind).
+    let bmiNeonId: number | null = null;
     try {
-      const bmiResult = await confirmBmiPayment({
-        clientKey,
-        bmiBillId: session.bmiBillId,
-        amountCents: useZeroModel ? 0 : dayofTotalCents,
-        asCredit: useZeroModel,
-      });
-      bmiReservationNumber = bmiResult.reservationNumber;
-      bmiReservationCode = bmiResult.reservationCode;
-
-      // Neon reservation for BMI items
-      const centerCode = session.center ?? "fort-myers";
-      const bookingKind: ReservationProductKind = raceItems.length > 0 ? "race" : "attraction";
-
-      try {
-        const bmiLines = [
-          ...raceItems.flatMap((r) =>
-            r.heats
-              .filter((h) => h.productId)
-              .map((h) => {
-                const product = getRaceProductById(h.productId!);
-                return {
-                  label: product?.name ?? "Race",
-                  quantity: 1,
-                  unitPriceCents: Math.round((product?.price ?? 0) * 100),
-                };
-              }),
-          ),
-          ...attractionItems.map((a) => ({
-            label: a.slug ?? "Attraction",
-            quantity: a.qty,
-            unitPriceCents: Math.round(a.price * 100),
-          })),
-        ];
-
-        const bookingMetadata: Record<string, unknown> = {};
-        if (raceItems.length > 0) {
-          bookingMetadata.heats = raceItems[0].heats.map((h) => ({
-            productId: h.productId,
-            track: h.track,
-            heatId: h.heatId,
-            assignedTo: h.assignedTo,
-          }));
-          bookingMetadata.racerNames = session.party.map((m) => m.firstName);
-        }
-
-        const reservation = await insertBowlingReservation(
+      const existing = await findReusableReservation(bmiBillId, bookingKind);
+      if (existing) {
+        bmiNeonId = existing.id;
+        await updateBowlingReservationSquareIds(existing.id, {
+          squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
+          squareDayofOrderId,
+          squareGiftCardId: depositResult.giftCardId ?? undefined,
+          squareGiftCardGan: depositResult.giftCardGan ?? undefined,
+        });
+      } else {
+        const anchor = await insertBowlingReservation(
           {
             centerCode,
             productKind: bookingKind,
-            bmiBillId: session.bmiBillId,
-            bmiReservationNumber: bmiReservationNumber ?? undefined,
+            bmiBillId,
             squareDepositOrderId: depositResult.depositOrderId ?? undefined,
             squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
             squareDayofOrderId,
@@ -782,7 +919,7 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
             squareGiftCardGan: depositResult.giftCardGan ?? undefined,
             depositCents,
             totalCents: dayofTotalCents,
-            status: "confirmed",
+            status: "confirm_pending",
             bookedAt: new Date().toISOString(),
             playerCount:
               raceItems.reduce((s, r) => s + r.heats.length, 0) +
@@ -799,16 +936,110 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
           },
           bmiLines,
         );
-        neonIds.push(reservation.id);
-      } catch (err) {
-        console.error("[unified-reserve] Neon insert (BMI) failed (non-fatal):", err);
+        bmiNeonId = anchor.id;
+      }
+      if (bmiNeonId != null) neonIds.push(bmiNeonId);
+    } catch (err) {
+      // The anchor IS the recovery record; if we can't write it after capturing
+      // the deposit, fail BEFORE confirming so the client retries (idempotent).
+      console.error("[unified-reserve] BMI anchor write failed:", err);
+      throw new Error("Could not persist reservation. Please retry.");
+    }
+
+    try {
+      const bmiResult = await confirmBmiPayment({
+        clientKey,
+        bmiBillId,
+        amountCents: useZeroModel ? 0 : dayofTotalCents,
+        asCredit: useZeroModel,
+      });
+      bmiReservationNumber = bmiResult.reservationNumber;
+      bmiReservationCode = bmiResult.reservationCode;
+
+      // Idempotency cache for /api/booking/confirm — the v2 confirmation page calls
+      // that endpoint on load; without this it cache-MISSES and re-runs BMI
+      // payment/confirm, and the second confirm reverts the project state back to
+      // pending. Pre-writing the same cache entry makes the page's call a no-op.
+      // Key/shape/TTL must match app/api/booking/confirm/route.ts.
+      if (bmiReservationNumber) {
+        try {
+          await redis.set(
+            `bmi:confirmed:${bmiBillId}`,
+            JSON.stringify({
+              reservationNumber: bmiReservationNumber,
+              reservationCode: bmiReservationCode ?? `r${bmiBillId}`,
+              orderId: bmiBillId,
+            }),
+            "EX",
+            86400 * 7,
+          );
+        } catch {
+          // Redis down — non-fatal.
+        }
+      }
+
+      // BMI_AUTOCANCEL_WORKAROUND (mirror of /api/booking/v2/reserve). BMI's
+      // payment/confirm records the payment but does NOT set the project-level
+      // confirm flag; an unconfirmed project auto-cancels ~168 min later. Set the
+      // project state to -3 (Confirmation) via Pandora so cash/mixed race +
+      // attraction bookings confirm immediately instead of relying on the
+      // bmi-cancel-sweep cron. projectId = orderId + 1 (last-10-digit math stays
+      // under MAX_SAFE_INTEGER; the rest of the id is preserved as raw text).
+      try {
+        const projectIdNum = (Number(bmiBillId.slice(-10)) + 1).toString();
+        const projectId = bmiBillId.slice(0, -projectIdNum.length) + projectIdNum;
+        const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+        const pandoraLocationId =
+          raceItems.length > 0
+            ? "LAB52GY480CJF"
+            : session.center === "naples"
+              ? "PPTR5G2N0QXF7"
+              : "TXBSQN0FEKQ11";
+        const stateRes = await fetch(
+          "https://bma-pandora-api.azurewebsites.net/v2/bmi/reservation/state",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${pandoraKey}`,
+            },
+            body: JSON.stringify({ locationID: pandoraLocationId, projectId, stateID: "-3" }),
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
+        console.log(
+          `[unified-reserve] Pandora project ${projectId} state → -3 (Confirmation): ${stateRes.ok ? "OK" : stateRes.status}`,
+        );
+      } catch (pandoraErr) {
+        console.error("[unified-reserve] Pandora state update failed (non-fatal):", pandoraErr);
+      }
+
+      // Deduct redeemed race credits (post-confirm). Idempotent per heat; a failed
+      // deduct enqueues to the retry sweep. Never throws.
+      if (creditRedemptions.length > 0) {
+        await deductCreditRedemptions(creditRedemptions, { billId: bmiBillId });
+      }
+
+      // Promote the anchor → confirmed. Non-fatal: race-confirm-reconcile
+      // promotes it if this fails (re-confirm is a cached no-op via bmi:confirmed).
+      if (bmiNeonId != null) {
+        try {
+          await updateBowlingReservationConfirmed(bmiNeonId, {
+            bmiReservationNumber: bmiReservationNumber ?? undefined,
+          });
+        } catch (err) {
+          console.error("[unified-reserve] BMI confirmed-status update failed (non-fatal):", err);
+        }
       }
     } catch (err) {
-      // BMI failed after deposit — rollback
-      if (depositResult.depositOrderId) {
-        await rollbackDeposit(depositResult.depositOrderId, {
-          card: depositResult.depositPaymentId ?? undefined,
-        });
+      // Captured deposit stays put (forward recovery, never auto-refund). Mark
+      // the anchor confirm_failed; race-confirm-reconcile retries BMI confirm.
+      console.error("[unified-reserve] BMI confirm failed (deposit retained):", err);
+      if (bmiNeonId != null) {
+        await updateBowlingReservationConfirmFailed(
+          bmiNeonId,
+          err instanceof Error ? err.message : "BMI confirm error",
+        );
       }
       throw err;
     }

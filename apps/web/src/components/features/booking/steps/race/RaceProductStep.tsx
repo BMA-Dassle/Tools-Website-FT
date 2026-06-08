@@ -12,7 +12,7 @@ import {
   type RacerType,
 } from "~/features/booking/service/race-products";
 import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-pricing";
-import { eligiblePackages, type PackageDefinition } from "~/features/booking/service/packages";
+import { eligiblePackages } from "~/features/booking/service/packages";
 import { PackageCard } from "./PackageCard";
 
 /**
@@ -172,6 +172,14 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     // and higher-tier products.
     const memberships = racersInCategory.flatMap((m) => m.memberships ?? []);
 
+    // Heats already added for this category (via the "Add another race" loop, which
+    // returns here with the product cleared). Drives the continue/add-more banner.
+    const categoryHeatCount = item.heats.filter((h) => {
+      if (!h.heatId || !h.assignedTo) return false;
+      const m = session.party.find((p) => p.id === h.assignedTo);
+      return !!m && (m.category ?? "adult") === category;
+    }).length;
+
     const products = useMemo(() => {
       const schedule = scheduleForDate(item.date as string);
       const all = productsForSchedule(schedule, racerType);
@@ -273,6 +281,14 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
               : "Select from races you've qualified for."}
           </p>
         </div>
+
+        {categoryHeatCount > 0 && (
+          <div className="mx-auto max-w-md rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3 text-center text-sm text-[#00E2E5]">
+            You&apos;ve added {categoryHeatCount} {category} race
+            {categoryHeatCount === 1 ? "" : "s"} — pick another below to add more, or hit Continue
+            to move on.
+          </div>
+        )}
 
         {packages.length > 0 && (
           <div className="space-y-3">
@@ -632,8 +648,13 @@ export const RaceProductStepAdult: StepDef<RaceItem> = {
   canAdvance: (item, session) => {
     if (!hasCategory(session, "adult")) return true;
     if (item.packageId) return true;
-    if (!item.productIdAdult) return { reason: "Pick an adult race to continue." };
-    return true;
+    if (item.productIdAdult) return true;
+    // Already added races via "Add another" (which clears the product)? Continue.
+    const adultIds = new Set(
+      session.party.filter((m) => (m.category ?? "adult") === "adult").map((m) => m.id),
+    );
+    if (item.heats.some((h) => h.heatId && h.assignedTo && adultIds.has(h.assignedTo))) return true;
+    return { reason: "Pick an adult race to continue." };
   },
 };
 
@@ -645,7 +666,13 @@ export const RaceProductStepJunior: StepDef<RaceItem> = {
   canAdvance: (item, session) => {
     if (!hasCategory(session, "junior")) return true;
     if (item.packageId) return true;
-    if (!item.productIdJunior) return { reason: "Pick a junior race to continue." };
-    return true;
+    if (item.productIdJunior) return true;
+    // Already added races via "Add another" (which clears the product)? Continue.
+    const juniorIds = new Set(
+      session.party.filter((m) => m.category === "junior").map((m) => m.id),
+    );
+    if (item.heats.some((h) => h.heatId && h.assignedTo && juniorIds.has(h.assignedTo)))
+      return true;
+    return { reason: "Pick a junior race to continue." };
   },
 };

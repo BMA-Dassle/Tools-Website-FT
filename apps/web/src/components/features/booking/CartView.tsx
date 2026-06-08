@@ -11,7 +11,7 @@ import type {
   SessionItem,
 } from "~/features/booking";
 import { findOffering } from "~/features/booking";
-import { ATTRACTIONS, resolveAttractionContext } from "~/features/booking/service/attractions";
+import { ATTRACTIONS } from "~/features/booking/service/attractions";
 import { getRaceProductById, type RaceProduct } from "~/features/booking/service/race-products";
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage, packageBundleTotal } from "~/features/booking/service/packages";
@@ -36,6 +36,9 @@ export interface CartViewProps {
   urlCode?: string | null;
   onEditItem: (id: string) => void;
   onRemoveItem: (id: string) => void;
+  /** Remove a single heat (all racer entries for that product + time) from a
+   *  race item. Optional — only single races expose per-heat removal. */
+  onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
   onCheckout: () => void;
 }
 
@@ -44,6 +47,7 @@ export function CartView({
   urlCode,
   onEditItem,
   onRemoveItem,
+  onRemoveHeat,
   onCheckout,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
@@ -90,6 +94,7 @@ export function CartView({
                 session={session}
                 onEdit={() => onEditItem(item.id)}
                 onRemove={() => onRemoveItem(item.id)}
+                onRemoveHeat={onRemoveHeat}
               />
             ))}
         </ul>
@@ -174,17 +179,27 @@ function CartItemCard({
   session,
   onEdit,
   onRemove,
+  onRemoveHeat,
 }: {
   item: SessionItem;
   session: BookingSession;
   onEdit: () => void;
   onRemove: () => void;
+  onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
 }) {
   if (item.kind === "race") {
-    return <RaceCartCard item={item} session={session} onEdit={onEdit} onRemove={onRemove} />;
+    return (
+      <RaceCartCard
+        item={item}
+        session={session}
+        onEdit={onEdit}
+        onRemove={onRemove}
+        onRemoveHeat={onRemoveHeat}
+      />
+    );
   }
   if (item.kind === "attraction") {
-    return <AttractionCartCard item={item} session={session} onEdit={onEdit} onRemove={onRemove} />;
+    return <AttractionCartCard item={item} onEdit={onEdit} onRemove={onRemove} />;
   }
   // Estimated total for bowling/kbf from enriched lineItems
   const bowlingEstimate =
@@ -232,39 +247,37 @@ function RaceCartCard({
   session,
   onEdit,
   onRemove,
+  onRemoveHeat,
 }: {
   item: RaceItem;
   session: BookingSession;
   onEdit: () => void;
   onRemove: () => void;
+  onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
 }) {
   const pkg = item.packageId ? getPackage(item.packageId) : null;
   const adultProduct = item.productIdAdult ? getRaceProductById(item.productIdAdult) : null;
   const juniorProduct = item.productIdJunior ? getRaceProductById(item.productIdJunior) : null;
 
-  // Heat groups by category (so we can label heats clearly when both
-  // adult + junior categories are in play).
-  const adultProductIds = new Set(
-    adultProduct
-      ? Object.values(adultProduct.trackProducts ?? {})
-          .map((t) => t.productId)
-          .concat([adultProduct.productId])
-      : item.productIdAdult
-        ? [item.productIdAdult]
-        : [],
+  // A racer can book multiple heats across products/tracks (the multi-race
+  // loop), and the item only remembers the LAST productIdAdult/Junior — so we
+  // group heats by the assigned racer's category, not by a single product id
+  // (which would drop heats picked on a different product/track).
+  const adultRacerIds = new Set(
+    session.party.filter((m) => (m.category ?? "adult") === "adult").map((m) => m.id),
   );
-  const juniorProductIds = new Set(
-    juniorProduct
-      ? Object.values(juniorProduct.trackProducts ?? {})
-          .map((t) => t.productId)
-          .concat([juniorProduct.productId])
-      : item.productIdJunior
-        ? [item.productIdJunior]
-        : [],
+  const juniorRacerIds = new Set(
+    session.party.filter((m) => m.category === "junior").map((m) => m.id),
   );
+  const adultHeats = item.heats.filter((h) => h.assignedTo && adultRacerIds.has(h.assignedTo));
+  const juniorHeats = item.heats.filter((h) => h.assignedTo && juniorRacerIds.has(h.assignedTo));
 
-  const adultHeats = item.heats.filter((h) => h.productId && adultProductIds.has(h.productId));
-  const juniorHeats = item.heats.filter((h) => h.productId && juniorProductIds.has(h.productId));
+  // Per-heat removal is offered only for single races; combos/packages keep
+  // their fixed bundle of heats, so removing one would break the pack.
+  const heatRemover =
+    !pkg && !(adultProduct?.raceCount || juniorProduct?.raceCount) && onRemoveHeat
+      ? (productId: string, heatId: string) => onRemoveHeat(item.id, productId, heatId)
+      : undefined;
 
   const dateLabel = item.date
     ? new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
@@ -274,27 +287,40 @@ function RaceCartCard({
       })
     : null;
 
-  // Estimate — package bundles their own pricing; individual races sum components
+  // Estimate. Packages bundle their own pricing; everything else adds
+  // license/pov/addons on top of the race total.
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
   const racerCount = session.party.length;
+  const licenseTotal = LICENSE_PRICE * newRacerCount;
+  const povTotal = POV_PRICE * item.povQuantity;
+  const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
+
   let estimated: number;
   if (pkg) {
-    estimated =
-      packageBundleTotal(pkg, racerCount) +
-      item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
-  } else {
-    const adultRacerCount = session.party.filter((m) => (m.category ?? "adult") === "adult").length;
-    const juniorRacerCount = session.party.filter((m) => m.category === "junior").length;
+    estimated = packageBundleTotal(pkg, racerCount) + addonsTotal;
+  } else if (adultProduct?.raceCount || juniorProduct?.raceCount) {
+    // Combo packs: a fixed raceCount of heats per racer at one bundle price.
+    // Their heats carry per-track product ids that aren't in the priced
+    // registry, so price by racer × raceCount rather than per heat.
     const racesTotal =
       (adultProduct?.price ?? 0) *
         Math.max(1, adultProduct?.raceCount ?? 1) *
-        Math.max(1, adultRacerCount) +
+        Math.max(1, adultRacerIds.size) +
       (juniorProduct?.price ?? 0) *
         Math.max(1, juniorProduct?.raceCount ?? 1) *
-        Math.max(1, juniorRacerCount);
-    const licenseTotal = LICENSE_PRICE * newRacerCount;
-    const povTotal = POV_PRICE * item.povQuantity;
-    const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
+        Math.max(1, juniorRacerIds.size);
+    estimated = racesTotal + licenseTotal + povTotal + addonsTotal;
+  } else {
+    // Single races: a racer may book multiple heats (and across products/
+    // tracks), so price each PICKED heat by its own product — this mirrors
+    // buildRaceChargeLines (the checkout charge) so the cart estimate can't
+    // drift from what's charged. Before any heat is picked, fall back to one
+    // race per racer as a baseline.
+    const racesTotal =
+      item.heats.length > 0
+        ? item.heats.reduce((s, h) => s + (getRaceProductById(h.productId)?.price ?? 0), 0)
+        : (adultProduct?.price ?? 0) * adultRacerIds.size +
+          (juniorProduct?.price ?? 0) * juniorRacerIds.size;
     estimated = racesTotal + licenseTotal + povTotal + addonsTotal;
   }
 
@@ -339,6 +365,7 @@ function RaceCartCard({
               heats={adultHeats}
               party={session.party}
               accent="cyan"
+              onRemove={heatRemover}
             />
           )}
           {juniorHeats.length > 0 && (
@@ -347,6 +374,7 @@ function RaceCartCard({
               heats={juniorHeats}
               party={session.party}
               accent="amber"
+              onRemove={heatRemover}
             />
           )}
         </div>
@@ -417,16 +445,13 @@ function RaceCartCard({
 
 function AttractionCartCard({
   item,
-  session,
   onEdit,
   onRemove,
 }: {
   item: AttractionItem;
-  session: BookingSession;
   onEdit: () => void;
   onRemove: () => void;
 }) {
-  const ctx = item.slug ? resolveAttractionContext(item.slug, session) : null;
   const config = item.slug ? ATTRACTIONS[item.slug] : null;
   const isPerPerson = config?.bookingMode === "per-person";
 
@@ -507,44 +532,65 @@ function HeatGroup({
   heats,
   party,
   accent,
+  onRemove,
 }: {
   label: string;
   heats: RaceHeatAssignment[];
   party: PartyMember[];
   accent: "cyan" | "amber";
+  onRemove?: (productId: string, heatId: string) => void;
 }) {
-  // Dedup heats by heatId (state stores one entry per racer × heat).
+  // Dedup by product + heatId — state stores one entry per racer × heat, and a
+  // racer can hold the same time on different products/tracks (multi-race).
   const byHeat = new Map<string, RaceHeatAssignment[]>();
   for (const h of heats) {
     if (!h.heatId) continue;
-    const list = byHeat.get(h.heatId) ?? [];
+    const key = `${h.productId ?? ""}|${h.heatId}`;
+    const list = byHeat.get(key) ?? [];
     list.push(h);
-    byHeat.set(h.heatId, list);
+    byHeat.set(key, list);
   }
-  const sorted = Array.from(byHeat.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  const sorted = Array.from(byHeat.values()).sort((a, b) =>
+    (a[0].heatId ?? "").localeCompare(b[0].heatId ?? ""),
+  );
   const labelColor = accent === "cyan" ? "text-[#00E2E5]" : "text-amber-400";
 
   return (
     <div>
       <p className={`mb-1 text-[10px] font-bold tracking-wider uppercase ${labelColor}`}>{label}</p>
       <ul className="space-y-1 text-xs">
-        {sorted.map(([heatId, entries]) => {
+        {sorted.map((entries) => {
+          const first = entries[0];
+          const heatId = first.heatId!;
+          const productId = first.productId;
           const time = formatHeatTime(heatId);
-          const track = entries[0]?.track ?? null;
+          const track = first.track ?? null;
           const racers = entries
             .map((e) => party.find((m) => m.id === e.assignedTo)?.firstName)
             .filter((n): n is string => !!n);
           return (
             <li
-              key={heatId}
+              key={`${productId ?? ""}|${heatId}`}
               className="flex items-baseline justify-between gap-2 rounded-md bg-white/[0.02] px-2.5 py-1.5"
             >
               <span className="text-white/80">
                 {time}
                 {track && <span className="ml-1.5 text-white/40">· {track} Track</span>}
               </span>
-              <span className="shrink-0 text-white/50">
-                {racers.length > 0 ? racers.join(", ") : "Unassigned"}
+              <span className="flex shrink-0 items-baseline gap-2">
+                <span className="text-white/50">
+                  {racers.length > 0 ? racers.join(", ") : "Unassigned"}
+                </span>
+                {onRemove && productId && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(productId, heatId)}
+                    aria-label={`Remove ${time} heat`}
+                    className="rounded px-1 leading-none text-white/30 transition-colors hover:text-red-400"
+                  >
+                    ✕
+                  </button>
+                )}
               </span>
             </li>
           );

@@ -302,10 +302,17 @@ const realBmiAdapter: BmiAdapter = {
   async removeBookingLine({ orderId, billLineId, clientKey }) {
     const body = stringifyWithRawIds({}, { rawIds: { orderId, orderItemId: billLineId } });
     const res = await callBmi("booking/removeItem", body, undefined, clientKey);
+    const text = await res.text();
     if (!res.ok) {
+      console.warn("[bmi.removeBookingLine] failed:", res.status, text.slice(0, 200));
       return { success: false };
     }
-    const data = await res.json();
+    let data: { success?: boolean } = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* empty/non-JSON body on success — treat as success */
+    }
     return { success: data?.success !== false };
   },
 

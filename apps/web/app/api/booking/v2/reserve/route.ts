@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
-import {
-  createDepositAndCharge,
-  rollbackDeposit,
-  DepositPaymentError,
-} from "~/features/booking/service/deposit";
+import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
+import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
 import {
   lookupCatalogId,
   lookupCatalogIdByName,
   LOCATION_TAX,
   SQUARE_LOCATIONS,
 } from "~/features/booking/data/square-catalog-map";
-import { insertBowlingReservation, type ReservationProductKind } from "@/lib/bowling-db";
+import {
+  insertBowlingReservation,
+  findReusableReservation,
+  getBowlingReservationByBillId,
+  updateBowlingReservationConfirmed,
+  updateBowlingReservationConfirmFailed,
+  updateBowlingReservationSquareIds,
+  type ReservationProductKind,
+} from "@/lib/bowling-db";
+import redis from "@/lib/redis";
+import {
+  validateCreditRedemptions,
+  deductCreditRedemptions,
+  CreditRedemptionError,
+} from "~/features/booking/service/race-credit-redeem";
+import type { CreditRedemption } from "~/features/booking/data/race-credits";
 
 /**
  * POST /api/booking/v2/reserve
@@ -118,6 +129,13 @@ interface ReserveRequest {
    * legacy path (falls back to the Square day-of total).
    */
   bmiConfirmAmountCents?: number;
+  /**
+   * v2 race credit redemption: one entry per redeemed heat. Each draws down one
+   * credit from the racer's OWN balance. Validated against the live balance
+   * before any charge (hard fail on mismatch); deducted after BMI confirm. The
+   * redeemed heats' race lines arrive in cartItems at $0 (charged $0 by Square).
+   */
+  creditRedemptions?: CreditRedemption[];
 }
 
 // ── Resolve location from brand + center ───────────────────────────────
@@ -128,9 +146,43 @@ function resolveLocationId(centerCode: string, bookingKind: "race" | "attraction
   return SQUARE_LOCATIONS.HEADPINZ_FM;
 }
 
+/**
+ * Idempotent success response for an already-confirmed bill. Reads the
+ * `bmi:confirmed` cache (written at confirm time) + the Neon row — NO Square or
+ * BMI calls. Returns null when the bill hasn't been confirmed yet. Used by the
+ * route-entry guard so a double-submit / retry returns the first call's result
+ * instead of charging a second time.
+ */
+async function cachedReserveSuccess(billId: string): Promise<NextResponse | null> {
+  let cached: unknown;
+  try {
+    cached = await redis.get(`bmi:confirmed:${billId}`);
+  } catch {
+    return null;
+  }
+  if (!cached) return null;
+  let c: { reservationNumber?: string; reservationCode?: string };
+  try {
+    c = typeof cached === "string" ? JSON.parse(cached) : (cached as typeof c);
+  } catch {
+    return null;
+  }
+  const row = await getBowlingReservationByBillId(billId).catch(() => null);
+  return NextResponse.json({
+    neonId: row?.id ?? null,
+    reservationNumber: c.reservationNumber ?? row?.bmiReservationNumber ?? null,
+    reservationCode: c.reservationCode ?? null,
+    giftCardGan: row?.squareGiftCardGan ?? null,
+    depositOrderId: row?.squareDepositOrderId ?? null,
+    dayofOrderId: row?.squareDayofOrderId ?? null,
+    alreadyConfirmed: true,
+  });
+}
+
 // ── Route handler ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  let reserveLockKey: string | null = null;
   try {
     const body = (await req.json()) as ReserveRequest;
 
@@ -155,9 +207,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid BMI client key" }, { status: 400 });
     }
 
+    // ── Route-entry idempotency guard (keyed per BMI bill) ──────────────
+    // 1) Already confirmed? Return the first call's cached result — no Square /
+    //    BMI calls, no second charge. The v2 confirmation page and client
+    //    retries both land here.
+    const billId = body.bmiBillId;
+    const preCached = await cachedReserveSuccess(billId);
+    if (preCached) return preCached;
+
+    // 2) In-flight? NX lock so two concurrent submits for the same bill can't
+    //    both charge. Loser briefly waits for the winner's confirmed cache,
+    //    then returns it — or 409 (never charges).
+    const lockKey = `reserve:lock:${billId}`;
+    let lockOk = false;
+    try {
+      lockOk = (await redis.set(lockKey, "1", "EX", 120, "NX")) === "OK";
+    } catch {
+      // Redis down — the deterministic baseKey + bmi:confirmed guard still
+      // prevent a double charge; proceed without the lock.
+      lockOk = true;
+    }
+    if (!lockOk) {
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const cached = await cachedReserveSuccess(billId);
+        if (cached) return cached;
+      }
+      return NextResponse.json(
+        {
+          error: "A booking for this reservation is already in progress.",
+          code: "RESERVE_IN_PROGRESS",
+        },
+        { status: 409 },
+      );
+    }
+    reserveLockKey = lockKey;
+
     const locationId = body.locationId || resolveLocationId(body.centerCode, body.bookingKind);
     const depositPct = body.depositPct ?? 100;
-    const baseKey = randomBytes(8).toString("hex");
+    // Deterministic idempotency seed: same bill → same Square keys on every
+    // retry / double-submit, so all 7 keys replay the SAME order / payment /
+    // gift card instead of creating duplicates. (Shared with the reconcile cron.)
+    const baseKey = reserveBaseKey(billId);
     const isCreditOrder = body.cartItems.every((ci) => ci.unitPriceCents === 0);
     // BMI confirm amount is decoupled from the Square charge: when the caller
     // passes an explicit bill total (the $0 model), confirm for that (0 = $0
@@ -165,6 +256,22 @@ export async function POST(req: NextRequest) {
     const explicitConfirmCents = body.bmiConfirmAmountCents;
     const bmiAsCredit =
       explicitConfirmCents !== undefined ? explicitConfirmCents === 0 : isCreditOrder;
+
+    // ── Step 0: Validate credit redemptions (charge-time re-eval) ───────
+    // Re-check the racer's LIVE deposit balance before charging. A stale balance
+    // (credit spent elsewhere since the page loaded) hard-fails here so we never
+    // charge $0 / give away a free race on a credit they no longer hold.
+    const creditRedemptions = body.creditRedemptions ?? [];
+    if (creditRedemptions.length > 0) {
+      try {
+        await validateCreditRedemptions(creditRedemptions);
+      } catch (err) {
+        if (err instanceof CreditRedemptionError) {
+          return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+        }
+        throw err;
+      }
+    }
 
     // ── Step 1: Build Square day-of order ───────────────────────────────
     const taxCatalogId = LOCATION_TAX[locationId];
@@ -363,6 +470,77 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Step 2b: Durable anchor (confirm_pending) ───────────────────────
+    // Persist the reservation row BEFORE confirming BMI, so a CAPTURED deposit
+    // is never stranded without a record. If BMI confirm later fails, this row
+    // stays confirm_pending / confirm_failed and race-confirm-reconcile drives
+    // it forward (the money is already on the gift card — never auto-refunded).
+    // Idempotent: a retry for the same (bill, kind) reuses the existing row.
+    const centerCode = body.centerCode || "fort-myers";
+    let neonId: number | null = null;
+    try {
+      const existing = await findReusableReservation(
+        body.bmiBillId,
+        body.bookingKind as ReservationProductKind,
+      );
+      if (existing) {
+        neonId = existing.id;
+        // Backfill Square ids in case a prior attempt wrote the anchor before
+        // the deposit produced them (e.g. a gift card recovered on a later pass).
+        await updateBowlingReservationSquareIds(existing.id, {
+          squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
+          squareDayofOrderId: dayofOrderId,
+          squareGiftCardId: depositResult.giftCardId ?? undefined,
+          squareGiftCardGan: depositResult.giftCardGan ?? undefined,
+        });
+      } else {
+        const anchor = await insertBowlingReservation(
+          {
+            centerCode,
+            productKind: body.bookingKind as ReservationProductKind,
+            bmiBillId: body.bmiBillId,
+            squareDepositOrderId: depositResult.depositOrderId ?? undefined,
+            squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
+            squareDayofOrderId: dayofOrderId,
+            squareGiftCardId: depositResult.giftCardId ?? undefined,
+            squareGiftCardGan: depositResult.giftCardGan ?? undefined,
+            depositCents,
+            totalCents: dayofTotalCents,
+            status: "confirm_pending",
+            bookedAt: new Date().toISOString(),
+            playerCount: body.cartItems.reduce((s, ci) => s + ci.quantity, 0),
+            guestName: `${body.contact.firstName} ${body.contact.lastName}`.trim(),
+            guestEmail: body.contact.email,
+            guestPhone: body.contact.phone,
+            notes: `v2 ${body.bookingKind} booking`,
+            bookingSource: "web",
+            squareCustomerId: body.squareCustomerId ?? undefined,
+            squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
+            rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
+            bookingMetadata: body.bookingMetadata ?? undefined,
+          },
+          body.cartItems.map((ci) => ({
+            label: ci.name,
+            quantity: ci.quantity,
+            unitPriceCents: ci.unitPriceCents,
+          })),
+        );
+        neonId = anchor.id;
+      }
+      console.log(`[v2/reserve] anchor reservation ${neonId} (confirm_pending)`);
+    } catch (err) {
+      // The anchor IS the recovery record. If we can't write it after capturing
+      // the deposit, proceeding to BMI confirm would risk the exact "charged but
+      // no row → never settles" regression this guards against. Fail BEFORE
+      // confirming so the client retries — idempotent (same baseKey replays
+      // Square; no double charge).
+      console.error("[v2/reserve] anchor write failed:", err);
+      return NextResponse.json(
+        { error: "Could not persist reservation. Please retry.", code: "ANCHOR_WRITE_FAILED" },
+        { status: 500 },
+      );
+    }
+
     // ── Step 3: Confirm BMI payment ─────────────────────────────────────
     // BMI orderId is a 17-digit bigint — NEVER use Number() or JSON.stringify().
     // Build the request body as raw text with template literal injection.
@@ -401,15 +579,22 @@ export async function POST(req: NextRequest) {
           bmiRes.status,
           bmiText.slice(0, 200),
         );
-        // Rollback deposit if BMI fails
-        if (depositResult.depositOrderId) {
-          await rollbackDeposit(depositResult.depositOrderId, {
-            gc: undefined,
-            card: depositResult.depositPaymentId ?? undefined,
-          });
+        // Do NOT roll back: the deposit is CAPTURED (and on the happy path
+        // already on the gift card) and a captured payment can't be voided. The
+        // funds must stay for forward recovery. Mark the anchor confirm_failed;
+        // race-confirm-reconcile retries BMI confirm (idempotent via baseKey).
+        if (neonId != null) {
+          await updateBowlingReservationConfirmFailed(
+            neonId,
+            `BMI confirm ${bmiRes.status}: ${bmiText.slice(0, 200)}`,
+          );
         }
         return NextResponse.json(
-          { error: `BMI confirmation failed: ${bmiRes.status}` },
+          {
+            error: `BMI confirmation failed: ${bmiRes.status}`,
+            code: "BMI_CONFIRM_FAILED",
+            neonId,
+          },
           { status: 500 },
         );
       }
@@ -421,6 +606,31 @@ export async function POST(req: NextRequest) {
       console.log(
         `[v2/reserve] BMI confirmed: reservationNumber=${reservationNumber} reservationCode=${reservationCode}`,
       );
+
+      // Idempotency cache for /api/booking/confirm. The v2 confirmation page calls
+      // that endpoint on load; without this cache it MISSES and re-runs BMI
+      // payment/confirm, and a SECOND payment/confirm reverts the project state
+      // from Confirmation (-3) back to pending (-101). Pre-writing the same cache
+      // entry booking/confirm uses makes the page's call a cache-HIT no-op
+      // (alreadyConfirmed) so the -3 we set below sticks. Key/shape/TTL must match
+      // app/api/booking/confirm/route.ts.
+      if (reservationNumber) {
+        try {
+          await redis.set(
+            `bmi:confirmed:${body.bmiBillId}`,
+            JSON.stringify({
+              reservationNumber,
+              reservationCode: reservationCode ?? `r${body.bmiBillId}`,
+              orderId: body.bmiBillId,
+            }),
+            "EX",
+            86400 * 7,
+          );
+        } catch {
+          // Redis down — non-fatal. Worst case the page re-confirms (the bug this
+          // guards against) and the bmi-cancel-sweep cron recovers the state.
+        }
+      }
 
       // BMI_AUTOCANCEL_WORKAROUND — remove when BMI fixes payment/confirm
       // Step 3b: Set project state to Confirmation (-3) via Pandora.
@@ -463,59 +673,44 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       console.error("[v2/reserve] BMI confirm error:", err);
-      if (depositResult.depositOrderId) {
-        await rollbackDeposit(depositResult.depositOrderId, {
-          gc: undefined,
-          card: depositResult.depositPaymentId ?? undefined,
-        });
+      // Captured deposit stays put (forward recovery, never auto-refund).
+      if (neonId != null) {
+        await updateBowlingReservationConfirmFailed(
+          neonId,
+          err instanceof Error ? err.message : "BMI confirm error",
+        );
       }
       return NextResponse.json(
-        { error: err instanceof Error ? err.message : "BMI confirmation failed" },
+        {
+          error: err instanceof Error ? err.message : "BMI confirmation failed",
+          code: "BMI_CONFIRM_FAILED",
+          neonId,
+        },
         { status: 500 },
       );
     }
 
-    // ── Step 4: Persist Neon reservation ────────────────────────────────
-    let neonId: number | null = null;
-    try {
-      const centerCode = body.centerCode || "fort-myers";
-      const reservation = await insertBowlingReservation(
-        {
-          centerCode,
-          productKind: body.bookingKind as ReservationProductKind,
-          bmiBillId: body.bmiBillId,
+    // ── Step 3c: Deduct redeemed race credits (post-confirm) ────────────
+    // Booking is confirmed — draw down one credit per redeemed heat. Idempotent
+    // per heat (Redis guard); failures enqueue to the retry sweep. Never throws.
+    if (creditRedemptions.length > 0) {
+      await deductCreditRedemptions(creditRedemptions, { billId: body.bmiBillId });
+    }
+
+    // ── Step 4: Promote anchor → confirmed ──────────────────────────────
+    // BMI is confirmed and the bmi:confirmed cache is written, so this is a
+    // simple status flip on the row we anchored in Step 2b. Non-fatal: if it
+    // fails, race-confirm-reconcile promotes the row (re-confirm is a cached
+    // no-op via bmi:confirmed).
+    if (neonId != null) {
+      try {
+        await updateBowlingReservationConfirmed(neonId, {
           bmiReservationNumber: reservationNumber ?? undefined,
-          squareDepositOrderId: depositResult.depositOrderId ?? undefined,
-          squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
-          squareDayofOrderId: dayofOrderId,
-          squareGiftCardId: depositResult.giftCardId ?? undefined,
-          squareGiftCardGan: depositResult.giftCardGan ?? undefined,
-          depositCents,
-          totalCents: dayofTotalCents,
-          status: "confirmed",
-          bookedAt: new Date().toISOString(),
-          playerCount: body.cartItems.reduce((s, ci) => s + ci.quantity, 0),
-          guestName: `${body.contact.firstName} ${body.contact.lastName}`.trim(),
-          guestEmail: body.contact.email,
-          guestPhone: body.contact.phone,
-          notes: `v2 ${body.bookingKind} booking`,
-          bookingSource: "web",
-          squareCustomerId: body.squareCustomerId ?? undefined,
-          squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
-          rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
-          bookingMetadata: body.bookingMetadata ?? undefined,
-        },
-        body.cartItems.map((ci) => ({
-          label: ci.name,
-          quantity: ci.quantity,
-          unitPriceCents: ci.unitPriceCents,
-        })),
-      );
-      neonId = reservation.id;
-      console.log(`[v2/reserve] Neon reservation ${neonId} inserted`);
-    } catch (err) {
-      // Non-fatal — BMI reservation is already confirmed, don't fail the whole flow
-      console.error("[v2/reserve] Neon insert failed (non-fatal):", err);
+        });
+        console.log(`[v2/reserve] reservation ${neonId} → confirmed`);
+      } catch (err) {
+        console.error("[v2/reserve] confirmed-status update failed (non-fatal):", err);
+      }
     }
 
     // ── Response ────────────────────────────────────────────────────────
@@ -538,5 +733,11 @@ export async function POST(req: NextRequest) {
     const msg = err instanceof Error ? err.message : "unknown error";
     console.error("[v2/reserve] unexpected error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
+  } finally {
+    // Release the per-bill in-flight lock (NX-acquired below). Best-effort: it
+    // also self-expires after 120s, so a missed release never wedges a bill.
+    if (reserveLockKey) {
+      await redis.del(reserveLockKey).catch(() => {});
+    }
   }
 }

@@ -10,11 +10,14 @@
  */
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
-import type { BookingSession, RaceItem, AttractionItem } from "../state/types";
+import type { BookingSession, RaceItem, AttractionItem, SessionItem } from "../state/types";
 import type { ContactInfo } from "../types";
 import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel } from "./race";
 import { LICENSE_PRICE, calculateTax } from "./race-pricing";
+import { redemptionsFromSession } from "../data/race-credits";
+import { bmiAdapter } from "../data/bmi";
+import { registerContact, registerProjectPersons } from "./bmi-register";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import { getService } from "./index";
 
@@ -102,58 +105,8 @@ export async function runCheckout(
   return { bmiBillId: billId, overview };
 }
 
-// ── Contact registration ────────────────────────────────────────────────
-
-async function registerContact(
-  billId: string,
-  contact: Partial<ContactInfo>,
-  party: { bmiPersonId?: string; isBillingCustomer?: boolean }[],
-): Promise<void> {
-  if (!contact.firstName || !contact.email || !contact.phone) return;
-  try {
-    const regBody: Record<string, unknown> = {
-      firstName: contact.firstName,
-      lastName: contact.lastName ?? "",
-      email: contact.email,
-      phone: (contact.phone ?? "").replace(/\D/g, ""),
-    };
-    const billingMember = party.find((m) => m.isBillingCustomer && m.bmiPersonId);
-    let json = `{"orderId":${billId},` + JSON.stringify(regBody).slice(1);
-    if (billingMember?.bmiPersonId) {
-      json = json.slice(0, -1) + `,"personId":${billingMember.bmiPersonId}}`;
-    }
-    await fetch(`/api/bmi?${new URLSearchParams({ endpoint: "person/registerContactPerson" })}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: json,
-    });
-  } catch {
-    /* non-fatal */
-  }
-}
-
-async function registerProjectPersons(
-  billId: string,
-  party: { bmiPersonId?: string; firstName: string; lastName?: string }[],
-): Promise<void> {
-  for (const member of party) {
-    if (!member.bmiPersonId) continue;
-    try {
-      const regBody = JSON.stringify({
-        firstName: member.firstName,
-        lastName: member.lastName ?? "",
-      });
-      const raw = `{"personId":${member.bmiPersonId},"orderId":${billId},` + regBody.slice(1);
-      await fetch(`/api/bmi?${new URLSearchParams({ endpoint: "person/registerProjectPerson" })}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: raw,
-      });
-    } catch {
-      /* non-fatal */
-    }
-  }
-}
+// Contact + project-person registration live in ./bmi-register (shared so the
+// race service can attach the customer at bill creation, not only here).
 
 // ── Bill overview ───────────────────────────────────────────────────────
 
@@ -429,6 +382,75 @@ export async function confirmCreditOrder(billId: string): Promise<void> {
   }
 }
 
+// ── Cart removal: release early-booked BMI lines ─────────────────────────
+
+/**
+ * Best-effort cancel BMI bill lines on the shared session bill (orderId =
+ * bmiBillId). Shared by the cart-removal and heat-deselect paths. Non-fatal: logs
+ * and continues — the caller has already updated the cart, which is the source of
+ * truth for the Square charge; this just keeps the BMI bill from confirming a line
+ * the customer dropped. Uses the exact `bmiLineId` (= BMI orderItemId), so it only
+ * ever removes the lines passed in, never another item's.
+ */
+async function removeBmiBillLines(
+  session: BookingSession,
+  billLineIds: (string | null | undefined)[],
+): Promise<void> {
+  const billId = session.bmiBillId;
+  if (!billId) return;
+  const clientKey = session.center === "naples" ? "headpinznaples" : "headpinzftmyers";
+  for (const billLineId of billLineIds) {
+    if (!billLineId) continue;
+    try {
+      const r = await bmiAdapter.removeBookingLine({ orderId: billId, billLineId, clientKey });
+      if (!r.success) console.warn("[checkout] BMI line not removed:", billLineId);
+    } catch (err) {
+      console.warn("[checkout] removeBookingLine failed (non-fatal):", billLineId, err);
+    }
+  }
+}
+
+/**
+ * Release the BMI lines for specific race heats being DESELECTED that were already
+ * booked on a prior heat-picker advance (they carry a `bmiLineId`). Without this the
+ * line orphans on the shared bill: dropped from the cart (so the Square charge is
+ * short by one heat) yet still confirmed at checkout. Per-heat sibling of
+ * releaseItemBmiLines; root cause of the "shows both heats, charges one" report.
+ */
+export async function releaseHeatBmiLines(
+  session: BookingSession,
+  heats: { bmiLineId?: string | null }[],
+): Promise<void> {
+  await removeBmiBillLines(
+    session,
+    heats.map((h) => h.bmiLineId),
+  );
+}
+
+/**
+ * Release the BMI bill lines a cart item booked EARLY (race heats on heat-picker
+ * advance, an attraction slot on slot advance) when the customer removes that item
+ * from the cart. Heats/slots are booked onto the shared session bill before the
+ * cart, so without this the orphaned lines stay on the bill and get confirmed at
+ * checkout — booking (and on legacy bills, charging) something the customer
+ * deleted. Uses the exact `bmiLineId` stored at booking (= BMI's orderItemId), so
+ * it only removes THIS item's lines, never another item's. Non-fatal per line.
+ */
+export async function releaseItemBmiLines(
+  session: BookingSession,
+  item: SessionItem,
+): Promise<void> {
+  if (item.kind === "race") {
+    await removeBmiBillLines(
+      session,
+      item.heats.map((h) => h.bmiLineId),
+    );
+  } else if (item.kind === "attraction") {
+    await removeBmiBillLines(session, [item.bmiLineId]);
+  }
+  // Bowling/KBF are QAMF-vendored (not on the BMI bill) — nothing to release here.
+}
+
 // ── Square customer lookup ──────────────────────────────────────────────
 
 export async function resolveSquareCustomer(contact: Partial<ContactInfo>): Promise<{
@@ -517,6 +539,11 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
 
   const cardSourceId = params.savedCardId ?? params.cardSourceId;
 
+  // Per-racer credit redemptions (returning racers paying with a race credit).
+  // The server re-validates the live balance, charges $0 for these heats, and
+  // deducts one credit each. Derived from session.party redeemCreditKindId.
+  const creditRedemptions = redemptionsFromSession(session);
+
   const res = await fetch("/api/booking/v2/reserve", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -547,6 +574,7 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
       // $0 model: the whole BMI bill is $0 (heats + bundled license all $0), so
       // confirm it as a $0 credit. Square holds the real money. Omitted on legacy.
       bmiConfirmAmountCents: useZeroModel ? 0 : undefined,
+      ...(creditRedemptions.length ? { creditRedemptions } : {}),
     }),
   });
 
@@ -628,6 +656,73 @@ function buildZeroModelOverview(session: BookingSession, bmiOverview: BillOvervi
   return { lines, subtotal, tax, total, cashOwed: total, creditApplied: 0, isCreditOrder: false };
 }
 
+/**
+ * Apply per-racer credit redemptions to a charge overview: split each race line
+ * into the charged portion (racers paying cash) and a $0 "credit" portion (racers
+ * redeeming a credit), then recompute subtotal/tax/total. The $0 credit lines are
+ * kept so the reserve cart stays non-empty and the review renders "Credit". A
+ * racer is redeeming when their PartyMember carries `redeemCreditKindId`.
+ *
+ * Pure — used by the checkout UI for display AND for the cart sent to the credit
+ * reserve path (/reserve). The cash/mixed path (unifiedReserve) rebuilds from the
+ * session with the same rule, so displayed price == charge-time price.
+ */
+export function applyCreditRedemptionsToOverview(
+  overview: BillOverview,
+  session: BookingSession,
+): BillOverview {
+  // productId -> number of heats redeemed (assigned member carries redeemCreditKindId)
+  const redeemedByProduct = new Map<string, number>();
+  let redeemedCount = 0;
+  for (const item of session.items) {
+    if (item.kind !== "race") continue;
+    for (const h of item.heats) {
+      if (!h.productId || !h.assignedTo) continue;
+      const member = session.party.find((m) => m.id === h.assignedTo);
+      if (!member?.redeemCreditKindId) continue;
+      redeemedByProduct.set(h.productId, (redeemedByProduct.get(h.productId) ?? 0) + 1);
+      redeemedCount += 1;
+    }
+  }
+  if (redeemedCount === 0) return overview;
+
+  const lines: BillLine[] = [];
+  for (const line of overview.lines) {
+    const redeemed = line.bmiProductId ? (redeemedByProduct.get(line.bmiProductId) ?? 0) : 0;
+    if (redeemed <= 0) {
+      lines.push(line);
+      continue;
+    }
+    const unit = line.quantity > 0 ? line.amount / line.quantity : 0;
+    const creditQty = Math.min(redeemed, line.quantity);
+    const chargedQty = Math.max(0, line.quantity - creditQty);
+    if (chargedQty > 0) {
+      lines.push({
+        ...line,
+        quantity: chargedQty,
+        amount: Math.round(unit * chargedQty * 100) / 100,
+      });
+    }
+    // Keep the redeemed portion as a $0 line so the cart isn't empty and the
+    // review shows it as "Credit".
+    lines.push({ ...line, quantity: creditQty, amount: 0 });
+  }
+
+  const subtotal = Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+  const tax = calculateTax(Math.max(0, subtotal));
+  const total = Math.round((subtotal + tax) * 100) / 100;
+  return {
+    ...overview,
+    lines,
+    subtotal,
+    tax,
+    total,
+    cashOwed: Math.max(0, total),
+    creditApplied: redeemedCount,
+    isCreditOrder: subtotal <= 0,
+  };
+}
+
 function resolveProductId(session: BookingSession, line: BillLine): string | null {
   for (const item of session.items) {
     if (item.kind === "race") {
@@ -707,6 +802,9 @@ export function buildConfirmationUrl(session: BookingSession, billId: string, v2
     .filter((m) => m.bmiPersonId)
     .map((m) => m.bmiPersonId)
     .join(",");
-  const base = `/book/confirmation?billId=${billId}&billIds=${billId}&racerNames=${racerNames}&personIds=${personIds}`;
+  // v2 bookings (multi-activity capable) land on the v2 confirmation route;
+  // v1 keeps serving /book/confirmation for legacy/bookmarked links.
+  const path = v2 ? "/book/confirmation/v2" : "/book/confirmation";
+  const base = `${path}?billId=${billId}&billIds=${billId}&racerNames=${racerNames}&personIds=${personIds}`;
   return v2 ? `${base}&v2=1` : base;
 }

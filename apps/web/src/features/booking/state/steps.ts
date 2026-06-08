@@ -46,17 +46,6 @@ export interface StepDef<I extends BookingItem = BookingItem> {
   canAdvance: (item: I, session: BookingSession) => true | { reason: string };
 }
 
-/** Placeholder step used while real per-kind components land. */
-function makePlaceholder<I extends BookingItem>(id: string, title: string): StepDef<I> {
-  return {
-    id,
-    title,
-    Component: () => null,
-    isVisible: () => true,
-    canAdvance: () => true,
-  };
-}
-
 // Real race step components — PR-B2 commit 9a ships Date + Party; commit 9b
 // fills in Product / HeatPicker / License / Review.
 import { RaceDateStep } from "~/components/features/booking/steps/race/RaceDateStep";
@@ -70,6 +59,7 @@ import {
   RaceHeatPickerStepJunior,
 } from "~/components/features/booking/steps/race/RaceHeatPickerStep";
 import { RacePovStep } from "~/components/features/booking/steps/race/RacePovStep";
+import { ContactStep } from "~/components/features/booking/steps/ContactStep";
 import {
   AttractionProductStep,
   AttractionDateStep,
@@ -93,6 +83,10 @@ import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowle
 export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [
     RacePartyStep as StepDef,
+    // Contact right after the party/login step: a returning racer's verified
+    // lookup pre-fills it, and it's still BEFORE the first heat books (so the
+    // customer attaches at bill creation). Required — see ContactStep.
+    ContactStep,
     RaceDateStep as StepDef,
     RaceProductStepAdult as StepDef,
     RaceHeatPickerStepAdult as StepDef,
@@ -103,11 +97,17 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // race steps and adds attractions as separate cart items.
   ],
   attraction: [
+    // Contact first — attraction slots book early (create a BMI bill), so we
+    // need the customer before that. Required.
+    ContactStep,
     AttractionProductStep as StepDef,
     AttractionDateStep as StepDef,
     AttractionSlotStep as StepDef,
   ],
   bowling: [
+    // Contact first so we always capture base customer info. (Bowling/KBF are
+    // QAMF-vendored — no BMI bill — but the confirmation/notifications need it.)
+    ContactStep,
     BowlingPlayersStep as StepDef,
     BowlingSlotsStep as StepDef,
     BowlingTierStep as StepDef,

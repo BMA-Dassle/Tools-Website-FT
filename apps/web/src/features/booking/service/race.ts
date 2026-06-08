@@ -16,6 +16,7 @@ import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import type { BookingSession, PartyMember, RaceItem } from "../state/types";
 import { bmiAdapter, type BmiProposal } from "../data/bmi";
+import { registerContact } from "./bmi-register";
 
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
@@ -125,6 +126,11 @@ export async function bookHeatsOnAdvance(
     if (!billId) {
       billId = result.rawOrderId;
       dispatch({ type: "setBmiBillId", id: billId });
+      // Attach the customer to the brand-new bill immediately (v1 parity:
+      // registerContactPerson) so a reservation never exists without a contact.
+      // Contact is collected up front (ContactStep), so session.contact is set.
+      // Non-fatal.
+      await registerContact(billId, session.contact, session.party);
     }
 
     dispatch({

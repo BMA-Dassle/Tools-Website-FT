@@ -81,6 +81,14 @@ export interface PartyMember {
   waiverValid?: boolean;
   /** Race credit balances from BMI (e.g. [{kind: "Starter Race", balance: 3}]). */
   creditBalances?: Array<{ kind: string; balance: number }>;
+  /**
+   * v2 $0 model: when set, this racer redeems a race CREDIT (deposit kind id) for
+   * their race instead of paying cash — Square charges $0 for their heat(s) and
+   * one credit per heat is deducted from THIS racer's own balance. Chosen at
+   * checkout via the explicit "use a credit" toggle. Only valid for returning
+   * racers / linked family (bmiPersonId && !isNewRacer). null/undefined = pay cash.
+   */
+  redeemCreditKindId?: string | null;
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */

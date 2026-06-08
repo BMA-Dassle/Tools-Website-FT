@@ -1096,8 +1096,8 @@ export async function POST(req: NextRequest) {
 
         squareDepositOrderId = depositResult.depositOrderId;
         squareDepositPaymentId = depositResult.depositPaymentId;
-        squareGiftCardId = depositResult.giftCardId;
-        squareGiftCardGan = depositResult.giftCardGan;
+        squareGiftCardId = depositResult.giftCardId ?? undefined;
+        squareGiftCardGan = depositResult.giftCardGan ?? undefined;
         depositCents = actualDepositToCharge;
       } catch (err) {
         // Payment failed — delete loyalty reward to return points

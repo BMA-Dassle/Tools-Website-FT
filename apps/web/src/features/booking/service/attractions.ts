@@ -10,6 +10,7 @@ import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import type { AttractionItem, BookingSession } from "../state/types";
 import { bmiAdapter } from "../data/bmi";
+import { registerContact } from "./bmi-register";
 import {
   ATTRACTIONS,
   getClientKey,
@@ -84,6 +85,10 @@ export async function bookAttractionOnAdvance(
 
   if (!session.bmiBillId) {
     dispatch({ type: "setBmiBillId", id: result.rawOrderId });
+    // Attach the customer to the brand-new bill immediately (v1 parity) so an
+    // attraction reservation never exists without a contact. Contact is collected
+    // up front (ContactStep), so session.contact is populated. Non-fatal.
+    await registerContact(result.rawOrderId, session.contact, session.party);
   }
 
   dispatch({

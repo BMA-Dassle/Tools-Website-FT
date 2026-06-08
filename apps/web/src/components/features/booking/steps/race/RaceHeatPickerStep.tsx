@@ -16,6 +16,7 @@ import {
   HEAT_CONFLICT_TOOLTIP,
   heatsConflict,
 } from "~/features/booking/service/conflict";
+import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { RacerSelectorModal } from "./RacerSelectorModal";
 import { getGroupEventForDate } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
@@ -50,6 +51,11 @@ import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
 
 const NEW_RACER_LEAD_MINUTES = 75;
 
+// Single-race products have no fixed raceCount. Allow a racer to book MORE than
+// one heat (up to this many per racer) so they can race multiple times in a
+// visit; the heat-conflict check still blocks back-to-back / too-close picks.
+const SINGLE_RACE_MAX_PER_RACER = 6;
+
 type Category = "adult" | "junior";
 type Track = "Red" | "Blue" | "Mega";
 type TrackOrNull = Track | null;
@@ -66,6 +72,10 @@ interface TrackedProposal {
   productId: string;
   track: TrackOrNull;
 }
+
+/** Pick identity = product + start time, so heats stay uniquely keyed even as a
+ *  racer accumulates picks across products/tracks via "Add another race". */
+const heatKey = (productId: string, heatId: string): string => `${productId}|${heatId}`;
 
 function buildFetchPlan(product: RaceProduct): FetchPlanItem[] {
   if (product.trackProducts) {
@@ -214,7 +224,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         </div>
       );
     }
-    const heatsNeeded = product?.raceCount ?? 1;
+    // Combo packs require exactly raceCount heats. Single races (no raceCount)
+    // may book MORE than one — capped generously per racer; the conflict logic
+    // below prevents picking back-to-back / too-close heats.
+    const heatsMax = product?.raceCount ?? partySize * SINGLE_RACE_MAX_PER_RACER;
 
     // Locked-track filter: when ProductStep TrackPickerModal set
     // productTrackAdult/Junior, only fetch that track. Mirrors v1's
@@ -264,16 +277,26 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     );
     const pickedBlocks = useMemo(() => {
       const seen = new Set<string>();
-      const out: Array<{ heatId: string; track: TrackOrNull }> = [];
+      const out: Array<{ heatId: string; track: TrackOrNull; productId: string }> = [];
       for (const h of categoryHeats) {
-        if (!h.heatId || seen.has(h.heatId)) continue;
-        seen.add(h.heatId);
-        out.push({ heatId: h.heatId, track: h.track as TrackOrNull });
+        if (!h.heatId || !h.productId) continue;
+        const k = heatKey(h.productId, h.heatId);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ heatId: h.heatId, track: h.track as TrackOrNull, productId: h.productId });
       }
       return out;
     }, [categoryHeats]);
-    const pickedSet = new Set(pickedBlocks.map((p) => p.heatId));
-    const atCap = pickedBlocks.length >= heatsNeeded;
+    const pickedSet = new Set(pickedBlocks.map((p) => heatKey(p.productId, p.heatId)));
+    const atCap = pickedBlocks.length >= heatsMax;
+
+    // Gap enforcement spans ALL of this category's heats — every product/track the
+    // racer has added across the "Add another race" loop, not just the current
+    // screen — so they can't end up booked back-to-back across tracks/products.
+    const categoryRacerIds = new Set(racers.map((r) => r.id));
+    const conflictBlocks = item.heats
+      .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
+      .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }));
 
     const anyNewInCategory = racers.some((r) => r.isNewRacer);
     const allReturningHaveWaivers =
@@ -300,14 +323,23 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       return list;
     }, [queries, fetchPlan, leadCutoffMs]);
 
-    const handleClickBlock = (tp: TrackedProposal) => {
+    const handleClickBlock = async (tp: TrackedProposal) => {
       const blockId = tp.block.start;
-      if (pickedSet.has(blockId)) {
+      if (pickedSet.has(heatKey(tp.productId, blockId))) {
+        // Deselect: drop this block's heats from the cart. Any already booked on a
+        // prior advance carry a bmiLineId — release those BMI lines too, or they
+        // orphan on the shared bill: short the Square charge by one heat yet still
+        // get confirmed at checkout ("shows both heats, charges one"). Cart is the
+        // charge's source of truth, so drop first, then best-effort release.
+        const removed = item.heats.filter(
+          (h) => h.heatId === blockId && h.productId === tp.productId,
+        );
         onChange({
-          heats: item.heats.filter(
-            (h) => !(h.heatId === blockId && categoryProductIds.has(h.productId ?? "")),
-          ),
+          heats: item.heats.filter((h) => !(h.heatId === blockId && h.productId === tp.productId)),
         });
+        if (removed.some((h) => h.bmiLineId)) {
+          await releaseHeatBmiLines(session, removed);
+        }
         return;
       }
       if (atCap) return;
@@ -350,9 +382,38 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       );
     }
     if (!product) {
+      // No current product. If the racer already added races (the "Add another"
+      // loop, which clears the product), show what they have + let them add more
+      // or continue (the wizard Next is enabled via canAdvanceFor). Otherwise this
+      // is the first visit — prompt to pick a race.
+      const catRacerIds = new Set(racers.map((r) => r.id));
+      const addedCount = item.heats.filter(
+        (h) => h.heatId && h.assignedTo && catRacerIds.has(h.assignedTo),
+      ).length;
+      if (addedCount === 0) {
+        return (
+          <div className="bg-amber-500/8 rounded-xl border border-amber-500/30 p-4 text-sm text-amber-300">
+            Pick a {category} race first.
+          </div>
+        );
+      }
       return (
-        <div className="bg-amber-500/8 rounded-xl border border-amber-500/30 p-4 text-sm text-amber-300">
-          Pick a {category} race first.
+        <div className="space-y-5 text-center">
+          <div>
+            <h2 className="font-display mb-1 text-2xl tracking-widest text-white uppercase">
+              {addedCount} {category} {addedCount === 1 ? "race" : "races"} added
+            </h2>
+            <p className="text-sm text-white/50">
+              Add another race or track, or hit Continue below to move on.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "back" })}
+            className="mx-auto block rounded-xl border border-[#00E2E5]/40 bg-[#00E2E5]/5 px-5 py-2.5 text-sm font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+          >
+            + Add another race or track
+          </button>
         </div>
       );
     }
@@ -396,7 +457,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         {/* Header — v1 HeatPicker:241-248 */}
         <div className="text-center">
           <h2 className="font-display mb-1 text-2xl tracking-widest text-white uppercase">
-            Pick a Heat
+            {heatsMax > 1 ? "Pick Your Heats" : "Pick a Heat"}
           </h2>
           <p className="text-sm text-white/50">
             <span className="text-white/80">{product.name}</span> · {displayDate}
@@ -411,6 +472,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               {partySize} racer{partySize !== 1 ? "s" : ""}
             </span>
           </p>
+          {!product.raceCount && (
+            <p className="mt-1 text-xs text-[#00E2E5]/70">
+              Pick one or more heats — we&apos;ll keep them spaced out.
+            </p>
+          )}
         </div>
 
         {isLoading ? (
@@ -437,11 +503,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
             {allProposals.map((tp, idx) => {
               const block = tp.block;
-              const isSelected = pickedSet.has(block.start);
+              const isSelected = pickedSet.has(heatKey(tp.productId, block.start));
               const blockStartMs = parseLocal(block.start).getTime();
               const isConflict =
                 !isSelected &&
-                pickedBlocks.some((p) =>
+                conflictBlocks.some((p) =>
                   heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
                 );
               const isLowCap = block.freeSpots < partySize;
@@ -518,11 +584,41 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           )}
         </div>
 
+        {/* Add another race: go back to the product step to pick a different race
+            or track. Picked heats persist on item.heats and accumulate; the gap
+            rule above spans every track/product the racer has added. */}
+        {!product.raceCount && pickedBlocks.length > 0 && (
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => {
+                // Clear the current product so the product step is a fresh pick,
+                // then go back to it. Picked heats persist on item.heats.
+                onChange(
+                  category === "adult"
+                    ? { productIdAdult: null, productTrackAdult: null }
+                    : { productIdJunior: null, productTrackJunior: null },
+                );
+                dispatch({ type: "back" });
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#00E2E5]/40 bg-[#00E2E5]/5 px-5 py-2.5 text-sm font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+            >
+              + Add another race or track
+            </button>
+            <p className="mt-1.5 text-xs text-white/40">
+              Your picked heats are saved — pick a different race or track next.
+            </p>
+          </div>
+        )}
+
         {pendingHeat && (
           <RacerSelectorModal
             racers={returningRacers}
             alreadyBookedMemberIds={categoryHeats
-              .filter((h) => h.heatId === pendingHeat.block.start)
+              .filter(
+                (h) =>
+                  h.heatId === pendingHeat.block.start && h.productId === pendingHeat.productId,
+              )
               .map((h) => h.assignedTo)
               .filter((id): id is string => !!id)}
             onConfirm={handleRacerSelectorConfirm}
@@ -557,8 +653,18 @@ function canAdvanceFor(
     }
   }
 
+  const categoryRacerIdsForGuard = new Set(
+    session.party.filter((m) => (m.category ?? "adult") === category).map((m) => m.id),
+  );
+  const hasAddedRaces = item.heats.some(
+    (h) => h.heatId && h.assignedTo && categoryRacerIdsForGuard.has(h.assignedTo),
+  );
   const product = getRaceProductById(productId);
-  if (!product) return { reason: `Pick a ${category} race first.` };
+  if (!product) {
+    // No current product, but if they already added races (the "Add another"
+    // loop clears the product), let them continue.
+    return hasAddedRaces ? true : { reason: `Pick a ${category} race first.` };
+  }
   const fetchPlan = buildFetchPlan(product);
   const categoryProductIds = new Set(fetchPlan.map((f) => f.productId));
   const categoryHeats = heatsForCategory(item, categoryProductIds);
@@ -568,8 +674,16 @@ function canAdvanceFor(
     const remaining = heatsNeeded - distinctBlocks.size;
     return { reason: `Pick ${remaining} more ${category} heat${remaining === 1 ? "" : "s"}` };
   }
+  // Conflict spans every product/track the racer added (the "Add another race"
+  // loop accumulates heats across products), not just the current product.
+  const categoryRacerIds = new Set(
+    session.party.filter((m) => (m.category ?? "adult") === category).map((m) => m.id),
+  );
+  const allCategoryHeats = item.heats.filter(
+    (h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo),
+  );
   const byMember = new Map<string, Array<{ start: string; track: string | null }>>();
-  for (const h of categoryHeats) {
+  for (const h of allCategoryHeats) {
     if (!h.assignedTo || !h.heatId) continue;
     const list = byMember.get(h.assignedTo) ?? [];
     list.push({ start: h.heatId, track: h.track });

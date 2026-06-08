@@ -48,10 +48,17 @@ export interface DepositParams {
 export interface DepositResult {
   depositOrderId: string;
   depositPaymentId: string;
-  giftCardId: string;
-  giftCardGan: string;
+  /** Null when the deposit was CAPTURED but gift-card create/activate failed
+   *  (see giftCardPending) — the booking is recovered forward, not refunded. */
+  giftCardId: string | null;
+  giftCardGan: string | null;
   gcApprovedCents: number;
   cardApprovedCents: number;
+  /** True = card captured but the gift card isn't funded yet. The caller MUST
+   *  persist a recoverable anchor; race-confirm-reconcile re-runs create+activate
+   *  (idempotent via baseKey). */
+  giftCardPending?: boolean;
+  gcError?: string;
 }
 
 export const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
@@ -164,16 +171,77 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
     throw new Error("Payment succeeded but returned no ID");
   }
 
-  // ── 3. Create DIGITAL gift card with custom GAN ──────────────────────
-  const customGan = `${ganPrefix}${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
+  // ── 3 + 4. Create + ACTIVATE the gift card from the CAPTURED deposit ──
+  // The card is already captured (payOrder). If gift-card create/activate fails
+  // here, do NOT throw away the captured-payment context — return a partial
+  // result (giftCardPending) so the caller persists a recoverable anchor and the
+  // race-confirm-reconcile cron re-runs create+activate (idempotent via baseKey,
+  // so no double-load). The money is safely captured, never silently lost.
+  try {
+    const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
+      baseKey,
+      locationId,
+      amountCents,
+      ganPrefix,
+      ganSuffix,
+      paymentIds: [gcPaymentId, cardPaymentId].filter((id): id is string => Boolean(id)),
+    });
+    console.log(
+      `[deposit] success depositOrderId=${depositOrderId} amount=${amountCents} gc=${gcApprovedCents} card=${cardApprovedCents}`,
+    );
+    return {
+      depositOrderId,
+      depositPaymentId,
+      giftCardId,
+      giftCardGan,
+      gcApprovedCents,
+      cardApprovedCents,
+    };
+  } catch (gcErr) {
+    const detail = gcErr instanceof Error ? gcErr.message : String(gcErr);
+    console.error(
+      "[deposit] gift card create/activate failed AFTER capture (recoverable):",
+      detail,
+    );
+    return {
+      depositOrderId,
+      depositPaymentId,
+      giftCardId: null,
+      giftCardGan: null,
+      gcApprovedCents,
+      cardApprovedCents,
+      giftCardPending: true,
+      gcError: detail,
+    };
+  }
+}
+
+/**
+ * Create a DIGITAL gift card with the custom GAN and ACTIVATE it with the
+ * deposit amount, funded by the given (already-captured) payment ids. Idempotent
+ * via `gc-${baseKey}` / `gc-act-${baseKey}` — a retry with the same baseKey
+ * returns the same card and never double-loads. Throws on failure.
+ *
+ * Used by createDepositAndCharge (happy path) AND race-confirm-reconcile (to
+ * fund a gift card whose creation failed after capture).
+ */
+export async function activateGiftCardForDeposit(params: {
+  baseKey: string;
+  locationId: string;
+  amountCents: number;
+  ganPrefix: string;
+  ganSuffix: string;
+  paymentIds: string[];
+}): Promise<{ giftCardId: string; giftCardGan: string }> {
+  const customGan = `${params.ganPrefix}${params.ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
   const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
 
   const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
     method: "POST",
     headers: sqHeaders(),
     body: JSON.stringify({
-      idempotency_key: `gc-${baseKey}`,
-      location_id: locationId,
+      idempotency_key: `gc-${params.baseKey}`,
+      location_id: params.locationId,
       gift_card: {
         type: "DIGITAL",
         ...(useCustomGan ? { gan_source: "OTHER", gan: customGan } : {}),
@@ -181,118 +249,49 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
     }),
   });
   const giftCardData = await giftCardRes.json();
-
   if (!giftCardRes.ok || giftCardData.errors) {
     const sqErr = giftCardData.errors?.[0];
-    const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(giftCardData);
-    console.error("[deposit] gift card creation failed after payment:", detail);
-    throw new Error(`Payment captured but gift card creation failed: ${detail}`);
+    throw new Error(
+      `gift card creation failed: ${sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(giftCardData)}`,
+    );
   }
-
   const giftCardId: string = giftCardData.gift_card?.id;
   const giftCardGan: string = giftCardData.gift_card?.gan;
-  if (!giftCardId || !giftCardGan) {
-    throw new Error("Gift card creation returned no ID or GAN");
-  }
+  if (!giftCardId || !giftCardGan) throw new Error("Gift card creation returned no ID or GAN");
 
-  // ── 4. Activate gift card ────────────────────────────────────────────
   const activateRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
     method: "POST",
     headers: sqHeaders(),
     body: JSON.stringify({
-      idempotency_key: `gc-act-${baseKey}`,
+      idempotency_key: `gc-act-${params.baseKey}`,
       gift_card_activity: {
         type: "ACTIVATE",
-        location_id: locationId,
+        location_id: params.locationId,
         gift_card_id: giftCardId,
         activate_activity_details: {
-          amount_money: { amount: amountCents, currency: "USD" },
-          buyer_payment_instrument_ids: [gcPaymentId, cardPaymentId].filter((id): id is string =>
-            Boolean(id),
-          ),
+          amount_money: { amount: params.amountCents, currency: "USD" },
+          buyer_payment_instrument_ids: params.paymentIds,
         },
       },
     }),
   });
   const activateData = await activateRes.json();
-
   if (!activateRes.ok || activateData.errors) {
     const sqErr = activateData.errors?.[0];
-    const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(activateData);
-    console.error("[deposit] gift card activation failed:", detail);
-    throw new Error(`Payment captured but gift card activation failed: ${detail}`);
+    throw new Error(
+      `gift card activation failed: ${sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(activateData)}`,
+    );
   }
-
-  console.log(
-    `[deposit] success depositOrderId=${depositOrderId} amount=${amountCents} gc=${gcApprovedCents} card=${cardApprovedCents}`,
-  );
-
-  return {
-    depositOrderId,
-    depositPaymentId,
-    giftCardId,
-    giftCardGan,
-    gcApprovedCents,
-    cardApprovedCents,
-  };
+  return { giftCardId, giftCardGan };
 }
 
-// ── Rollback: cancel deposit payments ───────────────────────────────────
-
-export async function rollbackDeposit(
-  depositOrderId: string,
-  paymentIds: { gc?: string; card?: string },
-): Promise<void> {
-  const toCancel = [paymentIds.gc, paymentIds.card].filter(Boolean) as string[];
-
-  for (const paymentId of toCancel) {
-    try {
-      const res = await fetch(`${SQUARE_BASE}/payments/${paymentId}/cancel`, {
-        method: "POST",
-        headers: sqHeaders(),
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        console.error(`[deposit] rollback cancel payment ${paymentId} failed:`, data);
-      } else {
-        console.log(`[deposit] rolled back payment ${paymentId}`);
-      }
-    } catch (err) {
-      console.error(`[deposit] rollback error for ${paymentId}:`, err);
-    }
-  }
-
-  // Cancel the deposit order itself
-  try {
-    const getRes = await fetch(`${SQUARE_BASE}/orders/${depositOrderId}`, {
-      headers: sqHeaders(),
-    });
-    if (getRes.ok) {
-      const getData = await getRes.json();
-      const version = getData.order?.version;
-      if (version != null) {
-        const cancelRes = await fetch(`${SQUARE_BASE}/orders/${depositOrderId}`, {
-          method: "PUT",
-          headers: sqHeaders(),
-          body: JSON.stringify({
-            order: {
-              location_id: getData.order?.location_id,
-              state: "CANCELED",
-              version,
-            },
-          }),
-        });
-        if (!cancelRes.ok) {
-          const cancelData = await cancelRes.json().catch(() => ({}));
-          console.error(`[deposit] rollback cancel order ${depositOrderId} failed:`, cancelData);
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`[deposit] rollback order cancel error:`, err);
-  }
-}
+// NOTE: `rollbackDeposit` was removed (2026-06-07, blocker #2). The deposit is
+// CAPTURED inside createDepositAndCharge (payOrder), so /payments/{id}/cancel
+// 4xx's and can't reverse it — a "rollback" here silently failed to return the
+// money. The model now recovers FORWARD: a downstream failure leaves a durable
+// confirm_pending/confirm_failed anchor that race-confirm-reconcile drives to
+// confirmed (the funds stay on the gift card). For a genuine refund, use the
+// admin-only `refundSquarePayment` in lib/square-gift-card.ts.
 
 // ── Error class for payment-specific failures ───────────────────────────
 

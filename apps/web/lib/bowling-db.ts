@@ -299,6 +299,8 @@ export async function ensureBowlingSchema(): Promise<void> {
   // the status becomes 'confirm_failed' and staff are alerted.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS qamf_confirm_attempts INTEGER NOT NULL DEFAULT 0`;
   await q`CREATE INDEX IF NOT EXISTS br_confirm_pending ON bowling_reservations(id) WHERE status = 'confirm_pending'`;
+  // Reconcile index for race/attraction confirm recovery (race-confirm-reconcile cron).
+  await q`CREATE INDEX IF NOT EXISTS br_bmi_confirm_pending ON bowling_reservations(inserted_at) WHERE status IN ('confirm_pending', 'confirm_failed')`;
 
   await q`ALTER TABLE bowling_reservation_players ADD COLUMN IF NOT EXISTS lane_number INTEGER`;
 
@@ -929,6 +931,73 @@ export async function getBowlingReservation(
 }
 
 /**
+ * Look up the most recent reservation for a BMI bill id (race/attraction lines
+ * live on the shared BMI bill). Used by the admin inspector to correlate a
+ * billId → gift card + day-of order + center. Returns the reservation row
+ * (without lines); the `br_bmi` index keeps it cheap.
+ */
+export async function getBowlingReservationByBillId(
+  bmiBillId: string,
+): Promise<BowlingReservation | null> {
+  if (!isDbConfigured()) return null;
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations WHERE bmi_bill_id = ${bmiBillId} ORDER BY id DESC LIMIT 1
+  `;
+  if (!rows.length) return null;
+  return rowToReservation(rows[0] as Record<string, unknown>);
+}
+
+/**
+ * Reserve-path anchor idempotency: the existing non-cancelled reservation for a
+ * (bill, productKind), so a double-submit / retry REUSES the row instead of
+ * inserting a duplicate. Scoped by product_kind because race + attraction
+ * legitimately share one BMI bill (one row each) — never key on bill alone.
+ */
+export async function findReusableReservation(
+  bmiBillId: string,
+  productKind: string,
+): Promise<BowlingReservation | null> {
+  if (!isDbConfigured()) return null;
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE bmi_bill_id = ${bmiBillId}
+      AND product_kind = ${productKind}
+      AND status != 'cancelled'
+    ORDER BY id DESC LIMIT 1
+  `;
+  if (!rows.length) return null;
+  return rowToReservation(rows[0] as Record<string, unknown>);
+}
+
+/**
+ * Race reservations awaiting day-of settlement: confirmed, on the $0 model (gift
+ * card + day-of order present), and not yet settled (dayof_order_sent_at NULL).
+ * The race-dayof-pay cron cross-references these against BMI "Arrived" projects,
+ * then charges the gift card against the open day-of order. Naturally a small
+ * set (only unpaid races awaiting check-in), so no date window needed.
+ */
+export async function getRaceReservationsAwaitingDayofPay(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE product_kind = 'race'
+      AND status = 'confirmed'
+      AND dayof_order_sent_at IS NULL
+      AND square_gift_card_id IS NOT NULL
+      AND square_dayof_order_id IS NOT NULL
+    ORDER BY booked_at DESC
+    LIMIT 500
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Look up a reservation by QAMF reservation ID.
  * Used by the webhook consumer to find the Neon row for an incoming event.
  */
@@ -1108,6 +1177,48 @@ export async function updateBowlingReservationStatus(
   await q`UPDATE bowling_reservations SET status = ${status} WHERE id = ${id}`;
 }
 
+/**
+ * Flip a reserve-path anchor row confirm_pending|confirm_failed → confirmed once
+ * BMI confirm + state -3 succeed. Guarded so it never overwrites a cancelled or
+ * already-confirmed/arrived/completed row. Returns true if it transitioned.
+ */
+export async function updateBowlingReservationConfirmed(
+  id: number,
+  opts: { bmiReservationNumber?: string } = {},
+): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE bowling_reservations
+    SET status = 'confirmed',
+        bmi_reservation_number = COALESCE(${opts.bmiReservationNumber ?? null}, bmi_reservation_number)
+    WHERE id = ${id} AND status IN ('confirm_pending', 'confirm_failed')
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/**
+ * Mark a reserve-path anchor row confirm_failed (BMI confirm failed after the
+ * deposit was captured). The money stays on the gift card; the
+ * race-confirm-reconcile cron retries forward. Guarded to the pending states.
+ */
+export async function updateBowlingReservationConfirmFailed(
+  id: number,
+  error: string,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET status = 'confirm_failed',
+        dayof_order_error = ${error.slice(0, 500)}
+    WHERE id = ${id} AND status IN ('confirm_pending', 'confirm_failed')
+  `;
+}
+
 /** Sync booked_at when QAMF sends a different time (e.g. manual reschedule in Conqueror). */
 export async function updateBowlingReservationBookedAt(
   id: number,
@@ -1260,6 +1371,29 @@ export async function getPendingQamfConfirms(): Promise<BowlingReservation[]> {
   const rows = await q`
     SELECT * FROM bowling_reservations
     WHERE status = 'confirm_pending'
+    ORDER BY inserted_at ASC
+    LIMIT 20
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * Race/attraction reserve-path anchors stuck at confirm_pending|confirm_failed
+ * (BMI confirm never landed after the deposit was captured). Drives the
+ * race-confirm-reconcile cron, which re-confirms BMI forward (the money is
+ * already on the gift card). Excludes rows that exhausted the attempt budget
+ * (terminal — need manual intervention).
+ */
+export async function getPendingBmiConfirms(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE product_kind IN ('race', 'attraction')
+      AND status IN ('confirm_pending', 'confirm_failed')
+      AND bmi_bill_id IS NOT NULL
+      AND qamf_confirm_attempts < ${MAX_QAMF_CONFIRM_ATTEMPTS}
     ORDER BY inserted_at ASC
     LIMIT 20
   `;

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unifiedReserve, RewardFailedError } from "~/features/booking/service/unified-reserve";
+import {
+  unifiedReserve,
+  RewardFailedError,
+  ReserveInProgressError,
+} from "~/features/booking/service/unified-reserve";
 import { DepositPaymentError } from "~/features/booking/service/deposit";
+import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -43,8 +48,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err) {
+    if (err instanceof ReserveInProgressError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
     if (err instanceof RewardFailedError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 422 });
+    }
+    if (err instanceof CreditRedemptionError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
     }
     if (err instanceof DepositPaymentError) {
       return NextResponse.json({ error: err.friendlyMessage, code: err.code }, { status: 400 });

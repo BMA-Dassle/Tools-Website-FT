@@ -283,6 +283,43 @@ export async function cancelSquarePayment(
   }
 }
 
+/**
+ * Refund a CAPTURED Square payment (full or partial) via /v2/refunds.
+ *
+ * ADMIN / MANUAL ONLY. The automatic reserve + reconcile paths NEVER call this:
+ * in the $0 model a successful charge is supposed to fund the gift card, so a
+ * downstream failure is recovered FORWARD (re-confirm), not refunded. This is
+ * the escape hatch for a genuinely unrecoverable booking. (`cancelSquarePayment`
+ * only voids un-captured auths; once payOrder captures, reversal needs /refunds.)
+ * Throws SquarePaymentError so the admin caller can surface the failure.
+ */
+export async function refundSquarePayment(params: {
+  paymentId: string;
+  amountCents: number;
+  baseKey: string;
+  reason?: string;
+}): Promise<{ refundId: string; status: string }> {
+  const res = await fetch(`${SQUARE_BASE}/refunds`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `refund-${params.baseKey}`,
+      payment_id: params.paymentId,
+      amount_money: { amount: params.amountCents, currency: "USD" },
+      ...(params.reason ? { reason: params.reason } : {}),
+    }),
+  });
+  const data = await res.json().catch(() => ({}) as Record<string, unknown>);
+  if (!res.ok || data.errors) {
+    const e = data.errors?.[0];
+    throw new SquarePaymentError(
+      e?.code || "REFUND_FAILED",
+      e?.detail || `Refund failed (${res.status})`,
+    );
+  }
+  return { refundId: data.refund?.id ?? "", status: data.refund?.status ?? "PENDING" };
+}
+
 export interface MultiTenderResult {
   /** Square paymentId for the gift card authorization (if used). */
   gcPaymentId?: string;
