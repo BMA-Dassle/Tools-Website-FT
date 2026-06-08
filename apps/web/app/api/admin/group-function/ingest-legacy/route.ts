@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
     stateIds,
     maxIngest = 25,
     incentiveCents = 2000,
+    maxDaysOut = 10,
   } = body as {
     token?: string;
     dryRun?: boolean;
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
     stateIds?: string[];
     maxIngest?: number;
     incentiveCents?: number;
+    maxDaysOut?: number;
   };
 
   const expected = process.env.ADMIN_GF_INGEST_TOKEN;
@@ -172,6 +174,19 @@ export async function POST(req: NextRequest) {
         action: "excluded",
         reason: "past event",
         name: item.event.name,
+      });
+      continue;
+    }
+    // Only offer events that are close (~a week out) — never blast a "$20, pay now"
+    // offer months in advance. Mirrors the payment-due nudge cadence. Far-future
+    // events get picked up on a later run as they enter the window.
+    if (eventTime > now + maxDaysOut * 86_400_000) {
+      results.push({
+        reservationId: resId,
+        action: "excluded",
+        reason: `too far out (>${maxDaysOut}d)`,
+        name: item.event.name,
+        eventDate: formatEventDate(item.event.dateRaw),
       });
       continue;
     }
