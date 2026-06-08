@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AttractionItem, RaceItem, StepDef } from "~/features/booking";
 import type { BookingSession } from "~/features/booking/state/types";
 import { bmiAdapter, type BmiBlock, type BmiProposal } from "~/features/booking/data/bmi";
-import { resolveAttractionContext, ATTRACTIONS } from "~/features/booking/service/attractions";
+import {
+  resolveAttractionContext,
+  ATTRACTIONS,
+  bookAttractionOnAdvance,
+} from "~/features/booking/service/attractions";
+import { releaseItemBmiLines } from "~/features/booking/service/checkout";
 
 interface SlotOption {
   proposal: BmiProposal;
@@ -36,6 +41,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
   item,
   session,
   onChange,
+  dispatch,
 }) => {
   const ctx = useMemo(
     () => (item.slug ? resolveAttractionContext(item.slug, session) : null),
@@ -45,6 +51,44 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
   const [slots, setSlots] = useState<SlotOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Eager hold: reserve the slot with BMI the instant it's picked (not when the
+  // customer hits "Add to cart"), so a busy-day time isn't lost while they
+  // linger. `holdingRef` serializes holds; switching slots releases the prior
+  // hold before booking the new one.
+  const [holding, setHolding] = useState(false);
+  const [holdError, setHoldError] = useState<string | null>(null);
+  const holdingRef = useRef(false);
+
+  const selectSlot = async (block: BmiBlock, proposal: BmiProposal) => {
+    if (holdingRef.current) return;
+    if (item.slot === block.start && item.bmiLineId) return; // already held
+    holdingRef.current = true;
+    setHolding(true);
+    setHoldError(null);
+    try {
+      // Switching away from an already-held slot — release its BMI line first so
+      // it doesn't orphan on the bill.
+      if (item.bmiLineId) {
+        await releaseItemBmiLines(session, item);
+      }
+      onChange({ slot: block.start, slotProposal: proposal, bmiLineId: null });
+      await bookAttractionOnAdvance(
+        session,
+        { ...item, slot: block.start, slotProposal: proposal, bmiLineId: null },
+        dispatch,
+      );
+    } catch (err) {
+      onChange({ slot: null, slotProposal: null, bmiLineId: null });
+      setHoldError(
+        err instanceof Error
+          ? `Couldn't hold that time: ${err.message}`
+          : "Couldn't hold that time. Please pick another.",
+      );
+    } finally {
+      holdingRef.current = false;
+      setHolding(false);
+    }
+  };
 
   const accentColor = ctx?.config.color ?? "#00E2E5";
   const isPerPerson = ctx?.config.bookingMode === "per-person";
@@ -162,6 +206,19 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
         <p className="mt-1 text-sm text-white/50">{dateLabel}</p>
       </div>
 
+      {/* Eager-hold status: the slot is reserved the instant it's picked. */}
+      {holding && (
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+          <span className="text-xs font-medium text-white/70">Holding your time…</span>
+        </div>
+      )}
+      {holdError && !holding && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-center text-xs text-red-300">
+          {holdError}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex h-48 items-center justify-center">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
@@ -209,8 +266,8 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
               <button
                 key={block.start}
                 type="button"
-                disabled={isDisabled}
-                onClick={() => onChange({ slot: block.start, slotProposal: proposal })}
+                disabled={isDisabled || holding}
+                onClick={() => selectSlot(block, proposal)}
                 className={`rounded-xl border-2 p-3 text-center transition-colors ${
                   isDisabled
                     ? "cursor-not-allowed border-white/5 bg-white/[0.01] opacity-40"

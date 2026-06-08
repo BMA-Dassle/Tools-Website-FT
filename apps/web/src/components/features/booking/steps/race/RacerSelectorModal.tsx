@@ -1,28 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PartyMember } from "~/features/booking";
+import { tierFromMemberships, type RaceTier } from "~/features/booking/service/race-products";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /**
- * RacerSelectorModal — pick which returning racers go in a single heat.
+ * RacerSelectorModal — pick which racers go in a single heat.
  *
  * Mirrors v1 `app/book/race/components/RacerSelector.tsx`. Triggered from
  * RaceHeatPickerStep when the customer clicks a time block AND at least
  * one party member in the current category has a `bmiPersonId` (verified
- * returning racer). New racers without a personId always book as a group
- * (no modal).
+ * returning racer).
  *
- * Per-racer tier qualification + Race Pack credit balance display from
- * v1 are intentionally omitted here — they depend on Pandora data that
- * v2's returning-racer verification flow doesn't surface yet. The plumbing
- * lands when that follow-up PR adds the lookup.
+ * Per-racer TIER QUALIFICATION (v1 parity): each racer's tier is derived
+ * from their BMI memberships (new racers are always Starter). A racer below
+ * the selected product's tier is shown CROSSED OUT — disabled, dimmed, with
+ * a "Not qualified for {Tier}" note — rather than hidden, so the customer
+ * understands why they can't add them to a Pro/Intermediate heat. Only
+ * qualified, not-already-booked racers are preselected.
  */
 
+/** Tier rank for comparison: starter < intermediate < pro. */
+const TIER_RANK: Record<string, number> = { starter: 0, intermediate: 1, pro: 2 };
+const rank = (t: string): number => TIER_RANK[t.toLowerCase()] ?? 0;
+
+const TIER_BADGE_CLASS: Record<string, string> = {
+  Pro: "bg-[#E53935]/15 text-[#E53935]",
+  Intermediate: "bg-[#8652FF]/15 text-[#8652FF]",
+  Starter: "bg-[#00E2E5]/15 text-[#00E2E5]",
+};
+
+/** A new racer is always Starter; returning racers derive tier from memberships. */
+function racerTierOf(r: PartyMember): "Starter" | "Intermediate" | "Pro" {
+  return r.isNewRacer ? "Starter" : tierFromMemberships(r.memberships ?? []);
+}
+
 interface Props {
-  /** Verified returning racers eligible to be picked. Filtered to the
-   *  current booking category (adult / junior) by the parent. */
+  /** All party members in the current booking category (adult / junior).
+   *  Includes new racers — they appear crossed out for non-Starter heats. */
   racers: PartyMember[];
+  /** Tier of the selected product — gates per-racer qualification. */
+  raceTier: RaceTier;
   /** PartyMember ids already on this heat (greyed + unselectable). */
   alreadyBookedMemberIds?: string[];
   onConfirm: (selectedRacers: PartyMember[]) => void;
@@ -31,15 +50,20 @@ interface Props {
 
 export function RacerSelectorModal({
   racers,
+  raceTier,
   alreadyBookedMemberIds = [],
   onConfirm,
   onCancel,
 }: Props) {
-  // Default: all not-yet-booked racers preselected — v1 default.
+  const isQualified = (r: PartyMember): boolean => rank(racerTierOf(r)) >= rank(raceTier);
+  const isPickable = (r: PartyMember): boolean =>
+    isQualified(r) && !alreadyBookedMemberIds.includes(r.id);
+
+  // Default: all qualified, not-yet-booked racers preselected — v1 default.
   const [selected, setSelected] = useState<Set<string>>(() => {
     const next = new Set<string>();
     for (const r of racers) {
-      if (!alreadyBookedMemberIds.includes(r.id)) next.add(r.id);
+      if (isPickable(r)) next.add(r.id);
     }
     return next;
   });
@@ -65,13 +89,18 @@ export function RacerSelectorModal({
   function selectAll() {
     const next = new Set<string>();
     for (const r of racers) {
-      if (!alreadyBookedMemberIds.includes(r.id)) next.add(r.id);
+      if (isPickable(r)) next.add(r.id);
     }
     setSelected(next);
   }
 
+  const raceTierLabel = useMemo(
+    () => raceTier.charAt(0).toUpperCase() + raceTier.slice(1),
+    [raceTier],
+  );
+
   const selectedRacers = racers.filter((r) => selected.has(r.id));
-  const eligibleCount = racers.filter((r) => !alreadyBookedMemberIds.includes(r.id)).length;
+  const eligibleCount = racers.filter(isPickable).length;
 
   return (
     <div
@@ -103,8 +132,10 @@ export function RacerSelectorModal({
         <div className="space-y-2">
           {racers.map((r) => {
             const alreadyBooked = alreadyBookedMemberIds.includes(r.id);
-            const disabled = alreadyBooked;
+            const qualified = isQualified(r);
+            const disabled = alreadyBooked || !qualified;
             const checked = selected.has(r.id);
+            const racerTier = racerTierOf(r);
             return (
               <button
                 key={r.id}
@@ -144,15 +175,41 @@ export function RacerSelectorModal({
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-white">
+                  <p
+                    className={`truncate text-sm font-semibold ${
+                      disabled && !alreadyBooked ? "text-white/50 line-through" : "text-white"
+                    }`}
+                  >
                     {r.firstName}
                     {r.lastName ? ` ${r.lastName}` : ""}
                   </p>
                   <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${TIER_BADGE_CLASS[racerTier]}`}
+                    >
+                      {racerTier}
+                    </span>
+                    {!qualified && !alreadyBooked && (
+                      <span className="text-xs font-medium text-[#E53935]/80">
+                        Not qualified for {raceTierLabel}
+                      </span>
+                    )}
                     {alreadyBooked && (
                       <span className="text-xs text-white/30">Already on this heat</span>
                     )}
                   </div>
+                  {r.creditBalances && r.creditBalances.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {r.creditBalances.map((cb) => (
+                        <span
+                          key={cb.kind}
+                          className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-300/80"
+                        >
+                          {cb.balance} {cb.kind.replace(/^credit\s*-\s*/i, "").trim()}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </button>
             );

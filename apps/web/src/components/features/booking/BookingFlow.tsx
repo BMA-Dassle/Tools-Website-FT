@@ -249,24 +249,29 @@ export function BookingFlow({
       activeItem.kind === "race"
     ) {
       const raceItem = activeItem as import("~/features/booking").RaceItem;
+      // Eager click-time holding usually leaves every heat already booked, but
+      // bookHeatsOnAdvance is also where POV is sold + the package disclaimer
+      // memo is written (idempotent via item.povSold), and it backstops any heat
+      // not yet held. So always run it; only show the spinner when there's real
+      // heat-booking work to wait on.
       const hasUnbooked = raceItem.heats.some((h) => h.heatId && !h.bmiLineId);
       if (hasUnbooked) {
         setBookingHeatsProgress("Reserving your heats…");
         setBookingHeats(true);
-        try {
-          await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
-          advanceToNextStep();
-        } catch (err) {
-          alert(
-            err instanceof Error
-              ? `Failed to reserve heats: ${err.message}`
-              : "Failed to reserve heats. Please try again.",
-          );
-        } finally {
-          setBookingHeats(false);
-        }
-        return;
       }
+      try {
+        await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+        advanceToNextStep();
+      } catch (err) {
+        alert(
+          err instanceof Error
+            ? `Failed to reserve heats: ${err.message}`
+            : "Failed to reserve heats. Please try again.",
+        );
+      } finally {
+        setBookingHeats(false);
+      }
+      return;
     }
 
     // Book attraction slot with BMI when advancing past the slot step.

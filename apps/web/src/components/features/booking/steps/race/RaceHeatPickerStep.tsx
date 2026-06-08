@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import { bookingKeys } from "~/features/booking";
@@ -21,6 +21,7 @@ import {
   heatsConflict,
 } from "~/features/booking/service/conflict";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
+import { holdPickedHeats } from "~/features/booking/service/race";
 import { RacerSelectorModal } from "./RacerSelectorModal";
 import { getGroupEventForDate } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
@@ -161,6 +162,15 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const partySize = racers.length;
     const productId = productIdForCategory(item, category);
     const product = useMemo(() => getRaceProductById(productId), [productId]);
+
+    // Eager hold: heats are reserved with BMI the moment they're picked (single
+    // racer) or confirmed (multi), not when the customer leaves the grid — so a
+    // busy-day spot isn't lost while they linger. `holdingRef` serializes holds
+    // (a hold lazily creates the bill; two concurrent holds would create two
+    // bills) and the grid is disabled while a hold is in flight.
+    const [holding, setHolding] = useState(false);
+    const [holdError, setHoldError] = useState<string | null>(null);
+    const holdingRef = useRef(false);
 
     // Package flow: when a package is selected instead of an individual
     // product, delegate to PackageHeatPicker (v1 parity: page.tsx:2223).
@@ -338,7 +348,42 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       return list;
     }, [queries, fetchPlan, leadCutoffMs]);
 
+    // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
+    // immediately; on failure releases anything that succeeded and reverts the
+    // pick so the cart never shows a heat that isn't actually held.
+    const holdHeats = async (nextHeats: RaceHeatAssignment[]) => {
+      if (holdingRef.current) return;
+      holdingRef.current = true;
+      setHolding(true);
+      setHoldError(null);
+      onChange({ heats: nextHeats });
+      try {
+        const res = await holdPickedHeats(session, { ...item, heats: nextHeats }, dispatch);
+        if (!res.ok) {
+          if (res.booked.length > 0) {
+            await releaseHeatBmiLines(
+              { ...session, bmiBillId: res.billId },
+              res.booked.map((b) => ({ bmiLineId: b.bmiLineId })),
+            );
+          }
+          onChange({ heats: item.heats }); // revert to pre-pick
+          setHoldError(`Couldn't hold that heat — ${res.error}. Please pick another time.`);
+        }
+      } catch (err) {
+        onChange({ heats: item.heats });
+        setHoldError(
+          err instanceof Error
+            ? `Couldn't hold that heat: ${err.message}`
+            : "Couldn't hold that heat. Please try again.",
+        );
+      } finally {
+        holdingRef.current = false;
+        setHolding(false);
+      }
+    };
+
     const handleClickBlock = async (tp: TrackedProposal) => {
+      if (holdingRef.current) return;
       const blockId = tp.block.start;
       if (pickedSet.has(heatKey(tp.productId, blockId))) {
         // Deselect: drop this block's heats from the cart. Any already booked on a
@@ -370,24 +415,25 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         product?.tier,
         category,
       );
-      onChange({ heats: [...item.heats, ...newEntries] });
+      await holdHeats([...item.heats, ...newEntries]);
     };
 
     const handleRacerSelectorConfirm = (selected: PartyMember[]) => {
       if (!pendingHeat) return;
-      const selectedReturning = selected.filter((r) => !!r.bmiPersonId);
-      const newRacersInCategory = racers.filter((r) => !r.bmiPersonId);
-      const racersForThisLine = [...selectedReturning, ...newRacersInCategory];
+      // Book exactly who the customer selected. The modal shows every category
+      // racer (returning + new) with per-racer tier qualification and crosses
+      // out anyone below the product tier, so an unqualified racer can never be
+      // in `selected` — no separate new-racer auto-add here.
       const newEntries = entriesForPick(
         pendingHeat.block,
         pendingHeat.productId,
         pendingHeat.track,
-        racersForThisLine,
+        selected,
         product?.tier,
         category,
       );
-      onChange({ heats: [...item.heats, ...newEntries] });
       setPendingHeat(null);
+      void holdHeats([...item.heats, ...newEntries]);
     };
 
     // Early returns
@@ -503,6 +549,19 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           )}
         </div>
 
+        {/* Eager-hold status: heats are reserved the instant they're picked. */}
+        {holding && (
+          <div className="mx-auto flex max-w-sm items-center justify-center gap-2 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+            <span className="text-xs font-medium text-white/70">Holding your heat…</span>
+          </div>
+        )}
+        {holdError && !holding && (
+          <div className="mx-auto max-w-sm rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-center text-xs text-red-300">
+            {holdError}
+          </div>
+        )}
+
         {isLoading ? (
           <div className="flex h-48 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
@@ -556,8 +615,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 <button
                   key={`${block.start}-${tp.productId}-${idx}`}
                   type="button"
-                  onClick={() => !isFull && handleClickBlock(tp)}
-                  disabled={isFull}
+                  onClick={() => !isFull && !holding && handleClickBlock(tp)}
+                  disabled={isFull || holding}
                   title={isConflict ? HEAT_CONFLICT_TOOLTIP : undefined}
                   className={`rounded-xl border p-3 text-left transition-all duration-150 ${
                     isSelected
@@ -637,7 +696,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
         {pendingHeat && (
           <RacerSelectorModal
-            racers={returningRacers}
+            racers={racers}
+            raceTier={product.tier}
             alreadyBookedMemberIds={categoryHeats
               .filter(
                 (h) =>

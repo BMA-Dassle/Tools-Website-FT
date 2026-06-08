@@ -139,7 +139,14 @@ export const ContactStep: StepDef = {
   id: "contact",
   title: "Your Info",
   Component: ContactStepComponent,
-  isVisible: () => true,
+  // Skip when we already have complete contact info. A returning racer's
+  // verified lookup pre-fills it (RacePartyStep dispatches setContact), and
+  // later cart items inherit the session-level contact captured by the first
+  // item — so we don't re-ask. Only surfaces when something's still missing
+  // (e.g. email/code lookup that returned no phone, or a brand-new customer).
+  // The "contact present before first bill" invariant still holds: isVisible
+  // only hides the step once contactIsComplete, i.e. contact already exists.
+  isVisible: (_item, session) => !contactIsComplete(session.contact),
   canAdvance: (_item, session) =>
     contactIsComplete(session.contact) ? true : { reason: "Enter your contact info to continue." },
 };

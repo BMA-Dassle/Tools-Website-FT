@@ -184,6 +184,105 @@ export async function bookHeatsOnAdvance(
   }
 }
 
+// ── holdPickedHeats: eager hold of a just-picked block (all-or-nothing) ──
+
+export interface HoldHeatsResult {
+  ok: boolean;
+  /** Lines booked in this pick — committed on success, released on failure. */
+  booked: Array<{ heatIndex: number; bmiLineId: string | null }>;
+  /** Latest bill id (set even on partial failure, so the caller releases on the
+   *  right bill — this pick may have lazily created it). */
+  billId: string | null;
+  error?: string;
+}
+
+/**
+ * Eagerly hold the heats a customer JUST picked — fired on block click (single
+ * racer) or on racer-selection confirm (multi), so the spot is held the instant
+ * it's chosen instead of when they leave the grid (a race against other guests
+ * on busy days). Books every still-unbooked heat in `item` — which is exactly
+ * the new pick, since prior picks were already held eagerly.
+ *
+ * ALL-OR-NOTHING: on any failure it returns `ok:false` WITHOUT committing the
+ * failed line and reports the lines that DID succeed in `booked`, so the caller
+ * can release them — a partially-booked block never orphans on the bill.
+ *
+ * Heats only. POV + the package disclaimer memo stay on the advance-time path
+ * (bookHeatsOnAdvance), which still runs as an idempotent backstop.
+ */
+export async function holdPickedHeats(
+  session: BookingSession,
+  item: RaceItem,
+  dispatch: Dispatch<Action>,
+): Promise<HoldHeatsResult> {
+  let billId = session.bmiBillId;
+  const licenseHeats = licenseHeatIndices(session, item);
+  const booked: Array<{ heatIndex: number; bmiLineId: string | null }> = [];
+
+  for (let i = 0; i < item.heats.length; i++) {
+    const heat = item.heats[i];
+    if (heat.bmiLineId) continue; // already held (prior picks) — retry-safe
+    if (!heat.heatId || !heat.productId) continue;
+
+    const personId = heat.assignedTo
+      ? (session.party.find((m) => m.id === heat.assignedTo)?.bmiPersonId ?? null)
+      : null;
+    const target = bmiBookingTarget(heat.productId, {
+      withLicense: licenseHeats.has(i),
+      category: heat.category,
+      tier: heat.tier,
+      track: heat.track,
+    });
+
+    try {
+      const availability = await bmiAdapter.getAvailability({
+        date: item.date!,
+        productId: target.productId,
+        pageId: target.pageId,
+        quantity: 1,
+      });
+      const matchingProposal = findProposalForHeat(availability.proposals, heat.heatId);
+      if (!matchingProposal) throw new Error("that time just filled up");
+
+      const result = await bmiAdapter.bookHeat({
+        productId: target.productId,
+        quantity: 1,
+        proposal: matchingProposal,
+        orderId: billId,
+        personId,
+      });
+
+      if (!billId) {
+        billId = result.rawOrderId;
+        dispatch({ type: "setBmiBillId", id: billId });
+        // Attach the customer to the brand-new bill immediately (v1 parity) so a
+        // reservation never exists without a contact. Contact is collected up
+        // front (ContactStep) — guaranteed complete before this step. Non-fatal.
+        await registerContact(billId, session.contact, session.party);
+      }
+      booked.push({ heatIndex: i, bmiLineId: result.billLineId });
+    } catch (err) {
+      return {
+        ok: false,
+        booked,
+        billId,
+        error: err instanceof Error ? err.message : "couldn't hold that heat",
+      };
+    }
+  }
+
+  // All lines held — commit their bmiLineIds to the cart.
+  for (const b of booked) {
+    dispatch({
+      type: "updateHeat",
+      itemId: item.id,
+      heatIndex: b.heatIndex,
+      patch: { bmiLineId: b.bmiLineId },
+    });
+  }
+  return { ok: true, booked, billId };
+}
+
 // ── hold: book all BMI lines for a single RaceItem ──────────────────────
 
 export interface RaceHoldResult {

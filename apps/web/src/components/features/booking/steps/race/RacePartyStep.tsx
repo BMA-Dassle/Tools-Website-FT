@@ -21,6 +21,14 @@ interface LinkedPerson {
   waiverValid?: boolean;
 }
 
+/** Whole years from a birthDate ISO string; null when unknown. Module-scope
+ *  so the age math (used by every add-racer handler + the linked-racer card)
+ *  lives in one place and isn't re-derived inline. */
+function ageFromBirthDate(birthDate: string | null | undefined): number | null {
+  if (!birthDate) return null;
+  return Math.floor((Date.now() - new Date(birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+}
+
 const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispatch }) => {
   const [experienceType, setExperienceType] = useState<"new" | "existing" | null>(() => {
     if (session.party.some((m) => m.bmiPersonId)) return "existing";
@@ -30,6 +38,9 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   const [linkedPersons, setLinkedPersons] = useState<LinkedPerson[]>([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
+  // "Add existing racer" from the roster re-opens the lookup to add ANOTHER
+  // returning account without disturbing the billing customer / contact.
+  const [addingExisting, setAddingExisting] = useState(false);
 
   const billingFirstName = session.contact.firstName?.trim();
   const billingLastName = session.contact.lastName?.trim();
@@ -83,11 +94,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
   function handlePersonVerified(person: PersonData) {
     setVerifiedPerson(person);
 
-    const age = person.birthDate
-      ? Math.floor(
-          (Date.now() - new Date(person.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000),
-        )
-      : null;
+    const age = ageFromBirthDate(person.birthDate);
     const category: "adult" | "junior" = age !== null && age < 13 ? "junior" : "adult";
 
     const member = newPartyMember({
@@ -134,6 +141,49 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
     fetchLinkedPersons(person.personId);
   }
 
+  // Add ANOTHER returning racer from the roster's "Add existing racer" flow.
+  // Unlike handlePersonVerified, this does NOT overwrite session.contact or
+  // claim the billing customer — the first verified racer owns those.
+  function handleAddExistingVerified(person: PersonData) {
+    if (session.party.some((m) => m.bmiPersonId === person.personId)) {
+      setAddingExisting(false);
+      return;
+    }
+    const age = ageFromBirthDate(person.birthDate);
+    const category: "adult" | "junior" = age !== null && age < 13 ? "junior" : "adult";
+
+    const member = newPartyMember({
+      firstName: person.fullName.split(" ")[0] || person.fullName,
+      lastName: person.fullName.split(" ").slice(1).join(" ") || undefined,
+      bmiPersonId: person.personId,
+      isNewRacer: false,
+      category,
+      memberships: person.memberships,
+      waiverValid: person.waiverValid,
+      creditBalances: person.creditBalances,
+    });
+    dispatch({ type: "addPartyMember", member });
+
+    if (person.personId) {
+      fetch(`/api/pandora?personId=${person.personId}&picture=false`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && typeof data.valid === "boolean") {
+            dispatch({
+              type: "updatePartyMember",
+              id: member.id,
+              patch: { waiverValid: data.valid },
+            });
+          }
+        })
+        .catch(() => {});
+      // Pull in this racer's linked family too, so the roster can offer them.
+      fetchLinkedPersons(person.personId);
+    }
+
+    setAddingExisting(false);
+  }
+
   async function fetchLinkedPersons(personId: string) {
     setLinkedLoading(true);
     try {
@@ -177,9 +227,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
   }
 
   async function handleAddLinkedRacer(lp: LinkedPerson) {
-    const age = lp.birthdate
-      ? Math.floor((Date.now() - new Date(lp.birthdate).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-      : null;
+    const age = ageFromBirthDate(lp.birthdate);
     const category: "adult" | "junior" = age !== null && age < 13 ? "junior" : "adult";
 
     // Look up BMI person details for this linked Pandora ID. The
@@ -312,6 +360,36 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
     );
   }
 
+  // ── Add another existing racer (re-run lookup from the roster) ─
+  if (addingExisting) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <h3 className="font-display text-2xl uppercase tracking-widest text-white">
+            Add a Returning Racer
+          </h3>
+          <p className="mt-1 text-sm text-white/50">
+            Look them up to add their account and earned speeds
+          </p>
+        </div>
+        <ReturningRacerLookup
+          onVerified={handleAddExistingVerified}
+          onSwitchToNew={() => {
+            setAddingExisting(false);
+            addNewMember();
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setAddingExisting(false)}
+          className="mx-auto block py-2 text-center text-xs text-white/30 transition-colors hover:text-white/50"
+        >
+          ← Back to party
+        </button>
+      </div>
+    );
+  }
+
   // ── Returning-racer party roster ──────────────────────────
 
   const alreadyAddedIds = new Set(session.party.map((m) => m.bmiPersonId).filter(Boolean));
@@ -332,10 +410,16 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
       {session.party.length > 0 &&
         session.party.some((m) => !m.isNewRacer) &&
         (() => {
+          // A new racer must sign a waiver + pay the license at Guest Services,
+          // so the WHOLE party can't skip it — a new racer downgrades full
+          // eligibility to "some". Full eligibility requires every member to be
+          // returning AND hold a valid waiver.
+          const hasNewRacer = session.party.some((m) => m.isNewRacer);
           const returning = session.party.filter((m) => !m.isNewRacer);
-          const allValid = returning.every((m) => m.waiverValid === true);
+          const allReturningValid =
+            returning.length > 0 && returning.every((m) => m.waiverValid === true);
           const someValid = returning.some((m) => m.waiverValid === true);
-          if (allValid) {
+          if (allReturningValid && !hasNewRacer) {
             return (
               <div className="mx-auto max-w-md rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-center">
                 <div className="text-sm font-semibold text-emerald-400">
@@ -386,7 +470,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
           </ul>
         )}
 
-        {/* Add member buttons */}
+        {/* Add member buttons — existing (account lookup) vs brand-new racer. */}
         <div className="flex flex-wrap gap-2 pt-2">
           {billingFirstName && !billingAlreadyAdded && (
             <button
@@ -397,6 +481,13 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
               + Add me ({billingFirstName})
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setAddingExisting(true)}
+            className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 px-4 py-2 text-sm font-semibold text-[#00E2E5]/90 transition-colors hover:border-[#00E2E5]/60 hover:bg-[#00E2E5]/10"
+          >
+            + Add existing racer
+          </button>
           <button
             type="button"
             onClick={addNewMember}
@@ -422,12 +513,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
               {availableLinked.map((lp) => {
                 const displayName =
                   [lp.firstName, lp.lastName].filter(Boolean).join(" ") || "Unknown";
-                const age = lp.birthdate
-                  ? Math.floor(
-                      (Date.now() - new Date(lp.birthdate).getTime()) /
-                        (365.25 * 24 * 60 * 60 * 1000),
-                    )
-                  : null;
+                const age = ageFromBirthDate(lp.birthdate);
                 return (
                   <button
                     key={lp.id}

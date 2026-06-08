@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { isRelevantMembership } from "~/features/booking/service/race-products";
+import {
+  isRelevantMembership,
+  tierFromMemberships,
+} from "~/features/booking/service/race-products";
 
 export interface PersonData {
   personId: string;
@@ -409,29 +412,17 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
   if (phase === "phone-verified") {
     return (
       <div className="mx-auto max-w-sm space-y-3">
-        <div className="rounded-xl border border-green-500/30 bg-green-500/8 p-3 text-center">
-          <p className="text-sm font-semibold text-green-400">Verified!</p>
-          <p className="mt-1 text-xs text-white/40">Select your account below</p>
+        <div className="flex items-center justify-center gap-2.5 rounded-xl border border-emerald-500/25 bg-gradient-to-r from-emerald-500/10 to-emerald-500/[0.03] px-4 py-3">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
+            <CheckIcon className="h-4 w-4 text-emerald-400" />
+          </span>
+          <div className="text-left">
+            <p className="text-sm font-semibold text-emerald-300">Verified</p>
+            <p className="text-xs text-white/40">Select your account below</p>
+          </div>
         </div>
         {accounts.map((a) => (
-          <button
-            key={a.personId}
-            type="button"
-            onClick={() => selectAccount(a)}
-            className="w-full rounded-xl border border-white/10 bg-white/5 p-4 text-left transition-all hover:border-white/25 hover:bg-white/10"
-          >
-            <p className="font-semibold text-white">{a.fullName}</p>
-            <p className="mt-0.5 text-xs text-white/40">
-              {a.races} race{a.races !== 1 ? "s" : ""}
-              {a.memberships.length > 0 && ` · ${a.memberships.join(", ")}`}
-              {a.lastSeen && ` · Last seen ${a.lastSeen}`}
-            </p>
-            {a.creditBalances.length > 0 && (
-              <p className="mt-1 text-xs text-green-400">
-                {a.creditBalances.map((c) => `${c.balance} ${c.kind}`).join(", ")}
-              </p>
-            )}
-          </button>
+          <AccountCard key={a.personId} account={a} onSelect={() => selectAccount(a)} />
         ))}
         <button
           type="button"
@@ -450,8 +441,11 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
   if (phase === "verified") {
     return (
       <div className="flex min-h-32 items-center justify-center">
-        <div className="rounded-xl border border-green-500/30 bg-green-500/8 px-6 py-4 text-center">
-          <p className="text-sm font-semibold text-green-400">Account verified!</p>
+        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-6 py-4">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
+            <CheckIcon className="h-4 w-4 text-emerald-400" />
+          </span>
+          <p className="text-sm font-semibold text-emerald-300">Account verified!</p>
         </div>
       </div>
     );
@@ -630,3 +624,127 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
 
 const btnClass =
   "w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white/80 transition-all hover:border-white/25 hover:bg-white/10";
+
+// ── Account card ────────────────────────────────────────────
+
+const TIER_THEME: Record<
+  "Pro" | "Intermediate" | "Starter",
+  { grad: string; ring: string; badge: string }
+> = {
+  Pro: {
+    grad: "from-[#E53935] to-[#ff7a6e]",
+    ring: "ring-[#E53935]/40",
+    badge: "bg-[#E53935]/15 text-[#E53935]",
+  },
+  Intermediate: {
+    grad: "from-[#8652FF] to-[#b18cff]",
+    ring: "ring-[#8652FF]/40",
+    badge: "bg-[#8652FF]/15 text-[#8652FF]",
+  },
+  Starter: {
+    grad: "from-[#00E2E5] to-[#7af6f8]",
+    ring: "ring-[#00E2E5]/40",
+    badge: "bg-[#00E2E5]/15 text-[#00E2E5]",
+  },
+};
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** Trim BMI's verbose "Credit - X" / "X Pass" labels down to the meaningful part. */
+function creditLabel(kind: string): string {
+  return kind.replace(/^credit\s*-\s*/i, "").trim() || kind;
+}
+
+function AccountCard({ account, onSelect }: { account: FoundAccount; onSelect: () => void }) {
+  const tier = account.memberships.length > 0 ? tierFromMemberships(account.memberships) : null;
+  const theme = tier ? TIER_THEME[tier] : null;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5 text-left transition-all hover:border-[#00E2E5]/40 hover:bg-white/[0.08] focus:outline-none focus-visible:border-[#00E2E5]/60"
+    >
+      <div
+        className={
+          "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-sm font-bold ring-2 ring-offset-2 ring-offset-[#000418] " +
+          (theme
+            ? `${theme.grad} ${theme.ring} text-[#000418]`
+            : "from-white/25 to-white/5 text-white/80 ring-white/15")
+        }
+      >
+        {initials(account.fullName)}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate font-semibold text-white">{account.fullName}</p>
+          {tier && theme && (
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${theme.badge}`}
+            >
+              {tier}
+            </span>
+          )}
+        </div>
+        <p className="mt-0.5 truncate text-xs text-white/40">
+          {account.races} race{account.races !== 1 ? "s" : ""}
+          {account.lastSeen && ` · Last seen ${account.lastSeen}`}
+        </p>
+        {account.creditBalances.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {account.creditBalances.slice(0, 3).map((c) => (
+              <span
+                key={c.kind}
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-500/12 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-300"
+              >
+                <span className="tabular-nums">{c.balance}</span>
+                {creditLabel(c.kind)}
+              </span>
+            ))}
+            {account.creditBalances.length > 3 && (
+              <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-[11px] font-medium text-white/40">
+                +{account.creditBalances.length - 3} more
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <ChevronRightIcon className="h-5 w-5 shrink-0 text-white/20 transition-all group-hover:translate-x-0.5 group-hover:text-[#00E2E5]" />
+    </button>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M5 10.5l3.5 3.5L15 6.5"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M7.5 5l5 5-5 5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
