@@ -45,8 +45,8 @@ export interface ReminderRule {
   excludeWinback?: boolean;
   /** Only win-back events. */
   winbackOnly?: boolean;
-  /** Per-rule kill switch env var (truthy = enabled). Absent = always on. */
-  enableEnv?: string;
+  /** Per-rule OPT-OUT env var: rule is ON by default; set this truthy to turn it OFF. */
+  disableEnv?: string;
   /** Drip rule: dedups per-occurrence (dedupKey:occurrence) instead of once. */
   recurring?: boolean;
   /** For recurring rules: the current occurrence suffix, or null to skip now. */
@@ -101,7 +101,8 @@ export function isEngineKilled(): boolean {
 }
 
 export function isRuleEnabled(rule: ReminderRule): boolean {
-  return rule.enableEnv ? truthy(process.env[rule.enableEnv]) : true;
+  // On by default; only off if its opt-out env var is explicitly truthy.
+  return rule.disableEnv ? !truthy(process.env[rule.disableEnv]) : true;
 }
 
 /** True if NOW (America/New_York) is within the SMS quiet-hours window. */
@@ -159,7 +160,7 @@ async function sendWaiver(ctx: RuleContext, kind: "7day" | "2day"): Promise<Rule
 
 export const RULES: ReminderRule[] = [
   // Payment-due nudges — only events that must pay manually (no saved card),
-  // never win-back (own offer rule). Dark-launched until enabled.
+  // never win-back (own offer rule). On by default (opt-out env to disable).
   {
     key: "rem_payment_due_t14",
     label: "Payment due — 14 days out",
@@ -167,7 +168,7 @@ export const RULES: ReminderRule[] = [
     statuses: ["deposit_paid", "balance_link_sent"],
     window: { minHours: 13 * 24, maxHours: 15 * 24 },
     excludeWinback: true,
-    enableEnv: "GF_REMINDER_PAYMENT_DUE_ENABLED",
+    disableEnv: "GF_REMINDER_PAYMENT_DUE_DISABLED",
     eligible: (ctx) => hasBalanceDue(ctx.quote) && !ctx.quote.saved_card_id,
     send: (ctx) => sendPaymentDue(ctx, 14),
   },
@@ -178,7 +179,7 @@ export const RULES: ReminderRule[] = [
     statuses: ["deposit_paid", "balance_link_sent"],
     window: { minHours: 6 * 24, maxHours: 8 * 24 },
     excludeWinback: true,
-    enableEnv: "GF_REMINDER_PAYMENT_DUE_ENABLED",
+    disableEnv: "GF_REMINDER_PAYMENT_DUE_DISABLED",
     eligible: (ctx) => hasBalanceDue(ctx.quote) && !ctx.quote.saved_card_id,
     send: (ctx) => sendPaymentDue(ctx, 7),
   },
@@ -204,20 +205,22 @@ export const RULES: ReminderRule[] = [
     eligible: (ctx) => hasWaiver(ctx.quote),
     send: (ctx) => sendWaiver(ctx, "2day"),
   },
-  // Post-event thank-you (email only). Dark-launched until enabled.
-  {
-    key: "rem_thank_you",
-    label: "Post-event thank-you",
-    channels: ["email"],
-    statuses: ["balance_charged", "completed"],
-    window: { minHours: -36, maxHours: -12 },
-    enableEnv: "GF_REMINDER_THANKYOU_ENABLED",
-    send: async (ctx) => {
-      const { notifyThankYou } = await import("@/lib/group-function-notify");
-      const res = await notifyThankYou(ctx.quote);
-      return { channelsAttempted: ["email"], emailOk: res.emailOk, smsOk: null };
-    },
-  },
+  // Post-event thank-you (email only) — DISABLED per request 2026-06-07.
+  // The notifyThankYou builder still lives in group-function-notify.ts; to
+  // re-enable, uncomment this rule (it runs on-by-default once re-registered).
+  // {
+  //   key: "rem_thank_you",
+  //   label: "Post-event thank-you",
+  //   channels: ["email"],
+  //   statuses: ["balance_charged", "completed"],
+  //   window: { minHours: -36, maxHours: -12 },
+  //   disableEnv: "GF_REMINDER_THANKYOU_DISABLED",
+  //   send: async (ctx) => {
+  //     const { notifyThankYou } = await import("@/lib/group-function-notify");
+  //     const res = await notifyThankYou(ctx.quote);
+  //     return { channelsAttempted: ["email"], emailOk: res.emailOk, smsOk: null };
+  //   },
+  // },
   // Dedicated "final headcount" call ~5 days out — a clean standalone touch
   // BEFORE the 96h balance/charge reminder, so the two never collide. The
   // guest count can still change the total here (balance not yet charged).
@@ -227,7 +230,7 @@ export const RULES: ReminderRule[] = [
     channels: ["email", "sms"],
     statuses: ["deposit_paid", "balance_link_sent"],
     window: { minHours: 108, maxHours: 156 }, // ~4.5–6.5 days out; clear of the 72–96h balance reminder
-    enableEnv: "GF_REMINDER_HEADCOUNT_ENABLED",
+    disableEnv: "GF_REMINDER_HEADCOUNT_DISABLED",
     eligible: (ctx) => !ctx.quote.balance_paid_at,
     send: async (ctx) => {
       const { notifyHeadcountFinal } = await import("@/lib/group-function-notify");
@@ -252,7 +255,7 @@ export const RULES: ReminderRule[] = [
     window: { minHours: 0, maxHours: 24 * 400 },
     winbackOnly: true,
     recurring: true,
-    enableEnv: "GF_WINBACK_ENABLED",
+    disableEnv: "GF_WINBACK_DISABLED",
     occurrenceFor: (q) => {
       if (!q.contract_sent_at) return null;
       const days = (Date.now() - new Date(q.contract_sent_at).getTime()) / 86_400_000;

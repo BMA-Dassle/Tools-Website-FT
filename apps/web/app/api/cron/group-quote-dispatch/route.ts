@@ -24,6 +24,11 @@ import {
 import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
 import { verifyCron } from "@/lib/cron-auth";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
+import {
+  collectContractDataIssues,
+  notifyContractDataIssues,
+  notifyDispatchError,
+} from "@/lib/group-function-alert";
 
 /**
  * Group Quote Dispatch cron.
@@ -60,6 +65,7 @@ export async function GET(req: NextRequest) {
     scannedItems = await scanForNewEvents();
   } catch (err) {
     console.error("[group-quote-dispatch] BMI scan failed:", err);
+    await notifyDispatchError({ reservationId: "(bmi-scan)", error: err }).catch(() => {});
     return NextResponse.json({ ok: false, error: "BMI scan failed" }, { status: 502 });
   }
 
@@ -88,6 +94,12 @@ export async function GET(req: NextRequest) {
       results.push(result);
     } catch (err) {
       console.error(`[group-quote-dispatch] Error processing ${item.reservationId}:`, err);
+      await notifyDispatchError({
+        reservationId: item.reservationId,
+        centerName: item.centerName,
+        plannerEmail: item.planner.email,
+        error: err,
+      }).catch(() => {});
       results.push({
         reservationId: item.reservationId,
         action: "error",
@@ -200,6 +212,30 @@ async function processQueueItem(
     Date.now() - new Date(existing.hermes_last_processed_at).getTime() < 60_000
   ) {
     return { reservationId: item.reservationId, action: "debounced" };
+  }
+
+  // Data-quality alert: the event is set to "Send Contract" but the guest data
+  // is incomplete (missing email/name/phone, planner email unset, or — at
+  // HPFM/FT — the location selector left blank). We still proceed with the send
+  // ("proceed anyway"), but ping staff in Teams so they can fix the BMI data.
+  // De-duped per (reservation, issue-set) inside the helper, so the every-2-min
+  // cron won't spam. Best-effort — never blocks the dispatch.
+  const dataIssues = collectContractDataIssues(item, center.centerCode);
+  if (dataIssues.length > 0) {
+    await notifyContractDataIssues({
+      centerCode: center.centerCode,
+      centerName: item.centerName,
+      reservationId: item.reservationId,
+      eventName: item.event.name,
+      guestName: `${item.customer.first || ""} ${item.customer.last || ""}`.trim(),
+      guestEmail: item.customer.email,
+      guestPhone: item.customer.phone,
+      plannerEmail: item.planner.email,
+      contractUrl: existing?.contract_short_id
+        ? `${center.baseUrl}/contract/${existing.contract_short_id}`
+        : undefined,
+      issues: dataIssues,
+    }).catch(() => {});
   }
 
   const taxExempt = isTaxExempt(item.products);

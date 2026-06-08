@@ -12,6 +12,7 @@ import { sendEmail } from "@/lib/sendgrid";
 import { voxSend } from "@/lib/sms-retry";
 import { sendAdaptiveCardToChannel, updateAdaptiveCard } from "@/lib/teams-bot";
 import { PLANNERS } from "@/lib/sales-lead-config";
+import { notifyContractDataIssues } from "@/lib/group-function-alert";
 import type { GroupFunctionQuote } from "@/lib/group-function-db";
 import { parseGiftCardGans } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
@@ -83,6 +84,31 @@ function memoLog(quote: GroupFunctionQuote, message: string): void {
     .catch(() => {});
 }
 
+/**
+ * Fire a staff Teams alert when a contract email to a *syntactically valid*
+ * address actually failed to send (e.g. SendGrid rejected it / bounce). The
+ * empty/invalid-email case is already caught up front by the dispatch cron's
+ * `collectContractDataIssues`, so we only alert here when an address was
+ * present — avoids a duplicate alert for the missing-email case. Best-effort.
+ */
+function alertContractEmailFailed(quote: GroupFunctionQuote): void {
+  if (!quote.guest_email?.trim()) return;
+  notifyContractDataIssues({
+    centerCode: quote.center_code,
+    centerName: quote.center_name,
+    reservationId: quote.bmi_reservation_id,
+    eventName: quote.event_name || "",
+    guestName: `${quote.guest_first_name || ""} ${quote.guest_last_name || ""}`.trim(),
+    guestEmail: quote.guest_email,
+    guestPhone: quote.guest_phone || "",
+    plannerEmail: quote.planner_email || "",
+    contractUrl: quote.contract_short_id
+      ? `${baseUrl(quote)}/contract/${quote.contract_short_id}`
+      : undefined,
+    issues: ["Email delivery failed — SendGrid did not accept the guest address"],
+  }).catch(() => {});
+}
+
 // ── Contract Sent ───────────────────────────────────────────────────
 
 export async function notifyContractSent(quote: GroupFunctionQuote): Promise<void> {
@@ -123,12 +149,14 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
     }
   }
 
+  const sentOk = emailOk(results[1]);
   memoLog(
     quote,
-    emailOk(results[1])
+    sentOk
       ? `Contract sent to ${quote.guest_email}`
       : `Contract email FAILED to ${quote.guest_email}`,
   );
+  if (!sentOk) alertContractEmailFailed(quote);
 }
 
 // ── Contract Updated (before signing) ───────────────────────────────
@@ -170,12 +198,14 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
     }
   }
 
+  const updatedOk = emailOk(results[1]);
   memoLog(
     quote,
-    emailOk(results[1])
+    updatedOk
       ? `Contract updated — resent to ${quote.guest_email}`
       : `Contract update email FAILED to ${quote.guest_email}`,
   );
+  if (!updatedOk) alertContractEmailFailed(quote);
 }
 
 // ── Deposit Paid ────────────────────────────────────────────────────
