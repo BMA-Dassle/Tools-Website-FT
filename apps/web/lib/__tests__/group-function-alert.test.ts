@@ -2,18 +2,21 @@ import { describe, it, expect, vi } from "vitest";
 
 // Load .env.local into process.env BEFORE any imports evaluate — `@/lib/teams-bot`
 // captures BOT_APP_ID/SECRET at module-load time, so this must be hoisted above
-// the static imports below. Only needed for the credential-gated live smoke; a
-// missing file (CI) is fine since that test is skipped there anyway.
-vi.hoisted(() => {
+// the static imports below. Only runs for the credential-gated live smoke.
+// NOTE: the live smoke needs REAL bot creds, which live in Vercel — local
+// `.env.local` has placeholders, so run this where real creds exist (e.g. after
+// `vercel env pull`) or it will 401.
+vi.hoisted(async () => {
   if (process.env.GF_ALERT_SMOKE !== "1") return;
   try {
-    const { readFileSync } = require("node:fs");
-    for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
-      const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+    const { readFileSync } = await import("node:fs");
+    const envUrl = new URL("../../.env.local", import.meta.url);
+    for (const line of readFileSync(envUrl, "utf8").split(/\r?\n/)) {
+      const m = /^([A-Za-z0-9_]+)\s*=\s*(.*)$/.exec(line.trim());
       if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
     }
   } catch {
-    /* optional */
+    /* optional — test is skipped without the flag anyway */
   }
 });
 
