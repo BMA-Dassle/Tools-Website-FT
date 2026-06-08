@@ -17,6 +17,7 @@ import {
 import { searchDocumentsByReservation } from "@/lib/pandadoc";
 import { notifyWinbackOffer } from "@/lib/group-function-notify";
 import { findSettlementCheck } from "@/lib/square-settled-check";
+import { withinQuietHours } from "@/lib/group-event-rules";
 
 /**
  * Admin: ingest legacy deposit events into the new flow as $20 win-back offers.
@@ -331,7 +332,7 @@ export async function POST(req: NextRequest) {
 
       const fresh = await getGfQuoteByShortId(shortId);
       if (fresh) {
-        notifyWinbackOffer(fresh).catch((err) =>
+        notifyWinbackOffer(fresh, { smsSuppressed: withinQuietHours() }).catch((err) =>
           console.error(`[ingest-legacy] offer notify failed quote=${quote.id}:`, err),
         );
       }

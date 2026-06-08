@@ -114,7 +114,8 @@ export function withinQuietHours(now: Date = new Date()): boolean {
   }).formatToParts(now);
   let hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
   if (hour === 24) hour = 0;
-  const start = Number(process.env.GF_SMS_QUIET_START || 21); // 9pm ET
+  // 8pm ET hard ceiling — no group-event SMS after 8pm regardless of env override.
+  const start = Math.min(Number(process.env.GF_SMS_QUIET_START) || 20, 20);
   const end = Number(process.env.GF_SMS_QUIET_END || 9); // 9am ET
   return start > end ? hour >= start || hour < end : hour >= start && hour < end;
 }

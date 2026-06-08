@@ -917,11 +917,12 @@ export async function notifyWinbackOffer(
 export async function notifyWinbackReceipt(
   quote: GroupFunctionQuote,
   incentiveGan: string,
+  opts?: { smsSuppressed?: boolean },
 ): Promise<NotifyResult> {
   const bonus = dollars(quote.incentive_cents || 2000);
   const amountDue = quote.total_cents - quote.deposit_due_cents;
   const results = await Promise.allSettled([
-    quote.guest_phone
+    quote.guest_phone && !opts?.smsSuppressed
       ? voxSend(
           quote.guest_phone,
           [

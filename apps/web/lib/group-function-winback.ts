@@ -14,6 +14,7 @@ import {
 } from "@/lib/group-function-db";
 import { mintDigitalGiftCard, findOrCreateSquareCustomer } from "@/lib/square-gift-card";
 import { notifyWinbackReceipt } from "@/lib/group-function-notify";
+import { withinQuietHours } from "@/lib/group-event-rules";
 
 /**
  * Issue the $20 win-back e-gift card for a quote whose guest just added a card
@@ -51,7 +52,7 @@ export async function issueWinbackIncentive(quote: GroupFunctionQuote): Promise<
     event: "winback_incentive_issued",
     metadata: { gan: card.gan, cents },
   });
-  notifyWinbackReceipt(quote, card.gan).catch((err) =>
+  notifyWinbackReceipt(quote, card.gan, { smsSuppressed: withinQuietHours() }).catch((err) =>
     console.error(`[winback] receipt failed quote=${quote.id}:`, err),
   );
   return true;
