@@ -1,4 +1,4 @@
-import { buildSquareLineItem, type CatalogPriceInfo } from "@/lib/plu-catalog-map";
+import { buildSquareLineItem } from "@/lib/plu-catalog-map";
 import type { GroupFunctionQuote } from "@/lib/group-function-db";
 
 /**
@@ -22,46 +22,6 @@ function sqHeaders() {
     "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
-}
-
-/**
- * Look up pricing_type + catalog price for each PLU in one batch call, so
- * buildSquareLineItem can tell whether a catalog link will honor our price.
- * Best-effort: any PLU we can't resolve is simply absent from the map, which
- * makes buildSquareLineItem fall back to an ad-hoc (price-honoring) line item.
- */
-async function fetchCatalogPriceInfo(plus: string[]): Promise<Map<string, CatalogPriceInfo>> {
-  const map = new Map<string, CatalogPriceInfo>();
-  const ids = [...new Set(plus.filter((p) => p && p.length > 10))];
-  if (ids.length === 0) return map;
-
-  try {
-    const res = await fetch(`${SQUARE_BASE}/catalog/batch-retrieve`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({ object_ids: ids }),
-    });
-    if (!res.ok) {
-      console.warn("[gf-dayof] catalog batch-retrieve failed, treating all as ad-hoc:", res.status);
-      return map;
-    }
-    const data = await res.json();
-    for (const obj of data.objects ?? []) {
-      // PLUs may point at an ITEM_VARIATION directly, or an ITEM (use its first variation).
-      const v =
-        obj.type === "ITEM_VARIATION"
-          ? obj.item_variation_data
-          : obj.item_data?.variations?.[0]?.item_variation_data;
-      if (!v) continue;
-      map.set(obj.id, {
-        pricingType: v.pricing_type ?? "FIXED_PRICING",
-        priceCents: v.price_money?.amount ?? 0,
-      });
-    }
-  } catch (err) {
-    console.warn("[gf-dayof] catalog batch-retrieve error, treating all as ad-hoc:", err);
-  }
-  return map;
 }
 
 export async function createDayofOrder(
@@ -88,15 +48,10 @@ export async function createDayofOrder(
       : [];
   const refId = `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40);
 
-  // Look up pricing_type/price per PLU so we keep the catalog link only when
-  // Square will honor our (possibly overridden) price — see plu-catalog-map.ts.
-  const catalogInfo = await fetchCatalogPriceInfo(rawItems.map((p) => p.plu));
-
-  // Attempt 1: catalog-linked where safe, ad-hoc where a price override would be lost.
+  // Attempt 1: catalog-linked. base_price_money carries the (possibly overridden)
+  // price, which Square honors over the catalog default — see plu-catalog-map.ts.
   try {
-    const lineItems = rawItems.map((p) =>
-      buildSquareLineItem(quote.center_code, p, catalogInfo.get(p.plu)),
-    );
+    const lineItems = rawItems.map((p) => buildSquareLineItem(quote.center_code, p));
     const res = await fetch(`${SQUARE_BASE}/orders`, {
       method: "POST",
       headers: sqHeaders(),

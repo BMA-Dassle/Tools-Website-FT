@@ -145,26 +145,39 @@ pay-before-close.
 See also the 2026-06-03 lesson below — same pipeline, complementary failure mode (missed transition
 vs. raced transition).
 
-## Square ignores `base_price_money` on FIXED_PRICING catalog items — price overrides lost (2026-06-05)
+## ~~Square ignores `base_price_money` on FIXED_PRICING catalog items~~ — RETRACTED, was a misdiagnosis (2026-06-05, corrected 2026-06-08)
 
-#3286's day-of Square order rang three "GF Race Blue Starter Fri-Sun" lines at **$26.99**
-instead of the quoted **$399.99** override, and dropped the $324.44 service-charge line —
-under-charging by **$1,464.53** (which sat unredeemed on the gift card). Root cause in
-`createDayofOrder` → `buildSquareLineItem`: it linked every PLU as `catalog_object_id` +
-`base_price_money`. **Square only honors `base_price_money` on a catalog-linked line item when
-the variation is VARIABLE_PRICING; for FIXED_PRICING it silently discards our price and charges
-the catalog price.** The race catalog item is FIXED_PRICING $26.99, so the $399.99 override
-vanished. Pizza/VIP "worked" only because their quote price equalled the catalog price.
+> **This lesson was WRONG and has been reverted in code.** Square DOES honor
+> `base_price_money` on a catalog-linked line item for BOTH FIXED and VARIABLE
+> pricing. Verified 2026-06-08 against `/orders/calculate`:
+> a FIXED $26.99 "GF Race Blue Starter" linked **with** `base_price_money: $399.99`
+> rings **$399.99** and keeps `catalog_object_id`; the same line with no
+> `base_price_money` rings $26.99. The catalog price is only a default.
 
-Cruel irony: the ad-hoc *fallback* (name + base_price_money, no catalog link) is the CORRECT
-path — Square always honors price on ad-hoc lines. Events whose PLUs failed the catalog attempt
-(#1354, #H2986) fell back to ad-hoc and priced perfectly; the "preferred" catalog path is the
-one that corrupts overrides. Whether an event is hit is luck-of-the-draw on PLU validity.
+What actually happened: #3286's day-of order rang three "GF Race Blue Starter Fri-Sun"
+lines at **$26.99** instead of the quoted **$399.99**, under-charging by **$1,464.53**.
+The real root cause was the *earlier* bug (see the 2026-06-03 lesson below): #3286's order
+was created **before** `base_price_money` was added to catalog lines (2026-06-03), so it
+carried only `catalog_object_id` and Square used the catalog default. The 2026-06-03 fix
+(always send `base_price_money`) was correct and complete.
 
-Fix: `fetchCatalogPriceInfo` batch-retrieves pricing_type + price per PLU; `buildSquareLineItem`
-keeps the catalog link only when the price WILL be honored (VARIABLE_PRICING, or FIXED price ==
-quote price) and otherwise builds an ad-hoc line so the override sticks. Preserves catalog
-reporting for non-overridden items; guarantees correctness for overridden ones.
+The 2026-06-05 "fix" was an **overcorrection from a misdiagnosis**: it added
+`fetchCatalogPriceInfo` and dropped the catalog link whenever quote price != catalog price.
+That changed nothing about pricing correctness (base_price_money already guaranteed it) but
+**destroyed Square item-sales attribution** for every override-priced line — race starters,
+birthday packages, extra pizzas, well drinks. By 2026-06-08, 17 line items across live
+day-of orders were ad-hoc purely because of this branch, plus 7 older orders that had gone
+*fully* ad-hoc via the all-or-nothing fallback.
+
+Corrected fix (2026-06-08): `buildSquareLineItem` keeps the catalog link whenever a PLU is
+present and always sends `base_price_money`. No catalog pre-fetch, no price comparison.
+Square honors the override AND preserves reporting. `fetchCatalogPriceInfo` /
+`CatalogPriceInfo` deleted. Audited/remediated via `apps/web/scripts/audit-dayof-adhoc-*.mjs`
++ `remediate-dayof-relink.mjs` (5 OPEN orders relinked; 6 completed/paid orders left as-is).
+
+**Lesson about the lesson:** before "fixing" a pricing bug by removing a code path, prove the
+hypothesis against `/orders/calculate` (a free, side-effect-free validator). The original
+diagnosis was never tested in isolation — link+override was assumed broken, never measured.
 
 **Guardrails:**
 - A `: string`-typed price field that "looks sent" can still be ignored by the upstream API.

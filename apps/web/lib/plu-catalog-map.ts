@@ -1,36 +1,31 @@
 /**
  * PLU → Square Catalog ID mapping for group function products.
  *
- * Hermes products include a `plu` field that is actually the Square
- * catalog object ID (e.g. "CRMNHGI3WP2ILKJ4TTXFZWBL"). No translation
- * needed — pass through directly as catalog_object_id on the Square order.
+ * Hermes products include a `plu` field that is actually the Square catalog
+ * object ID (an ITEM_VARIATION id, e.g. "LPOHFAIUE72CMYX7SLSMLMDO"). No
+ * translation needed — pass through directly as `catalog_object_id`.
  *
- * If a PLU is empty or missing, fall back to an ad-hoc line item
- * (name + price, no catalog link). This is fine for revenue recognition.
+ * Price overrides + catalog links COEXIST. We always send `base_price_money`
+ * alongside the catalog link, and Square honors our amount on BOTH pricing
+ * types — verified against /orders/calculate:
+ *   - FIXED_PRICING  $26.99 catalog item + base_price_money $399.99  → rings $399.99
+ *   - VARIABLE_PRICING ($0 catalog)        + base_price_money $399.99  → rings $399.99
+ * In both cases the line keeps its catalog_object_id, so item-sales reporting
+ * still attributes the sale. The catalog price is only a default; the order's
+ * `base_price_money` overrides it.
  *
- * CRITICAL — price overrides vs. catalog pricing_type:
- *   Square only honors `base_price_money` on a catalog-linked line item when the
- *   variation is VARIABLE_PRICING. For a FIXED_PRICING variation it SILENTLY
- *   ignores our price and charges the catalog price. Group-function quotes
- *   routinely override prices (e.g. a $26.99 catalog "Adult Race" sold as a
- *   $399.99 "Race Blue Starter" group package). If we keep the catalog link on
- *   such an item, Square rings it at $26.99 and the override is lost.
- *   (Incident 2026-06-05: #3286 under-charged by $1,464.53 — three race lines
- *   rang at $26.99 instead of $399.99.)
+ * HISTORY — do not "drop the link on override" again:
+ *   The 2026-06-05 #3286 undercharge ($26.99 rung instead of $399.99) was
+ *   originally blamed on "Square silently ignores base_price_money on FIXED
+ *   items." That was a MISDIAGNOSIS. The real cause: that order was created
+ *   before base_price_money was added to catalog lines (2026-06-03 fix), so it
+ *   carried only catalog_object_id and Square used the catalog price. Once
+ *   base_price_money is always sent, linking is safe for overrides too. The
+ *   "drop the catalog link when price != catalog price" overcorrection only
+ *   destroyed item-sales attribution. See tasks/lessons.md.
  *
- *   So we only keep the catalog link when the price WILL be honored:
- *     - VARIABLE_PRICING variation, or
- *     - FIXED_PRICING variation whose catalog price already equals the quote price.
- *   Otherwise we drop the link and build an ad-hoc line item so the quoted
- *   (overridden) price is what's charged. Pass `catalogInfo` (from
- *   `fetchCatalogPriceInfo`) so this decision can be made; without it we can't
- *   prove the link is safe, so we fall back to ad-hoc.
+ * If a PLU is empty/missing, fall back to an ad-hoc line (name + price).
  */
-
-export type CatalogPriceInfo = {
-  pricingType: "FIXED_PRICING" | "VARIABLE_PRICING" | string;
-  priceCents: number;
-};
 
 export type SquareLineItem = {
   name?: string;
@@ -42,28 +37,19 @@ export type SquareLineItem = {
 export function buildSquareLineItem(
   _centerCode: string,
   product: { name: string; price: number; qty: number; plu: string },
-  catalogInfo?: CatalogPriceInfo,
 ): SquareLineItem {
-  const quoteCents = Math.round(product.price * 100);
   const base = {
     quantity: String(product.qty),
-    base_price_money: { amount: quoteCents, currency: "USD" },
+    base_price_money: { amount: Math.round(product.price * 100), currency: "USD" },
   };
 
   const hasPlu = !!product.plu && product.plu.length > 10;
 
-  if (hasPlu && catalogInfo) {
-    const priceWillBeHonored =
-      catalogInfo.pricingType === "VARIABLE_PRICING" || catalogInfo.priceCents === quoteCents;
-    if (priceWillBeHonored) {
-      // Safe to keep the catalog link — Square will charge our price.
-      return { catalog_object_id: product.plu, ...base };
-    }
-    // Fixed-price catalog item with a price override: linking would lose the
-    // override (Square charges the catalog price). Build ad-hoc to honor it.
-    return { name: product.name, ...base };
-  }
+  // Keep the catalog link whenever we have a PLU — base_price_money below
+  // carries our (possibly overridden) price, which Square honors over the
+  // catalog default on both FIXED and VARIABLE pricing. Preserves reporting.
+  if (hasPlu) return { catalog_object_id: product.plu, ...base };
 
-  // No PLU, or no catalog info to prove the link is safe → ad-hoc.
+  // No PLU → ad-hoc line (name + price).
   return { name: product.name, ...base };
 }
