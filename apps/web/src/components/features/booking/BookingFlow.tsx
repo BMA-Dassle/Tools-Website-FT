@@ -8,10 +8,13 @@ import {
   STEP_REGISTRY,
   type Activity,
   type AttractionItem,
+  type BookingSession,
   type Brand,
   type EntryContext,
+  type SessionItem,
   type StepDef,
 } from "~/features/booking";
+import { contactIsComplete } from "./steps/ContactStep";
 import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
 import type { AppliedPromo } from "~/features/discount-codes";
 import { CartView, LeaveConfirmModal } from "./CartView";
@@ -34,6 +37,22 @@ export interface BookingFlowProps {
   initialContext?: EntryContext;
   initialPromo?: AppliedPromo | null;
   urlCode?: string | null;
+}
+
+/**
+ * Do we already have the customer's contact info, so the "Your Info" step can be
+ * skipped on the way INTO it? True when the cart already carries it — another
+ * item is present (a prior activity collected it) OR a returning racer was
+ * verified (their lookup pre-filled it). `contactIsComplete` guards the "before
+ * first bill" invariant. This is a STABLE, cart-based signal (it doesn't flip
+ * while the customer types), so the skip is only ever applied on forward/initial
+ * navigation — never yanking someone off the form mid-edit.
+ */
+function cartAlreadyHasContact(session: BookingSession, activeItemId: string): boolean {
+  if (!contactIsComplete(session.contact)) return false;
+  const hasOtherItem = session.items.some((i) => i.id !== activeItemId);
+  const hasVerifiedRacer = session.party.some((m) => !!m.bmiPersonId);
+  return hasOtherItem || hasVerifiedRacer;
 }
 
 export function BookingFlow({
@@ -70,12 +89,18 @@ export function BookingFlow({
     if (initialContext?.center && !session.center) {
       dispatch({ type: "setCenter", center: initialContext.center });
     }
-    if (session.items.length === 0) {
-      const item = newItem(activity);
-      if (item.kind === "attraction" && slug) {
-        (item as AttractionItem).slug = slug;
+    const makeItem = (): SessionItem => {
+      const created = newItem(activity);
+      if (created.kind === "attraction" && slug) {
+        (created as AttractionItem).slug = slug;
       }
-      dispatch({ type: "addItem", item });
+      return created;
+    };
+
+    let added: SessionItem | null = null;
+    if (session.items.length === 0) {
+      added = makeItem();
+      dispatch({ type: "addItem", item: added });
     } else {
       const alreadyInCart = session.items.some((i) => {
         if (i.kind !== activity) return false;
@@ -83,11 +108,18 @@ export function BookingFlow({
         return true;
       });
       if (!alreadyInCart) {
-        const item = newItem(activity);
-        if (item.kind === "attraction" && slug) {
-          (item as AttractionItem).slug = slug;
-        }
-        dispatch({ type: "addItem", item });
+        added = makeItem();
+        dispatch({ type: "addItem", item: added });
+      }
+    }
+
+    // Skip a LEADING "Your Info" step when the cart already carries contact (a
+    // prior item collected it). Forward-only — opening an item is never a "back"
+    // action — so a first-time customer still gets the step.
+    if (added && cartAlreadyHasContact(session, added.id)) {
+      const visible = STEP_REGISTRY[added.kind].filter((s) => s.isVisible(added!, session));
+      if (visible.length > 1 && visible[0].id === "contact") {
+        dispatch({ type: "goto", index: 1 });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,6 +127,20 @@ export function BookingFlow({
 
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
   const activeItem = getActiveItem(session);
+
+  // Reservation-hold info, computed once and reused by every view's timer bar
+  // (wizard header, cart, and checkout) so the countdown follows the customer
+  // everywhere a live hold exists — not just inside the wizard.
+  const bowlingHoldItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
+  const qamfHoldId =
+    bowlingHoldItem && (bowlingHoldItem.kind === "bowling" || bowlingHoldItem.kind === "kbf")
+      ? bowlingHoldItem.qamfReservationId
+      : null;
+  const qamfCenterId =
+    bowlingHoldItem && (bowlingHoldItem.kind === "bowling" || bowlingHoldItem.kind === "kbf")
+      ? bowlingHoldItem.qamfCenterId
+      : null;
+  const hasActiveHold = !!(session.bmiBillId || qamfHoldId);
 
   const backCode = session.appliedPromo?.code ?? urlCode ?? null;
   const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
@@ -118,6 +164,25 @@ export function BookingFlow({
     clearBookingSession();
     window.location.href = backToLandingHref;
   }, [session, backToLandingHref]);
+
+  // A compact sticky timer bar for the cart + checkout pages (the wizard has its
+  // own richer header). Renders nothing when there's no live hold.
+  const timerBar = hasActiveHold ? (
+    <div className="sticky top-18 z-30 border-b border-white/8 bg-[#000418] sm:top-20">
+      <div className="mx-auto flex max-w-4xl items-center justify-end gap-2 px-4 py-2.5">
+        <span className="text-[11px] uppercase tracking-wider text-white/30">
+          Holding your spot
+        </span>
+        <ReservationTimer
+          ref={timerRef}
+          bmiBillId={session.bmiBillId}
+          qamfHoldId={qamfHoldId}
+          qamfCenterId={qamfCenterId}
+          onExpired={handleReservationExpired}
+        />
+      </div>
+    </div>
+  ) : null;
 
   // Auto-scroll to top on step change (v1 parity: page.tsx:263).
   const currentCursor = activeItem ? (session.cursors[activeItem.id] ?? 0) : null;
@@ -162,6 +227,7 @@ export function BookingFlow({
     if (checkoutActive) {
       return (
         <div className={brandClass}>
+          {timerBar}
           <div className="mx-auto max-w-4xl px-4 py-8">
             <CheckoutStep
               session={session}
@@ -171,12 +237,19 @@ export function BookingFlow({
               }}
             />
           </div>
+          {reservationExpired && hasActiveHold && (
+            <ReservationExpiredModal
+              onExtend={handleExtendReservation}
+              onStartOver={handleStartOver}
+            />
+          )}
         </div>
       );
     }
 
     return (
       <div className={brandClass}>
+        {timerBar}
         <CartView
           session={session}
           urlCode={urlCode ?? null}
@@ -186,6 +259,12 @@ export function BookingFlow({
           onCheckout={() => setCheckoutActive(true)}
           onNewBooking={handleStartOver}
         />
+        {reservationExpired && hasActiveHold && (
+          <ReservationExpiredModal
+            onExtend={handleExtendReservation}
+            onStartOver={handleStartOver}
+          />
+        )}
       </div>
     );
   }
@@ -223,9 +302,20 @@ export function BookingFlow({
       // Navigate to the landing page which shows "Add to Your Visit"
       // when the session has items. Session survives via sessionStorage.
       window.location.href = "/book/v2";
-    } else {
-      dispatch({ type: "next" });
+      return;
     }
+    // Skip "Your Info" on the way FORWARD when the cart already carries contact
+    // (returning-racer pre-fill or a prior item). The step stays visible in the
+    // breadcrumb so the customer can click back to review/edit it.
+    let target = stepIndex + 1;
+    while (
+      target < steps.length - 1 &&
+      steps[target].id === "contact" &&
+      cartAlreadyHasContact(session, activeItem.id)
+    ) {
+      target += 1;
+    }
+    dispatch(target === stepIndex + 1 ? { type: "next" } : { type: "goto", index: target });
   };
 
   const handleNext = async () => {
@@ -350,16 +440,8 @@ export function BookingFlow({
           <ReservationTimer
             ref={timerRef}
             bmiBillId={session.bmiBillId}
-            qamfHoldId={(() => {
-              const bi = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
-              return bi && (bi.kind === "bowling" || bi.kind === "kbf")
-                ? bi.qamfReservationId
-                : null;
-            })()}
-            qamfCenterId={(() => {
-              const bi = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
-              return bi && (bi.kind === "bowling" || bi.kind === "kbf") ? bi.qamfCenterId : null;
-            })()}
+            qamfHoldId={qamfHoldId}
+            qamfCenterId={qamfCenterId}
             onExpired={handleReservationExpired}
           />
         </div>

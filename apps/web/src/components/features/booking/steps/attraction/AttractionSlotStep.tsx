@@ -56,6 +56,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
   // linger. `holdingRef` serializes holds; switching slots releases the prior
   // hold before booking the new one.
   const [holding, setHolding] = useState(false);
+  const [holdingKey, setHoldingKey] = useState<string | null>(null);
   const [holdError, setHoldError] = useState<string | null>(null);
   const holdingRef = useRef(false);
 
@@ -64,6 +65,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
     if (item.slot === block.start && item.bmiLineId) return; // already held
     holdingRef.current = true;
     setHolding(true);
+    setHoldingKey(block.start);
     setHoldError(null);
     try {
       // Switching away from an already-held slot — release its BMI line first so
@@ -87,6 +89,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
     } finally {
       holdingRef.current = false;
       setHolding(false);
+      setHoldingKey(null);
     }
   };
 
@@ -206,13 +209,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
         <p className="mt-1 text-sm text-white/50">{dateLabel}</p>
       </div>
 
-      {/* Eager-hold status: the slot is reserved the instant it's picked. */}
-      {holding && (
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
-          <span className="text-xs font-medium text-white/70">Holding your time…</span>
-        </div>
-      )}
+      {/* Eager-hold error (the in-progress "Holding…" state shows ON the slot). */}
       {holdError && !holding && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-center text-xs text-red-300">
           {holdError}
@@ -262,13 +259,15 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
             const price =
               block.prices?.find((p) => p.depositKind === 0 && p.kind === 0)?.amount ?? null;
 
+            const isThisHolding = holdingKey === block.start;
+
             return (
               <button
                 key={block.start}
                 type="button"
                 disabled={isDisabled || holding}
                 onClick={() => selectSlot(block, proposal)}
-                className={`rounded-xl border-2 p-3 text-center transition-colors ${
+                className={`relative rounded-xl border-2 p-3 text-center transition-colors ${
                   isDisabled
                     ? "cursor-not-allowed border-white/5 bg-white/[0.01] opacity-40"
                     : isSelected
@@ -281,6 +280,12 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
                     : undefined
                 }
               >
+                {isThisHolding && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+                    <span className="text-[11px] font-semibold text-[#00E2E5]">Holding…</span>
+                  </div>
+                )}
                 <span
                   className="block text-sm font-bold"
                   style={{ color: isSelected ? accentColor : "white" }}

@@ -167,8 +167,12 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     // racer) or confirmed (multi), not when the customer leaves the grid — so a
     // busy-day spot isn't lost while they linger. `holdingRef` serializes holds
     // (a hold lazily creates the bill; two concurrent holds would create two
-    // bills) and the grid is disabled while a hold is in flight.
+    // bills) and the grid is disabled while a hold is in flight. `holdingKey`
+    // marks WHICH card is being held so the "Holding…" spinner shows ON that
+    // card (always in view — the customer just clicked it), not in a top banner
+    // they'd miss when scrolled down a long heat list.
     const [holding, setHolding] = useState(false);
+    const [holdingKey, setHoldingKey] = useState<string | null>(null);
     const [holdError, setHoldError] = useState<string | null>(null);
     const holdingRef = useRef(false);
 
@@ -351,10 +355,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
     // immediately; on failure releases anything that succeeded and reverts the
     // pick so the cart never shows a heat that isn't actually held.
-    const holdHeats = async (nextHeats: RaceHeatAssignment[]) => {
+    const holdHeats = async (nextHeats: RaceHeatAssignment[], holdKey: string | null) => {
       if (holdingRef.current) return;
       holdingRef.current = true;
       setHolding(true);
+      setHoldingKey(holdKey);
       setHoldError(null);
       onChange({ heats: nextHeats });
       try {
@@ -379,6 +384,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       } finally {
         holdingRef.current = false;
         setHolding(false);
+        setHoldingKey(null);
       }
     };
 
@@ -415,7 +421,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         product?.tier,
         category,
       );
-      await holdHeats([...item.heats, ...newEntries]);
+      await holdHeats([...item.heats, ...newEntries], heatKey(tp.productId, tp.block.start));
     };
 
     const handleRacerSelectorConfirm = (selected: PartyMember[]) => {
@@ -432,8 +438,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         product?.tier,
         category,
       );
+      const holdKey = heatKey(pendingHeat.productId, pendingHeat.block.start);
       setPendingHeat(null);
-      void holdHeats([...item.heats, ...newEntries]);
+      void holdHeats([...item.heats, ...newEntries], holdKey);
     };
 
     // Early returns
@@ -549,13 +556,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           )}
         </div>
 
-        {/* Eager-hold status: heats are reserved the instant they're picked. */}
-        {holding && (
-          <div className="mx-auto flex max-w-sm items-center justify-center gap-2 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
-            <span className="text-xs font-medium text-white/70">Holding your heat…</span>
-          </div>
-        )}
+        {/* Eager-hold error (the in-progress "Holding…" state shows ON the card). */}
         {holdError && !holding && (
           <div className="mx-auto max-w-sm rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-center text-xs text-red-300">
             {holdError}
@@ -610,6 +611,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   : isCapped
                     ? "text-white/40"
                     : spotsLabel(block.freeSpots, block.capacity).text;
+              const isThisHolding = holdingKey === heatKey(tp.productId, block.start);
 
               return (
                 <button
@@ -618,7 +620,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   onClick={() => !isFull && !holding && handleClickBlock(tp)}
                   disabled={isFull || holding}
                   title={isConflict ? HEAT_CONFLICT_TOOLTIP : undefined}
-                  className={`rounded-xl border p-3 text-left transition-all duration-150 ${
+                  className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${
                     isSelected
                       ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
                       : isFull
@@ -626,6 +628,12 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                         : "cursor-pointer border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10"
                   }`}
                 >
+                  {isThisHolding && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+                      <span className="text-[11px] font-semibold text-[#00E2E5]">Holding…</span>
+                    </div>
+                  )}
                   <div className="mb-0.5 text-base font-bold text-white">
                     {formatTime(block.start)}
                   </div>
