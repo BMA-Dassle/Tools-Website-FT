@@ -62,26 +62,31 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
   // 4. Audit log — success
   await safeAuditLog(quote.id, "pdf_generated", { url: blobUrl });
 
-  // 5. Email the PDF to guest (non-fatal)
-  try {
-    const plannerName = quote.planner_first
-      ? `${quote.planner_first} ${quote.planner_last || ""}`.trim()
-      : "Your Event Planner";
+  // 5. Email the PDF to guest (non-fatal). Win-backs are intentionally skipped:
+  // they get the win-back offer + "$20 e-gift card" receipt emails, so this generic
+  // "Signed Contract" email is just confusing noise. The PDF is still generated +
+  // stored above (signed_pdf_url) for their records.
+  if (!quote.is_winback) {
+    try {
+      const plannerName = quote.planner_first
+        ? `${quote.planner_first} ${quote.planner_last || ""}`.trim()
+        : "Your Event Planner";
 
-    const brandDomain = quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com";
+      const brandDomain = quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com";
 
-    await sendEmail({
-      to: quote.guest_email,
-      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
-      from: quote.planner_email ? { email: quote.planner_email, name: plannerName } : undefined,
-      replyTo: quote.planner_email || undefined,
-      cc: quote.planner_email || undefined,
-      subject: `Signed Contract — ${quote.event_name || quote.center_name}`,
-      html: buildPdfEmailHtml(quote, blobUrl, plannerName, brandDomain),
-      text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${blobUrl}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(quote.deposit_due_cents / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
-    });
-  } catch (err) {
-    console.error("[generate-pdf] Email send failed:", err);
+      await sendEmail({
+        to: quote.guest_email,
+        toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+        from: quote.planner_email ? { email: quote.planner_email, name: plannerName } : undefined,
+        replyTo: quote.planner_email || undefined,
+        cc: quote.planner_email || undefined,
+        subject: `Signed Contract — ${quote.event_name || quote.center_name}`,
+        html: buildPdfEmailHtml(quote, blobUrl, plannerName, brandDomain),
+        text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${blobUrl}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(quote.deposit_due_cents / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
+      });
+    } catch (err) {
+      console.error("[generate-pdf] Email send failed:", err);
+    }
   }
 
   // 6. Update BMI private notes (non-fatal)
