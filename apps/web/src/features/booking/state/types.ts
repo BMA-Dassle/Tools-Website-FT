@@ -356,6 +356,20 @@ export type SessionItem = BookingItem;
 /* ───────────────────── KBF identity (session-conditional) ────────── */
 
 /**
+ * One bookable member of a verified KBF family pass. Sourced from
+ * kbf_pass_members via /api/kbf/verify. `id` is the real DB row id —
+ * globally unique across passes — and is what KbfItem.bowlers stores.
+ */
+export interface KbfPassMember {
+  id: number;
+  passId: number;
+  relation: "kid" | "family";
+  slot: number;
+  firstName: string;
+  lastName: string;
+}
+
+/**
  * KBF identity state — populated ONLY when at least one KbfItem exists
  * in session.items[]. Cleared by the reducer when the last KbfItem is
  * removed from the cart. The identity step verifies once per session;
@@ -365,6 +379,14 @@ export interface KbfIdentityState {
   phase: "lookup" | "verify" | "verified";
   emailOrPhone: string;
   passId: number | null;
+  /**
+   * Full bowler roster across EVERY verified pass. A parent registered
+   * at both centers (or with multiple accounts on one phone/email)
+   * yields more than one pass, so this is flattened across all of them.
+   * Captured at verify time and reused by the Bowlers step — there is
+   * no separate members endpoint to re-fetch from.
+   */
+  members: KbfPassMember[];
 }
 
 /* ───────────────────── Loyalty (HeadPinz Rewards) ──────────────── */
@@ -611,7 +633,7 @@ export function newPartyMember(args: {
 
 /** Build a fresh KBF identity state in its initial lookup phase. */
 export function newKbfIdentity(): KbfIdentityState {
-  return { phase: "lookup", emailOrPhone: "", passId: null };
+  return { phase: "lookup", emailOrPhone: "", passId: null, members: [] };
 }
 
 /* ───────────────────────── lookups ─────────────────────────────── */

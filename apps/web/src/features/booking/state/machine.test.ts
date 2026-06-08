@@ -278,7 +278,7 @@ describe("reducer — KBF identity (conditional)", () => {
   it("adding a KbfItem auto-initializes session.kbfIdentity", () => {
     const kbf = newItem("kbf");
     const s = reducer(seedSession(), { type: "addItem", item: kbf });
-    expect(s.kbfIdentity).toEqual({ phase: "lookup", emailOrPhone: "", passId: null });
+    expect(s.kbfIdentity).toEqual({ phase: "lookup", emailOrPhone: "", passId: null, members: [] });
   });
 
   it("adding a SECOND KbfItem does NOT reset the verified identity", () => {
@@ -328,6 +328,7 @@ describe("reducer — KBF identity (conditional)", () => {
       phase: "verify",
       emailOrPhone: "alex@x.co",
       passId: null,
+      members: [],
     });
   });
 });

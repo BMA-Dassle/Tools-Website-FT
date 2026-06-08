@@ -1,5 +1,33 @@
 # Lessons Learned
 
+## Before fixing a "v2" component, confirm which route is actually LIVE — the middleware redirects v1 → step-machine (2026-06-08)
+
+KBF login wasn't populating kids/adults. I traced `/hp/book/kids-bowl-free/page.tsx` → it renders
+`<BowlingWizard kind="kbf" />`, found the multi-pass bug there (`data.passes[0]` only — dropped a
+parent's second pass), fixed it, proved it against real data, and reported done. **Wrong file.**
+A screenshot showed the user was on `/book/kbf/v2` — a *different* implementation (the
+`src/features/booking` step machine: `KbfIdentityStep` → `KbfBowlersStep`), and `middleware.ts`
+`bookingV2Target()` **unconditionally 307-redirects** `/book/kids-bowl-free` AND (after stripping
+`/hp`) `/hp/book/kids-bowl-free` → `/book/kbf/v2`. So `BowlingWizard kind="kbf"` is dead code that
+never renders. I'd patched a redirected route.
+
+The real bug was in the step machine: `KbfIdentityStep` got the full roster from `/api/kbf/verify`
+but dispatched only `passId` (discarding members), then `KbfBowlersStep` fetched
+`/api/kbf/pass/${passId}/members` — **an endpoint that doesn't exist** → empty list. Fix: carry the
+flattened roster (all passes) through `session.kbfIdentity.members` at verify time; the bowlers step
+reads it from session. No new endpoint, multi-pass handled.
+
+**Rule: a `page.tsx` importing a component does NOT prove that route is live.** Before touching any
+booking component, run the path through `bookingV2Target()` in `middleware.ts` — if it returns a
+target, the page you're looking at is redirected away. Confirm the live route from the actual URL
+(ask for it / check the screenshot) before editing. Two parallel implementations of the same feature
+(`components/bowling/BowlingWizard.tsx` vs `src/components/features/booking/steps/`) is a trap — the
+old one looks load-bearing but isn't.
+
+- [apps/web/middleware.ts](apps/web/middleware.ts) `bookingV2Target()` (~line 621) — the v1→v2 redirect map
+- [apps/web/app/book/kbf/v2/page.tsx](apps/web/app/book/kbf/v2/page.tsx) → `BookingFlow activity="kbf"` (the LIVE flow)
+- [apps/web/src/components/features/booking/steps/bowling/KbfIdentityStep.tsx](apps/web/src/components/features/booking/steps/bowling/KbfIdentityStep.tsx) / [KbfBowlersStep.tsx](apps/web/src/components/features/booking/steps/bowling/KbfBowlersStep.tsx)
+
 ## "Send Contract" is the only contract trigger — retired `group-quote-sync`'s auto-resign (2026-06-08)
 
 The 2026-06-07 emergency guard (below) only stopped *past* events. The same loop hit an *upcoming*

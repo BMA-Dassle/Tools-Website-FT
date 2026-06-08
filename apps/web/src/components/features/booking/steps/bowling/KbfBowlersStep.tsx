@@ -1,41 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { KbfItem, StepDef } from "~/features/booking";
 
 const CORAL = "#fd5b56";
 
-interface Member {
-  id: number;
-  passId: number;
-  relation: "kid" | "family";
-  slot: number;
-  firstName: string;
-  lastName: string;
-}
-
 const KbfBowlersStepComponent: StepDef<KbfItem>["Component"] = ({ item, session, onChange }) => {
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loading, setLoading] = useState(true);
   const [guestAdults, setGuestAdults] = useState(0);
 
-  const passId = item.passId ?? session.kbfIdentity?.passId;
-
-  useEffect(() => {
-    if (!passId) return;
-    setLoading(true);
-    void (async () => {
-      try {
-        const res = await fetch(`/api/kbf/pass/${passId}/members`);
-        const data = await res.json();
-        setMembers(Array.isArray(data) ? data : []);
-      } catch {
-        setMembers([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [passId]);
+  // The roster was captured at verify time across every pass and lives
+  // in session state — there is no members endpoint to fetch from.
+  const members = session.kbfIdentity?.members ?? [];
 
   const selected = new Set(item.bowlers);
   const kids = members.filter((m) => m.relation === "kid");
@@ -82,17 +57,6 @@ const KbfBowlersStepComponent: StepDef<KbfItem>["Component"] = ({ item, session,
       paidAdults,
       laneCount,
     });
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <div
-          className="h-8 w-8 animate-spin rounded-full border-2 border-white/15"
-          style={{ borderTopColor: CORAL }}
-        />
-      </div>
-    );
   }
 
   const totalBowlers = selected.size + guestAdults;

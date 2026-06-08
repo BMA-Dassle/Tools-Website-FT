@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { KbfItem, StepDef } from "~/features/booking";
 
 const CORAL = "#fd5b56";
@@ -101,16 +101,34 @@ const KbfIdentityStepComponent: StepDef<KbfItem>["Component"] = ({
         return;
       }
       const passes: PassWithMembers[] = data.passes ?? [];
-      const pass = passes[0];
-      if (!pass) {
+      const primary = passes[0];
+      if (!primary) {
         setVerifyError("No KBF pass found for this account.");
         return;
       }
+      // Flatten the roster across EVERY pass — a parent can have more
+      // than one (e.g. registered at both centers). Kids are always
+      // bookable; family adults only when the account has Families Bowl
+      // Free (fpass). Captured here so the Bowlers step has the roster
+      // without a second round-trip.
+      const hasFbf = passes.some((p) => p.fpass === true);
+      const members = passes.flatMap((p) =>
+        (p.members ?? [])
+          .filter((m) => m.relation === "kid" || hasFbf)
+          .map((m) => ({
+            id: m.id,
+            passId: m.passId,
+            relation: m.relation,
+            slot: m.slot,
+            firstName: m.firstName,
+            lastName: m.lastName,
+          })),
+      );
       dispatch({
         type: "setKbfIdentity",
-        patch: { phase: "verified", passId: pass.id },
+        patch: { phase: "verified", passId: primary.id, members },
       });
-      onChange({ passId: pass.id });
+      onChange({ passId: primary.id });
     } catch {
       setVerifyError("Verification failed. Please try again.");
     } finally {
