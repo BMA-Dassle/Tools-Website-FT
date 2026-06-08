@@ -56,6 +56,8 @@ interface QuoteProps {
   savedCardLast4: string | null;
   savedCardBrand: string | null;
   hasCardOnFile: boolean;
+  isWinback: boolean;
+  incentiveCents: number;
   versions: Array<{
     versionNumber: number;
     snapshot: {
@@ -153,6 +155,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const legacyChargeCents =
     hasLegacyDeposit && isFullPayment ? Math.max(0, quote.totalCents - quote.priorDepositCents) : 0;
   const cardOnFileOnly = hasLegacyDeposit && legacyChargeCents === 0;
+  const isWinback = quote.isWinback;
+  const incentiveLabel = `$${Math.round((quote.incentiveCents || 2000) / 100)}`;
   // On re-sign of a paid-in-full event that's now priced UP, we charge the difference
   // (quote.balanceCents) to the card on file. If there's no card on file, the re-sign keeps the
   // pay step so the guest adds one; otherwise the delta is charged server-side on completion.
@@ -620,26 +624,62 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 </svg>
               </div>
               <h1 className="mb-2 text-4xl font-extrabold tracking-tight md:text-5xl">
-                You&apos;re All Set!
+                {isWinback ? (
+                  <>You&apos;re all set — your {incentiveLabel} gift card is on the way!</>
+                ) : (
+                  <>You&apos;re All Set!</>
+                )}
               </h1>
               <p className="text-lg text-gray-300">
-                Your adventure at {quote.centerName} is confirmed
+                {isWinback
+                  ? `Thanks for updating your event at ${quote.centerName}`
+                  : `Your adventure at ${quote.centerName} is confirmed`}
               </p>
             </>
           ) : (
             <>
               <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-cyan-400">
-                {quote.centerName}
+                {isWinback ? "Our group function process has changed" : quote.centerName}
               </p>
-              <h1 className="mb-3 text-4xl font-extrabold tracking-tight md:text-5xl">
-                {quote.guestFirstName}, your <span className="text-cyan-400">experience</span>{" "}
-                awaits
-              </h1>
+              {isWinback ? (
+                <h1 className="mb-3 text-4xl font-extrabold tracking-tight md:text-5xl">
+                  {quote.guestFirstName}, update your contract &amp; get a{" "}
+                  <span className="text-emerald-400">{incentiveLabel} gift card</span>
+                </h1>
+              ) : (
+                <h1 className="mb-3 text-4xl font-extrabold tracking-tight md:text-5xl">
+                  {quote.guestFirstName}, your <span className="text-cyan-400">experience</span>{" "}
+                  awaits
+                </h1>
+              )}
             </>
           )}
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#E53935] via-white/60 to-[#00E2E5]" />
       </div>
+
+      {/* Win-back offer hero — the center of attention for $20 buy-backs */}
+      {isWinback && !quote.hasCardOnFile && step !== "event" && (
+        <div className="relative z-10 mx-auto max-w-4xl px-4 pt-6">
+          <div className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/15 via-[#071027] to-cyan-500/10 p-6 ring-1 ring-emerald-400/20">
+            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-300">
+              🎁 Limited-time thank-you
+            </p>
+            <h2 className="mt-2 text-2xl font-extrabold leading-tight md:text-3xl">
+              Our group function procedures have changed — update your contract and get a{" "}
+              <span className="text-emerald-400">{incentiveLabel} gift card</span>
+            </h2>
+            <p className="mt-3 text-gray-300">
+              Re-confirm your event and add a card on file below, and we&apos;ll send you a{" "}
+              {incentiveLabel} e-gift card as our thank-you.
+            </p>
+            <p className="mt-2 flex items-center gap-2 text-sm font-medium text-cyan-300">
+              <IconClock size={16} className="flex-shrink-0" />
+              Adding your card now also saves time getting started on the day of your event.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Update banner */}
       {updateBanner && (

@@ -103,6 +103,8 @@ export default async function ContractPage(props: {
         savedCardLast4: quote.saved_card_last4,
         savedCardBrand: quote.saved_card_brand,
         hasCardOnFile: Boolean(quote.saved_card_id),
+        isWinback: quote.is_winback,
+        incentiveCents: quote.incentive_cents,
         versions: versions.map((v) => ({
           versionNumber: v.version_number,
           snapshot: {
