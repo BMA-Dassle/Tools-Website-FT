@@ -9,6 +9,7 @@ import {
 import { isDbConfigured } from "@/lib/db";
 import { verifyCron } from "@/lib/cron-auth";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
+import { findSettlementCheck, type SquareSettlementCheck } from "@/lib/square-settled-check";
 
 /**
  * Square-settled auto-close cron.
@@ -47,111 +48,16 @@ import { firePortalWebhookAsync } from "@/lib/portal-webhook";
  * Kill switch: env GF_SQUARE_SETTLED_KILL (truthy) short-circuits the whole run.
  */
 
-const SQUARE_BASE = "https://connect.squareup.com/v2";
-const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
-const SQUARE_VERSION = "2024-12-18";
-
-function sqHeaders() {
-  return {
-    Authorization: `Bearer ${SQUARE_TOKEN}`,
-    "Content-Type": "application/json",
-    "Square-Version": SQUARE_VERSION,
-  };
-}
-
 const truthy = (v: string | undefined) => /^(1|true|on|yes)$/i.test(v || "");
 const DAY_MS = 86_400_000;
 
 type Verdict = "settled" | "no_check" | "future" | "error";
 
-interface SquareOrder {
-  id: string;
-  state?: string;
-  ticket_name?: string;
-  total_money?: { amount?: number; currency?: string };
-  created_at?: string;
-}
-
-interface CheckMatch {
-  orderId: string;
-  ticketName: string;
-  totalCents: number | null;
-  createdAt: string | null;
-}
-
 interface Analysis {
   quote: GroupFunctionQuote;
   verdict: Verdict;
-  check: CheckMatch | null;
+  check: SquareSettlementCheck | null;
   error?: string;
-}
-
-/**
- * Does a POS check name start with "BMI <eventNumber>" on a word boundary?
- * Case-insensitive, whitespace-normalized. The boundary guard stops event
- * "H1145" from matching a check named "BMI H11456 …".
- */
-function ticketMatches(ticketName: string | undefined, eventNumber: string | null): boolean {
-  if (!ticketName || !eventNumber) return false;
-  const t = ticketName.trim().toUpperCase().replace(/\s+/g, " ");
-  const en = String(eventNumber).trim().toUpperCase();
-  if (!en) return false;
-  const prefix = `BMI ${en}`;
-  if (!t.startsWith(prefix)) return false;
-  const next = t.charAt(prefix.length);
-  return next === "" || !/[A-Z0-9]/.test(next);
-}
-
-/**
- * Find a COMPLETED Square check named "BMI <eventNumber>" near the event date.
- * Returns the first match (sorted newest-first) or null. Paginates with early exit.
- */
-async function findSettlementCheck(
-  locationId: string,
-  eventNumber: string,
-  eventMs: number,
-  lookbackDays: number,
-  lookaheadDays: number,
-): Promise<CheckMatch | null> {
-  const startAt = new Date(eventMs - lookbackDays * DAY_MS).toISOString();
-  const endAt = new Date(eventMs + lookaheadDays * DAY_MS).toISOString();
-  let cursor: string | undefined;
-  for (let page = 0; page < 40; page++) {
-    const res = await fetch(`${SQUARE_BASE}/orders/search`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        location_ids: [locationId],
-        query: {
-          filter: {
-            state_filter: { states: ["COMPLETED"] },
-            date_time_filter: { created_at: { start_at: startAt, end_at: endAt } },
-          },
-          sort: { sort_field: "CREATED_AT", sort_order: "DESC" },
-        },
-        limit: 500,
-        return_entries: false,
-        ...(cursor ? { cursor } : {}),
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`SearchOrders failed (${res.status}) for location ${locationId}`);
-    }
-    const data = await res.json();
-    for (const o of (data.orders ?? []) as SquareOrder[]) {
-      if (ticketMatches(o.ticket_name, eventNumber)) {
-        return {
-          orderId: o.id,
-          ticketName: o.ticket_name as string,
-          totalCents: o.total_money?.amount ?? null,
-          createdAt: o.created_at ?? null,
-        };
-      }
-    }
-    cursor = data.cursor;
-    if (!cursor) break;
-  }
-  return null;
 }
 
 async function analyzeQuote(
@@ -168,13 +74,13 @@ async function analyzeQuote(
     return { quote, verdict: "no_check", check: null };
   }
   try {
-    const check = await findSettlementCheck(
-      quote.square_location_id,
-      quote.event_number,
-      new Date(quote.event_date).getTime(),
+    const check = await findSettlementCheck({
+      locationId: quote.square_location_id,
+      eventNumber: quote.event_number,
+      eventMs: new Date(quote.event_date).getTime(),
       lookbackDays,
       lookaheadDays,
-    );
+    });
     return { quote, verdict: check ? "settled" : "no_check", check };
   } catch (err) {
     return {

@@ -16,6 +16,7 @@ import {
 } from "@/lib/group-function-db";
 import { searchDocumentsByReservation } from "@/lib/pandadoc";
 import { notifyWinbackOffer } from "@/lib/group-function-notify";
+import { findSettlementCheck } from "@/lib/square-settled-check";
 
 /**
  * Admin: ingest legacy deposit events into the new flow as $20 win-back offers.
@@ -192,6 +193,33 @@ export async function POST(req: NextRequest) {
         name: item.event.name,
       });
       continue;
+    }
+
+    // Don't win-back an event already settled at the POS (a COMPLETED "BMI <event#>"
+    // check). BMI's bill can still show a balance owed even though the venue collected
+    // it in Square — offering "$20 to pay your balance" to someone who already paid is
+    // wrong. Fail-open on a Square error (the balance>$1 + past-event filters above
+    // already guard the common cases).
+    if (item.event.number) {
+      try {
+        const settled = await findSettlementCheck({
+          locationId: center.squareLocationId,
+          eventNumber: item.event.number,
+          eventMs: eventTime,
+        });
+        if (settled) {
+          results.push({
+            reservationId: resId,
+            action: "excluded",
+            reason: "already settled at POS",
+            name: item.event.name,
+            settledCheck: settled.ticketName,
+          });
+          continue;
+        }
+      } catch (err) {
+        console.warn(`[ingest-legacy] settled-check lookup failed for ${resId}:`, err);
+      }
     }
 
     if (dryRun) {
