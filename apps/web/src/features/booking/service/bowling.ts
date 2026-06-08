@@ -11,8 +11,62 @@ import type { BowlingItem, KbfItem, BookingSession } from "../state/types";
 import type { ContactInfo } from "../types";
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
+import { buildKbfExtraSquareLineItems, isFridayYmd } from "./kbf-pricing";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
+
+const BOOKING_FEE_CATALOG_ID = "7VKAFU3HDPRSKY7ZB6CKXTRW";
+
+/** A Square order line item in the shape the /quote endpoint accepts. */
+export interface QuoteLineItem {
+  name: string;
+  quantity: string;
+  catalogObjectId?: string;
+  basePriceMoney?: { amount: number; currency: "USD" };
+}
+
+/**
+ * Build the Square line items for a bowling/KBF item — products + KBF extras
+ * (VIP lane upcharge, adult game fees) + booking fee — matching what the
+ * reserve route builds, so POST /api/square/bowling-orders/quote returns the
+ * exact tax-inclusive total the customer will be charged.
+ */
+export function buildBowlingQuoteLineItems(
+  item: BowlingLikeItem,
+  session: BookingSession,
+): QuoteLineItem[] {
+  const lines: QuoteLineItem[] = item.lineItems.map((li) => ({
+    name: li.label ?? `Item ${li.squareProductId}`,
+    quantity: String(li.quantity),
+    ...(li.squareCatalogObjectId
+      ? { catalogObjectId: li.squareCatalogObjectId }
+      : { basePriceMoney: { amount: li.priceCents ?? 0, currency: "USD" as const } }),
+  }));
+
+  if (item.kind === "kbf") {
+    const roster = session.kbfIdentity?.members ?? [];
+    const free = item.bowlers
+      .map((id) => roster.find((m) => m.id === id))
+      .filter((m): m is NonNullable<typeof m> => Boolean(m));
+    const kbfKidCount = free.filter((m) => m.relation === "kid").length;
+    const ymd = item.date ?? item.bookedAt?.slice(0, 10) ?? "";
+    lines.push(
+      ...buildKbfExtraSquareLineItems({
+        isVip: item.tier === "vip",
+        isFriday: ymd ? isFridayYmd(ymd) : false,
+        kbfKidCount,
+        fbfAdultCount: free.length - kbfKidCount,
+        paidAdultCount: item.paidAdults,
+      }),
+    );
+  }
+
+  if (item.hasBookingFee) {
+    lines.push({ name: "Booking Fee", quantity: "1", catalogObjectId: BOOKING_FEE_CATALOG_ID });
+  }
+
+  return lines;
+}
 
 interface HoldInput {
   session: BookingSession;
@@ -97,9 +151,31 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
   const playerCount =
     item.kind === "bowling" ? item.playerCount : item.bowlers.length + item.paidAdults;
 
+  // KBF players must carry per-bowler detail so the reserve route can:
+  //   - charge paid-adult game fees (isPaidAdult),
+  //   - split the VIP upcharge into KBF-kid vs FBF-adult lines (kbfRelation),
+  //   - enforce the per-day free-games cap + save shoe prefs (kbfPassId/slot).
+  // The roster lives in session.kbfIdentity.members; item.bowlers holds the
+  // selected free-bowler ids; item.paidAdults is the guest-adult count.
   const players =
     item.kind === "kbf"
-      ? item.bowlers.map((_, i) => ({ name: `Bowler ${i + 1}` }))
+      ? [
+          ...item.bowlers.map((id, i) => {
+            const m = session.kbfIdentity?.members.find((mm) => mm.id === id);
+            const name = m ? `${m.firstName} ${m.lastName}`.trim() : "";
+            return {
+              name: name || `Bowler ${i + 1}`,
+              kbfPassId: m?.passId ?? null,
+              kbfMemberSlot: m?.slot ?? null,
+              kbfRelation: m?.relation ?? null,
+              isPaidAdult: false,
+            };
+          }),
+          ...Array.from({ length: item.paidAdults }, (_, i) => ({
+            name: `Adult ${i + 1}`,
+            isPaidAdult: true,
+          })),
+        ]
       : Array.from({ length: playerCount }, (_, i) => ({ name: `Bowler ${i + 1}` }));
 
   const kind = item.kind === "kbf" ? "kbf" : item.variant === "hourly" ? "hourly" : "open";

@@ -8,6 +8,7 @@ import type {
   BowlingExperienceWithDetails,
   BowlingExperienceDurationOption,
 } from "@/lib/bowling-db";
+import { KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS } from "~/features/booking/service/kbf-pricing";
 
 const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
@@ -370,13 +371,29 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                   </div>
                 )}
 
-                {/* Price display */}
+                {/* Price display. KBF games are free; the VIP lane carries a
+                    $2/person upcharge that IS charged at checkout, so surface it
+                    here rather than showing "$0.00". */}
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-lg font-bold text-white">
-                    {centsToDollars(priceCents)}
-                    <span className="text-xs font-normal text-white/40">
-                      /{isPerLane ? "lane" : "person"}
-                    </span>
+                    {kind === "kbf" && !isVip ? (
+                      "Free"
+                    ) : kind === "kbf" && isVip ? (
+                      <>
+                        {centsToDollars(KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS)}
+                        <span className="text-xs font-normal text-white/40">
+                          {" "}
+                          /person · VIP lane
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        {centsToDollars(priceCents)}
+                        <span className="text-xs font-normal text-white/40">
+                          /{isPerLane ? "lane" : "person"}
+                        </span>
+                      </>
+                    )}
                   </span>
                   {isVip && (
                     <span

@@ -17,7 +17,13 @@ import {
   type BillOverview,
 } from "~/features/booking/service/checkout";
 import { eligibleCreditsForMember } from "~/features/booking/data/race-credits";
-import { bowlingReserve } from "~/features/booking/service/bowling";
+import { bowlingReserve, buildBowlingQuoteLineItems } from "~/features/booking/service/bowling";
+import {
+  KBF_GAMES_PER_SESSION,
+  kbfAdultGamesTotalCents,
+  kbfVipUpchargeTotalCents,
+  isFridayYmd,
+} from "~/features/booking/service/kbf-pricing";
 import { clearBookingSession } from "~/features/booking/hooks";
 import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm";
 import type { SavedCard } from "@/components/square/SavedCardSelector";
@@ -158,6 +164,32 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         if (item.hasBookingFee) {
           reviewLines.push({ name: "Booking Fee", quantity: 1, amount: 2.99 });
         }
+        // KBF extras the server charges but item.lineItems (free games) don't
+        // carry: the VIP lane upcharge ($2/free bowler) and per-game adult fees.
+        // Computed from the SAME kbf-pricing helpers the reserve route uses, so
+        // the displayed total matches the charge. See kbf-pricing.ts.
+        if (item.kind === "kbf") {
+          const isVip = item.tier === "vip";
+          const ymd = item.date ?? item.bookedAt?.slice(0, 10) ?? "";
+          const friday = ymd ? isFridayYmd(ymd) : false;
+          const freeBowlerCount = item.bowlers.length;
+          const vipUpchargeCents = kbfVipUpchargeTotalCents(freeBowlerCount, isVip);
+          if (vipUpchargeCents > 0) {
+            reviewLines.push({
+              name: "VIP Lane",
+              quantity: freeBowlerCount,
+              amount: vipUpchargeCents / 100,
+            });
+          }
+          const adultGamesCents = kbfAdultGamesTotalCents(item.paidAdults, isVip, friday);
+          if (adultGamesCents > 0) {
+            reviewLines.push({
+              name: `Adult Games${isVip ? " (VIP)" : ""}`,
+              quantity: item.paidAdults * KBF_GAMES_PER_SESSION,
+              amount: adultGamesCents / 100,
+            });
+          }
+        }
       }
 
       // Attraction line items — include slot time
@@ -180,17 +212,59 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         }
       }
 
-      // Estimate totals from the review lines (the server computes the
-      // authoritative total with tax; this is for display)
       const preTaxSubtotal = reviewLines.reduce((s, l) => s + l.amount, 0);
       const rewardDiscountCents = session.loyalty?.selectedRewardTier?.discountCents ?? 0;
+
+      // KBF: get Square's authoritative tax-inclusive total + the day-of order
+      // the reserve step will reuse, so the displayed total IS the charge —
+      // county sales tax included. Non-fatal: fall back to the pre-tax estimate
+      // if the quote can't be reached. (KBF is 100% deposit; regular bowling
+      // keeps its existing deposit flow.)
+      let quotedTotal: number | null = null;
+      // Only for a bowling/KBF-only cart — that's the path that reuses the
+      // quoted day-of order (bowlingReserve). A mixed cart (KBF + race) settles
+      // via the unified reserve, so don't override its total with the KBF-only
+      // quote.
+      const bowlingOnlyCart = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
+      const kbfItem = session.items.find((i): i is KbfItem => i.kind === "kbf");
+      if (kbfItem && bowlingOnlyCart) {
+        try {
+          const centerId = kbfItem.qamfCenterId ?? 9172;
+          const res = await fetch("/api/square/bowling-orders/quote", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              locationId: centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7",
+              lineItems: buildBowlingQuoteLineItems(kbfItem, session),
+              depositPct: 100,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data.dayofOrderId) {
+            quotedTotal = data.dayofTotalCents / 100;
+            dispatch({
+              type: "setBowlingQuote",
+              itemId: kbfItem.id,
+              dayofOrderId: data.dayofOrderId,
+              totalCents: data.dayofTotalCents,
+              depositCents: data.depositCents,
+            });
+          }
+        } catch {
+          /* non-fatal — display falls back to the estimate below */
+        }
+      }
+
+      const estTax = bmiOverview?.tax ?? 0;
+      const total = quotedTotal ?? preTaxSubtotal + estTax;
+      const tax = quotedTotal != null ? Math.max(0, quotedTotal - preTaxSubtotal) : estTax;
 
       const overview: BillOverview = {
         lines: reviewLines,
         subtotal: preTaxSubtotal,
-        tax: bmiOverview?.tax ?? 0,
-        total: preTaxSubtotal + (bmiOverview?.tax ?? 0),
-        cashOwed: Math.max(0, preTaxSubtotal + (bmiOverview?.tax ?? 0) - rewardDiscountCents / 100),
+        tax,
+        total,
+        cashOwed: Math.max(0, total - rewardDiscountCents / 100),
         creditApplied: bmiOverview?.creditApplied ?? 0,
         isCreditOrder: preTaxSubtotal <= 0,
       };
