@@ -95,6 +95,10 @@
     {
       "path": "/api/cron/bmi-cancel-sweep",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/group-square-settled-close",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

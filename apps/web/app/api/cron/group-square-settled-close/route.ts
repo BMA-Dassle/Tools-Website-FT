@@ -14,31 +14,35 @@ import { firePortalWebhookAsync } from "@/lib/portal-webhook";
  * Square-settled auto-close cron.
  *
  * Some group events never finished our flow (stuck at `contract_sent`,
- * `deposit_paid`, or `balance_link_sent`) but the money was actually collected
- * DIRECTLY IN SQUARE — a paid-out Square order whose NAME starts with "BMI…",
- * created outside our contract/deposit/balance rail. This sweep finds those
- * events, verifies the paid Square order, and jumps them to `completed`, booking
- * the money as fully collected (method 'square').
+ * `deposit_paid`, or `balance_link_sent`) but were actually settled the old way:
+ * at close-out the venue rings the event up on a Square POS check whose
+ * ticket NAME starts with "BMI <event_number>" (e.g. "Bmi H1145 Angelina's 11th
+ * Bday"). When that check is COMPLETED, the event is paid — we jump it to
+ * `completed`.
  *
- * Discovery-first: with `?dryRun=1` it makes ZERO writes and reports, per event,
- * every candidate "BMI…" order found at the event's location (id, where the
- * "BMI…" name lives, source, total, amount delta) so a human can confirm the
- * real shape before any live run. The live path completes ONLY a single
- * confident match (state COMPLETED + EXACT-cents total). Ambiguous / amount
- * mismatch / no match are skipped and reported — never guess on a financial record.
+ * Detection (proven against prod): match `order.ticket_name` (the POS check name),
+ * NOT an amount — close-out totals routinely drop vs our quoted total. We match a
+ * COMPLETED order whose ticket_name starts with "BMI <event_number>" at the event's
+ * location, created near the event date. The check AMOUNT is recorded for audit but
+ * is NOT used to gate (deposits are collected separately, and totals get reduced at
+ * close), so amount matching would miss real settlements.
  *
- * Unlike `group-dayof-close`, this sets `completed` DIRECTLY and intentionally does
- * NOT gate on `dayof_paid_at`: these events were paid outside our day-of gift-card
- * rail, so there is no gift-card payout to perform first — the pay-before-close
- * hazard (incident 2026-06-05) does not apply here. We never touch
- * `square_dayof_order_id` or load gift cards.
+ * Discovery-first: `?dryRun=1` makes ZERO writes and reports, per event, the matched
+ * check (or none). Future-dated events are reported `future` without a Square call —
+ * no close-out check can exist yet.
+ *
+ * Unlike `group-dayof-close`, this sets `completed` DIRECTLY and does NOT gate on
+ * `dayof_paid_at`: these events were paid at the POS outside our day-of gift-card
+ * rail, so there is no gift-card payout to perform first (incident 2026-06-05 does
+ * not apply). We never touch `square_dayof_order_id` or load gift cards.
  *
  * Query params (all optional):
- *   ?dryRun=1            — scan + report candidates, no writes
- *   ?statuses=a,b,c      — override candidate statuses (csv)
- *   ?windowDays=60       — event_date within ± N days of now
- *   ?orderWindowDays=45  — Square order created_at within ± N days of event_date
- *   ?limit=100           — max events scanned
+ *   ?dryRun=1             — scan + report, no writes
+ *   ?statuses=a,b,c       — override candidate statuses (csv)
+ *   ?windowDays=180       — event_date within ± N days of now
+ *   ?lookbackDays=7       — search checks created from event_date - N days …
+ *   ?lookaheadDays=21     — … to event_date + N days
+ *   ?limit=200            — max events scanned
  *
  * Kill switch: env GF_SQUARE_SETTLED_KILL (truthy) short-circuits the whole run.
  */
@@ -56,81 +60,63 @@ function sqHeaders() {
 }
 
 const truthy = (v: string | undefined) => /^(1|true|on|yes)$/i.test(v || "");
-
 const DAY_MS = 86_400_000;
 
-type Verdict = "confident_single" | "no_match" | "amount_mismatch" | "ambiguous" | "error";
+type Verdict = "settled" | "no_check" | "future" | "error";
 
 interface SquareOrder {
   id: string;
   state?: string;
-  reference_id?: string;
-  source?: { name?: string };
-  note?: string;
+  ticket_name?: string;
   total_money?: { amount?: number; currency?: string };
   created_at?: string;
-  line_items?: Array<{ name?: string }>;
-  tenders?: Array<{ note?: string }>;
-  metadata?: Record<string, string>;
 }
 
-interface BmiCandidate {
+interface CheckMatch {
   orderId: string;
-  matchedField: string;
-  matchedValue: string;
-  sourceName: string | null;
-  referenceId: string | null;
-  state: string | null;
+  ticketName: string;
   totalCents: number | null;
-  currency: string | null;
   createdAt: string | null;
-  amountDeltaCents: number | null;
-  reconciles: boolean;
 }
 
 interface Analysis {
   quote: GroupFunctionQuote;
-  candidates: BmiCandidate[];
   verdict: Verdict;
-  matchedOrderId: string | null;
+  check: CheckMatch | null;
   error?: string;
 }
 
-/** Case-insensitive "name starts with BMI" test. */
-function startsWithBmi(v: unknown): v is string {
-  return typeof v === "string" && v.trim().toUpperCase().startsWith("BMI");
+/**
+ * Does a POS check name start with "BMI <eventNumber>" on a word boundary?
+ * Case-insensitive, whitespace-normalized. The boundary guard stops event
+ * "H1145" from matching a check named "BMI H11456 …".
+ */
+function ticketMatches(ticketName: string | undefined, eventNumber: string | null): boolean {
+  if (!ticketName || !eventNumber) return false;
+  const t = ticketName.trim().toUpperCase().replace(/\s+/g, " ");
+  const en = String(eventNumber).trim().toUpperCase();
+  if (!en) return false;
+  const prefix = `BMI ${en}`;
+  if (!t.startsWith(prefix)) return false;
+  const next = t.charAt(prefix.length);
+  return next === "" || !/[A-Z0-9]/.test(next);
 }
 
 /**
- * Find where (if anywhere) a "BMI…" name lives on a Square order. Square has no
- * single canonical "name" field, so we check the likely spots in priority order
- * and report which one matched — that is the discovery payload that lets us lock
- * the match rule.
+ * Find a COMPLETED Square check named "BMI <eventNumber>" near the event date.
+ * Returns the first match (sorted newest-first) or null. Paginates with early exit.
  */
-function findBmiMatch(order: SquareOrder): { field: string; value: string } | null {
-  const checks: Array<[string, unknown]> = [
-    ["reference_id", order.reference_id],
-    ["source.name", order.source?.name],
-    ["order.note", order.note],
-  ];
-  for (const li of order.line_items ?? []) checks.push(["line_item.name", li?.name]);
-  for (const [k, val] of Object.entries(order.metadata ?? {})) checks.push([`metadata.${k}`, val]);
-  for (const t of order.tenders ?? []) checks.push(["tender.note", t?.note]);
-  for (const [field, value] of checks) {
-    if (startsWithBmi(value)) return { field, value: value.trim() };
-  }
-  return null;
-}
-
-/** SearchOrders: COMPLETED orders at one location within a created_at window (paginated). */
-async function searchCompletedOrders(
+async function findSettlementCheck(
   locationId: string,
-  startAt: string,
-  endAt: string,
-): Promise<SquareOrder[]> {
-  const orders: SquareOrder[] = [];
+  eventNumber: string,
+  eventMs: number,
+  lookbackDays: number,
+  lookaheadDays: number,
+): Promise<CheckMatch | null> {
+  const startAt = new Date(eventMs - lookbackDays * DAY_MS).toISOString();
+  const endAt = new Date(eventMs + lookaheadDays * DAY_MS).toISOString();
   let cursor: string | undefined;
-  for (let page = 0; page < 10; page++) {
+  for (let page = 0; page < 40; page++) {
     const res = await fetch(`${SQUARE_BASE}/orders/search`, {
       method: "POST",
       headers: sqHeaders(),
@@ -143,7 +129,7 @@ async function searchCompletedOrders(
           },
           sort: { sort_field: "CREATED_AT", sort_order: "DESC" },
         },
-        limit: 200,
+        limit: 500,
         return_entries: false,
         ...(cursor ? { cursor } : {}),
       }),
@@ -152,65 +138,49 @@ async function searchCompletedOrders(
       throw new Error(`SearchOrders failed (${res.status}) for location ${locationId}`);
     }
     const data = await res.json();
-    for (const o of (data.orders ?? []) as SquareOrder[]) orders.push(o);
+    for (const o of (data.orders ?? []) as SquareOrder[]) {
+      if (ticketMatches(o.ticket_name, eventNumber)) {
+        return {
+          orderId: o.id,
+          ticketName: o.ticket_name as string,
+          totalCents: o.total_money?.amount ?? null,
+          createdAt: o.created_at ?? null,
+        };
+      }
+    }
     cursor = data.cursor;
     if (!cursor) break;
   }
-  return orders;
+  return null;
 }
 
-async function analyzeQuote(quote: GroupFunctionQuote, orderWindowDays: number): Promise<Analysis> {
+async function analyzeQuote(
+  quote: GroupFunctionQuote,
+  lookbackDays: number,
+  lookaheadDays: number,
+  nowMs: number,
+): Promise<Analysis> {
+  // A close-out check can't exist before the event happens.
+  if (new Date(quote.event_date).getTime() > nowMs + DAY_MS) {
+    return { quote, verdict: "future", check: null };
+  }
+  if (!quote.event_number) {
+    return { quote, verdict: "no_check", check: null };
+  }
   try {
-    const eventMs = new Date(quote.event_date).getTime();
-    const startAt = new Date(eventMs - orderWindowDays * DAY_MS).toISOString();
-    const endAt = new Date(eventMs + orderWindowDays * DAY_MS).toISOString();
-
-    const orders = await searchCompletedOrders(quote.square_location_id, startAt, endAt);
-
-    const candidates: BmiCandidate[] = [];
-    for (const order of orders) {
-      const match = findBmiMatch(order);
-      if (!match) continue;
-      const amount = order.total_money?.amount ?? null;
-      const currency = order.total_money?.currency ?? null;
-      const reconciles =
-        order.state === "COMPLETED" && currency === "USD" && amount === quote.total_cents;
-      candidates.push({
-        orderId: order.id,
-        matchedField: match.field,
-        matchedValue: match.value,
-        sourceName: order.source?.name ?? null,
-        referenceId: order.reference_id ?? null,
-        state: order.state ?? null,
-        totalCents: amount,
-        currency,
-        createdAt: order.created_at ?? null,
-        amountDeltaCents: amount === null ? null : amount - quote.total_cents,
-        reconciles,
-      });
-    }
-
-    const reconciling = candidates.filter((c) => c.reconciles);
-    let verdict: Verdict;
-    let matchedOrderId: string | null = null;
-    if (reconciling.length === 1) {
-      verdict = "confident_single";
-      matchedOrderId = reconciling[0].orderId;
-    } else if (reconciling.length >= 2) {
-      verdict = "ambiguous";
-    } else if (candidates.length === 0) {
-      verdict = "no_match";
-    } else {
-      verdict = "amount_mismatch";
-    }
-
-    return { quote, candidates, verdict, matchedOrderId };
+    const check = await findSettlementCheck(
+      quote.square_location_id,
+      quote.event_number,
+      new Date(quote.event_date).getTime(),
+      lookbackDays,
+      lookaheadDays,
+    );
+    return { quote, verdict: check ? "settled" : "no_check", check };
   } catch (err) {
     return {
       quote,
-      candidates: [],
       verdict: "error",
-      matchedOrderId: null,
+      check: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -239,9 +209,10 @@ export async function GET(req: NextRequest) {
     .map((s) => s.trim())
     .filter(Boolean) as GfQuoteStatus[];
   const statuses = statusesParam.length > 0 ? statusesParam : undefined;
-  const windowDays = Math.min(Math.max(Number(params.get("windowDays")) || 60, 1), 730);
-  const orderWindowDays = Math.min(Math.max(Number(params.get("orderWindowDays")) || 45, 1), 365);
-  const limit = Math.min(Math.max(Number(params.get("limit")) || 100, 1), 500);
+  const windowDays = Math.min(Math.max(Number(params.get("windowDays")) || 180, 1), 730);
+  const lookbackDays = Math.min(Math.max(Number(params.get("lookbackDays")) || 7, 1), 120);
+  const lookaheadDays = Math.min(Math.max(Number(params.get("lookaheadDays")) || 21, 1), 120);
+  const limit = Math.min(Math.max(Number(params.get("limit")) || 200, 1), 500);
 
   let quotes: GroupFunctionQuote[];
   try {
@@ -251,30 +222,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "DB query failed" }, { status: 500 });
   }
 
-  const analyzed = await Promise.all(quotes.map((q) => analyzeQuote(q, orderWindowDays)));
+  const nowMs = Date.now();
+  const analyzed = await Promise.all(
+    quotes.map((q) => analyzeQuote(q, lookbackDays, lookaheadDays, nowMs)),
+  );
 
   if (dryRun) {
     return NextResponse.json({
       ok: true,
       dryRun: true,
-      window: { statuses: statuses ?? "default", windowDays, orderWindowDays, limit },
+      window: { statuses: statuses ?? "default", windowDays, lookbackDays, lookaheadDays, limit },
       scanned: quotes.length,
       events: analyzed.map((a) => ({
         quoteId: a.quote.id,
         status: a.quote.status,
-        bmiReservationId: a.quote.bmi_reservation_id,
-        eventName: a.quote.event_name,
         eventNumber: a.quote.event_number,
+        eventName: a.quote.event_name,
         eventDate: a.quote.event_date,
-        guestName: `${a.quote.guest_first_name} ${a.quote.guest_last_name}`.trim(),
-        locationId: a.quote.square_location_id,
-        totalCents: a.quote.total_cents,
-        collectedCents: a.quote.collected_cents,
-        balanceCents: a.quote.balance_cents,
-        isWinback: a.quote.is_winback,
+        center: a.quote.center_code,
+        ourTotalCents: a.quote.total_cents,
         verdict: a.verdict,
         ...(a.error ? { error: a.error } : {}),
-        bmiCandidates: a.candidates,
+        check: a.check,
       })),
     });
   }
@@ -283,13 +252,10 @@ export async function GET(req: NextRequest) {
   const summary = {
     scanned: quotes.length,
     completed: 0,
-    skipped: {
-      no_match: 0,
-      amount_mismatch: 0,
-      ambiguous: 0,
-      already_completed: 0,
-      order_already_used: 0,
-    } as Record<string, number>,
+    skipped: { future: 0, no_check: 0, already_completed: 0, order_already_used: 0 } as Record<
+      string,
+      number
+    >,
     errors: 0,
     completedQuoteIds: [] as number[],
   };
@@ -300,14 +266,14 @@ export async function GET(req: NextRequest) {
       console.error(`[group-square-settled-close] analyze error quote=${a.quote.id}: ${a.error}`);
       continue;
     }
-    if (a.verdict !== "confident_single" || !a.matchedOrderId) {
+    if (a.verdict !== "settled" || !a.check) {
       summary.skipped[a.verdict]++;
       continue;
     }
 
     try {
       const applied = await markGfSquareSettledComplete(a.quote.id, {
-        squareSettledOrderId: a.matchedOrderId,
+        squareSettledOrderId: a.check.orderId,
       });
       if (applied === 0) {
         summary.skipped.already_completed++;
@@ -316,8 +282,8 @@ export async function GET(req: NextRequest) {
       summary.completed++;
       summary.completedQuoteIds.push(a.quote.id);
       console.log(
-        `[group-square-settled-close] completed quote=${a.quote.id} ` +
-          `event="${a.quote.event_name}" squareOrder=${a.matchedOrderId} total=${a.quote.total_cents}`,
+        `[group-square-settled-close] completed quote=${a.quote.id} #${a.quote.event_number} ` +
+          `check="${a.check.ticketName}" amount=${a.check.totalCents} order=${a.check.orderId}`,
       );
 
       // Best-effort side effects (each isolated — none blocks the close).
@@ -326,10 +292,10 @@ export async function GET(req: NextRequest) {
           quoteId: a.quote.id,
           event: "square_settled_completed",
           metadata: {
-            orderId: a.matchedOrderId,
-            matchedField: a.candidates.find((c) => c.orderId === a.matchedOrderId)?.matchedField,
-            matchedValue: a.candidates.find((c) => c.orderId === a.matchedOrderId)?.matchedValue,
-            totalCents: a.quote.total_cents,
+            orderId: a.check.orderId,
+            ticketName: a.check.ticketName,
+            checkAmountCents: a.check.totalCents,
+            ourTotalCents: a.quote.total_cents,
             locationId: a.quote.square_location_id,
             priorStatus: a.quote.status,
           },
@@ -344,7 +310,7 @@ export async function GET(req: NextRequest) {
         await appendProjectPrivateNote({
           centerCode: a.quote.center_code,
           projectId: a.quote.bmi_reservation_id,
-          note: `[${noteTimestamp()}] Event closed — paid via Square order ${a.matchedOrderId}`,
+          note: `[${noteTimestamp()}] Event closed — settled at POS on check "${a.check.ticketName}" (Square order ${a.check.orderId})`,
         });
       } catch (err) {
         console.error(`[group-square-settled-close] BMI note failed quote=${a.quote.id}:`, err);
@@ -360,7 +326,7 @@ export async function GET(req: NextRequest) {
       if (isUniqueViolation(err)) {
         summary.skipped.order_already_used++;
         console.warn(
-          `[group-square-settled-close] order ${a.matchedOrderId} already attributed — quote=${a.quote.id} skipped`,
+          `[group-square-settled-close] check ${a.check.orderId} already attributed — quote=${a.quote.id} skipped`,
         );
       } else {
         summary.errors++;
