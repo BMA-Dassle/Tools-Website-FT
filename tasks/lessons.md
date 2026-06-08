@@ -1,5 +1,49 @@
 # Lessons Learned
 
+## "Send Contract" is the only contract trigger — retired `group-quote-sync`'s auto-resign (2026-06-08)
+
+The 2026-06-07 emergency guard (below) only stopped *past* events. The same loop hit an *upcoming*
+event: **Emmanuel Lutheran Church** (HeadPinz Naples, event #1355, Jun 17 7 PM) — signed + deposit
+paid at 16:32, then blasted "Contract Updated" every 5 minutes from 16:40 onward. The planner sent
+nothing; the cron did.
+
+**Actual root cause of the non-convergence (it was NOT the product diff suspected on 06-07): a
+timezone round-trip on `event_date`.** BMI returns a tz-less ET string (`2026-06-17T19:00:00` = 7 PM
+ET). `syncQuote` wrote that bare string into the `timestamptz` column via `updates.event_date =
+bmiDate`. The Neon session `TimeZone` is **GMT**, so Postgres persisted it as `19:00Z` = **3 PM ET**.
+Next run, `normDate()` read the stored value back as 3 PM ET but normalized BMI's string as 7 PM ET →
+a permanent 4-hour mismatch. The write-back re-introduced the same error every run, so it could never
+converge. (The `event_date_display` column was computed correctly with a `-04:00` offset, masking the
+bad raw instant — display looked right while the stored instant drove the loop.)
+
+**Permanent fix — the gate.** Ripped ALL contract mutation out of `group-quote-sync`: no more
+change-detection, no `resign_required` flip, no `notifyContractUpdated`, no silent `event_date` /
+`line_items` rewrite. That cron now does ONLY: cancel+refund on BMI state −4, waiver reminders, and
+day-of order backfill. **Every contract send / resend / update / resign now flows exclusively through
+`group-quote-dispatch`, which fires only when the planner sets the BMI project to "Send Contract."**
+One gate, planner-controlled. (`isEventOver`, the product/customer/date diff, the AI name writeback,
+and the Hermes planner backfill all went with it — those updates happen on the next "Send Contract".)
+
+**Data remediation (quote 99):** restored `status=deposit_paid`, `contract_status=signed`, re-attached
+the signed PDF + `contract_signed_at` from `signed_pdf_history`, wiped the churn history, and set
+`event_date` to the correct ET instant (`2026-06-17T19:00:00-04:00` = `23:00Z`). `signature_data` /
+`document_seal` were nulled by the churn and unrecoverable, but the signed PDF + audit "signed" event
+remain. The contract page keys its re-sign prompt off `status === "resign_required"`, so a restored
+`deposit_paid` row renders the confirmed view — the guest is NOT asked to sign again.
+
+**Guardrails:**
+- **One customer-facing trigger per action.** A background poller and a planner-action handler must
+  not both be able to send/resign the same contract. If the planner's "Send Contract" is the intended
+  gate, the poller must never emit the same customer-facing effect — at most it does silent, internal
+  self-healing (cancel/refund, reminders, backfill).
+- **Never write a tz-less wall-clock string into a `timestamptz`.** The Neon session is GMT, so
+  `'2026-06-17T19:00:00'::timestamptz` stores 19:00**Z**, not 19:00 ET. Always attach the correct
+  ET offset (DST-aware) before persisting a BMI/Hermes date, or the raw instant drifts 4–5h even when
+  the display column looks fine. (Latent elsewhere — dispatch ingests dates that already carry tz, so
+  it stored correctly; sync's `project.date` did not.)
+- A "corrected value" write that doesn't round-trip equal on the next read is an infinite trigger.
+  Removing the *acting* is more robust than chasing convergence on a value you can't control.
+
 ## `group-quote-sync` re-emailed "Contract Updated" every 5 min for a past, signed event (2026-06-07)
 
 Annalisa Birthday Party (HeadPinz Naples, Jun 6 4:15 PM) blasted the guest a "Contract Updated —

@@ -3,36 +3,34 @@ import { randomBytes } from "crypto";
 import { sql, isDbConfigured } from "@/lib/db";
 import {
   ensureGfSchema,
-  updateGfQuoteDetails,
   getGfQuoteByShortId,
-  appendAuditLog,
-  createContractVersion,
-  extractContractSnapshot,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
-import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
-import { fetchReservationProducts, fetchReservationDetail, isTaxExempt } from "@/lib/hermes-client";
-import { subtotalCents, taxCents as computeTaxCents } from "@/lib/group-function-pricing";
+import { fetchProject } from "@/lib/bmi-office-actions";
 import { createDayofOrder } from "@/lib/group-function-dayof";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
- * Group quote sync cron.
+ * Group quote sync cron. Runs every 5 minutes.
  *
- * Runs every 5 minutes. Checks all active quotes (contract_sent,
- * deposit_paid, balance_charged) against live BMI Office data.
- * If customer, planner, date, or products changed:
- *   - Pre-deposit: updates quote + re-sends notification
- *   - Post-deposit: archives signed PDF, sets resign_required
+ * Its ONLY contract responsibility is detecting cancellations in BMI Office
+ * (stateId = -4): cancel the quote, refund any Square payments, and notify.
+ * It also performs two pieces of unrelated self-healing: sending waiver
+ * reminders for deposited events, and backfilling missing day-of Square orders.
+ *
+ * It intentionally does NOT touch a sent/signed contract's content, never sends
+ * a "Contract Updated" email, and never flips a contract to resign_required.
+ * ALL contract sends / resends / updates / resigns flow exclusively through
+ * group-quote-dispatch, which fires only when the event planner sets the BMI
+ * project to "Send Contract". That is the single gate.
+ *
+ * History: auto-resign-on-detected-diff used to live here and emailed guests
+ * behind the planner's back. A tz round-trip in its event_date write-back
+ * (BMI returns a tz-less ET string; this cron wrote it into a timestamptz under
+ * a GMT session, persisting it 4h off) made the diff non-converging, so a signed
+ * event was spammed "Contract Updated" every 5 minutes. Removed 2026-06-08.
+ * See tasks/lessons.md § "Send Contract is the only contract trigger".
  */
-
-const HERMES_CENTER_MAP: Record<string, string> = {
-  "fort-myers": "10.48.0.14",
-  fasttrax: "10.48.0.14",
-  naples: "10.40.0.43",
-};
-
-const SYNC_STATUSES = ["contract_sent", "deposit_paid", "balance_charged", "balance_link_sent"];
 
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
@@ -43,8 +41,6 @@ export async function GET(req: NextRequest) {
   }
 
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
-  // Ensure the schema (incl. collected_cents) + one-time backfill have run before we read
-  // quotes — the post-signing recompute depends on collected_cents being populated.
   await ensureGfSchema();
   const q = sql();
 
@@ -65,28 +61,9 @@ export async function GET(req: NextRequest) {
     changes?: string[];
   }> = [];
 
-  // Fetch planner data from Hermes for quotes missing it
-  const plannerMap = new Map<string, PlannerInfo>();
-  for (const quote of quotes) {
-    if (!quote.planner_first && !quote.planner_last) {
-      try {
-        const hermesCenter =
-          quote.center_code === "fasttrax" ? "10.48.0.14_FT" : HERMES_CENTER_MAP[quote.center_code];
-        if (hermesCenter) {
-          const hres = await fetchReservationDetail(hermesCenter, quote.bmi_reservation_id);
-          if (hres?.planner?.first || hres?.planner?.last || hres?.planner?.email) {
-            plannerMap.set(quote.bmi_reservation_id, hres.planner);
-          }
-        }
-      } catch {
-        /* non-fatal */
-      }
-    }
-  }
-
   for (const quote of quotes) {
     try {
-      const result = await syncQuote(quote, dryRun, plannerMap);
+      const result = await syncQuote(quote, dryRun);
       results.push(result);
     } catch (err) {
       console.error(`[group-quote-sync] error syncing quote=${quote.id}:`, err);
@@ -100,8 +77,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const updated = results.filter(
-    (r) => r.action === "updated" || r.action === "resign_required",
+  const cancelled = results.filter(
+    (r) => r.action === "cancelled" || r.action === "would_cancel",
   ).length;
 
   // Send waiver reminders for quotes deposited 5+ minutes ago
@@ -175,8 +152,7 @@ export async function GET(req: NextRequest) {
   }
 
   console.log(
-    `[group-quote-sync] checked=${quotes.length} updated=${updated} ` +
-      `unchanged=${results.filter((r) => r.action === "unchanged").length}` +
+    `[group-quote-sync] checked=${quotes.length} cancelled=${cancelled}` +
       (waiversSent > 0 ? ` waivers=${waiversSent}` : "") +
       (dayofBackfilled > 0 ? ` dayofBackfilled=${dayofBackfilled}` : ""),
   );
@@ -184,59 +160,16 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     checked: quotes.length,
-    updated,
+    cancelled,
     waiversSent,
     dayofBackfilled,
     results,
   });
 }
 
-const normPhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");
-const normDate = (d: string | null | undefined) => {
-  if (!d) return "";
-  try {
-    // BMI stores local ET without timezone (e.g. "2026-05-28T07:00:00").
-    // Append ET offset so JS doesn't treat it as UTC.
-    const raw = String(d);
-    const hasTimezone =
-      raw.includes("Z") || raw.includes("+") || /\d-\d{2}:\d{2}$/.test(raw) || raw.includes("GMT");
-    const dt = new Date(hasTimezone ? raw : `${raw}-04:00`);
-    if (isNaN(dt.getTime())) return "";
-    const etStr = dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-    const etTime = dt.toLocaleTimeString("en-GB", {
-      timeZone: "America/New_York",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    return `${etStr} ${etTime}`;
-  } catch {
-    return "";
-  }
-};
-
-// True once the event's start time has passed. Parses BMI's tz-less ET strings
-// the same way normDate does. Used to stop pre-event contract maintenance
-// (re-sign / "contract updated" emails) for events that have already happened.
-const isEventOver = (d: string | null | undefined): boolean => {
-  if (!d) return false;
-  try {
-    const raw = String(d);
-    const hasTimezone =
-      raw.includes("Z") || raw.includes("+") || /\d-\d{2}:\d{2}$/.test(raw) || raw.includes("GMT");
-    const dt = new Date(hasTimezone ? raw : `${raw}-04:00`);
-    if (isNaN(dt.getTime())) return false;
-    return dt.getTime() < Date.now();
-  } catch {
-    return false;
-  }
-};
-
-type PlannerInfo = { first: string; last: string; email: string; phone: string };
-
 async function syncQuote(
   quote: GroupFunctionQuote,
   dryRun: boolean,
-  plannerMap?: Map<string, PlannerInfo>,
 ): Promise<{ id: number; eventName: string; status: string; action: string; changes?: string[] }> {
   const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
   if (!project) {
@@ -248,7 +181,7 @@ async function syncQuote(
     };
   }
 
-  // Check for cancellation in BMI Office (stateId = -4)
+  // The only thing this cron acts on: a cancellation in BMI Office (stateId = -4).
   const bmiStateId = String(project.stateId || "");
   if (bmiStateId === "-4" && quote.status !== "cancelled") {
     if (dryRun) {
@@ -373,335 +306,12 @@ async function syncQuote(
     };
   }
 
-  // Skip sync while BMI state is "Quote" (-2) — planner is mid-edit
-  if (bmiStateId === "-2") {
-    return {
-      id: quote.id,
-      eventName: quote.event_name || "",
-      status: quote.status,
-      action: "skipped_quote_state",
-    };
-  }
-
-  // Event is over — stop pre-event contract maintenance. A signed/paid contract
-  // for a past event must NEVER be flipped to resign_required or re-emailed.
-  // A non-converging Hermes product diff was doing exactly that every 5 min,
-  // spamming the guest with "Contract Updated" long after the event ended.
-  // (Cancellation handling above still applies; nothing below this point —
-  // re-sign, "contract updated" email, version churn — is useful once the event
-  // has happened.) Uses the live BMI date so a reschedule into the future resumes sync.
-  const effectiveDate = (project.date as string | undefined) || quote.event_date;
-  if (isEventOver(effectiveDate)) {
-    return {
-      id: quote.id,
-      eventName: quote.event_name || "",
-      status: quote.status,
-      action: "skipped_past_event",
-    };
-  }
-
-  const changes: string[] = [];
-  const isSigned = quote.status !== "contract_sent";
-
-  // Check customer
-  const customerPersonId = project.personId as string;
-  const persons = await fetchPersonsByIds(quote.center_code, [customerPersonId]);
-  const customer = persons[0];
-
-  if (customer) {
-    if (customer.firstName !== quote.guest_first_name)
-      changes.push(`customer_first: ${quote.guest_first_name} → ${customer.firstName}`);
-    if (customer.lastName !== quote.guest_last_name)
-      changes.push(`customer_last: ${quote.guest_last_name} → ${customer.lastName}`);
-    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase())
-      changes.push(`customer_email: ${quote.guest_email} → ${customer.email}`);
-    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone))
-      changes.push(`customer_phone: ${quote.guest_phone} → ${customer.phone}`);
-  }
-
-  // Backfill planner from Hermes if missing
-  if (!quote.planner_first && !quote.planner_last && plannerMap) {
-    const planner = plannerMap.get(quote.bmi_reservation_id);
-    if (planner) {
-      changes.push(`planner: (empty) → ${planner.first} ${planner.last}`);
-    }
-  }
-
-  // Check event date
-  const bmiDate = project.date as string | undefined;
-  if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
-    changes.push(`event_date: ${quote.event_date} → ${bmiDate}`);
-  }
-
-  // Check event name — AI format if changed
-  let bmiName = (project.name as string) || (project.displayName as string) || "";
-  if (bmiName && bmiName !== quote.event_name) {
-    console.log(
-      `[group-quote-sync] name change detected quote=${quote.id}: DB="${quote.event_name}" BMI="${bmiName}"`,
-    );
-    try {
-      const { formatEventName } = await import("@/lib/event-name-format");
-      console.log(`[group-quote-sync] calling formatEventName with: "${bmiName}"`);
-      const formatted = await formatEventName(bmiName);
-      console.log(
-        `[group-quote-sync] formatEventName returned: "${formatted}" (changed=${formatted !== bmiName})`,
-      );
-      if (formatted !== bmiName) {
-        const { updateProjectName } = await import("@/lib/bmi-office-actions");
-        console.log(`[group-quote-sync] writing back formatted name to BMI...`);
-        updateProjectName({
-          centerCode: quote.center_code,
-          projectId: quote.bmi_reservation_id,
-          name: formatted,
-        }).catch((err) => console.warn(`[group-quote-sync] BMI name writeback failed:`, err));
-        bmiName = formatted;
-      }
-    } catch (err) {
-      console.error("[group-quote-sync] AI name format FAILED:", err);
-    }
-    // Name changes tracked separately — don't trigger contract update email
-  }
-
-  // Check products via Hermes
-  const hermesCenter = HERMES_CENTER_MAP[quote.center_code] || "10.48.0.14";
-  let freshProducts: Array<{
-    name: string;
-    overrideName: string | null;
-    price: number;
-    tax: number;
-    qty: number;
-    total: number;
-    plu: string;
-  }> | null = null;
-  try {
-    freshProducts = await fetchReservationProducts(hermesCenter, quote.bmi_reservation_id);
-    const existingProducts = (quote.line_items || []) as Array<{
-      name: string;
-      qty: number;
-      total: number;
-    }>;
-
-    const productChanged =
-      freshProducts.length !== existingProducts.length ||
-      freshProducts.some((fp, i) => {
-        const ep = existingProducts[i];
-        return !ep || fp.name !== ep.name || fp.qty !== ep.qty || fp.total !== ep.total;
-      });
-
-    if (productChanged) {
-      changes.push(`products: ${existingProducts.length} items → ${freshProducts.length} items`);
-    }
-  } catch (err) {
-    console.warn(`[group-quote-sync] products fetch failed for quote=${quote.id}:`, err);
-  }
-
-  if (changes.length === 0) {
-    return {
-      id: quote.id,
-      eventName: quote.event_name || "",
-      status: quote.status,
-      action: "unchanged",
-    };
-  }
-
-  if (dryRun) {
-    return {
-      id: quote.id,
-      eventName: quote.event_name || "",
-      status: quote.status,
-      action: isSigned ? "would_resign" : "would_update",
-      changes,
-    };
-  }
-
-  // Apply changes
-  const updates: Record<string, unknown> = {};
-  // Name changes are silent (no email trigger) but still saved
-  if (bmiName && bmiName !== quote.event_name) {
-    updates.event_name = bmiName;
-  }
-  if (customer) {
-    if (customer.firstName !== quote.guest_first_name)
-      updates.guest_first_name = customer.firstName;
-    if (customer.lastName !== quote.guest_last_name) updates.guest_last_name = customer.lastName;
-    if (customer.email && customer.email.toLowerCase() !== (quote.guest_email || "").toLowerCase())
-      updates.guest_email = customer.email;
-    if (customer.phone && normPhone(customer.phone) !== normPhone(quote.guest_phone))
-      updates.guest_phone = customer.phone;
-  }
-  if (!quote.planner_first && !quote.planner_last && plannerMap) {
-    const planner = plannerMap.get(quote.bmi_reservation_id);
-    if (planner) {
-      updates.planner_first = planner.first;
-      updates.planner_last = planner.last;
-      updates.planner_email = planner.email;
-      updates.planner_phone = planner.phone;
-    }
-  }
-  if (bmiDate && normDate(bmiDate) !== normDate(quote.event_date)) {
-    updates.event_date = bmiDate;
-    // Reformat display date from raw BMI date (Hermes has AM/PM formatting bug)
-    const hasTz = bmiDate.includes("Z") || bmiDate.includes("+") || /\d-\d{2}:\d{2}$/.test(bmiDate);
-    const d = new Date(hasTz ? bmiDate : `${bmiDate}-04:00`);
-    updates.event_date_display =
-      d.toLocaleDateString("en-US", {
-        timeZone: "America/New_York",
-        month: "short",
-        day: "numeric",
-      }) +
-      " " +
-      d.toLocaleTimeString("en-US", {
-        timeZone: "America/New_York",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      });
-  }
-  if (bmiName && bmiName !== quote.event_name) updates.event_name = bmiName;
-
-  // Update products if changed
-  if (freshProducts && changes.some((c) => c.startsWith("products:"))) {
-    // Verify and correct service charge tier
-    try {
-      const { verifyAndCorrectServiceCharge } = await import("@/lib/service-charge");
-      const scCheck = await verifyAndCorrectServiceCharge(
-        quote.center_code,
-        quote.bmi_reservation_id,
-        freshProducts,
-      );
-      if (scCheck.corrected) {
-        freshProducts = scCheck.products as typeof freshProducts;
-        console.log(`[group-quote-sync] service charge corrected for quote=${quote.id}`);
-      }
-    } catch (err) {
-      console.warn(`[group-quote-sync] service charge check failed for quote=${quote.id}:`, err);
-    }
-
-    // p.tax is a per-line RATE; line tax = rate × line-total. total_cents is the
-    // tax-inclusive grand total. Honor tax exemption like the dispatch cron does.
-    const taxExempt = isTaxExempt(freshProducts);
-    const taxCents = computeTaxCents(freshProducts, taxExempt);
-    const totalCents = subtotalCents(freshProducts) + taxCents;
-    updates.line_items = freshProducts;
-    updates.total_cents = totalCents;
-    updates.tax_cents = taxCents;
-    const eventDateStr = (updates.event_date as string) || quote.event_date;
-    const eventTime = new Date(eventDateStr).getTime();
-    const hoursUntilEvent = (eventTime - Date.now()) / 3_600_000;
-
-    if (!isSigned) {
-      const fullPaymentRequired = hoursUntilEvent <= 96;
-      const depositDueCents = fullPaymentRequired ? totalCents : Math.round(totalCents / 2);
-      updates.deposit_due_cents = depositDueCents;
-      updates.balance_cents = totalCents - depositDueCents;
-    } else {
-      // Post-signing: balance is whatever remains after money ALREADY COLLECTED
-      // (deposit + any balance already charged), NOT just the deposit. Using
-      // deposit_due here double-charges a paid-in-full event on the re-sign delta.
-      // collected_cents is maintained at every collection point; see group-function-db.
-      updates.balance_cents = Math.max(0, totalCents - quote.collected_cents);
-    }
-  }
-
-  if (Object.keys(updates).length > 0) {
-    await createContractVersion({
-      quoteId: quote.id,
-      snapshot: extractContractSnapshot(quote),
-      changes,
-      trigger: "sync_cron",
-    }).catch((err) => console.warn("[group-quote-sync] snapshot error:", err));
-    await updateGfQuoteDetails(quote.id, updates);
-
-    // Log changes to BMI private notes
-    try {
-      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
-      const ts = noteTimestamp();
-      const allChanges = [...changes];
-      if (updates.event_name && updates.event_name !== quote.event_name) {
-        allChanges.push(`event_name → ${updates.event_name}`);
-      }
-      if (allChanges.length > 0) {
-        const summary = allChanges
-          .map((c) => {
-            if (c.startsWith("products:") || c.startsWith("event_name")) return c;
-            return c.split(":")[0];
-          })
-          .join(", ");
-        await appendProjectPrivateNote({
-          centerCode: quote.center_code,
-          projectId: quote.bmi_reservation_id,
-          note: `[${ts}] Updated: ${summary}`,
-        });
-      }
-    } catch {
-      /* non-fatal */
-    }
-  }
-
-  if (isSigned) {
-    // Always archive signature data on re-sign, even without a PDF URL.
-    // The else branch previously skipped clearing signature data — a bug.
-    const q = sql();
-    const history = (quote.signed_pdf_history as unknown[]) || [];
-    const archived = [
-      ...history,
-      {
-        url: quote.signed_pdf_url || null,
-        signedAt: quote.contract_signed_at,
-        archivedAt: new Date().toISOString(),
-        reason: changes.join("; "),
-      },
-    ];
-    await q`UPDATE group_function_quotes SET
-      signed_pdf_history = ${JSON.stringify(archived)}::jsonb,
-      signed_pdf_url = NULL,
-      contract_signed_at = NULL,
-      signature_type = NULL,
-      signature_data = NULL,
-      document_seal = NULL,
-      status = 'resign_required',
-      updated_at = NOW()
-    WHERE id = ${quote.id}`;
-
-    await appendAuditLog({
-      quoteId: quote.id,
-      event: "resign_required_auto",
-      metadata: { changes, trigger: "group-quote-sync" },
-    });
-
-    // Notify guest + planner that re-signature is needed
-    try {
-      const refreshed = await getGfQuoteByShortId(quote.contract_short_id!);
-      if (refreshed) {
-        const { notifyContractUpdated } = await import("@/lib/group-function-notify");
-        await notifyContractUpdated(refreshed);
-      }
-    } catch (err) {
-      console.error(`[group-quote-sync] resign notify error for quote=${quote.id}:`, err);
-    }
-
-    console.log(
-      `[group-quote-sync] RESIGN REQUIRED quote=${quote.id} changes=[${changes.join(", ")}]`,
-    );
-    return {
-      id: quote.id,
-      eventName: quote.event_name || "",
-      status: "resign_required",
-      action: "resign_required",
-      changes,
-    };
-  }
-
-  // Pre-deposit: flag changes only, do NOT email
-  // Sales must set BMI to "Send Contract" to trigger a resend
-  console.log(
-    `[group-quote-sync] flagged changes (no email) quote=${quote.id} changes=[${changes.join(", ")}]`,
-  );
+  // Not cancelled. Sync deliberately does not mutate or re-send sent/signed
+  // contracts — that is the planner's job via "Send Contract" (group-quote-dispatch).
   return {
     id: quote.id,
     eventName: quote.event_name || "",
     status: quote.status,
-    action: "updated",
-    changes,
+    action: "no_op",
   };
 }
