@@ -792,8 +792,10 @@ export async function notifyThankYou(quote: GroupFunctionQuote): Promise<NotifyR
 }
 
 /**
- * Dedicated "final headcount" call (~5 days out) — lock in the guest count
- * before the total is finalized and the balance is charged. Changes route
+ * Dedicated "last chance to change your order" call (~5 days out) — a final
+ * nudge to adjust the event (guests, lanes, food, add-ons, timing) before the
+ * total is finalized and the balance is charged. Deliberately NOT framed as a
+ * headcount: most events are sized by lane, not guest count. Changes route
  * through the planner (the portal is view-only for event details).
  */
 export async function notifyHeadcountFinal(
@@ -801,16 +803,16 @@ export async function notifyHeadcountFinal(
   opts?: { smsSuppressed?: boolean },
 ): Promise<NotifyResult> {
   const pName = plannerName(quote);
-  const headcount = quote.guest_count ? `${quote.guest_count} guests` : "your group";
-  const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=headcount`;
+  const eventLabel = quote.event_name || "your event";
+  const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=finalize`;
 
   const results = await Promise.allSettled([
     quote.guest_phone && !opts?.smsSuppressed
       ? voxSend(
           quote.guest_phone,
           [
-            `${quote.guest_first_name}, time to lock in your headcount for ${quote.event_name || "your event"} at ${quote.center_name}!`,
-            `We have you down for ${headcount}. Any changes? Reply or contact ${pName} so we can update your total before it's finalized.`,
+            `${quote.guest_first_name}, ${eventLabel} at ${quote.center_name} is coming up!`,
+            `Last chance to make any changes to your order — reply or contact ${pName} before we finalize your total.`,
           ].join("\n"),
         )
       : Promise.resolve(),
@@ -822,20 +824,20 @@ export async function notifyHeadcountFinal(
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
       bcc: GF_BCC,
-      subject: `Lock in your final headcount — ${quote.event_name || quote.center_name}`,
+      subject: `Last chance to update your event — ${quote.event_name || quote.center_name}`,
       html: emailShell(
         quote,
-        `${quote.guest_first_name}, lock in your final headcount`,
-        "Let us know of any changes before we finalize your total",
-        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Your event <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name} is coming up! We currently have you down for <strong style="color:#004aad">${headcount}</strong>.</p>
+        `${quote.guest_first_name}, any changes before we finalize?`,
+        "Last chance to update your event before we finalize your total",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Your event <strong style="color:#0f172a">${eventLabel}</strong> at ${quote.center_name} is coming up! If anything has changed — guests, lanes, food, add-ons, or timing — now's the time to let us know.</p>
         <div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
-          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Final chance to change your headcount</p>
-          <p style="margin:0;font-size:13px;color:#78350f">If your numbers have changed, now's the time. Reply to this email or contact ${pName} and we'll update your total — after your balance is finalized, your count is locked in.</p>
+          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Last chance to make changes</p>
+          <p style="margin:0;font-size:13px;color:#78350f">If your order has changed, now's the time. Reply to this email or contact ${pName} and we'll update your total — once your balance is finalized, your order is locked in.</p>
         </div>
         ${ctaButton("View Event Details", url)}
         <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Questions? Reply to this email or contact ${pName}.</p>`,
       ),
-      text: `Hi ${quote.guest_first_name},\n\nTime to lock in your headcount for ${quote.event_name} at ${quote.center_name}! We have you down for ${headcount}. If your numbers have changed, reply to this email or contact ${pName} so we can update your total before it's finalized.\n\n${pName}\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${eventLabel} at ${quote.center_name} is coming up! This is your last chance to make changes to your order before we finalize your total. If anything has changed, reply to this email or contact ${pName}.\n\n${pName}\n${quote.center_name}`,
     }),
   ]);
 
