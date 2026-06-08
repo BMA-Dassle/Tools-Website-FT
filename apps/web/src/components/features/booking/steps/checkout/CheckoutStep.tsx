@@ -192,20 +192,15 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         }
       }
 
-      // Attraction line items — include slot time
-      for (const item of session.items) {
-        if (item.kind !== "attraction") continue;
-        const attrName =
-          item.slug?.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) ?? "Activity";
-        reviewLines.push({
-          name: `${attrName}${item.qty > 1 ? ` (${item.qty} people)` : ""}`,
-          quantity: item.qty,
-          amount: item.price * item.qty,
-          time: item.slot ?? undefined,
-        });
-      }
+      // Attractions are NOT added from the cart here: they book onto the SAME
+      // BMI bill as races, so they already appear in `bmiOverview.lines` below
+      // (with the BMI product name + slot time). Adding them from the cart too
+      // double-counted them on the review (the "Shuffly listed twice" bug).
+      // Bowling/KBF are QAMF-vendored — NOT on the BMI bill — so they still come
+      // from the cart loop above.
 
-      // BMI line items (from the overview — race heats already have time)
+      // BMI line items (from the overview — races + license + attractions, each
+      // already carrying its heat/slot time).
       if (bmiOverview) {
         for (const line of bmiOverview.lines) {
           reviewLines.push(line);

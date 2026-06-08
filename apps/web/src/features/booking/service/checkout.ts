@@ -688,6 +688,7 @@ export function raceItemChargeLines(item: RaceItem, excludeRacerIds?: Set<string
         quantity: racers,
         amount: round2(packagePerRacerPrice(pkg) * racers),
         bmiProductId: pkg.cartLineKey,
+        time: earliestHeatStart(kept),
       },
     ];
   }
@@ -707,6 +708,7 @@ export function raceItemChargeLines(item: RaceItem, excludeRacerIds?: Set<string
         quantity: packs,
         amount: round2(product.price * packs),
         bmiProductId: product.productId,
+        time: earliestHeatStart(catHeats),
       });
     } else {
       lines.push({
@@ -714,10 +716,21 @@ export function raceItemChargeLines(item: RaceItem, excludeRacerIds?: Set<string
         quantity: catHeats.length,
         amount: round2(product.price * catHeats.length),
         bmiProductId: product.productId,
+        time: earliestHeatStart(catHeats),
       });
     }
   }
   return lines;
+}
+
+/** Earliest heat start ISO among a set of heats (ISO sorts lexically). Drives the
+ *  heat time + racer-name display on the checkout review's race lines. */
+function earliestHeatStart(heats: RaceHeatAssignment[]): string | undefined {
+  const starts = heats
+    .map((h) => h.heatId)
+    .filter((s): s is string => !!s)
+    .sort();
+  return starts[0];
 }
 
 /**
