@@ -2170,7 +2170,6 @@ export default function ConfirmationPage() {
                           {lineTotal > 0 && (
                             <p className="font-bold text-sm" style={{ color }}>
                               ${lineTotal.toFixed(2)}
-                              <span className="text-white/40 text-xs font-normal"> at center</span>
                             </p>
                           )}
                         </div>

@@ -470,30 +470,43 @@ function PartyMemberRow({
     : null;
   const tierInfo = tier ? TIER_BADGE[tier] : null;
 
+  // Returning racers (verified from their BMI account, or added from linked
+  // family) own their name upstream — show it locked, not editable.
+  const isReturning = !!member.bmiPersonId;
+
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="min-w-32 flex-1">
-          <span className="block text-xs uppercase tracking-wider text-white/40">First name</span>
-          <input
-            type="text"
-            value={member.firstName}
-            onChange={(e) => onUpdate({ firstName: e.target.value })}
-            className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#00E2E5]/60 focus:bg-white/10 focus:outline-none"
-            placeholder="Alex"
-          />
-        </label>
-        <label className="min-w-32 flex-1">
-          <span className="block text-xs uppercase tracking-wider text-white/40">Last name</span>
-          <input
-            type="text"
-            value={member.lastName ?? ""}
-            onChange={(e) => onUpdate({ lastName: e.target.value || undefined })}
-            className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#00E2E5]/60 focus:bg-white/10 focus:outline-none"
-            placeholder="Trepasso"
-          />
-        </label>
-      </div>
+      {isReturning ? (
+        <div className="min-w-32">
+          <span className="block text-xs uppercase tracking-wider text-white/40">Racer</span>
+          <p className="mt-1 w-full rounded-lg border border-white/10 bg-white/3 px-3 py-2 text-sm text-white/80">
+            {[member.firstName, member.lastName].filter(Boolean).join(" ") || member.firstName}
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="min-w-32 flex-1">
+            <span className="block text-xs uppercase tracking-wider text-white/40">First name</span>
+            <input
+              type="text"
+              value={member.firstName}
+              onChange={(e) => onUpdate({ firstName: e.target.value })}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#00E2E5]/60 focus:bg-white/10 focus:outline-none"
+              placeholder="Alex"
+            />
+          </label>
+          <label className="min-w-32 flex-1">
+            <span className="block text-xs uppercase tracking-wider text-white/40">Last name</span>
+            <input
+              type="text"
+              value={member.lastName ?? ""}
+              onChange={(e) => onUpdate({ lastName: e.target.value || undefined })}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#00E2E5]/60 focus:bg-white/10 focus:outline-none"
+              placeholder="Trepasso"
+            />
+          </label>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
         <CategoryToggle

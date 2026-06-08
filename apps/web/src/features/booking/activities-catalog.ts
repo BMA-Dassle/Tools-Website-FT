@@ -303,3 +303,28 @@ function domainForOffering(offering: ActivityOffering): "racing" | "bowling" | "
 export function initialOfferingsFor(_promo: AppliedPromo | null): ActivityOffering[] {
   return allOfferings().slice();
 }
+
+/**
+ * Center- and brand-aware offering order for the `/book/v2` landing.
+ *
+ *   - **Naples** scopes to ONLY Naples-available offerings — the FT-only
+ *     race / duck-pin / shuffly drop out entirely ("HPN shows just Naples").
+ *   - **Fort Myers** (or an unknown center) shows everything available there.
+ *   - Within the scope, the VISITOR'S OWN brand propagates FIRST: a HeadPinz
+ *     visitor sees HP activities before FastTrax; a FastTrax visitor sees FT
+ *     first. `effectiveBrand` resolves shuffly's "auto" brand to the entry
+ *     brand, so it groups with the visitor's side. Order within each brand
+ *     group is the stable catalog order (Array.prototype.sort is stable).
+ *
+ * `base` is always a fresh array (offeringsAt filters; allOfferings is sliced),
+ * so the in-place sort never mutates the CATALOG.
+ */
+export function landingOfferingsFor(
+  entryBrand: Brand,
+  center: CenterCode | null,
+): ActivityOffering[] {
+  const base = center ? offeringsAt(center) : allOfferings().slice();
+  const brandRank = (o: ActivityOffering): number =>
+    effectiveBrand(o, entryBrand) === entryBrand ? 0 : 1;
+  return base.sort((a, b) => brandRank(a) - brandRank(b));
+}

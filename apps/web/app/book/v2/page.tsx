@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { allOfferings, type ActivityOffering, type Brand } from "~/features/booking";
+import {
+  landingOfferingsFor,
+  type ActivityOffering,
+  type Brand,
+  type CenterCode,
+} from "~/features/booking";
+import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
 import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-codes";
 import { PromoLanding } from "./PromoLanding";
 
@@ -66,11 +72,17 @@ export default async function BookV2LandingPage({
     if (!seededPromo) seedRejected = true;
   }
 
-  const initialOfferings: ActivityOffering[] = allOfferings().slice();
+  // Center scoping: `?location=` (carried in by the HeadPinz Fort Myers / Naples
+  // entry points) decides which complex this landing serves. Naples scopes to
+  // ONLY Naples-available activities; Fort Myers / unknown shows everything, with
+  // the visitor's own brand propagating first.
+  const center: CenterCode | null = parseEntryContextFromSearchParams(sp).center ?? null;
+  const initialOfferings: ActivityOffering[] = landingOfferingsFor(entryBrand, center);
 
   return (
     <PromoLanding
       entryBrand={entryBrand}
+      center={center}
       seedCode={seedCode}
       seededPromo={seededPromo}
       seedRejected={seedRejected}

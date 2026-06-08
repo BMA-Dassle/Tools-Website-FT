@@ -57,6 +57,7 @@ export {
   initialOfferingsFor,
   intersectCenters,
   isOfferingInPromoScope,
+  landingOfferingsFor,
   offeringsAt,
   squareBookingActivity,
 } from "./activities-catalog";

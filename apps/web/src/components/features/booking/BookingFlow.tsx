@@ -62,6 +62,14 @@ export function BookingFlow({
   // Seed first item or detect cross-sell arrival — runs after storage hydration
   useEffect(() => {
     if (!hydrated) return;
+    // Seed the center from the entry URL (?location=, parsed into initialContext)
+    // on a FRESH session so the picked activity books at the right complex
+    // (Naples → headpinznaples clientKey) and the cart cross-sell scopes
+    // correctly. Guarded on an unset center so a resumed session isn't clobbered
+    // — setCenter to a DIFFERENT center clears the cart.
+    if (initialContext?.center && !session.center) {
+      dispatch({ type: "setCenter", center: initialContext.center });
+    }
     if (session.items.length === 0) {
       const item = newItem(activity);
       if (item.kind === "attraction" && slug) {

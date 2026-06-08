@@ -6,6 +6,7 @@ import {
   findOffering,
   initialOfferingsFor,
   isOfferingInPromoScope,
+  landingOfferingsFor,
   offeringsAt,
   squareBookingActivity,
 } from "./activities-catalog";
@@ -247,6 +248,51 @@ describe("activities-catalog", () => {
     it("returns the entry brand when the offering's brand is auto (shuffly)", () => {
       expect(effectiveBrand(findOffering("shuffly")!, "fasttrax")).toBe("fasttrax");
       expect(effectiveBrand(findOffering("shuffly")!, "headpinz")).toBe("headpinz");
+    });
+  });
+
+  describe("landingOfferingsFor", () => {
+    it("Naples (HPN) scopes to ONLY Naples-available offerings — drops FT-only", () => {
+      const slugs = landingOfferingsFor("headpinz", "naples").map((o) => o.slug);
+      expect(slugs).not.toContain("race");
+      expect(slugs).not.toContain("duck-pin");
+      expect(slugs).not.toContain("shuffly");
+      expect([...slugs].sort()).toEqual(["bowling", "gel-blaster", "kbf", "laser-tag"]);
+    });
+
+    it("HeadPinz Fort Myers (HPFM) shows everything with HP activities FIRST", () => {
+      const list = landingOfferingsFor("headpinz", "fort-myers");
+      expect(list.map((o) => o.slug)).toEqual(
+        expect.arrayContaining(["race", "duck-pin", "bowling", "kbf"]),
+      );
+      // Every HP-brand offering (shuffly resolves to HP here) precedes every FT one.
+      const brands = list.map((o) => effectiveBrand(o, "headpinz"));
+      expect(brands.lastIndexOf("headpinz")).toBeLessThan(brands.indexOf("fasttrax"));
+    });
+
+    it("FastTrax shows everything with FastTrax activities FIRST", () => {
+      const list = landingOfferingsFor("fasttrax", "fort-myers");
+      const brands = list.map((o) => effectiveBrand(o, "fasttrax"));
+      expect(brands.lastIndexOf("fasttrax")).toBeLessThan(brands.indexOf("headpinz"));
+      // shuffly resolves to FT on FastTrax → groups with the FT-first set.
+      const ftSlugs = list
+        .filter((o) => effectiveBrand(o, "fasttrax") === "fasttrax")
+        .map((o) => o.slug);
+      expect(ftSlugs).toEqual(expect.arrayContaining(["race", "duck-pin", "shuffly"]));
+    });
+
+    it("unknown center shows the full catalog, brand-sorted", () => {
+      const list = landingOfferingsFor("headpinz", null);
+      expect(list.length).toBe(allOfferings().length);
+      const brands = list.map((o) => effectiveBrand(o, "headpinz"));
+      expect(brands.lastIndexOf("headpinz")).toBeLessThan(brands.indexOf("fasttrax"));
+    });
+
+    it("never mutates the CATALOG order", () => {
+      const before = allOfferings().map((o) => o.slug);
+      landingOfferingsFor("headpinz", "fort-myers");
+      landingOfferingsFor("fasttrax", null);
+      expect(allOfferings().map((o) => o.slug)).toEqual(before);
     });
   });
 });

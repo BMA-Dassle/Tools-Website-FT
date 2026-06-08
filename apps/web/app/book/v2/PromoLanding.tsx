@@ -4,7 +4,12 @@ import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isOfferingInPromoScope, type ActivityOffering, type Brand } from "~/features/booking";
+import {
+  isOfferingInPromoScope,
+  type ActivityOffering,
+  type Brand,
+  type CenterCode,
+} from "~/features/booking";
 import { peekBookingSession } from "~/features/booking/hooks";
 import type { AppliedPromo } from "~/features/discount-codes";
 
@@ -38,6 +43,10 @@ const HP_GOLD = "#FFD700";
 
 export interface PromoLandingProps {
   entryBrand: Brand;
+  /** Physical complex this landing serves (from `?location=`). Naples scopes the
+   *  grid to Naples-only; null/Fort Myers shows everything. Carried into tile
+   *  links so the picked activity seeds the right center. */
+  center: CenterCode | null;
   seedCode: string;
   seededPromo: AppliedPromo | null;
   seedRejected: boolean;
@@ -49,6 +58,7 @@ export interface PromoLandingProps {
 
 export function PromoLanding({
   entryBrand,
+  center,
   seedCode,
   seededPromo,
   seedRejected,
@@ -119,9 +129,13 @@ export function PromoLanding({
   }
 
   function tileHref(slug: string): string {
-    return applied
-      ? `/book/${slug}/v2?code=${encodeURIComponent(applied.code)}`
-      : `/book/${slug}/v2`;
+    // Carry both the applied promo and the center into the activity flow so the
+    // picked activity seeds the right complex (Naples → Naples clientKey).
+    const params = new URLSearchParams();
+    if (applied) params.set("code", applied.code);
+    if (center) params.set("location", center);
+    const qs = params.toString();
+    return `/book/${slug}/v2${qs ? `?${qs}` : ""}`;
   }
 
   return (

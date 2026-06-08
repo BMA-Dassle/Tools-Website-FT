@@ -14,7 +14,7 @@
  *
  * Growth pattern: add a new optional field, do NOT overload existing ones.
  */
-import type { ContactInfo } from "../types";
+import type { ContactInfo, CenterCode } from "../types";
 
 /**
  * A party member HINT — pre-known info carried in via deep link / member
@@ -55,6 +55,14 @@ export interface EntryContext {
   promo?: PromoContext;
   /** Marketing attribution / referrer label (free-form). */
   referrer?: string;
+  /**
+   * Physical center the visitor arrived for, parsed from `?location=`
+   * (naples / fort-myers / headpinz / fasttrax → CenterCode). Seeds
+   * session.center so cross-sell, availability, and the BMI/QAMF clientKey
+   * resolve to the right complex — and so the `/book/v2` landing can scope to a
+   * single center (Naples shows ONLY Naples-available activities).
+   */
+  center?: CenterCode;
 }
 
 /** Convenience: an empty context. Used when the entry URL carried nothing. */

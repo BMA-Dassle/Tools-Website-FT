@@ -51,6 +51,21 @@ Touches ZERO files the other workflow is editing.
       `/book/race-packs/confirmation` stays on v1). Pricing "View Packages" CTA covered by the redirect.
 - [ ] Retire/delete the v1 `/book/race-packs` page in a later PR after ops sign-off.
 
+### Phase D — HeadPinz center-aware v2 landing (DONE — 2026-06-07)
+Convert HPFM/HPN booking to v2 with center-scoped offering order on `/book/v2`.
+- [x] `landingOfferingsFor(brand, center)` in `activities-catalog.ts` — Naples scopes to ONLY
+      Naples-available offerings (drops FT-only race/duckpin/shuffly); Fort Myers/unknown shows all;
+      within scope the VISITOR'S brand propagates first (FastTrax-first on FT, HP-first on HP;
+      shuffly's "auto" brand resolves to the entry brand). + 5 unit tests (26/26 catalog tests pass).
+- [x] `?location=` → `session.center`: `EntryContext.center` + parsed in `parse-entry-context.ts`
+      (was an unused gap — `setCenter` was never dispatched in v2, so center was always null/FM).
+      `BookingFlow` seeds `setCenter` on a fresh session → Naples books with the Naples clientKey.
+- [x] `/book/v2` page resolves center from `?location` + passes ordered offerings + center to PromoLanding.
+- [x] `PromoLanding` tile links carry `?location` so the picked activity seeds the right center.
+- Entry: Naples hero CTA (`/hp/book?location=naples`) → Phase-A redirect → `/book/v2?location=naples` → scopes. ✓
+- ⚠️ Minor pre-existing gaps (not blocking): HP nav "Book Now" goes bowling-direct (not the grid) and
+      one `/naples` laser-tag link lacks `?location` → defaults to FM center. Polish later if wanted.
+
 ## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-06-02)
 - **Branch:** `feat/booking-b2-race` · merged with main 2026-06-02
 - **What shipped (all build-verified):**

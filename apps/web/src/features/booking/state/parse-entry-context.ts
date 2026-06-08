@@ -11,6 +11,7 @@
  *   ?promo=CODE                         → promo.code (source = "url")
  *   ?firstName=&lastName=&email=&phone= → prefilledContact fields
  *   ?referrer=NAME / ?ref / ?utm_source → referrer
+ *   ?location=naples|fort-myers|...     → center (CenterCode)
  *
  * Unknown params are silently ignored. The parser is intentionally
  * tolerant — marketing links should never 500 a wizard.
@@ -19,8 +20,16 @@
  * real cookie source exists. The page combines the two before passing
  * the merged context to BookingFlow.
  */
-import type { ContactInfo } from "../types";
+import { normalizeLocationSlug } from "@/lib/attractions-data";
+import type { ContactInfo, CenterCode } from "../types";
 import { EMPTY_ENTRY_CONTEXT, type EntryContext } from "./entry-context";
+
+/** Map a `?location=` slug to a v2 CenterCode (FT / HP Fort Myers → fort-myers, Naples → naples). */
+function locationToCenter(raw: string | undefined): CenterCode | null {
+  const key = normalizeLocationSlug(raw);
+  if (!key) return null;
+  return key === "naples" ? "naples" : "fort-myers";
+}
 
 type RawValue = string | string[] | undefined;
 type RawSearchParams = Readonly<Record<string, RawValue>>;
@@ -51,6 +60,9 @@ export function parseEntryContextFromSearchParams(sp: RawSearchParams): EntryCon
 
   const referrer = first(sp.referrer) ?? first(sp.ref) ?? first(sp.utm_source);
   if (referrer) out.referrer = referrer;
+
+  const center = locationToCenter(first(sp.location));
+  if (center) out.center = center;
 
   const firstName = first(sp.firstName);
   const lastName = first(sp.lastName);

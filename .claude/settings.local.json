@@ -209,7 +209,8 @@
       "Bash(git show *)",
       "Bash(ls tasks/)",
       "Bash(ls tasks/future/)",
-      "Bash(tee /tmp/tcb.log)"
+      "Bash(tee /tmp/tcb.log)",
+      "Bash(tee /tmp/tcc.log)"
     ],
     "additionalDirectories": [
       "\\tmp"
