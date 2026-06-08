@@ -30,6 +30,7 @@ interface QuoteProps {
   centerName: string;
   squareLocationId: string;
   eventName: string;
+  eventNumber: string | null;
   eventDateDisplay: string;
   eventDate: string;
   guestCount: number | null;
@@ -869,6 +870,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </h2>
                   <h3 className="mb-4 text-2xl font-bold">{quote.eventName}</h3>
                   <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    {quote.eventNumber && (
+                      <div>
+                        <p className="text-xs text-gray-500">Booking #</p>
+                        <p className="font-semibold">{quote.eventNumber}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-gray-500">Date & Time</p>
                       <p className="font-semibold">{quote.eventDateDisplay}</p>
@@ -1787,6 +1794,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   <EventCountdownInline eventDate={quote.eventDate} />
 
                   <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    {quote.eventNumber && (
+                      <div>
+                        <p className="text-xs text-gray-500">Booking #</p>
+                        <p className="font-semibold">{quote.eventNumber}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-gray-500">Date & Time</p>
                       <p className="font-semibold">{quote.eventDateDisplay}</p>

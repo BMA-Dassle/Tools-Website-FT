@@ -1458,6 +1458,7 @@ function emailShell(
       <tr><td style="background-color:#000418;padding:10px 16px;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;color:#00e2e5;text-transform:uppercase;letter-spacing:1px">${quote.event_name || "Event Details"}</td></tr>
       <tr><td style="padding:14px 16px;font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.8">
         <table cellpadding="0" cellspacing="0" border="0" width="100%">
+          ${quote.event_number ? `<tr><td style="color:#888;font-size:13px;width:140px">Booking #:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold">${quote.event_number}</td></tr>` : ""}
           <tr><td style="color:#888;font-size:13px;width:140px">Date:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold">${quote.event_date_display || ""}</td></tr>
           <tr><td style="color:#888;font-size:13px;padding-top:6px">Center:</td><td style="color:#1a1a1a;font-size:14px;padding-top:6px">${quote.center_name}</td></tr>
           <tr><td style="color:#888;font-size:13px;padding-top:6px">Total:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding-top:6px">${dollars(quote.total_cents)}</td></tr>

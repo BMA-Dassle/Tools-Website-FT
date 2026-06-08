@@ -71,6 +71,7 @@ export default async function ContractPage(props: {
         centerName: quote.center_name,
         squareLocationId: quote.square_location_id,
         eventName: quote.event_name || "",
+        eventNumber: quote.event_number,
         eventDateDisplay: quote.event_date_display || "",
         eventDate: quote.event_date,
         guestCount: quote.guest_count,
