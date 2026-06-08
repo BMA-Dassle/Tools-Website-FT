@@ -65,6 +65,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/group-balance-link-reconcile",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/group-dayof-close",
       "schedule": "*/15 * * * *"
     },
@@ -85,6 +89,10 @@
       "schedule": "0 */4 * * *"
     },
     {
+      "path": "/api/cron/group-event-reminders",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/bmi-cancel-sweep",
       "schedule": "*/5 * * * *"
     },
@@ -95,6 +103,10 @@
     {
       "path": "/api/cron/race-confirm-reconcile",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/group-square-settled-close",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

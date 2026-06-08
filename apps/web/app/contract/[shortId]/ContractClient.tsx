@@ -30,6 +30,7 @@ interface QuoteProps {
   centerName: string;
   squareLocationId: string;
   eventName: string;
+  eventNumber: string | null;
   eventDateDisplay: string;
   eventDate: string;
   guestCount: number | null;
@@ -55,6 +56,9 @@ interface QuoteProps {
   priorDepositCents: number;
   savedCardLast4: string | null;
   savedCardBrand: string | null;
+  hasCardOnFile: boolean;
+  isWinback: boolean;
+  incentiveCents: number;
   versions: Array<{
     versionNumber: number;
     snapshot: {
@@ -152,8 +156,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const legacyChargeCents =
     hasLegacyDeposit && isFullPayment ? Math.max(0, quote.totalCents - quote.priorDepositCents) : 0;
   const cardOnFileOnly = hasLegacyDeposit && legacyChargeCents === 0;
+  const isWinback = quote.isWinback;
+  const incentiveLabel = `$${Math.round((quote.incentiveCents || 2000) / 100)}`;
+  // On re-sign of a paid-in-full event that's now priced UP, we charge the difference
+  // (quote.balanceCents) to the card on file. If there's no card on file, the re-sign keeps the
+  // pay step so the guest adds one; otherwise the delta is charged server-side on completion.
+  const resignNeedsCard = isResign && quote.balanceCents > 0 && !quote.hasCardOnFile;
   const STEPS = isResign
-    ? buildSteps(true, false).filter((s) => s.key !== "pay")
+    ? buildSteps(true, false).filter((s) => s.key !== "pay" || resignNeedsCard)
     : buildSteps(isFullPayment, isPostPaid);
 
   const [step, setStep] = useState<Step>(() => {
@@ -379,6 +389,28 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   const hasSig = sigType === "type" ? typedSig.trim().length > 2 : true;
 
+  // Finalize a re-sign: settle any price delta (charges the card on file or a captured card,
+  // flags staff on a decrease) and regenerate the signed PDF. Throws on a charge failure.
+  const settleResign = useCallback(
+    async (cardSourceId?: string) => {
+      const res = await fetch("/api/group-function/resign-settle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shortId: quote.contractShortId,
+          cardSourceId,
+          saveCard: Boolean(cardSourceId),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Could not finalize your update.");
+      }
+      return data;
+    },
+    [quote.contractShortId],
+  );
+
   const handleSign = useCallback(async () => {
     if (!allAgreed || !hasSig) return;
     setProcessing(true);
@@ -410,21 +442,26 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         return;
       }
       setSignedAt(data.signedAt);
-      // If already paid (resign flow), skip payment and go to event page
+      // Resign flow (already paid): record the re-sign, then settle any price difference.
       if (alreadyPaid) {
         fetch("/api/group-function/audit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ shortId: quote.contractShortId, event: "re-signed" }),
         }).catch(() => {});
-        // Regenerate signed PDF with updated data
-        fetch("/api/group-function/generate-pdf", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ shortId: quote.contractShortId }),
-        }).catch(() => {});
-        setUpdateBanner(null);
-        setStep("event");
+        if (resignNeedsCard) {
+          // Need a card to charge the difference — collect it on the pay step.
+          setStep("pay");
+        } else {
+          // Card on file (or no money owed): settle the delta server-side, then confirm.
+          try {
+            await settleResign();
+            setUpdateBanner(null);
+            setStep("event");
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Could not finalize your update.");
+          }
+        }
       } else if (isPostPaid) {
         setStep("event");
       } else {
@@ -448,6 +485,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     policyAcknowledged,
     taxExempt,
     taxFileUrl,
+    isPostPaid,
+    alreadyPaid,
+    resignNeedsCard,
+    settleResign,
   ]);
 
   const handlePay = useCallback(async () => {
@@ -462,6 +503,19 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       if (result.status !== "OK" || !result.token) {
         setError(result.errors?.[0]?.message || "Card validation failed.");
         setProcessing(false);
+        return;
+      }
+      // Resign card-capture: charge the price difference to the new card + save it on file.
+      if (isResign) {
+        try {
+          await settleResign(result.token);
+          setUpdateBanner(null);
+          setStep("event");
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not collect the balance difference.");
+        } finally {
+          setProcessing(false);
+        }
         return;
       }
       const res = await fetch("/api/group-function/deposit", {
@@ -481,18 +535,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       }
       setGiftCardGan(data.giftCardGan);
       setStep("event");
-      // Generate signed PDF in background (non-blocking)
-      fetch("/api/group-function/generate-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shortId: quote.contractShortId }),
-      }).catch(() => {});
     } catch {
       setError("Payment processing failed. Please try again.");
     } finally {
       setProcessing(false);
     }
-  }, [quote.contractShortId, saveCard, hasLegacyDeposit]);
+  }, [quote.contractShortId, saveCard, hasLegacyDeposit, isResign, settleResign]);
 
   const fmtDollars = (cents: number) =>
     `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -577,26 +625,62 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 </svg>
               </div>
               <h1 className="mb-2 text-4xl font-extrabold tracking-tight md:text-5xl">
-                You&apos;re All Set!
+                {isWinback ? (
+                  <>You&apos;re all set — your {incentiveLabel} gift card is on the way!</>
+                ) : (
+                  <>You&apos;re All Set!</>
+                )}
               </h1>
               <p className="text-lg text-gray-300">
-                Your adventure at {quote.centerName} is confirmed
+                {isWinback
+                  ? `Thanks for updating your event at ${quote.centerName}`
+                  : `Your adventure at ${quote.centerName} is confirmed`}
               </p>
             </>
           ) : (
             <>
               <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-cyan-400">
-                {quote.centerName}
+                {isWinback ? "Our group function process has changed" : quote.centerName}
               </p>
-              <h1 className="mb-3 text-4xl font-extrabold tracking-tight md:text-5xl">
-                {quote.guestFirstName}, your <span className="text-cyan-400">experience</span>{" "}
-                awaits
-              </h1>
+              {isWinback ? (
+                <h1 className="mb-3 text-4xl font-extrabold tracking-tight md:text-5xl">
+                  {quote.guestFirstName}, update your contract &amp; get a{" "}
+                  <span className="text-emerald-400">{incentiveLabel} gift card</span>
+                </h1>
+              ) : (
+                <h1 className="mb-3 text-4xl font-extrabold tracking-tight md:text-5xl">
+                  {quote.guestFirstName}, your <span className="text-cyan-400">experience</span>{" "}
+                  awaits
+                </h1>
+              )}
             </>
           )}
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#E53935] via-white/60 to-[#00E2E5]" />
       </div>
+
+      {/* Win-back offer hero — the center of attention for $20 buy-backs */}
+      {isWinback && !quote.hasCardOnFile && step !== "event" && (
+        <div className="relative z-10 mx-auto max-w-4xl px-4 pt-6">
+          <div className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/15 via-[#071027] to-cyan-500/10 p-6 ring-1 ring-emerald-400/20">
+            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-300">
+              🎁 Limited-time thank-you
+            </p>
+            <h2 className="mt-2 text-2xl font-extrabold leading-tight md:text-3xl">
+              Our group function procedures have changed — update your contract and get a{" "}
+              <span className="text-emerald-400">{incentiveLabel} gift card</span>
+            </h2>
+            <p className="mt-3 text-gray-300">
+              Re-confirm your event and add a card on file below, and we&apos;ll send you a{" "}
+              {incentiveLabel} e-gift card as our thank-you.
+            </p>
+            <p className="mt-2 flex items-center gap-2 text-sm font-medium text-cyan-300">
+              <IconClock size={16} className="flex-shrink-0" />
+              Adding your card now also saves time getting started on the day of your event.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Update banner */}
       {updateBanner && (
@@ -786,6 +870,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   </h2>
                   <h3 className="mb-4 text-2xl font-bold">{quote.eventName}</h3>
                   <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    {quote.eventNumber && (
+                      <div>
+                        <p className="text-xs text-gray-500">Booking #</p>
+                        <p className="font-semibold">{quote.eventNumber}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-gray-500">Date & Time</p>
                       <p className="font-semibold">{quote.eventDateDisplay}</p>
@@ -1553,7 +1643,11 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               </svg>
               <p className="font-semibold text-emerald-300">
                 Contract signed{signedAt ? ` at ${new Date(signedAt).toLocaleTimeString()}` : ""}!
-                {cardOnFileOnly ? " Save your card to confirm." : " Now secure your date."}
+                {isResign
+                  ? " Add a card to confirm your changes."
+                  : cardOnFileOnly
+                    ? " Save your card to confirm."
+                    : " Now secure your date."}
               </p>
             </div>
 
@@ -1569,10 +1663,24 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
             <div className="mb-6 rounded-2xl border border-white/10 bg-[#071027] p-6">
               <h2 className="mb-1 text-xl font-bold">
-                {cardOnFileOnly ? "Save Card on File" : "Secure Your Event"}
+                {isResign
+                  ? "Confirm Your Changes"
+                  : cardOnFileOnly
+                    ? "Save Card on File"
+                    : "Secure Your Event"}
               </h2>
               <p className="mb-6 text-sm text-gray-400">
-                {cardOnFileOnly ? (
+                {isResign ? (
+                  <>
+                    Your event total is now{" "}
+                    <span className="font-semibold text-white">{fmtDollars(quote.totalCents)}</span>
+                    . Add a card to pay the{" "}
+                    <span className="font-semibold text-white">
+                      {fmtDollars(quote.balanceCents)}
+                    </span>{" "}
+                    difference and confirm.
+                  </>
+                ) : cardOnFileOnly ? (
                   <>
                     No additional payment required today. Your card will be saved for the remaining
                     balance of{" "}
@@ -1619,7 +1727,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   />
                 </svg>
                 <p className="text-sm text-gray-300">
-                  {cardOnFileOnly ? (
+                  {isResign ? (
+                    <>
+                      Your card will be charged{" "}
+                      <strong className="text-white">{fmtDollars(quote.balanceCents)}</strong> now
+                      and saved on file for any future changes.
+                    </>
+                  ) : cardOnFileOnly ? (
                     "Your card will be saved on file for the remaining balance, charged automatically 72 hours before your event."
                   ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
                     <>
@@ -1652,11 +1766,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               >
                 {processing
                   ? "Processing..."
-                  : cardOnFileOnly
-                    ? "Save Card & Confirm"
-                    : hasLegacyDeposit && legacyChargeCents > 0
-                      ? `Pay ${fmtDollars(legacyChargeCents)}`
-                      : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
+                  : isResign
+                    ? `Pay ${fmtDollars(quote.balanceCents)} & Confirm`
+                    : cardOnFileOnly
+                      ? "Save Card & Confirm"
+                      : hasLegacyDeposit && legacyChargeCents > 0
+                        ? `Pay ${fmtDollars(legacyChargeCents)}`
+                        : `Pay ${fmtDollars(quote.depositDueCents)}${isFullPayment ? "" : " Deposit"}`}
               </button>
             </div>
           </>
@@ -1678,6 +1794,12 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   <EventCountdownInline eventDate={quote.eventDate} />
 
                   <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    {quote.eventNumber && (
+                      <div>
+                        <p className="text-xs text-gray-500">Booking #</p>
+                        <p className="font-semibold">{quote.eventNumber}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-gray-500">Date & Time</p>
                       <p className="font-semibold">{quote.eventDateDisplay}</p>

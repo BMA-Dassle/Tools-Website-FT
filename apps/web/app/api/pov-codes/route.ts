@@ -261,6 +261,7 @@ export async function GET(req: NextRequest) {
               claimed: rec.codes.length,
               cached: true,
               depositDeducted: rec.depositDeducted,
+              claimedAt: rec.claimedAt,
             });
           }
         } catch {
@@ -310,6 +311,7 @@ export async function GET(req: NextRequest) {
                 claimed: rec.codes.length,
                 cached: true,
                 depositDeducted: rec.depositDeducted,
+                claimedAt: rec.claimedAt,
               });
             }
           } catch {
@@ -403,6 +405,7 @@ export async function GET(req: NextRequest) {
         claimed: issued.length,
         cached: false,
         depositDeducted: deducted,
+        claimedAt: finalRec.claimedAt,
       });
     }
 

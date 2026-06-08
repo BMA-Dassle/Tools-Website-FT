@@ -142,6 +142,39 @@ export async function ensureGfSchema(): Promise<void> {
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS tax_file_url TEXT`;
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS waiver_reminder_sent_at TIMESTAMPTZ`;
 
+  // Money actually collected to date (cents). Universal rule: amount_due = total_cents - collected_cents.
+  // Set at every real collection point (deposit, balance charge, prepaid, link reconcile, reprice).
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS collected_cents INTEGER NOT NULL DEFAULT 0`;
+  // Square order id behind a balance payment LINK, captured at link creation so the
+  // reconcile poller can detect when the customer pays it.
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS square_balance_link_id TEXT`;
+
+  // Square-settled-outside-our-flow: a paid-out Square order (its NAME starts with
+  // "BMI…") that collected an event's money directly in Square, never through our
+  // contract/deposit/balance rail. Recorded when group-square-settled-close jumps a
+  // stuck-but-paid event to 'completed'. The partial unique index makes it impossible
+  // to attribute one Square order to two quotes — a same-priced collision surfaces as
+  // a duplicate-key error the cron reports as `order_already_used` rather than silently
+  // mis-booking a financial record.
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS square_settled_order_id TEXT`;
+  await q`CREATE UNIQUE INDEX IF NOT EXISTS gfq_square_settled_order
+    ON group_function_quotes(square_settled_order_id)
+    WHERE square_settled_order_id IS NOT NULL`;
+
+  // One-time backfill of collected_cents for rows that predate the column.
+  // Idempotent: guarded by collected_cents = 0, so it touches 0 rows after the first run.
+  // Keyed on the actual money facts (not status): if the balance was paid, the whole total was
+  // collected; otherwise a paid deposit collected (total - remaining balance).
+  await q`
+    UPDATE group_function_quotes SET collected_cents = total_cents
+    WHERE balance_paid_at IS NOT NULL AND collected_cents = 0 AND total_cents > 0
+  `;
+  await q`
+    UPDATE group_function_quotes SET collected_cents = GREATEST(0, total_cents - balance_cents)
+    WHERE balance_paid_at IS NULL AND deposit_paid_at IS NOT NULL
+      AND collected_cents = 0 AND total_cents > 0
+  `;
+
   // Immutable audit trail
   await q`
     CREATE TABLE IF NOT EXISTS contract_audit_log (
@@ -192,6 +225,47 @@ export async function ensureGfSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS cv_quote ON contract_versions(quote_id)`;
   await q`CREATE UNIQUE INDEX IF NOT EXISTS cv_quote_version ON contract_versions(quote_id, version_number)`;
 
+  // ── $20 legacy win-back ──────────────────────────────────────────────
+  // Ingested legacy deposit events that are offered the $20 "complete your
+  // final payment" incentive. On payment they fully cut over to the new flow;
+  // until then BMI keeps settling them the old way. The $20 is a separate
+  // complimentary eGift card minted once, on successful payment.
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS is_winback BOOLEAN NOT NULL DEFAULT FALSE`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS incentive_cents INTEGER NOT NULL DEFAULT 0`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS incentive_gift_card_gan TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS incentive_gift_card_id TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS incentive_issued_at TIMESTAMPTZ`;
+  // Retry selector: paid win-back events still awaiting their $20 mint.
+  await q`CREATE INDEX IF NOT EXISTS gfq_winback_pending
+    ON group_function_quotes(balance_paid_at)
+    WHERE is_winback = TRUE AND incentive_issued_at IS NULL`;
+
+  // ── Notification engine ──────────────────────────────────────────────
+  // Per-quote suppression toggle, filterable in the reminder dispatcher.
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS reminders_suppressed BOOLEAN NOT NULL DEFAULT FALSE`;
+  // Structured send ledger. contract_audit_log remains the idempotency GATE
+  // (NOT EXISTS dedup); this table records per-channel delivery detail for
+  // admin visibility + provider message-id correlation.
+  await q`
+    CREATE TABLE IF NOT EXISTS group_event_notifications (
+      id                  BIGSERIAL PRIMARY KEY,
+      quote_id            INTEGER NOT NULL,
+      rule_key            TEXT NOT NULL,
+      dedup_key           TEXT NOT NULL,
+      channel             TEXT NOT NULL,
+      status              TEXT NOT NULL,
+      provider            TEXT,
+      provider_message_id TEXT,
+      to_address          TEXT,
+      error               TEXT,
+      metadata            JSONB DEFAULT '{}',
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await q`CREATE INDEX IF NOT EXISTS gen_quote ON group_event_notifications(quote_id)`;
+  await q`CREATE INDEX IF NOT EXISTS gen_rule ON group_event_notifications(rule_key)`;
+  await q`CREATE INDEX IF NOT EXISTS gen_created ON group_event_notifications(created_at)`;
+
   schemaReady = true;
 }
 
@@ -240,6 +314,7 @@ export interface GroupFunctionQuote {
   tax_cents: number;
   deposit_due_cents: number;
   balance_cents: number;
+  collected_cents: number;
   line_items: unknown[];
   prior_payments: unknown[];
   pandadoc_template: string | null;
@@ -258,11 +333,13 @@ export interface GroupFunctionQuote {
   deposit_paid_at: string | null;
   square_balance_order_id: string | null;
   square_balance_payment_id: string | null;
+  square_balance_link_id: string | null;
   balance_paid_at: string | null;
   balance_payment_method: string | null;
   balance_payment_link_url: string | null;
   balance_link_sent_at: string | null;
   square_dayof_order_id: string | null;
+  square_settled_order_id: string | null;
   status: GfQuoteStatus;
   teams_card_activity_id: string | null;
   teams_card_conversation_id: string | null;
@@ -295,6 +372,12 @@ export interface GroupFunctionQuote {
   signature_data: string | null;
   saved_card_last4: string | null;
   saved_card_brand: string | null;
+  is_winback: boolean;
+  incentive_cents: number;
+  incentive_gift_card_gan: string | null;
+  incentive_gift_card_id: string | null;
+  incentive_issued_at: string | null;
+  reminders_suppressed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -452,11 +535,47 @@ export async function getQuotesNeedingBalanceCharge(): Promise<GroupFunctionQuot
 export async function getQuotesWithPendingBalanceLinks(): Promise<GroupFunctionQuote[]> {
   await ensureGfSchema();
   const q = sql();
+  // Grace window past the event: a customer may pay the link the day of (or shortly after) the
+  // event. We still need to reconcile + load the day-of gift cards. Bounded so long-abandoned
+  // links eventually drop out of the poll.
   const rows = await q`
     SELECT * FROM group_function_quotes
     WHERE status = 'balance_link_sent'
-      AND event_date > NOW()
+      AND event_date > NOW() - INTERVAL '14 days'
     ORDER BY event_date ASC
+  `;
+  return rows as GroupFunctionQuote[];
+}
+
+/**
+ * Candidate events that never finished our flow (`contract_sent` / `deposit_paid` /
+ * `balance_link_sent`) but may have been settled directly in Square (a paid order
+ * whose name starts with "BMI…"). group-square-settled-close verifies each against
+ * Square before completing. The hard NOT-IN guardrail ensures a caller-supplied
+ * `statuses` override can never reach into a terminal state, and `total_cents > 0`
+ * drops degenerate rows where amount reconciliation is meaningless.
+ */
+export async function getQuotesStuckForBmiSettlement(opts?: {
+  statuses?: GfQuoteStatus[];
+  windowDays?: number;
+  limit?: number;
+}): Promise<GroupFunctionQuote[]> {
+  await ensureGfSchema();
+  const q = sql();
+  const statuses = opts?.statuses ?? ["contract_sent", "deposit_paid", "balance_link_sent"];
+  const windowDays = opts?.windowDays ?? 60;
+  const limit = opts?.limit ?? 100;
+  const rows = await q`
+    SELECT * FROM group_function_quotes
+    WHERE status = ANY(${statuses})
+      AND status NOT IN ('completed', 'cancelled', 'denied', 'expired', 'resign_required')
+      AND total_cents > 0
+      AND square_location_id IS NOT NULL
+      AND square_settled_order_id IS NULL
+      AND event_date >= NOW() - (${windowDays} || ' days')::interval
+      AND event_date <= NOW() + (${windowDays} || ' days')::interval
+    ORDER BY event_date ASC
+    LIMIT ${limit}
   `;
   return rows as GroupFunctionQuote[];
 }
@@ -545,6 +664,7 @@ export async function updateGfDepositPaid(
       square_dayof_order_id = ${fields.square_dayof_order_id ?? null},
       deposit_paid_at = ${fields.deposit_paid_at},
       balance_cents = ${fields.balance_cents},
+      collected_cents = GREATEST(0, total_cents - ${fields.balance_cents}),
       status = 'deposit_paid',
       updated_at = NOW()
     WHERE id = ${id}
@@ -569,6 +689,7 @@ export async function updateGfBalanceCharged(
       balance_paid_at = ${fields.balance_paid_at},
       balance_payment_method = ${fields.balance_payment_method},
       balance_cents = 0,
+      collected_cents = total_cents,
       status = 'balance_charged',
       updated_at = NOW()
     WHERE id = ${id}
@@ -588,12 +709,48 @@ export async function updateGfBalancePrepaid(id: number): Promise<void> {
   await q`
     UPDATE group_function_quotes SET
       balance_cents = 0,
+      collected_cents = total_cents,
       balance_paid_at = COALESCE(balance_paid_at, NOW()),
       balance_payment_method = 'prepaid',
       status = 'balance_charged',
       updated_at = NOW()
     WHERE id = ${id} AND status = 'deposit_paid'
   `;
+}
+
+/**
+ * Close an event that was settled directly in Square (a paid order named "BMI…"),
+ * never through our flow. Books the money as fully collected (collected_cents =
+ * total_cents, balance 0), records the settling Square order id, stamps the method
+ * 'square', suppresses further reminders, and jumps status → 'completed'. Guarded on
+ * non-terminal status so a re-run / race is an idempotent no-op (returns rowcount;
+ * 1 = applied, 0 = already terminal). The $20 win-back incentive is intentionally
+ * untouched — these guests settled in Square, they never took our new offer.
+ *
+ * NOTE: unlike the day-of close path, this does NOT pay/redeem any day-of gift card
+ * (square_dayof_order_id is left as-is) — the money is already in via the Square
+ * order, so there is nothing to fund.
+ */
+export async function markGfSquareSettledComplete(
+  id: number,
+  fields: { squareSettledOrderId: string },
+): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      collected_cents = total_cents,
+      balance_cents = 0,
+      balance_paid_at = COALESCE(balance_paid_at, NOW()),
+      balance_payment_method = 'square',
+      reminders_suppressed = TRUE,
+      square_settled_order_id = ${fields.squareSettledOrderId},
+      status = 'completed',
+      updated_at = NOW()
+    WHERE id = ${id} AND status NOT IN ('completed', 'cancelled', 'denied', 'expired')
+    RETURNING id
+  `;
+  return rows.length;
 }
 
 export async function updateGfBalanceLinkSent(
@@ -603,6 +760,9 @@ export async function updateGfBalanceLinkSent(
     balance_link_sent_at: string;
     balance_charge_attempts: number;
     balance_last_error?: string;
+    /** Square payment-link id + its backing order id, captured so the reconcile poller can detect payment. */
+    square_balance_link_id?: string;
+    square_balance_order_id?: string;
   },
 ): Promise<void> {
   await ensureGfSchema();
@@ -613,10 +773,68 @@ export async function updateGfBalanceLinkSent(
       balance_link_sent_at = ${fields.balance_link_sent_at},
       balance_charge_attempts = ${fields.balance_charge_attempts},
       balance_last_error = ${fields.balance_last_error ?? null},
+      square_balance_link_id = COALESCE(${fields.square_balance_link_id ?? null}, square_balance_link_id),
+      square_balance_order_id = COALESCE(${fields.square_balance_order_id ?? null}, square_balance_order_id),
       status = 'balance_link_sent',
       updated_at = NOW()
     WHERE id = ${id}
   `;
+}
+
+/**
+ * Settle a re-price delta on a paid-in-full event after the guest re-signs.
+ * Advances resign_required → balance_charged, bumps collected_cents by the
+ * charged delta, and (new-card path) records the saved card. Guarded on
+ * resign_required so a duplicate settle call is a no-op.
+ */
+export async function updateGfRepriceCharged(
+  id: number,
+  fields: {
+    collected_cents: number;
+    saved_card_id?: string;
+    saved_card_last4?: string;
+    saved_card_brand?: string;
+    square_customer_id?: string;
+  },
+): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      collected_cents = ${fields.collected_cents},
+      balance_cents = 0,
+      balance_paid_at = COALESCE(balance_paid_at, NOW()),
+      saved_card_id = COALESCE(${fields.saved_card_id ?? null}, saved_card_id),
+      saved_card_last4 = COALESCE(${fields.saved_card_last4 ?? null}, saved_card_last4),
+      saved_card_brand = COALESCE(${fields.saved_card_brand ?? null}, saved_card_brand),
+      square_customer_id = COALESCE(${fields.square_customer_id ?? null}, square_customer_id),
+      status = 'balance_charged',
+      updated_at = NOW()
+    WHERE id = ${id} AND status = 'resign_required'
+    RETURNING id
+  `;
+  return rows.length; // 1 = applied, 0 = already settled / not in resign_required
+}
+
+/**
+ * Finalize a re-sign that needs no charge (deposit-only resign → deposit_paid,
+ * or a paid-in-full event whose total didn't increase → balance_charged).
+ * Guarded on resign_required for idempotency.
+ */
+export async function updateGfResignNoCharge(
+  id: number,
+  targetStatus: "deposit_paid" | "balance_charged",
+): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      status = ${targetStatus},
+      updated_at = NOW()
+    WHERE id = ${id} AND status = 'resign_required'
+    RETURNING id
+  `;
+  return rows.length;
 }
 
 export async function updateGfStatus(id: number, status: GfQuoteStatus): Promise<void> {
@@ -788,6 +1006,144 @@ export async function getAuditLog(quoteId: number): Promise<AuditLogEntry[]> {
     ORDER BY created_at ASC
   `;
   return rows as AuditLogEntry[];
+}
+
+// ── Win-back ingestion + incentive ──────────────────────────────────
+
+/**
+ * Promote a freshly-inserted row into a ready-to-OFFER legacy win-back quote.
+ *
+ * Card-on-file model: lands the row in `contract_sent` (NOT signed/deposit_paid)
+ * so the guest re-confirms + adds a card via the existing /contract portal
+ * legacy-deposit flow (`hasLegacyDeposit`/`cardOnFileOnly`). That flow records
+ * the already-collected deposit (prior_payments) as a comp gift card, creates
+ * the day-of order, and saves the card — then the standard 72h balance cron
+ * charges it like any other event. `deposit_paid_at` stays NULL (and
+ * `collected_cents` stays 0) until the guest adds a card; `balance_cents` is
+ * the remaining amount we'll collect.
+ */
+export async function markGfQuoteIngestedWinback(
+  id: number,
+  fields: {
+    contract_short_id: string;
+    pandadoc_document_id?: string | null;
+    contract_sent_at: string;
+    deposit_due_cents: number;
+    balance_cents: number;
+    incentive_cents: number;
+  },
+): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    UPDATE group_function_quotes SET
+      contract_short_id = ${fields.contract_short_id},
+      pandadoc_document_id = COALESCE(${fields.pandadoc_document_id ?? null}, pandadoc_document_id),
+      contract_status = 'sent',
+      contract_sent_at = ${fields.contract_sent_at},
+      deposit_due_cents = ${fields.deposit_due_cents},
+      balance_cents = ${fields.balance_cents},
+      is_winback = TRUE,
+      incentive_cents = ${fields.incentive_cents},
+      status = 'contract_sent',
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+}
+
+/**
+ * Record the issued $20 incentive gift card. Guarded on
+ * `incentive_issued_at IS NULL` so a re-run never double-mints; returns rowcount
+ * (1 = applied, 0 = already issued).
+ */
+export async function updateGfWinbackIncentiveIssued(
+  id: number,
+  fields: { gan: string; giftCardId: string },
+): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      incentive_gift_card_gan = ${fields.gan},
+      incentive_gift_card_id = ${fields.giftCardId},
+      incentive_issued_at = NOW(),
+      updated_at = NOW()
+    WHERE id = ${id} AND incentive_issued_at IS NULL
+    RETURNING id
+  `;
+  return rows.length;
+}
+
+/**
+ * Win-back events that added a card on file but whose $20 card hasn't minted yet
+ * (mint-retry sweep). The $20 is issued the moment the card is saved; this
+ * catches a rare mint failure at that point.
+ */
+export async function getWinbackQuotesNeedingIncentive(): Promise<GroupFunctionQuote[]> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM group_function_quotes
+    WHERE is_winback = TRUE
+      AND saved_card_id IS NOT NULL
+      AND incentive_issued_at IS NULL
+    ORDER BY updated_at ASC
+    LIMIT 50
+  `;
+  return rows as GroupFunctionQuote[];
+}
+
+// ── Notification ledger ─────────────────────────────────────────────
+
+export async function recordEventNotification(params: {
+  quoteId: number;
+  ruleKey: string;
+  dedupKey: string;
+  channel: string;
+  status: string;
+  provider?: string;
+  providerMessageId?: string;
+  toAddress?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    INSERT INTO group_event_notifications
+      (quote_id, rule_key, dedup_key, channel, status, provider, provider_message_id, to_address, error, metadata)
+    VALUES (
+      ${params.quoteId}, ${params.ruleKey}, ${params.dedupKey}, ${params.channel}, ${params.status},
+      ${params.provider ?? null}, ${params.providerMessageId ?? null}, ${params.toAddress ?? null},
+      ${params.error ?? null}, ${JSON.stringify(params.metadata ?? {})}
+    )
+  `;
+}
+
+export interface EventNotification {
+  id: number;
+  quote_id: number;
+  rule_key: string;
+  dedup_key: string;
+  channel: string;
+  status: string;
+  provider: string | null;
+  provider_message_id: string | null;
+  to_address: string | null;
+  error: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function getEventNotifications(quoteId: number): Promise<EventNotification[]> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM group_event_notifications
+    WHERE quote_id = ${quoteId}
+    ORDER BY created_at ASC
+  `;
+  return rows as EventNotification[];
 }
 
 // ── Gift card array helpers ─────────────────────────────────────────

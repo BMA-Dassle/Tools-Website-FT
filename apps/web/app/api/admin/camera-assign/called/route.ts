@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSmsLog } from "@/lib/sms-log";
+import { businessDayYmdET } from "@/lib/race-business-day";
 
 /**
  * GET /api/admin/camera-assign/called
@@ -57,13 +58,9 @@ function trackSlugToResource(slug: string | null): (typeof TRACK_RESOURCES)[numb
   return null;
 }
 
+// Racing business day (2 AM ET rollover) — see lib/race-business-day.ts.
 function todayETYmd(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  return businessDayYmdET();
 }
 
 /**

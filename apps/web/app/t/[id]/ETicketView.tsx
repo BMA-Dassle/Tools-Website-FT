@@ -9,10 +9,12 @@ import { modalBackdropProps } from "@/lib/a11y";
 import {
   CheckingInCard,
   InvalidCard,
+  MovedCard,
   PastCard,
   PreRaceCard,
   TICKET_PULSE_CSS,
   minutesUntil,
+  sameEtDayOrUnknown,
 } from "./cards";
 import ImportantRaceInfo from "./ImportantRaceInfo";
 import FullScreenTicket from "./FullScreenTicket";
@@ -76,6 +78,15 @@ export default function ETicketView({
   const qrGenerated = useRef(false);
   const [headsockCredit, setHeadsockCredit] = useState(0);
   const headsockChecked = useRef(false);
+
+  // Mirror of the encoded QR payload, exposed via data-qr-payload for
+  // scan automation / E2E. 4-part when a valid participantId is present
+  // (move-resilient), else legacy 3-part.
+  const qrPayload = (() => {
+    const partId = String(ticket.participantId ?? "").trim();
+    const base = `FT:${ticket.personId}:${ticket.sessionId}`;
+    return /^\d+$/.test(partId) ? `${base}:${partId}` : base;
+  })();
 
   const mins = minutesUntil(ticket.scheduledStart);
   // Hard fallback for tickets viewed long after the heat with no called signal.
@@ -174,8 +185,20 @@ export default function ETicketView({
           { cache: "no-store", signal: ac.signal },
         );
         if (!res.ok) return;
-        const json = (await res.json()) as { codes?: string[]; cached?: boolean };
-        if (Array.isArray(json.codes) && json.codes.length > 0) {
+        const json = (await res.json()) as {
+          codes?: string[];
+          cached?: boolean;
+          claimedAt?: string;
+        };
+        // Only surface the voucher on its own race day — a credit claimed on a
+        // prior day (per-person key lives 90 days) must not show up on an
+        // unrelated heat's ticket. Same-day moves still match (different heat,
+        // same day).
+        if (
+          Array.isArray(json.codes) &&
+          json.codes.length > 0 &&
+          sameEtDayOrUnknown(json.claimedAt, ticket.scheduledStart)
+        ) {
           setPovCodes(json.codes);
           setPovCached(!!json.cached);
         }
@@ -193,10 +216,12 @@ export default function ETicketView({
     const pid = String(ticket.personId ?? "").trim();
     const sid = String(ticket.sessionId ?? "").trim();
     if (!pid || !sid || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) return;
-    checkinQrDataUrl(pid, sid)
+    const partId = String(ticket.participantId ?? "").trim();
+    const partArg = /^\d+$/.test(partId) ? partId : undefined;
+    checkinQrDataUrl(pid, sid, partArg)
       .then(setQrDataUrl)
       .catch(() => {});
-  }, [ticket.personId, ticket.sessionId]);
+  }, [ticket.personId, ticket.sessionId, ticket.participantId]);
 
   useEffect(() => {
     if (headsockChecked.current) return;
@@ -256,7 +281,7 @@ export default function ETicketView({
             the same info the moment they open the e-ticket link.
             Hidden once the race has run (PastCard branch handles
             its own messaging). */}
-        {!isPast && <ImportantRaceInfo />}
+        {!isPast && !ticket.movedTo && <ImportantRaceInfo />}
 
         {/* Always render the e-ticket info immediately. The status
             bar inside PreRaceCard shows a spinner while the live
@@ -264,7 +289,9 @@ export default function ETicketView({
             never gets blocked behind a loading card. Only confirmed
             terminal states (past / checking-in / removed) swap to
             their dedicated cards. */}
-        {!onSession && !isPast && !loadingStatus ? (
+        {ticket.movedTo ? (
+          <MovedCard details={ticket} movedTo={ticket.movedTo} />
+        ) : !onSession && !isPast && !loadingStatus ? (
           <InvalidCard details={ticket} />
         ) : isPast ? (
           <PastCard details={ticket} />
@@ -288,7 +315,7 @@ export default function ETicketView({
                     <img
                       src={qrDataUrl}
                       alt="Check-in QR"
-                      data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
+                      data-qr-payload={qrPayload}
                       width={140}
                       height={140}
                       className="block"
@@ -321,7 +348,7 @@ export default function ETicketView({
                     <img
                       src={qrDataUrl}
                       alt="Check-in QR"
-                      data-qr-payload={`FT:${ticket.personId}:${ticket.sessionId}`}
+                      data-qr-payload={qrPayload}
                       width={140}
                       height={140}
                       className="block"
@@ -336,7 +363,7 @@ export default function ETicketView({
           </PreRaceCard>
         )}
 
-        {!isPast && povCodes.length > 0 && (
+        {!isPast && !ticket.movedTo && povCodes.length > 0 && (
           <div className="mt-6">
             <PovVoucherBlock codes={povCodes} cached={povCached} />
           </div>

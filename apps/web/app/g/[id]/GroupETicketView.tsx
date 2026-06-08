@@ -9,10 +9,12 @@ import type { GroupTicket, GroupTicketMember } from "@/lib/race-tickets";
 import {
   CheckingInCard,
   InvalidCard,
+  MovedCard,
   PastCard,
   PreRaceCard,
   TICKET_PULSE_CSS,
   minutesUntil,
+  sameEtDayOrUnknown,
 } from "../../t/[id]/cards";
 import ImportantRaceInfo from "../../t/[id]/ImportantRaceInfo";
 import FullScreenTicket from "../../t/[id]/FullScreenTicket";
@@ -44,6 +46,16 @@ interface MemberState {
 
 function memberKey(m: Pick<GroupTicketMember, "sessionId" | "personId">): string {
   return `${m.sessionId}:${m.personId}`;
+}
+
+/** Mirror of the encoded check-in QR for data-qr-payload (scan automation
+ *  / E2E). 4-part when a valid participantId is present, else legacy 3-part. */
+function memberQrPayload(
+  m: Pick<GroupTicketMember, "sessionId" | "personId" | "participantId">,
+): string {
+  const partId = String(m.participantId ?? "").trim();
+  const base = `FT:${m.personId}:${m.sessionId}`;
+  return /^\d+$/.test(partId) ? `${base}:${partId}` : base;
 }
 
 function earliestStart(members: GroupTicketMember[]): number {
@@ -223,9 +235,18 @@ export default function GroupETicketView({ group, initial }: Props) {
               { cache: "no-store", signal: ac.signal },
             );
             if (!res.ok) return null;
-            const json = (await res.json()) as { codes?: string[]; cached?: boolean };
+            const json = (await res.json()) as {
+              codes?: string[];
+              cached?: boolean;
+              claimedAt?: string;
+            };
             const codes = Array.isArray(json.codes) ? json.codes : [];
-            return { personId: t.personId, codes, cached: !!json.cached };
+            return {
+              personId: t.personId,
+              codes,
+              cached: !!json.cached,
+              claimedAt: json.claimedAt,
+            };
           } catch {
             return null;
           }
@@ -235,9 +256,16 @@ export default function GroupETicketView({ group, initial }: Props) {
       setPovByPerson((prev) => {
         const next = { ...prev };
         for (const r of results) {
-          if (r && r.codes.length > 0) {
-            next[r.personId] = { codes: r.codes, cached: r.cached };
-          }
+          if (!r || r.codes.length === 0) continue;
+          // Only surface a voucher when the claim shares an ET day with one of
+          // this person's heats — keeps a prior-day claim (90-day per-person
+          // key) off an unrelated heat's ticket. Same-day moves still match.
+          const sameDay = group.members.some(
+            (m) =>
+              String(m.personId) === r.personId &&
+              sameEtDayOrUnknown(r.claimedAt, m.scheduledStart),
+          );
+          if (sameDay) next[r.personId] = { codes: r.codes, cached: r.cached };
         }
         return next;
       });
@@ -254,17 +282,23 @@ export default function GroupETicketView({ group, initial }: Props) {
   useEffect(() => {
     if (qrGenerated.current) return;
     qrGenerated.current = true;
-    const targets: { key: string; pid: string; sid: string }[] = [];
+    const targets: { key: string; pid: string; sid: string; partId?: string }[] = [];
     for (const m of group.members) {
       const pid = String(m.personId ?? "").trim();
       const sid = String(m.sessionId ?? "").trim();
       if (!pid || !sid || !/^\d+$/.test(pid) || !/^\d+$/.test(sid)) continue;
-      targets.push({ key: memberKey(m), pid, sid });
+      const partId = String(m.participantId ?? "").trim();
+      targets.push({
+        key: memberKey(m),
+        pid,
+        sid,
+        partId: /^\d+$/.test(partId) ? partId : undefined,
+      });
     }
     Promise.all(
       targets.map(async (t) => {
         try {
-          const url = await checkinQrDataUrl(t.pid, t.sid);
+          const url = await checkinQrDataUrl(t.pid, t.sid, t.partId);
           return { key: t.key, url };
         } catch {
           return null;
@@ -409,7 +443,9 @@ export default function GroupETicketView({ group, initial }: Props) {
                     const memberPov = povByPerson[String(m.personId)];
                     return (
                       <div key={key}>
-                        {!s.onSession && !isPast && !loadingStatus ? (
+                        {m.movedTo ? (
+                          <MovedCard details={m} movedTo={m.movedTo} />
+                        ) : !s.onSession && !isPast && !loadingStatus ? (
                           <InvalidCard details={m} />
                         ) : isPast ? (
                           <PastCard details={m} />
@@ -433,7 +469,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                                     <img
                                       src={qrByMember[key]}
                                       alt={`QR for ${m.firstName}`}
-                                      data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
+                                      data-qr-payload={memberQrPayload(m)}
                                       width={100}
                                       height={100}
                                       className="block"
@@ -464,7 +500,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                                     <img
                                       src={qrByMember[key]}
                                       alt={`QR for ${m.firstName}`}
-                                      data-qr-payload={`FT:${m.personId}:${m.sessionId}`}
+                                      data-qr-payload={memberQrPayload(m)}
                                       width={100}
                                       height={100}
                                       className="block"
@@ -476,7 +512,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                             )}
                           </PreRaceCard>
                         )}
-                        {!isPast && memberPov && memberPov.codes.length > 0 && (
+                        {!isPast && !m.movedTo && memberPov && memberPov.codes.length > 0 && (
                           <div className="mt-3">
                             <PovVoucherBlock
                               codes={memberPov.codes}

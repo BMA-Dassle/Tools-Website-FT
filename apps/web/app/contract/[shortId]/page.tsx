@@ -71,6 +71,7 @@ export default async function ContractPage(props: {
         centerName: quote.center_name,
         squareLocationId: quote.square_location_id,
         eventName: quote.event_name || "",
+        eventNumber: quote.event_number,
         eventDateDisplay: quote.event_date_display || "",
         eventDate: quote.event_date,
         guestCount: quote.guest_count,
@@ -102,6 +103,9 @@ export default async function ContractPage(props: {
           !quote.deposit_paid_at && quote.status === "contract_sent" ? priorDepositCents : 0,
         savedCardLast4: quote.saved_card_last4,
         savedCardBrand: quote.saved_card_brand,
+        hasCardOnFile: Boolean(quote.saved_card_id),
+        isWinback: quote.is_winback,
+        incentiveCents: quote.incentive_cents,
         versions: versions.map((v) => ({
           versionNumber: v.version_number,
           snapshot: {

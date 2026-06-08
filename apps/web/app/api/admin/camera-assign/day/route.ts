@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import { businessDayYmdET } from "@/lib/race-business-day";
 
 /**
  * GET /api/admin/camera-assign/day?track=blue|red|mega&date=YYYY-MM-DD
@@ -34,13 +35,11 @@ interface PandoraSession {
   heatNumber: number;
 }
 
+// "Today" = the racing business day (2 AM ET rollover) so a race night
+// that runs past midnight keeps showing its full schedule. See
+// lib/race-business-day.ts.
 function etYmdNow(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  return businessDayYmdET();
 }
 
 /**

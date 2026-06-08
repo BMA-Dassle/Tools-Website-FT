@@ -1104,6 +1104,130 @@ export async function loadGiftCard(params: {
   return { balanceCents: balance };
 }
 
+/** Square caps a single gift card at $2,000. */
+export const GIFT_CARD_MAX_CENTS = 200_000;
+
+/**
+ * Distribute `amountCents` across the given gift cards (LOAD onto existing
+ * cards up to the $2k/card cap), creating + ACTIVATING new DIGITAL cards for
+ * any overflow. Returns the full list of gift card ids including any created.
+ *
+ * Mirrors the 72-hour balance-load loop so the deposit, balance auto-charge,
+ * link reconcile, and reprice paths all fund the day-of gift cards identically.
+ * `baseKey` must be STABLE per logical operation so re-runs are idempotent.
+ */
+export async function loadBalanceOntoGiftCards(params: {
+  giftCardIds: string[];
+  locationId: string;
+  amountCents: number;
+  baseKey: string;
+  buyerPaymentInstrumentIds?: string[];
+}): Promise<{ giftCardIds: string[] }> {
+  const gcIds = [...params.giftCardIds];
+  const buyer = params.buyerPaymentInstrumentIds ?? [];
+  let remaining = params.amountCents;
+
+  // Top up existing cards first.
+  for (let i = 0; i < gcIds.length && remaining > 0; i++) {
+    const loadAmount = Math.min(remaining, GIFT_CARD_MAX_CENTS);
+    await loadGiftCard({
+      giftCardId: gcIds[i],
+      locationId: params.locationId,
+      amountCents: loadAmount,
+      baseKey: `${params.baseKey}-${i}`,
+      buyerPaymentInstrumentIds: buyer,
+    });
+    remaining -= loadAmount;
+  }
+
+  // Overflow: create + activate new DIGITAL cards for the remainder.
+  let newIdx = gcIds.length;
+  while (remaining > 0) {
+    const chunkCents = Math.min(remaining, GIFT_CARD_MAX_CENTS);
+    const gcRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `${params.baseKey}-newgc-${newIdx}`,
+        location_id: params.locationId,
+        gift_card: { type: "DIGITAL" },
+      }),
+    });
+    const gcData = await gcRes.json();
+    if (gcRes.ok && gcData.gift_card?.id) {
+      await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `${params.baseKey}-newact-${newIdx}`,
+          gift_card_activity: {
+            type: "ACTIVATE",
+            location_id: params.locationId,
+            gift_card_id: gcData.gift_card.id,
+            activate_activity_details: {
+              amount_money: { amount: chunkCents, currency: "USD" },
+              buyer_payment_instrument_ids: buyer,
+            },
+          },
+        }),
+      });
+      gcIds.push(gcData.gift_card.id);
+    } else {
+      throw new SquarePaymentError(
+        gcData.errors?.[0]?.code ?? "GIFT_CARD_OVERFLOW_CREATE_FAILED",
+        gcData.errors?.[0]?.detail ?? `status ${gcRes.status}`,
+        gcRes.status,
+      );
+    }
+    remaining -= chunkCents;
+    newIdx++;
+  }
+
+  return { giftCardIds: gcIds };
+}
+
+/**
+ * Find a Square customer by email, creating one if none exists. Returns the
+ * customer id, or null if both lookup and creation fail. Shared by the group-
+ * function deposit + reprice flows so a card can be saved on file.
+ */
+export async function findOrCreateSquareCustomer(quote: {
+  guest_email: string;
+  guest_first_name: string;
+  guest_last_name: string;
+  guest_phone: string | null;
+}): Promise<string | null> {
+  const searchRes = await fetch(`${SQUARE_BASE}/customers/search`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      query: { filter: { email_address: { exact: quote.guest_email } } },
+      limit: 1,
+    }),
+  });
+  const searchData = await searchRes.json();
+  if (searchRes.ok && searchData.customers?.[0]?.id) {
+    return searchData.customers[0].id;
+  }
+
+  const createRes = await fetch(`${SQUARE_BASE}/customers`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `gf-cust-${quote.guest_email}`,
+      given_name: quote.guest_first_name,
+      family_name: quote.guest_last_name,
+      email_address: quote.guest_email,
+      phone_number: quote.guest_phone || undefined,
+    }),
+  });
+  const createData = await createRes.json();
+  if (createRes.ok && createData.customer?.id) {
+    return createData.customer.id;
+  }
+  return null;
+}
+
 /** Reset the in-process loyalty-program cache. Test-only. @internal */
 export function _resetLoyaltyProgramCache(): void {
   cachedLoyaltyProgram = null;

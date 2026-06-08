@@ -43,6 +43,14 @@ export interface GuardianContact {
 
 export interface Participant {
   personId: string | number;
+  /** Per-participation record id from Pandora. STABLE across a heat
+   *  move (the participation relocates, keeping this id) — a second
+   *  booking gets a NEW participantId. ~8 digits today (safe), but
+   *  treat as a string end-to-end alongside the 17-digit personId
+   *  (BMI id-precision rule). Used to make the check-in QR
+   *  move-resilient: resolve the racer's LIVE session from this id at
+   *  scan time. */
+  participantId?: string | number;
   firstName: string;
   lastName: string;
   email: string | null;

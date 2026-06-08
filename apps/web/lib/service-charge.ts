@@ -84,6 +84,63 @@ export function isServiceChargeProduct(name: string, plu?: string): boolean {
   return plu === SERVICE_CHARGE_PLU || SERVICE_CHARGE_PATTERN.test(name);
 }
 
+export interface SquareLineItem {
+  name: string;
+  quantity: string;
+  base_price_money: { amount: number; currency: "USD" };
+}
+
+/**
+ * Service charge amount (in CENTS) recorded on a quote's contract line items,
+ * or 0 if the event has no service charge. Reads the stored Hermes products
+ * ({ name, plu, total } where `total` is in DOLLARS) — the authoritative
+ * "service charge from the contract".
+ */
+export function serviceChargeCentsFromLineItems(lineItems: unknown): number {
+  const items = (Array.isArray(lineItems) ? lineItems : []) as Array<{
+    name?: string;
+    plu?: string;
+    total?: number;
+  }>;
+  const sc = items.find((p) => isServiceChargeProduct(p.name || "", p.plu));
+  return sc ? Math.round((sc.total || 0) * 100) : 0;
+}
+
+/**
+ * Build Square order line items for a group-event PAYMENT (deposit or balance),
+ * breaking the service charge out into its own "Service Charge" line so the
+ * portal's Service Charges page detects it (it matches on the line-item name).
+ *
+ * `serviceChargeCents` is the portion of the contract service charge collected
+ * on THIS payment. The line is omitted when that portion is 0 (no service
+ * charge to report on this payment). Amounts always sum to `paymentCents`.
+ *
+ * NOTE: deliberately uses line items, NOT Square's native `service_charges`
+ * array — the portal reads the array differently for tax/refund purposes.
+ */
+export function buildPaymentLineItems(
+  mainName: string,
+  paymentCents: number,
+  serviceChargeCents: number,
+): SquareLineItem[] {
+  const svc = Math.max(0, Math.min(serviceChargeCents, paymentCents));
+  const items: SquareLineItem[] = [
+    {
+      name: mainName,
+      quantity: "1",
+      base_price_money: { amount: paymentCents - svc, currency: "USD" },
+    },
+  ];
+  if (svc > 0) {
+    items.push({
+      name: "Service Charge",
+      quantity: "1",
+      base_price_money: { amount: svc, currency: "USD" },
+    });
+  }
+  return items;
+}
+
 /**
  * Verify and correct the service charge in BMI Office.
  * Fetches the project, finds the service charge projectProduct by matching

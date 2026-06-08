@@ -42,8 +42,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Quote not found" }, { status: 404 });
   }
 
-  if (!quote.square_customer_id) {
-    return NextResponse.json({ error: "No customer on file" }, { status: 400 });
+  // Create a Square customer on the fly if the quote doesn't have one yet — e.g. a
+  // legacy win-back guest adding their first card. Persisted with the card below.
+  let customerId = quote.square_customer_id;
+  if (!customerId) {
+    try {
+      const { findOrCreateSquareCustomer } = await import("@/lib/square-gift-card");
+      customerId = await findOrCreateSquareCustomer(quote);
+    } catch (err) {
+      console.error("[update-card] customer create failed:", err);
+    }
+    if (!customerId) {
+      return NextResponse.json({ error: "Could not create a customer on file" }, { status: 500 });
+    }
   }
 
   // Tokenize the new card via Square (charge $0 to verify, then save)
@@ -83,7 +94,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         idempotency_key: `gf-update-card-${contractShortId}-${Date.now()}`,
         source_id: cardSourceId,
-        card: { customer_id: quote.square_customer_id },
+        card: { customer_id: customerId },
       }),
     });
     const cardData = await cardRes.json();
@@ -103,6 +114,7 @@ export async function POST(req: NextRequest) {
       saved_card_id = ${newCardId},
       saved_card_last4 = ${last4},
       saved_card_brand = ${brand},
+      square_customer_id = ${customerId},
       updated_at = NOW()
     WHERE id = ${quote.id}`;
 

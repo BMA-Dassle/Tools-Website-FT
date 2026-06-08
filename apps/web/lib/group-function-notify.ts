@@ -12,6 +12,7 @@ import { sendEmail } from "@/lib/sendgrid";
 import { voxSend } from "@/lib/sms-retry";
 import { sendAdaptiveCardToChannel, updateAdaptiveCard } from "@/lib/teams-bot";
 import { PLANNERS } from "@/lib/sales-lead-config";
+import { notifyContractDataIssues } from "@/lib/group-function-alert";
 import type { GroupFunctionQuote } from "@/lib/group-function-db";
 import { parseGiftCardGans } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
@@ -83,6 +84,31 @@ function memoLog(quote: GroupFunctionQuote, message: string): void {
     .catch(() => {});
 }
 
+/**
+ * Fire a staff Teams alert when a contract email to a *syntactically valid*
+ * address actually failed to send (e.g. SendGrid rejected it / bounce). The
+ * empty/invalid-email case is already caught up front by the dispatch cron's
+ * `collectContractDataIssues`, so we only alert here when an address was
+ * present — avoids a duplicate alert for the missing-email case. Best-effort.
+ */
+function alertContractEmailFailed(quote: GroupFunctionQuote): void {
+  if (!quote.guest_email?.trim()) return;
+  notifyContractDataIssues({
+    centerCode: quote.center_code,
+    centerName: quote.center_name,
+    reservationId: quote.bmi_reservation_id,
+    eventName: quote.event_name || "",
+    guestName: `${quote.guest_first_name || ""} ${quote.guest_last_name || ""}`.trim(),
+    guestEmail: quote.guest_email,
+    guestPhone: quote.guest_phone || "",
+    plannerEmail: quote.planner_email || "",
+    contractUrl: quote.contract_short_id
+      ? `${baseUrl(quote)}/contract/${quote.contract_short_id}`
+      : undefined,
+    issues: ["Email delivery failed — SendGrid did not accept the guest address"],
+  }).catch(() => {});
+}
+
 // ── Contract Sent ───────────────────────────────────────────────────
 
 export async function notifyContractSent(quote: GroupFunctionQuote): Promise<void> {
@@ -123,12 +149,14 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
     }
   }
 
+  const sentOk = emailOk(results[1]);
   memoLog(
     quote,
-    emailOk(results[1])
+    sentOk
       ? `Contract sent to ${quote.guest_email}`
       : `Contract email FAILED to ${quote.guest_email}`,
   );
+  if (!sentOk) alertContractEmailFailed(quote);
 }
 
 // ── Contract Updated (before signing) ───────────────────────────────
@@ -170,12 +198,14 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
     }
   }
 
+  const updatedOk = emailOk(results[1]);
   memoLog(
     quote,
-    emailOk(results[1])
+    updatedOk
       ? `Contract updated — resent to ${quote.guest_email}`
       : `Contract update email FAILED to ${quote.guest_email}`,
   );
+  if (!updatedOk) alertContractEmailFailed(quote);
 }
 
 // ── Deposit Paid ────────────────────────────────────────────────────
@@ -521,6 +551,104 @@ export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<v
   memoLog(quote, `Balance charged — ${dollars(quote.balance_cents)} via saved card`);
 }
 
+// ── Re-price: delta charged after re-sign ───────────────────────────
+
+/**
+ * A paid-in-full event was re-priced UP and, after the guest re-signed, we
+ * charged the difference to the card on file (and loaded the gift cards).
+ * Receipt to guest + planner.
+ */
+export async function notifyRepriceCharged(
+  quote: GroupFunctionQuote,
+  deltaCents: number,
+  cardLast4?: string,
+): Promise<void> {
+  const cardLine = cardLast4 ? ` to your card ending in ${cardLast4}` : " to your card on file";
+  const results = await Promise.allSettled([
+    quote.guest_phone
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event total for ${quote.event_name || "your event"} was updated to ${dollars(quote.total_cents)}.`,
+            `We charged the ${dollars(deltaCents)} difference${cardLine}.`,
+            `You're all set for ${quote.event_date_display || "your event"}!`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Balance Adjustment — ${quote.event_name || quote.center_name}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#0a1628">
+        <h2 style="color:#0a1628">Your event total was updated</h2>
+        <p>Hi ${quote.guest_first_name},</p>
+        <p>Your event <strong>${quote.event_name || quote.center_name}</strong> on
+        ${quote.event_date_display || ""} was updated to a new total of
+        <strong>${dollars(quote.total_cents)}</strong>.</p>
+        <p>We charged the difference of <strong>${dollars(deltaCents)}</strong>${cardLine}.
+        Your event is fully paid and confirmed.</p>
+        <p>Questions? Just reply to this email to reach ${plannerName(quote)}.</p>
+        <p>Thank you!<br/>${quote.center_name}</p>
+      </div>`,
+      text: `Hi ${quote.guest_first_name},\n\nYour event total for ${quote.event_name} was updated to ${dollars(quote.total_cents)}. We charged the ${dollars(deltaCents)} difference${cardLine}. Your event is fully paid and confirmed.\n\nThank you!\n${quote.center_name}`,
+    }),
+
+    updateContractTeamsCard(quote, "balance_charged"),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] repriceCharged notification failed:", r.reason);
+    }
+  }
+
+  memoLog(
+    quote,
+    `Re-price charged — ${dollars(deltaCents)} difference collected (new total ${dollars(quote.total_cents)})`,
+  );
+}
+
+/**
+ * A paid-in-full event was re-priced DOWN below what was collected. We do NOT
+ * auto-refund — alert staff to issue the refund in Square.
+ */
+export async function notifyRepriceRefundOwed(
+  quote: GroupFunctionQuote,
+  overageCents: number,
+): Promise<void> {
+  const staffTo = quote.planner_email || GF_BCC[0];
+  await sendEmail({
+    to: staffTo,
+    toName: plannerName(quote),
+    cc: plannerCc(quote),
+    bcc: GF_BCC,
+    subject: `ACTION: Refund owed — ${quote.event_name || quote.center_name}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#0a1628">
+      <h2 style="color:#b91c1c">Refund owed — manual action required</h2>
+      <p>Event <strong>${quote.event_name || quote.center_name}</strong>
+      (${quote.event_number || quote.bmi_reservation_id}) on ${quote.event_date_display || ""}
+      was re-priced down.</p>
+      <p>New total: <strong>${dollars(quote.total_cents)}</strong><br/>
+      Collected: <strong>${dollars(quote.collected_cents)}</strong><br/>
+      <strong style="color:#b91c1c">Overage to refund: ${dollars(overageCents)}</strong></p>
+      <p>Original balance payment: ${quote.square_balance_payment_id || "n/a"}<br/>
+      Deposit payment: ${quote.square_deposit_payment_id || "n/a"}</p>
+      <p>Issue the refund in the Square dashboard. No automatic refund was made.</p>
+    </div>`,
+    text: `Refund owed — ${quote.event_name} (${quote.event_number || quote.bmi_reservation_id}). New total ${dollars(quote.total_cents)}, collected ${dollars(quote.collected_cents)}, overage to refund ${dollars(overageCents)}. Balance payment ${quote.square_balance_payment_id || "n/a"}, deposit payment ${quote.square_deposit_payment_id || "n/a"}. Issue refund in Square; no auto-refund made.`,
+  }).catch((err) => console.error("[gf-notify] repriceRefundOwed email failed:", err));
+
+  memoLog(
+    quote,
+    `Re-price DOWN — refund owed ${dollars(overageCents)} (new total ${dollars(quote.total_cents)}, collected ${dollars(quote.collected_cents)}). Manual Square refund required.`,
+  );
+}
+
 // ── Balance Link Sent ───────────────────────────────────────────────
 
 export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<void> {
@@ -562,6 +690,280 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
   memoLog(quote, `Balance payment link sent to ${quote.guest_email}`);
 }
 
+// ── Notification-engine builders (return a result for the ledger) ───
+
+/** Result shape consumed by the reminder dispatcher's ledger. */
+export interface NotifyResult {
+  emailOk: boolean;
+  /** true=sent, false=failed, null=not attempted (no phone / suppressed). */
+  smsOk: boolean | null;
+  smsId?: string;
+}
+
+/** Normalize a settled voxSend result into {ok, id}. */
+function smsResult(r: PromiseSettledResult<unknown>): { ok: boolean | null; id?: string } {
+  if (r.status === "rejected") return { ok: false };
+  const v = r.value as { ok?: boolean; voxId?: string; twilioSid?: string } | undefined;
+  if (!v || typeof v !== "object" || !("ok" in v)) return { ok: null }; // Promise.resolve() = not attempted
+  return { ok: Boolean(v.ok), id: v.voxId || v.twilioSid };
+}
+
+/**
+ * Scheduled "balance due in N days" reminder for events that still owe money.
+ * payUrl is the existing balance payment link if present, else the contract
+ * portal — we do NOT mint a new Square link here.
+ */
+export async function notifyPaymentDueReminder(
+  quote: GroupFunctionQuote,
+  daysOut: number,
+  payUrl: string,
+  opts?: { smsSuppressed?: boolean },
+): Promise<NotifyResult> {
+  const amountDue = quote.total_cents - quote.collected_cents;
+  const pName = plannerName(quote);
+
+  const results = await Promise.allSettled([
+    quote.guest_phone && !opts?.smsSuppressed
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your balance of ${dollars(amountDue)} for ${quote.event_name || "your event"} at ${quote.center_name} is due in ${daysOut} days.`,
+            `Pay here: ${payUrl}`,
+            `Questions? Contact ${pName}.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Balance Due in ${daysOut} Days — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        `${quote.guest_first_name}, your balance is due soon`,
+        `${daysOut} days until your event balance is due`,
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Your event <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name} is coming up! Here's a friendly reminder that your remaining balance is due.</p>
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event Total", dollars(quote.total_cents))}
+          ${pricingRow("Collected", dollars(quote.collected_cents))}
+          ${pricingRow("Balance Due", dollars(amountDue), true)}
+        </table>
+        ${ctaButton("Complete Your Payment", payUrl)}`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(amountDue)} for ${quote.event_name} is due in ${daysOut} days.\n\nPay here: ${payUrl}\n\nThank you!\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") console.error("[gf-notify] paymentDueReminder failed:", r.reason);
+  }
+  const sms = smsResult(results[0]);
+  memoLog(quote, `Payment-due (T-${daysOut}) reminder sent to ${quote.guest_email}`);
+  return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
+}
+
+/** Post-event thank-you (email only — gentler, no late-night SMS). */
+export async function notifyThankYou(quote: GroupFunctionQuote): Promise<NotifyResult> {
+  const venue = quote.brand === "headpinz" ? "bowling center" : "racing center";
+  const [r] = await Promise.allSettled([
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Thank You from ${quote.center_name}!`,
+      html: emailShell(
+        quote,
+        `Thank you, ${quote.guest_first_name}!`,
+        "We hope your event was a blast",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Thank you for hosting <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at our ${venue}! We hope everyone had an amazing time.</p>
+        <p style="margin:0 0 16px;font-size:15px;color:#475569">We'd love to host you again — just reach out anytime to start planning your next event.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nThank you for hosting ${quote.event_name} at ${quote.center_name}! We hope everyone had a great time.\n\nWe'd love to host you again.\n\n${quote.center_name}`,
+    }),
+  ]);
+  return { emailOk: emailOk(r), smsOk: null };
+}
+
+/**
+ * Dedicated "last chance to change your order" call (~5 days out) — a final
+ * nudge to adjust the event (guests, lanes, food, add-ons, timing) before the
+ * total is finalized and the balance is charged. Deliberately NOT framed as a
+ * headcount: most events are sized by lane, not guest count. Changes route
+ * through the planner (the portal is view-only for event details).
+ */
+export async function notifyHeadcountFinal(
+  quote: GroupFunctionQuote,
+  opts?: { smsSuppressed?: boolean },
+): Promise<NotifyResult> {
+  const pName = plannerName(quote);
+  const eventLabel = quote.event_name || "your event";
+  const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=finalize`;
+
+  const results = await Promise.allSettled([
+    quote.guest_phone && !opts?.smsSuppressed
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, ${eventLabel} at ${quote.center_name} is coming up!`,
+            `Last chance to make any changes to your order — reply or contact ${pName} before we finalize your total.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Last chance to update your event — ${quote.event_name || quote.center_name}`,
+      html: emailShell(
+        quote,
+        `${quote.guest_first_name}, any changes before we finalize?`,
+        "Last chance to update your event before we finalize your total",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Your event <strong style="color:#0f172a">${eventLabel}</strong> at ${quote.center_name} is coming up! If anything has changed — guests, lanes, food, add-ons, or timing — now's the time to let us know.</p>
+        <div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
+          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Last chance to make changes</p>
+          <p style="margin:0;font-size:13px;color:#78350f">If your order has changed, now's the time. Reply to this email or contact ${pName} and we'll update your total — once your balance is finalized, your order is locked in.</p>
+        </div>
+        ${ctaButton("View Event Details", url)}
+        <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Questions? Reply to this email or contact ${pName}.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${eventLabel} at ${quote.center_name} is coming up! This is your last chance to make changes to your order before we finalize your total. If anything has changed, reply to this email or contact ${pName}.\n\n${pName}\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") console.error("[gf-notify] headcountFinal failed:", r.reason);
+  }
+  const sms = smsResult(results[0]);
+  memoLog(quote, `Final-headcount reminder sent to ${quote.guest_email}`);
+  return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
+}
+
+// ── $20 Legacy Win-Back ─────────────────────────────────────────────
+
+/**
+ * The win-back offer: "add your card on file now, get a $20 e-gift card today —
+ * we'll charge your balance 72 hours before your event like normal." Links to
+ * the /contract portal where the existing legacy-deposit flow saves the card.
+ */
+export async function notifyWinbackOffer(
+  quote: GroupFunctionQuote,
+  opts?: { smsSuppressed?: boolean },
+): Promise<NotifyResult> {
+  const amountDue = quote.total_cents - quote.deposit_due_cents;
+  const bonus = dollars(quote.incentive_cents || 2000);
+  const pName = plannerName(quote);
+  const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=winback`;
+
+  const results = await Promise.allSettled([
+    quote.guest_phone && !opts?.smsSuppressed
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, lock in ${quote.event_name || "your event"} at ${quote.center_name} & get a ${bonus} e-gift card on us!`,
+            `Add your card on file now — we'll charge the ${dollars(amountDue)} balance 72 hours before, just like normal.`,
+            `Get started: ${url}`,
+            `Questions? Contact ${pName}.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Lock in your event & get a ${bonus} e-Gift Card!`,
+      html: emailShell(
+        quote,
+        `${quote.guest_first_name}, add your card & get ${bonus}`,
+        `Lock in your event and we'll send you a ${bonus} e-gift card today`,
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Let's get <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name} fully locked in! Add a card on file now and we'll send you a <strong style="color:#004aad">${bonus} e-gift card</strong> right away — spend it on arrival on concessions, games, whatever you like.</p>
+        <p style="margin:0 0 16px;font-size:15px;color:#475569">No charge today — we'll automatically charge your remaining balance <strong>72 hours before your event</strong>, exactly like every other event.</p>
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event Total", dollars(quote.total_cents))}
+          ${pricingRow("Deposit Paid", dollars(quote.deposit_due_cents))}
+          ${pricingRow("Balance (charged 72hrs before)", dollars(amountDue), true)}
+          ${pricingRow("Your Bonus", `${bonus} e-gift card — today`, true)}
+        </table>
+        ${ctaButton(`Add Card & Claim ${bonus}`, url)}
+        <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Your ${bonus} e-gift card is issued the moment your card is on file.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nLock in ${quote.event_name} at ${quote.center_name} and get a ${bonus} e-gift card today! Add your card on file now — no charge today; we'll charge your ${dollars(amountDue)} balance 72 hours before your event, just like normal.\n\nGet started: ${url}\n\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") console.error("[gf-notify] winbackOffer failed:", r.reason);
+  }
+  const sms = smsResult(results[0]);
+  memoLog(quote, `Win-back $20 card-on-file offer sent to ${quote.guest_email}`);
+  return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
+}
+
+/** Receipt after a win-back guest adds a card on file — confirms the $20 + schedule. */
+export async function notifyWinbackReceipt(
+  quote: GroupFunctionQuote,
+  incentiveGan: string,
+  opts?: { smsSuppressed?: boolean },
+): Promise<NotifyResult> {
+  const bonus = dollars(quote.incentive_cents || 2000);
+  const amountDue = quote.total_cents - quote.deposit_due_cents;
+  const results = await Promise.allSettled([
+    quote.guest_phone && !opts?.smsSuppressed
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, you're all set for ${quote.event_name || "your event"} — card's on file!`,
+            `Your ${bonus} e-gift card is ready: ${incentiveGan}. Spend it on arrival at ${quote.center_name}.`,
+            `We'll charge your ${dollars(amountDue)} balance 72 hours before your event.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `You're All Set — Here's Your ${bonus} e-Gift Card!`,
+      html: emailShell(
+        quote,
+        `Thank you, ${quote.guest_first_name}!`,
+        `Your card is on file and your ${bonus} e-gift card is ready`,
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">You're all set for <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Your card is securely on file, and we'll automatically charge your remaining balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> 72 hours before your event.</p>
+        <div style="background:#eef6ff;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #004aad">
+          <p style="margin:0 0 6px;font-size:13px;font-weight:bold;color:#004aad;text-transform:uppercase;letter-spacing:1px">Your ${bonus} e-Gift Card</p>
+          <p style="margin:0;font-size:18px;font-weight:bold;color:#0f172a;letter-spacing:1px">${incentiveGan}</p>
+          <p style="margin:8px 0 0;font-size:13px;color:#475569">Spend it on arrival — concessions, games, or anything else. No need to print; just give this number at the counter.</p>
+        </div>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYou're all set for ${quote.event_name} — your card is on file and your ${bonus} e-gift card is ready: ${incentiveGan}\n\nWe'll charge your ${dollars(amountDue)} balance 72 hours before your event. Spend your ${bonus} on arrival at ${quote.center_name}.\n\nThank you!`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") console.error("[gf-notify] winbackReceipt failed:", r.reason);
+  }
+  const sms = smsResult(results[0]);
+  memoLog(quote, `Win-back $20 card ${incentiveGan} issued (card on file) to ${quote.guest_email}`);
+  return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
+}
+
 // ── 96-Hour Reminder (24hrs before balance charge) ─────────────────
 
 export async function notify96HourReminder(
@@ -589,9 +991,9 @@ export async function notify96HourReminder(
       ? (await import("@/lib/sms-retry")).voxSend(
           quote.guest_phone,
           [
-            `${quote.guest_first_name}, your event ${quote.event_name || ""} is almost here!`,
-            `Your balance of ${dollars(quote.balance_cents)} will be charged tomorrow.`,
-            `Update details: ${smsUrl}`,
+            `${quote.guest_first_name}, ${quote.event_name || "your event"} is almost here!`,
+            `Final chance to change your guest count — your balance of ${dollars(quote.balance_cents)} is charged tomorrow.`,
+            `Review/update: ${smsUrl}`,
             hasWaivers && waiverUrl ? `Complete waivers: ${waiverUrl}` : "",
           ]
             .filter(Boolean)
@@ -610,8 +1012,13 @@ export async function notify96HourReminder(
       html: emailShell(
         quote,
         `${quote.guest_first_name}, your event is almost here`,
-        "Less than 24 hours to update your event details",
+        "Last call to change your guest count — your balance is charged tomorrow",
         `<p style="margin:0 0 16px;font-size:15px;color:#475569">We're getting excited for <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Your remaining balance of <strong style="color:#004aad">${dollars(quote.balance_cents)}</strong> will be automatically charged to your card on file tomorrow.</p>
+
+        <div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
+          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Final chance to change your headcount</p>
+          <p style="margin:0;font-size:13px;color:#78350f">We'll charge for ${quote.guest_count ? `<strong>${quote.guest_count} guests</strong>` : "your current guest count"} when your balance runs tomorrow. Need to adjust? Reply to this email or contact ${pName} today — after the charge, your total is locked in.</p>
+        </div>
 
         <div style="background:#f8fafc;border-radius:12px;padding:16px;margin:16px 0">
           <p style="margin:0 0 8px;font-size:13px;font-weight:bold;color:#1a1a1a">Before that happens, please verify:</p>
@@ -1051,6 +1458,7 @@ function emailShell(
       <tr><td style="background-color:#000418;padding:10px 16px;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;color:#00e2e5;text-transform:uppercase;letter-spacing:1px">${quote.event_name || "Event Details"}</td></tr>
       <tr><td style="padding:14px 16px;font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.8">
         <table cellpadding="0" cellspacing="0" border="0" width="100%">
+          ${quote.event_number ? `<tr><td style="color:#888;font-size:13px;width:140px">Booking #:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold">${quote.event_number}</td></tr>` : ""}
           <tr><td style="color:#888;font-size:13px;width:140px">Date:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold">${quote.event_date_display || ""}</td></tr>
           <tr><td style="color:#888;font-size:13px;padding-top:6px">Center:</td><td style="color:#1a1a1a;font-size:14px;padding-top:6px">${quote.center_name}</td></tr>
           <tr><td style="color:#888;font-size:13px;padding-top:6px">Total:</td><td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding-top:6px">${dollars(quote.total_cents)}</td></tr>

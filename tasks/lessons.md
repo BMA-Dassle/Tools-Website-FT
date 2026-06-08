@@ -1,5 +1,158 @@
 # Lessons Learned
 
+## "Send Contract" is the only contract trigger — retired `group-quote-sync`'s auto-resign (2026-06-08)
+
+The 2026-06-07 emergency guard (below) only stopped *past* events. The same loop hit an *upcoming*
+event: **Emmanuel Lutheran Church** (HeadPinz Naples, event #1355, Jun 17 7 PM) — signed + deposit
+paid at 16:32, then blasted "Contract Updated" every 5 minutes from 16:40 onward. The planner sent
+nothing; the cron did.
+
+**Actual root cause of the non-convergence (it was NOT the product diff suspected on 06-07): a
+timezone round-trip on `event_date`.** BMI returns a tz-less ET string (`2026-06-17T19:00:00` = 7 PM
+ET). `syncQuote` wrote that bare string into the `timestamptz` column via `updates.event_date =
+bmiDate`. The Neon session `TimeZone` is **GMT**, so Postgres persisted it as `19:00Z` = **3 PM ET**.
+Next run, `normDate()` read the stored value back as 3 PM ET but normalized BMI's string as 7 PM ET →
+a permanent 4-hour mismatch. The write-back re-introduced the same error every run, so it could never
+converge. (The `event_date_display` column was computed correctly with a `-04:00` offset, masking the
+bad raw instant — display looked right while the stored instant drove the loop.)
+
+**Permanent fix — the gate.** Ripped ALL contract mutation out of `group-quote-sync`: no more
+change-detection, no `resign_required` flip, no `notifyContractUpdated`, no silent `event_date` /
+`line_items` rewrite. That cron now does ONLY: cancel+refund on BMI state −4, waiver reminders, and
+day-of order backfill. **Every contract send / resend / update / resign now flows exclusively through
+`group-quote-dispatch`, which fires only when the planner sets the BMI project to "Send Contract."**
+One gate, planner-controlled. (`isEventOver`, the product/customer/date diff, the AI name writeback,
+and the Hermes planner backfill all went with it — those updates happen on the next "Send Contract".)
+
+**Data remediation (quote 99):** restored `status=deposit_paid`, `contract_status=signed`, re-attached
+the signed PDF + `contract_signed_at` from `signed_pdf_history`, wiped the churn history, and set
+`event_date` to the correct ET instant (`2026-06-17T19:00:00-04:00` = `23:00Z`). `signature_data` /
+`document_seal` were nulled by the churn and unrecoverable, but the signed PDF + audit "signed" event
+remain. The contract page keys its re-sign prompt off `status === "resign_required"`, so a restored
+`deposit_paid` row renders the confirmed view — the guest is NOT asked to sign again.
+
+**Guardrails:**
+- **One customer-facing trigger per action.** A background poller and a planner-action handler must
+  not both be able to send/resign the same contract. If the planner's "Send Contract" is the intended
+  gate, the poller must never emit the same customer-facing effect — at most it does silent, internal
+  self-healing (cancel/refund, reminders, backfill).
+- **Never write a tz-less wall-clock string into a `timestamptz`.** The Neon session is GMT, so
+  `'2026-06-17T19:00:00'::timestamptz` stores 19:00**Z**, not 19:00 ET. Always attach the correct
+  ET offset (DST-aware) before persisting a BMI/Hermes date, or the raw instant drifts 4–5h even when
+  the display column looks fine. (Latent elsewhere — dispatch ingests dates that already carry tz, so
+  it stored correctly; sync's `project.date` did not.)
+- A "corrected value" write that doesn't round-trip equal on the next read is an infinite trigger.
+  Removing the *acting* is more robust than chasing convergence on a value you can't control.
+
+## `group-quote-sync` re-emailed "Contract Updated" every 5 min for a past, signed event (2026-06-07)
+
+Annalisa Birthday Party (HeadPinz Naples, Jun 6 4:15 PM) blasted the guest a "Contract Updated —
+please re-sign" email every 5 minutes — continuing well past midnight, after the event was already
+over. Three things compounded:
+
+1. **Past events stay in scope.** The sync query selects `event_date > NOW() - INTERVAL '7 days'`
+   AND status includes `resign_required` — so a finished event keeps getting picked up for a week.
+2. **A signed/paid event gets force-re-signed.** `isSigned = quote.status !== "contract_sent"` is
+   true for `deposit_paid`/`balance_charged`/`resign_required`. When any change is detected, the
+   cron archives the PDF, flips status → `resign_required`, and fires `notifyContractUpdated`.
+3. **The diff never converges.** The Hermes product comparison reported a "products changed" delta
+   on *every* run, so step 2 repeated indefinitely. (Suspect: stored `line_items` carry the
+   service-charge-corrected total while Hermes returns the raw amount, or a float `total` / ordering
+   mismatch — each run re-detects the same "change.")
+
+Result: an infinite re-sign/email loop at the `*/5` cron cadence, matching the inbox exactly.
+
+**Fix (emergency):** added an `isEventOver()` guard in `syncQuote` — once the event's start time has
+passed, return early (`skipped_past_event`) before any change detection, re-sign, or email. A
+finished event must NEVER be flipped to `resign_required` or re-emailed. Cancellation handling is
+left intact (it runs before the guard). Uses the live BMI `project.date` so a reschedule into the
+future resumes sync.
+
+**Guardrails:**
+- Any cron that emails/charges/re-signs a customer must gate on "is this event still in the future?"
+  A past-dated row is almost never a valid target for a customer-facing, pre-event action.
+- A change-detection loop that *acts* on every detected change MUST converge: after writing the
+  "corrected" value, the next read has to compare equal. If the source (Hermes) and the persisted
+  store can never match (because we mutate before persisting), you have an infinite trigger. Verify
+  convergence, not just "did it detect a change."
+- `status !== "contract_sent"` is a fragile proxy for "signed." `resign_required` is unsigned but
+  trips it — re-arming the very loop that set the status. Prefer an explicit signed marker
+  (`contract_signed_at`) when gating destructive/customer-facing transitions.
+- TODO follow-up: fix the non-converging product diff so an *upcoming* event can't loop the same way
+  before its date. The past-event guard only covers events that have already happened.
+
+## Two crons sharing one trigger raced — `dayof-close` stranded `dayof-pay` (2026-06-05)
+
+Quote #3286 (LSI Companies, $2,649.09) showed Deposit ✓ / Balance ✓ in admin but its Square
+day-of order sat OPEN, unpaid. Gift cards were fully funded and untouched. Root cause: a
+read-modify race between two crons that gate on the *identical* trigger
+`status = 'balance_charged' AND event_date <= NOW()`:
+
+- `group-dayof-pay` (`*/5`) applies the gift card to the day-of order, sets `dayof_paid_at`. Does
+  NOT change status.
+- `group-dayof-close` (`*/15`) flips status → `completed`, with NO check that the day-of order was
+  paid first.
+
+Both fire together at minute `:00` — the first tick where a just-arrived event qualifies. Close
+won the race (`updated_at` 16:00:37Z for a 16:00:00Z event), flipped status to `completed`, and
+from then on pay's `WHERE status = 'balance_charged'` never matched again. Tell-tale: BOTH
+`dayof_paid_at` AND `dayof_payment_error` were NULL — a real pay failure sets the error, so null/null
+means the row was never even selected. Blast radius was 3 events (#3286, #1354, #H2986), all OPEN in
+Square. Fix: gate close on `(square_dayof_order_id IS NULL OR dayof_paid_at IS NOT NULL)` to enforce
+pay-before-close.
+
+**Guardrails:**
+- Two crons gating on the same status is a latent race whenever one is a precondition of the other.
+  Don't just check they both *select* the right rows (the 2026-06-03 lesson) — check their *relative
+  ordering* when they fire in the same tick. The dependent cron (close) must gate on the producer's
+  completion marker (`dayof_paid_at`), not on the shared upstream status alone.
+- A transition cron that has nothing to do must STILL be ordered behind the work it depends on.
+  "Mark it done" must verify "is it actually done," never just "did the upstream status flip."
+- Diagnosing null/null vs null/error distinguishes "never attempted" from "attempted and failed" —
+  always pull both the success timestamp and the error column together.
+- Remediate stranded orders by replaying the producer's logic with ITS idempotency keys
+  (`gf-dayof-pay-{id}-{i}`), not by flipping status back upstream — flipping back re-arms the same
+  race against the still-deployed buggy cron.
+
+See also the 2026-06-03 lesson below — same pipeline, complementary failure mode (missed transition
+vs. raced transition).
+
+## Square ignores `base_price_money` on FIXED_PRICING catalog items — price overrides lost (2026-06-05)
+
+#3286's day-of Square order rang three "GF Race Blue Starter Fri-Sun" lines at **$26.99**
+instead of the quoted **$399.99** override, and dropped the $324.44 service-charge line —
+under-charging by **$1,464.53** (which sat unredeemed on the gift card). Root cause in
+`createDayofOrder` → `buildSquareLineItem`: it linked every PLU as `catalog_object_id` +
+`base_price_money`. **Square only honors `base_price_money` on a catalog-linked line item when
+the variation is VARIABLE_PRICING; for FIXED_PRICING it silently discards our price and charges
+the catalog price.** The race catalog item is FIXED_PRICING $26.99, so the $399.99 override
+vanished. Pizza/VIP "worked" only because their quote price equalled the catalog price.
+
+Cruel irony: the ad-hoc *fallback* (name + base_price_money, no catalog link) is the CORRECT
+path — Square always honors price on ad-hoc lines. Events whose PLUs failed the catalog attempt
+(#1354, #H2986) fell back to ad-hoc and priced perfectly; the "preferred" catalog path is the
+one that corrupts overrides. Whether an event is hit is luck-of-the-draw on PLU validity.
+
+Fix: `fetchCatalogPriceInfo` batch-retrieves pricing_type + price per PLU; `buildSquareLineItem`
+keeps the catalog link only when the price WILL be honored (VARIABLE_PRICING, or FIXED price ==
+quote price) and otherwise builds an ad-hoc line so the override sticks. Preserves catalog
+reporting for non-overridden items; guarantees correctness for overridden ones.
+
+**Guardrails:**
+- A `: string`-typed price field that "looks sent" can still be ignored by the upstream API.
+  When an external system has its own source of truth (catalog price), verify it actually USED
+  your value — diff the created resource against what you sent, don't assume the POST honored it.
+- The reliable mispricing detector is **order total vs. quote total**, not the code path. Sweep
+  all day-of orders (`order.total_money` vs `total_cents`) to find every drifted event; gap≈0
+  with catalog links just means no override existed, not that the path is safe.
+- Remediating a completed, mispriced Square order = refund the gift-card payment, rebuild the
+  order ad-hoc with override prices, then **multi-tender capture via PayOrder** (`POST
+  /orders/{id}/pay` with all `payment_ids`). `autocomplete:true` on a partial gift-card payment
+  fails "payment total does not match order total"; create each payment `autocomplete:false`
+  then PayOrder them together. A failed payment STILL burns its idempotency key.
+- Separate "never attempted" (null/null) from "attempted, ignored" (price present but order
+  shows catalog price) — they point at different bugs.
+
 ## Full-prepay group events never paid out day-of — two coupled bugs (2026-06-03)
 
 "Hayes Birthday Party" should have auto-paid on the event day, but `/api/cron/group-dayof-pay`

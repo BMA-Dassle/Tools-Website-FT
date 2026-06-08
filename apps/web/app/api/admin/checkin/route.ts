@@ -259,6 +259,38 @@ async function fetchNextRace(
   }
 }
 
+/**
+ * Resolve a racer's CURRENT active session from a stable participantId by
+ * scanning the currently-checking-in sessions (races-current). Returns the
+ * matched session id + the personId from that LIVE roster row, or null when
+ * the participant isn't on any active session.
+ *
+ * Only accepts a match whose personId is a non-empty digit string — skips the
+ * placeholder/blank-personId roster rows Pandora occasionally returns, so we
+ * never promote a garbage personId (which the headsock deduction keys on).
+ *
+ * This is what makes a participantId-carrying e-ticket QR move-resilient: the
+ * baked sessionId may be stale (racer moved heats), but the participantId
+ * still points at wherever the racer actually is right now. Reused by both the
+ * 4-part e-ticket QR move-correction and the bare paper-QR path.
+ */
+async function resolveActiveSessionByParticipant(
+  current: CurrentRaces,
+  participantId: string,
+): Promise<{ sessionId: string; personId: string } | null> {
+  for (const [, data] of Object.entries(current)) {
+    if (!data) continue;
+    const sid = data.sessionId == null ? "" : String(data.sessionId);
+    if (!sid) continue;
+    const match = await lookupByParticipantId(sid, participantId);
+    const pid = match?.personId == null ? "" : String(match.personId);
+    if (match && /^\d+$/.test(pid)) {
+      return { sessionId: sid, personId: pid };
+    }
+  }
+  return null;
+}
+
 // --------------- POST: Check in a guest ---------------
 
 export async function POST(req: NextRequest) {
@@ -275,6 +307,10 @@ export async function POST(req: NextRequest) {
 
   let personId = body.personId;
   let sessionId = body.sessionId;
+  // Stable participantId off a 4-part e-ticket QR (FT:pid:sid:participantId).
+  // Drives move-resilient live-session resolution below; null for 3-part QRs
+  // and bare paper QRs, which keep their existing behavior.
+  let qrParticipantId: string | null = null;
 
   if (body.raw) {
     const raw = body.raw.trim();
@@ -282,6 +318,7 @@ export async function POST(req: NextRequest) {
     if (parsed) {
       personId = parsed.personId;
       sessionId = parsed.sessionId;
+      qrParticipantId = parsed.participantId ?? null;
     } else if (/^\d+$/.test(raw)) {
       // Bare number — paper QR with just the participant ID.
       // Search active sessions to find which one they're on.
@@ -307,6 +344,19 @@ export async function POST(req: NextRequest) {
   // Get races-current first (needed for both e-ticket QR and paper QR paths)
   const current = await fetchCurrentRaces(req);
 
+  // Move-resilient e-ticket QR: a 4-part QR carries a stable participantId.
+  // The baked sessionId may be stale (racer moved heats), so resolve the
+  // racer's LIVE active session from participantId and override both ids. On
+  // no match we leave the baked values untouched → identical to legacy 3-part
+  // behavior (and the early-scan branch below handles a moved-early racer).
+  if (qrParticipantId && sessionId && personId) {
+    const live = await resolveActiveSessionByParticipant(current, qrParticipantId);
+    if (live) {
+      sessionId = live.sessionId;
+      personId = live.personId;
+    }
+  }
+
   // Paper QR path: bare participateId — search active sessions by participateId
   // (field added by Pandora; gracefully returns "not found" until it ships)
   let paperQrParticipantId: string | null = null;
@@ -314,20 +364,10 @@ export async function POST(req: NextRequest) {
     paperQrParticipantId = personId ?? "";
     personId = "";
 
-    const activeSessionIds: { sid: string }[] = [];
-    for (const [, data] of Object.entries(current)) {
-      if (!data) continue;
-      const d = data as { sessionId?: number | string };
-      if (!d.sessionId) continue;
-      activeSessionIds.push({ sid: String(d.sessionId) });
-    }
-    for (const active of activeSessionIds) {
-      const match = await lookupByParticipantId(active.sid, paperQrParticipantId);
-      if (match) {
-        sessionId = active.sid;
-        personId = String(match.personId);
-        break;
-      }
+    const live = await resolveActiveSessionByParticipant(current, paperQrParticipantId);
+    if (live) {
+      sessionId = live.sessionId;
+      personId = live.personId;
     }
   }
 
@@ -392,6 +432,31 @@ export async function POST(req: NextRequest) {
   let heatNumber = sessionMatch?.heatNumber ?? null;
   let scheduledStart = sessionMatch?.scheduledStart ?? null;
 
+  // Move-resilient early scan: a 4-part e-ticket QR whose racer is NOT on the
+  // baked session's roster means they were moved to a different heat. Their
+  // new heat isn't checking in yet (or we'd have corrected sessionId above), so
+  // show their CURRENT next race instead of the stale booked one. Non-moved
+  // racers (still on the baked roster) fall through to the booked-session
+  // display below, so their experience is unchanged.
+  if (!currentlyCheckingIn && qrParticipantId) {
+    const stillOnBaked = await lookupByParticipantId(sessionId, qrParticipantId);
+    if (!stillOnBaked) {
+      const next = await fetchNextRace("participant", qrParticipantId);
+      if (next.status === "found") {
+        return NextResponse.json({
+          success: false,
+          guest: null,
+          session: next.race,
+          currentlyCheckingIn: false,
+          headsock: { detected: false, deducted: false, balance: 0 },
+          nextRace: next.race,
+          nextRaceStatus: "found",
+        });
+      }
+      // none/unknown → fall through to the booked-session display below.
+    }
+  }
+
   // When session is NOT currently checking in, fetch session metadata
   // from Pandora so we can tell staff what session this guest is booked for
   if (!currentlyCheckingIn) {
@@ -417,7 +482,7 @@ export async function POST(req: NextRequest) {
 
   // Headsock + Pandora check-in only when session IS currently checking in.
   // Yellow "are you sure?" scans should not deduct headsock or call check-in.
-  let headsock: { detected: boolean; deducted: boolean; balance: number } = {
+  const headsock: { detected: boolean; deducted: boolean; balance: number } = {
     detected: false,
     deducted: false,
     balance: 0,
@@ -609,11 +674,14 @@ export async function GET(req: NextRequest) {
   {
     const start = Date.now();
     const cases = [
-      { input: "FT:12345:67890", expect: true },
-      { input: "FT:63000000000021716:99887766", expect: true },
+      { input: "FT:12345:67890", expect: true }, // legacy 3-part
+      { input: "FT:63000000000021716:99887766", expect: true }, // 17-digit personId
+      { input: "FT:12345:67890:49976218", expect: true }, // 4-part w/ participantId
       { input: "NOTFT:123:456", expect: false },
       { input: "FT:123", expect: false },
       { input: "FT:abc:456", expect: false },
+      { input: "FT:123:456:abc", expect: false }, // bad participantId
+      { input: "FT:1:2:3:4", expect: false }, // too many segments
       { input: "", expect: false },
       { input: "0123456789012", expect: false },
     ];
