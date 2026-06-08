@@ -10,10 +10,17 @@
  */
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
-import type { BookingSession, RaceItem, AttractionItem, SessionItem } from "../state/types";
+import type {
+  BookingSession,
+  RaceItem,
+  RaceHeatAssignment,
+  AttractionItem,
+  SessionItem,
+} from "../state/types";
 import type { ContactInfo } from "../types";
 import { getRaceProductById } from "./race-products";
-import { raceUsesZeroBmiModel } from "./race";
+import { raceUsesZeroBmiModel, cancelRaceOrder } from "./race";
+import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
 import { LICENSE_PRICE, calculateTax } from "./race-pricing";
 import { redemptionsFromSession } from "../data/race-credits";
 import { bmiAdapter } from "../data/bmi";
@@ -451,6 +458,45 @@ export async function releaseItemBmiLines(
   // Bowling/KBF are QAMF-vendored (not on the BMI bill) — nothing to release here.
 }
 
+// ── Abandon: release the whole in-progress booking ───────────────────────
+
+/**
+ * Tear down an entire in-progress, UNCONFIRMED booking when the guest chooses to
+ * start a new one. Contact-first creates the BMI bill (with the customer attached)
+ * the moment the first heat/slot books, so without this an abandoned session
+ * leaves a live reservation holding capacity in BMI. Releases every early-created
+ * vendor hold so nothing orphans:
+ *   - the shared BMI bill — cancels race heats + attraction slots + the attached
+ *     contact in one call (whole-bill cancel, not per-line), and
+ *   - any QAMF bowling/KBF temporary hold (a separate vendor, not on the BMI bill).
+ *
+ * Best-effort + non-fatal per vendor: a failed release will TTL out server-side,
+ * and the caller still clears the local session. Pair with `clearBookingSession()`
+ * on the client. Do NOT call this on a CONFIRMED booking — it cancels the bill.
+ */
+export async function abandonBooking(session: BookingSession): Promise<void> {
+  if (session.bmiBillId) {
+    await cancelRaceOrder(session.bmiBillId);
+  }
+  for (const item of session.items) {
+    if (
+      (item.kind === "bowling" || item.kind === "kbf") &&
+      item.qamfReservationId &&
+      item.qamfCenterId
+    ) {
+      try {
+        await fetch(`/api/bowling/v2/reserve/hold/${item.qamfReservationId}`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ centerId: item.qamfCenterId }),
+        });
+      } catch {
+        /* QAMF hold TTLs out on its own — non-fatal */
+      }
+    }
+  }
+}
+
 // ── Square customer lookup ──────────────────────────────────────────────
 
 export async function resolveSquareCustomer(contact: Partial<ContactInfo>): Promise<{
@@ -598,42 +644,133 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
  *  SQ.LICENSE via NAME_CATALOG_MAP in the reserve route, so the unmapped id here
  *  is fine — it's just carried for traceability. */
 const LICENSE_PRODUCT_ID = "43473520";
+/** $5 POV camera SKU — carried for traceability on the standalone POV Square
+ *  line. The $0 BMI booking uses product 50361293 (race.ts), so the money lives
+ *  only on Square; the name resolves to an ad-hoc line (no POV catalog object). */
+const POV_PRODUCT_ID = "43746981";
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Distinct racers (by assignedTo) across a set of heats — the "pack count" for
+ *  combos (each racer = one pack of raceCount heats) and the racer count for
+ *  package bundle pricing. Never below 1. */
+function distinctRacerCount(heats: RaceHeatAssignment[]): number {
+  return new Set(heats.map((h) => h.assignedTo).filter(Boolean)).size || 1;
+}
 
 /**
- * Charge lines for the v2 $0 model from the hardcoded registry: one line per race
- * product (priced from `RaceProduct.price`, grouped across all race items) plus a
- * `FastTrax License` line ($4.99 × new racers). BMI holds the heats + bundled
- * license at $0; these lines are what Square actually charges. `bmiProductId`
- * lets the reserve route resolve each to its Square catalog object.
+ * Canonical Square charge lines for ONE race item under the $0 model — the
+ * SINGLE source the credit reserve path, the cash reserve path, AND the cart
+ * estimate all consume, so displayed == charged by construction:
+ *   - PACKAGE → one bundle line at `packagePerRacerPrice × racers` (already
+ *     includes the $4.99 license + $5 POV per racer).
+ *   - COMBO   → one line per pack at the pack TOTAL (`product.price × packs`,
+ *     packs = distinct racers), NOT price × heats.
+ *   - SINGLE  → one line per category product at the per-heat price × heats.
+ * Session-level lines (non-package license, standalone POV) are added by
+ * `buildRaceChargeLines`, not here.
  */
-function buildRaceChargeLines(session: BookingSession): BillLine[] {
-  const grouped = new Map<string, { name: string; unit: number; qty: number }>();
-  for (const item of session.items) {
-    if (item.kind !== "race") continue;
-    for (const heat of item.heats) {
-      if (!heat.productId) continue;
-      const product = getRaceProductById(heat.productId);
-      if (!product) continue;
-      const existing = grouped.get(heat.productId);
-      if (existing) existing.qty += 1;
-      else grouped.set(heat.productId, { name: product.name, unit: product.price, qty: 1 });
+export function raceItemChargeLines(item: RaceItem, excludeRacerIds?: Set<string>): BillLine[] {
+  // Credit-redeemed racers are charged $0 (a credit is deducted instead). The
+  // cash path passes their ids here so their heats drop from the Square charge;
+  // the credit path passes nothing and splits via applyCreditRedemptionsToOverview.
+  const keep = (h: RaceHeatAssignment): boolean =>
+    !!h.heatId && !(h.assignedTo != null && excludeRacerIds?.has(h.assignedTo));
+  if (item.packageId) {
+    const pkg = getPackage(item.packageId);
+    if (!pkg) return [];
+    const kept = item.heats.filter(keep);
+    if (kept.length === 0) return [];
+    const racers = distinctRacerCount(kept);
+    return [
+      {
+        name: pkg.name,
+        quantity: racers,
+        amount: round2(packagePerRacerPrice(pkg) * racers),
+        bmiProductId: pkg.cartLineKey,
+      },
+    ];
+  }
+  const lines: BillLine[] = [];
+  for (const category of ["adult", "junior"] as const) {
+    const pid = category === "adult" ? item.productIdAdult : item.productIdJunior;
+    if (!pid) continue;
+    const product = getRaceProductById(pid);
+    if (!product) continue;
+    const catHeats = item.heats.filter((h) => (h.category ?? "adult") === category && keep(h));
+    if (catHeats.length === 0) continue;
+    if (product.packType === "combo") {
+      // One pack per racer at the pack TOTAL — never product.price × heatCount.
+      const packs = distinctRacerCount(catHeats);
+      lines.push({
+        name: product.name,
+        quantity: packs,
+        amount: round2(product.price * packs),
+        bmiProductId: product.productId,
+      });
+    } else {
+      lines.push({
+        name: product.name,
+        quantity: catHeats.length,
+        amount: round2(product.price * catHeats.length),
+        bmiProductId: product.productId,
+      });
     }
   }
-  const lines: BillLine[] = [...grouped.entries()].map(([productId, l]) => ({
-    name: l.name,
-    quantity: l.qty,
-    amount: Math.round(l.unit * l.qty * 100) / 100,
-    bmiProductId: productId,
-  }));
-  const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
+  return lines;
+}
+
+/**
+ * Charge lines for the v2 $0 model: per-item race lines (package bundle / combo
+ * pack / single) from `raceItemChargeLines`, plus session-level `FastTrax
+ * License` ($4.99 × NON-package new racers — package license rides the bundle)
+ * and standalone `POV Race Video` ($5 × non-package POV cameras). BMI holds the
+ * heats + bundled license + POV at $0; these lines are what Square charges.
+ *
+ * Exported + `excludeRacerIds`-parameterized so BOTH reserve paths build the
+ * SAME race lines (the cash path passes credit-redeemed racers to drop their
+ * $0 heats; the credit path passes nothing and splits via
+ * applyCreditRedemptionsToOverview) — displayed == charged by construction.
+ */
+export function buildRaceChargeLines(
+  session: BookingSession,
+  excludeRacerIds?: Set<string>,
+): BillLine[] {
+  const lines: BillLine[] = [];
+  const packageRacerIds = new Set<string>();
+  let standalonePovQty = 0;
+
+  for (const item of session.items) {
+    if (item.kind !== "race") continue;
+    lines.push(...raceItemChargeLines(item, excludeRacerIds));
+    if (item.packageId) {
+      for (const h of item.heats) if (h.assignedTo) packageRacerIds.add(h.assignedTo);
+    } else if (item.povQuantity > 0) {
+      standalonePovQty += item.povQuantity;
+    }
+  }
+
+  const newRacerCount = session.party.filter(
+    (m) => m.isNewRacer && !packageRacerIds.has(m.id),
+  ).length;
   if (newRacerCount > 0) {
     lines.push({
       name: "FastTrax License",
       quantity: newRacerCount,
-      amount: Math.round(LICENSE_PRICE * newRacerCount * 100) / 100,
+      amount: round2(LICENSE_PRICE * newRacerCount),
       bmiProductId: LICENSE_PRODUCT_ID,
     });
   }
+
+  if (standalonePovQty > 0) {
+    lines.push({
+      name: "POV Race Video",
+      quantity: standalonePovQty,
+      amount: round2(POV_PRICE * standalonePovQty),
+      bmiProductId: POV_PRODUCT_ID,
+    });
+  }
+
   return lines;
 }
 

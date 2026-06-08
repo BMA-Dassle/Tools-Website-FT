@@ -17,9 +17,13 @@ import type { AppliedPromo } from "~/features/discount-codes";
 import { CartView, LeaveConfirmModal } from "./CartView";
 import { CheckoutStep } from "./steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "./steps/race/HeightAgeConfirmModal";
-import { bookHeatsOnAdvance, cancelRaceOrder } from "~/features/booking/service/race";
+import { bookHeatsOnAdvance } from "~/features/booking/service/race";
 import { bookAttractionOnAdvance } from "~/features/booking/service/attractions";
-import { releaseItemBmiLines, releaseHeatBmiLines } from "~/features/booking/service/checkout";
+import {
+  releaseItemBmiLines,
+  releaseHeatBmiLines,
+  abandonBooking,
+} from "~/features/booking/service/checkout";
 import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTimer";
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
 
@@ -97,11 +101,15 @@ export function BookingFlow({
     return !!ok;
   }, []);
 
-  const handleStartOver = useCallback(() => {
-    if (session.bmiBillId) cancelRaceOrder(session.bmiBillId);
+  // Abandon the in-progress booking and start fresh: release every early-created
+  // vendor hold (BMI reservation + any QAMF bowling/KBF hold) so nothing orphans,
+  // clear the local session, then return to the landing. Shared by the
+  // reservation-expiry modal and the leave modal's "Start new booking" action.
+  const handleStartOver = useCallback(async () => {
+    await abandonBooking(session);
     clearBookingSession();
     window.location.href = backToLandingHref;
-  }, [session.bmiBillId, backToLandingHref]);
+  }, [session, backToLandingHref]);
 
   // Auto-scroll to top on step change (v1 parity: page.tsx:263).
   const currentCursor = activeItem ? (session.cursors[activeItem.id] ?? 0) : null;
@@ -168,6 +176,7 @@ export function BookingFlow({
           onRemoveItem={handleRemoveItem}
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => setCheckoutActive(true)}
+          onNewBooking={handleStartOver}
         />
       </div>
     );
@@ -190,6 +199,7 @@ export function BookingFlow({
           onRemoveItem={handleRemoveItem}
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => setCheckoutActive(true)}
+          onNewBooking={handleStartOver}
         />
       </div>
     );
@@ -397,7 +407,11 @@ export function BookingFlow({
       </div>
 
       {leaveConfirm && (
-        <LeaveConfirmModal backHref={backToLandingHref} onCancel={() => setLeaveConfirm(false)} />
+        <LeaveConfirmModal
+          backHref={backToLandingHref}
+          onCancel={() => setLeaveConfirm(false)}
+          onNewBooking={handleStartOver}
+        />
       )}
 
       {showHeightConfirm && (

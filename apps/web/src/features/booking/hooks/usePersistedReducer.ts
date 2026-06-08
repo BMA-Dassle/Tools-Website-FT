@@ -56,6 +56,21 @@ export function clearBookingSession(): void {
   }
 }
 
+/**
+ * Peek at the persisted session WITHOUT the reducer — for components that only
+ * read the cart (the landing's checkout bar, the floating MiniCart). Unwraps the
+ * versioned envelope and drops older-schema sessions exactly like in-flow
+ * hydration, so peek consumers never re-implement the storage shape. That
+ * duplication is precisely what hid the checkout bar when the envelope landed:
+ * callers read `parsed.items` off the new `{ v, session }` envelope, always got
+ * `undefined`, and reported 0 items. Returns null when there's no current-schema
+ * session (or on the server, where sessionStorage is absent).
+ */
+export function peekBookingSession(): BookingSession | null {
+  if (typeof window === "undefined") return null;
+  return readSession();
+}
+
 export function usePersistedReducer(
   fallbackInitial: BookingSession,
 ): [BookingSession, React.Dispatch<Action>, boolean] {

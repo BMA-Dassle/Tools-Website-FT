@@ -14,7 +14,8 @@ import { findOffering } from "~/features/booking";
 import { ATTRACTIONS } from "~/features/booking/service/attractions";
 import { getRaceProductById, type RaceProduct } from "~/features/booking/service/race-products";
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
-import { getPackage, packageBundleTotal } from "~/features/booking/service/packages";
+import { getPackage } from "~/features/booking/service/packages";
+import { raceItemChargeLines } from "~/features/booking/service/checkout";
 import { modalBackdropProps } from "@/lib/a11y";
 import { AdditionalActivities } from "./AdditionalActivities";
 
@@ -40,6 +41,9 @@ export interface CartViewProps {
    *  race item. Optional — only single races expose per-heat removal. */
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
   onCheckout: () => void;
+  /** Abandon the whole in-progress booking (release vendor holds + clear cart)
+   *  and start fresh — wired to the leave modal's "Start new booking" action. */
+  onNewBooking: () => Promise<void> | void;
 }
 
 export function CartView({
@@ -49,6 +53,7 @@ export function CartView({
   onRemoveItem,
   onRemoveHeat,
   onCheckout,
+  onNewBooking,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -117,28 +122,54 @@ export function CartView({
       )}
 
       {leaveConfirm && (
-        <LeaveConfirmModal backHref={backToLandingHref} onCancel={() => setLeaveConfirm(false)} />
+        <LeaveConfirmModal
+          backHref={backToLandingHref}
+          onCancel={() => setLeaveConfirm(false)}
+          onNewBooking={onNewBooking}
+        />
       )}
     </section>
   );
 }
 
 /**
- * Leave-confirmation modal — shown before navigating to the landing page
- * when the cart has items. Without this, customers who click "All activities"
- * lose their in-progress booking because session state is in-memory React.
+ * Leave-confirmation modal — shown before navigating away from an in-progress
+ * booking. Offers three intents:
+ *   - Keep editing  → dismiss, stay on the current step (default; guards against
+ *     an accidental "All activities" click losing the cart).
+ *   - Save for later → go to the landing keeping the session; the customer
+ *     resumes via the "Add to your visit" bar (session lives in sessionStorage).
+ *   - New booking   → abandon this one: `onNewBooking` releases the early-created
+ *     vendor holds (BMI reservation + any QAMF hold) and clears the cart, so a
+ *     contact-first booking never orphans a live reservation. Framed as starting
+ *     fresh rather than "cancel" per product direction.
  */
 export function LeaveConfirmModal({
   backHref,
   onCancel,
+  onNewBooking,
 }: {
   backHref: string;
   onCancel: () => void;
+  onNewBooking: () => Promise<void> | void;
 }) {
+  const [busy, setBusy] = useState(false);
+
+  // onNewBooking navigates away on success; if it returns without navigating
+  // (e.g. a release error), clear busy so the customer isn't stuck on a spinner.
+  const handleNewBooking = async () => {
+    setBusy(true);
+    try {
+      await onNewBooking();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      {...modalBackdropProps(onCancel)}
+      {...modalBackdropProps(busy ? () => {} : onCancel)}
       role="dialog"
       aria-modal="true"
     >
@@ -150,22 +181,38 @@ export function LeaveConfirmModal({
           Leave your booking?
         </h3>
         <p className="mt-2 text-sm text-white/60">
-          Your progress is saved. You can come back to finish your booking.
+          Save it and pick up where you left off, or start a new booking — which releases the spots
+          you&apos;re currently holding.
         </p>
-        <div className="mt-5 flex gap-3">
+        <div className="mt-5 space-y-3">
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/40 hover:text-white"
+            disabled={busy}
+            className="w-full rounded-xl bg-[#00E2E5] px-4 py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Stay
+            Keep editing
           </button>
-          <Link
-            href={backHref}
-            className="flex-1 rounded-xl bg-amber-400/90 px-4 py-2.5 text-center text-sm font-bold text-[#010A20] transition-colors hover:bg-amber-300"
-          >
-            Leave anyway
-          </Link>
+          <div className="flex gap-3">
+            <Link
+              href={backHref}
+              aria-disabled={busy}
+              tabIndex={busy ? -1 : undefined}
+              className={`flex-1 rounded-xl border border-white/20 px-4 py-2.5 text-center text-sm font-semibold text-white/70 transition-colors hover:border-white/40 hover:text-white ${
+                busy ? "pointer-events-none opacity-40" : ""
+              }`}
+            >
+              Save for later
+            </Link>
+            <button
+              type="button"
+              onClick={handleNewBooking}
+              disabled={busy}
+              className="flex-1 rounded-xl border border-amber-400/40 px-4 py-2.5 text-sm font-semibold text-amber-300 transition-colors hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? "Starting…" : "New booking"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -287,42 +334,20 @@ function RaceCartCard({
       })
     : null;
 
-  // Estimate. Packages bundle their own pricing; everything else adds
-  // license/pov/addons on top of the race total.
+  // Estimate — use the SAME per-item charge builder the checkout uses
+  // (raceItemChargeLines: package bundle / combo pack / single), so the cart
+  // total can NEVER drift from what Square charges. The package bundle line
+  // already includes license + POV; single/combo add session license (new
+  // racers) + standalone POV + add-ons on top.
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
-  const racerCount = session.party.length;
   const licenseTotal = LICENSE_PRICE * newRacerCount;
   const povTotal = POV_PRICE * item.povQuantity;
   const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
 
-  let estimated: number;
-  if (pkg) {
-    estimated = packageBundleTotal(pkg, racerCount) + addonsTotal;
-  } else if (adultProduct?.raceCount || juniorProduct?.raceCount) {
-    // Combo packs: a fixed raceCount of heats per racer at one bundle price.
-    // Their heats carry per-track product ids that aren't in the priced
-    // registry, so price by racer × raceCount rather than per heat.
-    const racesTotal =
-      (adultProduct?.price ?? 0) *
-        Math.max(1, adultProduct?.raceCount ?? 1) *
-        Math.max(1, adultRacerIds.size) +
-      (juniorProduct?.price ?? 0) *
-        Math.max(1, juniorProduct?.raceCount ?? 1) *
-        Math.max(1, juniorRacerIds.size);
-    estimated = racesTotal + licenseTotal + povTotal + addonsTotal;
-  } else {
-    // Single races: a racer may book multiple heats (and across products/
-    // tracks), so price each PICKED heat by its own product — this mirrors
-    // buildRaceChargeLines (the checkout charge) so the cart estimate can't
-    // drift from what's charged. Before any heat is picked, fall back to one
-    // race per racer as a baseline.
-    const racesTotal =
-      item.heats.length > 0
-        ? item.heats.reduce((s, h) => s + (getRaceProductById(h.productId)?.price ?? 0), 0)
-        : (adultProduct?.price ?? 0) * adultRacerIds.size +
-          (juniorProduct?.price ?? 0) * juniorRacerIds.size;
-    estimated = racesTotal + licenseTotal + povTotal + addonsTotal;
-  }
+  const raceLinesTotal = raceItemChargeLines(item).reduce((s, l) => s + l.amount, 0);
+  const estimated = pkg
+    ? raceLinesTotal + addonsTotal
+    : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
 
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">

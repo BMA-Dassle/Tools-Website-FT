@@ -27,7 +27,8 @@ import {
   SQUARE_LOCATIONS,
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
-import { LICENSE_PRICE } from "./race-pricing";
+import { raceUsesZeroBmiModel } from "./race";
+import { buildRaceChargeLines } from "./checkout";
 import { redemptionsFromSession } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
 import {
@@ -177,71 +178,28 @@ function buildCombinedLineItems(session: BookingSession): {
     }
   }
 
-  // Race items
-  for (const item of session.items) {
-    if (item.kind !== "race") continue;
-    const raceItem = item as RaceItem;
+  // Race items — $0 model. Build the SAME charge lines the credit path uses
+  // (buildRaceChargeLines: package bundle / combo pack / single + license + POV),
+  // so displayed == charged, then map each to a Square line. Credit-redeemed
+  // racers are excluded (charged $0; one credit is deducted instead).
+  const redeemedRacerIds = new Set(
+    session.party.filter((m) => m.redeemCreditKindId).map((m) => m.id),
+  );
+  for (const bl of buildRaceChargeLines(session, redeemedRacerIds)) {
+    const totalCents = Math.round(bl.amount * 100);
+    const unitCents = bl.quantity > 0 ? Math.round(totalCents / bl.quantity) : totalCents;
+    const catalogId =
+      (bl.bmiProductId ? lookupCatalogId(bl.bmiProductId) : null) ?? lookupCatalogIdByName(bl.name);
+    totalPriceCents += totalCents;
+    totalDepositCents += totalCents; // 100% deposit for race
 
-    const grouped = new Map<
-      string,
-      { name: string; unit: number; qty: number; productId: string }
-    >();
-    for (const heat of raceItem.heats) {
-      if (!heat.productId) continue;
-      // Credit-redeemed heats are charged $0 by Square (one credit is deducted
-      // instead), so drop them from the day-of charge. Rule mirrors
-      // applyCreditRedemptionsToOverview / redemptionsFromSession.
-      const assigned = heat.assignedTo
-        ? session.party.find((m) => m.id === heat.assignedTo)
-        : undefined;
-      if (assigned?.redeemCreditKindId) continue;
-      const product = getRaceProductById(heat.productId);
-      if (!product) continue;
-      const existing = grouped.get(heat.productId);
-      if (existing) existing.qty += 1;
-      else
-        grouped.set(heat.productId, {
-          name: product.name,
-          unit: product.price,
-          qty: 1,
-          productId: heat.productId,
-        });
-    }
-
-    for (const [, line] of grouped) {
-      const catalogId = lookupCatalogId(line.productId) ?? lookupCatalogIdByName(line.name);
-      const unitCents = Math.round(line.unit * 100);
-      totalPriceCents += unitCents * line.qty;
-      totalDepositCents += unitCents * line.qty; // 100% deposit for racing
-
-      sqLineItems.push({
-        name: line.name,
-        quantity: String(line.qty),
-        ...(catalogId
-          ? { catalogObjectId: catalogId, basePriceMoney: { amount: unitCents, currency: "USD" } }
-          : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
-      });
-    }
-
-    // License fee for new racers
-    const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
-    if (newRacerCount > 0) {
-      const licenseCents = Math.round(LICENSE_PRICE * 100);
-      const licenseCatalog = lookupCatalogIdByName("FastTrax License");
-      totalPriceCents += licenseCents * newRacerCount;
-      totalDepositCents += licenseCents * newRacerCount;
-
-      sqLineItems.push({
-        name: "FastTrax License",
-        quantity: String(newRacerCount),
-        ...(licenseCatalog
-          ? {
-              catalogObjectId: licenseCatalog,
-              basePriceMoney: { amount: licenseCents, currency: "USD" },
-            }
-          : { basePriceMoney: { amount: licenseCents, currency: "USD" } }),
-      });
-    }
+    sqLineItems.push({
+      name: bl.name,
+      quantity: String(bl.quantity),
+      ...(catalogId
+        ? { catalogObjectId: catalogId, basePriceMoney: { amount: unitCents, currency: "USD" } }
+        : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
+    });
   }
 
   // Attraction items
@@ -853,7 +811,11 @@ async function unifiedReserveInner(
   if (hasBmi && session.bmiBillId) {
     const clientKey = resolveBmiClientKey(session);
     const bmiBillId = session.bmiBillId;
-    const useZeroModel = raceItems.length > 0;
+    // STRICT $0 gate (matches checkout.ts): EVERY race item must legitimately use
+    // the $0 model before we confirm the BMI bill as a $0 credit. A real-priced
+    // item confirmed at $0 = money leak. Packages/combos now pass this (their
+    // heats resolve $0 build pairs); a legacy/add-on item correctly fails it.
+    const useZeroModel = raceItems.length > 0 && raceItems.every(raceUsesZeroBmiModel);
     const centerCode = session.center ?? "fort-myers";
     const bookingKind: ReservationProductKind = raceItems.length > 0 ? "race" : "attraction";
 

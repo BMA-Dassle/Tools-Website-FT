@@ -431,6 +431,30 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://headpinz.com${cleanPath}`, 301);
   }
 
+  // ── Booking V1 → V2 cutover ────────────────────────────────────────────
+  // v2 is the booking system: redirect every legacy booking entry into its v2
+  // flow. ONE redirect here replaces editing ~90 scattered links — it also
+  // catches email/QR/bookmark URLs and keeps working after v1 pages are deleted.
+  // Runs before the /hp rewrite so it applies on BOTH brand domains (the
+  // HeadPinz /hp/book/* direct links are folded in via the /hp-strip in
+  // bookingV2Target). Already-v2 paths, /book/confirmation + /book/race-packs/
+  // confirmation (shared/reused post-payment), and /book/checkout are NOT
+  // redirected (see bookingV2Target). Query params (?code, ?location) survive
+  // via clone(). 307 (temporary) keeps it trivially reversible during cutover —
+  // flip to 308 once the v1 booking routes are deleted.
+  if (
+    pathname === "/book" ||
+    pathname.startsWith("/book/") ||
+    (isHeadPinz && (pathname === "/hp/book" || pathname.startsWith("/hp/book/")))
+  ) {
+    const v2Target = bookingV2Target(pathname);
+    if (v2Target) {
+      const url = request.nextUrl.clone();
+      url.pathname = v2Target;
+      return NextResponse.redirect(url, 307);
+    }
+  }
+
   // Root-level metadata / static paths that must bypass the /hp rewrite.
   // Without this, Next.js serves /hp/robots.txt → 404 for crawlers hitting
   // headpinz.com/robots.txt. Same story for sitemap, favicon, manifest,
@@ -529,9 +553,15 @@ export async function middleware(request: NextRequest) {
     requestHeaders.set("x-brand", "headpinz");
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
+  // NOTE: the V1→V2 cutover above already redirects /book/bowling and
+  // /book/kids-bowl-free to their v2 routes, so this v1 rewrite is now a
+  // fallback. The `/v2` exclusion is REQUIRED: without it `/book/bowling/v2`
+  // (the cutover's own destination) would be rewritten to `/hp/book/bowling/v2`
+  // and 404 — the latent bug that hid v2 bowling/KBF on the headpinz.com domain.
   if (
     isHeadPinz &&
-    (pathname.startsWith("/book/bowling") || pathname.startsWith("/book/kids-bowl-free"))
+    (pathname.startsWith("/book/bowling") || pathname.startsWith("/book/kids-bowl-free")) &&
+    !/\/v2(?:\/|$)/.test(pathname)
   ) {
     const url = request.nextUrl.clone();
     url.pathname = `/hp${pathname}`;
@@ -576,6 +606,30 @@ export async function middleware(request: NextRequest) {
   }
 
   return NextResponse.next();
+}
+
+/**
+ * Map a v1 booking path to its v2 equivalent for the V1→V2 cutover, or null when
+ * it should NOT be redirected. Strips an optional `/hp` prefix so HeadPinz direct
+ * links (e.g. /hp/book/bowling) map too. Returns null for:
+ *   - already-v2 paths (any `/v2` segment) — prevents redirect loops
+ *   - /book/race-packs/confirmation — reused by the v2 race-pack flow for its success screen
+ *   - /book/confirmation* — shared by v1 AND v2 (post-payment landing)
+ *   - /book/race/confirmation, /book/checkout* — v1 surfaces with no 1:1 v2 route
+ *   - anything unrecognized
+ */
+function bookingV2Target(pathname: string): string | null {
+  if (/\/v2(?:\/|$)/.test(pathname)) return null;
+  const p = (pathname.replace(/^\/hp/, "").replace(/\/+$/, "") || "/").toLowerCase();
+  if (p === "/book") return "/book/v2";
+  if (p === "/book/race") return "/book/race/v2"; // exact — NOT /book/race-packs or /book/race/confirmation
+  if (p === "/book/race-packs") return "/book/race-pack/v2"; // exact — NOT /book/race-packs/confirmation
+  if (p === "/book/bowling" || p.startsWith("/book/bowling/")) return "/book/bowling/v2";
+  if (p === "/book/kids-bowl-free" || p.startsWith("/book/kids-bowl-free/")) return "/book/kbf/v2";
+  for (const slug of ["gel-blaster", "laser-tag", "duck-pin", "shuffly"]) {
+    if (p === `/book/${slug}` || p.startsWith(`/book/${slug}/`)) return `/book/${slug}/v2`;
+  }
+  return null;
 }
 
 export const config = {

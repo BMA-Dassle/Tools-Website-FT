@@ -4,6 +4,17 @@ Source:  workflow (34 agents). Every blocker/high below was independently verifi
 
 ## Resolution log
 
+### 2026-06-07 — Theme #1 (packages + combos) — IMPLEMENTED (review + live test pending)
+
+Packages (Rookie Pack / Ultimate Qualifier) and combos (3-Packs) now ride the **same $0 build-product rail as single races** — the user's "0 keys" call. Verified: `tsc` clean, 388 unit tests pass (incl. new `packages-zero-model.test.ts`), my changed files lint-clean. Live dev test is the operator's.
+
+- **Resolve $0 pair by `(category:tier:track)`** (`resolveBuildPair`/`bmiBookingTarget`, race-products.ts) — combo Blue-twins + package-only Intermediate SKUs (not in `RACE_PRODUCTS`) now resolve the existing 14 build keys; no new BMI products. Heats carry `tier`/`category` (written at pick time). Fixes the `pageId===productId` throw.
+- **`raceUsesZeroBmiModel`** now passes combos + packages (dropped the `packType==='combo'` and `povQuantity>0` exclusions). **unified-reserve gate** → `raceItems.every(raceUsesZeroBmiModel)` — closes the "$0-confirm a real-priced bill" money leak.
+- **Charge** via one shared `raceItemChargeLines` (checkout.ts) used by the credit path, the cash path (`buildCombinedLineItems`), AND the cart (`CartView`) → displayed==charged. Package = bundle total; combo = pack total × packs (fixes ~3× overcharge); single = per-heat. License de-duped (package bundle includes it).
+- **POV** books the new $0 product `50361293` (sellPov, guarded once by `item.povSold`); $5/racer charged on Square (in the bundle or a standalone line). Package disclaimer memo written via `booking/memo` (raw-id safe).
+- → closes "Mixed-track 3-Pack books wrong pageId", "Packages book wrong/unverified pageId", "Package Intermediate not charged", "unifiedReserve assumes $0 for all race carts", "Combo overcharged ×raceCount" (cart + charge), "Blue-track combo $0-dropped", "Package POV not charged".
+- **Not deleted** (revised from plan): the package-only Intermediate SKUs + their pageIds — still used by `PackageHeatPicker` to fetch availability (booking is decoupled, availability isn't). Launch checklist: confirm page 49504534 dayplanner covers Intermediate/Pro tiers (single Int/Pro races already rely on it).
+
 ### 2026-06-07 — Theme #2 (payment failure-safety) + #3 (idempotency) — DONE
 
 Both reserve paths are now **safe to retry** (no double charge) and **always leave a durable, recoverable record**. Verified: `tsc --noEmit` clean, 370 unit tests pass (incl. new `reserve-idempotency.test.ts`), eslint clean. Live dev smoke (double-submit, BMI-confirm-fail, Neon-fail, gc-activate-fail, crash-replay, reconcile, race-dayof-pay integration, happy-path regression) is the operator's to run against prod Square/BMI.

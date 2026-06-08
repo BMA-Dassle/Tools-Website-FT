@@ -191,7 +191,25 @@
       "PowerShell($pkg = Get-Content apps/web/package.json -Raw | ConvertFrom-Json; $pkg.scripts.PSObject.Properties | Where-Object { $_.Name -match 'test|vitest|jest' } | Select-Object Name, Value)",
       "PowerShell(npx eslint apps/web/app/api/booking/v2/reserve/route.ts apps/web/app/api/booking/v2/reserve-all/route.ts apps/web/src/features/booking/service/unified-reserve.ts apps/web/src/features/booking/service/deposit.ts apps/web/src/features/booking/service/reserve-idempotency.ts apps/web/app/api/cron/race-confirm-reconcile/route.ts apps/web/lib/bowling-db.ts apps/web/lib/square-gift-card.ts 2>&1)",
       "PowerShell($pkg = Get-Content apps/web/package.json -Raw | ConvertFrom-Json; $pkg.scripts.PSObject.Properties | Where-Object { $_.Name -match 'lint' } | Select-Object Name, Value; \"--- lint-staged config ---\"; $pkg.'lint-staged' | ConvertTo-Json -Depth 4)",
-      "PowerShell(npm run lint -w fasttrax-web -- app/api/booking/v2/reserve/route.ts app/api/booking/v2/reserve-all/route.ts src/features/booking/service/unified-reserve.ts src/features/booking/service/deposit.ts src/features/booking/service/reserve-idempotency.ts app/api/cron/race-confirm-reconcile/route.ts lib/bowling-db.ts lib/square-gift-card.ts 2>&1)"
+      "PowerShell(npm run lint -w fasttrax-web -- app/api/booking/v2/reserve/route.ts app/api/booking/v2/reserve-all/route.ts src/features/booking/service/unified-reserve.ts src/features/booking/service/deposit.ts src/features/booking/service/reserve-idempotency.ts app/api/cron/race-confirm-reconcile/route.ts lib/bowling-db.ts lib/square-gift-card.ts 2>&1)",
+      "Bash(git log *)",
+      "Bash(tee /tmp/tc.log)",
+      "Bash(tee /tmp/tc2.log)",
+      "Bash(echo \"---ESLINT EXIT: $?---\")",
+      "Bash(echo \"exit=$?\")",
+      "PowerShell(npm run lint -w fasttrax-web -- src/features/booking/state/types.ts src/features/booking/service/race-products.ts src/features/booking/service/race.ts src/features/booking/service/checkout.ts src/features/booking/service/unified-reserve.ts src/components/features/booking/CartView.tsx src/components/features/booking/steps/race/RaceHeatPickerStep.tsx src/features/booking/service/packages-zero-model.test.ts 2>&1)",
+      "Bash(git --no-pager diff --stat HEAD -- apps/web/src apps/web/lib)",
+      "Bash(git --no-pager diff HEAD -- apps/web/src apps/web/lib)",
+      "Bash(git -C /c/git/Tools-Website-FT diff HEAD -- apps/web/src/features/booking/service/race.ts)",
+      "Bash(git -C /c/git/Tools-Website-FT diff HEAD --stat -- apps/web/src/features/booking/service/checkout.ts apps/web/src/features/booking/service/race-products.ts apps/web/src/features/booking/service/unified-reserve.ts apps/web/src/features/booking/state/types.ts)",
+      "Bash(node -e *)",
+      "Bash(echo \"total TS errors: $\\(cd /c/git/Tools-Website-FT/apps/web && npx tsc --noEmit 2>&1)",
+      "Bash(Select-String -Pattern \"useZeroModel\" -Context 2,2)",
+      "Bash(Select-String -Pattern \"raceUsesZeroBmiModel\" -Context 3,12)",
+      "Bash(git show *)",
+      "Bash(ls tasks/)",
+      "Bash(ls tasks/future/)",
+      "Bash(tee /tmp/tcb.log)"
     ],
     "additionalDirectories": [
       "\\tmp"

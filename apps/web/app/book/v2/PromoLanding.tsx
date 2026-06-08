@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isOfferingInPromoScope, type ActivityOffering, type Brand } from "~/features/booking";
+import { peekBookingSession } from "~/features/booking/hooks";
 import type { AppliedPromo } from "~/features/discount-codes";
 
 /**
@@ -60,19 +61,18 @@ export function PromoLanding({
   const [input, setInput] = useState(seedCode);
   const [applied, setApplied] = useState<AppliedPromo | null>(seededPromo);
 
-  // Detect existing cart items from sessionStorage
-  const [cartItemCount, setCartItemCount] = useState(0);
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem("booking_session");
-      if (raw) {
-        const session = JSON.parse(raw);
-        setCartItemCount(Array.isArray(session.items) ? session.items.length : 0);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  // Detect existing cart items from the persisted session. useSyncExternalStore
+  // keeps this SSR-safe — the server snapshot is 0, the client reads the real
+  // count after hydration (no setState-in-effect, no hydration mismatch).
+  // peekBookingSession unwraps the versioned storage envelope, so this stays
+  // correct as the persistence shape evolves (reading the raw shape here is what
+  // broke the checkout bar when the envelope landed). No live subscription is
+  // needed: the count only changes across full-page navigations on this landing.
+  const cartItemCount = useSyncExternalStore(
+    () => () => {},
+    () => peekBookingSession()?.items.length ?? 0,
+    () => 0,
+  );
   const hasCart = cartItemCount > 0;
   const [rejected, setRejected] = useState(seedRejected);
   const [submitting, setSubmitting] = useState(false);

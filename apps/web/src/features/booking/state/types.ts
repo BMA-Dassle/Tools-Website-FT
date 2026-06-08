@@ -44,6 +44,7 @@ import type { AppliedPromo } from "~/features/discount-codes";
 import type { BmiProposal } from "../data/bmi";
 import type { Activity, Brand, CenterCode, ContactInfo } from "../types";
 import type { EntryContext } from "./entry-context";
+import type { RaceTier, RaceCategory } from "../service/race-products";
 
 /* ───────────────────────── PartyMember ─────────────────────────── */
 
@@ -110,6 +111,15 @@ export interface RaceHeatAssignment {
   productId: string | null;
   /** "Red" | "Blue" | "Mega" | null. */
   track: "Red" | "Blue" | "Mega" | null;
+  /**
+   * $0 build-key parts — written at pick time for package + combo heats (whose
+   * `productId` is a package-only SKU or a combo per-track component NOT in
+   * RACE_PRODUCTS). They let booking + charge resolve the `(category:tier:track)`
+   * $0 build pair directly. Single-race heats may leave these unset and resolve
+   * via `productId` through `getRaceProductById`.
+   */
+  tier?: RaceTier;
+  category?: RaceCategory;
   /** Picked heat block (from BMI availability). */
   heatId: string | null;
   /** BMI bill line id, set after bookHeat succeeds. */
@@ -178,6 +188,13 @@ export interface RaceItem extends BookingItemBase {
    * this directly. 0 = no POV.
    */
   povQuantity: number;
+  /**
+   * Idempotency guard for the $0 POV BMI line (product 50361293) + the package
+   * disclaimer memo, both written once in `bookHeatsOnAdvance` after the heats
+   * book. Prevents a back-then-forward wizard re-advance from selling POV /
+   * writing the memo twice. The $5/racer POV money is charged on Square, not here.
+   */
+  povSold?: boolean;
   /**
    * Race-day add-ons (Shuffly, Duckpin, Gel Blaster, Laser Tag). Each
    * entry carries the BMI productId, customer-picked quantity, and the

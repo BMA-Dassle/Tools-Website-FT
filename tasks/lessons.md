@@ -544,3 +544,31 @@ state by direct retrieve, never by absence from the LIST filter.
 - [apps/web/lib/square-gift-card.ts](apps/web/lib/square-gift-card.ts) `mintDigitalGiftCard()` — canonical mint flow with defensive checks
 - [apps/web/app/api/square/bowling-orders/route.ts](apps/web/app/api/square/bowling-orders/route.ts) — pre-existing working flow that already had the `data.errors` check
 - `Pandora_API/src/utils/square.utils.ts` / `controllers/squareV2.controllers.ts.ts` — reference implementation for both mint and URL construction
+
+## Booking v2: the persisted session is a VERSIONED ENVELOPE — never read raw `sessionStorage` (2026-06-07)
+
+`usePersistedReducer` writes the booking session wrapped in `{ v: SCHEMA_VERSION, session }`
+(the envelope was added when the up-front ContactStep shifted step indices — bump `v`
+on any shape/step-order change so stale sessions are discarded, not resumed mid-flow).
+
+The bug: two components read `sessionStorage` directly and assumed the OLD flat shape —
+`PromoLanding` (`session.items`) and `MiniCartV2` (`session.items ?? []`). After the envelope
+landed, `parsed.items` was `undefined` on both, so the landing's "Add to your visit" checkout
+bar and the floating mini-cart silently vanished — the cart still existed, it just looked empty.
+A `: string`/array type didn't help; the raw `JSON.parse` is `any`.
+
+Fix + guardrail: added `peekBookingSession()` to the hook (unwraps the envelope + version-checks,
+exactly like in-flow hydration) and routed BOTH readers through it. **Rule: any code that needs
+the cart outside `<BookingFlow>` calls `peekBookingSession()` — never `JSON.parse(sessionStorage…)`.**
+When you change a persisted shape, grep every reader; better, give the shape ONE reader and import it.
+SSR note: read browser storage via `useSyncExternalStore` (server snapshot `0`), not a `setState`
+in `useEffect` — the React-Compiler lint rule `react-hooks/set-state-in-effect` flags the latter and
+it risks a hydration mismatch.
+
+Related: back-out now offers "New booking" (not "Cancel") in `LeaveConfirmModal`, calling
+`abandonBooking(session)` (checkout.ts) → cancels the BMI bill (heats + slots + attached contact)
+AND releases any QAMF bowling/KBF hold. Needed because contact-first creates the BMI reservation
+early (on first heat/slot advance), so an abandoned session would otherwise orphan a live reservation.
+
+- [apps/web/src/features/booking/hooks/usePersistedReducer.ts](apps/web/src/features/booking/hooks/usePersistedReducer.ts) — envelope + `peekBookingSession`
+- [apps/web/src/features/booking/service/checkout.ts](apps/web/src/features/booking/service/checkout.ts) `abandonBooking()` — full session teardown

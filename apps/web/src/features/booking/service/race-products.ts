@@ -708,29 +708,81 @@ export function getRaceBuildPair(product: RaceProduct): RaceBuildPair | null {
 }
 
 /**
+ * Build-product key from raw parts — for heats whose `productId` is NOT a
+ * top-level RACE_PRODUCTS entry (package-only component SKUs, combo per-track
+ * "twins"). Mirrors `raceBuildKey` but takes the parts directly.
+ */
+export function raceBuildKeyFromParts(
+  category: RaceCategory,
+  tier: RaceTier,
+  track: string | null,
+): string | null {
+  if (!track) return null;
+  return `${category}:${tier}:${track}`;
+}
+
+/**
+ * Resolve the $0 build pair for a heat. Prefers explicit `(category,tier,track)`
+ * parts (packages/combos, written onto the heat at pick time), then falls back
+ * to the `productId` catalog lookup (single races). Returns null when no $0 pair
+ * applies → the caller uses the legacy priced page.
+ */
+export function resolveBuildPair(args: {
+  productId?: string | null;
+  category?: RaceCategory | null;
+  tier?: RaceTier | null;
+  track?: string | null;
+}): RaceBuildPair | null {
+  if (args.category && args.tier && args.track) {
+    const key = raceBuildKeyFromParts(args.category, args.tier, args.track);
+    const pair = key ? RACE_BUILD_PRODUCTS[key] : null;
+    if (pair && pair.raceOnly.productId && pair.withLicense.productId) return pair;
+  }
+  const p = getRaceProductById(args.productId);
+  return p ? getRaceBuildPair(p) : null;
+}
+
+/**
  * Resolve the BMI product + page to book a heat against.
  *
- * v2 $0 model: when the heat's product has a configured build pair, book the
- * `raceOnly` or `withLicense` $0 twin — the heat is $0 on the BMI bill and
- * Square charges the registry price. `withLicense` is true only for a NEW
- * racer's FIRST heat. Until the $0 products are wired in (blank entries), this
- * falls back to the priced product/page so the legacy flow is unchanged.
- * Unknown ids (combo track components, addons) pass through unchanged.
+ * v2 $0 model: when the heat resolves a build pair, book the `raceOnly` or
+ * `withLicense` $0 twin — the heat is $0 on the BMI bill and Square charges the
+ * registry price. `withLicense` is true only for a NEW racer's FIRST heat.
+ *
+ * Resolution prefers explicit `(category,tier,track)` parts (package/combo heats
+ * whose productId isn't a RACE_PRODUCTS entry), then the productId catalog lookup
+ * (single races). With no build pair it falls back to the priced product/page
+ * (legacy). A truly unresolved id is logged — packages/combos now carry parts so
+ * they never reach the old `pageId===productId` passthrough.
  */
 export function bmiBookingTarget(
   productId: string | null | undefined,
-  opts: { withLicense?: boolean } = {},
+  opts: {
+    withLicense?: boolean;
+    category?: RaceCategory | null;
+    tier?: RaceTier | null;
+    track?: string | null;
+  } = {},
 ): { productId: string; pageId: string } {
+  const pair = resolveBuildPair({
+    productId,
+    category: opts.category,
+    tier: opts.tier,
+    track: opts.track,
+  });
+  if (pair) {
+    const t = opts.withLicense ? pair.withLicense : pair.raceOnly;
+    return { productId: t.productId, pageId: t.pageId };
+  }
   const pid = productId == null ? "" : String(productId);
   const p = getRaceProductById(pid);
-  if (p) {
-    const pair = getRaceBuildPair(p);
-    if (pair) {
-      const t = opts.withLicense ? pair.withLicense : pair.raceOnly;
-      return { productId: t.productId, pageId: t.pageId };
-    }
-    return { productId: p.productId, pageId: p.pageId };
-  }
+  if (p) return { productId: p.productId, pageId: p.pageId };
+  // Unknown id with no resolvable build pair → would book a non-existent page.
+  // Packages/combos carry (category,tier,track) so they never land here; a hit
+  // means a misconfigured heat — surface it instead of silently mis-booking.
+  console.error(
+    `[bmiBookingTarget] unresolved heat product "${pid}" — no build pair and not in RACE_PRODUCTS`,
+  );
   return { productId: pid, pageId: pid };
 }
 

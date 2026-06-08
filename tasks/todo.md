@@ -1,5 +1,56 @@
 # Open Tasks
 
+## Booking V1→V2 FULL CUTOVER + race-pack port (IN PROGRESS — 2026-06-07)
+
+**Goal (user directive):** V2 is the booking system. Replace ALL booking entry points
+with entry into V2, AND port race-packs to V2 (the only activity with no v2 today).
+
+**Grounding:** ~90 v1 entry points inventoried; 4 shared components carry most traffic.
+Cutover mechanism = server-side redirects (catch emails/QR/bookmarks) + middleware fix +
+update the hot shared links. Honors the repo cutover rule (redirect v1→v2; delete v1 later).
+Decisions locked by `tasks/future/race-pack-as-credit-purchase.md` + v1 parity: race-pack
+DEFERS redemption (credits spent in the existing v2 race flow), NO expiration (v1 = year-2999),
+single Square SKU + name override, grant via `addDeposit(+N)` on Square capture.
+
+### Phase A — Entry-point cutover for race/attraction/bowling/KBF (conflict-free w/ other workflow)
+- [ ] Middleware: exclude `/v2` paths from the HeadPinz `/hp` + `/book/bowling*` + `/book/kids-bowl-free*`
+      rewrites (FIXES latent bug: `headpinz.com/book/bowling/v2` → `/hp/book/bowling/v2` 404). Point
+      HeadPinz `/book` (exact) → `/book/v2` instead of `/hp/book`.
+- [ ] `next.config.ts` redirects (307 temporary during cutover — flip to 308 when v1 deleted):
+      `/book`→`/book/v2`, `/book/race`→`/book/race/v2`, `/book/{gel-blaster,laser-tag,duck-pin,shuffly}`→`…/v2`,
+      `/book/bowling`→`/book/bowling/v2`, `/book/kids-bowl-free`→`/book/kbf/v2`, plus `/hp/book/*` equivalents.
+      EXCLUDE `/book/race-packs`, `/book/confirmation*`, `/book/checkout`, anything `/v2`.
+- [ ] Update 4 shared components → v2: `components/Nav.tsx`, `components/MobileBookBar.tsx`,
+      `components/headpinz/Nav.tsx`, `components/headpinz/MobileBookBar.tsx`.
+- [ ] Update high-traffic CTAs (home Hero, pricing, racing, leaderboards, hp/fort-myers, hp/naples) → v2.
+- [ ] Update static email-template booking URLs (redirects also catch these).
+- [ ] **MERGE GATE:** bowling/KBF v2 must pass the QAMF+Square smoke test before this branch hits prod.
+
+### Phase B — Race-pack v2 port (DONE — STANDALONE, 2026-06-07)
+**Approach:** standalone `/book/race-pack/v2` (user: "whichever easiest/most efficient"). Deliberately
+NOT the in-cart `CreditPackItem` from the design doc — that threads through `unified-reserve.ts` +
+`types.ts`, which the other workflow is mid-refactor on. Standalone matches what v1 actually does
+(race-packs is its own flow) and reuses v1's PROVEN, server-atomic Square + `addDeposit` money rail.
+Touches ZERO files the other workflow is editing.
+- [x] `src/features/booking/data/packs.ts` — 6 SKUs verified 1:1 vs v1 (price, depositKind, raceCount, shared Square SKU).
+- [x] `src/components/features/booking/RacePackFlow.tsx` — pick pack → identify racer (returning lookup /
+      new) → review + clickwrap → `PaymentForm` (lineItem + `postPaymentAction:addDeposit`).
+- [x] Route `app/book/race-pack/v2/page.tsx` (thin server shell + metadata).
+- [x] Confirmation reuses v1 `/book/race-packs/confirmation` (already renders the viaDeposit "Credits
+      Loaded" + "Credits Pending" states) — left on v1, NOT redirected.
+- N/A `CreditPackItem` union / `credit-pack` service / `unified-reserve.ts` wiring / step registry —
+      unused by the standalone approach (charge goes through `/api/square/pay`, never unified-reserve).
+- N/A Landing tile on `/book/v2` — the v1 `/book` hub never listed packs either (parity-correct).
+- ⚠️ Simplification vs v1: per-mode OTP omitted (loading credits is non-extractive — the buyer pays to
+      ADD value, so there's no account-takeover surface to gate). Revisit if abuse ever appears.
+- FOLLOW-UP (optional): in-cart `CreditPackItem` integration once the other workflow's unified-reserve
+      refactor lands, if mixing a pack into a multi-activity session is ever wanted.
+
+### Phase C — Race-pack cutover (DONE — 2026-06-07)
+- [x] Redirect `/book/race-packs` → `/book/race-pack/v2` (middleware `bookingV2Target`, exact match so
+      `/book/race-packs/confirmation` stays on v1). Pricing "View Packages" CTA covered by the redirect.
+- [ ] Retire/delete the v1 `/book/race-packs` page in a later PR after ops sign-off.
+
 ## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-06-02)
 - **Branch:** `feat/booking-b2-race` · merged with main 2026-06-02
 - **What shipped (all build-verified):**

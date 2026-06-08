@@ -1,3 +1,7 @@
 "use client";
 
-export { usePersistedReducer, clearBookingSession } from "./usePersistedReducer";
+export {
+  usePersistedReducer,
+  clearBookingSession,
+  peekBookingSession,
+} from "./usePersistedReducer";

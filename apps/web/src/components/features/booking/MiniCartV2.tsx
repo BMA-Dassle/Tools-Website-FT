@@ -3,37 +3,32 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-
-const STORAGE_KEY = "booking_session";
+import { peekBookingSession } from "~/features/booking/hooks";
 
 interface SessionSnapshot {
   itemCount: number;
   returnHref: string;
 }
 
+// peekBookingSession unwraps the versioned storage envelope, so this reads the
+// real `items`/`appliedPromo` regardless of how persistence is wrapped (reading
+// the raw shape here is what hid the floating cart when the envelope landed).
 function readSnapshot(): SessionSnapshot | null {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const session = JSON.parse(raw);
-    const items: Array<{ kind: string; slug?: string }> = session.items ?? [];
-    if (items.length === 0) return null;
+  const session = peekBookingSession();
+  if (!session || session.items.length === 0) return null;
 
-    const first = items[0];
-    let slug: string;
-    if (first.kind === "attraction" && first.slug) slug = first.slug;
-    else if (first.kind === "race") slug = "race";
-    else if (first.kind === "bowling") slug = "bowling";
-    else if (first.kind === "kbf") slug = "kbf";
-    else slug = "race";
+  const first = session.items[0];
+  let slug: string;
+  if (first.kind === "attraction" && first.slug) slug = first.slug;
+  else if (first.kind === "race") slug = "race";
+  else if (first.kind === "bowling") slug = "bowling";
+  else if (first.kind === "kbf") slug = "kbf";
+  else slug = "race";
 
-    const code = session.appliedPromo?.code;
-    const href = code ? `/book/${slug}/v2?code=${encodeURIComponent(code)}` : `/book/${slug}/v2`;
+  const code = session.appliedPromo?.code;
+  const href = code ? `/book/${slug}/v2?code=${encodeURIComponent(code)}` : `/book/${slug}/v2`;
 
-    return { itemCount: items.length, returnHref: href };
-  } catch {
-    return null;
-  }
+  return { itemCount: session.items.length, returnHref: href };
 }
 
 export function MiniCartV2() {

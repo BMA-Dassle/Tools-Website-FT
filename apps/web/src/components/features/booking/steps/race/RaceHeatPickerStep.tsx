@@ -10,7 +10,11 @@ import {
   type BmiBlock,
   type BmiProposal,
 } from "~/features/booking/data";
-import { getRaceProductById, type RaceProduct } from "~/features/booking/service/race-products";
+import {
+  getRaceProductById,
+  type RaceProduct,
+  type RaceTier,
+} from "~/features/booking/service/race-products";
 import {
   findHeatConflict,
   HEAT_CONFLICT_TOOLTIP,
@@ -134,10 +138,16 @@ function entriesForPick(
   productId: string,
   track: TrackOrNull,
   racersForLine: PartyMember[],
+  tier?: RaceTier,
+  category?: Category,
 ): RaceHeatAssignment[] {
   return racersForLine.map((r) => ({
     productId,
     track,
+    // $0 build-key parts (category:tier:track) so combo per-track component ids
+    // — which aren't top-level RACE_PRODUCTS entries — still resolve a $0 pair.
+    tier,
+    category,
     heatId: block.start,
     bmiLineId: null,
     assignedTo: r.id,
@@ -177,6 +187,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               racers.map((r) => ({
                 productId: pick.productId,
                 track: pick.track as RaceHeatAssignment["track"],
+                // $0 build-key parts: package component SKUs aren't in
+                // RACE_PRODUCTS, so booking + charge resolve the $0 pair from
+                // (category:tier:track) instead of the productId.
+                tier: pick.component.tier,
+                category,
                 heatId: pick.block.start,
                 bmiLineId: null,
                 assignedTo: r.id,
@@ -347,7 +362,14 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         setPendingHeat(tp);
         return;
       }
-      const newEntries = entriesForPick(tp.block, tp.productId, tp.track, racers);
+      const newEntries = entriesForPick(
+        tp.block,
+        tp.productId,
+        tp.track,
+        racers,
+        product?.tier,
+        category,
+      );
       onChange({ heats: [...item.heats, ...newEntries] });
     };
 
@@ -361,6 +383,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         pendingHeat.productId,
         pendingHeat.track,
         racersForThisLine,
+        product?.tier,
+        category,
       );
       onChange({ heats: [...item.heats, ...newEntries] });
       setPendingHeat(null);

@@ -17,31 +17,40 @@ import type { Action } from "../state/machine";
 import type { BookingSession, PartyMember, RaceItem } from "../state/types";
 import { bmiAdapter, type BmiProposal } from "../data/bmi";
 import { registerContact } from "./bmi-register";
+import { getPackage } from "./packages";
 
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
+/** $0 POV build product — books POV as a $0 line so the bill stays a $0 credit
+ *  under the $0 model; the $5/racer POV money is charged on Square. */
+const POV_ZERO_PRODUCT_ID = "50361293";
 const ADDON_PAGE_ID = "42730172";
 
 /**
  * Is this RaceItem eligible for the v2 "$0 BMI build product + Square charges
- * the registry price" model? Scope is SINGLE races only — combos, POV, and
- * cross-activity add-ons stay on the legacy (BMI-priced) path. Requires every
- * heat's product to have a configured $0 build pair (see RACE_BUILD_PRODUCTS),
- * so this is a no-op until the $0 BMI products are created + wired in.
+ * the registry price" model? Now covers SINGLE races, COMBOS (3-Packs), and
+ * PACKAGES (Rookie Pack / Ultimate Qualifier) — every one routes each heat to a
+ * $0 build pair via `resolveBuildPair` (by `(category,tier,track)` parts for
+ * package/combo heats, by productId for single races). POV rides its own $0
+ * product (50361293, see `sellPov`) so it no longer forces the legacy path.
  *
- * When true: heats book against $0 BMI products (heat + bundled license are $0
- * on the bill → the whole bill is a $0 credit) and Square charges the real
- * registry race price + the license as their own lines.
+ * Only race-day ADD-ONS still drop to legacy (they have no $0 build product).
+ *
+ * When true: heats (+ bundled license + POV) are $0 on the BMI bill → the whole
+ * bill is a $0 credit, and Square charges the real price (single race + license,
+ * combo pack total, or package bundle total).
  */
 export function raceUsesZeroBmiModel(item: RaceItem): boolean {
   if (item.heats.length === 0) return false;
-  if (item.povQuantity > 0) return false;
   if (item.addons.some((a) => a.qty > 0)) return false;
   for (const heat of item.heats) {
-    const product = getRaceProductById(heat.productId);
-    if (!product) return false;
-    if (product.packType === "combo") return false;
-    if (!getRaceBuildPair(product)) return false;
+    const pair = resolveBuildPair({
+      productId: heat.productId,
+      category: heat.category,
+      tier: heat.tier,
+      track: heat.track,
+    });
+    if (!pair) return false;
   }
   return true;
 }
@@ -103,7 +112,12 @@ export async function bookHeatsOnAdvance(
     // a new racer's first heat); falls back to the priced product until the $0
     // products are wired in. Build + priced share a dayplanner, so the picked
     // heat time still resolves.
-    const target = bmiBookingTarget(heat.productId, { withLicense: licenseHeats.has(i) });
+    const target = bmiBookingTarget(heat.productId, {
+      withLicense: licenseHeats.has(i),
+      category: heat.category,
+      tier: heat.tier,
+      track: heat.track,
+    });
     const availability = await bmiAdapter.getAvailability({
       date: item.date!,
       productId: target.productId,
@@ -139,6 +153,34 @@ export async function bookHeatsOnAdvance(
       heatIndex: i,
       patch: { bmiLineId: result.billLineId },
     });
+  }
+
+  // POV + package memo — ONCE, after heats book (guarded by item.povSold). The
+  // $0 POV product keeps the bill a $0 credit; the $5/racer is charged on Square
+  // (inside the package bundle, or as a standalone POV line). Packages set
+  // includesPov (not povQuantity), so derive the qty from the package + racers.
+  if (billId && !item.povSold) {
+    const pkg = item.packageId ? getPackage(item.packageId) : null;
+    const racerCount = new Set(item.heats.map((h) => h.assignedTo).filter(Boolean)).size || 1;
+    const povQty = pkg?.includesPov ? racerCount : item.povQuantity;
+    let wrote = false;
+    if (povQty > 0) {
+      await sellPov(billId, povQty, raceUsesZeroBmiModel(item));
+      wrote = true;
+    }
+    // Package disclaimer trail (e.g. Ultimate Qualifier qualification terms) so
+    // ops sees the acknowledgment at check-in. v1 parity (page.tsx booking/memo).
+    if (pkg?.disclaimers?.billMemo) {
+      await writeBillMemo(billId, pkg.disclaimers.billMemo);
+      wrote = true;
+    }
+    if (wrote) {
+      dispatch({
+        type: "updateItem",
+        id: item.id,
+        patch: { povSold: true } as Partial<RaceItem>,
+      });
+    }
   }
 }
 
@@ -181,7 +223,12 @@ export async function holdRaceItem(
     // a new racer's first heat); falls back to the priced product until the $0
     // products are wired in. Build + priced share a dayplanner, so the picked
     // heat time still resolves.
-    const target = bmiBookingTarget(heat.productId, { withLicense: licenseHeats.has(i) });
+    const target = bmiBookingTarget(heat.productId, {
+      withLicense: licenseHeats.has(i),
+      category: heat.category,
+      tier: heat.tier,
+      track: heat.track,
+    });
     const availability = await bmiAdapter.getAvailability({
       date: item.date!,
       productId: target.productId,
@@ -230,7 +277,7 @@ export async function holdRaceItem(
   // 3. Sell POV cameras (non-fatal)
   let povSold = false;
   if (item.povQuantity > 0) {
-    povSold = await sellPov(billId, item.povQuantity);
+    povSold = await sellPov(billId, item.povQuantity, raceUsesZeroBmiModel(item));
   }
 
   // 4. Book addon activities (non-fatal per addon)
@@ -302,14 +349,17 @@ async function sellLicense(billId: string, quantity: number): Promise<boolean> {
 
 // ── internal: POV sell via SMS proxy (different endpoint than BMI!) ──────
 
-async function sellPov(billId: string, quantity: number): Promise<boolean> {
+async function sellPov(billId: string, quantity: number, zeroModel = false): Promise<boolean> {
+  // $0 model → the $0 POV product (50361293): POV is a $0 BMI line, money on
+  // Square. Legacy → the priced $5 product (43746981).
+  const productId = zeroModel ? POV_ZERO_PRODUCT_ID : POV_PRODUCT_ID;
   try {
     const res = await fetch("/api/sms?endpoint=booking%2Fsell", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify([
         {
-          productId: POV_PRODUCT_ID,
+          productId,
           pageId: null,
           quantity,
           billId,
@@ -322,11 +372,35 @@ async function sellPov(billId: string, quantity: number): Promise<boolean> {
       console.warn("[race.sellPov] failed:", res.status);
       return false;
     }
-    console.log("[race.sellPov] sold", quantity, "POV camera(s) on bill", billId);
+    console.log(
+      "[race.sellPov] sold",
+      quantity,
+      `POV camera(s) (${zeroModel ? "$0" : "$5"} product ${productId}) on bill`,
+      billId,
+    );
     return true;
   } catch (err) {
     console.warn("[race.sellPov] error (non-fatal):", err);
     return false;
+  }
+}
+
+/**
+ * Append a memo to the BMI bill (package disclaimer trail). orderId is a 17-digit
+ * bigint — raw-text injection only (never Number()/JSON.stringify on it). The
+ * memo string is JSON-escaped. Non-fatal. Mirrors v1 `booking/memo`.
+ */
+async function writeBillMemo(billId: string, memo: string): Promise<void> {
+  try {
+    const body = `{"orderId":${billId},"memo":${JSON.stringify(memo)}}`;
+    const res = await fetch(`/api/bmi?${new URLSearchParams({ endpoint: "booking/memo" })}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    if (!res.ok) console.warn("[race.writeBillMemo] failed:", res.status);
+  } catch (err) {
+    console.warn("[race.writeBillMemo] error (non-fatal):", err);
   }
 }
 
@@ -420,7 +494,7 @@ async function ensurePersonId(
 
 // ── internal: race-products lookups (imports hoisted; used above) ───────
 
-import { getRaceProductById, bmiBookingTarget, getRaceBuildPair } from "./race-products";
+import { bmiBookingTarget, resolveBuildPair } from "./race-products";
 
 // ── internal: find a proposal matching a heat's start time ──────────────
 
