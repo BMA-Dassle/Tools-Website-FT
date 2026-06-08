@@ -401,12 +401,6 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       if (!res.ok || data.error) {
         throw new Error(data.error || "Could not finalize your update.");
       }
-      // Regenerate signed PDF with the updated data (non-blocking).
-      fetch("/api/group-function/generate-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shortId: quote.contractShortId }),
-      }).catch(() => {});
       return data;
     },
     [quote.contractShortId],
@@ -536,12 +530,6 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       }
       setGiftCardGan(data.giftCardGan);
       setStep("event");
-      // Generate signed PDF in background (non-blocking)
-      fetch("/api/group-function/generate-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shortId: quote.contractShortId }),
-      }).catch(() => {});
     } catch {
       setError("Payment processing failed. Please try again.");
     } finally {

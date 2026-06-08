@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getQuotesWithPendingBalanceLinks,
+  getWinbackQuotesNeedingIncentive,
   updateGfBalanceCharged,
   parseGiftCardIds,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { loadBalanceOntoGiftCards } from "@/lib/square-gift-card";
 import { notifyBalanceReceipt } from "@/lib/group-function-notify";
+import { issueWinbackIncentive } from "@/lib/group-function-winback";
 import { fetchProject } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
@@ -84,12 +86,33 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Second pass: retry the $20 mint for any win-back event that put a card on
+  // file but didn't get its incentive (rare mint failure at card-save time).
+  // Idempotent (guarded on incentive_issued_at + stable Square baseKey).
+  let incentiveRetried = 0;
+  try {
+    const pending = await getWinbackQuotesNeedingIncentive();
+    for (const q of pending) {
+      try {
+        if (await issueWinbackIncentive(q)) incentiveRetried++;
+      } catch (err) {
+        console.error(
+          `[group-balance-link-reconcile] winback incentive retry failed quote=${q.id}:`,
+          err,
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[group-balance-link-reconcile] winback incentive sweep query failed:", err);
+  }
+
   console.log(
     `[group-balance-link-reconcile] total=${summary.total} reconciled=${summary.reconciled} ` +
-      `pending=${summary.pending} unreconcilable=${summary.unreconcilable} errors=${summary.errors}`,
+      `pending=${summary.pending} unreconcilable=${summary.unreconcilable} errors=${summary.errors} ` +
+      `incentiveRetried=${incentiveRetried}`,
   );
 
-  return NextResponse.json({ ok: true, ...summary });
+  return NextResponse.json({ ok: true, ...summary, incentiveRetried });
 }
 
 /** Resolve the Square order id backing a balance payment link. */
@@ -149,6 +172,11 @@ async function reconcileQuote(quote: GroupFunctionQuote): Promise<ReconcileResul
   // Paid. The link payment funds the gift-card load (best-effort instrument link).
   const tender = (order.tenders || [])[0] as { id?: string; payment_id?: string } | undefined;
   const balancePaymentId = tender?.payment_id || tender?.id || "";
+
+  // Win-back events reach a payment link only as the 72h auto-charge DECLINE
+  // fallback — by then they already have day-of gift cards (minted when the
+  // card was put on file), so the standard load-onto-gift-cards path below
+  // works unchanged. The $20 was already issued at card-on-file time.
 
   // LOAD the balance onto the day-of gift cards so group-dayof-pay stays fully funded.
   // Stable baseKey keyed on the quote → re-runs are idempotent (Square dedups the load).

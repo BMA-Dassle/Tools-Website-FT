@@ -152,7 +152,7 @@ function monthlyWindows(from: Date, months: number): Array<{ from: string; till:
   return windows;
 }
 
-export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
+export async function scanForNewEvents(targetStateIds?: Set<string>): Promise<HermesQueueItem[]> {
   const items: HermesQueueItem[] = [];
 
   for (const center of CENTERS) {
@@ -202,11 +202,18 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
         return true;
       });
 
-      // Filter to "Send Contract" state only
-      const sendContract = projects.filter((p) => String(p.stateId) === center.sendContractStateId);
+      // Filter to "Send Contract" state by default, or the caller's target
+      // states (used by the legacy win-back cohort scan).
+      const sendContract = projects.filter((p) =>
+        targetStateIds
+          ? targetStateIds.has(String(p.stateId))
+          : String(p.stateId) === center.sendContractStateId,
+      );
 
       console.log(
-        `[bmi-scan] ${center.clientKey}: ${projects.length} total, ${sendContract.length} in send-contract state`,
+        `[bmi-scan] ${center.clientKey}: ${projects.length} total, ${sendContract.length} in ${
+          targetStateIds ? "target" : "send-contract"
+        } state(s)`,
       );
 
       for (const proj of sendContract) {
@@ -339,4 +346,23 @@ export async function scanForNewEvents(): Promise<HermesQueueItem[]> {
   }
 
   return items;
+}
+
+/**
+ * BMI dayPlanner state ids that represent a confirmed, deposit-paid legacy
+ * event (discovered empirically — see scripts/inventory-legacy-winback.mjs
+ * --states). `-3` = Confirmation (built-in), plus the per-center
+ * "Confirmation + Waiver" workspace states.
+ */
+export const LEGACY_DEPOSIT_STATE_IDS = ["-3", "3274635", "1191926"];
+
+/**
+ * Scan BMI for legacy confirmed events (any of `stateIds`) and return enriched
+ * HermesQueueItem objects WITH their prior `payments[]` (deposits). The caller
+ * filters out post-pay / no-deposit / already-ingested and ingests the rest.
+ */
+export async function scanLegacyDepositCohort(
+  stateIds: string[] = LEGACY_DEPOSIT_STATE_IDS,
+): Promise<HermesQueueItem[]> {
+  return scanForNewEvents(new Set(stateIds.map(String)));
 }

@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
       event: "resigned",
       metadata: { wasPaidInFull: false, balanceCents: quote.balance_cents },
     });
+    await safePdfGenerate(shortId);
     return NextResponse.json({ ok: true, action: "resigned_deposit" });
   }
 
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
         status: "balance_charged",
       });
 
+      await safePdfGenerate(shortId);
       return NextResponse.json({ ok: true, action: "reprice_charged", chargedCents: delta });
     } catch (err) {
       if (err instanceof SquarePaymentError) {
@@ -157,10 +159,21 @@ export async function POST(req: NextRequest) {
         console.error("[resign-settle] refundOwed notify error:", err),
       );
     }
+    await safePdfGenerate(shortId);
     return NextResponse.json({ ok: true, action: "refund_owed", overageCents: -delta });
   }
 
   // |delta| < $1 → no money movement.
   await updateGfResignNoCharge(quote.id, "balance_charged");
+  await safePdfGenerate(shortId);
   return NextResponse.json({ ok: true, action: "no_change" });
+}
+
+async function safePdfGenerate(shortId: string) {
+  try {
+    const { generateAndStorePdf } = await import("@/lib/contract-pdf-generate");
+    await generateAndStorePdf(shortId);
+  } catch (err) {
+    console.error("[resign-settle] PDF generation failed:", err);
+  }
 }

@@ -127,6 +127,14 @@ export async function POST(req: NextRequest) {
       /* non-fatal */
     }
 
+    // Generate signed PDF for post-paid (no deposit step to trigger it)
+    try {
+      const { generateAndStorePdf } = await import("@/lib/contract-pdf-generate");
+      await generateAndStorePdf(shortId);
+    } catch (err) {
+      console.error("[sign] PDF generation failed for post-paid quote:", err);
+    }
+
     console.log(`[sign] post-paid quote ${quote.id} confirmed (no deposit)`);
   }
 

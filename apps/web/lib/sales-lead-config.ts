@@ -76,6 +76,27 @@ const GUEST_SERVICES_BASE = {
   isIndividual: false as const,
 };
 
+/**
+ * Guest Services Teams chat — the shared, staffed fallback destination for
+ * operational alerts (e.g. a "Send Contract" event we couldn't fully send)
+ * when no individual planner chat resolves.
+ */
+export const GUEST_SERVICES_CHAT_ID = GUEST_SERVICES_BASE.teamsChatId;
+
+/**
+ * Resolve a planner's Teams chat id from their email (exact, case-insensitive).
+ * Returns null when the email isn't one of the known individual planners — the
+ * caller should fall back to {@link GUEST_SERVICES_CHAT_ID}.
+ */
+export function plannerChatIdForEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const lower = email.toLowerCase();
+  for (const p of Object.values(PLANNERS)) {
+    if (p.email.toLowerCase() === lower) return p.teamsChatId;
+  }
+  return null;
+}
+
 // ── Centers ─────────────────────────────────────────────────────────────────
 
 /**

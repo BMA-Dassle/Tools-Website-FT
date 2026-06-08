@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
     SELECT * FROM group_function_quotes
     WHERE status IN ('contract_sent', 'deposit_paid', 'balance_charged', 'balance_link_sent', 'resign_required')
       AND event_date > NOW() - INTERVAL '7 days'
+      AND is_winback = FALSE
     ORDER BY event_date ASC
     LIMIT 30
   `) as GroupFunctionQuote[];
@@ -638,35 +639,29 @@ async function syncQuote(
   }
 
   if (isSigned) {
-    // Archive current signed PDF before requiring re-sign
+    // Always archive signature data on re-sign, even without a PDF URL.
+    // The else branch previously skipped clearing signature data — a bug.
     const q = sql();
-    if (quote.signed_pdf_url) {
-      const history = (quote.signed_pdf_history as unknown[]) || [];
-      const archived = [
-        ...history,
-        {
-          url: quote.signed_pdf_url,
-          signedAt: quote.contract_signed_at,
-          archivedAt: new Date().toISOString(),
-          reason: changes.join("; "),
-        },
-      ];
-      await q`UPDATE group_function_quotes SET
-        signed_pdf_history = ${JSON.stringify(archived)}::jsonb,
-        signed_pdf_url = NULL,
-        contract_signed_at = NULL,
-        signature_type = NULL,
-        signature_data = NULL,
-        document_seal = NULL,
-        status = 'resign_required',
-        updated_at = NOW()
-      WHERE id = ${quote.id}`;
-    } else {
-      await q`UPDATE group_function_quotes SET
-        status = 'resign_required',
-        updated_at = NOW()
-      WHERE id = ${quote.id}`;
-    }
+    const history = (quote.signed_pdf_history as unknown[]) || [];
+    const archived = [
+      ...history,
+      {
+        url: quote.signed_pdf_url || null,
+        signedAt: quote.contract_signed_at,
+        archivedAt: new Date().toISOString(),
+        reason: changes.join("; "),
+      },
+    ];
+    await q`UPDATE group_function_quotes SET
+      signed_pdf_history = ${JSON.stringify(archived)}::jsonb,
+      signed_pdf_url = NULL,
+      contract_signed_at = NULL,
+      signature_type = NULL,
+      signature_data = NULL,
+      document_seal = NULL,
+      status = 'resign_required',
+      updated_at = NOW()
+    WHERE id = ${quote.id}`;
 
     await appendAuditLog({
       quoteId: quote.id,

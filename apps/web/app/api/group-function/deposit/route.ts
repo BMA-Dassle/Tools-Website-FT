@@ -325,6 +325,14 @@ export async function POST(req: NextRequest) {
       status: "deposit_paid",
     });
 
+    // Generate signed PDF server-side (non-fatal to deposit)
+    try {
+      const { generateAndStorePdf } = await import("@/lib/contract-pdf-generate");
+      await generateAndStorePdf(quote.contract_short_id!);
+    } catch (err) {
+      console.error("[gf-deposit] PDF generation failed:", err);
+    }
+
     return NextResponse.json({
       ok: true,
       action: "deposit_paid",
@@ -543,9 +551,20 @@ async function handleLegacyDeposit(
     // 7. Notify + BMI Office notes
     const updatedQuote = await getGfQuoteByShortId(quote.contract_short_id!);
     if (updatedQuote) {
-      notifyDepositPaid(updatedQuote).catch((err) =>
-        console.error("[gf-deposit-legacy] notify error:", err),
-      );
+      if (updatedQuote.is_winback) {
+        // Win-back: the guest just put a card on file — issue the $20 now and
+        // send the win-back receipt (mentions the $20 + the 72h charge schedule).
+        // The standard 72h balance cron will charge the saved card. A mint
+        // failure here is retried by the reconcile cron's incentive sweep.
+        const { issueWinbackIncentive } = await import("@/lib/group-function-winback");
+        issueWinbackIncentive(updatedQuote).catch((err) =>
+          console.error("[gf-deposit-legacy] winback incentive error:", err),
+        );
+      } else {
+        notifyDepositPaid(updatedQuote).catch((err) =>
+          console.error("[gf-deposit-legacy] notify error:", err),
+        );
+      }
     }
 
     try {
@@ -595,6 +614,14 @@ async function handleLegacyDeposit(
       venue: quote.center_code,
       status: "deposit_paid",
     });
+
+    // Generate signed PDF server-side (non-fatal to deposit)
+    try {
+      const { generateAndStorePdf } = await import("@/lib/contract-pdf-generate");
+      await generateAndStorePdf(quote.contract_short_id!);
+    } catch (err) {
+      console.error("[gf-deposit-legacy] PDF generation failed:", err);
+    }
 
     return NextResponse.json({
       ok: true,
