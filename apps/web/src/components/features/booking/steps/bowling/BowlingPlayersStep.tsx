@@ -14,10 +14,39 @@ const BowlingPlayersStepComponent: StepDef<BowlingItem>["Component"] = ({ item, 
 
   function setCount(n: number) {
     const clamped = Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, n));
-    onChange({
+    if (clamped === count) return;
+    const patch: Partial<BowlingItem> = {
       playerCount: clamped,
       laneCount: Math.max(1, Math.ceil(clamped / PLAYERS_PER_LANE)),
-    });
+    };
+    // Party size drives per-person pricing, the QAMF hold, shoes, and the quote.
+    // If a package was already selected, all of those are priced for the OLD
+    // count — reset the selection so it rebuilds at the new count. Without this,
+    // the reservation books N players but charges the stale quantity (the 9-booked-
+    // 7-charged bug). Foundational change → re-pick the package.
+    if (item.webOfferId || item.lineItems.length > 0) {
+      Object.assign(patch, {
+        experienceId: null,
+        experienceSlug: null,
+        webOfferId: null,
+        optionId: null,
+        optionType: null,
+        bookedAt: null,
+        lineItems: [],
+        rawItems: [],
+        qamfReservationId: null,
+        durationMinutes: null,
+        durationMultiplier: 1,
+        hasBookingFee: false,
+        shoeSelections: {},
+        shoeProducts: undefined,
+        quoteDayofOrderId: null,
+        quoteTotalCents: 0,
+        quoteDepositCents: 0,
+        quoteDiscountOffCents: 0,
+      });
+    }
+    onChange(patch);
   }
 
   return (

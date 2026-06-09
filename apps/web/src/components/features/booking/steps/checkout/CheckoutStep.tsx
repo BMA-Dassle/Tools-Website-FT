@@ -235,44 +235,55 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       const preTaxSubtotal = reviewLines.reduce((s, l) => s + l.amount, 0);
       const rewardDiscountCents = session.loyalty?.selectedRewardTier?.discountCents ?? 0;
 
-      // KBF: get Square's authoritative tax-inclusive total + the day-of order
-      // the reserve step will reuse, so the displayed total IS the charge —
-      // county sales tax included. Non-fatal: fall back to the pre-tax estimate
-      // if the quote can't be reached. (KBF is 100% deposit; regular bowling
-      // keeps its existing deposit flow.)
+      // Bowling/KBF: get Square's authoritative tax-inclusive total + the day-of
+      // order the reserve step will reuse, so the displayed total IS the charge —
+      // county sales tax included. Bowling is 100% online (no balance), so the
+      // deposit must be the FULL tax-inclusive total: quoting here (depositPct=100)
+      // makes both the displayed total and the reserve charge tax-inclusive.
+      // Without this, regular bowling fell back to a pre-tax deposit and left the
+      // sales tax as a phantom balance. Non-fatal: fall back to the pre-tax
+      // estimate if the quote can't be reached.
       let quotedTotal: number | null = null;
-      // Only for a bowling/KBF-only cart — that's the path that reuses the
-      // quoted day-of order (bowlingReserve). A mixed cart (KBF + race) settles
-      // via the unified reserve, so don't override its total with the KBF-only
-      // quote.
+      // Only for a bowling/KBF-only cart — that's the path that reuses the quoted
+      // day-of order (bowlingReserve). A mixed cart (KBF + race) settles via the
+      // unified reserve, so don't override its total with the bowling-only quote.
       const bowlingOnlyCart = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
-      const kbfItem = session.items.find((i): i is KbfItem => i.kind === "kbf");
-      if (kbfItem && bowlingOnlyCart) {
-        try {
-          const centerId = kbfItem.qamfCenterId ?? 9172;
-          const res = await fetch("/api/square/bowling-orders/quote", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              locationId: centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7",
-              lineItems: buildBowlingQuoteLineItems(kbfItem, session),
-              depositPct: 100,
-            }),
-          });
-          const data = await res.json();
-          if (res.ok && data.dayofOrderId) {
-            quotedTotal = data.dayofTotalCents / 100;
-            dispatch({
-              type: "setBowlingQuote",
-              itemId: kbfItem.id,
-              dayofOrderId: data.dayofOrderId,
-              totalCents: data.dayofTotalCents,
-              depositCents: data.depositCents,
+      if (bowlingOnlyCart) {
+        const bowlingItems = session.items.filter(
+          (i): i is BowlingItem | KbfItem => i.kind === "bowling" || i.kind === "kbf",
+        );
+        let quotedSum = 0;
+        let anyQuoted = false;
+        for (const bi of bowlingItems) {
+          if (bi.lineItems.length === 0) continue; // no package picked yet — skip
+          try {
+            const centerId = bi.qamfCenterId ?? 9172;
+            const res = await fetch("/api/square/bowling-orders/quote", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                locationId: centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7",
+                lineItems: buildBowlingQuoteLineItems(bi, session),
+                depositPct: 100,
+              }),
             });
+            const data = await res.json();
+            if (res.ok && data.dayofOrderId) {
+              quotedSum += data.dayofTotalCents / 100;
+              anyQuoted = true;
+              dispatch({
+                type: "setBowlingQuote",
+                itemId: bi.id,
+                dayofOrderId: data.dayofOrderId,
+                totalCents: data.dayofTotalCents,
+                depositCents: data.depositCents,
+              });
+            }
+          } catch {
+            /* non-fatal — display falls back to the estimate below */
           }
-        } catch {
-          /* non-fatal — display falls back to the estimate below */
         }
+        if (anyQuoted) quotedTotal = quotedSum;
       }
 
       const estTax = bmiOverview?.tax ?? 0;
