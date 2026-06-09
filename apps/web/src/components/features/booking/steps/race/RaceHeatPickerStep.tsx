@@ -65,6 +65,14 @@ type Category = "adult" | "junior";
 type Track = "Red" | "Blue" | "Mega";
 type TrackOrNull = Track | null;
 
+/** Per-track pill colors for the heat cards when the grid spans >1 track (a
+ *  combined Red+Blue single race, like the Ultimate combo). */
+const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
+  Red: { bg: "bg-red-500/25", text: "text-red-300" },
+  Blue: { bg: "bg-blue-500/25", text: "text-blue-300" },
+  Mega: { bg: "bg-[#A855F7]/25", text: "text-[#C084FC]" },
+};
+
 interface FetchPlanItem {
   productId: string;
   pageId: string;
@@ -277,6 +285,14 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       }
       return full;
     }, [product, lockedTrack]);
+
+    // True when the grid spans more than one track (a combined Red+Blue single
+    // race): each heat card then shows a track pill so the customer can tell them
+    // apart, mirroring the Ultimate combo's per-heat track badge.
+    const showTrackBadge = useMemo(
+      () => new Set(fetchPlan.map((f) => f.track)).size > 1,
+      [fetchPlan],
+    );
 
     const queries = useQueries({
       queries: fetchPlan.map(({ productId: pid, pageId }) => ({
@@ -641,6 +657,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
                       <span className="text-[11px] font-semibold text-[#00E2E5]">Holding…</span>
                     </div>
+                  )}
+                  {showTrackBadge && tp.track && TRACK_BADGE[tp.track] && (
+                    <span
+                      className={`absolute right-2 top-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${TRACK_BADGE[tp.track].bg} ${TRACK_BADGE[tp.track].text}`}
+                    >
+                      {tp.track}
+                    </span>
                   )}
                   <div className="mb-0.5 text-base font-bold text-white">
                     {formatTime(block.start)}

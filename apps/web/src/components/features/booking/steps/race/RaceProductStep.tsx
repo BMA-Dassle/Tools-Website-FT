@@ -7,6 +7,7 @@ import type { RaceItem, StepDef } from "~/features/booking";
 import {
   filterProducts,
   productsForSchedule,
+  combineTrackVariants,
   type RaceProduct,
   type RaceTier,
   type RacerType,
@@ -189,12 +190,16 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     const products = useMemo(() => {
       const schedule = scheduleForDate(item.date as string);
       const all = productsForSchedule(schedule, racerType);
-      return filterProducts(all, {
+      const filtered = filterProducts(all, {
         racerType,
         adultCount: category === "adult" ? racerCount : 0,
         juniorCount: category === "junior" ? racerCount : 0,
         memberships,
       }).filter((p) => p.category === category);
+      // Collapse Red+Blue single races into one combined card — the heat grid
+      // then shows BOTH tracks (like the Ultimate combo). Combos, single-track
+      // (Mega) and junior (Blue-only) pass through unchanged.
+      return combineTrackVariants(filtered);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [item.date, racerType, racerCount, memberships.join("|")]);
 
@@ -227,7 +232,15 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
 
     const handleCardClick = (product: RaceProduct) => {
       if (isMultiTrack(product)) {
-        setTrackModalProduct(product);
+        // Combo packs (3-Pack) keep the track-picker modal (all heats on ONE
+        // track). A combined SINGLE race behaves like the Ultimate combo: NO
+        // track lock — selecting it leaves the track open so the heat grid shows
+        // BOTH tracks and the customer picks any heat regardless of track.
+        if (product.packType === "combo") {
+          setTrackModalProduct(product);
+          return;
+        }
+        setProductWithTrack(product.productId, null);
         return;
       }
       setProductWithTrack(product.productId, product.track);
@@ -451,6 +464,21 @@ function ProductCard({
               {displayTrack} Track
             </span>
           )}
+          {/* Combined single race — both tracks offered; the heat grid shows
+              both and the customer picks any time on either (like Ultimate). */}
+          {isMulti &&
+            !isPack &&
+            Object.keys(product.trackProducts ?? {}).map(
+              (t) =>
+                TRACK_BADGE[t] && (
+                  <span
+                    key={t}
+                    className={`rounded-full px-2 py-0.5 text-xs font-bold ${TRACK_BADGE[t].bg} ${TRACK_BADGE[t].text}`}
+                  >
+                    {t}
+                  </span>
+                ),
+            )}
         </div>
         {showNewBreakdown ? (
           <span className={`${c.text} shrink-0 text-base font-bold`}>${groupTotal.toFixed(2)}</span>
