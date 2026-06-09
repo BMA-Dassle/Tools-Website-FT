@@ -156,7 +156,13 @@ function entriesForPick(
 }
 
 function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Component"] {
-  const Component: StepDef<RaceItem>["Component"] = ({ item, session, onChange, dispatch }) => {
+  const Component: StepDef<RaceItem>["Component"] = ({
+    item,
+    session,
+    onChange,
+    dispatch,
+    setBusy,
+  }) => {
     const allRacers = session.party;
     const racers = racersOfCategory(allRacers, category);
     const partySize = racers.length;
@@ -361,6 +367,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       setHolding(true);
       setHoldingKey(holdKey);
       setHoldError(null);
+      setBusy?.(true); // disable the wizard Next while this hold is in flight
       onChange({ heats: nextHeats });
       try {
         const res = await holdPickedHeats(session, { ...item, heats: nextHeats }, dispatch);
@@ -385,6 +392,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         holdingRef.current = false;
         setHolding(false);
         setHoldingKey(null);
+        setBusy?.(false);
       }
     };
 

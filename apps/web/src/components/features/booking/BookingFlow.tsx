@@ -72,6 +72,10 @@ export function BookingFlow({
   const [showHeightConfirm, setShowHeightConfirm] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState<string>("Reserving your heats…");
+  // True while a step is mid-async (e.g. an eager BMI hold). Disables Next so the
+  // customer can't advance — and the advance-time booker can't double-book —
+  // while a hold is still resolving.
+  const [stepBusy, setStepBusy] = useState(false);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
   const [reservationExpired, setReservationExpired] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -189,6 +193,7 @@ export function BookingFlow({
   useEffect(() => {
     if (prevCursorRef.current !== null && currentCursor !== prevCursorRef.current) {
       contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setStepBusy(false); // clear any stale busy flag when the step changes
     }
     prevCursorRef.current = currentCursor;
   }, [currentCursor]);
@@ -319,6 +324,10 @@ export function BookingFlow({
   };
 
   const handleNext = async () => {
+    // Never advance while a step is mid-hold (the Next button is also disabled,
+    // but guard here too so the advance-time booker can't race the eager hold).
+    if (stepBusy) return;
+
     // HeightAgeConfirmModal: intercept party→date transition for race items
     // when the party has any new racers (v1 parity: page.tsx:789-792).
     if (
@@ -477,6 +486,7 @@ export function BookingFlow({
           session={session}
           onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
           dispatch={dispatch}
+          setBusy={setStepBusy}
         />
 
         {bookingHeats && (
@@ -488,8 +498,14 @@ export function BookingFlow({
 
         <NavigationButtons
           stepIndex={stepIndex}
-          canAdvance={advanceOk && !bookingHeats}
-          reason={bookingHeats ? "Booking in progress…" : advanceOk ? undefined : canAdvance.reason}
+          canAdvance={advanceOk && !bookingHeats && !stepBusy}
+          reason={
+            bookingHeats || stepBusy
+              ? "Holding your spot…"
+              : advanceOk
+                ? undefined
+                : canAdvance.reason
+          }
           nextLabel={isLastStep ? "Add to cart" : "Next"}
           onBack={() => dispatch({ type: "back" })}
           onBackToCart={

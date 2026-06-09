@@ -36,6 +36,13 @@ export interface StepDef<I extends BookingItem = BookingItem> {
     session: BookingSession;
     onChange: (patch: Partial<I>) => void;
     dispatch: Dispatch<Action>;
+    /**
+     * Signal the wizard that the step is mid-async (e.g. an eager BMI hold in
+     * flight) so it disables the footer Next button — preventing the customer
+     * from advancing (and the advance-time booker double-booking) while a hold
+     * is still resolving. Optional: steps that never go busy ignore it.
+     */
+    setBusy?: (busy: boolean) => void;
   }>;
   /** Hide the step entirely when this returns false. */
   isVisible: (item: I, session: BookingSession) => boolean;

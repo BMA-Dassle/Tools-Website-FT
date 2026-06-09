@@ -42,6 +42,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
   session,
   onChange,
   dispatch,
+  setBusy,
 }) => {
   const ctx = useMemo(
     () => (item.slug ? resolveAttractionContext(item.slug, session) : null),
@@ -67,6 +68,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
     setHolding(true);
     setHoldingKey(block.start);
     setHoldError(null);
+    setBusy?.(true); // disable the wizard Next while this hold is in flight
     try {
       // Switching away from an already-held slot — release its BMI line first so
       // it doesn't orphan on the bill.
@@ -90,6 +92,7 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
       holdingRef.current = false;
       setHolding(false);
       setHoldingKey(null);
+      setBusy?.(false);
     }
   };
 

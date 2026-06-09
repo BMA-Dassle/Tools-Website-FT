@@ -161,8 +161,14 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       );
     }
 
-    const anyNew = racersInCategory.some((m) => m.isNewRacer);
-    const racerType: RacerType = anyNew ? "new" : "existing";
+    // racerType drives the product SET + tier gating. Use the NEW-racer flow
+    // (Starter only + license bundle) ONLY when EVERY racer is new. A MIXED party
+    // (e.g. a returning Pro racer + a new racer) uses the EXISTING flow so the
+    // list spans every tier up to the highest-qualifying racer's rating. The new
+    // racer still gets their license (added per `isNewRacer` at charge/book time)
+    // and is crossed out of any heat above Starter in the racer selector.
+    const allNew = racersInCategory.every((m) => m.isNewRacer);
+    const racerType: RacerType = allNew ? "new" : "existing";
 
     // Aggregate memberships across this category's verified racers. v1
     // `filterProducts` gates Intermediate/Pro tier visibility on whether
