@@ -114,13 +114,20 @@ interface SquareLineItem {
 const CENTERS: Record<string, string> = {
   TXBSQN0FEKQ11: "Fort Myers",
   PPTR5G2N0QXF7: "Naples",
+  // FastTrax has no bowling (HeadPinz-only), but it IS a group-function center,
+  // so the page shows its group events when scoped here.
+  LAB52GY480CJF: "FastTrax",
 };
 
-/** URL-friendly slugs → center codes for ?center= param */
+/** URL-friendly slugs → center codes for ?center= param (drives the portal embed,
+ *  e.g. /admin/embed/bowling?center=fasttrax). */
 const CENTER_SLUGS: Record<string, string> = {
   fm: "TXBSQN0FEKQ11",
   "fort-myers": "TXBSQN0FEKQ11",
   naples: "PPTR5G2N0QXF7",
+  ft: "LAB52GY480CJF",
+  fasttrax: "LAB52GY480CJF",
+  "fast-trax": "LAB52GY480CJF",
 };
 
 const STATUS_COLORS: Record<string, string> = {
