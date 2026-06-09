@@ -95,13 +95,18 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   // Fetch availability — parse QAMF response including availableTimeOptionIds
   useEffect(() => {
-    if (!item.date || item.hour === null || item.minute === null) return;
+    if (!item.date) return;
     setLoading(true);
     setError(null);
     void (async () => {
       try {
+        // Full-DAY availability: the calendar is date-only, so THIS screen is the
+        // time picker — show every open slot through close. (Passing hour/minute
+        // puts the API in targeted ±5h mode, which capped the list at ~open+5h —
+        // 4 PM, or now+5h today — hiding every evening slot even though lanes run
+        // till close.)
         const res = await fetch(
-          `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&hour=${item.hour}&minute=${item.minute}&kind=${kind}`,
+          `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${kind}`,
         );
         const data = await res.json();
         const avail: AvailabilitySlot[] = (data.Availabilities ?? []).map(
@@ -154,7 +159,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         setLoading(false);
       }
     })();
-  }, [centerId, playerCount, item.date, item.hour, item.minute, kind]);
+  }, [centerId, playerCount, item.date, kind]);
 
   function buildLineItems(
     exp: BowlingExperienceWithDetails,
