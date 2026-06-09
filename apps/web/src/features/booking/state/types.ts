@@ -133,6 +133,12 @@ export interface RaceHeatAssignment {
 export interface RaceItem extends BookingItemBase {
   kind: "race";
   /**
+   * "new" vs "existing" racer — chosen on the first race step (the experience
+   * picker). Drives the Party step's UI: a returning-account lookup ("existing")
+   * vs the new-racer quantity counters ("new"). null until chosen.
+   */
+  entryMode?: "new" | "existing" | null;
+  /**
    * YYYY-MM-DD — the race day. All heats[] fall on this date. The wizard's
    * Date step writes this; subsequent steps (Product, HeatPicker) filter
    * BMI availability by it.
@@ -511,6 +517,7 @@ export function newItem(activity: Activity): SessionItem {
       return {
         id,
         kind: "race",
+        entryMode: null,
         date: null,
         productIdAdult: null,
         productIdJunior: null,

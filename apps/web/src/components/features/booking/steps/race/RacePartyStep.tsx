@@ -29,12 +29,16 @@ function ageFromBirthDate(birthDate: string | null | undefined): number | null {
   return Math.floor((Date.now() - new Date(birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
 }
 
-const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispatch }) => {
-  const [experienceType, setExperienceType] = useState<"new" | "existing" | null>(() => {
-    if (session.party.some((m) => m.bmiPersonId)) return "existing";
-    if (session.party.length > 0) return "new";
-    return null;
-  });
+const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
+  item,
+  session,
+  onChange,
+  dispatch,
+}) => {
+  // The new/existing choice is its OWN step (RaceExperienceStep) and persists on
+  // the item, so the Party step just reads it to decide which UI to show. The
+  // wizard's Back button returns to that step natively.
+  const experienceType = item.entryMode ?? null;
   const [verifiedPerson, setVerifiedPerson] = useState<PersonData | null>(null);
   const [linkedPersons, setLinkedPersons] = useState<LinkedPerson[]>([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
@@ -275,14 +279,6 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
     });
   }
 
-  // ── Experience picker (first screen) ──────────────────────
-
-  if (experienceType === null) {
-    // ExperiencePicker owns its own heading per v1 (race/components/
-    // ExperiencePicker.tsx:14). No outer wrapper.
-    return <ExperiencePicker selected={null} onSelect={setExperienceType} />;
-  }
-
   // ── Returning racer lookup ────────────────────────────────
   // Show lookup only when the customer chose "existing" and hasn't
   // verified anyone yet. After back-nav, `verifiedPerson` resets to
@@ -303,7 +299,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({ session, dispa
         </div>
         <ReturningRacerLookup
           onVerified={handlePersonVerified}
-          onSwitchToNew={() => setExperienceType("new")}
+          onSwitchToNew={() => onChange({ entryMode: "new" })}
         />
       </div>
     );
@@ -712,6 +708,25 @@ function CategoryToggle({
     </div>
   );
 }
+
+// First race step — the new-vs-returning choice. Its OWN step so the wizard's
+// Back/Next navigate it natively (it shows in the breadcrumb); the choice
+// persists on item.entryMode and the Party step reads it.
+const RaceExperienceStepComponent: StepDef<RaceItem>["Component"] = ({ item, onChange }) => (
+  <ExperiencePicker
+    selected={item.entryMode ?? null}
+    onSelect={(mode) => onChange({ entryMode: mode })}
+  />
+);
+
+export const RaceExperienceStep: StepDef<RaceItem> = {
+  id: "race-experience",
+  title: "Racer",
+  Component: RaceExperienceStepComponent,
+  isVisible: () => true,
+  canAdvance: (item) =>
+    item.entryMode ? true : { reason: "Choose new or returning racer to continue." },
+};
 
 export const RacePartyStep: StepDef<RaceItem> = {
   id: "race-party",

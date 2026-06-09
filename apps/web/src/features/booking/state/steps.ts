@@ -56,7 +56,10 @@ export interface StepDef<I extends BookingItem = BookingItem> {
 // Real race step components — PR-B2 commit 9a ships Date + Party; commit 9b
 // fills in Product / HeatPicker / License / Review.
 import { RaceDateStep } from "~/components/features/booking/steps/race/RaceDateStep";
-import { RacePartyStep } from "~/components/features/booking/steps/race/RacePartyStep";
+import {
+  RaceExperienceStep,
+  RacePartyStep,
+} from "~/components/features/booking/steps/race/RacePartyStep";
 import {
   RaceProductStepAdult,
   RaceProductStepJunior,
@@ -89,6 +92,8 @@ import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowle
  */
 export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [
+    // New vs returning racer — its own step so the wizard Back/Next navigate it.
+    RaceExperienceStep as StepDef,
     RacePartyStep as StepDef,
     // Contact right after the party/login step: a returning racer's verified
     // lookup pre-fills it, and it's still BEFORE the first heat books (so the
