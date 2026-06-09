@@ -37,6 +37,10 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
   const lookupDone = useRef(false);
   const loyalty = session.loyalty;
   const digits = phone.replace(/\D/g, "");
+  // Brand-aware labels — same Square loyalty program (one merchant) serves both
+  // brands, but the UI names it per the site the customer is on.
+  const rewardsName = session.entryBrand === "headpinz" ? "HeadPinz Rewards" : "FastTrax Rewards";
+  const pointsUnit = session.entryBrand === "headpinz" ? "Pinz" : "points";
 
   // Auto-lookup when phone reaches 10 digits
   useEffect(() => {
@@ -169,19 +173,24 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
           const tierData = await tierRes.json();
           if (tierData.rewardTiers) {
             setRewardTiers(
-              tierData.rewardTiers.map(
-                (t: {
-                  id: string;
-                  name: string;
-                  points: number;
-                  definition?: { fixedDiscountCents?: number };
-                }) => ({
-                  id: t.id,
-                  name: t.name,
-                  points: t.points,
-                  discountCents: t.definition?.fixedDiscountCents ?? 0,
-                }),
-              ),
+              tierData.rewardTiers
+                .map(
+                  (t: {
+                    id: string;
+                    name: string;
+                    points: number;
+                    definition?: { fixedDiscountCents?: number };
+                  }) => ({
+                    id: t.id,
+                    name: t.name,
+                    points: t.points,
+                    discountCents: t.definition?.fixedDiscountCents ?? 0,
+                  }),
+                )
+                // Only $-off rewards. Percentage / free-item / points-only tiers
+                // resolve to discountCents 0 — omit them so the redemption list
+                // is exclusively dollar discounts the customer can apply here.
+                .filter((t: RewardTier) => t.discountCents > 0),
             );
           }
         } catch {
@@ -223,8 +232,10 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold text-white">HeadPinz Rewards</p>
-            <p className="text-xs text-white/40">Earn 10 Pinz per $1 spent. Sign up free!</p>
+            <p className="text-sm font-semibold text-white">{rewardsName}</p>
+            <p className="text-xs text-white/40">
+              Earn 10 {pointsUnit} per $1 spent. Sign up free!
+            </p>
           </div>
           <button
             type="button"
@@ -252,10 +263,10 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold" style={{ color: GOLD }}>
-              HeadPinz Rewards
+              {rewardsName}
             </p>
             <p className="text-xs text-white/50">
-              {loyalty.balance} Pinz available
+              {loyalty.balance} {pointsUnit} available
               {loyalty.isNewSignup && " (includes 300 signup bonus)"}
             </p>
           </div>
@@ -341,7 +352,9 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
                   >
                     <div>
                       <span className="text-sm text-white">{tier.name}</span>
-                      <span className="ml-2 text-xs text-white/40">{tier.points} Pinz</span>
+                      <span className="ml-2 text-xs text-white/40">
+                        {tier.points} {pointsUnit}
+                      </span>
                     </div>
                     <span className="text-sm font-bold" style={{ color: GOLD }}>
                       -${(tier.discountCents / 100).toFixed(2)}
@@ -351,7 +364,7 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
               })}
             {rewardTiers.every((t) => t.points > loyalty.balance) && (
               <p className="text-xs text-white/30">
-                Not enough Pinz for any reward yet. Keep earning!
+                Not enough {pointsUnit} for any reward yet. Keep earning!
               </p>
             )}
           </div>

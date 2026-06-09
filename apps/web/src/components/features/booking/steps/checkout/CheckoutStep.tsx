@@ -263,7 +263,14 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
       }
 
       const estTax = bmiOverview?.tax ?? 0;
-      const total = quotedTotal ?? preTaxSubtotal + estTax;
+      const rewardDiscount = rewardDiscountCents / 100;
+      const grossTotal = quotedTotal ?? preTaxSubtotal + estTax;
+      // The HeadPinz Rewards $-off reduces the charge, so the DISPLAYED Total
+      // reflects it too — not just cashOwed (which left the Total showing the
+      // full amount + a confusing "Credit" line). The reward is shown as its own
+      // discount row in the totals block (rendered from session.loyalty), so it's
+      // NOT pushed into the line items. displayed Total === cashOwed === charged.
+      const total = Math.max(0, grossTotal - rewardDiscount);
       const tax = quotedTotal != null ? Math.max(0, quotedTotal - preTaxSubtotal) : estTax;
 
       const overview: BillOverview = {
@@ -271,18 +278,10 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         subtotal: preTaxSubtotal,
         tax,
         total,
-        cashOwed: Math.max(0, total - rewardDiscountCents / 100),
+        cashOwed: total,
         creditApplied: bmiOverview?.creditApplied ?? 0,
         isCreditOrder: preTaxSubtotal <= 0,
       };
-
-      if (rewardDiscountCents > 0) {
-        overview.lines.push({
-          name: "HeadPinz Rewards",
-          quantity: 1,
-          amount: -(rewardDiscountCents / 100),
-        });
-      }
 
       const syntheticBillId = bmiBillId ?? `cart-${session.items[0]?.id ?? "0"}`;
       setPhase({ step: "review", overview, bmiBillId: syntheticBillId });
@@ -474,10 +473,11 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           </label>
         </div>
 
-        {/* HeadPinz Rewards — earning + redeeming for all HeadPinz bookings */}
-        {session.entryBrand === "headpinz" && (
-          <LoyaltySection session={session} dispatch={dispatch} phone={phone} />
-        )}
+        {/* Rewards — earning + redeeming for BOTH brands. One Square loyalty
+            program spans the FastTrax + HeadPinz locations (same merchant), so
+            points earn and $-off rewards redeem regardless of which brand the
+            booking is on. LoyaltySection labels itself per the session brand. */}
+        <LoyaltySection session={session} dispatch={dispatch} phone={phone} />
 
         <div className="flex items-center justify-between pt-2">
           <button
@@ -692,6 +692,18 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
               <span className="text-white/60">Tax</span>
               <span className="text-white">${overview.tax.toFixed(2)}</span>
             </div>
+            {session.loyalty?.selectedRewardTier &&
+              session.loyalty.selectedRewardTier.discountCents > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-green-400">
+                    {session.entryBrand === "headpinz" ? "HeadPinz Rewards" : "FastTrax Rewards"} (
+                    {session.loyalty.selectedRewardTier.name})
+                  </span>
+                  <span className="text-green-400">
+                    -${(session.loyalty.selectedRewardTier.discountCents / 100).toFixed(2)}
+                  </span>
+                </div>
+              )}
             <div className="flex justify-between border-t border-white/10 pt-2 font-bold">
               <span className="text-white">Total</span>
               <span className="text-lg text-[#00E2E5]">${overview.total.toFixed(2)}</span>
