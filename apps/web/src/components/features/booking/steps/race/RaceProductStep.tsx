@@ -1,12 +1,11 @@
 "use client";
 
-import Image from "next/image";
-import { modalBackdropProps } from "@/lib/a11y";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import {
   filterProducts,
   productsForSchedule,
+  combineTrackVariants,
   type RaceProduct,
   type RaceTier,
   type RacerType,
@@ -23,9 +22,10 @@ import { PackageCard } from "./PackageCard";
  *   - Title differs by racerType: "Pick Your Starter Race" (new) vs
  *     "Choose Your Race" (existing)
  *   - Tier descriptions render under name + tier label
- *   - Multi-track packs (parent has `trackProducts`) collapse to a single
- *     merged card; click opens TrackPickerModal with Red + Blue cards
- *     (track image + accent + tagline)
+ *   - Multi-track products (parent has `trackProducts`) collapse to a single
+ *     merged card; selecting one shows BOTH tracks on the heat grid (no track
+ *     lock, like the Ultimate combo) — the customer picks any heat regardless
+ *     of track
  *   - Per-card itemized breakdown for new-racer single-race picks
  *     (race + license × racers = total)
  *   - 3-pack badge + "$X / race" footnote for combo packs
@@ -91,35 +91,6 @@ const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
   Mega: { bg: "bg-[#A855F7]/20", text: "text-[#C084FC]" },
 };
 
-// Track image + copy used inside TrackPickerModal — verbatim port from v1.
-const TRACK_INFO: Record<
-  string,
-  {
-    title: string;
-    stat: string;
-    tagline: string;
-    image: string;
-    accent: "red" | "blue";
-  }
-> = {
-  Red: {
-    title: "Red Track",
-    stat: "1,095 ft",
-    tagline: "Technical & clockwise — more turns, more strategy.",
-    image:
-      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
-    accent: "red",
-  },
-  Blue: {
-    title: "Blue Track",
-    stat: "1,013 ft",
-    tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
-    image:
-      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
-    accent: "blue",
-  },
-};
-
 function racersOfCategory(
   party: { category?: Category; isNewRacer: boolean; memberships?: string[] }[],
   category: Category,
@@ -143,8 +114,6 @@ function groupByTier(products: RaceProduct[]): [RaceTier, RaceProduct[]][] {
 
 function makeProductStepComponent(category: Category): StepDef<RaceItem>["Component"] {
   const Component: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
-    const [trackModalProduct, setTrackModalProduct] = useState<RaceProduct | null>(null);
-
     if (!item.date) {
       return (
         <div className="text-center text-sm text-white/50">
@@ -189,12 +158,16 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     const products = useMemo(() => {
       const schedule = scheduleForDate(item.date as string);
       const all = productsForSchedule(schedule, racerType);
-      return filterProducts(all, {
+      const filtered = filterProducts(all, {
         racerType,
         adultCount: category === "adult" ? racerCount : 0,
         juniorCount: category === "junior" ? racerCount : 0,
         memberships,
       }).filter((p) => p.category === category);
+      // Collapse Red+Blue single races into one combined card — the heat grid
+      // then shows BOTH tracks (like the Ultimate combo). Combos, single-track
+      // (Mega) and junior (Blue-only) pass through unchanged.
+      return combineTrackVariants(filtered);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [item.date, racerType, racerCount, memberships.join("|")]);
 
@@ -226,8 +199,12 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       );
 
     const handleCardClick = (product: RaceProduct) => {
+      // Multi-track products — combined single races AND mixed-track combo packs
+      // (3-Packs) — are NOT track-locked: selecting one leaves the track open so
+      // the heat grid shows BOTH tracks (like the Ultimate combo) and the customer
+      // picks any heat(s) regardless of track. Single-track products carry theirs.
       if (isMultiTrack(product)) {
-        setTrackModalProduct(product);
+        setProductWithTrack(product.productId, null);
         return;
       }
       setProductWithTrack(product.productId, product.track);
@@ -364,17 +341,6 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             </div>
           ))}
         </div>
-
-        {trackModalProduct && (
-          <TrackPickerModal
-            product={trackModalProduct}
-            onSelect={(track) => {
-              setProductWithTrack(trackModalProduct.productId, track);
-              setTrackModalProduct(null);
-            }}
-            onClose={() => setTrackModalProduct(null)}
-          />
-        )}
       </div>
     );
   };
@@ -451,6 +417,21 @@ function ProductCard({
               {displayTrack} Track
             </span>
           )}
+          {/* Combined single race — both tracks offered; the heat grid shows
+              both and the customer picks any time on either (like Ultimate). */}
+          {isMulti &&
+            !isPack &&
+            Object.keys(product.trackProducts ?? {}).map(
+              (t) =>
+                TRACK_BADGE[t] && (
+                  <span
+                    key={t}
+                    className={`rounded-full px-2 py-0.5 text-xs font-bold ${TRACK_BADGE[t].bg} ${TRACK_BADGE[t].text}`}
+                  >
+                    {t}
+                  </span>
+                ),
+            )}
         </div>
         {showNewBreakdown ? (
           <span className={`${c.text} shrink-0 text-base font-bold`}>${groupTotal.toFixed(2)}</span>
@@ -508,137 +489,6 @@ function ProductCard({
         </div>
       )}
     </button>
-  );
-}
-
-/**
- * TrackPickerModal — opens when the customer picks a multi-track product
- * (e.g. Intermediate Weekday 3-Pack: Red + Blue). v1 port from
- * `ProductPicker.tsx:296-425`. Two side-by-side cards (Blue first to match
- * /racing marketing copy), each with track image + stat + tagline.
- */
-function TrackPickerModal({
-  product,
-  onSelect,
-  onClose,
-}: {
-  product: RaceProduct;
-  onSelect: (track: string) => void;
-  onClose: () => void;
-}) {
-  const c = TIER_COLOR[product.tier];
-  const tierLabel = TIER_LABEL[product.tier];
-  const tierDesc = TIER_DESCRIPTIONS[product.tier];
-  const tracks = Object.keys(product.trackProducts ?? {});
-  // Blue first per v1.
-  const ordered = [...tracks].sort((a, b) => {
-    if (a === "Blue") return -1;
-    if (b === "Blue") return 1;
-    return 0;
-  });
-
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-4"
-      style={{ height: "100dvh" }}
-      {...modalBackdropProps(onClose)}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="relative flex w-full max-w-2xl flex-col overflow-y-auto overscroll-contain rounded-2xl"
-        style={{
-          backgroundColor: "#0a1128",
-          border: "1.78px solid rgba(255,255,255,0.1)",
-          maxHeight: "calc(100dvh - 1.5rem)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close dialog"
-          className="absolute top-3 right-3 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
-          style={{ fontSize: "20px", lineHeight: 1 }}
-        >
-          ×
-        </button>
-        <div className="p-4 sm:p-7">
-          <div className="mb-4 pr-10 sm:mb-5">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <h3 className="font-display text-lg tracking-wider text-white uppercase sm:text-xl">
-                {product.name}
-              </h3>
-              <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${c.badge}`}>
-                {tierLabel}
-              </span>
-            </div>
-            <p className={`${c.text} text-sm font-bold`}>${product.price.toFixed(2)}</p>
-            <p className="mt-1 text-xs leading-relaxed text-white/50">{tierDesc}</p>
-          </div>
-
-          <p className="mb-3 text-[11px] font-semibold tracking-wider text-white/60 uppercase">
-            Pick your track
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {ordered.map((track) => {
-              const info = TRACK_INFO[track];
-              if (!info) return null;
-              const ringClass =
-                info.accent === "red"
-                  ? "border-red-500/50 hover:border-red-500 hover:ring-red-500/30"
-                  : "border-blue-500/50 hover:border-blue-500 hover:ring-blue-500/30";
-              const titleClass = info.accent === "red" ? "text-red-300" : "text-blue-300";
-              return (
-                <button
-                  key={track}
-                  type="button"
-                  onClick={() => onSelect(track)}
-                  className={`group relative cursor-pointer overflow-hidden rounded-xl border text-left transition-all duration-200 hover:scale-[1.02] hover:ring-2 ${ringClass}`}
-                >
-                  <div className="relative aspect-[21/9] sm:aspect-[4/3]">
-                    <Image
-                      src={info.image}
-                      alt={info.title}
-                      fill
-                      className="object-cover transition-transform duration-500 group-hover:scale-105"
-                      sizes="(max-width: 640px) 100vw, 50vw"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-                  </div>
-                  <div className="p-3">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <h4
-                        className={`font-display text-base tracking-wide uppercase ${titleClass}`}
-                      >
-                        {info.title}
-                      </h4>
-                      <span className="font-mono text-xs text-white/50">{info.stat}</span>
-                    </div>
-                    <p className="text-xs leading-snug text-white/70">{info.tagline}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 

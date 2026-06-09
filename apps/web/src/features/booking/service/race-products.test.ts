@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  combineTrackVariants,
   filterProducts,
   getRaceProductById,
   isRelevantMembership,
@@ -22,6 +23,15 @@ describe("getRaceProductById", () => {
     expect(getRaceProductById(null)).toBeNull();
     expect(getRaceProductById(undefined)).toBeNull();
     expect(getRaceProductById("99999999")).toBeNull();
+  });
+
+  it("reconstructs a combined-track product from its m: id (track keys preserved)", () => {
+    // sorted Blue(43734325) + Red(43734615) weekday-existing Starter
+    const c = getRaceProductById("m:43734325:43734615");
+    expect(c?.name).toBe("Starter Race");
+    expect(c?.track).toBeNull();
+    expect(c?.trackProducts?.Red?.productId).toBe("43734615");
+    expect(c?.trackProducts?.Blue?.productId).toBe("43734325");
   });
 
   it("includes 3-pack day-of combo products", () => {
@@ -168,5 +178,42 @@ describe("isRelevantMembership", () => {
   it("rejects unrelated memberships", () => {
     expect(isRelevantMembership("Birthday Membership")).toBe(false);
     expect(isRelevantMembership("VIP Lounge")).toBe(false);
+  });
+});
+
+describe("combineTrackVariants — merge Red+Blue singles, keep per-track keys", () => {
+  it("collapses adult Red+Blue Starter into ONE combined card spanning both tracks", () => {
+    const starters = productsForSchedule("weekday", "existing").filter(
+      (p) => p.category === "adult" && p.tier === "starter" && !p.packType,
+    );
+    // sanity: the catalog really has separate Red + Blue singles
+    expect(new Set(starters.map((p) => p.track))).toEqual(new Set(["Red", "Blue"]));
+
+    const combined = combineTrackVariants(starters);
+    expect(combined).toHaveLength(1);
+    const c = combined[0];
+    expect(c.name).toBe("Starter Race");
+    expect(c.track).toBeNull();
+    expect(c.productId.startsWith("m:")).toBe(true);
+    // both ORIGINAL per-track product ids survive → each heat still books its own key
+    expect(c.trackProducts?.Red?.productId).toBe("43734615");
+    expect(c.trackProducts?.Blue?.productId).toBe("43734325");
+  });
+
+  it("leaves single-track (Mega) and combos unmerged", () => {
+    const mega = productsForSchedule("mega", "existing").filter((p) => p.category === "adult");
+    const combined = combineTrackVariants(mega);
+    // one track per Mega tier → nothing collapses into an m: combined product
+    expect(combined.some((p) => p.productId.startsWith("m:"))).toBe(false);
+    // combos pass through untouched
+    expect(combined.find((p) => p.productId === "45094787")?.packType).toBe("combo");
+  });
+
+  it("passes junior (Blue-only) through unchanged", () => {
+    const juniors = productsForSchedule("weekday", "existing").filter(
+      (p) => p.category === "junior",
+    );
+    const combined = combineTrackVariants(juniors);
+    expect(combined.some((p) => p.productId.startsWith("m:"))).toBe(false);
   });
 });

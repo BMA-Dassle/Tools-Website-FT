@@ -26,6 +26,7 @@ import { RacerSelectorModal } from "./RacerSelectorModal";
 import { getGroupEventForDate } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
 import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
+import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 
 /**
  * Race step — pick heats for ONE category (adult or junior).
@@ -277,6 +278,22 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       }
       return full;
     }, [product, lockedTrack]);
+
+    // True when the grid spans more than one track (a combined Red+Blue single
+    // race): each heat card then shows a track pill so the customer can tell them
+    // apart, mirroring the Ultimate combo's per-heat track badge.
+    const showTrackBadge = useMemo(
+      () => new Set(fetchPlan.map((f) => f.track)).size > 1,
+      [fetchPlan],
+    );
+    // Distinct tracks on the grid, for the track-info banner (Ultimate parity).
+    const gridTracks = useMemo(
+      () =>
+        [...new Set(fetchPlan.map((f) => f.track))].filter(
+          (t): t is Track => t === "Red" || t === "Blue" || t === "Mega",
+        ),
+      [fetchPlan],
+    );
 
     const queries = useQueries({
       queries: fetchPlan.map(({ productId: pid, pageId }) => ({
@@ -564,6 +581,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           )}
         </div>
 
+        {/* Track-info banner — shown when the grid spans both tracks (combined
+            single race), so the customer knows each track's character before
+            picking. Same banner the Ultimate combo grid uses. */}
+        {showTrackBadge && gridTracks.length > 1 && <TrackInfoBanner tracks={gridTracks} />}
+
         {/* Eager-hold error (the in-progress "Holding…" state shows ON the card). */}
         {holdError && !holding && (
           <div className="mx-auto max-w-sm rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-center text-xs text-red-300">
@@ -621,6 +643,23 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                     : spotsLabel(block.freeSpots, block.capacity).text;
               const isThisHolding = holdingKey === heatKey(tp.productId, block.start);
 
+              // On a combined (multi-track) grid, tint each card by its track to
+              // match the Ultimate combo's color layout; single-track grids keep
+              // the neutral cyan-on-white style.
+              const trackTheme = tp.track ? TRACK_CARD[tp.track] : undefined;
+              const useTheme = showTrackBadge && !!trackTheme;
+              const cardClass = isSelected
+                ? useTheme
+                  ? trackTheme!.selected
+                  : "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
+                : isFull
+                  ? useTheme
+                    ? DISABLED_CARD
+                    : "bg-white/3 cursor-not-allowed border-white/5 opacity-40"
+                  : useTheme
+                    ? `${trackTheme!.base} ${trackTheme!.baseHover} cursor-pointer`
+                    : "cursor-pointer border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10";
+
               return (
                 <button
                   key={`${block.start}-${tp.productId}-${idx}`}
@@ -628,18 +667,21 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   onClick={() => !isFull && !holding && handleClickBlock(tp)}
                   disabled={isFull || holding}
                   title={isConflict ? HEAT_CONFLICT_TOOLTIP : undefined}
-                  className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${
-                    isSelected
-                      ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
-                      : isFull
-                        ? "bg-white/3 cursor-not-allowed border-white/5 opacity-40"
-                        : "cursor-pointer border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10"
-                  }`}
+                  className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
                 >
                   {isThisHolding && (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
                       <span className="text-[11px] font-semibold text-[#00E2E5]">Holding…</span>
+                    </div>
+                  )}
+                  {showTrackBadge && tp.track && TRACK_BADGE[tp.track] && (
+                    <div className="mb-1.5">
+                      <span
+                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${TRACK_BADGE[tp.track].bg} ${TRACK_BADGE[tp.track].text}`}
+                      >
+                        {tp.track}
+                      </span>
                     </div>
                   )}
                   <div className="mb-0.5 text-base font-bold text-white">

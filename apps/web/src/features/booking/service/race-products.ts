@@ -619,13 +619,96 @@ const RACE_PRODUCTS: RaceProduct[] = [
 
 // ────────────────────────── lookup + filter helpers ──────────────────────
 
-/** Look up a race product by its BMI productId. Returns null when unknown. */
+// ── Combined-track single races ──────────────────────────────────────────
+//
+// A single race is normally split into separate Red/Blue cards (separate BMI
+// product ids + $0 build keys). The combined-track view collapses each adult
+// Red+Blue pair into ONE "Starter Race" / "Intermediate Race" / "Pro Race" card
+// whose grid shows BOTH tracks (like the Ultimate combo) — the customer picks any
+// heat regardless of track, and each picked heat still books against its OWN
+// track's product/build key. The combined card carries a synthetic, deterministic
+// id `m:<id>:<id>` so getRaceProductById can reconstruct it (with trackProducts)
+// anywhere a product is resolved by id (the heat picker, charge lines, etc.).
+const COMBINED_PREFIX = "m:";
+const TIER_RACE_NAME: Record<RaceTier, string> = {
+  starter: "Starter Race",
+  intermediate: "Intermediate Race",
+  pro: "Pro Race",
+};
+
+/** Deterministic id for the combined product spanning these track variants. */
+function combinedRaceProductId(productIds: string[]): string {
+  return COMBINED_PREFIX + [...productIds].sort().join(":");
+}
+
+/** Rebuild a combined-track product from its synthetic `m:` id (the component
+ *  Red/Blue single ids), or null if its parts can't be resolved. */
+function reconstructCombined(pid: string): RaceProduct | null {
+  const parts = pid
+    .slice(COMBINED_PREFIX.length)
+    .split(":")
+    .filter(Boolean)
+    .map((id) => RACE_PRODUCTS.find((p) => p.productId === id))
+    .filter((p): p is RaceProduct => !!p);
+  if (parts.length < 2) return null;
+  const rep = parts[0];
+  const trackProducts: Record<string, { productId: string; pageId: string }> = {};
+  for (const p of parts) {
+    if (p.track) trackProducts[p.track] = { productId: p.productId, pageId: p.pageId };
+  }
+  return { ...rep, productId: pid, name: TIER_RACE_NAME[rep.tier], track: null, trackProducts };
+}
+
+/** Look up a race product by its BMI productId (or a synthetic combined `m:` id).
+ *  Returns null when unknown. */
 export function getRaceProductById(
   productId: string | number | null | undefined,
 ): RaceProduct | null {
   if (productId == null) return null;
   const pid = String(productId);
+  if (pid.startsWith(COMBINED_PREFIX)) return reconstructCombined(pid);
   return RACE_PRODUCTS.find((p) => p.productId === pid) ?? null;
+}
+
+/**
+ * Collapse adult Red+Blue single-race variants (same tier) into ONE combined
+ * card whose grid shows both tracks. Single-track tiers (Mega), junior (Blue
+ * only), and combos/packs pass through unchanged. Each combined product keeps a
+ * `trackProducts` map to the ORIGINAL per-track product ids, so every picked heat
+ * still books against its own track's BMI product + $0 build key.
+ */
+export function combineTrackVariants(products: RaceProduct[]): RaceProduct[] {
+  const singles = products.filter((p) => !p.packType && !p.trackProducts);
+  const rest = products.filter((p) => p.packType || p.trackProducts);
+  const groups = new Map<string, RaceProduct[]>();
+  for (const p of singles) {
+    const key = `${p.category}:${p.tier}`;
+    const list = groups.get(key) ?? [];
+    list.push(p);
+    groups.set(key, list);
+  }
+  const merged: RaceProduct[] = [];
+  for (const group of groups.values()) {
+    const tracked = group.filter((g) => !!g.track);
+    const distinctTracks = new Set(tracked.map((g) => g.track));
+    if (distinctTracks.size < 2) {
+      merged.push(...group); // single track (Mega) or lone variant — leave as-is
+      continue;
+    }
+    const rep = group[0];
+    const trackProducts: Record<string, { productId: string; pageId: string }> = {};
+    for (const g of tracked) {
+      trackProducts[g.track as string] = { productId: g.productId, pageId: g.pageId };
+    }
+    merged.push({
+      ...rep,
+      productId: combinedRaceProductId(tracked.map((g) => g.productId)),
+      name: TIER_RACE_NAME[rep.tier],
+      track: null,
+      trackProducts,
+    });
+  }
+  return [...merged, ...rest];
 }
 
 // ────────────────────────── $0 BMI build products ────────────────────────
