@@ -10,7 +10,8 @@ import { bmiGet, getRaceProductById } from "../../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { modalBackdropProps } from "@/lib/a11y";
-import { productDisplayNameFromPackages } from "@/lib/packages";
+import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
+import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
 
@@ -837,25 +838,9 @@ export default function ConfirmationPage() {
           }
         }
 
-        // Add Express Lane memo to BMI reservation
-        if (allWaiversValid && allConfirmations.length > 0) {
-          try {
-            const memoQs = new URLSearchParams({
-              endpoint: "booking/memo",
-              ...(getBookingClientKey() ? { clientKey: getBookingClientKey()! } : {}),
-            });
-            for (const conf of allConfirmations) {
-              const memoBody = `{"orderId":${conf.billId},"memo":"Express Lane — ${conf.resNumber}"}`;
-              fetch(`/api/bmi?${memoQs.toString()}`, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: memoBody,
-              }).catch(() => {});
-            }
-          } catch {
-            /* non-fatal */
-          }
-        }
+        // (Express Lane / POV / group / package notes are no longer written as
+        // separate memos here — they're composed into ONE combined memo below so
+        // none overrides another. See the "combined reservation memo" block.)
 
         // Waiver link for new racers — get projectReference from Office API
         const isReturning = hasReturningRacers;
@@ -976,42 +961,49 @@ export default function ConfirmationPage() {
           }).catch(() => {});
         }
 
-        // Add POV codes to BMI reservation memo
-        if (claimedPovCodes.length > 0 && id) {
-          try {
-            const memoQs = new URLSearchParams({
-              endpoint: "booking/memo",
-              ...(getBookingClientKey() ? { clientKey: getBookingClientKey()! } : {}),
-            });
-            const memoBody = `{"orderId":${id},"memo":"POV Codes: ${claimedPovCodes.join(", ")} — Emailed and texted to guest"}`;
-            await fetch(`/api/bmi?${memoQs.toString()}`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: memoBody,
-            });
-          } catch {
-            /* non-fatal */
-          }
-        }
-
-        // Add memo to each bill listing related reservations in the group
-        if (allConfirmations.length > 1) {
+        // Combined reservation memo — ONE write per bill composing every
+        // applicable note in priority order (Express Lane, booking URL, Ultimate
+        // Qualifier, 3-race pack, POV codes, group reservations, amount paid).
+        // BMI's booking/memo is a single OVERWRITING field, so the old separate
+        // writes clobbered each other (v1's "3-pack overrode express lane" bug).
+        if (allConfirmations.length > 0) {
           const memoQs = new URLSearchParams({
             endpoint: "booking/memo",
             ...(getBookingClientKey() ? { clientKey: getBookingClientKey()! } : {}),
           });
+          const pkgId = bookingRecord?.package as string | null | undefined;
+          const uqNote = pkgId
+            ? (getPackageIgnoreFlag(pkgId)?.disclaimers?.billMemo ?? null)
+            : null;
+          const memoLines: OrderLine[] =
+            overview?.lines && overview.lines.length > 0
+              ? overview.lines
+              : parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
+          const isThreePack = memoLines.some((l) => /3[\s-]?(race[\s-]?)?pack/i.test(l.name));
+          const origin = typeof window !== "undefined" ? window.location.origin : "";
           for (const conf of allConfirmations) {
+            const related = allConfirmations
+              .filter((c) => c.billId !== conf.billId && c.resNumber)
+              .map((c) => `${c.resNumber} (${c.racerName})`)
+              .join(", ");
+            const memo = buildReservationMemo({
+              expressLaneResNumber: allWaiversValid ? conf.resNumber : null,
+              bookingUrl: origin ? `${origin}/book/confirmation/v2?billId=${conf.billId}` : null,
+              ultimateQualifierNote: uqNote,
+              isThreeRacePack: isThreePack,
+              povCodes: conf.billId === id ? claimedPovCodes : [],
+              relatedReservations: related || null,
+              amountPaid: amount > 0 ? amount : null,
+            });
+            if (!memo) continue;
             try {
-              const others = allConfirmations
-                .filter((c) => c.billId !== conf.billId && c.resNumber)
-                .map((c) => `${c.resNumber} (${c.racerName})`)
-                .join(", ");
-              if (!others) continue;
-              const memo = `Group booking — related reservations: ${others}`;
+              // Raw-inject the bill id (17-digit bigint — NEVER Number() /
+              // JSON.stringify it) and JSON-escape only the memo string. Mirrors
+              // race.ts writeBillMemo. One write per bill = nothing overrides.
               await fetch(`/api/bmi?${memoQs.toString()}`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: `{"orderId":${conf.billId},"memo":"${memo.replace(/"/g, '\\"')}"}`,
+                body: `{"orderId":${conf.billId},"memo":${JSON.stringify(memo)}}`,
               });
             } catch {
               /* non-fatal */
