@@ -144,20 +144,47 @@ export interface CreditRedemption {
   ref: string;
 }
 
+/** A member's available balance for one deposit-kind id, summed across the
+ *  matching credit-balance rows (matched by name → kind). */
+export function memberBalanceForKind(
+  creditBalances: Array<{ kind: string; balance: number }> | undefined,
+  depositKindId: string,
+): number {
+  if (!creditBalances?.length) return 0;
+  let total = 0;
+  for (const cb of creditBalances) {
+    if (creditTypeForDepositName(cb.kind)?.depositKindId === depositKindId) {
+      total += cb.balance > 0 ? cb.balance : 0;
+    }
+  }
+  return total;
+}
+
 /**
  * Derive per-heat credit redemptions from a session: for every race heat whose
  * assigned member is redeeming (carries `redeemCreditKindId`), one credit of that
- * kind is spent. A racer with N heats spends N credits. Non-transferable: keyed to
- * the assigned member's own bmiPersonId.
+ * kind is spent — CAPPED at the member's available balance for that kind. A racer
+ * with 2 credits but 3 heats redeems 2 heats (the 3rd is paid in cash); they're
+ * never charged $0 for more heats than they have credits, and the server validate
+ * (count ≤ balance) always passes. Non-transferable: keyed to the assigned
+ * member's own bmiPersonId. Heats are walked in session order so this list and
+ * `applyCreditRedemptionsToOverview` redeem the SAME heats — displayed == charged.
  */
 export function redemptionsFromSession(session: BookingSession): CreditRedemption[] {
   const out: CreditRedemption[] = [];
+  // `${personId}:${kindId}` -> credits already spent (cap guard).
+  const spent = new Map<string, number>();
   for (const item of session.items) {
     if (item.kind !== "race") continue;
     item.heats.forEach((h, i) => {
       if (!h.assignedTo) return;
       const m = session.party.find((p) => p.id === h.assignedTo);
       if (!m?.bmiPersonId || !m.redeemCreditKindId) return;
+      const key = `${m.bmiPersonId}:${m.redeemCreditKindId}`;
+      const used = spent.get(key) ?? 0;
+      const balance = memberBalanceForKind(m.creditBalances, m.redeemCreditKindId);
+      if (used >= balance) return; // out of credits — remaining heats are paid in cash
+      spent.set(key, used + 1);
       out.push({
         personId: m.bmiPersonId,
         depositKindId: m.redeemCreditKindId,

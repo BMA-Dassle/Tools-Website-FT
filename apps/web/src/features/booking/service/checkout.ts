@@ -821,18 +821,27 @@ export function applyCreditRedemptionsToOverview(
   overview: BillOverview,
   session: BookingSession,
 ): BillOverview {
-  // productId -> number of heats redeemed (assigned member carries redeemCreditKindId)
-  const redeemedByProduct = new Map<string, number>();
-  let redeemedCount = 0;
+  // Derive the zeroed heats from the SAME capped redemption list the server
+  // validates + deducts (redemptionsFromSession), so a racer with fewer credits
+  // than heats gets exactly `balance` heats at $0 and pays cash for the rest —
+  // displayed == charged == deducted.
+  const redemptions = redemptionsFromSession(session);
+  if (redemptions.length === 0) return overview;
+  const refToProduct = new Map<string, string>();
   for (const item of session.items) {
     if (item.kind !== "race") continue;
-    for (const h of item.heats) {
-      if (!h.productId || !h.assignedTo) continue;
-      const member = session.party.find((m) => m.id === h.assignedTo);
-      if (!member?.redeemCreditKindId) continue;
-      redeemedByProduct.set(h.productId, (redeemedByProduct.get(h.productId) ?? 0) + 1);
-      redeemedCount += 1;
-    }
+    item.heats.forEach((h, i) => {
+      if (h.productId) refToProduct.set(h.heatId ?? `${item.id}:${i}`, h.productId);
+    });
+  }
+  // productId -> number of heats actually redeemed (capped at balance upstream).
+  const redeemedByProduct = new Map<string, number>();
+  let redeemedCount = 0;
+  for (const r of redemptions) {
+    const pid = refToProduct.get(r.ref);
+    if (!pid) continue;
+    redeemedByProduct.set(pid, (redeemedByProduct.get(pid) ?? 0) + 1);
+    redeemedCount += 1;
   }
   if (redeemedCount === 0) return overview;
 

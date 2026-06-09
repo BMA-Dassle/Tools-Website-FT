@@ -72,12 +72,11 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
 
   const contact: ContactInfo = { firstName, lastName, email, phone, smsOptIn };
 
-  // ── Race-credit redemption (explicit per-racer choice) ──────────
-  // personId -> chosen depositKindId. Offered ONLY to returning racers / linked
-  // family (bmiPersonId && !isNewRacer) who hold a credit eligible for the race
-  // day. Credits are non-transferable — each racer spends only their own.
-  const [creditChoices, setCreditChoices] = useState<Record<string, string>>({});
-
+  // ── Race-credit redemption (per-racer) ──────────────────────────
+  // Returning racers / linked family (bmiPersonId && !isNewRacer) pay for their
+  // heats with their OWN race credits (non-transferable). Defaults ON when a
+  // racer has eligible credits; PARTIAL is allowed — a racer with fewer credits
+  // than heats redeems what they have and pays cash for the rest.
   const raceItem = session.items.find((i): i is RaceItem => i.kind === "race") ?? null;
   const raceDate = raceItem?.date ?? null;
 
@@ -89,6 +88,19 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     }
     return n;
   };
+
+  // personId -> chosen depositKindId. Default ON: pre-select each eligible
+  // racer's first credit so credits apply automatically (they can untick it).
+  const [creditChoices, setCreditChoices] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const m of session.party) {
+      if (!m.bmiPersonId || m.isNewRacer) continue;
+      if (heatCountForMember(m.id) <= 0) continue;
+      const credits = eligibleCreditsForMember(m.creditBalances, raceDate);
+      if (credits.length > 0) init[m.bmiPersonId] = credits[0].depositKindId;
+    }
+    return init;
+  });
 
   const creditEligible = session.party
     .filter((m) => m.bmiPersonId && !m.isNewRacer)
@@ -551,13 +563,13 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
               const credit = credits[0];
               const personId = member.bmiPersonId as string;
               const checked = creditChoices[personId] === credit.depositKindId;
-              const enough = credit.balance >= heats;
+              // Partial allowed: redeem up to the balance, pay cash for the rest.
+              const used = Math.min(credit.balance, heats);
+              const partial = used < heats;
               return (
                 <label
                   key={member.id}
-                  className={`flex items-center justify-between gap-3 ${
-                    enough ? "cursor-pointer" : "opacity-50"
-                  }`}
+                  className="flex cursor-pointer items-center justify-between gap-3"
                 >
                   <span className="min-w-0 text-sm text-white/70">
                     <span className="font-medium text-white">
@@ -567,14 +579,18 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
                     <span className="text-white/40">
                       {" · "}
                       {credit.label} ({credit.balance} available)
-                      {heats > 1 ? ` · uses ${heats}` : ""}
+                      {heats > 1 && ` · covers ${used} of ${heats} heat${heats !== 1 ? "s" : ""}`}
                     </span>
+                    {partial && checked && (
+                      <span className="mt-0.5 block text-xs text-amber-400/80">
+                        {heats - used} heat{heats - used !== 1 ? "s" : ""} paid in cash
+                      </span>
+                    )}
                   </span>
                   <input
                     type="checkbox"
                     aria-label={`Use a ${credit.label} for ${member.firstName}`}
                     checked={checked}
-                    disabled={!enough}
                     onChange={(e) => toggleCredit(personId, credit.depositKindId, e.target.checked)}
                     className="h-4 w-4 shrink-0 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
                   />
