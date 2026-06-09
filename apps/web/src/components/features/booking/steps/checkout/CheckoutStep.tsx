@@ -532,6 +532,27 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         heatRacers.set(h.heatId, list);
       }
     }
+    // Per-heat schedule (time · track · racers) so the review reflects EVERY
+    // selected heat — the priced lines aggregate (e.g. "Starter Race Mega x4"),
+    // which hid the individual times. Mirrors the cart's heat list. Deduped by
+    // (product, time) and ordered by start.
+    const heatSchedule: Array<{ time: string; track: string | null; racers: string[] }> = [];
+    const seenHeatKeys = new Set<string>();
+    for (const it of session.items) {
+      if (it.kind !== "race") continue;
+      for (const h of it.heats) {
+        if (!h.heatId) continue;
+        const key = `${h.productId ?? ""}|${h.heatId}`;
+        if (seenHeatKeys.has(key)) continue;
+        seenHeatKeys.add(key);
+        heatSchedule.push({
+          time: h.heatId,
+          track: h.track,
+          racers: heatRacers.get(h.heatId) ?? [],
+        });
+      }
+    }
+    heatSchedule.sort((a, b) => a.time.localeCompare(b.time));
     return (
       <div className="mx-auto max-w-lg space-y-6">
         <div className="text-center">
@@ -600,6 +621,29 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             <p className="text-xs text-white/40">
               Credits aren&apos;t transferable — each racer can only use their own.
             </p>
+          </div>
+        )}
+
+        {/* Your heats — per-heat time/track/racers, so every selection is
+            visible even though the priced lines below aggregate by product. */}
+        {heatSchedule.length > 0 && (
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+              Your heats
+            </p>
+            <ul className="space-y-1.5">
+              {heatSchedule.map((h, i) => (
+                <li key={i} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-white">
+                    {formatTime(h.time)}
+                    {h.track && <span className="text-white/40"> · {h.track} Track</span>}
+                  </span>
+                  {h.racers.length > 0 && (
+                    <span className="truncate text-xs text-white/50">{h.racers.join(", ")}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
