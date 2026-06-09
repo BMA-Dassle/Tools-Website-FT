@@ -106,7 +106,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         // 4 PM, or now+5h today — hiding every evening slot even though lanes run
         // till close.)
         const res = await fetch(
-          `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${kind}`,
+          `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${kind}&stepMinutes=60`,
         );
         const data = await res.json();
         const avail: AvailabilitySlot[] = (data.Availabilities ?? []).map(

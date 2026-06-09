@@ -117,22 +117,26 @@ function buildFullDayProbeTimes(
   tzOffset: string,
   openHour: number,
   closeHour: number,
+  stepMinutes = 15,
 ): string[] {
   const times: string[] = [];
   const [y, mo, d] = date.split("-").map(Number);
   const nextDate = new Date(y, mo - 1, d + 1);
   const nextDateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}-${String(nextDate.getDate()).padStart(2, "0")}`;
 
-  // Probe from open to close in 15-min increments
-  for (let h = openHour; h <= closeHour; h++) {
-    for (const m of [0, 15, 30, 45]) {
-      if (h === closeHour && m > 0) break;
-      const calHour = h % 24;
-      const calDate = h >= 24 ? nextDateStr : date;
-      times.push(
-        `${calDate}T${String(calHour).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
-      );
-    }
+  // Probe from open to close at the requested granularity. QAMF is point-in-time
+  // (one probe per slot), so a finer step = more probes = slower. Callers that
+  // need the WHOLE day (the bowling time picker) pass a coarser step (e.g. 60)
+  // to stay under the function timeout; KBF reschedule keeps the 15-min default.
+  const step = Math.max(15, stepMinutes);
+  for (let t = openHour * 60; t <= closeHour * 60; t += step) {
+    const h = Math.floor(t / 60);
+    const m = t % 60;
+    const calHour = h % 24;
+    const calDate = h >= 24 ? nextDateStr : date;
+    times.push(
+      `${calDate}T${String(calHour).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
+    );
   }
   return times;
 }
@@ -186,6 +190,11 @@ export async function GET(req: NextRequest) {
   const players = parseInt(playersStr, 10);
   const webOfferId = webOfferIdStr ? parseInt(webOfferIdStr, 10) : undefined;
   const durationMinOver = durationMinStr ? parseInt(durationMinStr, 10) : undefined;
+  // Full-day probe granularity (minutes). Coarser = fewer QAMF probes = faster;
+  // the bowling time picker passes 60 (hourly) so a whole-day scan stays under
+  // the timeout. Defaults to 15 (KBF reschedule + targeted mode).
+  const stepMinutesStr = searchParams.get("stepMinutes");
+  const stepMinutes = stepMinutesStr ? Math.max(15, parseInt(stepMinutesStr, 10)) : 15;
 
   if (isNaN(centerId) || isNaN(players) || players < 1) {
     console.log(`[avail] EXIT: invalid centerId or players`);
@@ -291,8 +300,8 @@ export async function GET(req: NextRequest) {
       probeTimes.push(buildProbeTime(startDate, probeH, probeM, tzOffset));
     }
   } else {
-    // Full-day mode: probe every 15 min from open to close
-    probeTimes = buildFullDayProbeTimes(startDate, tzOffset, openHour, closeHour);
+    // Full-day mode: probe open→close at the requested granularity (stepMinutes).
+    probeTimes = buildFullDayProbeTimes(startDate, tzOffset, openHour, closeHour, stepMinutes);
   }
 
   // ── Probe QAMF ──────────────────────────────────────────────────
