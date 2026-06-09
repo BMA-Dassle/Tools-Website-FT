@@ -37,6 +37,10 @@ export interface BookingFlowProps {
   initialContext?: EntryContext;
   initialPromo?: AppliedPromo | null;
   urlCode?: string | null;
+  /** Open straight to checkout (from the landing cart bar's "Checkout →", which
+   *  routes to the cart's existing activity with ?checkout=1). Only takes effect
+   *  on the cart view (no active item). */
+  initialCheckout?: boolean;
 }
 
 /**
@@ -62,13 +66,16 @@ export function BookingFlow({
   initialContext,
   initialPromo,
   urlCode,
+  initialCheckout = false,
 }: BookingFlowProps) {
   const initial = useMemo(
     () => emptySession({ entryBrand, context: initialContext, appliedPromo: initialPromo ?? null }),
     [entryBrand, initialContext, initialPromo],
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial);
-  const [checkoutActive, setCheckoutActive] = useState(false);
+  // Seed from ?checkout=1 — opens checkout directly when arriving from the
+  // landing cart bar (only meaningful on the cart view, i.e. no active item).
+  const [checkoutActive, setCheckoutActive] = useState(initialCheckout);
   const [showHeightConfirm, setShowHeightConfirm] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState<string>("Reserving your heats…");

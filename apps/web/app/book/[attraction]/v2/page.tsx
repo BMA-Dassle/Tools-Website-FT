@@ -120,6 +120,7 @@ export default async function BookActivityV2Page({
       initialContext={initialContext}
       initialPromo={initialPromo}
       urlCode={code || null}
+      initialCheckout={sp.checkout === "1"}
     />
   );
 }

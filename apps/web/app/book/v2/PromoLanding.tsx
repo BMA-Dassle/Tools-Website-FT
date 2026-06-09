@@ -84,6 +84,24 @@ export function PromoLanding({
     () => 0,
   );
   const hasCart = cartItemCount > 0;
+  // Route the cart bar to the activity ALREADY in the cart — not a hardcoded
+  // /book/race/v2, which seeded a spurious race item (the new/existing racer
+  // picker) for a bowling-only cart. KBF has its own route; attractions carry
+  // their slug on the item. SSR snapshot "race" is unused (the bar only renders
+  // client-side once hasCart is true).
+  const cartSlug = useSyncExternalStore(
+    () => () => {},
+    () => {
+      const first = peekBookingSession()?.items[0];
+      if (!first) return "race";
+      if (first.kind === "bowling") return "bowling";
+      if (first.kind === "kbf") return "kbf";
+      if (first.kind === "attraction")
+        return (first as { slug?: string | null }).slug ?? "gel-blaster";
+      return "race";
+    },
+    () => "race",
+  );
   const [rejected, setRejected] = useState(seedRejected);
   const [submitting, setSubmitting] = useState(false);
 
@@ -183,13 +201,13 @@ export function PromoLanding({
             </div>
             <div className="flex items-center gap-3">
               <Link
-                href="/book/race/v2"
+                href={`/book/${cartSlug}/v2`}
                 className="rounded-lg border border-white/15 px-4 py-2 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
               >
                 View Cart
               </Link>
               <Link
-                href="/book/race/v2?checkout=1"
+                href={`/book/${cartSlug}/v2?checkout=1`}
                 className="rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
               >
                 Checkout →
