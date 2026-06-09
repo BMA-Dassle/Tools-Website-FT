@@ -138,6 +138,30 @@ function normalizeNum(n: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * Earliest race START (epoch ms) for the time-passed fallback. The reservation's
+ * `booked_at` is the BOOKING time (not the race time), so we read the actual heat
+ * start from booking_metadata. Heat ids are ET wall-clock with NO offset
+ * (e.g. "2026-06-09T16:24:00"), so apply the ET offset (DST-approx by month)
+ * before comparing to now. Returns null when no heat time is recorded — the
+ * caller must NOT fall back without a real start time.
+ */
+function raceStartEpoch(r: BowlingReservation): number | null {
+  const md = r.bookingMetadata as { heats?: Array<{ heatId?: string }> } | null | undefined;
+  const heats = md?.heats;
+  if (!Array.isArray(heats) || heats.length === 0) return null;
+  let earliest = Infinity;
+  for (const h of heats) {
+    const hid = h?.heatId;
+    if (typeof hid !== "string") continue;
+    const month = Number(hid.slice(5, 7));
+    const offset = month >= 3 && month <= 11 ? "-04:00" : "-05:00"; // EDT vs EST (approx)
+    const t = Date.parse(hid.replace(/Z$/, "") + offset);
+    if (Number.isFinite(t) && t < earliest) earliest = t;
+  }
+  return Number.isFinite(earliest) ? earliest : null;
+}
+
 /** Fetch the dayplanner for a center and return the set of Arrived (-5) project
  *  numbers (normalized). */
 async function arrivedNumbers(clientKey: string): Promise<Set<string>> {
@@ -345,8 +369,11 @@ export async function GET(req: NextRequest) {
       const label = `${r.bmiReservationNumber ?? "?"} (neon ${r.id})`;
       const isArrived = arrived.has(normalizeNum(r.bmiReservationNumber));
       // ⚠️ TEMPORARY FALLBACK (see header — remove once -5 detection is trusted):
-      // settle once the race START TIME has passed even if we never saw Arrived.
-      const startPassed = !!r.bookedAt && Date.now() > Date.parse(r.bookedAt);
+      // settle once the actual race START TIME (earliest heat) has passed even if
+      // we never saw Arrived. Uses booking_metadata heat time, NOT booked_at
+      // (which is the booking timestamp for race/attraction anchor rows).
+      const startEpoch = raceStartEpoch(r);
+      const startPassed = startEpoch != null && Date.now() > startEpoch;
       const viaFallback = !isArrived && startPassed;
       if (!isArrived && !viaFallback) {
         (result.skipped as string[]).push(`${label}: not checked in (-5) yet`);
