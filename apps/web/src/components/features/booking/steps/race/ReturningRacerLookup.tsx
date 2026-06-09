@@ -305,6 +305,16 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
             )
             .map((m: { name: string }) => m.name)
             .filter((n: string, i: number, a: string[]) => a.indexOf(n) === i);
+          // Fetch the racer's credit balances — the login-code path previously
+          // skipped this (only the phone/email path fetched them), so anyone who
+          // logged in with their code saw NO race credits at checkout.
+          let creditBalances: PersonData["creditBalances"] = [];
+          try {
+            const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
+            if (depRes.ok) creditBalances = creditBalancesFromDeposits(await depRes.json());
+          } catch {
+            /* non-fatal */
+          }
           const person: PersonData = {
             personId: String(p.id),
             fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
@@ -313,6 +323,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
             loginCode: matchTag.tag,
             memberships,
             birthDate: p.birthDate || null,
+            creditBalances,
           };
           setPhase("verified");
           setTimeout(() => onVerified(person), 400);
