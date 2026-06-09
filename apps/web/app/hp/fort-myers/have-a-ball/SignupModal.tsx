@@ -99,6 +99,16 @@ export default function SignupModal({ onClose }: Props) {
     joinAttemptId.current = crypto.randomUUID();
   }, []);
 
+  // Lock background scroll while open — on mobile the page behind would
+  // otherwise scroll instead of the modal content.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   // Fetch the current quote (back-pay + go-forward schedule) on open.
   useEffect(() => {
     let cancelled = false;
@@ -174,12 +184,12 @@ export default function SignupModal({ onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
       style={{ backgroundColor: "rgba(10,22,40,0.9)" }}
       {...modalBackdropProps(onClose)}
     >
       <div
-        className="relative w-full max-w-2xl rounded-xl my-8"
+        className="relative w-full max-w-2xl rounded-xl max-h-[90vh] flex flex-col overflow-hidden"
         style={{ backgroundColor: "#0a1628", border: "1.78px dashed rgba(253,91,86,0.45)" }}
       >
         <button
@@ -190,7 +200,7 @@ export default function SignupModal({ onClose }: Props) {
           ×
         </button>
 
-        <div className="p-6 sm:p-8">
+        <div className="p-6 sm:p-8 min-h-0 overflow-y-auto overscroll-contain">
           <div className="mb-5">
             <p className="text-[#fd5b56] text-xs font-bold uppercase tracking-widest">
               HeadPinz Fort Myers
@@ -238,6 +248,23 @@ export default function SignupModal({ onClose }: Props) {
 
               {step === "info" && (
                 <form onSubmit={handleInfoNext} className="space-y-4">
+                  {plan && plan.backPayWeeks > 0 && (
+                    <div className="rounded-lg border border-[#fd5b56]/40 bg-[#fd5b56]/10 p-4 text-sm">
+                      <p className="text-white font-semibold mb-1">
+                        The season&apos;s already underway — here&apos;s how joining now works:
+                      </p>
+                      <p className="text-white/75 leading-relaxed">
+                        You&apos;ll pay a one-time{" "}
+                        <strong className="text-white">{usd(plan.backPayAmountCents)}</strong>{" "}
+                        catch-up today for the {plan.backPayWeeks} week
+                        {plan.backPayWeeks === 1 ? "" : "s"} already played, then{" "}
+                        <strong className="text-white">{usd(plan.weeklyTotalCents)}/week</strong>{" "}
+                        starting {longDate(plan.subStartDate)}. Same {usd(plan.seasonTotalCents)}{" "}
+                        season total as everyone else — you&apos;ll confirm the card on the next
+                        step.
+                      </p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Field label="First name" error={errors.firstName}>
                       <input
