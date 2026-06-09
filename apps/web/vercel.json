@@ -97,6 +97,14 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/race-dayof-pay",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/race-confirm-reconcile",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/group-square-settled-close",
       "schedule": "0 */6 * * *"
     }

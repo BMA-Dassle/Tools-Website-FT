@@ -104,6 +104,17 @@ interface PaymentFormProps {
   lineItem?: PaymentLineItem;
   /** Optional server-side hook fired AFTER Square charges. */
   postPaymentAction?: PostPaymentAction;
+  /**
+   * Tokenize-only mode: when set, the Pay button tokenizes the card
+   * and calls this callback with the nonce(s) instead of POSTing to
+   * /api/square/pay. Lets the caller (e.g. v2 CheckoutStep) control
+   * the payment flow via /api/booking/v2/reserve.
+   */
+  onTokenize?: (params: {
+    cardNonce: string | null;
+    savedCardId: string | null;
+    giftCardNonce: string | null;
+  }) => Promise<void>;
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -157,6 +168,7 @@ export default function PaymentForm({
   allowSaveCard = false,
   lineItem,
   postPaymentAction,
+  onTokenize,
 }: PaymentFormProps) {
   const squareLocationId = detectSquareLocationId(locationIdProp);
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">(
@@ -364,16 +376,36 @@ export default function PaymentForm({
       // GC fully covers — no card needed. Send null token; the backend
       // authorizes the GC alone.
       if (giftCardNonce && remainingCents === 0) {
+        if (onTokenize) {
+          await onTokenize({ cardNonce: null, savedCardId: null, giftCardNonce });
+          return;
+        }
         await processPayment(null, false);
         return;
       }
       if (selectedCardId) {
+        if (onTokenize) {
+          await onTokenize({
+            cardNonce: null,
+            savedCardId: selectedCardId,
+            giftCardNonce: giftCardNonce ?? null,
+          });
+          return;
+        }
         await processPayment(selectedCardId, true);
       } else {
         if (!cardRef.current) throw new Error("Card form not ready");
         const result = await cardRef.current.tokenize();
         if (result.status !== "OK" || !result.token) {
           throw new Error(result.errors?.[0]?.message || "Card validation failed");
+        }
+        if (onTokenize) {
+          await onTokenize({
+            cardNonce: result.token,
+            savedCardId: null,
+            giftCardNonce: giftCardNonce ?? null,
+          });
+          return;
         }
         await processPayment(result.token, false);
       }

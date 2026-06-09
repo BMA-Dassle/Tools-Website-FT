@@ -5,7 +5,11 @@ import {
   type SurveyOrigin,
   type SurveyRewardKind,
 } from "@/lib/guest-survey-db";
-import { getBowlingReservationsByIds, type BowlingReservation } from "@/lib/bowling-db";
+import {
+  getBowlingReservationsByIds,
+  type BowlingReservation,
+  type ReservationProductKind,
+} from "@/lib/bowling-db";
 import { normalizePhoneE164 } from "~/features/marketing";
 
 /**
@@ -203,7 +207,7 @@ const CSV_COLUMNS: Array<{ header: string; pick: (r: EnrichedRow) => unknown }> 
  */
 interface ReservationContext {
   id: number;
-  productKind: "open" | "kbf";
+  productKind: ReservationProductKind;
   bookedAt: string;
   status: BowlingReservation["status"];
   playerCount: number | null;

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listBowlingReservations, updateBowlingReservationShortCode } from "@/lib/bowling-db";
+import {
+  listBowlingReservations,
+  updateBowlingReservationShortCode,
+  type ReservationProductKind,
+} from "@/lib/bowling-db";
 import { getSurveysForReservations } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
 import { sql } from "@/lib/db";
@@ -28,12 +32,17 @@ export async function GET(req: NextRequest) {
   }
 
   const center = searchParams.get("center") || undefined;
+  const kindParam = searchParams.get("kind");
+  const productKinds = kindParam
+    ? (kindParam.split(",").filter(Boolean) as ReservationProductKind[])
+    : undefined;
 
   try {
     const reservations = await listBowlingReservations({
       startDate: date,
       endDate: date,
       centerCode: center,
+      productKinds,
     });
 
     // Backfill short codes for legacy rows that don't have one stored yet

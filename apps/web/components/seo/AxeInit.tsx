@@ -23,6 +23,14 @@ import { useEffect } from "react";
  */
 export default function AxeInit() {
   useEffect(() => {
+    // Disabled: @axe-core/react can't monkey-patch React.createElement under
+    // React 19 (read-only module exports → TypeError on every page load).
+    // Static a11y is still enforced via scripts/a11y-gate.mjs + eslint-plugin-jsx-a11y.
+    // Re-enable when @axe-core/react ships React-19 support, or swap to a
+    // different runtime scanner.
+    return;
+
+    // eslint-disable-next-line no-unreachable
     if (process.env.NODE_ENV !== "development") return;
     if (typeof window === "undefined") return;
 

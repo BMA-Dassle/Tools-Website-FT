@@ -49,15 +49,16 @@ export interface GiftCardInfo {
  * stay in one place if bowling's GAN format ever evolves.
  *
  * Current prefixes (see /api/bowling/v2/reserve CENTER_GAN_PREFIX):
- *   HPFM…  HeadPinz Fort Myers
- *   HPN…   HeadPinz Naples
- *   HP…    Fallback
+ *   HPFM…  HeadPinz Fort Myers (bowling)
+ *   HPN…   HeadPinz Naples (bowling)
+ *   RACE…  v2 race bookings
+ *   ATTR…  v2 attraction bookings
  *   DEPX…  Older format, still possible in the wild
  *   GRPF…  Group function event deposits
  */
 export function isInternalDepositGan(gan: string | null | undefined): boolean {
   if (!gan) return false;
-  return /^(HPFM|HPN|DEPX|GRPF)/i.test(gan);
+  return /^(HPFM|HPN|DEPX|RACE|ATTR|GRPF)/i.test(gan);
 }
 
 /**
@@ -280,6 +281,43 @@ export async function cancelSquarePayment(
   } catch (err) {
     console.warn(`[square-gift-card] cancel-${kind} threw for ${paymentId}:`, err);
   }
+}
+
+/**
+ * Refund a CAPTURED Square payment (full or partial) via /v2/refunds.
+ *
+ * ADMIN / MANUAL ONLY. The automatic reserve + reconcile paths NEVER call this:
+ * in the $0 model a successful charge is supposed to fund the gift card, so a
+ * downstream failure is recovered FORWARD (re-confirm), not refunded. This is
+ * the escape hatch for a genuinely unrecoverable booking. (`cancelSquarePayment`
+ * only voids un-captured auths; once payOrder captures, reversal needs /refunds.)
+ * Throws SquarePaymentError so the admin caller can surface the failure.
+ */
+export async function refundSquarePayment(params: {
+  paymentId: string;
+  amountCents: number;
+  baseKey: string;
+  reason?: string;
+}): Promise<{ refundId: string; status: string }> {
+  const res = await fetch(`${SQUARE_BASE}/refunds`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `refund-${params.baseKey}`,
+      payment_id: params.paymentId,
+      amount_money: { amount: params.amountCents, currency: "USD" },
+      ...(params.reason ? { reason: params.reason } : {}),
+    }),
+  });
+  const data = await res.json().catch(() => ({}) as Record<string, unknown>);
+  if (!res.ok || data.errors) {
+    const e = data.errors?.[0];
+    throw new SquarePaymentError(
+      e?.code || "REFUND_FAILED",
+      e?.detail || `Refund failed (${res.status})`,
+    );
+  }
+  return { refundId: data.refund?.id ?? "", status: data.refund?.status ?? "PENDING" };
 }
 
 export interface MultiTenderResult {

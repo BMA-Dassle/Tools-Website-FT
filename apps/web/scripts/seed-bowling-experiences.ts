@@ -277,7 +277,8 @@ async function main() {
     isVip: false,
     sortOrder: 10,
     isActive: true,
-    description: "2 free games per registered KBF member",
+    description:
+      "Two free games per kid per day on participating weekdays. Bring your KBF coupon to the front desk. Shoes not included.",
     daysOfWeek: [1, 2, 3, 4, 5], // Mon-Fri (Fri cutoff at 5pm enforced by v1 rules)
   });
   await upsertOffer({
@@ -305,7 +306,8 @@ async function main() {
     isVip: true,
     sortOrder: 11,
     isActive: true,
-    description: "2 free games + VIP lane access",
+    description:
+      "Upgrade your free bowling to the VIP suite — same coupon, premium lanes with NeoVerse + HyperBowling. Shoes not included.",
     daysOfWeek: [1, 2, 3, 4, 5], // Mon-Fri
   });
   await upsertOffer({
@@ -333,7 +335,7 @@ async function main() {
     isVip: false,
     sortOrder: 20,
     isActive: true,
-    description: "Hourly lane rental — Monday through Thursday",
+    description: "Reserve a lane by the hour — Monday through Thursday. Shoes not included.",
     daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({
@@ -369,7 +371,8 @@ async function main() {
     isVip: true,
     sortOrder: 21,
     isActive: true,
-    description: "VIP lane rental — Monday through Thursday",
+    description:
+      "Premium hourly lane in the VIP suite — includes chips & salsa and NeoVerse technology. Shoes not included.",
     daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({
@@ -408,7 +411,8 @@ async function main() {
     isVip: false,
     sortOrder: 30,
     isActive: true,
-    description: "1.5 hours unlimited bowling + shoes included — Monday through Thursday",
+    description:
+      "The weekday special — 1.5 hours of unlimited bowling with shoes included, one flat price per person!",
     daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({
@@ -440,7 +444,8 @@ async function main() {
     isVip: true,
     sortOrder: 31,
     isActive: true,
-    description: "1.5 hours unlimited VIP bowling + shoes included — Monday through Thursday",
+    description:
+      "The premium weekday deal — 1.5 hours of VIP bowling with shoes, complimentary chips & salsa, and NeoVerse technology all included!",
     daysOfWeek: [1, 2, 3, 4], // Mon-Thu only
   });
   await upsertOffer({
@@ -474,7 +479,8 @@ async function main() {
     isVip: false,
     sortOrder: 40,
     isActive: true,
-    description: "Sunday special — 2 hours bowling + pizza + soda + shoes included!",
+    description:
+      "The ultimate Sunday deal — 2 hours of bowling with a large one-topping pizza, pitcher of soda, and shoes for up to 6 people all included in one price!",
     daysOfWeek: [0], // Sunday only
   });
   await upsertOffer({
@@ -502,7 +508,8 @@ async function main() {
     isVip: true,
     sortOrder: 41,
     isActive: true,
-    description: "Sunday VIP special — 2 hours premium bowling, pizza, soda, shoes & NeoVerse!",
+    description:
+      "The ultimate VIP Sunday deal — 2 hours of premium bowling with a large one-topping pizza, pitcher of soda, shoes for up to 6, and complimentary chips & salsa!",
     daysOfWeek: [0], // Sunday only
   });
   await upsertOffer({
@@ -533,7 +540,7 @@ async function main() {
     isVip: false,
     sortOrder: 22,
     isActive: true,
-    description: "Reserve a lane by the hour — Friday through Sunday.",
+    description: "Reserve a lane by the hour — Friday through Sunday. Shoes not included.",
     daysOfWeek: [5, 6, 0], // Fri-Sun
   });
   await upsertOffer({
@@ -570,7 +577,7 @@ async function main() {
     sortOrder: 23,
     isActive: true,
     description:
-      "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology.",
+      "Premium VIP lane rental — Friday through Sunday. Includes chips & salsa and NeoVerse technology. Shoes not included.",
     daysOfWeek: [5, 6, 0], // Fri-Sun
   });
   await upsertOffer({
@@ -607,7 +614,8 @@ async function main() {
     isVip: false,
     sortOrder: 50,
     isActive: true,
-    description: "Unlimited bowling during Friday & Saturday closing hours",
+    description:
+      "The Friday & Saturday night special — unlimited bowling all night long at one flat price per person! Shoes not included.",
     daysOfWeek: [5, 6], // Fri-Sat
   });
   await upsertOffer({
@@ -636,7 +644,7 @@ async function main() {
     sortOrder: 51,
     isActive: true,
     description:
-      "Unlimited VIP bowling during Friday & Saturday closing hours, plus VIP Chips & Salsa",
+      "The ultimate weekend night out — unlimited VIP bowling all night with complimentary chips & salsa and NeoVerse technology! Shoes not included.",
     daysOfWeek: [5, 6], // Fri-Sat
   });
   await upsertOffer({

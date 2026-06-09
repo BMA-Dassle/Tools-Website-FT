@@ -147,3 +147,47 @@ export interface DiscountRedemptionRow {
   redeemedAt: string;
   refundedAt: string | null;
 }
+
+/**
+ * The shape v2 booking captures at session start — a snapshot of the
+ * usable bits of a `DiscountCodeRow`, projected for the booking flow.
+ *
+ * Set once on `session.appliedPromo` at the start of a session (via
+ * the `/book/v2` promo landing or a `?code=X` URL seed on direct slug
+ * entry) and never mutates after. Drives:
+ *   - the landing page's `initialOfferingsFor` filter (which activity
+ *     tiles to show)
+ *   - the first activity's date step (greying invalid weekdays / outside
+ *     window) — only while `session.items.length === 0`
+ *   - the first activity's product step (slug-allowlist filter) — same
+ *     condition
+ *   - checkout's discount line (every cart line whose domain matches
+ *     `scopes`)
+ *
+ * Cart cross-sell (`crossSellFor`) IGNORES this — race shows up in the
+ * cross-sell tiles even if the applied code is bowling-only. Per user
+ * rule: "filter only at start."
+ *
+ * Derived by `resolveAppliedPromo(code)` server-side. Returns null when
+ * the code is unusable for any reason (anti-enumeration parity with
+ * `evaluateCode`'s failure paths).
+ */
+export interface AppliedPromo {
+  /** Raw code (uppercased — matches DB normalization). */
+  code: string;
+  /** Domains this code is scoped to (derived from `row.scopes`). */
+  domains: DiscountDomain[];
+  /** Full per-domain product allowlist (or `null` = all products in that domain). */
+  scopes: DiscountScopes;
+  /** Date window — ISO strings. */
+  startsAt: string;
+  expiresAt: string;
+  /** Weekday allowlist (0–6, Sun=0); null = any weekday. */
+  allowedWeekdays: number[] | null;
+  /** Pricing — only `percent` and `fixed` are accepted today. */
+  mechanic: "percent" | "fixed";
+  amountPct: number | null;
+  amountCents: number | null;
+  /** Square Catalog DISCOUNT id for attaching at order time. */
+  squareCatalogId: string | null;
+}

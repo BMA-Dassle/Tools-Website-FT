@@ -65,22 +65,22 @@ export function stringifyWithRawIds(
     assertDigits(field, value);
   }
 
-  let body = JSON.stringify(payload);
-
-  // bookRaceHeat() prepends orderId and appends personId. Preserve
-  // that order so the snapshot stays stable. Any other raw-id fields
-  // append after personId.
-  const orderId = rawIds.orderId;
-  if (orderId !== undefined) {
-    body = `{"orderId":${orderId},` + body.slice(1);
-  }
-
+  // Build the object from comma-joined parts rather than splicing braces, so an
+  // EMPTY payload ({}) can't leave a dangling comma. The old slice-based version
+  // produced `{"orderId":X,}` for {}+orderId (trailing comma) and
+  // `{"orderId":X,,"itemId":Y}` for {}+two-ids (double comma) → invalid JSON →
+  // BMI 500. Order preserves the original bookRaceHeat() shape: orderId first,
+  // then the payload fields, then every other raw id in iteration order.
+  const payloadInner = JSON.stringify(payload).slice(1, -1);
+  const parts: string[] = [];
+  if (rawIds.orderId !== undefined) parts.push(`"orderId":${rawIds.orderId}`);
+  if (payloadInner) parts.push(payloadInner);
   for (const [field, value] of Object.entries(rawIds)) {
     if (field === "orderId") continue;
-    body = body.slice(0, -1) + `,"${field}":${value}}`;
+    parts.push(`"${field}":${value}`);
   }
 
-  return body;
+  return `{${parts.join(",")}}`;
 }
 
 /**

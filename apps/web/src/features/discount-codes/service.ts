@@ -15,6 +15,7 @@
  */
 
 import type {
+  AppliedPromo,
   DiscountCodeRow,
   ValidateContext,
   ValidateResponse,
@@ -22,6 +23,7 @@ import type {
   DiscountScopes,
   DiscountDomain,
 } from "./types";
+import { getDiscountCodeByCode } from "./data";
 
 const SUPPORTED_MECHANICS = new Set(["percent", "fixed"]);
 
@@ -137,6 +139,60 @@ export function evaluateCode(
 
 function scopeIncludesDomain(scopes: DiscountScopes, domain: DiscountDomain): boolean {
   return Boolean((scopes as Record<string, unknown>)[domain]);
+}
+
+/** Every domain the row's `scopes` object touches — non-empty domain key = included. */
+export function domainsFromScopes(scopes: DiscountScopes): DiscountDomain[] {
+  const out: DiscountDomain[] = [];
+  if (scopes.bowling) out.push("bowling");
+  if (scopes.racing) out.push("racing");
+  if (scopes.attractions) out.push("attractions");
+  return out;
+}
+
+/**
+ * Server-only: fetch a code by string and project to the v2 booking
+ * `AppliedPromo` shape, treating any "unusable" reason (unknown,
+ * inactive, expired, exhausted, unsupported mechanic) as a null
+ * result. Anti-enumeration parity with `evaluateCode` — never leaks
+ * whether the code exists.
+ *
+ * Note this is NOT scoped to a single domain — the landing page calls
+ * this before the customer has picked an activity, so we return the
+ * full multi-domain scope. Per-domain validation still happens at
+ * checkout (via `evaluateCode`) for the same code.
+ */
+export async function resolveAppliedPromo(
+  code: string,
+  now: Date = new Date(),
+): Promise<AppliedPromo | null> {
+  const normalized = code.trim().toUpperCase();
+  if (!normalized) return null;
+  const row = await getDiscountCodeByCode(normalized);
+  if (!row) return null;
+  if (!row.active) return null;
+
+  const start = new Date(row.startsAt).getTime();
+  const expires = new Date(row.expiresAt).getTime();
+  const nowMs = now.getTime();
+  if (nowMs < start || nowMs >= expires) return null;
+
+  if (row.maxUses != null && row.usesCount >= row.maxUses) return null;
+  if (!SUPPORTED_MECHANICS.has(row.mechanic)) return null;
+
+  return {
+    code: row.code,
+    domains: domainsFromScopes(row.scopes),
+    scopes: row.scopes,
+    startsAt: row.startsAt,
+    expiresAt: row.expiresAt,
+    allowedWeekdays: row.allowedWeekdays,
+    // We rejected unsupported mechanics above so this narrowing is safe.
+    mechanic: row.mechanic as "percent" | "fixed",
+    amountPct: row.amountPct,
+    amountCents: row.amountCents,
+    squareCatalogId: row.squareCatalogId,
+  };
 }
 
 function slugsForDomain(scopes: DiscountScopes, domain: DiscountDomain): string[] | null {

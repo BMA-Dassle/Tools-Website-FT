@@ -39,6 +39,7 @@ import { sql, isDbConfigured } from "@/lib/db";
 
 export type DepositFailureSource =
   | "race-pack-square" // /api/square/pay — addDeposit failed after Square charge
+  | "race-credit-redeem" // v2 race checkout — credit redemption deduct failed
   | "pov-claim" // /api/pov-codes?action=claim-from-credit — deduct failed
   | "headsock-checkin" // /api/admin/checkin — headsock deposit deduct failed
   | "manual" // staff-entered backfill row

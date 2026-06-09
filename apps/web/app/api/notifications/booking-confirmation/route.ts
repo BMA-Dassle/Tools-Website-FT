@@ -38,14 +38,15 @@ const HMAC_SECRET =
   process.env.BOOKING_HMAC_SECRET || process.env.SENDGRID_API_KEY || "fasttrax-booking-secret";
 
 /** Create a signed confirmation URL so billId can't be guessed/tampered.
- *  Points at the shared /book/confirmation page. (Older
- *  /book/race/confirmation is still served as a redirect for legacy
- *  links — see app/book/race/confirmation/page.tsx — but new emails
- *  go direct.) */
-function signedConfirmationUrl(billId: string): string {
+ *  v1 bookings point at /book/confirmation; v2 (multi-activity) bookings point
+ *  at /book/confirmation/v2 so the receipt link opens the page that actually
+ *  renders the booking. (Older /book/race/confirmation still redirects for
+ *  legacy links — see app/book/race/confirmation/page.tsx.) */
+function signedConfirmationUrl(billId: string, v2 = false): string {
   const sig = createHmac("sha256", HMAC_SECRET).update(billId).digest("hex").slice(0, 16);
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-  return `${base}/book/confirmation?billId=${encodeURIComponent(billId)}&sig=${sig}&referrer=receipt`;
+  const path = v2 ? "/book/confirmation/v2" : "/book/confirmation";
+  return `${base}${path}?billId=${encodeURIComponent(billId)}&sig=${sig}&referrer=receipt`;
 }
 
 /** Verify a signed billId (for the confirmation page to validate) */
@@ -214,6 +215,7 @@ export async function POST(req: NextRequest) {
       expressLane,
       rookiePack,
       packageId,
+      confirmationV2,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
     // Rookie Pack hint — adds a one-liner pointing at the
@@ -452,7 +454,7 @@ export async function POST(req: NextRequest) {
       let emailConfirmUrl = "";
       if (billId) {
         try {
-          const rawUrl = signedConfirmationUrl(billId);
+          const rawUrl = signedConfirmationUrl(billId, confirmationV2 === true);
           emailConfirmUrl = await shortenUrl(rawUrl);
         } catch {
           /* fall back */
@@ -677,7 +679,9 @@ export async function POST(req: NextRequest) {
       try {
         const normalized = normalizePhone(phone);
         if (normalized.length >= 10) {
-          const rawConfirmLink = billId ? signedConfirmationUrl(billId) : "";
+          const rawConfirmLink = billId
+            ? signedConfirmationUrl(billId, confirmationV2 === true)
+            : "";
           let shortConfirm = rawConfirmLink;
           try {
             if (rawConfirmLink) shortConfirm = await shortenUrl(rawConfirmLink);

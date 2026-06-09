@@ -30,12 +30,12 @@ Tools-Website-FT/
 # 1. Install dependencies (workspace-aware npm install at the root).
 npm install
 
-# 2. Copy the env template and fill in values.
-cp .env.example apps/web/.env.local
-# Open apps/web/.env.local; minimum to boot:
-#   DATABASE_URL         (Neon — from 1Password)
-#   REDIS_URL            (Upstash — from 1Password)
-#   NEXT_PUBLIC_SITE_URL=http://localhost:3000
+# 2. Create apps/web/.env.local and populate it from 1Password.
+#    Vault: "FastTrax Dev". Minimum to boot:
+#      DATABASE_URL         (Neon — 1Password entry "Neon dev")
+#      REDIS_URL            (Upstash — 1Password entry "Upstash dev")
+#      NEXT_PUBLIC_SITE_URL=http://localhost:3000
+#    Full env reference: Vercel project → Settings → Environment Variables.
 
 # 3. Start the dev server.
 npm run dev -w fasttrax-web

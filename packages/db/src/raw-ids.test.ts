@@ -100,6 +100,29 @@ describe("stringifyWithRawIds", () => {
     ).toThrow(/must be a string of digits/);
   });
 
+  it("produces valid JSON for an EMPTY payload (regression: booking/removeItem 500)", () => {
+    // {}+orderId+orderItemId used to splice to `{"orderId":X,,"orderItemId":Y}`
+    // (double comma) → invalid JSON → BMI 500 on booking/removeItem.
+    const out = stringifyWithRawIds(
+      {},
+      { rawIds: { orderId: ORDER_ID, orderItemId: "63000000000055555" } },
+    );
+    expect(out).toBe(`{"orderId":${ORDER_ID},"orderItemId":63000000000055555}`);
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
+
+  it("produces valid JSON for an empty payload with a single id (no trailing comma)", () => {
+    const out = stringifyWithRawIds({}, { rawIds: { orderId: ORDER_ID } });
+    expect(out).toBe(`{"orderId":${ORDER_ID}}`);
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
+
+  it("produces valid JSON for an empty payload with only a non-orderId id", () => {
+    const out = stringifyWithRawIds({}, { rawIds: { personId: PERSON_ID } });
+    expect(out).toBe(`{"personId":${PERSON_ID}}`);
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
+
   it("appends multiple non-orderId raw ids in iteration order", () => {
     const out = stringifyWithRawIds(SAMPLE_PAYLOAD, {
       rawIds: { personId: PERSON_ID, contactId: "12345" },

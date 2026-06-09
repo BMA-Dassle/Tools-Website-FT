@@ -1,17 +1,83 @@
 # Open Tasks
 
+## Booking V1→V2 FULL CUTOVER + race-pack port (IN PROGRESS — 2026-06-07)
+
+**Goal (user directive):** V2 is the booking system. Replace ALL booking entry points
+with entry into V2, AND port race-packs to V2 (the only activity with no v2 today).
+
+**Grounding:** ~90 v1 entry points inventoried; 4 shared components carry most traffic.
+Cutover mechanism = server-side redirects (catch emails/QR/bookmarks) + middleware fix +
+update the hot shared links. Honors the repo cutover rule (redirect v1→v2; delete v1 later).
+Decisions locked by `tasks/future/race-pack-as-credit-purchase.md` + v1 parity: race-pack
+DEFERS redemption (credits spent in the existing v2 race flow), NO expiration (v1 = year-2999),
+single Square SKU + name override, grant via `addDeposit(+N)` on Square capture.
+
+### Phase A — Entry-point cutover for race/attraction/bowling/KBF (conflict-free w/ other workflow)
+- [ ] Middleware: exclude `/v2` paths from the HeadPinz `/hp` + `/book/bowling*` + `/book/kids-bowl-free*`
+      rewrites (FIXES latent bug: `headpinz.com/book/bowling/v2` → `/hp/book/bowling/v2` 404). Point
+      HeadPinz `/book` (exact) → `/book/v2` instead of `/hp/book`.
+- [ ] `next.config.ts` redirects (307 temporary during cutover — flip to 308 when v1 deleted):
+      `/book`→`/book/v2`, `/book/race`→`/book/race/v2`, `/book/{gel-blaster,laser-tag,duck-pin,shuffly}`→`…/v2`,
+      `/book/bowling`→`/book/bowling/v2`, `/book/kids-bowl-free`→`/book/kbf/v2`, plus `/hp/book/*` equivalents.
+      EXCLUDE `/book/race-packs`, `/book/confirmation*`, `/book/checkout`, anything `/v2`.
+- [ ] Update 4 shared components → v2: `components/Nav.tsx`, `components/MobileBookBar.tsx`,
+      `components/headpinz/Nav.tsx`, `components/headpinz/MobileBookBar.tsx`.
+- [ ] Update high-traffic CTAs (home Hero, pricing, racing, leaderboards, hp/fort-myers, hp/naples) → v2.
+- [ ] Update static email-template booking URLs (redirects also catch these).
+- [ ] **MERGE GATE:** bowling/KBF v2 must pass the QAMF+Square smoke test before this branch hits prod.
+
+### Phase B — Race-pack v2 port (DONE — STANDALONE, 2026-06-07)
+**Approach:** standalone `/book/race-pack/v2` (user: "whichever easiest/most efficient"). Deliberately
+NOT the in-cart `CreditPackItem` from the design doc — that threads through `unified-reserve.ts` +
+`types.ts`, which the other workflow is mid-refactor on. Standalone matches what v1 actually does
+(race-packs is its own flow) and reuses v1's PROVEN, server-atomic Square + `addDeposit` money rail.
+Touches ZERO files the other workflow is editing.
+- [x] `src/features/booking/data/packs.ts` — 6 SKUs verified 1:1 vs v1 (price, depositKind, raceCount, shared Square SKU).
+- [x] `src/components/features/booking/RacePackFlow.tsx` — pick pack → identify racer (returning lookup /
+      new) → review + clickwrap → `PaymentForm` (lineItem + `postPaymentAction:addDeposit`).
+- [x] Route `app/book/race-pack/v2/page.tsx` (thin server shell + metadata).
+- [x] Confirmation reuses v1 `/book/race-packs/confirmation` (already renders the viaDeposit "Credits
+      Loaded" + "Credits Pending" states) — left on v1, NOT redirected.
+- N/A `CreditPackItem` union / `credit-pack` service / `unified-reserve.ts` wiring / step registry —
+      unused by the standalone approach (charge goes through `/api/square/pay`, never unified-reserve).
+- N/A Landing tile on `/book/v2` — the v1 `/book` hub never listed packs either (parity-correct).
+- ⚠️ Simplification vs v1: per-mode OTP omitted (loading credits is non-extractive — the buyer pays to
+      ADD value, so there's no account-takeover surface to gate). Revisit if abuse ever appears.
+- FOLLOW-UP (optional): in-cart `CreditPackItem` integration once the other workflow's unified-reserve
+      refactor lands, if mixing a pack into a multi-activity session is ever wanted.
+
+### Phase C — Race-pack cutover (DONE — 2026-06-07)
+- [x] Redirect `/book/race-packs` → `/book/race-pack/v2` (middleware `bookingV2Target`, exact match so
+      `/book/race-packs/confirmation` stays on v1). Pricing "View Packages" CTA covered by the redirect.
+- [ ] Retire/delete the v1 `/book/race-packs` page in a later PR after ops sign-off.
+
+### Phase D — HeadPinz center-aware v2 landing (DONE — 2026-06-07)
+Convert HPFM/HPN booking to v2 with center-scoped offering order on `/book/v2`.
+- [x] `landingOfferingsFor(brand, center)` in `activities-catalog.ts` — Naples scopes to ONLY
+      Naples-available offerings (drops FT-only race/duckpin/shuffly); Fort Myers/unknown shows all;
+      within scope the VISITOR'S brand propagates first (FastTrax-first on FT, HP-first on HP;
+      shuffly's "auto" brand resolves to the entry brand). + 5 unit tests (26/26 catalog tests pass).
+- [x] `?location=` → `session.center`: `EntryContext.center` + parsed in `parse-entry-context.ts`
+      (was an unused gap — `setCenter` was never dispatched in v2, so center was always null/FM).
+      `BookingFlow` seeds `setCenter` on a fresh session → Naples books with the Naples clientKey.
+- [x] `/book/v2` page resolves center from `?location` + passes ordered offerings + center to PromoLanding.
+- [x] `PromoLanding` tile links carry `?location` so the picked activity seeds the right center.
+- Entry: Naples hero CTA (`/hp/book?location=naples`) → Phase-A redirect → `/book/v2?location=naples` → scopes. ✓
+- ⚠️ Minor pre-existing gaps (not blocking): HP nav "Book Now" goes bowling-direct (not the grid) and
+      one `/naples` laser-tag link lacks `?location` → defaults to FM center. Polish later if wanted.
+
 ## Group-Function: re-price after paid-in-full (IMPLEMENTED — 2026-06-06)
 - **Plan + impl log:** [group-function-paid-in-full-reprice.md](group-function-paid-in-full-reprice.md)
 - **Problem:** A BMI edit on a *paid-in-full* event recomputed balance as `total − deposit_due`, ignoring the balance already collected → re-sign re-charged it → **overcharge**. No path to charge just the delta. Also: paid Square balance links were never reconciled.
 - **Scope (Eric):** Only paid-in-full events. Resign required regardless. Increase → charge difference + load gift cards (card on file, or capture a card on re-sign). Decrease → flag staff, no auto-refund. Deposit-phase flows untouched.
 - **Status:** PR-1 + PR-2 implemented on branch `feat/gf-balance-link-reconcile`; typecheck/lint/prettier clean. **Not committed; not live-smoke-tested.** Verify §6 before go-live.
 
-## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-05-28)
-- **Branch:** `feat/booking-b2-race` @ `9d127c90` · merged with main 2026-05-28
+## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-06-02)
+- **Branch:** `feat/booking-b2-race` · merged with main 2026-06-02
 - **What shipped (all build-verified):**
   - D1: Type extensions — BowlingItem/KbfItem with 30+ fields, LoyaltyState on BookingSession, 5 new reducer actions
   - D2: Bowling service — `service/bowling.ts` (hold/confirm/cancel/reserve) wired into `getService()`
-  - D3: 7 bowling step components — Players, Slots, Tier, Offer (QAMF hold), Shoes, Attractions, Food
+  - D3: 7 bowling step components — Players, Slots, Tier, Offer (QAMF hold), Shoes, Attractions (info-only), Food
   - D4: 2 KBF steps — KbfIdentity (lookup→OTP→verify), KbfBowlers (family member selection)
   - D5: Hold timer generalized — ReservationTimer handles BMI + QAMF with 8-min auto-extend
   - D6: Checkout bowling path → `bowlingReserve()` → `/api/bowling/v2/reserve`
@@ -19,14 +85,16 @@
   - D7: Step registry — all bowling/kbf placeholders replaced with real components
   - D8: Deposit unification — bowling reserve uses `createDepositAndCharge()`, same as race/attraction
   - D9: DiscountCodeInput on bowling slots step
+  - D10 (2026-06-02): BowlingSlotsStep → HP_LOCATIONS for real center hours
+  - D11 (2026-06-02): BowlingOfferStep — duration picker for hourly, line-item enrichment (label/price/catalog/deposit%), per-lane vs per-person multipliers, product overrides
+  - D12 (2026-06-02): Checkout quote fetch from `/api/square/bowling-orders/quote` + real line-item display (product names, per-line amounts, booking fee, tax, deposit breakdown)
+  - D13 (2026-06-02): BowlingShoesStep stores shoe product metadata for checkout name resolution
+  - D14 (2026-06-02): BowlingAttractionsStep → info-only (attractions are separate cart items, same as racing)
+  - D15 (2026-06-02): Loyalty params wired to BMI reserve path (loyaltyAccountId, rewardTierId, rewardDiscountCents)
+  - D16 (2026-06-02): Mixed-cart guard — bowling (QAMF) and race/attraction (BMI) can't share a checkout; cross-sell + reducer reject incompatible adds
 - **Still needs before go-live:**
   - Smoke test with QAMF staging + Square sandbox
-  - BowlingOfferStep line-item building refinement (v1 handles duration multipliers, per-lane scaling, combo items)
-  - BowlingSlotsStep needs HP_LOCATIONS integration (static fallback hours currently)
-  - BowlingAttractionsStep needs real BMI slot-booking (shows "Coming soon" placeholder)
-  - CheckoutStep bowling review needs proper line-item names from Square products (currently synthetic)
-  - Loyalty `resolveAudienceMember()` at checkout for squareCustomerId earning on race/attraction orders
-  - v2 reserve route needs squareCustomerId + loyalty reward params for non-bowling bookings
+  - Full Square Loyalty API reward creation in BMI reserve route (currently applies discount only; bowling route has full implementation)
 
 ## v2 Checkout: Server-side atomic BMI payment/confirm
 - **Priority:** Medium (v2 checkout milestone)

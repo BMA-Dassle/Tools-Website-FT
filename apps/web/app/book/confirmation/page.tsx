@@ -228,6 +228,8 @@ export default function ConfirmationPage() {
   /** Stored bill overviews from Redis (saved before payment) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [storedOverviews, setStoredOverviews] = useState<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [bookingRec, setBookingRec] = useState<Record<string, any> | null>(null);
   /** Per-racer QR codes */
   const [racerQrCodes, setRacerQrCodes] = useState<Record<string, string>>({});
   /** Claimed POV camera redemption codes */
@@ -545,7 +547,10 @@ export default function ConfirmationPage() {
           const recRes = await fetch(`/api/booking-record?billId=${id}`, {
             headers: { "x-api-key": BOOKING_API_KEY },
           });
-          if (recRes.ok) bookingRecord = await recRes.json();
+          if (recRes.ok) {
+            bookingRecord = await recRes.json();
+            setBookingRec(bookingRecord);
+          }
         } catch {
           /* non-fatal */
         }
@@ -1040,7 +1045,6 @@ export default function ConfirmationPage() {
 
   return (
     <div className="min-h-screen bg-[#000418]">
-      <BrandNav />
       {expressLane && (
         <style>{`
           @keyframes expressGlow {
@@ -1676,6 +1680,133 @@ export default function ConfirmationPage() {
                     });
                   })()}
             </div>
+
+            {/* Activity cards — same style as race cards above */}
+            {bookingRec?.attractions &&
+              Array.isArray(bookingRec.attractions) &&
+              bookingRec.attractions.length > 0 &&
+              (
+                bookingRec.attractions as Array<{
+                  slug?: string;
+                  date?: string;
+                  slot?: string;
+                  qty?: number;
+                  price?: number;
+                }>
+              ).map((a, i) => (
+                <div
+                  key={`attr-${i}`}
+                  className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden max-w-3xl mx-auto"
+                >
+                  <div className="p-4 sm:p-8">
+                    <p className="text-[#00E2E5] font-bold text-2xl sm:text-3xl capitalize">
+                      {a.slug?.replace(/-/g, " ") ?? "Activity"}
+                    </p>
+                    {(a.qty ?? 0) > 1 && (
+                      <p className="text-white font-display text-lg uppercase tracking-wider mt-1">
+                        {a.qty} People
+                      </p>
+                    )}
+                    {a.date && (
+                      <p className="text-white/50 text-sm mt-1">
+                        {new Date(a.date + "T12:00:00").toLocaleDateString("en-US", {
+                          weekday: "long",
+                          month: "long",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                    )}
+                    {a.slot && (
+                      <div className="mt-3">
+                        <p className="text-amber-400 text-xs font-bold uppercase tracking-wider">
+                          Session Time
+                        </p>
+                        <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">
+                          {new Date(a.slot.replace(/Z$/, "")).toLocaleTimeString("en-US", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                          })}
+                        </p>
+                        <p className="text-white/30 text-xs">
+                          HeadPinz — Check in at the front desk
+                        </p>
+                        <p className="text-white/20 text-xs">14513 Global Parkway, Fort Myers</p>
+                      </div>
+                    )}
+                    {(a.price ?? 0) > 0 && (
+                      <p className="text-white/40 text-xs mt-3">
+                        ${((a.price ?? 0) * (a.qty ?? 1)).toFixed(2)} — paid at center
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+            {bookingRec?.bowling &&
+              Array.isArray(bookingRec.bowling) &&
+              bookingRec.bowling.length > 0 &&
+              (
+                bookingRec.bowling as Array<{
+                  kind?: string;
+                  date?: string;
+                  bookedAt?: string;
+                  experienceSlug?: string;
+                  laneCount?: number;
+                  playerCount?: number;
+                  qamfReservationId?: string;
+                }>
+              ).map((b, i) => (
+                <div
+                  key={`bowl-${i}`}
+                  className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.03] overflow-hidden max-w-3xl mx-auto"
+                >
+                  <div className="p-4 sm:p-8">
+                    {b.qamfReservationId && (
+                      <p className="text-emerald-400 font-bold text-xl mb-1">
+                        {b.qamfReservationId}
+                      </p>
+                    )}
+                    <p className="text-emerald-400 font-bold text-2xl sm:text-3xl capitalize">
+                      {b.experienceSlug?.replace(/-/g, " ") ?? "Bowling"}
+                    </p>
+                    <p className="text-white font-display text-lg uppercase tracking-wider mt-1">
+                      {b.laneCount ?? 1} Lane{(b.laneCount ?? 1) > 1 ? "s" : ""}
+                      {(b.playerCount ?? 0) > 0 && ` · ${b.playerCount} Bowlers`}
+                    </p>
+                    {b.date && (
+                      <p className="text-white/50 text-sm mt-1">
+                        {new Date(b.date + "T12:00:00").toLocaleDateString("en-US", {
+                          weekday: "long",
+                          month: "long",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                    )}
+                    {b.bookedAt && (
+                      <div className="mt-3">
+                        <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
+                          Lane Time
+                        </p>
+                        <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">
+                          {new Date(b.bookedAt).toLocaleTimeString("en-US", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                            timeZone: "America/New_York",
+                          })}
+                        </p>
+                        <p className="text-white/30 text-xs">
+                          HeadPinz — Show this confirmation at the front desk
+                        </p>
+                        <p className="text-white/20 text-xs">14513 Global Parkway, Fort Myers</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
 
             {/* POV Camera Codes
               The codes below are the actual unlock keys for the

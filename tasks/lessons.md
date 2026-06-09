@@ -1,5 +1,33 @@
 # Lessons Learned
 
+## Before fixing a "v2" component, confirm which route is actually LIVE — the middleware redirects v1 → step-machine (2026-06-08)
+
+KBF login wasn't populating kids/adults. I traced `/hp/book/kids-bowl-free/page.tsx` → it renders
+`<BowlingWizard kind="kbf" />`, found the multi-pass bug there (`data.passes[0]` only — dropped a
+parent's second pass), fixed it, proved it against real data, and reported done. **Wrong file.**
+A screenshot showed the user was on `/book/kbf/v2` — a *different* implementation (the
+`src/features/booking` step machine: `KbfIdentityStep` → `KbfBowlersStep`), and `middleware.ts`
+`bookingV2Target()` **unconditionally 307-redirects** `/book/kids-bowl-free` AND (after stripping
+`/hp`) `/hp/book/kids-bowl-free` → `/book/kbf/v2`. So `BowlingWizard kind="kbf"` is dead code that
+never renders. I'd patched a redirected route.
+
+The real bug was in the step machine: `KbfIdentityStep` got the full roster from `/api/kbf/verify`
+but dispatched only `passId` (discarding members), then `KbfBowlersStep` fetched
+`/api/kbf/pass/${passId}/members` — **an endpoint that doesn't exist** → empty list. Fix: carry the
+flattened roster (all passes) through `session.kbfIdentity.members` at verify time; the bowlers step
+reads it from session. No new endpoint, multi-pass handled.
+
+**Rule: a `page.tsx` importing a component does NOT prove that route is live.** Before touching any
+booking component, run the path through `bookingV2Target()` in `middleware.ts` — if it returns a
+target, the page you're looking at is redirected away. Confirm the live route from the actual URL
+(ask for it / check the screenshot) before editing. Two parallel implementations of the same feature
+(`components/bowling/BowlingWizard.tsx` vs `src/components/features/booking/steps/`) is a trap — the
+old one looks load-bearing but isn't.
+
+- [apps/web/middleware.ts](apps/web/middleware.ts) `bookingV2Target()` (~line 621) — the v1→v2 redirect map
+- [apps/web/app/book/kbf/v2/page.tsx](apps/web/app/book/kbf/v2/page.tsx) → `BookingFlow activity="kbf"` (the LIVE flow)
+- [apps/web/src/components/features/booking/steps/bowling/KbfIdentityStep.tsx](apps/web/src/components/features/booking/steps/bowling/KbfIdentityStep.tsx) / [KbfBowlersStep.tsx](apps/web/src/components/features/booking/steps/bowling/KbfBowlersStep.tsx)
+
 ## "Send Contract" is the only contract trigger — retired `group-quote-sync`'s auto-resign (2026-06-08)
 
 The 2026-06-07 emergency guard (below) only stopped *past* events. The same loop hit an *upcoming*
@@ -710,3 +738,31 @@ state by direct retrieve, never by absence from the LIST filter.
 - [apps/web/lib/square-gift-card.ts](apps/web/lib/square-gift-card.ts) `mintDigitalGiftCard()` — canonical mint flow with defensive checks
 - [apps/web/app/api/square/bowling-orders/route.ts](apps/web/app/api/square/bowling-orders/route.ts) — pre-existing working flow that already had the `data.errors` check
 - `Pandora_API/src/utils/square.utils.ts` / `controllers/squareV2.controllers.ts.ts` — reference implementation for both mint and URL construction
+
+## Booking v2: the persisted session is a VERSIONED ENVELOPE — never read raw `sessionStorage` (2026-06-07)
+
+`usePersistedReducer` writes the booking session wrapped in `{ v: SCHEMA_VERSION, session }`
+(the envelope was added when the up-front ContactStep shifted step indices — bump `v`
+on any shape/step-order change so stale sessions are discarded, not resumed mid-flow).
+
+The bug: two components read `sessionStorage` directly and assumed the OLD flat shape —
+`PromoLanding` (`session.items`) and `MiniCartV2` (`session.items ?? []`). After the envelope
+landed, `parsed.items` was `undefined` on both, so the landing's "Add to your visit" checkout
+bar and the floating mini-cart silently vanished — the cart still existed, it just looked empty.
+A `: string`/array type didn't help; the raw `JSON.parse` is `any`.
+
+Fix + guardrail: added `peekBookingSession()` to the hook (unwraps the envelope + version-checks,
+exactly like in-flow hydration) and routed BOTH readers through it. **Rule: any code that needs
+the cart outside `<BookingFlow>` calls `peekBookingSession()` — never `JSON.parse(sessionStorage…)`.**
+When you change a persisted shape, grep every reader; better, give the shape ONE reader and import it.
+SSR note: read browser storage via `useSyncExternalStore` (server snapshot `0`), not a `setState`
+in `useEffect` — the React-Compiler lint rule `react-hooks/set-state-in-effect` flags the latter and
+it risks a hydration mismatch.
+
+Related: back-out now offers "New booking" (not "Cancel") in `LeaveConfirmModal`, calling
+`abandonBooking(session)` (checkout.ts) → cancels the BMI bill (heats + slots + attached contact)
+AND releases any QAMF bowling/KBF hold. Needed because contact-first creates the BMI reservation
+early (on first heat/slot advance), so an abandoned session would otherwise orphan a live reservation.
+
+- [apps/web/src/features/booking/hooks/usePersistedReducer.ts](apps/web/src/features/booking/hooks/usePersistedReducer.ts) — envelope + `peekBookingSession`
+- [apps/web/src/features/booking/service/checkout.ts](apps/web/src/features/booking/service/checkout.ts) `abandonBooking()` — full session teardown
