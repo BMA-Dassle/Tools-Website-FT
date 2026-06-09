@@ -76,24 +76,24 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
   const selections = item.shoeSelections;
   const totalPairs = Object.values(selections).reduce((s, q) => s + q, 0);
   const totalCents = products.reduce((s, p) => s + (selections[p.id] ?? 0) * p.priceCents, 0);
+  // Can't rent more pairs than bowlers in the group.
+  const atCap = totalPairs >= playerCount;
 
-  function setQty(productId: number, qty: number) {
-    const next = { ...selections, [productId]: Math.max(0, qty) };
-    if (next[productId] === 0) delete next[productId];
+  function commitSelections(raw: Record<number, number>) {
+    const next: Record<number, number> = {};
+    for (const [id, q] of Object.entries(raw)) if (q > 0) next[Number(id)] = q;
 
-    const shoeLineItems = Object.entries(next)
-      .filter(([, q]) => q > 0)
-      .map(([id, q]) => {
-        const prod = products.find((p) => p.id === Number(id));
-        return {
-          squareProductId: Number(id),
-          quantity: q,
-          label: prod?.label,
-          priceCents: prod?.priceCents,
-          depositPct: prod?.depositPct,
-          squareCatalogObjectId: prod?.squareCatalogObjectId,
-        };
-      });
+    const shoeLineItems = Object.entries(next).map(([id, q]) => {
+      const prod = products.find((p) => p.id === Number(id));
+      return {
+        squareProductId: Number(id),
+        quantity: q,
+        label: prod?.label,
+        priceCents: prod?.priceCents,
+        depositPct: prod?.depositPct,
+        squareCatalogObjectId: prod?.squareCatalogObjectId,
+      };
+    });
 
     const shoeProductsMeta = products
       .filter((p) => (next[p.id] ?? 0) > 0)
@@ -114,6 +114,31 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
       ],
     } as Partial<BowlingLikeItem>);
   }
+
+  function setQty(productId: number, qty: number) {
+    // Clamp so the group's total pairs never exceeds the bowler count.
+    const others = totalPairs - (selections[productId] ?? 0);
+    const clamped = Math.max(0, Math.min(qty, playerCount - others));
+    commitSelections({ ...selections, [productId]: clamped });
+  }
+
+  // Safety net: if the group shrank after shoes were chosen (back-nav reduced
+  // the bowler count), trim pairs from the back until we're within the cap.
+  useEffect(() => {
+    if (products.length === 0 || totalPairs <= playerCount) return;
+    const next = { ...selections };
+    let over = totalPairs - playerCount;
+    for (const id of Object.keys(next)
+      .map(Number)
+      .sort((a, b) => next[b] - next[a])) {
+      if (over <= 0) break;
+      const cut = Math.min(over, next[id]);
+      next[id] -= cut;
+      over -= cut;
+    }
+    commitSelections(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerCount, products.length, totalPairs]);
 
   if (loading) {
     return (
@@ -141,7 +166,8 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
       <div className="text-center">
         <h2 className="font-display text-2xl uppercase tracking-widest text-white">Shoe Rentals</h2>
         <p className="mt-1 text-sm text-white/40">
-          Add bowling shoes for your group. You can also rent at the center.
+          Add bowling shoes for your group — up to {playerCount} (one per bowler). You can also rent
+          at the center.
         </p>
       </div>
 
@@ -170,7 +196,8 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
                 <button
                   type="button"
                   onClick={() => setQty(p.id, qty + 1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 text-lg text-white transition-colors hover:border-white/30"
+                  disabled={atCap}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 text-lg text-white transition-colors hover:border-white/30 disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   +
                 </button>
