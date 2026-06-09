@@ -19,6 +19,7 @@ import {
   IconLink,
 } from "@tabler/icons-react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
@@ -301,6 +302,20 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
       .catch(() => {});
   }, [quote.contractShortId]);
 
+  // ── Microsoft Clarity: tag the group-contract session so the open → sign →
+  // pay funnel is visible alongside the booking flows. ──
+  useEffect(() => {
+    clarityTag("booking_flow", "group_contract");
+    clarityTag("contract_status", quote.status);
+    clarityTag("contract_payment", isFullPayment ? "full" : "deposit");
+    clarityEvent("contract:opened");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    clarityTag("contract_step", step);
+    clarityEvent(`contract:step:${step}`);
+  }, [step]);
+
   // Load Square SDK
   useEffect(() => {
     if (step !== "pay" || squareLoaded.current) return;
@@ -442,6 +457,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         return;
       }
       setSignedAt(data.signedAt);
+      clarityEvent("contract:signed");
       // Resign flow (already paid): record the re-sign, then settle any price difference.
       if (alreadyPaid) {
         fetch("/api/group-function/audit", {
@@ -534,6 +550,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
         return;
       }
       setGiftCardGan(data.giftCardGan);
+      clarityEvent("contract:paid");
+      clarityTag("contract_outcome", "paid");
       setStep("event");
     } catch {
       setError("Payment processing failed. Please try again.");
