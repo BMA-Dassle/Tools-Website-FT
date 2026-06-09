@@ -208,6 +208,18 @@ interface OrderOverview {
   scheduleDays?: { date: string; schedules: Schedule[] }[];
 }
 
+/** Itemized day-of Square order for the "What you paid for" card. Sourced from
+ *  GET /api/booking/v2/receipt (the authoritative Square day-of order). */
+interface ReceiptData {
+  lineItems: { name: string; quantity: number; amountCents: number }[];
+  discounts: { name: string; amountCents: number }[];
+  discountCents: number;
+  taxCents: number;
+  totalCents: number;
+  paidOnlineCents: number;
+  dueAtCenterCents: number;
+}
+
 export default function ConfirmationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -235,6 +247,8 @@ export default function ConfirmationPage() {
   /** Check-in location based on first scheduled item */
   const [checkInLocation, setCheckInLocation] = useState<"fasttrax" | "headpinz">("fasttrax");
   const [bookingType, setBookingType] = useState<BookingType>("racing");
+  /** Itemized day-of Square receipt ("what you paid for"); null until loaded. */
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   /** Express lane — returning racers with all valid waivers skip Guest Services */
   const [expressLane, setExpressLane] = useState(false);
   /** Race groups — confirmations grouped by heat for display */
@@ -1100,6 +1114,22 @@ export default function ConfirmationPage() {
           });
         }
 
+        // Itemized day-of Square receipt — "exactly what you paid for". Pulled
+        // from the authoritative Square day-of order (resolved server-side from
+        // the reservation row). Non-fatal — the section is simply omitted on a miss.
+        try {
+          const rcptQs = new URLSearchParams({ billId: id! });
+          const code = params.get("code");
+          if (code) rcptQs.set("code", code);
+          const rcptRes = await fetch(`/api/booking/v2/receipt?${rcptQs.toString()}`);
+          if (rcptRes.ok) {
+            const rcpt = await rcptRes.json();
+            if (rcpt.available) setReceipt(rcpt as ReceiptData);
+          }
+        } catch {
+          /* non-fatal */
+        }
+
         // Clean up
         localStorage.removeItem(`booking_${id}`);
         sessionStorage.removeItem("attractionCart");
@@ -1473,6 +1503,67 @@ export default function ConfirmationPage() {
                 Opens in a new tab. Each participant signs their own waiver. Parents: register
                 yourself first, then add your minors.
               </p>
+            </div>
+          )}
+
+          {/* What you paid for — itemized day-of Square order. Shown once on the
+              main view (hub + single-activity), not inside a per-activity detail. */}
+          {!isDetail && receipt && receipt.lineItems.length > 0 && (
+            <div className="max-w-2xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 mb-8">
+              <h2 className="font-display text-lg uppercase tracking-widest text-white mb-3">
+                What you paid for
+              </h2>
+              <ul className="space-y-1.5 text-sm">
+                {receipt.lineItems.map((li, i) => (
+                  <li key={i} className="flex justify-between gap-3">
+                    <span className="text-white/70">
+                      {li.name}
+                      {li.quantity > 1 && <span className="text-white/40"> ×{li.quantity}</span>}
+                    </span>
+                    <span className="tabular-nums text-white/70">
+                      ${(li.amountCents / 100).toFixed(2)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {receipt.discounts.map((d, i) => (
+                <div key={i} className="mt-1.5 flex justify-between gap-3 text-sm">
+                  <span className="text-emerald-400">{d.name}</span>
+                  <span className="tabular-nums text-emerald-400">
+                    −${(d.amountCents / 100).toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              {receipt.taxCents > 0 && (
+                <div className="mt-1.5 flex justify-between gap-3 text-sm">
+                  <span className="text-white/50">Tax</span>
+                  <span className="tabular-nums text-white/50">
+                    ${(receipt.taxCents / 100).toFixed(2)}
+                  </span>
+                </div>
+              )}
+              <div className="mt-3 flex justify-between gap-3 border-t border-white/10 pt-3 text-sm font-semibold">
+                <span className="text-white">Total</span>
+                <span className="tabular-nums text-white">
+                  ${(receipt.totalCents / 100).toFixed(2)}
+                </span>
+              </div>
+              {receipt.paidOnlineCents > 0 && (
+                <div className="mt-1 flex justify-between gap-3 text-xs text-white/50">
+                  <span>Paid online today</span>
+                  <span className="tabular-nums">
+                    ${(receipt.paidOnlineCents / 100).toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {receipt.dueAtCenterCents > 0 && (
+                <div className="mt-0.5 flex justify-between gap-3 text-xs text-white/50">
+                  <span>Balance due at check-in</span>
+                  <span className="tabular-nums">
+                    ${(receipt.dueAtCenterCents / 100).toFixed(2)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
