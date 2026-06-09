@@ -205,6 +205,20 @@ export function BookingFlow({
     prevCursorRef.current = currentCursor;
   }, [currentCursor]);
 
+  // Don't render the flow until the persisted session has hydrated (AFTER all
+  // hooks — never early-return above a hook). Otherwise a deep entry (e.g. the
+  // landing's "Checkout →" → ?checkout=1) mounts CheckoutStep against the EMPTY
+  // initial session, capturing blank contact fields in state — so the customer
+  // re-types info they already entered. One tick of loader also avoids the
+  // empty-cart flash.
+  if (!hydrated) {
+    return (
+      <div className={`${brandClass} flex min-h-[60vh] items-center justify-center`}>
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+      </div>
+    );
+  }
+
   // Remove a whole cart item, releasing any BMI bill lines it booked early (race
   // heats / attraction slot) so it isn't still confirmed at checkout. Last item
   // → back to the activity picker.
