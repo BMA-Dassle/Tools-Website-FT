@@ -87,6 +87,12 @@ const CAT = {
   HOURLY_1_5_MON_VIP: "BESYYLCKLOVD7YE4GYJU24HR", // $67.50/lane (1.5hr Mon-Thu VIP)
   HOURLY_1_5_FRI: "BA7XH63Z3KZOYEU5GGTEPASR", // $60.00/lane (1.5hr Fri-Sun)
   HOURLY_1_5_FRI_VIP: "UFD6XVXU6GKCIRCLRUFLSKMJ", // $82.50/lane (1.5hr Fri-Sun VIP)
+  // 1-hour products — the 2-hour duration option overrides to these (1hr × 2),
+  // so 2hr = correct (e.g. Mon-Thu $30 × 2 = $60), NOT 1.5hr base × 2 = $90.
+  HOURLY_1_MON: "C2I2FUTKZODAXBL4N7NB4OZG", // $30.00/lane (1hr Mon-Thu)
+  HOURLY_1_MON_VIP: "PI67DZQJVGR5EIXEWLB2ELOJ", // $45.00/lane (1hr Mon-Thu VIP)
+  HOURLY_1_FRI: "QA2R6YZ3D64X63NGQ46LYZRV", // $40.00/lane (1hr Fri-Sun)
+  HOURLY_1_FRI_VIP: "OSOZ7RJ6WW7G4CEFL55U7LXF", // $55.00/lane (1hr Fri-Sun VIP)
   PIZZA_BOWL: "GWQQDLD5J3XAZAOU5STJL3VF", // $64.95/lane (Pizza Bowl Regular)
   PIZZA_BOWL_VIP: "3BET7DOSFNF64GNPMOZTI5SJ", // $79.95/lane (Pizza Bowl VIP)
   CHIPS_SALSA: "LHZXWYO72N5QFX4CGYKRVPZX", // $0.00 comp
@@ -206,23 +212,41 @@ async function setDurationOptions(
     durationMinutes: number;
     label: string;
     squareMultiplier: number;
+    /** Catalog object id of the product to PRICE this duration off (instead of
+     *  the base experience item). The 2-hour option overrides to the 1-hour
+     *  product so 2hr = 1hr × multiplier(2), not 1.5hr-base × 2. */
+    overrideCatalogObjectId?: string;
   }>,
 ): Promise<void> {
+  await sql`ALTER TABLE bowling_experience_duration_options ADD COLUMN IF NOT EXISTS override_square_product_id INTEGER REFERENCES bowling_square_products(id)`;
   await sql`
     DELETE FROM bowling_experience_duration_options
     WHERE experience_id = ${experienceId} AND center_code = ${centerCode}
   `;
   for (const [i, opt] of options.entries()) {
+    let overrideId: number | null = null;
+    if (opt.overrideCatalogObjectId) {
+      const [p] = await sql`
+        SELECT id FROM bowling_square_products
+        WHERE center_code = ${centerCode} AND square_catalog_object_id = ${opt.overrideCatalogObjectId}
+        LIMIT 1`;
+      overrideId = (p?.id as number) ?? null;
+      if (overrideId == null) {
+        console.warn(
+          `              ⚠ override product ${opt.overrideCatalogObjectId} not found for ${centerCode}`,
+        );
+      }
+    }
     await sql`
       INSERT INTO bowling_experience_duration_options
-        (experience_id, center_code, qamf_option_id, duration_minutes, label, square_multiplier, sort_order)
+        (experience_id, center_code, qamf_option_id, duration_minutes, label, square_multiplier, sort_order, override_square_product_id)
       VALUES
         (${experienceId}, ${centerCode}, ${opt.qamfOptionId}, ${opt.durationMinutes},
-         ${opt.label}, ${opt.squareMultiplier}, ${i})
+         ${opt.label}, ${opt.squareMultiplier}, ${i}, ${overrideId})
     `;
     const center = centerCode === FM ? "FM    " : "Naples";
     console.log(
-      `              duration   ${center} optId=${opt.qamfOptionId}  ${opt.label}  ×${opt.squareMultiplier}`,
+      `              duration   ${center} optId=${opt.qamfOptionId}  ${opt.label}  ×${opt.squareMultiplier}${overrideId != null ? `  (override→${opt.overrideCatalogObjectId})` : ""}`,
     );
   }
 }
@@ -355,11 +379,23 @@ async function main() {
   ]);
   await setDurationOptions(regMonId, FM, [
     { qamfOptionId: 1227, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 1228, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 1228,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_MON,
+    },
   ]);
   await setDurationOptions(regMonId, NAPLES, [
     { qamfOptionId: 939, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 940, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 940,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_MON,
+    },
   ]);
 
   // ── 4. VIP Mon-Thur ─────────────────────────────────────────────────────────
@@ -393,11 +429,23 @@ async function main() {
   ]);
   await setDurationOptions(vipMonId, FM, [
     { qamfOptionId: 1235, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 1236, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 1236,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_MON_VIP,
+    },
   ]);
   await setDurationOptions(vipMonId, NAPLES, [
     { qamfOptionId: 947, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 948, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 948,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_MON_VIP,
+    },
   ]);
 
   // ── 5. Fun 4 All Regular ────────────────────────────────────────────────────
@@ -560,11 +608,23 @@ async function main() {
   ]);
   await setDurationOptions(regFriId, FM, [
     { qamfOptionId: 1259, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 1260, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 1260,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI,
+    },
   ]);
   await setDurationOptions(regFriId, NAPLES, [
     { qamfOptionId: 987, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 988, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 988,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI,
+    },
   ]);
 
   // ── 10. VIP Fri-Sun (ACTIVE — QAMF IDs confirmed 2026-05-08) ──────────────
@@ -598,11 +658,23 @@ async function main() {
   ]);
   await setDurationOptions(vipFriId, FM, [
     { qamfOptionId: 1267, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 1268, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 1268,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI_VIP,
+    },
   ]);
   await setDurationOptions(vipFriId, NAPLES, [
     { qamfOptionId: 995, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
-    { qamfOptionId: 996, durationMinutes: 120, label: "2 Hours", squareMultiplier: 2 },
+    {
+      qamfOptionId: 996,
+      durationMinutes: 120,
+      label: "2 Hours",
+      squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI_VIP,
+    },
   ]);
 
   // ── 11. Midnight Madness Regular ────────────────────────────────────────────
