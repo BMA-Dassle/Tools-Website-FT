@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { BowlingItem, BookingSession, KbfItem, StepDef } from "~/features/booking";
 import { findOffering } from "~/features/booking";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
-import { DiscountCodeInput } from "./DiscountCodeInput";
 import { formatHourLabel } from "./availability-client";
 
 const CORAL = "#fd5b56";
@@ -304,18 +303,6 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           </>
         )}
       </div>
-
-      {/* Discount code — bowling only (KBF is free) */}
-      {item.kind === "bowling" && (
-        <DiscountCodeInput
-          locationId={centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7"}
-          appliedCode={(item as BowlingItem).discountCode}
-          onApply={(discount) =>
-            onChange({ discountCode: discount.code } as Partial<BowlingLikeItem>)
-          }
-          onClear={() => onChange({ discountCode: null } as Partial<BowlingLikeItem>)}
-        />
-      )}
 
       {/* Compact date confirmation when inherited from cart */}
       {!showCalendar ? (

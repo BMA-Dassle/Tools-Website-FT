@@ -40,7 +40,11 @@ interface TierAvail {
   any: boolean;
 }
 
-const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item, onChange }) => {
+const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
+  item,
+  onChange,
+  setBusy,
+}) => {
   const centerId = item.qamfCenterId ?? 9172;
   const centerCode = QAMF_CENTER_CODES[centerId] ?? "TXBSQN0FEKQ11";
   const kind =
@@ -105,6 +109,13 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item,
       cancelled = true;
     };
   }, [centerId, playerCount, item.date, kind]);
+
+  // Block the wizard's Next while the availability scan runs — the customer
+  // should see which tier is open (and the next-available time) before advancing.
+  useEffect(() => {
+    setBusy?.(availLoading);
+    return () => setBusy?.(false);
+  }, [availLoading, setBusy]);
 
   const hasRegular = experiences.some((e) => !e.isVip);
   const hasVip = experiences.some((e) => e.isVip);
@@ -180,7 +191,15 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item,
 
   function AvailBadge({ a }: { a: TierAvail }) {
     if (availLoading)
-      return <span className="text-[11px] text-white/40">Checking availability…</span>;
+      return (
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+          <span
+            className="h-3 w-3 animate-spin rounded-full border-2 border-white/20"
+            style={{ borderTopColor: "#fff" }}
+          />
+          Checking availability…
+        </span>
+      );
     if (a.openAtChosen)
       return (
         <span className="text-[11px] font-semibold" style={{ color: "#22c55e" }}>
