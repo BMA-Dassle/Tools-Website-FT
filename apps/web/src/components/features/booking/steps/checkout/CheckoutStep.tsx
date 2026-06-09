@@ -32,6 +32,7 @@ import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm
 import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
+import { contactIsComplete } from "../ContactStep";
 
 interface CheckoutStepProps {
   session: BookingSession;
@@ -72,6 +73,10 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
   const [email, setEmail] = useState(session.contact.email ?? "");
   const [phone, setPhone] = useState(session.contact.phone ?? "");
   const [smsOptIn, setSmsOptIn] = useState(session.contact.smsOptIn ?? true);
+  // We've usually already collected contact in the wizard, so on checkout we
+  // COLLAPSE it to a summary (expand to edit) and lead with HeadPinz Rewards.
+  // Start expanded only when we don't yet have complete contact.
+  const [editingContact, setEditingContact] = useState(() => !contactIsComplete(session.contact));
 
   const contact: ContactInfo = { firstName, lastName, email, phone, smsOptIn };
 
@@ -392,95 +397,132 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     return (
       <div className="mx-auto max-w-lg space-y-6">
         <div className="text-center">
-          {/* v1 parity — apps/web/app/book/checkout/page.tsx:84-86 verbatim. */}
           <h2 className="font-display text-2xl tracking-widest text-white uppercase">Checkout</h2>
-          <p className="mt-1 text-sm text-white/40">Enter your details to complete booking.</p>
+          <p className="mt-1 text-sm text-white/40">Confirm your details &amp; unlock rewards.</p>
         </div>
 
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        {/* Your info — collapsed to a summary once we have it (from the wizard),
+            expandable to edit. The full form only shows when incomplete or on
+            "Change", so the rewards block below is the focus of this step. */}
+        {editingContact ? (
+          <div className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-white/40">
+              Your info
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label
+                  htmlFor="checkout-first-name"
+                  className="mb-1 block text-xs font-semibold text-white/50"
+                >
+                  First name
+                </label>
+                <input
+                  id="checkout-first-name"
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#00E2E5]/60"
+                  placeholder="First name"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="checkout-last-name"
+                  className="mb-1 block text-xs font-semibold text-white/50"
+                >
+                  Last name
+                </label>
+                <input
+                  id="checkout-last-name"
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#00E2E5]/60"
+                  placeholder="Last name"
+                />
+              </div>
+            </div>
             <div>
               <label
-                htmlFor="checkout-first-name"
+                htmlFor="checkout-email"
                 className="mb-1 block text-xs font-semibold text-white/50"
               >
-                First name
+                Email
               </label>
               <input
-                id="checkout-first-name"
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                id="checkout-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#00E2E5]/60"
-                placeholder="First name"
+                placeholder="email@example.com"
               />
             </div>
             <div>
               <label
-                htmlFor="checkout-last-name"
+                htmlFor="checkout-phone"
                 className="mb-1 block text-xs font-semibold text-white/50"
               >
-                Last name
+                Phone
               </label>
               <input
-                id="checkout-last-name"
-                type="text"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                id="checkout-phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#00E2E5]/60"
-                placeholder="Last name"
+                placeholder="(555) 555-1234"
               />
             </div>
-          </div>
-          <div>
-            <label
-              htmlFor="checkout-email"
-              className="mb-1 block text-xs font-semibold text-white/50"
-            >
-              Email
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={smsOptIn}
+                onChange={(e) => setSmsOptIn(e.target.checked)}
+                className="h-4 w-4 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
+              />
+              <span className="text-xs text-white/50">
+                Send me a text confirmation &amp; check-in reminder
+              </span>
             </label>
-            <input
-              id="checkout-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#00E2E5]/60"
-              placeholder="email@example.com"
-            />
+            {isValidContact && (
+              <button
+                type="button"
+                onClick={() => setEditingContact(false)}
+                className="text-xs font-semibold text-[#00E2E5] hover:text-white"
+              >
+                Done
+              </button>
+            )}
           </div>
-          <div>
-            <label
-              htmlFor="checkout-phone"
-              className="mb-1 block text-xs font-semibold text-white/50"
-            >
-              Phone
-            </label>
-            <input
-              id="checkout-phone"
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#00E2E5]/60"
-              placeholder="(555) 555-1234"
-            />
-          </div>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={smsOptIn}
-              onChange={(e) => setSmsOptIn(e.target.checked)}
-              className="h-4 w-4 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
-            />
-            <span className="text-xs text-white/50">
-              Send me a text confirmation &amp; check-in reminder
-            </span>
-          </label>
-        </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditingContact(true)}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition-colors hover:border-white/20"
+          >
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-white/40">
+                Booking as
+              </p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-white">
+                {firstName} {lastName}
+              </p>
+              <p className="truncate text-xs text-white/50">
+                {[email, phone].filter(Boolean).join(" · ")}
+              </p>
+              {smsOptIn && (
+                <p className="mt-0.5 text-[11px] text-emerald-400/80">✓ Text reminders on</p>
+              )}
+            </div>
+            <span className="shrink-0 text-xs font-semibold text-[#00E2E5]">Change</span>
+          </button>
+        )}
 
-        {/* Rewards — earning + redeeming for BOTH brands. One Square loyalty
-            program spans the FastTrax + HeadPinz locations (same merchant), so
-            points earn and $-off rewards redeem regardless of which brand the
-            booking is on. LoyaltySection labels itself per the session brand. */}
+        {/* HeadPinz / FastTrax Rewards — the focus of this step. One Square loyalty
+            program spans both brands (same merchant); points earn and $-off rewards
+            redeem regardless of brand. LoyaltySection labels itself per session brand. */}
         <LoyaltySection session={session} dispatch={dispatch} phone={phone} />
 
         <div className="flex items-center justify-between pt-2">
