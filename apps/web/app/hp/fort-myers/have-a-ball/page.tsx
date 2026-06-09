@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import SignupModal from "./SignupModal";
 import SeoFaq from "@/components/headpinz/SeoFaq";
@@ -9,8 +9,24 @@ const coral = "#fd5b56";
 const gold = "#FFD700";
 const bg = "#0a1628";
 
+interface JoinPlan {
+  status: "preseason" | "midseason" | "closed";
+  backPayWeeks: number;
+  remainingCharges: number;
+}
+
 export default function HaveABallPage() {
   const [open, setOpen] = useState(false);
+  const [plan, setPlan] = useState<JoinPlan | null>(null);
+
+  useEffect(() => {
+    fetch("/api/leagues/have-a-ball/quote")
+      .then((r) => r.json())
+      .then((p: JoinPlan) => setPlan(p))
+      .catch(() => {});
+  }, []);
+
+  const midSeason = plan?.status === "midseason" && plan.backPayWeeks > 0;
 
   return (
     <div style={{ backgroundColor: bg }}>
@@ -44,7 +60,7 @@ export default function HaveABallPage() {
               fontSize: "12px",
             }}
           >
-            HeadPinz Fort Myers · New League
+            HeadPinz Fort Myers · {midSeason ? "Now Underway · Jump In" : "New League"}
           </p>
           <h1
             className="font-heading font-black uppercase text-white"
@@ -93,7 +109,9 @@ export default function HaveABallPage() {
       >
         <div className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
           {[
-            { label: "Starts", value: "May 26" },
+            midSeason
+              ? { label: "Status", value: "In Progress" }
+              : { label: "Starts", value: "May 26" },
             { label: "Time", value: "6:30 PM" },
             { label: "Length", value: "12 Weeks" },
             { label: "Weekly Fee", value: "$20" },
@@ -173,7 +191,9 @@ export default function HaveABallPage() {
             </div>
           </div>
           <p className="text-white/40 text-xs mt-4 text-center">
-            Your card is charged $20 automatically each week starting May 26, 2026. No charge today.
+            {midSeason
+              ? "Season's underway — join now, catch up on the weeks already played in one charge, then $20 auto-billed each week. Plus 6.5% Lee County tax."
+              : "Your card is charged $20 automatically each week starting May 26, 2026. No charge today. Plus 6.5% Lee County tax."}
           </p>
           <div className="text-center mt-8">
             <CtaButton onClick={() => setOpen(true)}>Reserve My Spot · $20/week</CtaButton>
@@ -278,11 +298,11 @@ export default function HaveABallPage() {
         items={[
           {
             q: "When does the league start?",
-            a: "Tuesday, May 26, 2026 at 6:30 PM. The season runs 12 consecutive weeks.",
+            a: "The season started Tuesday, May 26, 2026 at 6:30 PM and runs 12 consecutive weeks. It's already underway — you can still join mid-season. You'll catch up on the weeks already played in a single charge, then continue with the regular weekly billing.",
           },
           {
             q: "How much does it cost?",
-            a: "$20 per person per week for 12 weeks ($240 total). $14.50 goes to lineage (lanes + shoes), $5.50 goes toward your end-of-season ball. Your card is auto-charged each week — no big upfront payment.",
+            a: "$20 per person per week for 12 weeks ($240, plus 6.5% Lee County sales tax = $255.60 total). $14.50 goes to lineage (lanes + shoes), $5.50 goes toward your end-of-season ball. Your card is auto-charged each week — no big upfront payment. Joining mid-season costs the same total: weeks already played are charged once today, the rest bill weekly.",
           },
           {
             q: "Do I really get to keep the ball?",
@@ -298,7 +318,7 @@ export default function HaveABallPage() {
           },
           {
             q: "When will my card be charged?",
-            a: "The first $20 charge runs on the league start date, May 26, 2026. Then $20 every week for 11 more weeks.",
+            a: "If you sign up before the season, the first $20 charge runs on the start date and then weekly. If you join mid-season, you're charged once today for the weeks already played, then $20 (plus tax) automatically each week until the season ends.",
           },
           {
             q: "How do I cancel?",
@@ -332,7 +352,9 @@ export default function HaveABallPage() {
             Lanes Fill Fast.
           </h2>
           <p className="text-white/70 max-w-lg mx-auto mb-8">
-            Lock your spot in the Have-A-Ball league now — first charge runs May 26, not today.
+            {midSeason
+              ? "The season's already rolling — lock your spot now, catch up on the weeks played, and you're in."
+              : "Lock your spot in the Have-A-Ball league now — first charge runs May 26, not today."}
           </p>
           <button
             onClick={() => setOpen(true)}
