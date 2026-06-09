@@ -1,5 +1,14 @@
 # Open Tasks
 
+## ⚠️ Temporary fallbacks to remove later
+
+- **Race day-of auto-charge on start-time-passed** (added 2026-06-09, user-requested stopgap).
+  `/api/cron/race-dayof-pay` normally settles the day-of order only when it sees the racer
+  Arrived (-5) on the SMS-Timing dayplanner. As a safety net it now ALSO settles when the
+  race **start time has passed** (even if the Arrived scan failed / never fired). Remove once
+  -5 check-in detection is proven reliable. Search `FALLBACK` in
+  `apps/web/app/api/cron/race-dayof-pay/route.ts` to delete (revert the scan-error bail too).
+
 ## Booking V1→V2 FULL CUTOVER + race-pack port (IN PROGRESS — 2026-06-07)
 
 **Goal (user directive):** V2 is the booking system. Replace ALL booking entry points

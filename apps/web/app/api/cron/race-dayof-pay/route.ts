@@ -28,7 +28,14 @@ import { verifyCron } from "@/lib/cron-auth";
  * ?dryRun=1 — report what WOULD be charged, no Square writes.
  *
  * Mirrors bmi-cancel-sweep (Office dayplanner scan) + group-dayof-pay (charge).
- * NOT yet registered in vercel.json — dry-run in production first, then schedule.
+ * Registered in vercel.json (every 2 min).
+ *
+ * ⚠️ TEMPORARY FALLBACK (remove once -5 check-in detection is proven reliable):
+ * if a race's START TIME has passed and we STILL haven't seen an Arrived (-5)
+ * state — including when the dayplanner scan itself fails — we settle the day-of
+ * order anyway. The gift card was already funded at booking, so this only moves
+ * already-captured funds onto the open order; it guards against a missed/failed
+ * check-in scan leaving a raced reservation unpaid. Search "FALLBACK" to delete.
  */
 
 export const dynamic = "force-dynamic";
@@ -324,24 +331,30 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    let arrived: Set<string>;
+    // Scan for Arrived (-5) states. If it fails we DON'T bail — the temporary
+    // start-time-passed fallback below still settles overdue races.
+    let arrived = new Set<string>();
     try {
       arrived = await arrivedNumbers(center.clientKey);
+      result.arrived = arrived.size;
     } catch (err) {
-      result.error = err instanceof Error ? err.message : "dayplanner scan failed";
-      centers.push(result);
-      continue;
+      result.scanError = err instanceof Error ? err.message : "dayplanner scan failed";
     }
-    result.arrived = arrived.size;
 
     for (const r of mine) {
       const label = `${r.bmiReservationNumber ?? "?"} (neon ${r.id})`;
-      if (!arrived.has(normalizeNum(r.bmiReservationNumber))) {
+      const isArrived = arrived.has(normalizeNum(r.bmiReservationNumber));
+      // ⚠️ TEMPORARY FALLBACK (see header — remove once -5 detection is trusted):
+      // settle once the race START TIME has passed even if we never saw Arrived.
+      const startPassed = !!r.bookedAt && Date.now() > Date.parse(r.bookedAt);
+      const viaFallback = !isArrived && startPassed;
+      if (!isArrived && !viaFallback) {
         (result.skipped as string[]).push(`${label}: not checked in (-5) yet`);
         continue;
       }
+      const tag = viaFallback ? " [FALLBACK: start time passed]" : "";
       if (dryRun) {
-        (result.wouldPay as string[]).push(label);
+        (result.wouldPay as string[]).push(`${label}${tag}`);
         continue;
       }
       try {
@@ -350,9 +363,9 @@ export async function GET(req: NextRequest) {
           await updateBowlingReservationLaneOpen(r.id, {
             laneNumbers: [],
             paymentId: res.paymentId,
-            source: "race-dayof-pay",
+            source: viaFallback ? "race-dayof-pay-fallback-timepassed" : "race-dayof-pay",
           });
-          (result.paid as string[]).push(`${label}: ${res.note}`);
+          (result.paid as string[]).push(`${label}${tag}: ${res.note}`);
           totalPaid += 1;
         } else {
           (result.skipped as string[]).push(`${label}: ${res.note}`);
