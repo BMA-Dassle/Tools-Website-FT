@@ -532,27 +532,49 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
         heatRacers.set(h.heatId, list);
       }
     }
-    // Per-heat schedule (time · track · racers) so the review reflects EVERY
-    // selected heat — the priced lines aggregate (e.g. "Starter Race Mega x4"),
-    // which hid the individual times. Mirrors the cart's heat list. Deduped by
-    // (product, time) and ordered by start.
-    const heatSchedule: Array<{ time: string; track: string | null; racers: string[] }> = [];
+    // Unified itinerary — every timed activity (race heats, attractions,
+    // bowling) with its time + who's assigned. This owns the times + names so
+    // the bill below can read like a plain Square receipt (no times). Race heats
+    // deduped by (product, time); ordered by start.
+    const titleCase = (s: string) => s.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const partyName = new Map(
+      session.party.map(
+        (m) => [m.id, [m.firstName, m.lastName].filter(Boolean).join(" ")] as const,
+      ),
+    );
+    const lineup: Array<{ time: string; label: string; who: string }> = [];
     const seenHeatKeys = new Set<string>();
     for (const it of session.items) {
-      if (it.kind !== "race") continue;
-      for (const h of it.heats) {
-        if (!h.heatId) continue;
-        const key = `${h.productId ?? ""}|${h.heatId}`;
-        if (seenHeatKeys.has(key)) continue;
-        seenHeatKeys.add(key);
-        heatSchedule.push({
-          time: h.heatId,
-          track: h.track,
-          racers: heatRacers.get(h.heatId) ?? [],
+      if (it.kind === "race") {
+        for (const h of it.heats) {
+          if (!h.heatId) continue;
+          const key = `${h.productId ?? ""}|${h.heatId}`;
+          if (seenHeatKeys.has(key)) continue;
+          seenHeatKeys.add(key);
+          lineup.push({
+            time: h.heatId,
+            label: h.track ? `${h.track} Track` : "Race",
+            who: (heatRacers.get(h.heatId) ?? []).join(", "),
+          });
+        }
+      } else if (it.kind === "attraction") {
+        if (!it.slot) continue;
+        const who =
+          it.assignedTo
+            .map((id) => partyName.get(id))
+            .filter(Boolean)
+            .join(", ") || (it.qty > 1 ? `${it.qty} people` : "");
+        lineup.push({ time: it.slot, label: it.slug ? titleCase(it.slug) : "Activity", who });
+      } else if (it.kind === "bowling" || it.kind === "kbf") {
+        if (!it.bookedAt) continue;
+        lineup.push({
+          time: it.bookedAt,
+          label: it.experienceSlug ? titleCase(it.experienceSlug) : "Bowling",
+          who: "",
         });
       }
     }
-    heatSchedule.sort((a, b) => a.time.localeCompare(b.time));
+    lineup.sort((a, b) => a.time.localeCompare(b.time));
     return (
       <div className="mx-auto max-w-lg space-y-6">
         <div className="text-center">
@@ -624,53 +646,42 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           </div>
         )}
 
-        {/* Your heats — per-heat time/track/racers, so every selection is
-            visible even though the priced lines below aggregate by product. */}
-        {heatSchedule.length > 0 && (
+        {/* Your lineup — every timed activity (heats + attractions + bowling)
+            with its time + assignment. This owns the schedule, so the bill below
+            is a plain receipt (names + amounts, no times). */}
+        {lineup.length > 0 && (
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
-              Your heats
+              Your lineup
             </p>
             <ul className="space-y-1.5">
-              {heatSchedule.map((h, i) => (
+              {lineup.map((e, i) => (
                 <li key={i} className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-white">
-                    {formatTime(h.time)}
-                    {h.track && <span className="text-white/40"> · {h.track} Track</span>}
+                    {formatTime(e.time)}
+                    <span className="text-white/40"> · {e.label}</span>
                   </span>
-                  {h.racers.length > 0 && (
-                    <span className="truncate text-xs text-white/50">{h.racers.join(", ")}</span>
-                  )}
+                  {e.who && <span className="truncate text-xs text-white/50">{e.who}</span>}
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        {/* Line items */}
+        {/* Bill — plain Square receipt: line name + amount, no times (the
+            lineup above owns the schedule). */}
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-4">
-          {overview.lines.map((line, i) => {
-            const racers = line.time ? heatRacers.get(line.time) : undefined;
-            return (
-              <div key={i} className="flex justify-between gap-3 text-sm">
-                <div className="min-w-0 flex-1 text-white/60">
-                  <div>
-                    {line.name}
-                    {line.quantity > 1 && <span> x {line.quantity}</span>}
-                    {line.time && (
-                      <span className="ml-1 text-white/30">{formatTime(line.time)}</span>
-                    )}
-                  </div>
-                  {racers && racers.length > 0 && (
-                    <div className="mt-0.5 text-xs text-white/40">{racers.join(", ")}</div>
-                  )}
-                </div>
-                <span className="shrink-0 text-white">
-                  {line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}
-                </span>
-              </div>
-            );
-          })}
+          {overview.lines.map((line, i) => (
+            <div key={i} className="flex justify-between gap-3 text-sm">
+              <span className="min-w-0 flex-1 text-white/60">
+                {line.name}
+                {line.quantity > 1 && <span> x {line.quantity}</span>}
+              </span>
+              <span className="shrink-0 text-white">
+                {line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}
+              </span>
+            </div>
+          ))}
 
           <div className="space-y-1 border-t border-white/10 pt-2">
             <div className="flex justify-between text-sm">
