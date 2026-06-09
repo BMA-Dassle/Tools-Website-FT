@@ -319,6 +319,10 @@ export function initialOfferingsFor(_promo: AppliedPromo | null): ActivityOfferi
  * `base` is always a fresh array (offeringsAt filters; allOfferings is sliced),
  * so the in-place sort never mutates the CATALOG.
  */
+/** HeadPinz landing surfaces these first, in this order (bowling → KBF → gel
+ *  blaster); everything else follows in catalog order. */
+const HP_LANDING_PRIORITY: Record<string, number> = { bowling: 0, kbf: 1, "gel-blaster": 2 };
+
 export function landingOfferingsFor(
   entryBrand: Brand,
   center: CenterCode | null,
@@ -326,5 +330,9 @@ export function landingOfferingsFor(
   const base = center ? offeringsAt(center) : allOfferings().slice();
   const brandRank = (o: ActivityOffering): number =>
     effectiveBrand(o, entryBrand) === entryBrand ? 0 : 1;
-  return base.sort((a, b) => brandRank(a) - brandRank(b));
+  // HeadPinz lead order; non-HeadPinz brands keep catalog order (rank 0 for all).
+  const hpRank = (o: ActivityOffering): number =>
+    entryBrand === "headpinz" ? (HP_LANDING_PRIORITY[o.slug] ?? 99) : 0;
+  // Stable sort: own-brand first, then the HeadPinz lead order, then catalog order.
+  return base.sort((a, b) => brandRank(a) - brandRank(b) || hpRank(a) - hpRank(b));
 }

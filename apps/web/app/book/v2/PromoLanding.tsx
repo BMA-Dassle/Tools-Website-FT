@@ -192,23 +192,23 @@ export function PromoLanding({
       {hasCart ? (
         /* Cart checkout bar — replaces promo input when items are booked */
         <section className="px-4 pb-6 sm:pb-8">
-          <div className="mx-auto flex max-w-2xl items-center justify-between rounded-2xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-6 py-4">
-            <div>
+          <div className="mx-auto flex max-w-2xl flex-col gap-3 rounded-2xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-white">
                 {cartItemCount} activit{cartItemCount === 1 ? "y" : "ies"} in your cart
               </p>
               <p className="text-xs text-white/40">Add more below or checkout when ready</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-3">
               <Link
                 href={`/book/${cartSlug}/v2`}
-                className="rounded-lg border border-white/15 px-4 py-2 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+                className="whitespace-nowrap rounded-lg border border-white/15 px-4 py-2 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
               >
                 View Cart
               </Link>
               <Link
                 href={`/book/${cartSlug}/v2?checkout=1`}
-                className="rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
+                className="whitespace-nowrap rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
               >
                 Checkout →
               </Link>

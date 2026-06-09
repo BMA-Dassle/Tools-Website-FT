@@ -448,6 +448,14 @@ async function unifiedReserveInner(
         } catch {
           // Non-fatal
         }
+      } else {
+        // Square rejected the reward create — log WHY (scope/points/account
+        // mismatch) so the hard-fail below is diagnosable. Mirrors the bowling
+        // path's logging.
+        const e = createData.errors?.[0];
+        console.error(
+          `[unified-reserve] Loyalty reward creation failed: ${createRes.status} ${e?.code}: ${e?.detail}`,
+        );
       }
     } catch (err) {
       console.error("[unified-reserve] Loyalty reward error:", err);
