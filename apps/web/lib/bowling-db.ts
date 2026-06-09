@@ -998,6 +998,36 @@ export async function getRaceReservationsAwaitingDayofPay(): Promise<BowlingRese
 }
 
 /**
+ * Standalone-attraction reservations awaiting day-of settlement: confirmed,
+ * unpaid, with a gift card + open day-of order, AND with NO bowling/KBF
+ * reservation sharing the same day-of order. When bowling IS in the session the
+ * lane-open flow settles the combined order, so we must NOT also settle from the
+ * attraction side — hence the NOT EXISTS guard. The day-of pay cron polls these
+ * like races (BMI check-in -5 + start-time-passed fallback).
+ */
+export async function getAttractionReservationsAwaitingDayofPay(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT r.* FROM bowling_reservations r
+    WHERE r.product_kind = 'attraction'
+      AND r.status = 'confirmed'
+      AND r.dayof_order_sent_at IS NULL
+      AND r.square_gift_card_id IS NOT NULL
+      AND r.square_dayof_order_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM bowling_reservations b
+        WHERE b.square_dayof_order_id = r.square_dayof_order_id
+          AND b.product_kind IN ('open', 'kbf')
+      )
+    ORDER BY r.booked_at DESC
+    LIMIT 500
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Look up a reservation by QAMF reservation ID.
  * Used by the webhook consumer to find the Neon row for an incoming event.
  */

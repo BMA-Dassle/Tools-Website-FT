@@ -2,12 +2,16 @@
 
 ## ⚠️ Temporary fallbacks to remove later
 
-- **Race day-of auto-charge on start-time-passed** (added 2026-06-09, user-requested stopgap).
-  `/api/cron/race-dayof-pay` normally settles the day-of order only when it sees the racer
-  Arrived (-5) on the SMS-Timing dayplanner. As a safety net it now ALSO settles when the
-  race **start time has passed** (even if the Arrived scan failed / never fired). Remove once
-  -5 check-in detection is proven reliable. Search `FALLBACK` in
+- **Race + standalone-attraction day-of auto-charge on start-time-passed** (added 2026-06-09,
+  user-requested stopgap). `/api/cron/race-dayof-pay` normally settles the day-of order only when
+  it sees the guest Arrived (-5) on the SMS-Timing dayplanner. As a safety net it now ALSO settles
+  when the **activity start time has passed** (earliest heat for race, earliest slot for
+  attraction — from `booking_metadata`, NOT `booked_at`), even if the Arrived scan failed/never
+  fired. Standalone attractions = no bowling sharing the day-of order (bowling carts settle via
+  lane-open). Remove once -5 detection is proven reliable. Search `FALLBACK` in
   `apps/web/app/api/cron/race-dayof-pay/route.ts` to delete (revert the scan-error bail too).
+  NOTE: legacy attraction rows booked before this have empty `booking_metadata` → no start time →
+  they're skipped (settle them manually via `?billId=…&token=…` if needed).
 
 ## Booking V1→V2 FULL CUTOVER + race-pack port (IN PROGRESS — 2026-06-07)
 

@@ -3,6 +3,7 @@ import https from "https";
 import { parseWithRawIds } from "@ft/db";
 import {
   getRaceReservationsAwaitingDayofPay,
+  getAttractionReservationsAwaitingDayofPay,
   getBowlingReservationByBillId,
   updateBowlingReservationLaneOpen,
   type BowlingReservation,
@@ -13,15 +14,19 @@ import { verifyCron } from "@/lib/cron-auth";
  * GET /api/cron/race-dayof-pay
  *
  * BMI has no check-in webhook (unlike QAMF/bowling), so we POLL. This cron
- * detects $0-model race reservations that have CHECKED IN at the center
- * (SMS-Timing project state -5 "Arrived") and settles the open Square day-of
- * order from the gift card funded at booking — the same gift-card → day-of-order
- * charge bowling does in processLaneOpen / group-dayof-pay, but triggered by
- * polling BMI state instead of a vendor webhook.
+ * settles BMI-side day-of orders from the gift card funded at booking — the same
+ * gift-card → day-of-order charge bowling does in processLaneOpen /
+ * group-dayof-pay, but triggered by polling BMI state instead of a vendor webhook.
+ *
+ * Covers two reservation kinds:
+ *   - RACE (always).
+ *   - STANDALONE ATTRACTION — an attraction reservation with NO bowling/KBF
+ *     sharing its day-of order (when bowling IS present, lane-open settles the
+ *     combined order, so we leave it alone). See getAttractionReservationsAwaitingDayofPay.
  *
  * Per center:
  *   1. Scan the SMS-Timing Office dayplanner for projects at state -5 (Arrived).
- *   2. Match to our confirmed, unpaid race reservations (by W-number).
+ *   2. Match to our confirmed, unpaid race/attraction reservations (by W-number).
  *   3. Charge the gift card against the open day-of order, COMPLETE it, and
  *      stamp dayof_order_sent_at (idempotency guard — never double-charges).
  *
@@ -139,25 +144,31 @@ function normalizeNum(n: string | null | undefined): string {
 }
 
 /**
- * Earliest race START (epoch ms) for the time-passed fallback. The reservation's
- * `booked_at` is the BOOKING time (not the race time), so we read the actual heat
- * start from booking_metadata. Heat ids are ET wall-clock with NO offset
- * (e.g. "2026-06-09T16:24:00"), so apply the ET offset (DST-approx by month)
- * before comparing to now. Returns null when no heat time is recorded — the
- * caller must NOT fall back without a real start time.
+ * Earliest activity START (epoch ms) for the time-passed fallback. The
+ * reservation's `booked_at` is the BOOKING time (not the activity time), so we
+ * read the real start from booking_metadata: race HEATS (`heatId`) or attraction
+ * SLOTS (`slot`). Both are ET wall-clock with NO offset (e.g.
+ * "2026-06-09T16:24:00"), so apply the ET offset (DST-approx by month) before
+ * comparing to now. Returns null when no start time is recorded — the caller
+ * must NOT fall back without one (e.g. legacy attraction rows with empty metadata).
  */
-function raceStartEpoch(r: BowlingReservation): number | null {
-  const md = r.bookingMetadata as { heats?: Array<{ heatId?: string }> } | null | undefined;
-  const heats = md?.heats;
-  if (!Array.isArray(heats) || heats.length === 0) return null;
+function bmiStartEpoch(r: BowlingReservation): number | null {
+  const md = r.bookingMetadata as
+    | { heats?: Array<{ heatId?: string }>; attractions?: Array<{ slot?: string }> }
+    | null
+    | undefined;
+  const times: string[] = [];
+  if (Array.isArray(md?.heats))
+    for (const h of md.heats) if (typeof h?.heatId === "string") times.push(h.heatId);
+  if (Array.isArray(md?.attractions))
+    for (const a of md.attractions) if (typeof a?.slot === "string") times.push(a.slot);
+  if (times.length === 0) return null;
   let earliest = Infinity;
-  for (const h of heats) {
-    const hid = h?.heatId;
-    if (typeof hid !== "string") continue;
-    const month = Number(hid.slice(5, 7));
+  for (const t of times) {
+    const month = Number(t.slice(5, 7));
     const offset = month >= 3 && month <= 11 ? "-04:00" : "-05:00"; // EDT vs EST (approx)
-    const t = Date.parse(hid.replace(/Z$/, "") + offset);
-    if (Number.isFinite(t) && t < earliest) earliest = t;
+    const ms = Date.parse(t.replace(/Z$/, "") + offset);
+    if (Number.isFinite(ms) && ms < earliest) earliest = ms;
   }
   return Number.isFinite(earliest) ? earliest : null;
 }
@@ -237,7 +248,7 @@ async function chargeDayof(
       order_id: orderId,
       location_id: locationId,
       autocomplete: true,
-      note: `FastTrax race day-of (${r.bmiReservationNumber ?? r.id})`,
+      note: `v2 ${r.productKind} day-of (${r.bmiReservationNumber ?? r.id})`,
     }),
   });
   if (!payRes.ok) {
@@ -301,9 +312,9 @@ export async function GET(req: NextRequest) {
   if (manualBillId) {
     const r = await getBowlingReservationByBillId(manualBillId);
     if (!r) return NextResponse.json({ error: "reservation not found" }, { status: 404 });
-    if (r.productKind !== "race")
+    if (r.productKind !== "race" && r.productKind !== "attraction")
       return NextResponse.json(
-        { error: `not a race reservation (${r.productKind})` },
+        { error: `not a race/attraction reservation (${r.productKind})` },
         { status: 400 },
       );
     if (!r.squareGiftCardId || !r.squareDayofOrderId)
@@ -332,8 +343,14 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Candidate races (confirmed, $0-model, not yet settled). Small set.
-  const candidates = await getRaceReservationsAwaitingDayofPay();
+  // Candidates: races + standalone attractions (no bowling sharing the order,
+  // which would otherwise be settled by the bowling lane-open flow). Both are
+  // BMI-side, settled the same way (check-in -5 + start-time-passed fallback).
+  const [raceCandidates, attractionCandidates] = await Promise.all([
+    getRaceReservationsAwaitingDayofPay(),
+    getAttractionReservationsAwaitingDayofPay(),
+  ]);
+  const candidates = [...raceCandidates, ...attractionCandidates];
 
   const centers: Array<Record<string, unknown>> = [];
   let totalPaid = 0;
@@ -372,7 +389,7 @@ export async function GET(req: NextRequest) {
       // settle once the actual race START TIME (earliest heat) has passed even if
       // we never saw Arrived. Uses booking_metadata heat time, NOT booked_at
       // (which is the booking timestamp for race/attraction anchor rows).
-      const startEpoch = raceStartEpoch(r);
+      const startEpoch = bmiStartEpoch(r);
       const startPassed = startEpoch != null && Date.now() > startEpoch;
       const viaFallback = !isArrived && startPassed;
       if (!isArrived && !viaFallback) {

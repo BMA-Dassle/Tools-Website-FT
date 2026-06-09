@@ -859,6 +859,14 @@ async function unifiedReserveInner(
       }));
       bookingMetadata.racerNames = session.party.map((m) => m.firstName);
     }
+    // Persist attraction slot START times so the day-of settle cron can tell when
+    // the activity has actually happened (the anchor row's booked_at is the
+    // BOOKING time, not the slot time). `slot` is the ISO start of the chosen slot.
+    if (attractionItems.length > 0) {
+      bookingMetadata.attractions = attractionItems
+        .filter((a) => a.slot)
+        .map((a) => ({ slug: a.slug, slot: a.slot, qty: a.qty }));
+    }
 
     // ── Durable anchor (confirm_pending) BEFORE BMI confirm ───────────
     // A captured deposit must never be stranded without a record. If confirm
