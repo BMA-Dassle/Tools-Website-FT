@@ -14,7 +14,7 @@
  * absent; removing the last KbfItem clears it.
  */
 import type { AppliedPromo } from "~/features/discount-codes";
-import type { CenterCode, ContactInfo } from "../types";
+import { qamfCenterIdForCode, type CenterCode, type ContactInfo } from "../types";
 import {
   hasKbfItem,
   newKbfIdentity,
@@ -108,12 +108,6 @@ export type Action =
   /** Clear loyalty state (e.g. phone changed). */
   | { type: "clearLoyalty" }
   | { type: "restoreSession"; session: BookingSession };
-
-/** QAMF center id for a CenterCode. Bowling/KBF book against QAMF, so the item
- *  MUST carry the SELECTED center's id — never silently default to one center. */
-function qamfCenterIdForCode(center: CenterCode | null): number | null {
-  return center === "naples" ? 3148 : center === "fort-myers" ? 9172 : null;
-}
 
 export function reducer(state: BookingSession, action: Action): BookingSession {
   switch (action.type) {
@@ -261,16 +255,28 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
     case "setContact":
       return { ...state, contact: { ...state.contact, ...action.patch } };
 
-    case "setCenter":
+    case "setCenter": {
       if (action.center === state.center) return state;
-      // Cart constraint: one center per session. Switching = clear items.
+      // Switching BETWEEN complexes with a non-empty cart clears it (one center
+      // per session). But setting the center for the FIRST time (state.center is
+      // null) is an INITIAL selection, not a switch — keep the cart and stamp the
+      // QAMF center onto any bowling/KBF items so they book the chosen complex.
+      const isSwitch = state.center != null && state.items.length > 0;
+      if (isSwitch) {
+        return { ...state, center: action.center, items: [], cursors: {}, activeItemId: null };
+      }
+      const qamf = qamfCenterIdForCode(action.center);
       return {
         ...state,
         center: action.center,
-        items: state.items.length === 0 ? state.items : [],
-        cursors: state.items.length === 0 ? state.cursors : {},
-        activeItemId: state.items.length === 0 ? state.activeItemId : null,
+        items:
+          qamf == null
+            ? state.items
+            : state.items.map((i) =>
+                i.kind === "bowling" || i.kind === "kbf" ? { ...i, qamfCenterId: qamf } : i,
+              ),
       };
+    }
 
     case "setSquareOrderId":
       return { ...state, squareOrderId: action.id };

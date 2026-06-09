@@ -6,6 +6,7 @@
  * refactors inside the feature don't ripple out.
  */
 export type { Activity, Brand, CenterCode, ContactInfo, BookingStatus } from "./types";
+export { qamfCenterIdForCode } from "./types";
 
 export {
   emptySession,

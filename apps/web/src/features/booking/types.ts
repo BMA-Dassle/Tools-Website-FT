@@ -20,6 +20,17 @@ export type Brand = "fasttrax" | "headpinz";
 
 export type CenterCode = "fort-myers" | "naples";
 
+/**
+ * QAMF center id for a selected CenterCode. Bowling/KBF book against QAMF by
+ * numeric center id; this is the ONLY mapping — callers must resolve from the
+ * SELECTED center (session.center / the item's stamped center) and never
+ * hard-default to one complex. Returns null when no center is selected, so the
+ * caller fails loudly instead of silently booking the wrong center.
+ */
+export function qamfCenterIdForCode(center: CenterCode | null | undefined): number | null {
+  return center === "naples" ? 3148 : center === "fort-myers" ? 9172 : null;
+}
+
 /** Square Order lifecycle state, mirrored from the Square API. */
 export type SquareOrderStatus = "DRAFT" | "OPEN" | "COMPLETED" | "CANCELED";
 

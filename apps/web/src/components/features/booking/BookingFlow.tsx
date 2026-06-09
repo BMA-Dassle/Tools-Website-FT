@@ -15,6 +15,7 @@ import {
   type StepDef,
 } from "~/features/booking";
 import { contactIsComplete } from "./steps/ContactStep";
+import { CenterPickerModal } from "./CenterPickerModal";
 import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
 import type { AppliedPromo } from "~/features/discount-codes";
 import { CartView, LeaveConfirmModal } from "./CartView";
@@ -427,6 +428,13 @@ export function BookingFlow({
 
   return (
     <div className={brandClass}>
+      {/* Bowling/KBF needs a specific complex. If the session has no resolved
+          center (generic entry, nothing in cart to infer from), confirm it
+          rather than silently defaulting — picking stamps the item's center. */}
+      {(activeItem.kind === "bowling" || activeItem.kind === "kbf") && !session.center && (
+        <CenterPickerModal onSelect={(center) => dispatch({ type: "setCenter", center })} />
+      )}
+
       {/* Sticky step indicator — matches v1: sticky below fixed nav */}
       <div className="sticky top-18 z-30 border-b border-white/8 bg-[#000418] sm:top-20">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-3">

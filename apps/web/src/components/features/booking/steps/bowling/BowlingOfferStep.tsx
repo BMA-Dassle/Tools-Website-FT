@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
+import { qamfCenterIdForCode } from "~/features/booking";
 import type { BowlingItem, KbfItem, StepDef, BookingSession } from "~/features/booking";
 import type {
   BowlingExperienceWithDetails,
@@ -63,8 +64,11 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   onChange,
   dispatch,
 }) => {
-  const centerId = item.qamfCenterId ?? 9172;
-  const centerCode = QAMF_CENTER_CODES[centerId] ?? "TXBSQN0FEKQ11";
+  // Resolve from the item's stamped center, else the SELECTED session center —
+  // never a hardcoded fallback. null = no center yet (the flow shows the center
+  // picker); booking is blocked below until it's resolved.
+  const centerId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
+  const centerCode = centerId != null ? (QAMF_CENTER_CODES[centerId] ?? null) : null;
   const kind =
     item.kind === "kbf" ? "kbf" : (item as BowlingItem).variant === "hourly" ? "hourly" : "open";
   const playerCount =
@@ -99,6 +103,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const selectedHour = item.hour;
 
   useEffect(() => {
+    if (!centerCode) return; // no center resolved yet — the picker is showing
     const kindParam = kind === "kbf" ? "&kind=kbf" : "";
     void (async () => {
       try {
@@ -128,7 +133,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   // nothing for THIS tier — e.g. open for regular but full for VIP — do we widen
   // to a 30-min full-day scan to surface the next-available times.
   useEffect(() => {
-    if (!item.date || selectedHour === null) {
+    if (!item.date || selectedHour === null || centerId == null) {
       setSlots([]);
       setWidened(false);
       return;
@@ -227,8 +232,8 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     durationOpt: BowlingExperienceDurationOption | null,
   ) {
     // Never silently book a different complex — if the center didn't resolve
-    // from the session, refuse rather than defaulting to Fort Myers.
-    if (item.qamfCenterId == null) {
+    // from the item or the session, refuse rather than defaulting to Fort Myers.
+    if (centerId == null) {
       setError("We couldn't tell which location this is for. Go back and re-select your center.");
       return;
     }
