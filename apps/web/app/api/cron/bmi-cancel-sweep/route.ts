@@ -19,11 +19,16 @@ import { verifyCron } from "@/lib/cron-auth";
  *
  * Runs every 5 minutes. Recovery (-3 on an already-confirmed project) is a no-op.
  *
- * RECOVERY GATE:
- *   (A) confirmed booking-record in our DB
- *   (B) stateId=-4 + userUpdatedId=-1 (auto-cancel) + has payment
- *   (C) stateId=-101 (Payment started) + has online payment
- * A booking-record explicitly marked cancelled/refunded is never recovered.
+ * RECOVERY GATE — only undo SYSTEM failures, never a real cancellation:
+ *   (A) stateId=-101/-102 (stuck payment, NOT a cancel) + confirmed booking-record
+ *   (B) stateId=-4 auto-cancel (userUpdatedId=-1, "SYSTEM_CRON") + payment or
+ *       confirmed booking-record
+ *   (C) stateId=-101/-102 (stuck payment) + has online payment
+ * NEVER recovered:
+ *   - a booking-record explicitly marked cancelled/refunded
+ *   - a -4 Cancellation whose last writer was a real user (staff onsite cancel or
+ *     online cancel; userUpdatedId !== -1) — that's intentional. This is what lets
+ *     staff cancel a booking onsite without the sweep flipping it back to confirmed.
  *
  * ?dryRun=1 — inspect only: reports what WOULD be recovered/skipped, no writes.
  */
@@ -274,30 +279,7 @@ async function sweepCenter(
         pay.deviceCreated === "Online Office",
     );
     const isAutoCancel = userUpdatedId === "-1";
-
-    // Recovery gate — depends on the stuck state.
-    let recover = false;
-    let reason: string;
-    if (recordCancelled) {
-      reason = `intentional: booking-record ${recordStatus || "cancelled"}`;
-    } else if ((pStateId === "-101" || pStateId === "-102") && hasOnlinePayment) {
-      // -101 Payment started / -102 Paid online + online payment = stuck
-      recover = true;
-      reason = `C: state ${pStateId} + online payment`;
-    } else if (recordConfirmed) {
-      recover = true;
-      reason = "A: confirmed booking-record";
-    } else if (isAutoCancel && hasPayment) {
-      recover = true;
-      reason = "B: userUpdatedId=-1 + payment";
-    } else if (pStateId === "-101" || pStateId === "-102") {
-      reason = `state ${pStateId} but no online payment (pay=${hasPayment})`;
-    } else {
-      reason = `no-gate (state=${pStateId}, uu=${userUpdatedId || "?"}, pay=${hasPayment}, rec=${recordStatus || "none"})`;
-    }
-
-    const guest = (p.displayName || p.name || "?").trim();
-    const label = `${num} "${guest}"`;
+    const isCancellation = pStateId === "-4";
     const cancelledByName =
       userUpdatedId === "-1"
         ? "SYSTEM_CRON"
@@ -306,6 +288,45 @@ async function sweepCenter(
           : userUpdatedId
             ? `user_${userUpdatedId}`
             : "unknown";
+
+    // Recovery gate — only undo SYSTEM failures, NEVER a real cancellation.
+    //
+    // A -4 Cancellation is recovered ONLY when its last writer was BMI's own
+    // auto-cancel bug (userUpdatedId === "-1", "SYSTEM_CRON"). If a real user
+    // cancelled it — staff onsite, or an online cancel (userUpdatedId !== "-1") —
+    // that is INTENTIONAL and must stand, even though our booking-record may still
+    // say "confirmed" (an onsite cancel never notifies us). Recovering those was
+    // flipping real cancellations back to confirmed, leaving no way to cancel a
+    // booking onsite. The -101/-102 (stuck-payment) states are not cancellations,
+    // so the confirmed-record gate still applies to them unchanged.
+    let recover = false;
+    let reason: string;
+    if (recordCancelled) {
+      reason = `intentional: booking-record ${recordStatus || "cancelled"}`;
+    } else if (isCancellation && !isAutoCancel) {
+      reason = `intentional: cancelled by ${cancelledByName} (userUpdatedId=${userUpdatedId || "?"})`;
+    } else if ((pStateId === "-101" || pStateId === "-102") && hasOnlinePayment) {
+      // -101 Payment started / -102 Paid online + online payment = stuck
+      recover = true;
+      reason = `C: state ${pStateId} + online payment`;
+    } else if (isCancellation && isAutoCancel && (hasPayment || recordConfirmed)) {
+      // -4 auto-cancelled by BMI (userUpdatedId=-1) — the bug we work around.
+      recover = true;
+      reason = `B: auto-cancel (userUpdatedId=-1)${hasPayment ? " + payment" : ""}${
+        recordConfirmed ? " + confirmed record" : ""
+      }`;
+    } else if (!isCancellation && recordConfirmed) {
+      // Non-cancellation recoverable states (-101/-102) with a confirmed record.
+      recover = true;
+      reason = "A: confirmed booking-record";
+    } else if (pStateId === "-101" || pStateId === "-102") {
+      reason = `state ${pStateId} but no online payment (pay=${hasPayment})`;
+    } else {
+      reason = `no-gate (state=${pStateId}, uu=${userUpdatedId || "?"}, pay=${hasPayment}, rec=${recordStatus || "none"})`;
+    }
+
+    const guest = (p.displayName || p.name || "?").trim();
+    const label = `${num} "${guest}"`;
 
     if (!recover) {
       result.skipped.push({ number: num, reason });
