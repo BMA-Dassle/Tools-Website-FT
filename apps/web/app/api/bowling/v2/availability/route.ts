@@ -195,6 +195,10 @@ export async function GET(req: NextRequest) {
   // the timeout. Defaults to 15 (KBF reschedule + targeted mode).
   const stepMinutesStr = searchParams.get("stepMinutes");
   const stepMinutes = stepMinutesStr ? Math.max(15, parseInt(stepMinutesStr, 10)) : 15;
+  // Targeted-mode fan-out (±minutes around the selected time). Default 300 (±5h);
+  // the fine bowling probe passes a small value to scan just one hour.
+  const windowMinutesStr = searchParams.get("windowMinutes");
+  const windowMinutes = windowMinutesStr ? Math.max(15, parseInt(windowMinutesStr, 10)) : 300;
 
   if (isNaN(centerId) || isNaN(players) || players < 1) {
     console.log(`[avail] EXIT: invalid centerId or players`);
@@ -290,8 +294,12 @@ export async function GET(req: NextRequest) {
     // quarter-hour probe times (QAMF rejects minutes not divisible by 5).
     earliestMin = Math.ceil(earliestMin / 15) * 15;
 
-    const windowStart = Math.max(hour * 60 + minute - 300, earliestMin); // -5h, clamped
-    const windowEnd = Math.min(hour * 60 + minute + 300, closeHour * 60); // +5h, clamped
+    // windowMinutes controls how far the probe fans out around the selected
+    // time. Default 300 (±5h — the "next available near X" behavior). The
+    // coarse→fine bowling picker passes a small value (e.g. 45) to probe just
+    // the chosen hour at 15-min granularity (~5 probes) instead of ±5h.
+    const windowStart = Math.max(hour * 60 + minute - windowMinutes, earliestMin);
+    const windowEnd = Math.min(hour * 60 + minute + windowMinutes, closeHour * 60);
 
     probeTimes = [];
     for (let t = windowStart; t <= windowEnd; t += 15) {
