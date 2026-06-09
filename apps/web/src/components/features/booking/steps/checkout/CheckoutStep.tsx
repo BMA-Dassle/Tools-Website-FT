@@ -38,6 +38,8 @@ interface CheckoutStepProps {
   session: BookingSession;
   dispatch: Dispatch<Action>;
   onBack: () => void;
+  /** Abandon the booking: release vendor holds + clear the cart, then leave. */
+  onStartOver: () => void | Promise<void>;
 }
 
 type Phase =
@@ -63,9 +65,11 @@ function formatTime(iso: string): string {
   });
 }
 
-export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
+export function CheckoutStep({ session, dispatch, onBack, onStartOver }: CheckoutStepProps) {
   const [phase, setPhase] = useState<Phase>({ step: "contact" });
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   // Contact form local state — pre-fill from session.contact
   const [firstName, setFirstName] = useState(session.contact.firstName ?? "");
@@ -392,6 +396,54 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
   }
 
   // ── Render ────────────────────────────────────────────────────
+
+  // Cancel + clear: release the BMI/QAMF holds and empty the cart, then leave.
+  // Available on review + pay so a customer who changes their mind after booking
+  // (holds already exist) can bail cleanly instead of orphaning reservations.
+  const cancelControl = (
+    <div className="pt-2 text-center">
+      {cancelConfirm ? (
+        <div className="inline-flex flex-col items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-400/5 px-4 py-3">
+          <p className="text-xs text-white/60">
+            This releases the spots you&apos;re holding and clears your cart.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setCancelConfirm(false)}
+              disabled={cancelling}
+              className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:text-white disabled:opacity-50"
+            >
+              Keep editing
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                setCancelling(true);
+                try {
+                  await onStartOver();
+                } finally {
+                  setCancelling(false);
+                }
+              }}
+              disabled={cancelling}
+              className="rounded-lg border border-amber-400/40 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-400/10 disabled:opacity-50"
+            >
+              {cancelling ? "Cancelling…" : "Yes, cancel & clear"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setCancelConfirm(true)}
+          className="text-xs text-white/35 underline transition-colors hover:text-white/60"
+        >
+          Cancel &amp; clear cart
+        </button>
+      )}
+    </div>
+  );
 
   if (phase.step === "contact") {
     return (
@@ -814,6 +866,8 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
               : `Pay $${overview.cashOwed.toFixed(2)} →`}
           </button>
         </div>
+
+        {cancelControl}
       </div>
     );
   }
@@ -954,6 +1008,7 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
           onError={(msg) => setPhase({ step: "error", message: msg })}
           onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
         />
+        {cancelControl}
       </div>
     );
   }

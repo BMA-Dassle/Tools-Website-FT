@@ -262,6 +262,7 @@ export function BookingFlow({
               onBack={() => {
                 setCheckoutActive(false);
               }}
+              onStartOver={handleStartOver}
             />
           </div>
           {reservationExpired && hasActiveHold && (
