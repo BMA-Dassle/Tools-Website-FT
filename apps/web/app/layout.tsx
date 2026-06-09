@@ -9,6 +9,7 @@ import MobileBookBar from "@/components/MobileBookBar";
 import ChatWidgetManager from "@/components/ChatWidgetManager";
 import { LocalBusinessJsonLd, HeadPinzOrganizationJsonLd } from "@/components/seo/JsonLd";
 import AxeInit from "@/components/seo/AxeInit";
+import ClarityAnalytics from "@/components/analytics/ClarityAnalytics";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 import { GoogleAnalytics } from "@next/third-parties/google";
@@ -262,6 +263,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {showChrome && <ChatWidgetManager />}
         <SpeedInsights />
         <Analytics />
+        <ClarityAnalytics />
         {gaId && <GoogleAnalytics gaId={gaId} />}
         {adsId && (
           <>
