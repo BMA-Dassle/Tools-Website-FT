@@ -137,8 +137,9 @@ export function CartView({
  * booking. Offers three intents:
  *   - Keep editing  → dismiss, stay on the current step (default; guards against
  *     an accidental "All activities" click losing the cart).
- *   - Save for later → go to the landing keeping the session; the customer
- *     resumes via the "Add to your visit" bar (session lives in sessionStorage).
+ *   - Add more activities → go to the landing keeping the session; the customer
+ *     adds another activity via the "Add to your visit" bar (session lives in
+ *     sessionStorage), then returns to checkout.
  *   - New booking   → abandon this one: `onNewBooking` releases the early-created
  *     vendor holds (BMI reservation + any QAMF hold) and clears the cart, so a
  *     contact-first booking never orphans a live reservation. Framed as starting
@@ -181,8 +182,8 @@ export function LeaveConfirmModal({
           Leave your booking?
         </h3>
         <p className="mt-2 text-sm text-white/60">
-          Save it and pick up where you left off, or start a new booking — which releases the spots
-          you&apos;re currently holding.
+          Add more activities and pick up where you left off, or start a new booking — which
+          releases the spots you&apos;re currently holding.
         </p>
         <div className="mt-5 space-y-3">
           <button
@@ -202,7 +203,7 @@ export function LeaveConfirmModal({
                 busy ? "pointer-events-none opacity-40" : ""
               }`}
             >
-              Save for later
+              Add more activities
             </Link>
             <button
               type="button"

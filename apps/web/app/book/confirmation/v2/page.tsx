@@ -937,6 +937,67 @@ export default function ConfirmationPage() {
             storedLoc ||
             (window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax");
           const isHpLoc = resolvedLocation === "headpinz" || resolvedLocation === "naples";
+
+          // Multi-activity emails arrived near-blank: the BMI overview is gone
+          // post-conversion and details.overviews carried only ONE activity's
+          // lines (the bowling lines, stored with a `time` field, no
+          // scheduledTime), so the schedule/date/time rows came out empty and
+          // the gel-blaster activity was missing entirely. When the
+          // overview-derived schedule is empty, rebuild the display schedule
+          // from the authoritative booking record (every bowling/attraction/
+          // racer activity with its time). scheduledItems is intentionally left
+          // untouched so the racing sales-log participantCount math is
+          // unaffected.
+          if (!notificationPayload.reservationSchedule) {
+            const norm = (t: string) =>
+              t
+                .replace(/Z$/, "")
+                .replace(/[+-]\d{2}:\d{2}$/, "")
+                .slice(0, 16);
+            const recItems: { name: string; start: string }[] = [];
+            for (const b of (bookingRecord?.bowling ?? []) as Array<{
+              kind?: string;
+              bookedAt?: string;
+              date?: string;
+            }>) {
+              const t = b.bookedAt || (b.date ? `${b.date}T00:00:00` : "");
+              if (t)
+                recItems.push({ name: b.kind === "kbf" ? "Kids Bowl Free" : "Bowling", start: t });
+            }
+            for (const a of (bookingRecord?.attractions ?? []) as Array<{
+              slug?: string;
+              slot?: string;
+              date?: string;
+            }>) {
+              const t = a.slot || (a.date ? `${a.date}T00:00:00` : "");
+              if (t)
+                recItems.push({
+                  name: ATTRACTIONS[a.slug ?? ""]?.name ?? a.slug ?? "Activity",
+                  start: t,
+                });
+            }
+            const heatSeen = new Set<string>();
+            for (const r of (bookingRecord?.racers ?? []) as Array<{
+              product?: string;
+              heatStart?: string;
+            }>) {
+              if (!r.heatStart) continue;
+              const key = `${r.product || "Race"}|${r.heatStart}`;
+              if (heatSeen.has(key)) continue;
+              heatSeen.add(key);
+              recItems.push({ name: r.product || "Race", start: r.heatStart });
+            }
+            if (recItems.length > 0) {
+              recItems.sort((a, b) => norm(a.start).localeCompare(norm(b.start)));
+              notificationPayload.reservationSchedule = recItems
+                .map((s) => `${s.name} · ${formatTime(s.start)}`)
+                .join("<br/>");
+              notificationPayload.reservationDate = formatDate(recItems[0].start);
+              notificationPayload.reservationTime = formatTime(recItems[0].start);
+              notificationPayload.productNames = recItems.map((s) => s.name);
+            }
+          }
+
           fetch("/api/notifications/booking-confirmation", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -1026,7 +1087,12 @@ export default function ConfirmationPage() {
                     name: details.race,
                     quantity: parseFloat(details.qty || "1"),
                     totalPrice: [{ amount: parseFloat(details.amount || "0"), depositKind: 0 }],
-                    productGroup: details?.attraction || "Karting",
+                    // Only racing bookings (racers on record) are "Karting".
+                    // details.race holds the bowling/attraction description when
+                    // there's no live overview — defaulting it to "Karting"
+                    // synthesized a phantom racing activity.
+                    productGroup:
+                      details?.attraction || (bookingRecord?.racers?.length ? "Karting" : "Other"),
                     scheduledTime: details.heat ? { start: details.heat, stop: "" } : undefined,
                   },
                 ]
@@ -1109,8 +1175,18 @@ export default function ConfirmationPage() {
     playerCount?: number;
     qamfReservationId?: string;
   }>;
+  // Racing is present only when the booking record actually has racers (→
+  // raceGroups). The BMI-overview "Karting" heuristic is a fallback ONLY for
+  // bookings with no enumerable record activities (legacy/seeded racing orders).
+  // It must NOT fire for bowling/attraction bookings: BMI tags some attraction
+  // lines as "Karting", and the synthetic fallback order line (built from
+  // details.race when the live overview is gone) hardcodes "Karting" — both
+  // produced a phantom "Racing" activity on bowling+gel-blaster bookings.
+  const recActivityCount =
+    (bookingRec?.racers?.length ?? 0) + attractionList.length + bowlingList.length;
   const hasRacing =
-    raceGroups.length > 0 || (order?.lines?.some((l) => l.productGroup === "Karting") ?? false);
+    raceGroups.length > 0 ||
+    (recActivityCount === 0 && (order?.lines?.some((l) => l.productGroup === "Karting") ?? false));
   const racingTime =
     raceGroups[0]?.heatStart ||
     order?.lines?.find((l) => l.productGroup === "Karting" && l.scheduledTime?.start)?.scheduledTime
