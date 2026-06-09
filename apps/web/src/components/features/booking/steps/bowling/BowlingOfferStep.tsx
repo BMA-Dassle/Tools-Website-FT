@@ -21,6 +21,19 @@ const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
+// VIP suite perks for the upgrade modal. Core amenities apply to every VIP
+// lane; some experiences add their own inclusions (shoes, pizza) on top.
+const VIP_CORE_PERKS = [
+  "Semi-private 8-lane VIP area",
+  "NeoVerse video wall",
+  "Complimentary chips & salsa",
+  "HyperBowling + premium glow lighting",
+];
+const VIP_EXTRA_PERKS: Record<string, string[]> = {
+  "fun-4-all-vip": ["Bowling shoes included"],
+  "pizza-bowl-vip": ["Large one-topping pizza", "Pitcher of soda", "Shoes for up to 6"],
+};
+
 type BowlingLikeItem = BowlingItem | KbfItem;
 
 const QAMF_CENTER_CODES: Record<number, string> = {
@@ -646,6 +659,22 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                     Upgrade to VIP?
                   </h3>
                   <p className="mb-4 text-sm text-white/55">{vipUpgrade.exp.description}</p>
+
+                  <ul className="mb-5 space-y-2">
+                    {[...VIP_CORE_PERKS, ...(VIP_EXTRA_PERKS[vipUpgrade.exp.slug] ?? [])].map(
+                      (perk) => (
+                        <li key={perk} className="flex items-center gap-2">
+                          <span
+                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                            style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
+                          >
+                            ✓
+                          </span>
+                          <span className="text-sm text-white/75">{perk}</span>
+                        </li>
+                      ),
+                    )}
+                  </ul>
 
                   {delta > 0 && (
                     <div
