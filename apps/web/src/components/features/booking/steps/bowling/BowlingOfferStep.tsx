@@ -500,7 +500,13 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                           {validDurationOptions.map((opt) => {
                             const isActive =
                               selectedDurationOpt?.id === opt.id && item.experienceId === exp.id;
-                            const optPrice = opt.overridePriceCents ?? priceCents;
+                            // Per-duration total = unit (1hr) price × the
+                            // duration's multiplier (v1 parity: BowlingWizard
+                            // 4951-4952). Without the multiplier, 1.5h and 2h
+                            // render the same price.
+                            const optPrice = Math.round(
+                              (opt.overridePriceCents ?? priceCents) * opt.squareMultiplier,
+                            );
                             return (
                               <button
                                 key={opt.id}
