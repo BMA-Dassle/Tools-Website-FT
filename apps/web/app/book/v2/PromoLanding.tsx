@@ -202,13 +202,13 @@ export function PromoLanding({
             <div className="flex shrink-0 items-center gap-3">
               <Link
                 href={`/book/${cartSlug}/v2`}
-                className="whitespace-nowrap rounded-lg border border-white/15 px-4 py-2 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+                className="whitespace-nowrap rounded-xl border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
               >
                 View Cart
               </Link>
               <Link
                 href={`/book/${cartSlug}/v2?checkout=1`}
-                className="whitespace-nowrap rounded-xl bg-[#00E2E5] px-6 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
+                className="whitespace-nowrap rounded-xl bg-[#00E2E5] px-5 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
               >
                 Checkout →
               </Link>

@@ -534,6 +534,7 @@ export function BookingFlow({
               ? () => dispatch({ type: "setActiveItem", id: null })
               : undefined
           }
+          onAllActivities={() => setLeaveConfirm(true)}
           onNext={handleNext}
         />
       </div>
@@ -574,6 +575,7 @@ function NavigationButtons({
   nextLabel,
   onBack,
   onBackToCart,
+  onAllActivities,
   onNext,
 }: {
   stepIndex: number;
@@ -582,15 +584,18 @@ function NavigationButtons({
   nextLabel: string;
   onBack: () => void;
   onBackToCart?: () => void;
+  onAllActivities?: () => void;
   onNext: () => void;
 }) {
-  const backDisabled = stepIndex === 0 && !onBackToCart;
+  // First step + single-item cart: there's no prior step and no cart hub to go
+  // back to, so offer "All activities" instead of a disabled Back (which reads
+  // as broken — "something I shouldn't touch"). Otherwise: step 0 with a
+  // multi-item cart → back to the cart hub; any later step → the previous step.
+  const atStart = stepIndex === 0 && !onBackToCart;
   const handleBack = () => {
-    if (stepIndex === 0 && onBackToCart) {
-      onBackToCart();
-    } else {
-      onBack();
-    }
+    if (atStart) onAllActivities?.();
+    else if (stepIndex === 0 && onBackToCart) onBackToCart();
+    else onBack();
   };
 
   return (
@@ -598,10 +603,9 @@ function NavigationButtons({
       <button
         type="button"
         onClick={handleBack}
-        disabled={backDisabled}
-        className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+        className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
       >
-        Back
+        {atStart ? "← All activities" : "Back"}
       </button>
       <button
         type="button"
