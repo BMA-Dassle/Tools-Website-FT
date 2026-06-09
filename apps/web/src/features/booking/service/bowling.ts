@@ -245,7 +245,10 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
 
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error ?? "Bowling reservation failed");
+    // Append the server's diagnostic `reason` (e.g. a Square reward rejection)
+    // so the checkout error screen shows WHY, not just the generic message.
+    const base = data.error ?? "Bowling reservation failed";
+    throw new Error(data.reason ? `${base} (${data.reason})` : base);
   }
 
   return {

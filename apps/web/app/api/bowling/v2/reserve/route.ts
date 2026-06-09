@@ -896,6 +896,10 @@ export async function POST(req: NextRequest) {
         {
           error: "Your reward couldn't be applied right now. Please try again.",
           code: "REWARD_FAILED",
+          // Surface the actual cause (Square rejection code/detail, or
+          // "condition_false: missing <field>") so the failure is diagnosable
+          // from the client without digging through server logs.
+          reason: rewardFailReason,
         },
         { status: 422 },
       );
