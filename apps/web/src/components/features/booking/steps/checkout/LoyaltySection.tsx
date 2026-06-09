@@ -173,24 +173,27 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
           const tierData = await tierRes.json();
           if (tierData.rewardTiers) {
             setRewardTiers(
-              tierData.rewardTiers
-                .map(
-                  (t: {
-                    id: string;
-                    name: string;
-                    points: number;
-                    definition?: { fixedDiscountCents?: number };
-                  }) => ({
-                    id: t.id,
-                    name: t.name,
-                    points: t.points,
-                    discountCents: t.definition?.fixedDiscountCents ?? 0,
-                  }),
+              (
+                tierData.rewardTiers as Array<{
+                  id: string;
+                  name: string;
+                  points: number;
+                  definition?: { scope?: string; fixedDiscountCents?: number };
+                }>
+              )
+                // Only whole-bill dollar rewards ($10 off, $25 off the order).
+                // Exclude item/category-scoped discounts (scope !== "ORDER") and
+                // percentage / free-item / points-only tiers (no fixed $ amount).
+                .filter(
+                  (t) =>
+                    t.definition?.scope === "ORDER" && (t.definition.fixedDiscountCents ?? 0) > 0,
                 )
-                // Only $-off rewards. Percentage / free-item / points-only tiers
-                // resolve to discountCents 0 — omit them so the redemption list
-                // is exclusively dollar discounts the customer can apply here.
-                .filter((t: RewardTier) => t.discountCents > 0),
+                .map((t) => ({
+                  id: t.id,
+                  name: t.name,
+                  points: t.points,
+                  discountCents: t.definition?.fixedDiscountCents ?? 0,
+                })),
             );
           }
         } catch {
