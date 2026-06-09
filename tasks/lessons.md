@@ -833,3 +833,38 @@ Remediated live: quote 135 (#1359 Valerie's House) Jun 26 1:30 PM → Jun 28 2:3
 (#3356 Gulf Coast Brain & Spine) Dec 19 5:00 PM → 6:00 PM. Both via
 `apps/web/scripts/remediate-stale-dates.mjs` (re-runnable, audit-logged as
 `manual_date_remediation`).
+
+## Gift-card / deposit funding must ALWAYS equal the day-of Square order total (2026-06-09)
+
+**Rule (user, verbatim intent): "Never tax inclusive. We take deposit based on day of square."**
+The deposit charged at booking — and therefore the eGift card balance that pays the day-of order
+at lane-open — must equal the **day-of Square order `total_money`** (which already includes county
+sales tax). Do NOT compute a deposit from a pre-tax subtotal and hope it matches; derive it from the
+order.
+
+**The bug.** Regular bowling never created a Square quote (only KBF did), so the reserve route funded
+the deposit/gift card from the **pre-tax** subtotal while the day-of order total was tax-inclusive.
+At lane-open, `bowling-lane-open.ts` pays `min(giftCardBalance, orderNetDue)` from the gift card
+against the order; the gift card was short by exactly the county tax (FM 6.5% / NAP 6%), so Square
+rejected the payment: **"The payment total does not match the order total."** 15 upcoming
+reservations were affected; the admin board showed `ERR WEBHOOK` with `$paid / $orderTotal` where
+paid = orderTotal ÷ 1.0(6/65).
+
+**Two compounding traps found during remediation:**
+1. A **non-transient** lane-open error sets `dayof_order_sent_at = NOW()` (bowling-db.ts
+   `updateBowlingReservationLaneOpen`), which trips the guard in `processLaneOpen` — so the
+   lane-poll cron will NEVER retry it. Remediation must clear `dayof_order_sent_at` (+ the error)
+   for unpaid rows, or the poll won't re-attempt.
+2. `processLaneOpen` uses a **stable** idempotency key (`lane-open-{id}-pay`). The first failed
+   attempt burns that key with the OLD amount; after topping up the gift card, the retry with the
+   NEW amount fails with "Different request parameters used for the same idempotency_key." Those
+   rows need a one-time settle with a **fresh** key (`comp-resettle-{id}-pay`).
+
+**Square gift-card comp:** add complimentary balance via `POST /v2/gift-cards/activities`
+`type: ADJUST_INCREMENT`, `adjust_increment_activity_details.reason` is an **enum** —
+use `"COMPLIMENTARY"` (free text is rejected). Drives gift card → order total with no customer charge.
+
+**Forward fix (deployed, commit 1196a8c4):** CheckoutStep now quotes every bowling/KBF item at
+`depositPct=100` so the charge == the quoted day-of order total (tax-inclusive). Remediation scripts:
+`apps/web/scripts/{audit-giftcard-gap,comp-giftcard-gap,settle-stuck}.mjs` (re-runnable, dry-run
+default). Comped 15 gift cards, $89.50 total, on 2026-06-09.

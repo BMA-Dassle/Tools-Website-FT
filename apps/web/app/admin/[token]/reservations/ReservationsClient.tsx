@@ -3,6 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 
+/** Short display labels for the day-of-order `source` tag (the raw values are
+ *  verbose, e.g. "race-dayof-pay-fallback-timepassed" overflowed the column). */
+const DAYOF_SOURCE_LABELS: Record<string, string> = {
+  webhook: "WEBHOOK",
+  "race-dayof-pay": "AUTO",
+  "race-dayof-pay-fallback-timepassed": "AUTO·PAST",
+};
+function dayofSourceLabel(source: string): string {
+  return DAYOF_SOURCE_LABELS[source] ?? source.toUpperCase();
+}
+
 interface ReservationLine {
   label: string;
   quantity: number;
@@ -3544,8 +3555,9 @@ export default function ReservationsClient({ token }: { token: string }) {
                                         textTransform: "uppercase",
                                         letterSpacing: "0.5px",
                                       }}
+                                      title={r.dayofOrderSource}
                                     >
-                                      {r.dayofOrderSource}
+                                      {dayofSourceLabel(r.dayofOrderSource)}
                                     </span>
                                   )}
                                   {r.dayofPaymentId && (
