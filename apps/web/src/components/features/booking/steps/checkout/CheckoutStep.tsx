@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Dispatch } from "react";
+import { clarityEvent } from "~/lib/clarity";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession, BowlingItem, KbfItem, RaceItem } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
@@ -70,6 +71,14 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+
+  // Microsoft Clarity funnel milestones for the checkout phases. The "confirmed"
+  // outcome is tagged on the confirmation page (see ClarityAnalytics).
+  useEffect(() => {
+    if (phase.step === "review") clarityEvent("checkout:review");
+    else if (phase.step === "paying") clarityEvent("checkout:payment");
+    else if (phase.step === "confirming") clarityEvent("checkout:submitting");
+  }, [phase.step]);
 
   // Contact form local state — pre-fill from session.contact
   const [firstName, setFirstName] = useState(session.contact.firstName ?? "");

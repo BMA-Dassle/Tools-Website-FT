@@ -30,6 +30,7 @@ import {
 } from "~/features/booking/service/checkout";
 import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTimer";
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
+import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 export interface BookingFlowProps {
   activity: Activity;
@@ -205,6 +206,32 @@ export function BookingFlow({
     }
     prevCursorRef.current = currentCursor;
   }, [currentCursor]);
+
+  // ── Microsoft Clarity: tag the session by flow / step / center so replays and
+  // funnels can be followed through the whole booking flow. ──
+  const tagFlow = checkoutActive ? "checkout" : (activeItem?.kind ?? "cart");
+  const tagStep = (() => {
+    if (checkoutActive) return "checkout";
+    if (!activeItem) return "cart";
+    const visible = STEP_REGISTRY[activeItem.kind].filter((s) => s.isVisible(activeItem, session));
+    const idx = Math.min(session.cursors[activeItem.id] ?? 0, Math.max(0, visible.length - 1));
+    return visible[idx]?.id ?? "unknown";
+  })();
+  const tagCenter = session.center ?? "unset";
+  const tagCartItems = session.items.length;
+  const tagParty = (() => {
+    if (activeItem?.kind === "bowling") return activeItem.playerCount;
+    if (activeItem?.kind === "kbf") return activeItem.bowlers.length + activeItem.paidAdults;
+    return session.party.length;
+  })();
+  useEffect(() => {
+    clarityTag("booking_flow", tagFlow);
+    clarityTag("booking_step", tagStep);
+    clarityTag("booking_center", tagCenter);
+    clarityTag("cart_items", String(tagCartItems));
+    clarityTag("party_size", String(tagParty));
+    clarityEvent(`step:${tagFlow}:${tagStep}`);
+  }, [tagFlow, tagStep, tagCenter, tagCartItems, tagParty]);
 
   // Don't render the flow until the persisted session has hydrated (AFTER all
   // hooks — never early-return above a hook). Otherwise a deep entry (e.g. the

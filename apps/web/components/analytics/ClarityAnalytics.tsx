@@ -28,25 +28,40 @@ export default function ClarityAnalytics() {
   useEffect(() => {
     if (!pathname || pathname.startsWith("/admin")) return;
     if (typeof window === "undefined") return;
-    // Clarity defines window.clarity once initialised — guard re-injection
-    // across client-side navigations.
-    if ((window as unknown as { clarity?: unknown }).clarity) return;
 
-    (function (c: Window, l: Document, a: string, r: string, i: string) {
-      const w = c as unknown as Record<string, unknown> & {
-        [k: string]: { q?: unknown[] } & ((...args: unknown[]) => void);
-      };
-      w[a] =
-        w[a] ||
-        function (...args: unknown[]) {
-          (w[a].q = w[a].q || []).push(args);
-        };
-      const t = l.createElement(r) as HTMLScriptElement;
-      t.async = true;
-      t.src = "https://www.clarity.ms/tag/" + i;
-      const y = l.getElementsByTagName(r)[0];
-      y.parentNode?.insertBefore(t, y);
-    })(window, document, "clarity", "script", CLARITY_PROJECT_ID);
+    const win = window as unknown as {
+      clarity?: ((...args: unknown[]) => void) & { q?: unknown[] };
+    };
+
+    // Inject the Clarity tag once. Its shim queues calls until the script loads,
+    // so tags/events fired immediately after are not lost.
+    if (!win.clarity) {
+      (function (c: Window, l: Document, a: string, r: string, i: string) {
+        const w = c as unknown as Record<
+          string,
+          { q?: unknown[] } & ((...args: unknown[]) => void)
+        >;
+        w[a] =
+          w[a] ||
+          function (...args: unknown[]) {
+            (w[a].q = w[a].q || []).push(args);
+          };
+        const t = l.createElement(r) as HTMLScriptElement;
+        t.async = true;
+        t.src = "https://www.clarity.ms/tag/" + i;
+        const y = l.getElementsByTagName(r)[0];
+        y.parentNode?.insertBefore(t, y);
+      })(window, document, "clarity", "script", CLARITY_PROJECT_ID);
+    }
+
+    // Booking-funnel outcome: every flow's success page shares "/confirmation"
+    // in its path, so tag the converted session + fire a milestone here — no
+    // per-confirmation-page edits needed. Detailed per-step tags are set inside
+    // the booking wizard (see lib/clarity.ts usage in BookingFlow/CheckoutStep).
+    if (pathname.includes("/confirmation")) {
+      win.clarity?.("set", "booking_outcome", "confirmed");
+      win.clarity?.("event", "booking:confirmed");
+    }
   }, [pathname]);
 
   return null;

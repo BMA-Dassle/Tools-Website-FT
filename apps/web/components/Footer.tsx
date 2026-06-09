@@ -169,6 +169,27 @@ export default function Footer() {
           </Link>
         </p>
       </div>
+
+      {/* Microsoft Clarity privacy disclosure — required when using Clarity
+          session replay / heatmaps. https://learn.microsoft.com/clarity/setup-and-installation/privacy-disclosure */}
+      <div className="max-w-7xl mx-auto px-4 mt-4 text-[11px] leading-relaxed text-white/25">
+        <p>
+          We partner with Microsoft Clarity to capture how you use and interact with this website
+          through behavioral metrics, heatmaps, and session replay, to improve our products and
+          services. Website usage data is captured using first- and third-party cookies and other
+          tracking technologies. For more information about how Microsoft collects and uses your
+          data, see the{" "}
+          <a
+            href="https://privacy.microsoft.com/privacystatement"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-white/50 transition-colors"
+          >
+            Microsoft Privacy Statement
+          </a>
+          .
+        </p>
+      </div>
     </footer>
   );
 }
