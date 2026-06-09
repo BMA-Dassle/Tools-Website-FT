@@ -45,6 +45,11 @@ export async function GET(req: NextRequest) {
       personId,
       firstName: person.firstName,
       lastName: person.lastName,
+      // Contact info — Pandora is the reliable source (a login-code lookup never
+      // captures these, and BMI's addresses[0] is often empty). Try the common
+      // field names so the booking contact pre-fills regardless of shape.
+      email: person.email ?? person.emailAddress ?? null,
+      phone: person.phoneNumber ?? person.phone ?? person.mobile ?? person.cellPhone ?? null,
       birthdate: person.birthdate || null,
       waiverExpiry: person.waiverExpiry,
       lastVisit: person.lastVisit,

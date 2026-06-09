@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
+import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
 import { ExperiencePicker } from "./ExperiencePicker";
 import { ReturningRacerLookup, type PersonData } from "./ReturningRacerLookup";
 
@@ -125,18 +126,26 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
       },
     });
 
-    // Fetch Pandora waiver status (non-blocking — badge appears when fetch completes)
+    // Fetch Pandora waiver status + contact (non-blocking). Pandora is the
+    // reliable source for email/phone — a login-code lookup can't capture them
+    // and BMI's addresses[0] is often empty — so fill session.contact from it.
     if (person.personId) {
       fetch(`/api/pandora?personId=${person.personId}&picture=false`)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
-          if (data && typeof data.valid === "boolean") {
+          if (!data) return;
+          if (typeof data.valid === "boolean") {
             dispatch({
               type: "updatePartyMember",
               id: member.id,
               patch: { waiverValid: data.valid },
             });
           }
+          const patch: { email?: string; phone?: string } = {};
+          if (!person.email && typeof data.email === "string" && data.email)
+            patch.email = data.email;
+          if (!person.phone && data.phone) patch.phone = String(data.phone);
+          if (patch.email || patch.phone) dispatch({ type: "setContact", patch });
         })
         .catch(() => {});
     }
@@ -240,6 +249,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
     // tier products on the race step.
     let bmiPersonId: string | undefined;
     let memberships: string[] | undefined;
+    let creditBalances: Array<{ kind: string; balance: number }> | undefined;
     try {
       const searchRes = await fetch(
         `/api/bmi-office?action=search&q=${encodeURIComponent(lp.id)}&max=5`,
@@ -260,6 +270,14 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
               )
               .filter(Boolean)
           : undefined;
+        // Pull this linked racer's OWN race credits so they can redeem too
+        // (previously omitted — linked family could never use their credits).
+        try {
+          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${bmiPersonId}`);
+          if (depRes.ok) creditBalances = creditBalancesFromDeposits(await depRes.json());
+        } catch {
+          /* non-fatal */
+        }
       }
     } catch {
       /* non-fatal — add without BMI ID / memberships */
@@ -275,6 +293,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
         category,
         memberships,
         waiverValid: lp.waiverValid,
+        creditBalances,
       }),
     });
   }

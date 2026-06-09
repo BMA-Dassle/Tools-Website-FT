@@ -5,6 +5,7 @@ import {
   isRelevantMembership,
   tierFromMemberships,
 } from "~/features/booking/service/race-products";
+import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
 
 export interface PersonData {
   personId: string;
@@ -102,18 +103,7 @@ async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
         try {
           const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
           if (depRes.ok) {
-            const deposits = (await depRes.json()) as Array<{
-              depositKind: string;
-              balance: number;
-            }>;
-            creditBalances = deposits
-              .filter(
-                (d) =>
-                  d.balance > 0 &&
-                  (d.depositKind.toLowerCase().includes("credit") ||
-                    d.depositKind.toLowerCase().includes("pass")),
-              )
-              .map((d) => ({ kind: d.depositKind, balance: d.balance }));
+            creditBalances = creditBalancesFromDeposits(await depRes.json());
           }
         } catch {
           /* non-fatal */

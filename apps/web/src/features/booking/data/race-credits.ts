@@ -107,6 +107,34 @@ export function creditTypeById(depositKindId: string): RaceCreditType | null {
   return RACE_CREDIT_TYPES.find((t) => t.depositKindId === depositKindId) ?? null;
 }
 
+/**
+ * Build a racer's redeemable credit balances from a BMI `deposit/history`
+ * response. Single source of truth used by every racer-lookup path so they all
+ * capture the same credits.
+ *
+ * - Null-safe: a malformed row (missing depositKind/balance) is skipped, never
+ *   thrown — a single bad row used to nuke ALL of a racer's credits via the
+ *   caller's surrounding catch.
+ * - Keeps anything the credit registry recognizes (Membership / Weekday /
+ *   Anytime / Comp — whose BMI names often DON'T contain "credit"), plus generic
+ *   "...credit"/"...pass" balances for display. The old filter kept ONLY the
+ *   latter, so Membership/Comp/etc. silently disappeared at checkout.
+ */
+export function creditBalancesFromDeposits(
+  deposits: Array<{ depositKind?: string | null; balance?: number | null }> | null | undefined,
+): Array<{ kind: string; balance: number }> {
+  if (!Array.isArray(deposits)) return [];
+  return deposits
+    .filter((d) => {
+      if (!(typeof d?.balance === "number" && d.balance > 0)) return false;
+      const name = (d.depositKind ?? "").toLowerCase();
+      return (
+        creditTypeForDepositName(name) != null || name.includes("credit") || name.includes("pass")
+      );
+    })
+    .map((d) => ({ kind: d.depositKind ?? "", balance: d.balance as number }));
+}
+
 /** Is this credit type redeemable on the given race date (day-lock check)? */
 export function isTypeEligibleOnDate(type: RaceCreditType, raceDate: string | null): boolean {
   if (!type.dayLock) return true;
