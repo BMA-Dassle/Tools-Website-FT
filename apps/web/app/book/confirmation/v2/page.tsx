@@ -1408,8 +1408,13 @@ export default function ConfirmationPage() {
               card directly below it. The page outer is max-w-6xl, but the
               reservation card group inside uses max-w-2xl for the single-
               reservation case (the dominant flow), so anchoring the banner
-              there keeps the column edges consistent. */}
-          {waiverUrl && !expressLane && (
+              there keeps the column edges consistent.
+              `!isDetail`: show this prominent action-required banner only on the
+              main view (the multi-activity hub and single-activity bookings),
+              not when the guest has drilled into one activity's detail — the
+              main page is enough. (Attraction detail views keep their own small
+              per-attraction reminder via cfg.showWaiverPrompt.) */}
+          {waiverUrl && !expressLane && !isDetail && (
             <div className="max-w-2xl mx-auto rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
               <div className="flex items-start gap-4 mb-4">
                 <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center shrink-0 animate-pulse">

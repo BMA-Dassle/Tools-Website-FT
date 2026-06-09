@@ -766,3 +766,39 @@ early (on first heat/slot advance), so an abandoned session would otherwise orph
 
 - [apps/web/src/features/booking/hooks/usePersistedReducer.ts](apps/web/src/features/booking/hooks/usePersistedReducer.ts) — envelope + `peekBookingSession`
 - [apps/web/src/features/booking/service/checkout.ts](apps/web/src/features/booking/service/checkout.ts) `abandonBooking()` — full session teardown
+
+## Loyalty reward verification: query Square directly, not logs or BMI math (2026-06-09)
+
+Wrong call I made: told the user "no loyalty reward was applied" to a booking, based on a
+multi-agent workflow whose log-reader + adjudicator concluded "no reward" from (a) no
+`CreateLoyaltyReward` line in the Vercel log index, (b) a 200 (not 422) response, and (c) BMI
+bill-overview totals. The user pushed back ("I think it did take my points") — and was right. A
+read-only Square query proved a `$10.00 off` reward (tier `0f5c8c00`, ORDER scope) was ISSUED
+against the Square day-of order at the exact reserve second; the order carried
+`total_discount_money $10.00` + `discounts[].reward_ids` + `rewards[]`.
+
+Why the workflow was wrong — three traps, all pointing the same way:
+
+- **Vercel's runtime-log INDEX is not the full log.** It surfaces one summary line per request +
+  `console.error`/`console.warn`; it does NOT contain every `console.log`. Absence of the reward
+  log line is NOT evidence that no reward was created.
+- **A Square reward adjusts the SQUARE day-of order, never the BMI bill-overview.** Reasoning
+  about BMI `subTotal`/`total` gaps says nothing about whether a Square reward exists. (The
+  adjudicator confidently dismissed the one investigator who happened to be right, with a
+  plausible-but-wrong argument — adversarial verification can be unanimously wrong when every
+  agent shares the same blind spot: nobody read Square.)
+- **ISSUED ≠ no effect.** An order-attached reward sits `ISSUED` (points locked) until the order
+  is PAID, then auto-redeems. An `OPEN` order with `tenders: []` is the normal pending state
+  (day-of order settles at check-in), not a failure.
+
+**Rule:** to confirm a loyalty reward's state, hit the source of truth, not inference —
+`GET /v2/orders/{dayofOrderId}` (check `discounts[].reward_ids`, `rewards[]`,
+`total_discount_money`) and `POST /v2/loyalty/rewards/search` for the account. Read-only Square
+scripts use the prod token in `apps/web/.env.local` (see `apps/web/scripts/loyalty-diag.mjs`,
+`order-check.mjs`). For a factual "did X happen in an external system" question, ONE authoritative
+source query beats any amount of log/heuristic inference — go there first, not last.
+
+Also confirmed: the earlier "reward couldn't be applied" failures were the rewards list offering
+`ITEM_VARIATION`-scoped tiers (pizza/nachos) that can't apply to a bowling/attraction ORDER —
+fixed by the ORDER-scope-only filter in `LoyaltySection.tsx`. Today's two bookings each created a
+clean ORDER-scope `$10 off` (ISSUED), proving the fix works.
