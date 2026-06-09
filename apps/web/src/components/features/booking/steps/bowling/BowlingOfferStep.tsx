@@ -226,6 +226,13 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     slot: AvailabilitySlot,
     durationOpt: BowlingExperienceDurationOption | null,
   ) {
+    // Never silently book a different complex — if the center didn't resolve
+    // from the session, refuse rather than defaulting to Fort Myers.
+    if (item.qamfCenterId == null) {
+      setError("We couldn't tell which location this is for. Go back and re-select your center.");
+      return;
+    }
+
     setHoldBusy(true);
     setReservingAt(slot.bookedAt);
     setError(null);

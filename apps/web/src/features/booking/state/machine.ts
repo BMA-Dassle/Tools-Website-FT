@@ -109,17 +109,30 @@ export type Action =
   | { type: "clearLoyalty" }
   | { type: "restoreSession"; session: BookingSession };
 
+/** QAMF center id for a CenterCode. Bowling/KBF book against QAMF, so the item
+ *  MUST carry the SELECTED center's id — never silently default to one center. */
+function qamfCenterIdForCode(center: CenterCode | null): number | null {
+  return center === "naples" ? 3148 : center === "fort-myers" ? 9172 : null;
+}
+
 export function reducer(state: BookingSession, action: Action): BookingSession {
   switch (action.type) {
     /* ──────── cart items ──────── */
     case "addItem": {
+      // Stamp the QAMF center on bowling/KBF items from the session center so a
+      // Naples booking books Naples (3148) — not a silent Fort Myers default.
+      let item = action.item;
+      if (item.kind === "bowling" || item.kind === "kbf") {
+        const qamf = qamfCenterIdForCode(state.center);
+        if (qamf != null) item = { ...item, qamfCenterId: qamf };
+      }
       const next: BookingSession = {
         ...state,
-        items: [...state.items, action.item],
-        activeItemId: action.item.id,
-        cursors: { ...state.cursors, [action.item.id]: 0 },
+        items: [...state.items, item],
+        activeItemId: item.id,
+        cursors: { ...state.cursors, [item.id]: 0 },
       };
-      if (action.item.kind === "kbf" && !next.kbfIdentity) {
+      if (item.kind === "kbf" && !next.kbfIdentity) {
         next.kbfIdentity = newKbfIdentity();
       }
       return next;
