@@ -23,6 +23,7 @@ import {
 } from "@/lib/group-function-notify";
 import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
 import { verifyCron } from "@/lib/cron-auth";
+import { formatEtDateTime } from "@/lib/et-time";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 import {
   collectContractDataIssues,
@@ -123,28 +124,10 @@ export async function GET(req: NextRequest) {
   });
 }
 
-function formatEventDate(dateRaw: string): string {
-  // BMI dates are local ET without timezone (e.g. "2026-10-17T11:30:00")
-  // Hermes has a bug in its moment format string (MM instead of mm)
-  // so we format it ourselves
-  const hasTimezone =
-    dateRaw.includes("Z") || dateRaw.includes("+") || /\d-\d{2}:\d{2}$/.test(dateRaw);
-  const d = new Date(hasTimezone ? dateRaw : `${dateRaw}-04:00`);
-  return (
-    d.toLocaleDateString("en-US", {
-      timeZone: "America/New_York",
-      month: "short",
-      day: "numeric",
-    }) +
-    " " +
-    d.toLocaleTimeString("en-US", {
-      timeZone: "America/New_York",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })
-  );
-}
+// BMI dates are ET wall-clock without a timezone (e.g. "2026-10-17T11:30:00").
+// formatEtDateTime appends the correct EDT/EST offset before rendering — a
+// hardcoded -04:00 shifted winter events an hour early. See lib/et-time.ts.
+const formatEventDate = formatEtDateTime;
 
 async function processQueueItem(
   item: HermesQueueItem,
@@ -267,13 +250,30 @@ async function processQueueItem(
       existingProducts.length === item.products.length;
 
     if (pricingUnchanged) {
+      // Pricing is unchanged, but the date/time still can be (the planner moved
+      // the event without touching products). Always write the current BMI date
+      // — otherwise a date-only resend leaves the contract page showing the old
+      // date while notes update, the exact symptom reported 2026-06-09.
+      const newEventDisplay = formatEventDate(item.event.dateRaw);
+      const dateChanged = existing.event_date_display !== newEventDisplay;
       await createContractVersion({
         quoteId: existing.id,
         snapshot: extractContractSnapshot(existing),
-        changes: ["contact/notes update (pricing unchanged)"],
+        changes: dateChanged
+          ? [
+              `date/time: ${existing.event_date_display} → ${newEventDisplay}`,
+              "contact/notes update (pricing unchanged)",
+            ]
+          : ["contact/notes update (pricing unchanged)"],
         trigger: "dispatch_cron",
       }).catch((err) => console.warn("[group-quote-dispatch] snapshot error:", err));
       await updateGfQuoteDetails(existing.id, {
+        event_date: item.event.dateRaw,
+        event_date_display: newEventDisplay,
+        event_number: item.event.number,
+        // Totals are identical here, but a resend should still pull through any
+        // product rename / override-name / reorder so the contract matches BMI.
+        line_items: item.products,
         guest_first_name: item.customer.first,
         guest_last_name: item.customer.last,
         guest_email: item.customer.email,

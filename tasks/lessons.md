@@ -802,3 +802,34 @@ Also confirmed: the earlier "reward couldn't be applied" failures were the rewar
 `ITEM_VARIATION`-scoped tiers (pizza/nachos) that can't apply to a bowling/attraction ORDER —
 fixed by the ORDER-scope-only filter in `LoyaltySection.tsx`. Today's two bookings each created a
 clean ORDER-scope `$10 off` (ISSUED), proving the fix works.
+
+## Group-function resend dropped date/time changes + EST offset bug (2026-06-09)
+
+Two distinct bugs, both surfaced when a planner moved an already-sent (pre-deposit) event and
+re-flipped BMI to "Send Contract." Symptom: the contract page kept the OLD date/time while the
+notes updated correctly. (Notes render live from BMI via `/api/group-function/event-details`;
+date/time renders from the stored `event_date_display` column — so a stale column shows while
+notes look fresh.)
+
+**Bug 1 — resend's "pricing unchanged" path never wrote the date.** In
+`group-quote-dispatch/route.ts`, the `pricingUnchanged` branch (status `contract_sent`, no
+deposit yet) updated contacts + notes but omitted `event_date` / `event_date_display`. A
+date-only move (same products/total) takes this path, so the new date never landed. The
+post-deposit branch already wrote the date — this only bit pre-deposit. Fix: the branch now writes
+`event_date`, `event_date_display`, `event_number`, and `line_items` from BMI on every resend, and
+logs the date diff into the contract version. **Rule: a resend must pull through anything that
+changed, not just contacts/notes — totals being equal does not mean the event is unchanged.**
+
+**Bug 2 — hardcoded `-04:00` (EDT) on tz-less BMI dates.** BMI returns ET wall-clock with no tz
+(`"2026-12-19T18:00:00"`). The code appended a literal `-04:00` in three places
+(`bmi-scan.ts`, the dispatch `formatEventDate`, `ingest-legacy`), so every EST-season (Nov–Mar)
+event displayed and stored **one hour early** (Dec-19 6 PM → 5 PM). Fix: new `lib/et-time.ts`
+(`normalizeEtDate` / `formatEtDateTime`) derives the correct EDT/EST offset from the IANA tz db via
+`Intl` (no month approximation); all three call sites now use it. **Rule: never hardcode a US-ET
+offset — Eastern flips between -04:00 and -05:00. Use `lib/et-time.ts`.** This is the same tz
+round-trip class the sync-cron header warns about.
+
+Remediated live: quote 135 (#1359 Valerie's House) Jun 26 1:30 PM → Jun 28 2:30 PM; quote 139
+(#3356 Gulf Coast Brain & Spine) Dec 19 5:00 PM → 6:00 PM. Both via
+`apps/web/scripts/remediate-stale-dates.mjs` (re-runnable, audit-logged as
+`manual_date_remediation`).

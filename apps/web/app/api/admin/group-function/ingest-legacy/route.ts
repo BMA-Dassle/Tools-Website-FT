@@ -18,6 +18,7 @@ import { searchDocumentsByReservation } from "@/lib/pandadoc";
 import { notifyWinbackOffer } from "@/lib/group-function-notify";
 import { findSettlementCheck } from "@/lib/square-settled-check";
 import { withinQuietHours } from "@/lib/group-event-rules";
+import { formatEtDateTime, normalizeEtDate } from "@/lib/et-time";
 
 /**
  * Admin: ingest legacy deposit events into the new flow as $20 win-back offers.
@@ -36,24 +37,8 @@ import { withinQuietHours } from "@/lib/group-event-rules";
  * dryRun (default TRUE) reports what WOULD ingest without any writes.
  */
 
-function formatEventDate(dateRaw: string): string {
-  const hasTz = dateRaw.includes("Z") || dateRaw.includes("+") || /\d-\d{2}:\d{2}$/.test(dateRaw);
-  const d = new Date(hasTz ? dateRaw : `${dateRaw}-04:00`);
-  return (
-    d.toLocaleDateString("en-US", {
-      timeZone: "America/New_York",
-      month: "short",
-      day: "numeric",
-    }) +
-    " " +
-    d.toLocaleTimeString("en-US", {
-      timeZone: "America/New_York",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })
-  );
-}
+// ET wall-clock → display, with the correct EDT/EST offset. See lib/et-time.ts.
+const formatEventDate = formatEtDateTime;
 
 interface Money {
   totalCents: number;
@@ -135,11 +120,7 @@ export async function POST(req: NextRequest) {
     }
 
     const m = money(item);
-    const eventTime = new Date(
-      item.event.dateRaw.match(/Z|\+|\d-\d{2}:\d{2}$/)
-        ? item.event.dateRaw
-        : `${item.event.dateRaw}-04:00`,
-    ).getTime();
+    const eventTime = new Date(normalizeEtDate(item.event.dateRaw)).getTime();
 
     // Server-side exclusion re-checks (never trust the client list).
     if (m.isPostPay) {

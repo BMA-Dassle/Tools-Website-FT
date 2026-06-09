@@ -17,6 +17,7 @@ import {
   type HermesProduct,
 } from "@/lib/hermes-client";
 import { taxCents } from "@/lib/group-function-pricing";
+import { normalizeEtDate } from "@/lib/et-time";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
 const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
@@ -297,9 +298,10 @@ export async function scanForNewEvents(targetStateIds?: Set<string>): Promise<He
           // exemption is applied downstream in the dispatch cron, so compute raw here.
           const taxTotal = taxCents(products, false) / 100;
 
-          const dateHasTz =
-            proj.date.includes("Z") || proj.date.includes("+") || /\d-\d{2}:\d{2}$/.test(proj.date);
-          const normalizedDate = dateHasTz ? proj.date : `${proj.date}-04:00`;
+          // BMI returns ET wall-clock without a tz; append the correct EDT/EST
+          // offset for that date (not a hardcoded -04:00, which shifted winter
+          // events an hour early). See lib/et-time.ts.
+          const normalizedDate = normalizeEtDate(proj.date);
 
           const item: HermesQueueItem = {
             queueId: 0,
