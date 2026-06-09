@@ -29,7 +29,7 @@ import {
 import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
-import { redemptionsFromSession } from "../data/race-credits";
+import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
 import {
   insertBowlingReservation,
@@ -180,12 +180,12 @@ function buildCombinedLineItems(session: BookingSession): {
 
   // Race items — $0 model. Build the SAME charge lines the credit path uses
   // (buildRaceChargeLines: package bundle / combo pack / single + license + POV),
-  // so displayed == charged, then map each to a Square line. Credit-redeemed
-  // racers are excluded (charged $0; one credit is deducted instead).
-  const redeemedRacerIds = new Set(
-    session.party.filter((m) => m.redeemCreditKindId).map((m) => m.id),
-  );
-  for (const bl of buildRaceChargeLines(session, redeemedRacerIds)) {
+  // so displayed == charged, then map each to a Square line. Credit-redeemed HEATS
+  // are excluded (charged $0; one credit deducted each) — capped per racer at their
+  // combined eligible balance, so a racer with fewer credits than heats still pays
+  // cash for the uncovered heats instead of zeroing the whole order.
+  const redeemedHeats = redeemedHeatSet(session);
+  for (const bl of buildRaceChargeLines(session, redeemedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
     const unitCents = bl.quantity > 0 ? Math.round(totalCents / bl.quantity) : totalCents;
     const catalogId =

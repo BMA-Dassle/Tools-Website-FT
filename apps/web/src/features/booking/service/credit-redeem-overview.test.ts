@@ -16,7 +16,6 @@ import {
 // Real registry id: adult "existing" Starter Race Mega, $20.99, $0 build pair
 // "adult:starter:Mega" exists → zero-model line carries bmiProductId.
 const MEGA = "43734407";
-const WEEKDAY_KIND = "12744867"; // Weekday Race Credit deposit-kind id
 
 function member(id: string, over: Partial<PartyMember> = {}): PartyMember {
   return { id, firstName: id, isNewRacer: false, category: "adult", ...over };
@@ -55,7 +54,7 @@ describe("applyCreditRedemptionsToOverview — partial credit reduces the charge
     const eric = member("eric", {
       bmiPersonId: "111",
       creditBalances: [{ kind: "Credit - Race Weekday", balance: 2 }],
-      redeemCreditKindId: WEEKDAY_KIND,
+      redeemCredits: true,
     });
     const newRacer = member("test", { bmiPersonId: undefined, isNewRacer: true });
 
@@ -107,7 +106,7 @@ describe("applyCreditRedemptionsToOverview — partial credit reduces the charge
     const eric = member("eric", {
       bmiPersonId: "111",
       creditBalances: [{ kind: "Credit - Race Weekday", balance: 2 }],
-      redeemCreditKindId: WEEKDAY_KIND,
+      redeemCredits: true,
     });
     const item = raceItem({
       productIdAdult: MEGA, // charge line uses existing Mega
@@ -135,5 +134,83 @@ describe("applyCreditRedemptionsToOverview — partial credit reduces the charge
     // The 2 redeemed heats MUST come off the charge — this is the bug if it fails.
     expect(applied.subtotal).toBeLessThan(base.subtotal);
     expect(applied.subtotal).toBeCloseTo(1 * 20.99, 2);
+  });
+});
+
+describe("redemptionsFromSession — combined priority drawdown", () => {
+  const MEMBERSHIP = "12754483";
+  const WEEKDAY = "12744867";
+  const COMP = "11260967";
+
+  it("draws Membership first, then spills into Weekday (priority order)", () => {
+    const m = member("m", {
+      bmiPersonId: "111",
+      redeemCredits: true,
+      creditBalances: [
+        { kind: "Credit - Race Membership", balance: 2 },
+        { kind: "Credit - Race Weekday", balance: 5 },
+      ],
+    });
+    const item = raceItem({
+      date: "2026-06-09", // Tuesday — weekday
+      heats: [
+        heat("2026-06-09T13:00:00", "m"),
+        heat("2026-06-09T13:30:00", "m"),
+        heat("2026-06-09T14:00:00", "m"),
+      ],
+    });
+    const session = { ...emptySession({ entryBrand: "fasttrax" }), items: [item], party: [m] };
+    expect(redemptionsFromSession(session).map((r) => r.depositKindId)).toEqual([
+      MEMBERSHIP,
+      MEMBERSHIP,
+      WEEKDAY,
+    ]);
+  });
+
+  it("skips the Weekday credit on a weekend and falls through to Comp", () => {
+    const m = member("m", {
+      bmiPersonId: "111",
+      redeemCredits: true,
+      creditBalances: [
+        { kind: "Credit - Race Weekday", balance: 5 },
+        { kind: "Credit - Race Comp", balance: 3 },
+      ],
+    });
+    const item = raceItem({
+      date: "2026-06-13", // Saturday — weekend (Weekday credit not eligible)
+      heats: [heat("2026-06-13T13:00:00", "m"), heat("2026-06-13T13:30:00", "m")],
+    });
+    const session = { ...emptySession({ entryBrand: "fasttrax" }), items: [item], party: [m] };
+    expect(redemptionsFromSession(session).map((r) => r.depositKindId)).toEqual([COMP, COMP]);
+  });
+
+  it("caps at the combined balance — extra heats get no redemption (paid cash)", () => {
+    const m = member("m", {
+      bmiPersonId: "111",
+      redeemCredits: true,
+      creditBalances: [{ kind: "Credit - Race Membership", balance: 1 }],
+    });
+    const item = raceItem({
+      date: "2026-06-09",
+      heats: [
+        heat("2026-06-09T13:00:00", "m"),
+        heat("2026-06-09T13:30:00", "m"),
+        heat("2026-06-09T14:00:00", "m"),
+      ],
+    });
+    const session = { ...emptySession({ entryBrand: "fasttrax" }), items: [item], party: [m] };
+    const r = redemptionsFromSession(session);
+    expect(r.length).toBe(1);
+    expect(r[0].depositKindId).toBe(MEMBERSHIP);
+  });
+
+  it("redeems nothing when the racer hasn't opted in", () => {
+    const m = member("m", {
+      bmiPersonId: "111",
+      creditBalances: [{ kind: "Credit - Race Membership", balance: 5 }],
+    });
+    const item = raceItem({ date: "2026-06-09", heats: [heat("2026-06-09T13:00:00", "m")] });
+    const session = { ...emptySession({ entryBrand: "fasttrax" }), items: [item], party: [m] };
+    expect(redemptionsFromSession(session).length).toBe(0);
   });
 });

@@ -16,7 +16,10 @@ import {
   applyCreditRedemptionsToOverview,
   type BillOverview,
 } from "~/features/booking/service/checkout";
-import { eligibleCreditsForMember } from "~/features/booking/data/race-credits";
+import {
+  memberEligibleCreditTotal,
+  memberEligibleBreakdown,
+} from "~/features/booking/data/race-credits";
 import { bowlingReserve, buildBowlingQuoteLineItems } from "~/features/booking/service/bowling";
 import {
   KBF_GAMES_PER_SESSION,
@@ -89,15 +92,16 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     return n;
   };
 
-  // personId -> chosen depositKindId. Default ON: pre-select each eligible
-  // racer's first credit so credits apply automatically (they can untick it).
-  const [creditChoices, setCreditChoices] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {};
+  // personId -> redeem-with-credits opt-in. Default ON: pre-enable each eligible
+  // racer so their credits apply automatically (they can untick it). At charge time
+  // their heats are covered by combining their eligible credits in priority order
+  // (Membership → Weekday → Anytime → Comp; see race-credits.ts).
+  const [creditChoices, setCreditChoices] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
     for (const m of session.party) {
       if (!m.bmiPersonId || m.isNewRacer) continue;
       if (heatCountForMember(m.id) <= 0) continue;
-      const credits = eligibleCreditsForMember(m.creditBalances, raceDate);
-      if (credits.length > 0) init[m.bmiPersonId] = credits[0].depositKindId;
+      if (memberEligibleCreditTotal(m.creditBalances, raceDate) > 0) init[m.bmiPersonId] = true;
     }
     return init;
   });
@@ -107,24 +111,24 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
     .map((m) => ({
       member: m,
       heats: heatCountForMember(m.id),
-      credits: eligibleCreditsForMember(m.creditBalances, raceDate),
+      available: memberEligibleCreditTotal(m.creditBalances, raceDate),
+      breakdown: memberEligibleBreakdown(m.creditBalances, raceDate),
     }))
-    .filter((e) => e.heats > 0 && e.credits.length > 0);
+    .filter((e) => e.heats > 0 && e.available > 0);
 
-  // Party + session carrying each racer's redemption choice, threaded into the
-  // reserve calls. A heat assigned to a member with redeemCreditKindId is charged
-  // $0 by Square and draws down one of that member's credits server-side.
-  const partyWithChoices = session.party.map((m) =>
-    m.bmiPersonId && creditChoices[m.bmiPersonId]
-      ? { ...m, redeemCreditKindId: creditChoices[m.bmiPersonId] }
-      : { ...m, redeemCreditKindId: null },
-  );
+  // Party + session carrying each racer's opt-in, threaded into the reserve calls.
+  // Heats of a member with redeemCredits are covered by their combined eligible
+  // credits (priority order) — charged $0 by Square, one credit deducted each.
+  const partyWithChoices = session.party.map((m) => ({
+    ...m,
+    redeemCredits: !!(m.bmiPersonId && creditChoices[m.bmiPersonId]),
+  }));
   const sessionForReserve: BookingSession = { ...session, party: partyWithChoices };
 
-  function toggleCredit(personId: string, depositKindId: string, on: boolean) {
+  function toggleCredit(personId: string, on: boolean) {
     setCreditChoices((prev) => {
       const next = { ...prev };
-      if (on) next[personId] = depositKindId;
+      if (on) next[personId] = true;
       else delete next[personId];
       return next;
     });
@@ -601,14 +605,15 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
             Non-transferable: each racer can spend only their own credits. */}
         {creditEligible.length > 0 && (
           <div className="space-y-3 rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/5 p-4">
-            <p className="text-sm font-semibold text-white">Pay with a race credit</p>
-            {creditEligible.map(({ member, heats, credits }) => {
-              const credit = credits[0];
+            <p className="text-sm font-semibold text-white">Pay with race credits</p>
+            {creditEligible.map(({ member, heats, available, breakdown }) => {
               const personId = member.bmiPersonId as string;
-              const checked = creditChoices[personId] === credit.depositKindId;
-              // Partial allowed: redeem up to the balance, pay cash for the rest.
-              const used = Math.min(credit.balance, heats);
+              const checked = creditChoices[personId] === true;
+              // Combined across kinds (priority order), capped at the total balance;
+              // any heats beyond it are paid in cash.
+              const used = Math.min(available, heats);
               const partial = used < heats;
+              const summary = breakdown.map((b) => `${b.balance} ${b.label}`).join(" · ");
               return (
                 <label
                   key={member.id}
@@ -620,10 +625,9 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
                       {member.lastName ? ` ${member.lastName}` : ""}
                     </span>
                     <span className="text-white/40">
-                      {" · "}
-                      {credit.label} ({credit.balance} available)
-                      {heats > 1 && ` · covers ${used} of ${heats} heat${heats !== 1 ? "s" : ""}`}
+                      {` · covers ${used} of ${heats} heat${heats !== 1 ? "s" : ""}`}
                     </span>
+                    <span className="mt-0.5 block text-xs text-white/40">{summary} available</span>
                     {partial && checked && (
                       <span className="mt-0.5 block text-xs text-amber-400/80">
                         {heats - used} heat{heats - used !== 1 ? "s" : ""} paid in cash
@@ -632,9 +636,9 @@ export function CheckoutStep({ session, dispatch, onBack }: CheckoutStepProps) {
                   </span>
                   <input
                     type="checkbox"
-                    aria-label={`Use a ${credit.label} for ${member.firstName}`}
+                    aria-label={`Use race credits for ${member.firstName}`}
                     checked={checked}
-                    onChange={(e) => toggleCredit(personId, credit.depositKindId, e.target.checked)}
+                    onChange={(e) => toggleCredit(personId, e.target.checked)}
                     className="h-4 w-4 shrink-0 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
                   />
                 </label>

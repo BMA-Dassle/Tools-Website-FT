@@ -587,7 +587,7 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
 
   // Per-racer credit redemptions (returning racers paying with a race credit).
   // The server re-validates the live balance, charges $0 for these heats, and
-  // deducts one credit each. Derived from session.party redeemCreditKindId.
+  // deducts one credit each. Derived from session.party redeemCredits opt-in.
   const creditRedemptions = redemptionsFromSession(session);
 
   const res = await fetch("/api/booking/v2/reserve", {
@@ -670,12 +670,18 @@ function distinctRacerCount(heats: RaceHeatAssignment[]): number {
  * Session-level lines (non-package license, standalone POV) are added by
  * `buildRaceChargeLines`, not here.
  */
-export function raceItemChargeLines(item: RaceItem, excludeRacerIds?: Set<string>): BillLine[] {
-  // Credit-redeemed racers are charged $0 (a credit is deducted instead). The
-  // cash path passes their ids here so their heats drop from the Square charge;
-  // the credit path passes nothing and splits via applyCreditRedemptionsToOverview.
-  const keep = (h: RaceHeatAssignment): boolean =>
-    !!h.heatId && !(h.assignedTo != null && excludeRacerIds?.has(h.assignedTo));
+export function raceItemChargeLines(
+  item: RaceItem,
+  excludeHeats?: Set<RaceHeatAssignment>,
+): BillLine[] {
+  // Credit-redeemed HEATS are charged $0 (a credit is deducted instead). The cash
+  // path passes the exact redeemed heat objects (redeemedHeatSet) so ONLY those
+  // drop from the Square charge — a racer with fewer credits than heats still pays
+  // cash for the uncovered heats (previously the whole racer was excluded, which
+  // zeroed every heat and could leave the order with no line items to charge). The
+  // credit path passes nothing and splits via applyCreditRedemptionsToOverview.
+  // Keyed on the heat OBJECT, not heatId (several racers can share one heatId).
+  const keep = (h: RaceHeatAssignment): boolean => !!h.heatId && !excludeHeats?.has(h);
   if (item.packageId) {
     const pkg = getPackage(item.packageId);
     if (!pkg) return [];
@@ -756,14 +762,14 @@ function earliestHeatStart(heats: RaceHeatAssignment[]): string | undefined {
  * and standalone `POV Race Video` ($5 × non-package POV cameras). BMI holds the
  * heats + bundled license + POV at $0; these lines are what Square charges.
  *
- * Exported + `excludeRacerIds`-parameterized so BOTH reserve paths build the
- * SAME race lines (the cash path passes credit-redeemed racers to drop their
- * $0 heats; the credit path passes nothing and splits via
- * applyCreditRedemptionsToOverview) — displayed == charged by construction.
+ * Exported + `excludeHeats`-parameterized so BOTH reserve paths build the SAME
+ * race lines (the cash path passes the credit-redeemed heat objects from
+ * `redeemedHeatSet` to drop their $0 heats; the credit path passes nothing and
+ * splits via applyCreditRedemptionsToOverview) — displayed == charged by construction.
  */
 export function buildRaceChargeLines(
   session: BookingSession,
-  excludeRacerIds?: Set<string>,
+  excludeHeats?: Set<RaceHeatAssignment>,
 ): BillLine[] {
   const lines: BillLine[] = [];
   const packageRacerIds = new Set<string>();
@@ -771,7 +777,7 @@ export function buildRaceChargeLines(
 
   for (const item of session.items) {
     if (item.kind !== "race") continue;
-    lines.push(...raceItemChargeLines(item, excludeRacerIds));
+    lines.push(...raceItemChargeLines(item, excludeHeats));
     if (item.packageId) {
       for (const h of item.heats) if (h.assignedTo) packageRacerIds.add(h.assignedTo);
     } else if (item.povQuantity > 0) {
@@ -827,7 +833,7 @@ function buildZeroModelOverview(session: BookingSession, bmiOverview: BillOvervi
  * into the charged portion (racers paying cash) and a $0 "credit" portion (racers
  * redeeming a credit), then recompute subtotal/tax/total. The $0 credit lines are
  * kept so the reserve cart stays non-empty and the review renders "Credit". A
- * racer is redeeming when their PartyMember carries `redeemCreditKindId`.
+ * racer is redeeming when their PartyMember has `redeemCredits` set.
  *
  * Pure — used by the checkout UI for display AND for the cart sent to the credit
  * reserve path (/reserve). The cash/mixed path (unifiedReserve) rebuilds from the

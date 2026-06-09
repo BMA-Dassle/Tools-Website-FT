@@ -83,13 +83,15 @@ export interface PartyMember {
   /** Race credit balances from BMI (e.g. [{kind: "Starter Race", balance: 3}]). */
   creditBalances?: Array<{ kind: string; balance: number }>;
   /**
-   * v2 $0 model: when set, this racer redeems a race CREDIT (deposit kind id) for
-   * their race instead of paying cash — Square charges $0 for their heat(s) and
-   * one credit per heat is deducted from THIS racer's own balance. Chosen at
-   * checkout via the explicit "use a credit" toggle. Only valid for returning
-   * racers / linked family (bmiPersonId && !isNewRacer). null/undefined = pay cash.
+   * v2 $0 model: when true, this racer pays for their heats with race CREDITS
+   * instead of cash. Their heats are covered by drawing down their OWN eligible
+   * balances in priority order (Membership → Weekday → Anytime → Comp; see
+   * race-credits.ts) — Square charges $0 per covered heat and one credit is
+   * deducted per covered heat; any heats beyond their combined balance are paid in
+   * cash. Toggled at checkout. Only valid for returning racers / linked family
+   * (bmiPersonId && !isNewRacer). false/undefined = pay cash.
    */
-  redeemCreditKindId?: string | null;
+  redeemCredits?: boolean;
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */

@@ -252,7 +252,7 @@ describe("raceItemChargeLines — pack-once / bundle / per-heat", () => {
     expect(lines[0].amount).toBeCloseTo(price * 2, 2);
   });
 
-  it("excludeRacerIds drops a credit-redeemed racer's heats from the charge", () => {
+  it("excludeHeats drops only the redeemed heat objects (partial-safe)", () => {
     const price = getRaceProductById(SINGLE_STARTER_RED)!.price;
     const item = raceItem({
       productIdAdult: SINGLE_STARTER_RED,
@@ -261,8 +261,10 @@ describe("raceItemChargeLines — pack-once / bundle / per-heat", () => {
         heat({ tier: "starter", assignedTo: "r2" }),
       ],
     });
-    const lines = raceItemChargeLines(item, new Set(["r2"]));
-    expect(lines[0].quantity).toBe(1); // only r1 charged
+    // Exclude only the SECOND heat object (not the whole racer) — the other heat
+    // still charges, so a racer with fewer credits than heats pays cash for the rest.
+    const lines = raceItemChargeLines(item, new Set([item.heats[1]]));
+    expect(lines[0].quantity).toBe(1); // only the un-redeemed heat charged
     expect(lines[0].amount).toBeCloseTo(price, 2);
   });
 });

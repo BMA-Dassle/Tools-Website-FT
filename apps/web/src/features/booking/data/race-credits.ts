@@ -1,24 +1,31 @@
 /**
  * Race-credit type registry — which BMI deposit kinds count as redeemable race
- * credits in the v2 $0 model, and their day eligibility.
+ * credits in the v2 $0 model, their PRIORITY for combined drawdown, and their day
+ * eligibility.
  *
  * Why this exists: with $0 build products the BMI bill is $0, so BMI no longer
- * auto-applies (deducts) a returning racer's race credit the way it did against a
- * priced product. The v2 flow now offers an explicit "pay with a credit" option;
- * this registry is the configurable source of truth for which deposit kinds are
- * valid race credits, their display label, and whether they're day-locked.
+ * auto-applies a returning racer's race credit. The v2 flow offers an explicit
+ * "pay with credits" option; this registry is the configurable source of truth for
+ * which deposit kinds are valid race credits, their label, the order we draw them
+ * down, and whether they're day-locked.
  *
  * Credits are BMI deposit-ledger rows (T_DEPOSIT) keyed to ONE personId — never
  * pooled or transferable. Only a returning racer or their linked family member
- * (bmiPersonId && !isNewRacer) may redeem, and only their OWN balance.
+ * (bmiPersonId && !isNewRacer) may redeem, and only their OWN balances.
+ *
+ * Combined drawdown: when a racer opts to use credits, their heats are covered by
+ * pulling from their eligible balances in PRIORITY order (Membership → Weekday →
+ * Anytime → Comp), spilling into the next kind as each runs out, until the heats
+ * are covered or the credits run out (the remainder is paid in cash).
  *
  * This file is PURE (no server imports) so it can be used by both the checkout UI
  * and the server reserve routes. The actual balance read + deduction (Pandora /
  * retry-queue) lives in `../service/race-credit-redeem.ts` (server-only).
  *
- * Deposit-kind ids mirror `DEPOSIT_KIND` in `lib/pandora-deposits.ts`.
+ * Deposit-kind ids mirror `DEPOSIT_KIND` in `lib/pandora-deposits.ts` and were
+ * verified against the live BMI office `deposit/history` API (2026-06-09).
  */
-import type { BookingSession } from "../state/types";
+import type { BookingSession, RaceHeatAssignment } from "../state/types";
 
 export interface RaceCreditType {
   /** BMI deposit-kind id this credit deducts from. */
@@ -28,28 +35,38 @@ export interface RaceCreditType {
   /** Lowercase substrings matched against the deposit NAME returned by
    *  `/api/bmi-office?action=deposits` (e.g. "Credit - Race Anytime"). */
   namePatterns: string[];
+  /** Drawdown order when a racer has multiple eligible kinds — LOWER goes first.
+   *  Membership(1) → Weekday(2) → Anytime(3) → Comp(4). */
+  priority: number;
   /** Day restriction: "weekday" = Mon–Thu, "weekend" = Fri–Sun. Omit = any day.
-   *  Per product rule, only weekday/weekend credits are time-locked. */
+   *  Per product rule, only the Weekday credit is day-locked; Membership, Anytime
+   *  and Comp are valid any day. */
   dayLock?: "weekday" | "weekend";
-  /** true = depletable credit we deduct on redemption. false = ignore (e.g. an
-   *  unlimited Membership pass, which is not a countable credit). */
+  /** true = depletable credit we deduct on redemption. */
   redeemable: boolean;
 }
 
 /**
- * Valid race-credit types. Edit this list to add/adjust credit kinds.
- *  - Anytime: redeemable any day.
- *  - Weekday: redeemable Mon–Thu only (day-locked).
- *  - Comp: staff give-back credits — redeemable any day.
- *  - Membership: an unlimited PASS, not a depletable credit → redeemable: false.
- *  - Add weekend-locked credit kinds with `dayLock: "weekend"` once their
- *    deposit-kind id is known.
+ * Valid race-credit types, in drawdown-PRIORITY order. Edit this list to
+ * add/adjust credit kinds.
+ *  - Membership: drawn down FIRST; valid any day (a depletable balance, e.g. 8).
+ *  - Weekday:    valid Mon–Thu only (the one day-locked kind).
+ *  - Anytime:    valid any day.
+ *  - Comp:       staff give-back credits — valid any day, drawn down LAST.
  */
 export const RACE_CREDIT_TYPES: RaceCreditType[] = [
+  {
+    depositKindId: "12754483",
+    label: "Race Membership",
+    namePatterns: ["race membership", "membership"],
+    priority: 1,
+    redeemable: true,
+  },
   {
     depositKindId: "12744867",
     label: "Weekday Race Credit",
     namePatterns: ["race weekday", "weekday race", "weekday", "mon-thu", "mon thu"],
+    priority: 2,
     dayLock: "weekday",
     redeemable: true,
   },
@@ -57,19 +74,15 @@ export const RACE_CREDIT_TYPES: RaceCreditType[] = [
     depositKindId: "12744871",
     label: "Anytime Race Credit",
     namePatterns: ["race anytime", "anytime race", "anytime"],
+    priority: 3,
     redeemable: true,
   },
   {
     depositKindId: "11260967",
     label: "Race Comp",
     namePatterns: ["race comp", "comp race", "comp"],
+    priority: 4,
     redeemable: true,
-  },
-  {
-    depositKindId: "12754483",
-    label: "Race Membership",
-    namePatterns: ["race membership", "membership"],
-    redeemable: false,
   },
 ];
 
@@ -101,47 +114,12 @@ export function isTypeEligibleOnDate(type: RaceCreditType, raceDate: string | nu
   return dayBucket(raceDate) === type.dayLock;
 }
 
-export interface EligibleCredit {
-  depositKindId: string;
-  label: string;
-  balance: number;
-}
-
-/**
- * Redeemable credits a party member can use for a race on `raceDate`, derived
- * from their captured `creditBalances` (names) intersected with the registry +
- * day eligibility. Ordered so day-locked credits are offered first (preserve the
- * more-flexible Anytime balance), then Anytime, then others.
- */
-export function eligibleCreditsForMember(
-  creditBalances: Array<{ kind: string; balance: number }> | undefined,
-  raceDate: string | null,
-): EligibleCredit[] {
-  if (!creditBalances?.length) return [];
-  const out: EligibleCredit[] = [];
-  for (const cb of creditBalances) {
-    if (!cb.balance || cb.balance <= 0) continue;
-    const type = creditTypeForDepositName(cb.kind);
-    if (!type || !type.redeemable) continue;
-    if (!isTypeEligibleOnDate(type, raceDate)) continue;
-    out.push({ depositKindId: type.depositKindId, label: type.label, balance: cb.balance });
-  }
-  // Day-locked first (conserve flexible Anytime credits), then the rest.
-  return out.sort((a, b) => {
-    const ad = creditTypeById(a.depositKindId)?.dayLock ? 0 : 1;
-    const bd = creditTypeById(b.depositKindId)?.dayLock ? 0 : 1;
-    return ad - bd;
-  });
-}
-
-/** One credit redemption = one race heat covered by one credit. */
-export interface CreditRedemption {
-  /** BMI personId whose balance is drawn down. */
-  personId: string;
-  /** Deposit-kind id to deduct from. */
-  depositKindId: string;
-  /** Stable per-heat reference for idempotency (heatId, else itemId:index). */
-  ref: string;
+/** Redeemable credit kinds usable on `raceDate` (day-eligible), highest priority
+ *  first. The order the combined drawdown consumes them in. */
+export function eligibleKindsByPriority(raceDate: string | null): RaceCreditType[] {
+  return RACE_CREDIT_TYPES.filter((t) => t.redeemable && isTypeEligibleOnDate(t, raceDate)).sort(
+    (a, b) => a.priority - b.priority,
+  );
 }
 
 /** A member's available balance for one deposit-kind id, summed across the
@@ -160,37 +138,113 @@ export function memberBalanceForKind(
   return total;
 }
 
+/** Total credits a member can apply to a race on `raceDate`, COMBINED across all
+ *  eligible kinds (Membership + Weekday + Anytime + Comp), capped by their
+ *  balances. Drives the "covers N of M heats" checkout summary. */
+export function memberEligibleCreditTotal(
+  creditBalances: Array<{ kind: string; balance: number }> | undefined,
+  raceDate: string | null,
+): number {
+  return eligibleKindsByPriority(raceDate).reduce(
+    (sum, t) => sum + memberBalanceForKind(creditBalances, t.depositKindId),
+    0,
+  );
+}
+
+/** Per-kind eligible balances a member has on `raceDate`, in priority order,
+ *  balance>0 only. For the checkout summary line (e.g. "8 Race Membership · 2
+ *  Weekday Race Credit"). */
+export function memberEligibleBreakdown(
+  creditBalances: Array<{ kind: string; balance: number }> | undefined,
+  raceDate: string | null,
+): Array<{ label: string; balance: number }> {
+  return eligibleKindsByPriority(raceDate)
+    .map((t) => ({
+      label: t.label,
+      balance: memberBalanceForKind(creditBalances, t.depositKindId),
+    }))
+    .filter((x) => x.balance > 0);
+}
+
+/** One credit redemption = one race heat covered by one credit. */
+export interface CreditRedemption {
+  /** BMI personId whose balance is drawn down. */
+  personId: string;
+  /** Deposit-kind id to deduct from (resolved by the priority drawdown). */
+  depositKindId: string;
+  /** Stable per-heat reference for idempotency (heatId, else itemId:index). */
+  ref: string;
+}
+
+interface HeatRedemption extends CreditRedemption {
+  /** The heat assignment this redemption covers (object identity). */
+  heat: RaceHeatAssignment;
+}
+
 /**
- * Derive per-heat credit redemptions from a session: for every race heat whose
- * assigned member is redeeming (carries `redeemCreditKindId`), one credit of that
- * kind is spent — CAPPED at the member's available balance for that kind. A racer
- * with 2 credits but 3 heats redeems 2 heats (the 3rd is paid in cash); they're
- * never charged $0 for more heats than they have credits, and the server validate
- * (count ≤ balance) always passes. Non-transferable: keyed to the assigned
- * member's own bmiPersonId. Heats are walked in session order so this list and
- * `applyCreditRedemptionsToOverview` redeem the SAME heats — displayed == charged.
+ * Core walk: assign each race heat of an opted-in member (`redeemCredits`) the
+ * next available credit in PRIORITY order (Membership → Weekday → Anytime → Comp),
+ * restricted to kinds eligible on that heat's race date, decrementing a per-member
+ * running balance so we never over-redeem. Heats beyond the member's combined
+ * eligible balance get no redemption (paid in cash). Walked in session order so the
+ * $0-charged heats, the displayed split, and the server deduction all cover the
+ * IDENTICAL heats. Non-transferable: keyed to the assigned member's own bmiPersonId.
  */
-export function redemptionsFromSession(session: BookingSession): CreditRedemption[] {
-  const out: CreditRedemption[] = [];
-  // `${personId}:${kindId}` -> credits already spent (cap guard).
-  const spent = new Map<string, number>();
+function computeCreditRedemptions(session: BookingSession): HeatRedemption[] {
+  const out: HeatRedemption[] = [];
+  // memberId -> (depositKindId -> remaining balance), decremented as heats are covered.
+  const remaining = new Map<string, Map<string, number>>();
   for (const item of session.items) {
     if (item.kind !== "race") continue;
+    const order = eligibleKindsByPriority(item.date ?? null);
     item.heats.forEach((h, i) => {
       if (!h.assignedTo) return;
       const m = session.party.find((p) => p.id === h.assignedTo);
-      if (!m?.bmiPersonId || !m.redeemCreditKindId) return;
-      const key = `${m.bmiPersonId}:${m.redeemCreditKindId}`;
-      const used = spent.get(key) ?? 0;
-      const balance = memberBalanceForKind(m.creditBalances, m.redeemCreditKindId);
-      if (used >= balance) return; // out of credits — remaining heats are paid in cash
-      spent.set(key, used + 1);
+      if (!m?.bmiPersonId || !m.redeemCredits) return;
+      let rem = remaining.get(m.id);
+      if (!rem) {
+        rem = new Map();
+        for (const t of RACE_CREDIT_TYPES) {
+          if (!t.redeemable) continue;
+          const bal = memberBalanceForKind(m.creditBalances, t.depositKindId);
+          if (bal > 0) rem.set(t.depositKindId, bal);
+        }
+        remaining.set(m.id, rem);
+      }
+      // Highest-priority eligible kind that still has a remaining credit.
+      const kind = order.find((t) => (rem!.get(t.depositKindId) ?? 0) > 0);
+      if (!kind) return; // member's eligible credits exhausted — this heat is cash
+      rem.set(kind.depositKindId, (rem.get(kind.depositKindId) ?? 0) - 1);
       out.push({
+        heat: h,
         personId: m.bmiPersonId,
-        depositKindId: m.redeemCreditKindId,
+        depositKindId: kind.depositKindId,
         ref: h.heatId ?? `${item.id}:${i}`,
       });
     });
   }
   return out;
+}
+
+/**
+ * Per-heat credit redemptions for a session: personId + the kind drawn for that
+ * heat (priority-combined across the member's eligible balances) + a stable ref.
+ * The server re-validates each against the LIVE balance before charging. The
+ * displayed split (`applyCreditRedemptionsToOverview`) and the cash-path charge
+ * (`redeemedHeatSet`) derive from this SAME walk, so displayed == charged == deducted.
+ */
+export function redemptionsFromSession(session: BookingSession): CreditRedemption[] {
+  return computeCreditRedemptions(session).map(({ personId, depositKindId, ref }) => ({
+    personId,
+    depositKindId,
+    ref,
+  }));
+}
+
+/** The exact heat ASSIGNMENTS covered by credits — keyed on the heat OBJECT, not
+ *  its heatId (multiple racers can share one heatId in a single session). The cash
+ *  reserve path drops these from the Square charge so a racer with fewer credits
+ *  than heats is charged only for the uncovered heats (the rest are $0). */
+export function redeemedHeatSet(session: BookingSession): Set<RaceHeatAssignment> {
+  return new Set(computeCreditRedemptions(session).map((r) => r.heat));
 }
