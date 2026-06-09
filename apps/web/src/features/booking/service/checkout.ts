@@ -723,6 +723,22 @@ export function raceItemChargeLines(item: RaceItem, excludeRacerIds?: Set<string
   return lines;
 }
 
+/**
+ * The charge-line key a heat rolls up into — keyed identically to
+ * `raceItemChargeLines` (package `cartLineKey`, else the category's selected
+ * `productId`). Used by credit redemption to attribute a redeemed heat to its
+ * line even when the heat's own `productId` differs from the category's selected
+ * product (new- vs existing-racer ids for the same race). Returns null when the
+ * category has no selected product (e.g. cleared by the "add another race" loop).
+ */
+function chargeLineKeyForHeat(item: RaceItem, heat: RaceHeatAssignment): string | null {
+  if (item.packageId) {
+    return getPackage(item.packageId)?.cartLineKey ?? null;
+  }
+  const pid = (heat.category ?? "adult") === "junior" ? item.productIdJunior : item.productIdAdult;
+  return getRaceProductById(pid)?.productId ?? null;
+}
+
 /** Earliest heat start ISO among a set of heats (ISO sorts lexically). Drives the
  *  heat time + racer-name display on the checkout review's race lines. */
 function earliestHeatStart(heats: RaceHeatAssignment[]): string | undefined {
@@ -827,20 +843,27 @@ export function applyCreditRedemptionsToOverview(
   // displayed == charged == deducted.
   const redemptions = redemptionsFromSession(session);
   if (redemptions.length === 0) return overview;
-  const refToProduct = new Map<string, string>();
+  // Map each heat ref to the CHARGE-LINE key it belongs to — keyed the same way
+  // raceItemChargeLines builds the line (package cartLineKey, else the category's
+  // selected productId), NOT the heat's own productId. Those can diverge (e.g. a
+  // mixed party where the line uses the existing-Mega id but the heats were
+  // picked under the new-Mega id), and keying off the heat's id then left the
+  // credit unmatched — "-2 credits" shown but the charge never reduced.
+  const refToLineKey = new Map<string, string>();
   for (const item of session.items) {
     if (item.kind !== "race") continue;
     item.heats.forEach((h, i) => {
-      if (h.productId) refToProduct.set(h.heatId ?? `${item.id}:${i}`, h.productId);
+      const key = chargeLineKeyForHeat(item, h);
+      if (key) refToLineKey.set(h.heatId ?? `${item.id}:${i}`, key);
     });
   }
-  // productId -> number of heats actually redeemed (capped at balance upstream).
+  // charge-line key -> number of heats actually redeemed (capped upstream).
   const redeemedByProduct = new Map<string, number>();
   let redeemedCount = 0;
   for (const r of redemptions) {
-    const pid = refToProduct.get(r.ref);
-    if (!pid) continue;
-    redeemedByProduct.set(pid, (redeemedByProduct.get(pid) ?? 0) + 1);
+    const key = refToLineKey.get(r.ref);
+    if (!key) continue;
+    redeemedByProduct.set(key, (redeemedByProduct.get(key) ?? 0) + 1);
     redeemedCount += 1;
   }
   if (redeemedCount === 0) return overview;
