@@ -2,7 +2,9 @@
 
 import type { BowlingItem, StepDef } from "~/features/booking";
 
-const MAX_PLAYERS = 12;
+// 24 bowlers = 4 lanes (6/lane) — the online self-service ceiling. Bigger
+// parties are handled as Group Events (deposits, lane blocking, staff coord).
+const MAX_PLAYERS = 24;
 const MIN_PLAYERS = 1;
 const PLAYERS_PER_LANE = 6;
 
