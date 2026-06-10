@@ -7,6 +7,7 @@ import { tierFromMemberships } from "~/features/booking/service/race-products";
 import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
 import { ExperiencePicker } from "./ExperiencePicker";
 import { ReturningRacerLookup, type PersonData } from "./ReturningRacerLookup";
+import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 const TIER_BADGE: Record<string, { bg: string; text: string; label: string }> = {
   pro: { bg: "bg-[#E53935]/15", text: "text-[#E53935]", label: "Pro" },
@@ -97,6 +98,8 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
   };
 
   function handlePersonVerified(person: PersonData) {
+    clarityTag("returning_racer", "true");
+    clarityEvent("racer:returning");
     setVerifiedPerson(person);
 
     const age = ageFromBirthDate(person.birthDate);
@@ -318,7 +321,11 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
         </div>
         <ReturningRacerLookup
           onVerified={handlePersonVerified}
-          onSwitchToNew={() => onChange({ entryMode: "new" })}
+          onSwitchToNew={() => {
+            clarityTag("returning_racer", "false");
+            clarityEvent("racer:new");
+            onChange({ entryMode: "new" });
+          }}
         />
       </div>
     );

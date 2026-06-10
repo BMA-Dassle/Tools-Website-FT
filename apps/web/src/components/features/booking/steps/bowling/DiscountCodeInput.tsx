@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 interface AppliedDiscount {
   code: string;
@@ -51,8 +52,12 @@ export function DiscountCodeInput({
           rate_limited: "Too many attempts — try again shortly.",
         };
         setError(messages[reason] ?? `Code ${code} is not valid.`);
+        clarityTag("promo_result", `rejected:${reason}`);
+        clarityEvent("promo:rejected");
         return;
       }
+      clarityTag("promo_code", data.code);
+      clarityEvent("promo:applied");
       onApply({
         code: data.code,
         description: data.description ?? null,

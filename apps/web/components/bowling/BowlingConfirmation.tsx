@@ -10,6 +10,7 @@ import type {
   ReservationLine,
 } from "@/lib/bowling-db";
 import { modalBackdropProps } from "@/lib/a11y";
+import { clarityEvent } from "~/lib/clarity";
 
 /**
  * Shared bowling confirmation page component.
@@ -817,6 +818,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
       if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
       setCancelRefundCents(data.refundCents ?? 0);
       setCancelPhase("cancelled");
+      clarityEvent("confirmation:cancelled");
     } catch (err) {
       setCancelError(err instanceof Error ? err.message : "Cancellation failed");
       setCancelPhase("confirming");
@@ -927,6 +929,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Reschedule failed (${res.status})`);
       setRescheduleSuccess(true);
+      clarityEvent("confirmation:rescheduled");
       // Reload the page to show updated time
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
@@ -1053,6 +1056,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to save");
       setPlayersSaved(true);
+      clarityEvent("confirmation:players_saved");
       // Auto-close bowler modal after successful save
       setTimeout(() => setBowlerModalOpen(false), 1200);
     } catch (err) {

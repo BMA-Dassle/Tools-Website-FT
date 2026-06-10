@@ -159,6 +159,7 @@ export function BookingFlow({
   const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
 
   const handleReservationExpired = useCallback(() => {
+    clarityEvent("hold:expired");
     setReservationExpired(true);
   }, []);
 
@@ -224,6 +225,7 @@ export function BookingFlow({
     if (activeItem?.kind === "kbf") return activeItem.bowlers.length + activeItem.paidAdults;
     return session.party.length;
   })();
+  const prevCartCountRef = useRef(0);
   useEffect(() => {
     clarityTag("booking_flow", tagFlow);
     clarityTag("booking_step", tagStep);
@@ -231,6 +233,11 @@ export function BookingFlow({
     clarityTag("cart_items", String(tagCartItems));
     clarityTag("party_size", String(tagParty));
     clarityEvent(`step:${tagFlow}:${tagStep}`);
+    // Cross-sell: a second (or further) activity was added to the visit.
+    if (tagCartItems > prevCartCountRef.current && tagCartItems > 1) {
+      clarityEvent("cart:item_added");
+    }
+    prevCartCountRef.current = tagCartItems;
   }, [tagFlow, tagStep, tagCenter, tagCartItems, tagParty]);
 
   // Don't render the flow until the persisted session has hydrated (AFTER all

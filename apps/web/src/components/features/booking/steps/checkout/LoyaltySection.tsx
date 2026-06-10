@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession, LoyaltyState, SelectedRewardTier } from "~/features/booking";
+import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 const GOLD = "#FFD700";
 
@@ -114,6 +115,7 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
           },
         });
         setShowEnroll(false);
+        clarityEvent("rewards:signup");
       }
     } catch {
       setError("Couldn't create rewards account. You can sign up at the center.");
@@ -211,6 +213,10 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
 
   function selectRewardTier(tier: SelectedRewardTier | null) {
     if (!loyalty) return;
+    if (tier) {
+      clarityTag("reward_redeemed", String(tier.discountCents));
+      clarityEvent("rewards:reward_selected");
+    }
     dispatch({
       type: "setLoyalty",
       loyalty: { ...loyalty, selectedRewardTier: tier },

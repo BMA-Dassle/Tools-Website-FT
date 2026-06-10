@@ -10,6 +10,7 @@ import type {
   BowlingExperienceDurationOption,
 } from "@/lib/bowling-db";
 import { KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS } from "~/features/booking/service/kbf-pricing";
+import { clarityTag, clarityEvent } from "~/lib/clarity";
 import {
   type AvailabilitySlot,
   probeAvailability,
@@ -195,6 +196,22 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     };
   }, [centerId, playerCount, item.date, kind, selectedHour, item.minute, tierExperiences]);
 
+  // Fire a one-time "sold out" signal when the probe finishes with no slots for
+  // this tier on the chosen day — demand we'd otherwise lose silently. Keyed on
+  // date/tier/hour so it fires once per distinct lookup, not on every render.
+  const soldOutFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || experiences.length === 0) return;
+    const tierIds = new Set(tierExperiences.map((e) => e.qamfWebOfferId));
+    const hasAny = slots.some((s) => tierIds.has(s.webOfferId));
+    const key = `${item.date}:${item.tier}:${selectedHour}`;
+    if (!hasAny && soldOutFiredRef.current !== key) {
+      soldOutFiredRef.current = key;
+      clarityTag("availability", "soldout");
+      clarityEvent("availability:soldout");
+    }
+  }, [loading, slots, experiences, tierExperiences, item.date, item.tier, selectedHour]);
+
   function buildLineItems(
     exp: BowlingExperienceWithDetails,
     durationOpt: BowlingExperienceDurationOption | null,
@@ -301,6 +318,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         if (vipExp && vipSlot) {
           vipOfferedRef.current = true;
           setVipUpgrade({ exp: vipExp, slot: vipSlot });
+          clarityEvent("upsell:vip:shown");
         }
       }
     } catch (err) {
@@ -318,6 +336,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     if (!vipUpgrade) return;
     const { exp, slot } = vipUpgrade;
     setVipUpgrade(null);
+    clarityEvent("upsell:vip:accepted");
     onChange({ tier: "vip" } as Partial<BowlingLikeItem>);
     await selectSlot(exp, slot, null);
   }
@@ -712,7 +731,10 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                   <div className="flex gap-3">
                     <button
                       type="button"
-                      onClick={() => setVipUpgrade(null)}
+                      onClick={() => {
+                        clarityEvent("upsell:vip:declined");
+                        setVipUpgrade(null);
+                      }}
                       className="flex-1 rounded-full border border-white/20 py-3 text-sm font-bold uppercase tracking-wider text-white/60 transition-colors hover:border-white/40 hover:text-white"
                     >
                       No Thanks

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Dispatch } from "react";
-import { clarityEvent } from "~/lib/clarity";
+import { clarityEvent, clarityTag } from "~/lib/clarity";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession, BowlingItem, KbfItem, RaceItem } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
@@ -78,6 +78,11 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
     if (phase.step === "review") clarityEvent("checkout:review");
     else if (phase.step === "paying") clarityEvent("checkout:payment");
     else if (phase.step === "confirming") clarityEvent("checkout:submitting");
+    else if (phase.step === "error") {
+      clarityTag("checkout_error", phase.message?.slice(0, 60) || "unknown");
+      clarityEvent("checkout:error");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase.step]);
 
   // Contact form local state — pre-fill from session.contact

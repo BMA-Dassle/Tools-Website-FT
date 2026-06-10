@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
 /**
@@ -24,6 +24,7 @@ const CLARITY_PROJECT_ID = "x4kmifcwpp";
 
 export default function ClarityAnalytics() {
   const pathname = usePathname();
+  const entryTaggedRef = useRef(false);
 
   useEffect(() => {
     if (!pathname || pathname.startsWith("/admin")) return;
@@ -54,13 +55,38 @@ export default function ClarityAnalytics() {
       })(window, document, "clarity", "script", CLARITY_PROJECT_ID);
     }
 
+    // Fresh callable reference (the shim exists now, queuing until the script
+    // finishes loading). Read separately so TS doesn't narrow it to undefined.
+    const fire = (window as unknown as { clarity?: (...args: unknown[]) => void }).clarity;
+    if (!fire) return;
+
+    // Capture the entry source ONCE per mount: referrer host + campaign params,
+    // so conversions can be traced back to the channel / QR code / link that
+    // started the visit.
+    if (!entryTaggedRef.current) {
+      entryTaggedRef.current = true;
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        const ref = document.referrer ? new URL(document.referrer).hostname : "direct";
+        fire("set", "entry_referrer", ref);
+        const utm = qs.get("utm_source");
+        if (utm) fire("set", "utm_source", utm);
+        const code = qs.get("code");
+        if (code) fire("set", "entry_code", code);
+        const loc = qs.get("location");
+        if (loc) fire("set", "entry_location", loc);
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     // Booking-funnel outcome: every flow's success page shares "/confirmation"
     // in its path, so tag the converted session + fire a milestone here — no
     // per-confirmation-page edits needed. Detailed per-step tags are set inside
     // the booking wizard (see lib/clarity.ts usage in BookingFlow/CheckoutStep).
     if (pathname.includes("/confirmation")) {
-      win.clarity?.("set", "booking_outcome", "confirmed");
-      win.clarity?.("event", "booking:confirmed");
+      fire("set", "booking_outcome", "confirmed");
+      fire("event", "booking:confirmed");
     }
   }, [pathname]);
 
