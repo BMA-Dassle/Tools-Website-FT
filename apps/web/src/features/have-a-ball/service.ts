@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import redis from "@/lib/redis";
 import {
   computeJoinPlan,
+  habMinusOneDay,
   habTodayYmd,
   HAB_ITEM_VARIATION_ID,
   HAB_LEE_COUNTY_TAX_ID,
@@ -216,8 +217,10 @@ async function createSubscription(p: {
       plan_variation_id: HAB_PLAN_VARIATION_ID,
       customer_id: p.customerId,
       card_id: p.cardId,
-      start_date: p.startDate,
-      canceled_date: p.canceledDate,
+      // Square stores an explicit future start_date/canceled_date as +1 day, so
+      // we send (intended − 1) to land on the intended day. See habMinusOneDay.
+      start_date: habMinusOneDay(p.startDate),
+      canceled_date: habMinusOneDay(p.canceledDate),
       timezone: "America/New_York",
       phases: [{ ordinal: 0, order_template_id: p.orderTemplateId }],
     }),

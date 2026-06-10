@@ -156,6 +156,23 @@ export function habFormatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * Return the YYYY-MM-DD one day before `ymd`.
+ *
+ * Square's CreateSubscription stores an explicit future `start_date` (and the
+ * `canceled_date`) as the date we send PLUS ONE DAY — verified empirically:
+ * every weekday maps +1 (Mon→Tue, Tue→Wed, …). Existing members don't show
+ * this because they were created with an immediate start, not a future date.
+ * So to make billing land on the intended day, we send (intended − 1 day).
+ * If Square ever fixes this, the dry-run (scripts/dryrun-hab-join.mjs) will
+ * show start_date unshifted and this compensation must be removed.
+ */
+export function habMinusOneDay(ymd: string): string {
+  const dt = new Date(`${ymd}T00:00:00Z`);
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
 /** Format a YYYY-MM-DD billing date as e.g. "Tuesday, June 16, 2026" (ET). */
 export function habFormatDate(ymd: string): string {
   // Parse as a UTC noon to avoid any TZ rollover, then format in ET.

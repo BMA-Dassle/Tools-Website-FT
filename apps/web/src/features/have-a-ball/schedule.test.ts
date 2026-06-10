@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeJoinPlan,
+  habMinusOneDay,
   habTodayYmd,
   HAB_TOTAL_WEEKS,
   HAB_WEEKLY_TOTAL_CENTS,
@@ -74,6 +75,13 @@ describe("have-a-ball schedule — shared by quote (display) + join (charge)", (
     expect(p.status).toBe("closed");
     expect(p.remainingCharges).toBe(0);
     expect(p.subStartDate).toBe(HAB_LAST_CHARGE_DATE);
+  });
+
+  it("habMinusOneDay subtracts a day, incl. month boundaries (Square +1 shift fix)", () => {
+    expect(habMinusOneDay("2026-06-16")).toBe("2026-06-15"); // send Mon → Square stores Tue 06-16
+    expect(habMinusOneDay("2026-08-18")).toBe("2026-08-17"); // cap: send → Square stores 08-18
+    expect(habMinusOneDay("2026-07-01")).toBe("2026-06-30"); // month rollover
+    expect(habMinusOneDay("2026-01-01")).toBe("2025-12-31"); // year rollover
   });
 
   it("habTodayYmd returns a YYYY-MM-DD string in ET", () => {
