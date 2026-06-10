@@ -5,6 +5,7 @@ import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { FASTTRAX_OG } from "@/lib/seo";
+import ComboSpecials from "~/components/features/combos/ComboSpecials";
 
 export const metadata: Metadata = {
   title: "Go-Kart Racing Prices, Combos & Packages – FastTrax Fort Myers",
@@ -704,6 +705,11 @@ export default function PricingPage() {
               through the website or app, then select these attractions as add-ons during the
               checkout process.
             </p>
+
+            {/* Combo specials (registry-driven; hidden when flag is off) */}
+            <div className="mb-5">
+              <ComboSpecials gridClassName="grid grid-cols-1 gap-5" />
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Gel Blaster Add-On */}

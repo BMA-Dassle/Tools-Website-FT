@@ -64,8 +64,9 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "Race two heats on our high-speed electric karts, then wind down with 1.5 hours " +
       "of bowling at HeadPinz — all in one visit, booked and paid in one checkout.",
     includes: ["2 Go-Kart Races", "1.5 Hours of Bowling"],
-    heroImage: "/images/combos/race-bowl.jpg",
-    accentColor: "#f59e0b",
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp",
+    accentColor: "rgb(228,28,29)",
     center: "fort-myers",
     price: { weekday: 6500, weekend: 7500 },
     components: [

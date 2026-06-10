@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
+import ComboTeaser from "~/components/features/combos/ComboTeaser";
 
 // Exact data from live site inspection
 const row1 = [
@@ -207,6 +208,9 @@ export default function Attractions() {
             </div>
           ))}
         </div>
+
+        {/* Combo specials teaser (registry-driven; hidden when flag is off) */}
+        <ComboTeaser />
       </div>
     </section>
   );

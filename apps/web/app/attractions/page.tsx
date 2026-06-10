@@ -5,6 +5,8 @@ import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { FASTTRAX_OG } from "@/lib/seo";
+import ComboSpecials from "~/components/features/combos/ComboSpecials";
+import { enabledCombos } from "~/features/combos";
 
 export const metadata: Metadata = {
   title:
@@ -182,6 +184,7 @@ const headpinzCards = [
 ];
 
 export default function AttractionsPage() {
+  const comboSpecials = enabledCombos();
   return (
     <>
       <BreadcrumbJsonLd
@@ -510,10 +513,14 @@ export default function AttractionsPage() {
         </div>
       </section>
 
-      {/* ── Section: Destination Combo Packages (bottom CTA) ── */}
+      {/* ── Section: Destination Combo Packages (combo specials) ── */}
       <section
+        id="combos"
         className="relative overflow-hidden"
-        style={{ minHeight: "clamp(500px, 80vh, 788px)" }}
+        style={{
+          minHeight: comboSpecials.length === 0 ? "clamp(500px, 80vh, 788px)" : undefined,
+          padding: "clamp(60px, 10vw, 120px) clamp(16px, 4vw, 32px)",
+        }}
       >
         <Image
           src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/group-events-bg.webp"
@@ -523,9 +530,9 @@ export default function AttractionsPage() {
           sizes="100vw"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-[#000418]/80 via-[#000418]/60 to-[#000418]/40" />
-        <div className="relative z-10 flex flex-col items-center justify-center text-center h-full px-8">
+        <div className="relative z-10 max-w-7xl mx-auto">
           <h2
-            className="font-heading font-black uppercase text-white"
+            className="font-heading font-black uppercase text-white text-center"
             style={{
               fontSize: "clamp(32px, 8vw, 72px)",
               lineHeight: "1",
@@ -537,7 +544,7 @@ export default function AttractionsPage() {
             Destination Combo Packages (Best Value)
           </h2>
           <p
-            className="font-body mb-8 mx-auto"
+            className="font-body mb-8 mx-auto text-center"
             style={{
               color: "rgb(255,255,255)",
               fontSize: "16px",
@@ -548,18 +555,24 @@ export default function AttractionsPage() {
             Why limit the fun? Our Destination Combos let you mix and match FastTrax Racing with
             HeadPinz Bowling, Laser Tag, and Gaming
           </p>
-          <Link
-            href="/pricing"
-            className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
-            style={{
-              backgroundColor: "rgb(228,28,29)",
-              borderRadius: "555px",
-              padding: "16px 24px",
-              fontSize: "14px",
-            }}
-          >
-            VIEW DESTINATION COMBOS
-          </Link>
+          {comboSpecials.length > 0 ? (
+            <ComboSpecials />
+          ) : (
+            <div className="text-center">
+              <Link
+                href="/pricing"
+                className="inline-block font-body font-semibold uppercase text-white tracking-wider transition-all hover:scale-105"
+                style={{
+                  backgroundColor: "rgb(228,28,29)",
+                  borderRadius: "555px",
+                  padding: "16px 24px",
+                  fontSize: "14px",
+                }}
+              >
+                VIEW DESTINATION COMBOS
+              </Link>
+            </div>
+          )}
         </div>
       </section>
     </>
