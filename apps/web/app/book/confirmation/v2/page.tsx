@@ -1116,7 +1116,8 @@ export default function ConfirmationPage() {
 
         // Itemized day-of Square receipt — "exactly what you paid for". Pulled
         // from the authoritative Square day-of order (resolved server-side from
-        // the reservation row). Non-fatal — the section is simply omitted on a miss.
+        // the reservation row). Non-fatal — falls back to the overviews below.
+        let receiptLoaded = false;
         try {
           const rcptQs = new URLSearchParams({ billId: id! });
           const code = params.get("code");
@@ -1124,10 +1125,63 @@ export default function ConfirmationPage() {
           const rcptRes = await fetch(`/api/booking/v2/receipt?${rcptQs.toString()}`);
           if (rcptRes.ok) {
             const rcpt = await rcptRes.json();
-            if (rcpt.available) setReceipt(rcpt as ReceiptData);
+            if (rcpt.available) {
+              setReceipt(rcpt as ReceiptData);
+              receiptLoaded = true;
+            }
           }
         } catch {
-          /* non-fatal */
+          /* fall through to the overview-based fallback */
+        }
+
+        // Fallback receipt — bookings with no Square day-of order (the racing
+        // checkout path predates the unified reserve flow, so it never creates
+        // a reservation row) still get the "What you paid for" card, rebuilt
+        // from the live BMI overview or the pre-payment stored overviews.
+        // Note the two line shapes: live BMI lines carry totalPrice[] (cash =
+        // depositKind 0); stored OrderSummary lines carry a flat `amount`.
+        if (!receiptLoaded) {
+          try {
+            const cash = (arr?: { amount: number; depositKind: number }[]) =>
+              arr?.find((t) => t.depositKind === 0)?.amount ?? 0;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const srcOverviews: any[] = overview?.lines?.length ? [overview] : parsedOverviews;
+            const lineItems = srcOverviews
+              .flatMap((ov) =>
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (ov.lines || []).map((l: any) => ({
+                  name: displayLineName({
+                    productId: l.productId ?? l.bmiProductId,
+                    name: l.name || "Item",
+                  }),
+                  quantity: Number(l.quantity) || 1,
+                  amountCents: Math.round((cash(l.totalPrice) || Number(l.amount) || 0) * 100),
+                })),
+              )
+              .filter((l) => l.amountCents > 0);
+            const totalCents = Math.round(
+              srcOverviews.reduce((s, ov) => s + cash(ov.total), 0) * 100,
+            );
+            const taxCents = Math.round(
+              srcOverviews.reduce((s, ov) => s + cash(ov.totalTax), 0) * 100,
+            );
+            const paidOnlineCents = Math.round(amount * 100);
+            // Credit-paid orders charged $0 online but owe nothing at the center.
+            const isCredit = details?.isCreditOrder === "true";
+            if (lineItems.length > 0 && totalCents > 0) {
+              setReceipt({
+                lineItems,
+                discounts: [],
+                discountCents: 0,
+                taxCents,
+                totalCents,
+                paidOnlineCents,
+                dueAtCenterCents: isCredit ? 0 : Math.max(0, totalCents - paidOnlineCents),
+              });
+            }
+          } catch {
+            /* card simply omitted */
+          }
         }
 
         // Clean up

@@ -58,14 +58,17 @@ interface SquareOrder {
   total_money?: SquareMoney;
 }
 
-const UNAVAILABLE = NextResponse.json({ available: false });
+// Must be a fresh Response per request — a NextResponse body stream can only
+// be sent once, so a shared module-level constant goes out empty after the
+// first "unavailable" response since cold start.
+const unavailable = () => NextResponse.json({ available: false });
 
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const billId = params.get("billId") || params.get("orderId") || "";
   const shortCode = params.get("shortCode") || params.get("code") || "";
 
-  if (!SQUARE_TOKEN || (!billId && !shortCode)) return UNAVAILABLE;
+  if (!SQUARE_TOKEN || (!billId && !shortCode)) return unavailable();
 
   try {
     let row: BowlingReservation | null = null;
@@ -73,17 +76,17 @@ export async function GET(req: NextRequest) {
     if (!row && shortCode) row = await getBowlingReservationByShortCode(shortCode);
 
     const orderId = row?.squareDayofOrderId;
-    if (!orderId) return UNAVAILABLE;
+    if (!orderId) return unavailable();
 
     const res = await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
       headers: squareHeaders(),
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return UNAVAILABLE;
+    if (!res.ok) return unavailable();
 
     const order = (await res.json())?.order as SquareOrder | undefined;
-    if (!order) return UNAVAILABLE;
+    if (!order) return unavailable();
 
     const lineItems = (order.line_items ?? [])
       .map((li) => ({
@@ -115,6 +118,6 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.warn("[booking/v2/receipt] failed:", err);
-    return UNAVAILABLE;
+    return unavailable();
   }
 }
