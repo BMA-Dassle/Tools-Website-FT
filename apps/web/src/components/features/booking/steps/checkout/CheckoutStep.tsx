@@ -14,6 +14,7 @@ import {
   buildConfirmationUrl,
   reserveBooking,
   reserveAll,
+  rebuildRaceBillIfExpired,
   applyCreditRedemptionsToOverview,
   type BillOverview,
 } from "~/features/booking/service/checkout";
@@ -960,9 +961,29 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
           // Mixed or BMI-only: unified reserve (one Square order for everything).
           // sessionForReserve carries each racer's credit-redemption choice so the
           // server zeroes those race lines + deducts the credits.
+
+          // BMI auto-cancels held bills after 20 min. If ours lapsed during the
+          // customer's dwell, rebuild the heats into a FRESH bill BEFORE charging
+          // (never charge a dead bill). Returns the original id when still live;
+          // throws only when a heat's time is gone → show "pick again", no charge.
+          let liveBillId: string | null;
+          try {
+            liveBillId = await rebuildRaceBillIfExpired(sessionForReserve, contact, dispatch);
+          } catch (rebuildErr) {
+            setPhase({
+              step: "error",
+              message:
+                rebuildErr instanceof Error
+                  ? rebuildErr.message
+                  : "Your held time expired — please go back and pick a time again.",
+            });
+            return;
+          }
+          const effectiveBillId = liveBillId ?? bmiBillId ?? session.bmiBillId;
+
           const sessionWithBill = {
             ...sessionForReserve,
-            bmiBillId: bmiBillId || session.bmiBillId,
+            bmiBillId: effectiveBillId,
           };
           const result = await reserveAll({
             session: sessionWithBill,
@@ -974,8 +995,6 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
             rewardTierId: session.loyalty?.selectedRewardTier?.id,
             rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
           });
-
-          const effectiveBillId = session.bmiBillId ?? bmiBillId;
 
           void recordClickwrap({
             billId: effectiveBillId,

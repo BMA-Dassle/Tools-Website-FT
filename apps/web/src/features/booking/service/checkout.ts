@@ -20,7 +20,7 @@ import type {
 } from "../state/types";
 import type { ContactInfo } from "../types";
 import { getRaceProductById } from "./race-products";
-import { raceUsesZeroBmiModel, cancelRaceOrder } from "./race";
+import { raceUsesZeroBmiModel, cancelRaceOrder, holdRaceItem } from "./race";
 import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
 import { membershipDiscountsForNames } from "./membership-discounts";
 import { LICENSE_PRICE, calculateTax } from "./race-pricing";
@@ -1067,6 +1067,75 @@ export async function reserveAll(params: ReserveAllParams): Promise<ReserveAllRe
   }
 
   return data as ReserveAllResult;
+}
+
+// ── Re-validate / rebuild the BMI bill right before charging ────────────
+
+/**
+ * Guard against BMI's 20-minute auto-cancel: re-check the held bill is still
+ * live IMMEDIATELY before charging, and if BMI already auto-cancelled it (the
+ * Pending-Online timeout strips the bill's products), rebuild the race heats
+ * into a FRESH bill and return its id.
+ *
+ * Returns the (possibly new) bmiBillId — the original when the bill is still
+ * healthy or there are no race items. Throws when a heat's time is no longer
+ * bookable, so the caller can tell the customer to pick again and NEVER charges
+ * a dead bill.
+ *
+ * Client-only: heat booking goes through the client `bmiAdapter`. Only the BMI
+ * race bill is rebuilt — bowling/QAMF holds are left untouched (the old
+ * auto-cancelled bill stays `-4` in BMI; no cleanup needed).
+ */
+export async function rebuildRaceBillIfExpired(
+  session: BookingSession,
+  contact: ContactInfo,
+  dispatch: Dispatch<Action>,
+): Promise<string | null> {
+  const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
+  if (raceItems.length === 0 || !session.bmiBillId) return session.bmiBillId ?? null;
+
+  // A healthy bill returns its heat line items; an auto-cancelled one returns
+  // none. (Same signal the server-side bmiBillIsLive guard uses.)
+  let live = false;
+  try {
+    const ov = await fetchBillOverview(session.bmiBillId);
+    live = ov.lines.length > 0;
+  } catch {
+    live = false; // overview unreachable → treat as expired and rebuild
+  }
+  if (live) return session.bmiBillId;
+
+  // Rebuild: clear the stale bill id + per-heat line ids so holdRaceItem re-books
+  // into a new bill. povSold is reset so POV + the package memo re-attach.
+  let cleared: BookingSession = {
+    ...session,
+    contact,
+    bmiBillId: null,
+    items: session.items.map((it) =>
+      it.kind === "race"
+        ? { ...it, povSold: false, heats: it.heats.map((h) => ({ ...h, bmiLineId: null })) }
+        : it,
+    ),
+  };
+
+  let newBillId: string | undefined;
+  for (const item of cleared.items) {
+    if (item.kind !== "race") continue;
+    const result = await holdRaceItem(cleared, item, dispatch);
+    newBillId = result.bmiBillId;
+    cleared = { ...cleared, bmiBillId: newBillId };
+  }
+  if (!newBillId) {
+    throw new Error("Could not rebuild the reservation — please go back and pick a time again.");
+  }
+
+  // holdRaceItem only books heats; re-attach the contact + verified racers to the
+  // fresh bill (runCheckout does this on the normal path).
+  await registerContact(newBillId, contact, session.party);
+  await registerProjectPersons(newBillId, session.party);
+
+  dispatch({ type: "setBmiBillId", id: newBillId });
+  return newBillId;
 }
 
 // ── Confirmation URL builder ────────────────────────────────────────────
