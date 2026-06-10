@@ -912,12 +912,40 @@ export default function ConfirmationPage() {
             overview?.lines && overview.lines.length > 0
               ? overview.lines
               : parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
-          const povLine = claimSourceLines.find(
-            (l) => String((l as { productId?: string | number }).productId) === "43746981",
+          // BOTH POV product ids: the legacy $5 SKU (43746981) and the $0
+          // build SKU (50361293) the zero-BMI-model checkout sells — packages
+          // (Ultimate Qualifier, Rookie Pack) book POV under the $0 id, and
+          // scanning only the legacy id silently skipped their claim.
+          const povLine = claimSourceLines.find((l) =>
+            ["43746981", "50361293"].includes(
+              String((l as { productId?: string | number }).productId),
+            ),
           );
-          if (povLine && povLine.quantity > 0) {
+          let povQty = povLine && povLine.quantity > 0 ? povLine.quantity : 0;
+          // Package fallback — the live overview can be gone post-conversion
+          // and the v2 checkout's stored overview is a synthetic summary with
+          // no POV line. Any package with includesPov gets one POV per racer
+          // (unique racers: UQ records one entry per heat, so "Adult 1" twice
+          // is still one camera).
+          if (povQty === 0) {
+            const povPkgId = bookingRecord?.package as string | null | undefined;
+            const povPkg = povPkgId
+              ? getPackageIgnoreFlag(povPkgId)
+              : bookingRecord?.rookiePack === true
+                ? getPackageIgnoreFlag("rookie-pack")
+                : null;
+            if (povPkg?.includesPov) {
+              const uniqueRacers = new Set(
+                ((bookingRecord?.racers ?? []) as { personId?: string; racerName?: string }[])
+                  .map((r) => r.personId || r.racerName)
+                  .filter(Boolean),
+              ).size;
+              povQty = Math.max(1, uniqueRacers);
+            }
+          }
+          if (povQty > 0) {
             const claimRes = await fetch(
-              `/api/pov-codes?action=claim&qty=${povLine.quantity}&billId=${id}&email=${encodeURIComponent(details?.email || "")}`,
+              `/api/pov-codes?action=claim&qty=${povQty}&billId=${id}&email=${encodeURIComponent(details?.email || "")}`,
             );
             if (claimRes.ok) {
               const claimData = await claimRes.json();
