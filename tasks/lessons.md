@@ -868,3 +868,70 @@ use `"COMPLIMENTARY"` (free text is rejected). Drives gift card → order total 
 `depositPct=100` so the charge == the quoted day-of order total (tax-inclusive). Remediation scripts:
 `apps/web/scripts/{audit-giftcard-gap,comp-giftcard-gap,settle-stuck}.mjs` (re-runnable, dry-run
 default). Comped 15 gift cards, $89.50 total, on 2026-06-09.
+
+---
+
+## Credit redemption must be RACER-aware, not product-aware (2026-06-10)
+
+**Symptom:** A racer with both a racing membership discount (League Racer −20%) and a race
+credit saw "Credits Applied −1 credit" on the checkout review, but **Due Now never dropped**
+($17.88, full discounted price). The credit was counted but applied no dollars.
+
+**Root cause (a guard I added during the per-racer membership-discount work).**
+`raceItemChargeLines` splits one logical race line into a full-price line + a discounted line per
+distinct racing-discount % (both share the same `bmiProductId`). To avoid double-redeeming when a
+product split into two lines, `applyCreditRedemptionsToOverview` keyed redemptions by `bmiProductId`
+only and then **skipped any line with `membershipDiscountPct`**. That guard is wrong whenever the
+**redeemer IS the discount-holder**: there's no separate full-price line for their heat, so the
+credit landed nowhere — shown but never subtracted.
+
+**Fix (commit c1359090):** make redemption racer-aware. Attribute each redeemed heat to the EXACT
+split line it belongs to by matching **(productId + discount%)**, where the % is computed by a
+single shared `racingDiscountForMember(member)` helper used by BOTH the line build and the credit
+attribution — so they can't disagree on which line a racer is on. Also dropped the `m.redeemCredits`
+short-circuit in `racingDiscountFor`: a redeeming member now KEEPS their discount on heats they pay
+cash for, and the cash path (`unifiedReserve` → `buildRaceChargeLines` + `redeemedHeatSet`) rebuilds
+with the same helper, so displayed == charged on every path (full redeem, partial, none).
+
+**Guardrails for next time:**
+- When you split a charge line by an attribute (discount %, racer, category), any downstream logic
+  that *matches* lines (credit redemption, reward redemption, tax) must match on the SAME composite
+  key — never on a sub-key (productId alone) that two split lines now share.
+- A blunt "skip lines with property X" guard is a smell. If you're skipping a line to avoid
+  double-counting, the real fix is usually a more precise key, not exclusion.
+- Share the discriminator (here: the per-racer discount %) through ONE helper so the builder and the
+  matcher can't drift. Two copies of the rule = a latent display/charge mismatch.
+- For any race money change, prove display == charge on all three credit cases: redeem-all (credit
+  order → /reserve), partial (cash path keeps discount on leftover heats), none.
+
+---
+
+## Race "charged but empty in BMI" — auto-cancel-pending before payment (2026-06-10)
+
+**Symptom:** A FastTrax race booking is charged on Square (deposit COMPLETED) and shows "confirmed,"
+but the BMI bill/reservation is EMPTY — no products, no schedule, `payments:[]`. A 14-day audit found
+**13 such bookings (~$2,455 collected), ~1/day.** Detect: Square payment note
+`FastTrax - Deposit | Ref: <billId>` COMPLETED, but `order/<billId>/overview` has `lines:[]` AND
+`scheduleDays:[]`; the BMI Office project shows `schedule.stateId = -4`, `products:[]`.
+
+**Root cause (confirmed by BMI support):** the reservation sits in **Pending Online** longer than
+BMI's **auto-cancel-pending** setting (was 10 min). BMI auto-cancels the reservation AND strips the
+bill's products/schedule. When the Square payment is then initiated, BMI returns **status 4
+"BillNotFound"** — the BMI payment is never recorded — **but our Square card charge still completes.**
+The `bmi-cancel-sweep` later flips the *project* to `-3` (Confirmation) but cannot re-add stripped
+products → confirmed-on-paper, empty-in-reality.
+
+**The defect on our side:** we charge the card on Square and only THEN tell BMI, without verifying
+BMI can still accept the payment, and we don't void the Square charge when BMI returns BillNotFound.
+
+**Guardrails:**
+- **Never charge a card before confirming the downstream booking is still live.** Re-fetch the BMI
+  reservation/bill overview IMMEDIATELY before initiating the Square charge; if it has no
+  products/schedules/settle-total (auto-cancelled), abort and restart the booking — do not charge.
+- Track per-order time-since-last-modified vs the auto-cancel-pending window; if exceeded, re-create
+  the reservation via API (if data is retained) or time the user out and restart.
+- Operational stopgap: raise the BMI auto-cancel-pending setting (FM was bumped to 20 min; 60 min
+  avoids it). Setting lives in BMI, owner-controlled — fastest mitigation while the code guard ships.
+- A COMPLETED Square charge does NOT imply the BMI booking exists. Verify both sides when auditing
+  "did the customer actually get what they paid for."
+- Latest BMI API specs (2026-06): https://bmileisure.atlassian.net/wiki/external/YTYwMTA3YjAyNWVkNDAzMmJhNDkxZWE5OWZiYTc5YmM

@@ -912,12 +912,40 @@ export default function ConfirmationPage() {
             overview?.lines && overview.lines.length > 0
               ? overview.lines
               : parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
-          const povLine = claimSourceLines.find(
-            (l) => String((l as { productId?: string | number }).productId) === "43746981",
+          // BOTH POV product ids: the legacy $5 SKU (43746981) and the $0
+          // build SKU (50361293) the zero-BMI-model checkout sells — packages
+          // (Ultimate Qualifier, Rookie Pack) book POV under the $0 id, and
+          // scanning only the legacy id silently skipped their claim.
+          const povLine = claimSourceLines.find((l) =>
+            ["43746981", "50361293"].includes(
+              String((l as { productId?: string | number }).productId),
+            ),
           );
-          if (povLine && povLine.quantity > 0) {
+          let povQty = povLine && povLine.quantity > 0 ? povLine.quantity : 0;
+          // Package fallback — the live overview can be gone post-conversion
+          // and the v2 checkout's stored overview is a synthetic summary with
+          // no POV line. Any package with includesPov gets one POV per racer
+          // (unique racers: UQ records one entry per heat, so "Adult 1" twice
+          // is still one camera).
+          if (povQty === 0) {
+            const povPkgId = bookingRecord?.package as string | null | undefined;
+            const povPkg = povPkgId
+              ? getPackageIgnoreFlag(povPkgId)
+              : bookingRecord?.rookiePack === true
+                ? getPackageIgnoreFlag("rookie-pack")
+                : null;
+            if (povPkg?.includesPov) {
+              const uniqueRacers = new Set(
+                ((bookingRecord?.racers ?? []) as { personId?: string; racerName?: string }[])
+                  .map((r) => r.personId || r.racerName)
+                  .filter(Boolean),
+              ).size;
+              povQty = Math.max(1, uniqueRacers);
+            }
+          }
+          if (povQty > 0) {
             const claimRes = await fetch(
-              `/api/pov-codes?action=claim&qty=${povLine.quantity}&billId=${id}&email=${encodeURIComponent(details?.email || "")}`,
+              `/api/pov-codes?action=claim&qty=${povQty}&billId=${id}&email=${encodeURIComponent(details?.email || "")}`,
             );
             if (claimRes.ok) {
               const claimData = await claimRes.json();
@@ -1116,7 +1144,8 @@ export default function ConfirmationPage() {
 
         // Itemized day-of Square receipt — "exactly what you paid for". Pulled
         // from the authoritative Square day-of order (resolved server-side from
-        // the reservation row). Non-fatal — the section is simply omitted on a miss.
+        // the reservation row). Non-fatal — falls back to the overviews below.
+        let receiptLoaded = false;
         try {
           const rcptQs = new URLSearchParams({ billId: id! });
           const code = params.get("code");
@@ -1124,10 +1153,63 @@ export default function ConfirmationPage() {
           const rcptRes = await fetch(`/api/booking/v2/receipt?${rcptQs.toString()}`);
           if (rcptRes.ok) {
             const rcpt = await rcptRes.json();
-            if (rcpt.available) setReceipt(rcpt as ReceiptData);
+            if (rcpt.available) {
+              setReceipt(rcpt as ReceiptData);
+              receiptLoaded = true;
+            }
           }
         } catch {
-          /* non-fatal */
+          /* fall through to the overview-based fallback */
+        }
+
+        // Fallback receipt — bookings with no Square day-of order (the racing
+        // checkout path predates the unified reserve flow, so it never creates
+        // a reservation row) still get the "What you paid for" card, rebuilt
+        // from the live BMI overview or the pre-payment stored overviews.
+        // Note the two line shapes: live BMI lines carry totalPrice[] (cash =
+        // depositKind 0); stored OrderSummary lines carry a flat `amount`.
+        if (!receiptLoaded) {
+          try {
+            const cash = (arr?: { amount: number; depositKind: number }[]) =>
+              arr?.find((t) => t.depositKind === 0)?.amount ?? 0;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const srcOverviews: any[] = overview?.lines?.length ? [overview] : parsedOverviews;
+            const lineItems = srcOverviews
+              .flatMap((ov) =>
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (ov.lines || []).map((l: any) => ({
+                  name: displayLineName({
+                    productId: l.productId ?? l.bmiProductId,
+                    name: l.name || "Item",
+                  }),
+                  quantity: Number(l.quantity) || 1,
+                  amountCents: Math.round((cash(l.totalPrice) || Number(l.amount) || 0) * 100),
+                })),
+              )
+              .filter((l) => l.amountCents > 0);
+            const totalCents = Math.round(
+              srcOverviews.reduce((s, ov) => s + cash(ov.total), 0) * 100,
+            );
+            const taxCents = Math.round(
+              srcOverviews.reduce((s, ov) => s + cash(ov.totalTax), 0) * 100,
+            );
+            const paidOnlineCents = Math.round(amount * 100);
+            // Credit-paid orders charged $0 online but owe nothing at the center.
+            const isCredit = details?.isCreditOrder === "true";
+            if (lineItems.length > 0 && totalCents > 0) {
+              setReceipt({
+                lineItems,
+                discounts: [],
+                discountCents: 0,
+                taxCents,
+                totalCents,
+                paidOnlineCents,
+                dueAtCenterCents: isCredit ? 0 : Math.max(0, totalCents - paidOnlineCents),
+              });
+            }
+          } catch {
+            /* card simply omitted */
+          }
         }
 
         // Clean up

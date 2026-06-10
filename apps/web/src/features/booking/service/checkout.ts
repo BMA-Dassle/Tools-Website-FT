@@ -16,10 +16,11 @@ import type {
   RaceHeatAssignment,
   AttractionItem,
   SessionItem,
+  PartyMember,
 } from "../state/types";
 import type { ContactInfo } from "../types";
 import { getRaceProductById } from "./race-products";
-import { raceUsesZeroBmiModel, cancelRaceOrder } from "./race";
+import { raceUsesZeroBmiModel, cancelRaceOrder, holdRaceItem } from "./race";
 import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
 import { membershipDiscountsForNames } from "./membership-discounts";
 import { LICENSE_PRICE, calculateTax } from "./race-pricing";
@@ -42,8 +43,10 @@ export interface BillLine {
    *  route resolves the Square catalog item without re-deriving from the session. */
   bmiProductId?: string;
   /** Set on a per-racer membership-discount split line (e.g. 50 for Employee
-   *  Pass). Credit redemption skips these lines so a shared productId isn't
-   *  double-redeemed; the cash discount has already reduced the amount. */
+   *  Pass). Credit redemption attributes each redeemed heat to the EXACT split
+   *  line (productId + this %) its racer is on, so a discount-holder who also
+   *  redeems gets their own discounted line zeroed — not a sibling full-price
+   *  line, and never double-counted. */
   membershipDiscountPct?: number;
 }
 
@@ -680,6 +683,29 @@ function distinctRacerCount(heats: RaceHeatAssignment[]): number {
 type RacingDiscountFor = (racerId?: string | null) => { percent: number; label: string | null };
 const NO_DISCOUNT: RacingDiscountFor = () => ({ percent: 0, label: null });
 
+/** Raw per-racer racing discount (% + label) from the racer's active memberships
+ *  (Employee Pass 50%, League Racer 20%, …). Credit-redemption status is NOT a
+ *  factor: a redeeming racer keeps the discount on any heats they pay cash for,
+ *  and `applyCreditRedemptionsToOverview` attributes each credit to the matching
+ *  (productId, discount%) line — so displayed == charged whether they redeem all,
+ *  some, or none of their heats. Single source for the line build AND the credit
+ *  attribution, so the two can't disagree on which line a racer is on. */
+function racingDiscountForMember(m: PartyMember | undefined): {
+  percent: number;
+  label: string | null;
+} {
+  if (!m || !m.memberships?.length) return { percent: 0, label: null };
+  let percent = 0;
+  let label: string | null = null;
+  for (const d of membershipDiscountsForNames(m.memberships)) {
+    if (d.categories.includes("racing") && d.percentOff > percent) {
+      percent = d.percentOff;
+      label = d.label;
+    }
+  }
+  return { percent, label };
+}
+
 export function raceItemChargeLines(
   item: RaceItem,
   excludeHeats?: Set<RaceHeatAssignment>,
@@ -806,23 +832,12 @@ export function buildRaceChargeLines(
 
   // Per-racer racing discount from the racer's own active BMI memberships (e.g.
   // Employee Pass 50%, League Racer 20%). ONLY the membership-holder's own heats
-  // are discounted — others on the bill pay full price. A racer redeeming credits
-  // gets $0 heats (no cash discount) and stays out of the discounted line so
-  // credit redemption (keyed by productId) doesn't touch a marked discount line.
-  const racingDiscountFor: RacingDiscountFor = (racerId) => {
-    if (!racerId) return { percent: 0, label: null };
-    const m = session.party.find((p) => p.id === racerId);
-    if (!m || m.redeemCredits || !m.memberships?.length) return { percent: 0, label: null };
-    let percent = 0;
-    let label: string | null = null;
-    for (const d of membershipDiscountsForNames(m.memberships)) {
-      if (d.categories.includes("racing") && d.percentOff > percent) {
-        percent = d.percentOff;
-        label = d.label;
-      }
-    }
-    return { percent, label };
-  };
+  // are discounted — others on the bill pay full price. A redeeming racer KEEPS
+  // the discount on any heats they pay cash for; the credit-redeemed heats are
+  // attributed to this same (productId, discount%) line by
+  // applyCreditRedemptionsToOverview and zeroed there, so displayed == charged.
+  const racingDiscountFor: RacingDiscountFor = (racerId) =>
+    racingDiscountForMember(racerId ? session.party.find((p) => p.id === racerId) : undefined);
 
   for (const item of session.items) {
     if (item.kind !== "race") continue;
@@ -898,40 +913,57 @@ export function applyCreditRedemptionsToOverview(
   // displayed == charged == deducted.
   const redemptions = redemptionsFromSession(session);
   if (redemptions.length === 0) return overview;
-  // Map each heat ref to the CHARGE-LINE key it belongs to — keyed the same way
-  // raceItemChargeLines builds the line (package cartLineKey, else the category's
-  // selected productId), NOT the heat's own productId. Those can diverge (e.g. a
-  // mixed party where the line uses the existing-Mega id but the heats were
-  // picked under the new-Mega id), and keying off the heat's id then left the
-  // credit unmatched — "-2 credits" shown but the charge never reduced.
+  // Map each heat ref to BOTH the CHARGE-LINE key it belongs to AND the racer who
+  // owns it. The line key is keyed the same way raceItemChargeLines builds the
+  // line (package cartLineKey, else the category's selected productId), NOT the
+  // heat's own productId — those can diverge (e.g. a mixed party where the line
+  // uses the existing-Mega id but the heats were picked under the new-Mega id),
+  // and keying off the heat's id then left the credit unmatched. The racer is
+  // needed because lines are split per racing-discount %: two lines can share a
+  // productId (full-price + discounted), so the redeemed heat must land on the
+  // split line matching its racer's discount.
   const refToLineKey = new Map<string, string>();
+  const refToRacer = new Map<string, string | null>();
   for (const item of session.items) {
     if (item.kind !== "race") continue;
     item.heats.forEach((h, i) => {
+      const ref = h.heatId ?? `${item.id}:${i}`;
       const key = chargeLineKeyForHeat(item, h);
-      if (key) refToLineKey.set(h.heatId ?? `${item.id}:${i}`, key);
+      if (key) refToLineKey.set(ref, key);
+      refToRacer.set(ref, h.assignedTo ?? null);
     });
   }
-  // charge-line key -> number of heats actually redeemed (capped upstream).
-  const redeemedByProduct = new Map<string, number>();
+  // (charge-line key + discount %) -> heats redeemed on that EXACT split line.
+  // The discount % is computed the SAME way the displayed lines were built (raw
+  // membership discount via racingDiscountForMember), so a redeeming discount-
+  // holder's credit lands on their own discounted line — not skipped (the old
+  // bug: "-1 credit" shown but the charge never reduced), not double-counted
+  // onto a sibling full-price line.
+  const compositeKey = (productId: string, pct: number) => `${productId}::${pct}`;
+  const redeemedByLine = new Map<string, number>();
   let redeemedCount = 0;
   for (const r of redemptions) {
     const key = refToLineKey.get(r.ref);
     if (!key) continue;
-    redeemedByProduct.set(key, (redeemedByProduct.get(key) ?? 0) + 1);
+    const racerId = refToRacer.get(r.ref);
+    const pct = racingDiscountForMember(
+      racerId ? session.party.find((p) => p.id === racerId) : undefined,
+    ).percent;
+    const ck = compositeKey(key, pct);
+    redeemedByLine.set(ck, (redeemedByLine.get(ck) ?? 0) + 1);
     redeemedCount += 1;
   }
   if (redeemedCount === 0) return overview;
 
   const lines: BillLine[] = [];
   for (const line of overview.lines) {
-    // Skip per-racer membership-discount lines: the discount-holder pays cash
-    // (reduced), and the credit-redeemed heats live on the full-price line with
-    // the same productId. Without this guard both split lines would redeem.
-    const redeemed =
-      line.bmiProductId && !line.membershipDiscountPct
-        ? (redeemedByProduct.get(line.bmiProductId) ?? 0)
-        : 0;
+    // Attribute redeemed heats to the EXACT split line (productId + discount %)
+    // its racer is on — so a discount-holder who also redeems gets their own
+    // discounted line zeroed, while any sibling full-price line for the same
+    // product is left untouched.
+    const redeemed = line.bmiProductId
+      ? (redeemedByLine.get(compositeKey(line.bmiProductId, line.membershipDiscountPct ?? 0)) ?? 0)
+      : 0;
     if (redeemed <= 0) {
       lines.push(line);
       continue;
@@ -1035,6 +1067,75 @@ export async function reserveAll(params: ReserveAllParams): Promise<ReserveAllRe
   }
 
   return data as ReserveAllResult;
+}
+
+// ── Re-validate / rebuild the BMI bill right before charging ────────────
+
+/**
+ * Guard against BMI's 20-minute auto-cancel: re-check the held bill is still
+ * live IMMEDIATELY before charging, and if BMI already auto-cancelled it (the
+ * Pending-Online timeout strips the bill's products), rebuild the race heats
+ * into a FRESH bill and return its id.
+ *
+ * Returns the (possibly new) bmiBillId — the original when the bill is still
+ * healthy or there are no race items. Throws when a heat's time is no longer
+ * bookable, so the caller can tell the customer to pick again and NEVER charges
+ * a dead bill.
+ *
+ * Client-only: heat booking goes through the client `bmiAdapter`. Only the BMI
+ * race bill is rebuilt — bowling/QAMF holds are left untouched (the old
+ * auto-cancelled bill stays `-4` in BMI; no cleanup needed).
+ */
+export async function rebuildRaceBillIfExpired(
+  session: BookingSession,
+  contact: ContactInfo,
+  dispatch: Dispatch<Action>,
+): Promise<string | null> {
+  const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
+  if (raceItems.length === 0 || !session.bmiBillId) return session.bmiBillId ?? null;
+
+  // A healthy bill returns its heat line items; an auto-cancelled one returns
+  // none. (Same signal the server-side bmiBillIsLive guard uses.)
+  let live = false;
+  try {
+    const ov = await fetchBillOverview(session.bmiBillId);
+    live = ov.lines.length > 0;
+  } catch {
+    live = false; // overview unreachable → treat as expired and rebuild
+  }
+  if (live) return session.bmiBillId;
+
+  // Rebuild: clear the stale bill id + per-heat line ids so holdRaceItem re-books
+  // into a new bill. povSold is reset so POV + the package memo re-attach.
+  let cleared: BookingSession = {
+    ...session,
+    contact,
+    bmiBillId: null,
+    items: session.items.map((it) =>
+      it.kind === "race"
+        ? { ...it, povSold: false, heats: it.heats.map((h) => ({ ...h, bmiLineId: null })) }
+        : it,
+    ),
+  };
+
+  let newBillId: string | undefined;
+  for (const item of cleared.items) {
+    if (item.kind !== "race") continue;
+    const result = await holdRaceItem(cleared, item, dispatch);
+    newBillId = result.bmiBillId;
+    cleared = { ...cleared, bmiBillId: newBillId };
+  }
+  if (!newBillId) {
+    throw new Error("Could not rebuild the reservation — please go back and pick a time again.");
+  }
+
+  // holdRaceItem only books heats; re-attach the contact + verified racers to the
+  // fresh bill (runCheckout does this on the normal path).
+  await registerContact(newBillId, contact, session.party);
+  await registerProjectPersons(newBillId, session.party);
+
+  dispatch({ type: "setBmiBillId", id: newBillId });
+  return newBillId;
 }
 
 // ── Confirmation URL builder ────────────────────────────────────────────
