@@ -868,3 +868,38 @@ use `"COMPLIMENTARY"` (free text is rejected). Drives gift card → order total 
 `depositPct=100` so the charge == the quoted day-of order total (tax-inclusive). Remediation scripts:
 `apps/web/scripts/{audit-giftcard-gap,comp-giftcard-gap,settle-stuck}.mjs` (re-runnable, dry-run
 default). Comped 15 gift cards, $89.50 total, on 2026-06-09.
+
+---
+
+## Credit redemption must be RACER-aware, not product-aware (2026-06-10)
+
+**Symptom:** A racer with both a racing membership discount (League Racer −20%) and a race
+credit saw "Credits Applied −1 credit" on the checkout review, but **Due Now never dropped**
+($17.88, full discounted price). The credit was counted but applied no dollars.
+
+**Root cause (a guard I added during the per-racer membership-discount work).**
+`raceItemChargeLines` splits one logical race line into a full-price line + a discounted line per
+distinct racing-discount % (both share the same `bmiProductId`). To avoid double-redeeming when a
+product split into two lines, `applyCreditRedemptionsToOverview` keyed redemptions by `bmiProductId`
+only and then **skipped any line with `membershipDiscountPct`**. That guard is wrong whenever the
+**redeemer IS the discount-holder**: there's no separate full-price line for their heat, so the
+credit landed nowhere — shown but never subtracted.
+
+**Fix (commit c1359090):** make redemption racer-aware. Attribute each redeemed heat to the EXACT
+split line it belongs to by matching **(productId + discount%)**, where the % is computed by a
+single shared `racingDiscountForMember(member)` helper used by BOTH the line build and the credit
+attribution — so they can't disagree on which line a racer is on. Also dropped the `m.redeemCredits`
+short-circuit in `racingDiscountFor`: a redeeming member now KEEPS their discount on heats they pay
+cash for, and the cash path (`unifiedReserve` → `buildRaceChargeLines` + `redeemedHeatSet`) rebuilds
+with the same helper, so displayed == charged on every path (full redeem, partial, none).
+
+**Guardrails for next time:**
+- When you split a charge line by an attribute (discount %, racer, category), any downstream logic
+  that *matches* lines (credit redemption, reward redemption, tax) must match on the SAME composite
+  key — never on a sub-key (productId alone) that two split lines now share.
+- A blunt "skip lines with property X" guard is a smell. If you're skipping a line to avoid
+  double-counting, the real fix is usually a more precise key, not exclusion.
+- Share the discriminator (here: the per-racer discount %) through ONE helper so the builder and the
+  matcher can't drift. Two copies of the rule = a latent display/charge mismatch.
+- For any race money change, prove display == charge on all three credit cases: redeem-all (credit
+  order → /reserve), partial (cash path keeps discount on leftover heats), none.
