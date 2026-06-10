@@ -8,6 +8,7 @@ import {
 } from "~/features/booking";
 import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
 import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-codes";
+import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { PromoLanding } from "./PromoLanding";
 
 /**
@@ -79,6 +80,11 @@ export default async function BookV2LandingPage({
   const center: CenterCode | null = parseEntryContextFromSearchParams(sp).center ?? null;
   const initialOfferings: ActivityOffering[] = landingOfferingsFor(entryBrand, center);
 
+  // Combo specials lead the grid (best value). Center-scoped like the
+  // offerings: a combo only shows when this landing serves its complex
+  // (racing combos are Fort Myers-only, so Naples never sees them).
+  const combos: ComboSpecial[] = enabledCombos().filter((c) => !center || c.center === center);
+
   return (
     <PromoLanding
       entryBrand={entryBrand}
@@ -88,6 +94,7 @@ export default async function BookV2LandingPage({
       seedRejected={seedRejected}
       initialOfferings={initialOfferings}
       allOfferings={initialOfferings}
+      combos={combos}
     />
   );
 }

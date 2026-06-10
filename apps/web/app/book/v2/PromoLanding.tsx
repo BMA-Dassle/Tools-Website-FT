@@ -12,6 +12,7 @@ import {
 } from "~/features/booking";
 import { peekBookingSession } from "~/features/booking/hooks";
 import type { AppliedPromo } from "~/features/discount-codes";
+import type { ComboSpecial } from "~/features/combos";
 
 /**
  * v2 booking landing — promo-aware activity picker.
@@ -54,6 +55,10 @@ export interface PromoLandingProps {
   initialOfferings: ActivityOffering[];
   /** Identical to `initialOfferings` today; retained so a future feature can pass a different set. */
   allOfferings: ActivityOffering[];
+  /** Enabled combo specials for this landing's center — lead the grid as
+   *  "Best Value" cards linking to /book/combo/[id]/v2. Empty when the flag
+   *  is off or the center doesn't serve them (e.g. Naples). */
+  combos?: ComboSpecial[];
 }
 
 export function PromoLanding({
@@ -63,6 +68,7 @@ export function PromoLanding({
   seededPromo,
   seedRejected,
   initialOfferings,
+  combos = [],
 }: PromoLandingProps) {
   const router = useRouter();
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
@@ -280,10 +286,13 @@ export function PromoLanding({
         </section>
       )}
 
-      {/* Attraction grid */}
+      {/* Attraction grid — combo specials lead (best value) */}
       <section className="px-4 pb-12 sm:pb-20">
         <div className="mx-auto max-w-5xl">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+            {combos.map((combo) => (
+              <ComboCard key={combo.id} combo={combo} gold={HP_GOLD} />
+            ))}
             {initialOfferings.map((o) => (
               <AttractionCard
                 key={o.slug}
@@ -298,6 +307,99 @@ export function PromoLanding({
         </div>
       </section>
     </div>
+  );
+}
+
+/** Combo-special landing card — same visual language as AttractionCard, with a
+ *  gold "Best Value" badge, the per-person day-tier pricing, and both venue
+ *  logos (a combo spans FastTrax racing + HeadPinz bowling). */
+function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
+  const fmtPrice = (cents: number) =>
+    Number.isInteger(cents / 100) ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+
+  return (
+    <Link
+      href={`/book/combo/${combo.id}/v2`}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6"
+      style={{ borderColor: `${gold}55`, boxShadow: `0 0 24px ${gold}1a` }}
+    >
+      {/* Hero image */}
+      <div className="relative aspect-16/10 overflow-hidden">
+        <Image
+          src={combo.heroImage}
+          alt={combo.name}
+          fill
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
+        <div className="absolute right-3 top-3">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider backdrop-blur-sm"
+            style={{ backgroundColor: gold, color: "#0a1628" }}
+          >
+            <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
+            </svg>
+            Best Value
+          </span>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
+          {combo.name}
+        </h3>
+        <p className="font-body mb-2 text-sm leading-relaxed text-white/50">
+          {combo.includes.join(" + ")}
+        </p>
+        <p className="font-body mb-3 flex-1 text-sm leading-relaxed">
+          <span className="font-bold text-white">
+            {fmtPrice(combo.price.weekday)}/person Mon–Thu
+          </span>
+          <span className="text-white/50"> · {fmtPrice(combo.price.weekend)}/person Fri–Sun</span>
+        </p>
+
+        {/* Venue badges — a combo spans both buildings */}
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-white/50">
+            Located within
+          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
+            alt="FastTrax Entertainment"
+            className="h-5 w-auto"
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/hp-logo.webp"
+            alt="HeadPinz Entertainment"
+            className="h-5 w-auto"
+          />
+        </div>
+
+        <div
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white transition-colors"
+          style={{ backgroundColor: combo.accentColor }}
+        >
+          Book This Combo
+          <svg
+            className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </div>
+      </div>
+
+      {/* Bottom color bar */}
+      <div className="h-0.5 w-full" style={{ backgroundColor: combo.accentColor }} />
+    </Link>
   );
 }
 
