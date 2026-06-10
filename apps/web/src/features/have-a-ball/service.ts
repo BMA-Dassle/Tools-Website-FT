@@ -277,7 +277,9 @@ export async function processHabJoin(
       cardId: card.cardId,
       orderId: order.orderId,
       amountCents: order.totalCents, // Square-authoritative total (tax included)
-      idempotencyKey: `hab-backpay-${input.joinAttemptId}`,
+      // Square caps idempotency_key at 45 chars. joinAttemptId is a 36-char
+      // UUID, so the prefix must stay short: "bp-" + 36 = 39.
+      idempotencyKey: `bp-${input.joinAttemptId}`,
     });
     if (charge.error) return { error: `Back-pay charge: ${charge.error}` };
     backPayPaymentId = charge.paymentId;
