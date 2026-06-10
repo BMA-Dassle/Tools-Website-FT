@@ -25,9 +25,12 @@ export interface MembershipDiscount {
   key: string;
   /** Customer-facing label (matches the BMI membership name). */
   label: string;
-  /** BMI membership kind id — the discount trigger (active membership of this kind). */
-  membershipKindId: string;
-  /** Membership name as it appears in the person's memberships[] (case-insensitive fallback). */
+  /**
+   * BMI membership kind id — the most robust discount trigger (active membership
+   * of this kind). Optional: when unknown, detection falls back to `membershipName`.
+   */
+  membershipKindId?: string;
+  /** Membership name as it appears in the person's memberships[] (case-insensitive). */
   membershipName: string;
   /**
    * Pandora deposit kind also named like this membership (e.g. "Employee Pass"
@@ -54,6 +57,15 @@ export const MEMBERSHIP_DISCOUNTS: MembershipDiscount[] = [
     pandoraDepositKindId: "12754843", // deposit "Employee Pass" — reserved for later, NOT the trigger
     percentOff: 50,
     categories: ["racing", "gel-blasters", "laser-tag"],
+    enabled: true,
+  },
+  {
+    key: "league-racer",
+    label: "League Racer",
+    // membershipKindId unknown — detected by name until backfilled with the kind id.
+    membershipName: "League Racer",
+    percentOff: 20,
+    categories: ["racing"],
     enabled: true,
   },
 ];
@@ -96,7 +108,8 @@ export function activeMembershipDiscounts(
   return MEMBERSHIP_DISCOUNTS.filter(
     (d) =>
       d.enabled &&
-      (activeKindIds.has(d.membershipKindId) || activeNames.has(d.membershipName.toLowerCase())),
+      ((d.membershipKindId != null && activeKindIds.has(d.membershipKindId)) ||
+        activeNames.has(d.membershipName.toLowerCase())),
   );
 }
 
