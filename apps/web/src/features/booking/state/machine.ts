@@ -86,6 +86,12 @@ export type Action =
    * not mutating mid-flow.
    */
   | { type: "applyPromo"; promo: AppliedPromo | null }
+  /**
+   * Stamp (or clear) the session's combo-special id. Intended to fire ONCE
+   * at session creation by the /book/combo/[id]/v2 entry seeding — same
+   * contract as `applyPromo`.
+   */
+  | { type: "setComboSpecial"; id: string | null }
 
   /* ── bowling holds ─────────────────────────────────────────────── */
   /** Store QAMF temporary reservation info on a bowling/kbf item. */
@@ -292,6 +298,15 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
 
     case "applyPromo":
       return { ...state, appliedPromo: action.promo };
+
+    case "setComboSpecial": {
+      if (action.id == null) {
+        const next = { ...state };
+        delete next.comboSpecialId;
+        return next;
+      }
+      return { ...state, comboSpecialId: action.id };
+    }
 
     /* ──────── bowling holds ──────── */
     case "setBowlingHold":

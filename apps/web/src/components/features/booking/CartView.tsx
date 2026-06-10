@@ -16,6 +16,7 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
+import { getComboSpecial } from "~/features/combos/combo-specials";
 import { modalBackdropProps } from "@/lib/a11y";
 import { AdditionalActivities } from "./AdditionalActivities";
 
@@ -85,6 +86,28 @@ export function CartView({
         )}
       </div>
       <h1 className="text-2xl font-semibold text-white sm:text-3xl">Your cart</h1>
+
+      {/* Combo special: per-item estimates below show regular prices — tell the
+          customer the flat combo price takes over at checkout. */}
+      {(() => {
+        const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+        if (!combo) return null;
+        return (
+          <div
+            className="mt-4 rounded-xl border p-3 text-sm"
+            style={{ borderColor: combo.accentColor, backgroundColor: "rgba(7,16,39,0.5)" }}
+          >
+            <span className="font-semibold" style={{ color: combo.accentColor }}>
+              {combo.name}:
+            </span>{" "}
+            <span className="text-white/80">
+              ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
+              {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun, applied at checkout (plus
+              tax). Item prices below are regular rates.
+            </span>
+          </div>
+        );
+      })()}
 
       {session.items.length === 0 ? (
         <p className="mt-6 text-sm text-white/50">No items yet.</p>

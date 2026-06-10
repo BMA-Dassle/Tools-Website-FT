@@ -29,6 +29,7 @@ import {
 import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
+import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
 import {
@@ -145,11 +146,19 @@ function buildCombinedLineItems(session: BookingSession): {
   let totalPriceCents = 0;
   let totalDepositCents = 0;
 
+  // Combo special: the flat combo line (emitted inside buildRaceChargeLines
+  // below) IS the whole race+bowl charge, so the bowling item's own line items
+  // are suppressed — charging both would double-charge the bowling. Raw $0
+  // pass-through items + the booking fee still ride along (not bowling value).
+  // The QAMF reservation is still created/confirmed downstream. CheckoutStep
+  // suppresses the same lines from the review, so displayed == charged.
+  const comboActive = activeComboSpecial(session) != null;
+
   // Bowling / KBF items
   for (const item of session.items) {
     if (!isBowlingLike(item)) continue;
 
-    for (const li of item.lineItems) {
+    for (const li of comboActive ? [] : item.lineItems) {
       const priceCents = li.priceCents ?? 0;
       const depPct = li.depositPct ?? 100;
       const lineTotal = priceCents * li.quantity;
@@ -418,7 +427,11 @@ async function unifiedReserveInner(
   // Re-check each redeeming racer's LIVE balance before charging. Throws
   // CreditRedemptionError (→ 400 in the route) on a stale/insufficient balance,
   // so we never charge or give a free race on a credit they no longer hold.
-  const creditRedemptions = redemptionsFromSession(session);
+  // Combo special: race credits never combine with the flat combo price — the
+  // checkout hides the opt-in, and this guard makes sure no stale opt-in can
+  // deduct credits the combo line didn't discount for.
+  const creditRedemptions =
+    activeComboSpecial(session) != null ? [] : redemptionsFromSession(session);
   if (creditRedemptions.length > 0) {
     await validateCreditRedemptions(creditRedemptions);
   }

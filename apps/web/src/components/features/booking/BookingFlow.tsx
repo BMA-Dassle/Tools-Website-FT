@@ -30,6 +30,7 @@ import {
 } from "~/features/booking/service/checkout";
 import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTimer";
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
+import { comboBowlingComponent, getComboSpecial } from "~/features/combos/combo-specials";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 export interface BookingFlowProps {
@@ -43,6 +44,11 @@ export interface BookingFlowProps {
    *  routes to the cart's existing activity with ?checkout=1). Only takes effect
    *  on the cart view (no active item). */
   initialCheckout?: boolean;
+  /** Combo-special entry (/book/combo/[id]/v2): seed a FRESH session with the
+   *  combo's components (race + bowling) and stamp session.comboSpecialId so
+   *  checkout charges the flat combo price. Ignored when the customer already
+   *  has a non-combo cart in progress. */
+  comboSpecialId?: string;
 }
 
 /**
@@ -69,6 +75,7 @@ export function BookingFlow({
   initialPromo,
   urlCode,
   initialCheckout = false,
+  comboSpecialId,
 }: BookingFlowProps) {
   const initial = useMemo(
     () => emptySession({ entryBrand, context: initialContext, appliedPromo: initialPromo ?? null }),
@@ -94,6 +101,33 @@ export function BookingFlow({
   // Seed first item or detect cross-sell arrival — runs after storage hydration
   useEffect(() => {
     if (!hydrated) return;
+    // Combo-special entry: seed a FRESH session with the combo's components —
+    // one race item (heat count enforced via session.comboSpecialId) + one
+    // bowling item preset to the combo's duration — at the combo's center, and
+    // stamp comboSpecialId (once, like appliedPromo). A resumed combo session
+    // is left alone; an existing NON-combo cart is also left alone (we never
+    // clobber a cart in progress — the customer can finish or start over).
+    if (comboSpecialId) {
+      const combo = getComboSpecial(comboSpecialId);
+      if (combo && combo.enabled && session.items.length === 0) {
+        if (!session.center) {
+          dispatch({ type: "setCenter", center: combo.center });
+        }
+        dispatch({ type: "setComboSpecial", id: combo.id });
+        const raceItem = newItem("race");
+        dispatch({ type: "addItem", item: raceItem });
+        const bowlComp = comboBowlingComponent(combo);
+        const bowlingItem: SessionItem = {
+          ...(newItem("bowling") as Extract<SessionItem, { kind: "bowling" }>),
+          variant: "hourly",
+          durationMinutes: bowlComp?.durationMinutes ?? null,
+        };
+        dispatch({ type: "addItem", item: bowlingItem });
+        // Race first: addItem activates the LAST added item (bowling).
+        dispatch({ type: "setActiveItem", id: raceItem.id });
+      }
+      return;
+    }
     // Seed the center from the entry URL (?location=, parsed into initialContext)
     // on a FRESH session so the picked activity books at the right complex
     // (Naples → headpinznaples clientKey) and the cart cross-sell scopes

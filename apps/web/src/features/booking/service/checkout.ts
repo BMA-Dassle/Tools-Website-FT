@@ -19,6 +19,7 @@ import type {
   PartyMember,
 } from "../state/types";
 import type { ContactInfo } from "../types";
+import { comboChargeLines } from "~/features/combos/combo-pricing";
 import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel, cancelRaceOrder, holdRaceItem } from "./race";
 import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
@@ -372,6 +373,7 @@ export async function saveBookingDetails(
         status: "pending_payment",
         rookiePack,
         package: packageId,
+        comboSpecial: session.comboSpecialId ?? undefined,
         fastLane: fastLane || undefined,
         attractions: attractionBookings.length > 0 ? attractionBookings : undefined,
         bowling: bowlingBookings.length > 0 ? bowlingBookings : undefined,
@@ -830,6 +832,17 @@ export function buildRaceChargeLines(
   const packageRacerIds = new Set<string>();
   let standalonePovQty = 0;
 
+  // Combo special (features/combos): when the session was seeded by a
+  // /book/combo entry AND the strict gate passes (exactly the combo's
+  // components present), the per-item race product lines are REPLACED by the
+  // flat per-person combo line(s). License + POV below still charge (not combo
+  // components). Bowling line items are suppressed by the combo-aware callers
+  // (buildCombinedLineItems / CheckoutStep) — the combo line is the whole
+  // race+bowl charge. Race credits don't combine with the flat price (the
+  // checkout hides the redeem opt-in in combo mode), so excludeHeats is moot.
+  const comboLines = comboChargeLines(session);
+  if (comboLines) lines.push(...comboLines);
+
   // Per-racer racing discount from the racer's own active BMI memberships (e.g.
   // Employee Pass 50%, League Racer 20%). ONLY the membership-holder's own heats
   // are discounted — others on the bill pay full price. A redeeming racer KEEPS
@@ -841,7 +854,7 @@ export function buildRaceChargeLines(
 
   for (const item of session.items) {
     if (item.kind !== "race") continue;
-    lines.push(...raceItemChargeLines(item, excludeHeats, racingDiscountFor));
+    if (!comboLines) lines.push(...raceItemChargeLines(item, excludeHeats, racingDiscountFor));
     if (item.packageId) {
       for (const h of item.heats) if (h.assignedTo) packageRacerIds.add(h.assignedTo);
     } else if (item.povQuantity > 0) {

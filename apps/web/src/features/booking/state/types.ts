@@ -456,6 +456,15 @@ export interface BookingSession {
    */
   appliedPromo: AppliedPromo | null;
   /**
+   * Combo-special id (features/combos registry, e.g. "race-bowl") — stamped
+   * ONCE at session creation by the /book/combo/[id]/v2 entry, like
+   * `appliedPromo`. When set AND the strict gate passes (exactly the combo's
+   * components in the cart — see features/combos/combo-pricing.ts), checkout
+   * charges the flat combo price instead of item-sum. NOT `comboId`: bare
+   * "combo" means the 3-pack race SKUs in this codebase.
+   */
+  comboSpecialId?: string;
+  /**
    * Roster of party members doing activities. May be empty (e.g. the
    * customer hasn't reached the party step yet). The billing customer
    * is in here if they're participating (with `isBillingCustomer: true`).

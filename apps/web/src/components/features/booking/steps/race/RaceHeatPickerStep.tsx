@@ -25,6 +25,7 @@ import { holdPickedHeats } from "~/features/booking/service/race";
 import { RacerSelectorModal } from "./RacerSelectorModal";
 import { getGroupEventForDate } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
+import { comboRaceComponent, getComboSpecial } from "~/features/combos/combo-specials";
 import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 
@@ -777,12 +778,46 @@ function hasCategory(session: { party: PartyMember[] }, category: Category): boo
   return session.party.some((m) => (m.category ?? "adult") === category);
 }
 
+/** Heats-per-racer the active combo special requires, or null when the
+ *  session isn't a combo entry. */
+function comboHeatTarget(comboSpecialId?: string): number | null {
+  if (!comboSpecialId) return null;
+  const combo = getComboSpecial(comboSpecialId);
+  const comp = combo ? comboRaceComponent(combo) : null;
+  return comp?.raceCount ?? null;
+}
+
 function canAdvanceFor(
   item: RaceItem,
-  session: { party: PartyMember[] },
+  session: { party: PartyMember[]; comboSpecialId?: string },
   category: Category,
 ): true | { reason: string } {
   if (!hasCategory(session, category)) return true;
+
+  // Combo special (e.g. Race + Bowl): EXACTLY raceCount heats per racer — the
+  // flat per-person price covers that many races, no more, no fewer. Any
+  // tier/track is allowed. The checkout gate re-checks this; enforcing here
+  // keeps the customer from reaching checkout with a cart that silently fell
+  // back to item-sum pricing.
+  const comboCount = comboHeatTarget(session.comboSpecialId);
+  if (comboCount != null) {
+    const racers = session.party.filter((m) => (m.category ?? "adult") === category);
+    for (const racer of racers) {
+      const n = item.heats.filter((h) => h.heatId && h.assignedTo === racer.id).length;
+      if (n < comboCount) {
+        const remaining = comboCount - n;
+        return {
+          reason: `${racer.firstName} needs ${remaining} more race${remaining === 1 ? "" : "s"} — the combo includes ${comboCount} per person`,
+        };
+      }
+      if (n > comboCount) {
+        return {
+          reason: `${racer.firstName} has too many races — the combo includes exactly ${comboCount} per person`,
+        };
+      }
+    }
+  }
+
   const productId = productIdForCategory(item, category);
 
   // Package flow: PackageHeatPicker auto-advances via dispatch("next")
