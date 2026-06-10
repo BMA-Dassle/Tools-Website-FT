@@ -49,6 +49,11 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const centerCode = QAMF_CENTER_CODES[centerId] ?? "TXBSQN0FEKQ11";
   const kind =
     item.kind === "kbf" ? "kbf" : (item as BowlingItem).variant === "hourly" ? "hourly" : "open";
+  // The availability probe scans BOTH open + hourly offers for non-KBF bowling,
+  // so weekend time-bowling (Fri-Sun 1.5hr/2hr, offers 158/159) surfaces alongside
+  // open play. The experience list already includes hourly experiences — only the
+  // probe was pinned to "open", which hid all weekend daytime availability.
+  const availKind = kind === "kbf" ? "kbf" : "open,hourly";
   const playerCount =
     item.kind === "bowling"
       ? (item as BowlingItem).playerCount
@@ -90,7 +95,7 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     void (async () => {
       try {
         const data = await probeAvailability(
-          `/api/bowling/v2/availability?centerId=${centerId}&players=${Math.max(playerCount, 1)}&startDate=${item.date}&kind=${kind}&stepMinutes=30`,
+          `/api/bowling/v2/availability?centerId=${centerId}&players=${Math.max(playerCount, 1)}&startDate=${item.date}&kind=${availKind}&stepMinutes=30`,
         );
         if (!cancelled)
           setSlots(

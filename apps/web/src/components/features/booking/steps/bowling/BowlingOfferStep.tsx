@@ -72,6 +72,9 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const centerCode = centerId != null ? (QAMF_CENTER_CODES[centerId] ?? null) : null;
   const kind =
     item.kind === "kbf" ? "kbf" : (item as BowlingItem).variant === "hourly" ? "hourly" : "open";
+  // Probe BOTH open + hourly so weekend time-bowling (Fri-Sun 1.5hr/2hr) shows
+  // alongside open play; the experience list already includes hourly experiences.
+  const availKind = kind === "kbf" ? "kbf" : "open,hourly";
   const playerCount =
     item.kind === "bowling"
       ? (item as BowlingItem).playerCount
@@ -148,7 +151,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       try {
         const fine = parseAvailabilities(
           await probeAvailability(
-            `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${kind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45`,
+            `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45`,
           ),
         );
         const tierIds = new Set(tierExperiences.map((e) => e.qamfWebOfferId));
@@ -162,7 +165,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           try {
             const wide = parseAvailabilities(
               await probeAvailability(
-                `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${kind}&stepMinutes=30`,
+                `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&stepMinutes=30`,
               ),
             );
             const seen = new Set(fine.map((s) => `${s.bookedAt}::${s.webOfferId}`));
