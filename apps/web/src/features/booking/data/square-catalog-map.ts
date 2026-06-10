@@ -36,6 +36,8 @@ const SQ = {
   LICENSE: "7GUST7MZ25TOBOB4UXPDYPV4",
   HEADSOCK: "IRKUPTF2ITBTTDPHMOIIIQVE",
   RACE_PACK: "YYOV5QCHQSJKZS7DDIALGU7Z",
+  ULTIMATE_QUALIFIER: "X4RZPTPJEJ45OG3S3HMDMCHZ",
+  ROOKIE_PACK: "37MC3KLD5JMMBHGYG6JILZ7P",
   GEL_BLASTER: "IPAKRTMOYX37ATF7UBJCXQSP",
   LASER_TAG: "TXNWQI43HNMX2EHP72ZPUVXU",
   DUCKPIN: "EXW7E74IRPYJAQFA4YIIEW3G",
@@ -97,6 +99,17 @@ export const SQUARE_CATALOG_MAP: Record<string, string> = {
   "45095096": SQ.KARTING, // Int Weekend 3-Pack Red
   "45095051": SQ.KARTING, // Int Weekend 3-Pack Blue
 
+  // ── Package bundle lines (charge line carries the package cartLineKey) ──
+  // These bundles get their OWN Square catalog item, not the generic karting one.
+  "ultimate-qualifier-mega": SQ.ULTIMATE_QUALIFIER,
+  "ultimate-qualifier-weekday": SQ.ULTIMATE_QUALIFIER,
+  "ultimate-qualifier-weekday-junior": SQ.ULTIMATE_QUALIFIER,
+  "ultimate-qualifier-weekend": SQ.ULTIMATE_QUALIFIER,
+  "ultimate-qualifier-weekend-junior": SQ.ULTIMATE_QUALIFIER,
+  "rookie-pack": SQ.ROOKIE_PACK,
+  "rookie-pack-weekday-junior": SQ.ROOKIE_PACK,
+  "rookie-pack-weekend-junior": SQ.ROOKIE_PACK,
+
   // ── Junior races — weekday/mega → Junior Racing Mon-Thur ───────────
   "24960106": SQ.JR_MON_THU, // New Starter Blue
   "24958587": SQ.JR_MON_THU, // New Intermediate Blue
@@ -148,6 +161,8 @@ export const NAME_CATALOG_MAP: Record<string, string> = {
   "License Fee": SQ.LICENSE,
   "FastTrax License": SQ.LICENSE,
   Headsock: SQ.HEADSOCK,
+  "Ultimate Qualifier": SQ.ULTIMATE_QUALIFIER,
+  "Rookie Pack": SQ.ROOKIE_PACK,
 };
 
 /**
