@@ -113,6 +113,17 @@ export function activeMembershipDiscounts(
   );
 }
 
+/**
+ * Discounts entitled by a list of membership NAME strings — for callers that
+ * already hold active, relevant membership names (e.g. PartyMember.memberships,
+ * which the verify flow filters to active + relevant). Matches by name only;
+ * the caller is responsible for the names being active.
+ */
+export function membershipDiscountsForNames(names: string[]): MembershipDiscount[] {
+  const set = new Set((names ?? []).map((n) => n.trim().toLowerCase()));
+  return MEMBERSHIP_DISCOUNTS.filter((d) => d.enabled && set.has(d.membershipName.toLowerCase()));
+}
+
 /** Highest percent-off available for a category across the active discounts. */
 export function bestPercentOffForCategory(
   discounts: MembershipDiscount[],

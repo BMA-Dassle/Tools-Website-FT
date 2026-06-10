@@ -939,6 +939,7 @@ export const RELEVANT_MEMBERSHIP_KEYWORDS = [
   "pro",
   "turbo pass",
   "employee pass",
+  "league racer",
   "race credit",
 ];
 

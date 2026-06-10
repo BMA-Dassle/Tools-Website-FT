@@ -21,6 +21,7 @@ import type { ContactInfo } from "../types";
 import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel, cancelRaceOrder } from "./race";
 import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
+import { membershipDiscountsForNames } from "./membership-discounts";
 import { LICENSE_PRICE, calculateTax } from "./race-pricing";
 import { redemptionsFromSession } from "../data/race-credits";
 import { bmiAdapter } from "../data/bmi";
@@ -40,6 +41,10 @@ export interface BillLine {
   /** BMI product id for this line — set on $0-model charge lines so the reserve
    *  route resolves the Square catalog item without re-deriving from the session. */
   bmiProductId?: string;
+  /** Set on a per-racer membership-discount split line (e.g. 50 for Employee
+   *  Pass). Credit redemption skips these lines so a shared productId isn't
+   *  double-redeemed; the cash discount has already reduced the amount. */
+  membershipDiscountPct?: number;
 }
 
 export interface BillOverview {
@@ -670,9 +675,15 @@ function distinctRacerCount(heats: RaceHeatAssignment[]): number {
  * Session-level lines (non-package license, standalone POV) are added by
  * `buildRaceChargeLines`, not here.
  */
+/** Per-racer racing discount (percent + label) for a heat's assigned racer.
+ *  Defaults to no discount — keeps callers that don't pass it byte-identical. */
+type RacingDiscountFor = (racerId?: string | null) => { percent: number; label: string | null };
+const NO_DISCOUNT: RacingDiscountFor = () => ({ percent: 0, label: null });
+
 export function raceItemChargeLines(
   item: RaceItem,
   excludeHeats?: Set<RaceHeatAssignment>,
+  racingDiscountFor: RacingDiscountFor = NO_DISCOUNT,
 ): BillLine[] {
   // Credit-redeemed HEATS are charged $0 (a credit is deducted instead). The cash
   // path passes the exact redeemed heat objects (redeemedHeatSet) so ONLY those
@@ -682,21 +693,48 @@ export function raceItemChargeLines(
   // credit path passes nothing and splits via applyCreditRedemptionsToOverview.
   // Keyed on the heat OBJECT, not heatId (several racers can share one heatId).
   const keep = (h: RaceHeatAssignment): boolean => !!h.heatId && !excludeHeats?.has(h);
+
+  // Split one logical charge line into a full-price line + a discounted line per
+  // distinct racing discount %, grouping the heats by their racer's discount.
+  // `perRacer` = price is charged per racer (package bundle / combo pack);
+  // otherwise per heat (single races). With no discounts this yields exactly one
+  // group → the same single line as before.
+  const splitByDiscount = (
+    heats: RaceHeatAssignment[],
+    perRacer: boolean,
+    name: string,
+    unitPrice: number,
+    bmiProductId: string,
+  ): BillLine[] => {
+    const groups = new Map<number, { label: string | null; heats: RaceHeatAssignment[] }>();
+    for (const h of heats) {
+      const { percent, label } = racingDiscountFor(h.assignedTo);
+      const g = groups.get(percent) ?? { label, heats: [] };
+      g.heats.push(h);
+      groups.set(percent, g);
+    }
+    return [...groups.entries()]
+      .sort((a, b) => a[0] - b[0]) // full-price line first
+      .map(([percent, g]) => {
+        const qty = perRacer ? distinctRacerCount(g.heats) : g.heats.length;
+        const base = unitPrice * qty;
+        return {
+          name: percent > 0 ? `${name} (${g.label ?? "Member"} −${percent}%)` : name,
+          quantity: qty,
+          amount: round2(percent > 0 ? base * (1 - percent / 100) : base),
+          bmiProductId,
+          time: earliestHeatStart(g.heats),
+          ...(percent > 0 ? { membershipDiscountPct: percent } : {}),
+        };
+      });
+  };
+
   if (item.packageId) {
     const pkg = getPackage(item.packageId);
     if (!pkg) return [];
     const kept = item.heats.filter(keep);
     if (kept.length === 0) return [];
-    const racers = distinctRacerCount(kept);
-    return [
-      {
-        name: pkg.name,
-        quantity: racers,
-        amount: round2(packagePerRacerPrice(pkg) * racers),
-        bmiProductId: pkg.cartLineKey,
-        time: earliestHeatStart(kept),
-      },
-    ];
+    return splitByDiscount(kept, true, pkg.name, packagePerRacerPrice(pkg), pkg.cartLineKey);
   }
   const lines: BillLine[] = [];
   for (const category of ["adult", "junior"] as const) {
@@ -706,25 +744,16 @@ export function raceItemChargeLines(
     if (!product) continue;
     const catHeats = item.heats.filter((h) => (h.category ?? "adult") === category && keep(h));
     if (catHeats.length === 0) continue;
-    if (product.packType === "combo") {
-      // One pack per racer at the pack TOTAL — never product.price × heatCount.
-      const packs = distinctRacerCount(catHeats);
-      lines.push({
-        name: product.name,
-        quantity: packs,
-        amount: round2(product.price * packs),
-        bmiProductId: product.productId,
-        time: earliestHeatStart(catHeats),
-      });
-    } else {
-      lines.push({
-        name: product.name,
-        quantity: catHeats.length,
-        amount: round2(product.price * catHeats.length),
-        bmiProductId: product.productId,
-        time: earliestHeatStart(catHeats),
-      });
-    }
+    // combo = one pack per racer at the pack TOTAL; single = per heat.
+    lines.push(
+      ...splitByDiscount(
+        catHeats,
+        product.packType === "combo",
+        product.name,
+        product.price,
+        product.productId,
+      ),
+    );
   }
   return lines;
 }
@@ -775,9 +804,29 @@ export function buildRaceChargeLines(
   const packageRacerIds = new Set<string>();
   let standalonePovQty = 0;
 
+  // Per-racer racing discount from the racer's own active BMI memberships (e.g.
+  // Employee Pass 50%, League Racer 20%). ONLY the membership-holder's own heats
+  // are discounted — others on the bill pay full price. A racer redeeming credits
+  // gets $0 heats (no cash discount) and stays out of the discounted line so
+  // credit redemption (keyed by productId) doesn't touch a marked discount line.
+  const racingDiscountFor: RacingDiscountFor = (racerId) => {
+    if (!racerId) return { percent: 0, label: null };
+    const m = session.party.find((p) => p.id === racerId);
+    if (!m || m.redeemCredits || !m.memberships?.length) return { percent: 0, label: null };
+    let percent = 0;
+    let label: string | null = null;
+    for (const d of membershipDiscountsForNames(m.memberships)) {
+      if (d.categories.includes("racing") && d.percentOff > percent) {
+        percent = d.percentOff;
+        label = d.label;
+      }
+    }
+    return { percent, label };
+  };
+
   for (const item of session.items) {
     if (item.kind !== "race") continue;
-    lines.push(...raceItemChargeLines(item, excludeHeats));
+    lines.push(...raceItemChargeLines(item, excludeHeats, racingDiscountFor));
     if (item.packageId) {
       for (const h of item.heats) if (h.assignedTo) packageRacerIds.add(h.assignedTo);
     } else if (item.povQuantity > 0) {
@@ -876,7 +925,13 @@ export function applyCreditRedemptionsToOverview(
 
   const lines: BillLine[] = [];
   for (const line of overview.lines) {
-    const redeemed = line.bmiProductId ? (redeemedByProduct.get(line.bmiProductId) ?? 0) : 0;
+    // Skip per-racer membership-discount lines: the discount-holder pays cash
+    // (reduced), and the credit-redeemed heats live on the full-price line with
+    // the same productId. Without this guard both split lines would redeem.
+    const redeemed =
+      line.bmiProductId && !line.membershipDiscountPct
+        ? (redeemedByProduct.get(line.bmiProductId) ?? 0)
+        : 0;
     if (redeemed <= 0) {
       lines.push(line);
       continue;

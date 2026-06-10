@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
+import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
 import {
   filterProducts,
   productsForSchedule,
@@ -229,6 +230,24 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     const hasJuniors = session.party.some((m) => m.category === "junior");
     const showCategoryBanner = hasAdults && hasJuniors;
 
+    // Per-racer membership racing discount (e.g. Employee Pass 50%, League Racer
+    // 20%) — shown only for the racers in THIS category who hold it; others on
+    // the bill aren't discounted. Applied for real at checkout (charge-line split).
+    const discountRacers = session.party
+      .filter((m) => (m.category ?? "adult") === category)
+      .map((m) => {
+        let pct = 0;
+        let label: string | null = null;
+        for (const d of membershipDiscountsForNames(m.memberships ?? [])) {
+          if (d.categories.includes("racing") && d.percentOff > pct) {
+            pct = d.percentOff;
+            label = d.label;
+          }
+        }
+        return pct > 0 ? { name: m.firstName, pct, label } : null;
+      })
+      .filter((x): x is { name: string; pct: number; label: string | null } => x != null);
+
     return (
       <div className="space-y-6">
         {showCategoryBanner && (
@@ -264,6 +283,17 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
               : "Select from races you've qualified for."}
           </p>
         </div>
+
+        {discountRacers.length > 0 && (
+          <div className="mx-auto max-w-md space-y-1 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-center text-sm text-amber-300">
+            {discountRacers.map((r) => (
+              <p key={r.name}>
+                🏁 <span className="font-semibold">{r.label ?? "Member"}</span>: {r.pct}% off{" "}
+                {r.name}&apos;s races — applied at checkout
+              </p>
+            ))}
+          </div>
+        )}
 
         {categoryHeatCount > 0 && (
           <div className="mx-auto max-w-md rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3 text-center text-sm text-[#00E2E5]">
