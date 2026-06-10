@@ -104,7 +104,7 @@ Convert HPFM/HPN booking to v2 with center-scoped offering order on `/book/v2`.
   - D13 (2026-06-02): BowlingShoesStep stores shoe product metadata for checkout name resolution
   - D14 (2026-06-02): BowlingAttractionsStep → info-only (attractions are separate cart items, same as racing)
   - D15 (2026-06-02): Loyalty params wired to BMI reserve path (loyaltyAccountId, rewardTierId, rewardDiscountCents)
-  - D16 (2026-06-02): Mixed-cart guard — bowling (QAMF) and race/attraction (BMI) can't share a checkout; cross-sell + reducer reject incompatible adds
+  - D16 (2026-06-02): Mixed-cart guard — **NEVER LANDED / entry is stale** (verified 2026-06-10: `addItem` allows mixed carts — `machine.test.ts:62` asserts it; `buildCombinedLineItems` merges race+bowling+attraction into one Square order). Kept that way DELIBERATELY: combo specials ([combo-specials-plan.md](combo-specials-plan.md)) require race+bowling in one session. Do NOT re-add a guard.
 - **Still needs before go-live:**
   - Smoke test with QAMF staging + Square sandbox
   - Full Square Loyalty API reward creation in BMI reserve route (currently applies discount only; bowling route has full implementation)
