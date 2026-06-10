@@ -1,5 +1,10 @@
 # Combo Specials — display + full v2 online booking
 
+> **STATUS (2026-06-10): IMPLEMENTED on `feat/combo-specials` — all 4 slices committed.**
+> tsc clean · 490 unit tests green (31 new combos tests + 3 settlement-guard tests) · `next build` + a11y gate pass.
+> **NOT yet done:** the live e2e smoke (Square sandbox + BMI + QAMF — blocked on the bowling-v2 smoke gate per §Verification), mobile DOM inspection of the three card surfaces, and the staff canary.
+> ⚠️ **Before merging to main: set `NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED=false` in Vercel prod** — the flag defaults ON, so an unset var ships the combo live (display + booking) on deploy.
+
 ## Context
 
 **Problem / need.** The owner wants to sell **combo specials** — the first being **"2 Go-Kart Races + 1.5 Hours of Bowling — $65 weekday / $75 weekend, per person"** — and wants a *durable, repeatable system* for adding more combos in the future, not a one-off hard-coded card.
