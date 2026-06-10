@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
+import { bmiBillIsLive } from "~/features/booking/service/bmi-confirm";
 import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
 import {
   lookupCatalogId,
@@ -256,6 +257,29 @@ export async function POST(req: NextRequest) {
     const explicitConfirmCents = body.bmiConfirmAmountCents;
     const bmiAsCredit =
       explicitConfirmCents !== undefined ? explicitConfirmCents === 0 : isCreditOrder;
+
+    // ── Step 0a: Guard — never proceed on an auto-cancelled BMI bill ────
+    // BMI strips a Pending-Online hold's products after the center's auto-cancel
+    // timeout; a later payment/confirm then fails with BillNotFound. Detect it up
+    // front and return a clean "time expired" (no charge, no confusing
+    // BMI_CONFIRM_FAILED). Fail-open on a transient overview error so a BMI hiccup
+    // never blocks a legitimate booking; the auto-cancel case returns a clean
+    // empty overview, which IS caught.
+    try {
+      const live = await bmiBillIsLive(clientKey, billId);
+      if (!live) {
+        return NextResponse.json(
+          {
+            error:
+              "Your held time expired before checkout, so nothing was charged. Please go back and choose a time again.",
+            code: "BILL_EXPIRED",
+          },
+          { status: 409 },
+        );
+      }
+    } catch (e) {
+      console.error("[v2/reserve] bill liveness check errored (failing open):", e);
+    }
 
     // ── Step 0: Validate credit redemptions (charge-time re-eval) ───────
     // Re-check the racer's LIVE deposit balance before charging. A stale balance

@@ -9,7 +9,7 @@
  */
 import { randomBytes } from "crypto";
 import { createDepositAndCharge } from "./deposit";
-import { confirmBmiPayment } from "./bmi-confirm";
+import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import {
   createReservation,
@@ -288,6 +288,22 @@ export class ReserveInProgressError extends Error {
   }
 }
 
+/**
+ * Thrown when a race bill auto-cancelled in BMI before the customer paid (BMI
+ * strips the products off a Pending-Online hold past the center's timeout). We
+ * detect it BEFORE charging, so the card is never touched — the customer is
+ * told their held time lapsed and to pick again.
+ */
+export class BillExpiredError extends Error {
+  code = "BILL_EXPIRED";
+  constructor() {
+    super(
+      "Your held race time expired before payment, so we didn't charge you. Please go back and choose a time again.",
+    );
+    this.name = "BillExpiredError";
+  }
+}
+
 // ── Main orchestrator ─────────────────────────────────────────────────
 
 /**
@@ -355,6 +371,30 @@ async function unifiedReserveInner(
   const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
   const attractionItems = session.items.filter((i): i is AttractionItem => i.kind === "attraction");
   const hasBmi = raceItems.length > 0 || attractionItems.length > 0;
+
+  // ── 0. Guard: never charge against an auto-cancelled BMI bill ──────
+  // BMI auto-cancels a Pending-Online hold after the center's timeout, stripping
+  // the bill's products. If that happened during the customer's dwell, charging
+  // here would take money for a reservation that no longer exists (BMI then
+  // returns BillNotFound at payment/confirm — AFTER the card is captured, the
+  // "charged but empty" failure). Re-check the bill is live BEFORE any Square
+  // write. Fail-open on a transient overview error: a BMI hiccup must never block
+  // a legitimate paying customer, and the auto-cancel case returns a clean empty
+  // overview (caught), not an error.
+  if (hasBmi && session.bmiBillId) {
+    let live = true;
+    try {
+      live = await bmiBillIsLive(resolveBmiClientKey(session), session.bmiBillId);
+    } catch (err) {
+      console.error("[unifiedReserve] bill liveness check errored (failing open):", err);
+    }
+    if (!live) {
+      console.error(
+        `[unifiedReserve] BILL_EXPIRED — bmiBillId ${session.bmiBillId} auto-cancelled before payment; refusing to charge`,
+      );
+      throw new BillExpiredError();
+    }
+  }
 
   // ── 1. Extend QAMF holds as safety net ────────────────────────────
   for (const item of bowlingItems) {

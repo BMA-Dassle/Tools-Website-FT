@@ -3,6 +3,7 @@ import {
   unifiedReserve,
   RewardFailedError,
   ReserveInProgressError,
+  BillExpiredError,
 } from "~/features/booking/service/unified-reserve";
 import { DepositPaymentError } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
@@ -49,6 +50,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof ReserveInProgressError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof BillExpiredError) {
+      // 409 Conflict — the held bill lapsed before payment. No charge happened.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof RewardFailedError) {
