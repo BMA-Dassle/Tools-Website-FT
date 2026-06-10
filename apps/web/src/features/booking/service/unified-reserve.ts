@@ -98,9 +98,24 @@ function isBowlingLike(item: { kind: string }): item is BowlingLikeItem {
   return item.kind === "bowling" || item.kind === "kbf";
 }
 
+// FastTrax-operated attractions. Everything else attraction-wise (gel blaster,
+// laser tag, shuffly) is HeadPinz. Race is always FastTrax. Keeps the two
+// Fort-Myers entities' Square revenue separate.
+const FASTTRAX_ATTRACTION_SLUGS = new Set<string>(["duck-pin"]);
+
 function resolveLocationId(session: BookingSession): string {
-  const hasBowling = session.items.some(isBowlingLike);
-  if (hasBowling) {
+  // Route the Square day-of order to the entity that OWNS the products:
+  //   HeadPinz (FM/Naples by center) — bowling, KBF, gel blaster, laser tag, shuffly
+  //   FastTrax FM                    — race, duck pin
+  // Previously ONLY bowling routed to HeadPinz and everything else fell through
+  // to FastTrax, so standalone gel/laser/Naples attractions leaked into the
+  // FastTrax entity's Square account.
+  const hasHeadpinzProduct = session.items.some(
+    (i) =>
+      isBowlingLike(i) ||
+      (i.kind === "attraction" && !FASTTRAX_ATTRACTION_SLUGS.has((i as AttractionItem).slug ?? "")),
+  );
+  if (hasHeadpinzProduct) {
     return session.center === "naples"
       ? SQUARE_LOCATIONS.HEADPINZ_NAP
       : SQUARE_LOCATIONS.HEADPINZ_FM;
