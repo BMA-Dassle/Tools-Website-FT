@@ -4,6 +4,7 @@ import { voxSend } from "@/lib/sms-retry";
 import { logSms } from "@/lib/sms-log";
 import { canonicalizePhone } from "@/lib/participant-contact";
 import redis from "@/lib/redis";
+import { VOX_FROM_HEADPINZ_FM } from "~/features/arena-tickets/constants";
 
 /**
  * Deref an SMS-log shortCode (the 6-char `/s/{code}` redirect key) back to
@@ -107,8 +108,14 @@ export async function POST(req: NextRequest) {
 
   const ts = new Date().toISOString();
 
-  // Fire the send.
-  const result = await voxSend(phone, smsBody);
+  // Fire the send. HP Arena tickets resend from the HeadPinz DID —
+  // without this, an arena resend would go out from the FastTrax number.
+  const isHeadPinz = (single?.brand ?? group?.brand) === "headpinz";
+  const result = await voxSend(
+    phone,
+    smsBody,
+    isHeadPinz ? { fromOverride: VOX_FROM_HEADPINZ_FM, fallbackPrefix: "HeadPinz: " } : undefined,
+  );
 
   // Log regardless of success. On failure we DO NOT queueRetry — admin
   // resends should fail loudly so the operator sees the error and can

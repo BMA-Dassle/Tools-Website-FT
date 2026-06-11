@@ -16,3 +16,4 @@ export {
   isArenaGroup,
   memberActivity,
 } from "./types";
+export { runArenaTicketCron, type ArenaCronSummary } from "./service";

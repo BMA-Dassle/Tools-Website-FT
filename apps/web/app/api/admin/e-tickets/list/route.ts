@@ -200,6 +200,7 @@ export async function GET(req: NextRequest) {
     const ETICKET_SOURCES = new Set([
       "pre-race-cron", // e-ticket 2hrs before race
       "checkin-cron", // check-in live notification
+      "arena-pre-cron", // HP Arena e-ticket 2hrs before session
       "admin-resend", // manual resend from this page
     ]);
     const preFiltered = pool.filter((e) => {
