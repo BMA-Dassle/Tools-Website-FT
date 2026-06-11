@@ -3,48 +3,58 @@ import https from "https";
 import { parseWithRawIds } from "@ft/db";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
-import { logBmiCancelEvent, type BmiCancelClassification } from "@/lib/bmi-cancel-log";
+import {
+  logBmiCancelEvent,
+  getBmiCancelEvent,
+  type BmiCancelClassification,
+  type BmiCancelAction,
+} from "@/lib/bmi-cancel-log";
+import {
+  rebuildRaceBill,
+  type RebuildRacerHeat,
+  type ApiCall,
+} from "~/features/booking/service/bmi-rebuild";
 
 /**
  * GET /api/cron/race-cancel-watch
  *
  * Watches PAID race bookings for BMI's "charged but empty" defect: BMI
- * auto-cancels a Pending-Online hold ~20 min after it's created (the center's
- * timeout) and strips the bill's products — even after a successful Square
- * charge, because payment/confirm doesn't register. The customer is left charged
- * with no live reservation.
+ * auto-cancels a Pending-Online hold ~20 min after it's created and strips the
+ * bill's products — even after a successful Square charge (payment/confirm never
+ * registers). The customer is left charged with no live reservation.
  *
- * The pre-charge guard (bmiBillIsLive) can't catch this — the bill is alive when
- * we charge and dies minutes later. So we watch from the other side: scan today's
- * race deposits, and for any whose race is STILL IN THE FUTURE, re-check BMI. If
- * it's been system-cancelled, log the full evidence to bmi_cancel_events (for the
- * BMI bug report) and alert.
+ * For any paid race whose heat is STILL IN THE FUTURE, this re-checks BMI; if
+ * it's been system-cancelled (userUpdatedId = -1) it RE-BUILDS the heats into a
+ * fresh bill (no re-charge), and logs the full BMI API request/response sequence
+ * to bmi_cancel_events as evidence for BMI. Past-race breaks are logged, not
+ * rebuilt (unactionable). Deliberate user/staff cancels are never touched.
  *
- * Read-only against BMI in this phase — it detects, logs, and alerts. The
- * auto-rebuild (re-book the heats into a fresh bill) is the next phase and slots
- * in where noted. Past-race breaks are logged but not alerted (unactionable).
+ * Auto-rebuild is gated by env RACE_AUTO_REBUILD (default ON; set "0"/"false" to
+ * disable — falls back to alert-only). verify-after requires the rebuilt bill to
+ * have products whose heat times match before it's marked rebuilt.
  *
- * Auth mirrors race-confirm-reconcile: verifyCron for scheduled runs; a valid
- * ?token=<ADMIN_CAMERA_TOKEN> bypasses for manual/dev runs. ?dryRun=1 skips the
- * DB writes (still reports). ?windowHours=N overrides the deposit lookback.
+ * Auth: verifyCron for scheduled runs; ?token=<ADMIN_CAMERA_TOKEN> for manual.
+ *   ?dryRun=1            — detect + log, but never rebuild (still logs evidence)
+ *   ?rebuildBill=<bill>  — manual single-bill rebuild (honors ?dryRun=1 for a
+ *                          read-only availability/match check)
+ *   ?windowHours=N       — deposit lookback (default 12)
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-// ── Square (race deposits land at FastTrax FM) ─────────────────────────
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 const SQUARE_VERSION = "2024-12-18";
 const FT_FM_LOCATION = "LAB52GY480CJF";
+const RACE_CLIENT_KEY = "headpinzftmyers";
+const RACE_PANDORA_LOCATION = "LAB52GY480CJF";
 
-// ── BMI public booking API (order overview) ────────────────────────────
 const BMI_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
 const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
 const BMI_USERNAME = process.env.BMI_USERNAME || "";
 const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
 
-// ── BMI Office API (project state / userUpdatedId — who cancelled) ─────
 const OFFICE_HOST = "office-api22.sms-timing.com";
 const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "";
 const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "";
@@ -65,16 +75,22 @@ async function getBmiToken(clientKey: string): Promise<string> {
   });
   if (!res.ok) throw new Error(`BMI auth ${res.status}`);
   const d = await res.json();
-  const token = d.AccessToken || d.accessToken;
   bmiTokenCache[clientKey] = {
-    token,
+    token: d.AccessToken || d.accessToken,
     expiry: Date.now() + parseInt(d.ExpiresIn || d.expiresIn || "3600", 10) * 1000,
   };
-  return token;
+  return bmiTokenCache[clientKey].token;
 }
 
-/** BMI order overview line count (lines.length). null on error (fail-open: skip). */
-async function bmiOverviewLineCount(clientKey: string, billId: string): Promise<number | null> {
+/** BMI order overview — returns line count + an evidence ApiCall. */
+async function bmiOverview(
+  clientKey: string,
+  billId: string,
+): Promise<{ count: number | null; call: ApiCall }> {
+  const t0 = Date.now();
+  let status = 0;
+  let text = "";
+  let count: number | null = null;
   try {
     const token = await getBmiToken(clientKey);
     const res = await fetch(`${BMI_API_URL}/public-booking/${clientKey}/order/${billId}/overview`, {
@@ -85,13 +101,27 @@ async function bmiOverviewLineCount(clientKey: string, billId: string): Promise<
       },
       cache: "no-store",
     });
-    if (res.status === 404) return 0;
-    if (!res.ok) return null;
-    const ov = parseWithRawIds<{ lines?: unknown[] }>(await res.text());
-    return Array.isArray(ov.lines) ? ov.lines.length : 0;
-  } catch {
-    return null;
+    status = res.status;
+    text = await res.text();
+    if (status === 404) count = 0;
+    else if (res.ok) {
+      const ov = parseWithRawIds<{ lines?: unknown[] }>(text);
+      count = Array.isArray(ov.lines) ? ov.lines.length : 0;
+    }
+  } catch (err) {
+    text = err instanceof Error ? err.message : "error";
   }
+  return {
+    count,
+    call: {
+      step: "overview",
+      method: "GET",
+      endpoint: `order/${billId}/overview`,
+      status,
+      responseBody: text.slice(0, 1500),
+      ms: Date.now() - t0,
+    },
+  };
 }
 
 function officeReq(
@@ -156,13 +186,18 @@ interface OfficeProject {
   productsCount: number;
 }
 
-/** BMI Office project entity (projectId = billId+1) — who/what last touched it. */
+/** BMI Office project (projectId = billId+1) — who/what last touched it + an
+ *  evidence ApiCall (the proof it was a SYSTEM cancel: userUpdatedId = -1). */
 async function fetchOfficeProject(
   clientKey: string,
   billId: string,
-): Promise<OfficeProject | null> {
+): Promise<{ project: OfficeProject | null; call: ApiCall }> {
+  const projectId = (BigInt(billId) + BigInt(1)).toString();
+  const t0 = Date.now();
+  let status = 0;
+  let body = "";
+  let project: OfficeProject | null = null;
   try {
-    const projectId = (BigInt(billId) + BigInt(1)).toString();
     const token = await getOfficeToken(clientKey);
     const res = await officeReq("GET", `/api/${clientKey}/project/${projectId}`, {
       Authorization: `Bearer ${token}`,
@@ -170,27 +205,40 @@ async function fetchOfficeProject(
       "x-session-id": `cancel-watch-${projectId}`,
       clientkey: clientKey,
     });
-    if (res.status >= 400) return null;
-    const p = parseWithRawIds<{
-      stateId?: string | number;
-      userUpdatedId?: string | number;
-      products?: unknown[];
-      schedules?: Array<{ stateId?: string | number; start?: string; productIds?: unknown[] }>;
-    }>(res.body);
-    const sch = (p.schedules || [])[0] || {};
-    return {
-      stateId: p.stateId != null ? String(p.stateId) : null,
-      userUpdatedId: p.userUpdatedId != null ? String(p.userUpdatedId) : null,
-      scheduleStateId: sch.stateId != null ? String(sch.stateId) : null,
-      scheduleStart: sch.start ?? null,
-      productsCount: Array.isArray(p.products) ? p.products.length : 0,
-    };
-  } catch {
-    return null;
+    status = res.status;
+    body = res.body;
+    if (status < 400) {
+      const p = parseWithRawIds<{
+        stateId?: string | number;
+        userUpdatedId?: string | number;
+        products?: unknown[];
+        schedules?: Array<{ stateId?: string | number; start?: string }>;
+      }>(body);
+      const sch = (p.schedules || [])[0] || {};
+      project = {
+        stateId: p.stateId != null ? String(p.stateId) : null,
+        userUpdatedId: p.userUpdatedId != null ? String(p.userUpdatedId) : null,
+        scheduleStateId: sch.stateId != null ? String(sch.stateId) : null,
+        scheduleStart: sch.start ?? null,
+        productsCount: Array.isArray(p.products) ? p.products.length : 0,
+      };
+    }
+  } catch (err) {
+    body = err instanceof Error ? err.message : "error";
   }
+  return {
+    project,
+    call: {
+      step: "office/project",
+      method: "GET",
+      endpoint: `project/${projectId}`,
+      status,
+      responseBody: body.slice(0, 1500),
+      ms: Date.now() - t0,
+    },
+  };
 }
 
-// ── Square: today's race deposits at FastTrax FM ───────────────────────
 interface RaceDeposit {
   billId: string;
   paymentId: string;
@@ -235,39 +283,70 @@ async function listRaceDeposits(beginIso: string, endIso: string): Promise<RaceD
 
 interface BookingRec {
   name: string | null;
-  phone: string | null;
+  contact: { firstName: string; lastName: string; email: string; phone: string } | null;
   reservationNumber: string | null;
   status: string | null;
   heatStart: string | null;
+  date: string | null;
+  heats: RebuildRacerHeat[];
 }
 async function bookingRecord(billId: string): Promise<BookingRec> {
+  const empty: BookingRec = {
+    name: null,
+    contact: null,
+    reservationNumber: null,
+    status: null,
+    heatStart: null,
+    date: null,
+    heats: [],
+  };
   try {
     const raw = await redis.get(`bookingrecord:${billId}`);
-    if (!raw)
-      return { name: null, phone: null, reservationNumber: null, status: null, heatStart: null };
+    if (!raw) return empty;
     const r = (typeof raw === "string" ? JSON.parse(raw) : raw) as {
-      contact?: { firstName?: string; lastName?: string; phone?: string };
+      contact?: { firstName?: string; lastName?: string; email?: string; phone?: string };
       reservationNumber?: string;
       status?: string;
       date?: string;
-      racers?: Array<{ heatStart?: string }>;
+      racers?: Array<{
+        racerName?: string;
+        personId?: string;
+        productId?: string;
+        track?: string;
+        heatStart?: string;
+      }>;
     };
-    const heat =
-      (r.racers || [])
-        .map((x) => x.heatStart)
-        .filter(Boolean)
-        .sort()[0] ??
-      r.date ??
-      null;
+    const racers = r.racers || [];
+    const heats: RebuildRacerHeat[] = racers
+      .filter((x) => x.heatStart && x.productId)
+      .map((x) => ({
+        productId: String(x.productId),
+        track: x.track ?? null,
+        heatStart: x.heatStart!,
+        personId: x.personId ?? null,
+        firstName: x.racerName ?? r.contact?.firstName ?? "Racer",
+        lastName: "",
+      }));
+    const heatStart =
+      heats.map((h) => h.heatStart).sort()[0] ?? (r.date ? `${r.date}T00:00:00` : null);
     return {
       name: r.contact ? `${r.contact.firstName ?? ""} ${r.contact.lastName ?? ""}`.trim() : null,
-      phone: r.contact?.phone ?? null,
+      contact: r.contact
+        ? {
+            firstName: r.contact.firstName ?? "",
+            lastName: r.contact.lastName ?? "",
+            email: r.contact.email ?? "",
+            phone: r.contact.phone ?? "",
+          }
+        : null,
       reservationNumber: r.reservationNumber ?? null,
       status: r.status ?? null,
-      heatStart: heat,
+      heatStart,
+      date: r.date ?? (heatStart ? heatStart.slice(0, 10) : null),
+      heats,
     };
   } catch {
-    return { name: null, phone: null, reservationNumber: null, status: null, heatStart: null };
+    return empty;
   }
 }
 
@@ -279,6 +358,11 @@ function heatEpochMs(heat: string | null): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
+function autoRebuildEnabled(): boolean {
+  const v = process.env.RACE_AUTO_REBUILD;
+  return v !== "0" && v !== "false"; // default ON
+}
+
 export async function GET(req: NextRequest) {
   const manualToken = req.nextUrl.searchParams.get("token");
   const isManual =
@@ -288,52 +372,96 @@ export async function GET(req: NextRequest) {
     if (denied) return denied;
   }
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
+  const manualBill = req.nextUrl.searchParams.get("rebuildBill");
   const windowHours = Math.min(
-    24,
+    48,
     Math.max(1, Number(req.nextUrl.searchParams.get("windowHours")) || 12),
   );
+  const origin = req.nextUrl.origin;
   const started = Date.now();
   const nowMs = started;
-  const clientKey = "headpinzftmyers"; // race deposits are FT (headpinzftmyers tenant)
 
-  if (!SQUARE_TOKEN) {
+  if (!SQUARE_TOKEN)
     return NextResponse.json({ error: "SQUARE_ACCESS_TOKEN not set" }, { status: 500 });
+
+  // ── Manual single-bill rebuild (test/ops). Honors dryRun (read-only match). ──
+  if (manualBill) {
+    const rec = await bookingRecord(manualBill);
+    if (!rec.heats.length || !rec.contact) {
+      return NextResponse.json(
+        { error: "no heats/contact on booking record", bill: manualBill },
+        { status: 404 },
+      );
+    }
+    const rb = await rebuildRaceBill({
+      origin,
+      clientKey: RACE_CLIENT_KEY,
+      oldBillId: manualBill,
+      date: rec.date ?? rec.heatStart!.slice(0, 10),
+      heats: rec.heats,
+      contact: rec.contact,
+      pandoraLocationId: RACE_PANDORA_LOCATION,
+      pandoraKey: process.env.SWAGGER_ADMIN_KEY,
+      dryRun,
+    });
+    if (!dryRun && rb.ok) {
+      await logBmiCancelEvent({
+        billId: manualBill,
+        reservationNumber: rb.reservationNumber,
+        productKind: "race",
+        heatStart: rec.heatStart,
+        isFuture: (heatEpochMs(rec.heatStart) ?? 0) > nowMs,
+        guestName: rec.name,
+        guestPhone: rec.contact.phone,
+        classification: "system_cancel",
+        action: "rebuilt",
+        rebuildBillId: rb.newBillId,
+        notes: `manual rebuild → ${rb.newBillId} (${rb.reservationNumber})`,
+        apiCalls: rb.apiCalls,
+      });
+    }
+    return NextResponse.json({ manual: true, dryRun, ...rb });
   }
 
   const beginIso = new Date(nowMs - windowHours * 3600_000).toISOString();
   const endIso = new Date(nowMs + 3600_000).toISOString();
   const deposits = await listRaceDeposits(beginIso, endIso);
 
+  const AUTO = autoRebuildEnabled();
   const summary = {
     scanned: deposits.length,
-    futureChecked: 0,
     live: 0,
     systemCancelled: 0,
     futureSystemCancelled: 0,
-    pastSystemCancelled: 0,
+    rebuilt: 0,
+    rebuildFailed: 0,
+    alerted: 0,
     userCancelled: 0,
     errors: 0,
   };
-  const alerts: Array<Record<string, unknown>> = [];
+  const events: Array<Record<string, unknown>> = [];
 
   for (const dep of deposits) {
     const rec = await bookingRecord(dep.billId);
-    // Skip deliberately cancelled/refunded bookings entirely.
     if (rec.status === "cancelled" || rec.status === "refunded") continue;
 
-    const lineCount = await bmiOverviewLineCount(clientKey, dep.billId);
-    if (lineCount === null) {
+    const apiCalls: ApiCall[] = [];
+    const ov = await bmiOverview(RACE_CLIENT_KEY, dep.billId);
+    apiCalls.push(ov.call);
+    if (ov.count === null) {
       summary.errors++;
       continue;
     }
-    if (lineCount > 0) {
+    if (ov.count > 0) {
       summary.live++;
-      continue; // healthy — nothing to record
+      continue;
     }
 
-    // Empty/stripped — gather full evidence from the Office project.
+    // Stripped — full evidence from the Office project.
     summary.systemCancelled++;
-    const proj = await fetchOfficeProject(clientKey, dep.billId);
+    const { project: proj, call: projCall } = await fetchOfficeProject(RACE_CLIENT_KEY, dep.billId);
+    apiCalls.push(projCall);
+
     const heat = proj?.scheduleStart ?? rec.heatStart;
     const heatMs = heatEpochMs(heat);
     const isFuture = heatMs != null && heatMs > nowMs;
@@ -343,17 +471,60 @@ export async function GET(req: NextRequest) {
     else if (proj?.scheduleStateId === "-4" || proj?.stateId === "-4")
       classification = "user_cancel";
     else classification = "unknown";
+    if (classification === "user_cancel") {
+      summary.userCancelled++;
+      continue; // deliberate cancel — never rebuild
+    }
 
-    if (classification === "user_cancel") summary.userCancelled++;
-    if (isFuture) summary.futureChecked++;
+    const paidNotRefunded = dep.refundedCents < dep.amountCents;
+    const actionable = classification === "system_cancel" && isFuture && paidNotRefunded;
+    let action: BmiCancelAction = "detected";
+    let rebuildBillId: string | null = null;
+    let notes: string | null = null;
 
-    // Future system-cancel = actionable: alert. (Auto-rebuild plugs in HERE next.)
-    const actionable =
-      classification === "system_cancel" && isFuture && dep.refundedCents < dep.amountCents;
-    if (actionable) summary.futureSystemCancelled++;
-    else if (classification === "system_cancel") summary.pastSystemCancelled++;
-
-    const action = actionable ? "alerted" : "detected";
+    if (actionable) {
+      summary.futureSystemCancelled++;
+      const prior = await getBmiCancelEvent(dep.billId);
+      if (prior?.action === "rebuilt" && prior.rebuildBillId) {
+        // Already rebuilt on a prior tick — idempotent, don't re-book.
+        action = "rebuilt";
+        rebuildBillId = prior.rebuildBillId;
+        notes = "already rebuilt (idempotent skip)";
+      } else if (AUTO && !dryRun && rec.contact && rec.heats.length) {
+        const rb = await rebuildRaceBill({
+          origin,
+          clientKey: RACE_CLIENT_KEY,
+          oldBillId: dep.billId,
+          date: rec.date ?? heat!.slice(0, 10),
+          heats: rec.heats,
+          contact: rec.contact,
+          pandoraLocationId: RACE_PANDORA_LOCATION,
+          pandoraKey: process.env.SWAGGER_ADMIN_KEY,
+        });
+        apiCalls.push(...rb.apiCalls);
+        if (rb.ok) {
+          action = "rebuilt";
+          rebuildBillId = rb.newBillId;
+          notes = `auto-rebuilt → ${rb.newBillId} (${rb.reservationNumber})`;
+          summary.rebuilt++;
+          console.log(`[race-cancel-watch] REBUILT ${rec.name} ${dep.billId} → ${rb.newBillId}`);
+        } else {
+          action = "rebuild_failed";
+          notes = rb.error;
+          summary.rebuildFailed++;
+          console.error(
+            `[race-cancel-watch] REBUILD FAILED ${rec.name} ${dep.billId} heat=${heat} — ${rb.error} — phone=${rec.contact.phone}`,
+          );
+        }
+      } else {
+        action = "alerted";
+        summary.alerted++;
+        console.error(
+          `[race-cancel-watch] *** FUTURE SYSTEM-CANCEL (alert-only) *** ${rec.name} ${rec.reservationNumber} ` +
+            `bill=${dep.billId} $${(dep.amountCents / 100).toFixed(2)} heat=${heat} phone=${rec.contact?.phone}`,
+        );
+      }
+    }
 
     if (!dryRun) {
       await logBmiCancelEvent({
@@ -363,7 +534,7 @@ export async function GET(req: NextRequest) {
         heatStart: heat,
         isFuture,
         guestName: rec.name,
-        guestPhone: rec.phone,
+        guestPhone: rec.contact?.phone ?? null,
         squarePaymentId: dep.paymentId,
         squareOrderId: dep.orderId,
         amountCents: dep.amountCents,
@@ -374,39 +545,43 @@ export async function GET(req: NextRequest) {
         userUpdatedId: proj?.userUpdatedId ?? null,
         productsCount: proj?.productsCount ?? 0,
         action,
-        notes: actionable ? "FUTURE system-cancel — needs rebuild/contact before race" : null,
-        raw: { deposit: dep, project: proj, record: rec, checkedAt: new Date(nowMs).toISOString() },
+        rebuildBillId,
+        notes,
+        raw: {
+          deposit: dep,
+          project: proj,
+          record: { ...rec, heats: rec.heats.length },
+          checkedAt: new Date(nowMs).toISOString(),
+        },
+        apiCalls,
       });
     }
 
-    if (actionable) {
-      const a = {
-        bill: dep.billId,
-        res: rec.reservationNumber,
-        name: rec.name,
-        phone: rec.phone,
-        heat,
-        amount: (dep.amountCents / 100).toFixed(2),
-      };
-      alerts.push(a);
-      console.error(
-        `[race-cancel-watch] *** FUTURE SYSTEM-CANCEL *** ${a.name} ${a.res} bill=${a.bill} ` +
-          `$${a.amount} heat=${a.heat} phone=${a.phone} — paid but BMI empty, race still upcoming`,
-      );
-    }
+    events.push({
+      bill: dep.billId,
+      name: rec.name,
+      res: rec.reservationNumber,
+      heat,
+      amount: (dep.amountCents / 100).toFixed(2),
+      classification,
+      isFuture,
+      action,
+      rebuildBillId,
+    });
   }
 
   console.log(
-    `[race-cancel-watch] dryRun=${dryRun} window=${windowHours}h ` +
-      `scanned=${summary.scanned} live=${summary.live} systemCancelled=${summary.systemCancelled} ` +
-      `futureActionable=${summary.futureSystemCancelled} userCancelled=${summary.userCancelled} errors=${summary.errors}`,
+    `[race-cancel-watch] dryRun=${dryRun} auto=${AUTO} window=${windowHours}h scanned=${summary.scanned} ` +
+      `live=${summary.live} systemCancelled=${summary.systemCancelled} future=${summary.futureSystemCancelled} ` +
+      `rebuilt=${summary.rebuilt} rebuildFailed=${summary.rebuildFailed} alerted=${summary.alerted} errors=${summary.errors}`,
   );
 
   return NextResponse.json({
     ok: true,
     dryRun,
+    autoRebuild: AUTO,
     elapsedMs: Date.now() - started,
     ...summary,
-    alerts,
+    events,
   });
 }

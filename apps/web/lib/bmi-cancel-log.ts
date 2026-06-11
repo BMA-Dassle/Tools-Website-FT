@@ -55,6 +55,9 @@ export interface BmiCancelEvent {
   notes?: string | null;
   /** Full evidence snapshot (BMI project + overview + Square payment). */
   raw?: unknown;
+  /** Ordered BMI API request/response log for this event — the proof we hand
+   *  BMI that the issue recurred (detection probes + any rebuild calls). */
+  apiCalls?: unknown;
 }
 
 let schemaReady = false;
@@ -87,9 +90,12 @@ async function ensureSchema(): Promise<void> {
       last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       resolved_at TIMESTAMPTZ,
       notes TEXT,
-      raw JSONB
+      raw JSONB,
+      api_calls JSONB
     )
   `;
+  // Backfill the column on tables created before api_calls existed.
+  await q`ALTER TABLE bmi_cancel_events ADD COLUMN IF NOT EXISTS api_calls JSONB`;
   // One row per bill — re-detections UPSERT.
   await q`CREATE UNIQUE INDEX IF NOT EXISTS bmi_cancel_events_bill ON bmi_cancel_events (bill_id)`;
   await q`CREATE INDEX IF NOT EXISTS bmi_cancel_events_recent ON bmi_cancel_events (first_detected_at DESC)`;
@@ -112,7 +118,7 @@ export async function logBmiCancelEvent(ev: BmiCancelEvent): Promise<void> {
         guest_name, guest_phone, square_payment_id, square_order_id,
         amount_cents, refunded_cents, classification, project_state_id,
         schedule_state_id, user_updated_id, products_count, action,
-        rebuild_bill_id, notes, raw
+        rebuild_bill_id, notes, raw, api_calls
       ) VALUES (
         ${ev.billId}, ${ev.reservationNumber ?? null}, ${ev.productKind ?? null},
         ${ev.heatStart ?? null}, ${ev.isFuture}, ${ev.guestName ?? null},
@@ -120,7 +126,8 @@ export async function logBmiCancelEvent(ev: BmiCancelEvent): Promise<void> {
         ${ev.amountCents ?? null}, ${ev.refundedCents ?? null}, ${ev.classification},
         ${ev.projectStateId ?? null}, ${ev.scheduleStateId ?? null}, ${ev.userUpdatedId ?? null},
         ${ev.productsCount ?? null}, ${ev.action}, ${ev.rebuildBillId ?? null},
-        ${ev.notes ?? null}, ${ev.raw ? JSON.stringify(ev.raw) : null}
+        ${ev.notes ?? null}, ${ev.raw ? JSON.stringify(ev.raw) : null},
+        ${ev.apiCalls ? JSON.stringify(ev.apiCalls) : null}
       )
       ON CONFLICT (bill_id) DO UPDATE SET
         reservation_number = COALESCE(EXCLUDED.reservation_number, bmi_cancel_events.reservation_number),
@@ -142,10 +149,32 @@ export async function logBmiCancelEvent(ev: BmiCancelEvent): Promise<void> {
         rebuild_bill_id = COALESCE(EXCLUDED.rebuild_bill_id, bmi_cancel_events.rebuild_bill_id),
         last_seen_at = NOW(),
         notes = COALESCE(EXCLUDED.notes, bmi_cancel_events.notes),
-        raw = COALESCE(EXCLUDED.raw, bmi_cancel_events.raw)
+        raw = COALESCE(EXCLUDED.raw, bmi_cancel_events.raw),
+        api_calls = COALESCE(EXCLUDED.api_calls, bmi_cancel_events.api_calls)
     `;
   } catch (err) {
     console.error("[bmi-cancel-log] insert failed:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Prior recorded action + rebuild target for a bill — for cron idempotency
+ *  (don't re-rebuild a bill we already rebuilt). null if never seen. */
+export async function getBmiCancelEvent(
+  billId: string,
+): Promise<{ action: string; rebuildBillId: string | null } | null> {
+  if (!isDbConfigured()) return null;
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT action, rebuild_bill_id FROM bmi_cancel_events WHERE bill_id = ${billId} LIMIT 1
+    `;
+    if (!rows.length) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = rows[0] as any;
+    return { action: r.action, rebuildBillId: r.rebuild_bill_id ?? null };
+  } catch {
+    return null;
   }
 }
 
