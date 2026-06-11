@@ -1134,6 +1134,30 @@ export async function rebuildRaceBillIfExpired(
   await registerContact(newBillId, contact, session.party);
   await registerProjectPersons(newBillId, session.party);
 
+  // Track this payment-path rebuild in the BMI evidence log (fire-and-forget) —
+  // the same bmi_cancel_events record the cron writes, so "rebuilt on a payment
+  // OR on cron" is one durable place to prove the issue to BMI.
+  try {
+    const heatStart = raceItems
+      .flatMap((i) => i.heats)
+      .map((h) => h.heatId)
+      .filter(Boolean)
+      .sort()[0];
+    void fetch("/api/booking/v2/log-rebuild", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        oldBillId: session.bmiBillId,
+        newBillId,
+        heatStart: heatStart ?? null,
+        guestName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim(),
+        guestPhone: contact.phone ?? null,
+      }),
+    }).catch(() => {});
+  } catch {
+    /* non-fatal — the rebuild itself succeeded */
+  }
+
   dispatch({ type: "setBmiBillId", id: newBillId });
   return newBillId;
 }
