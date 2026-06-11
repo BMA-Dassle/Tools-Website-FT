@@ -60,7 +60,7 @@ function raceItem(over: Partial<RaceItem> = {}): RaceItem {
   };
 }
 
-/** 90-min lane booked @2 PM ET (QAMF offset notation) — between the heats. */
+/** 90-min VIP lane booked @2 PM ET (QAMF offset notation) — between the heats. */
 function bowlingItem(date: string, over: Partial<BowlingItem> = {}): BowlingItem {
   return {
     ...(newItem("bowling") as BowlingItem),
@@ -68,6 +68,7 @@ function bowlingItem(date: string, over: Partial<BowlingItem> = {}): BowlingItem
     date,
     bookedAt: `${date}T14:00:00-04:00`,
     variant: "hourly",
+    tier: "vip",
     durationMinutes: 90,
     ...over,
   };
@@ -156,6 +157,12 @@ describe("activeComboSpecial — strict itinerary gate", () => {
     expect(activeComboSpecial(s)).toBeNull();
   });
 
+  it("falls back when the lane is NOT VIP (the leg requires it)", () => {
+    const s = comboSession();
+    (s.items[1] as BowlingItem).tier = "regular";
+    expect(activeComboSpecial(s)).toBeNull();
+  });
+
   it("falls back when the bowling slot isn't booked yet", () => {
     const s = comboSession();
     (s.items[1] as BowlingItem).bookedAt = null;
@@ -190,7 +197,7 @@ describe("comboChargeLines — flat per-person pricing", () => {
   it("Mon–Thu: one line, $65/person × 2 racers = $130, timed at the starter", () => {
     const lines = comboChargeLines(comboSession())!;
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ name: "Race + Bowl Combo", quantity: 2, amount: 130 });
+    expect(lines[0]).toMatchObject({ name: "Ultimate VIP Experience", quantity: 2, amount: 130 });
     expect(lines[0].time).toBe(`${MON}T13:00:00Z`);
   });
 
@@ -212,9 +219,9 @@ describe("comboChargeLines — flat per-person pricing", () => {
     });
     const lines = comboChargeLines(s)!;
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatchObject({ name: "Race + Bowl Combo", quantity: 1, amount: 65 });
+    expect(lines[0]).toMatchObject({ name: "Ultimate VIP Experience", quantity: 1, amount: 65 });
     expect(lines[1]).toMatchObject({
-      name: "Race + Bowl Combo (Employee Pass −50%)",
+      name: "Ultimate VIP Experience (Employee Pass −50%)",
       quantity: 1,
       amount: 32.5,
       membershipDiscountPct: 50,
@@ -225,7 +232,7 @@ describe("comboChargeLines — flat per-person pricing", () => {
 describe("buildRaceChargeLines — combo integration (the single display==charge seam)", () => {
   it("combo session: combo line REPLACES the race product lines", () => {
     const lines = buildRaceChargeLines(comboSession());
-    expect(lines.map((l) => l.name)).toEqual(["Race + Bowl Combo"]);
+    expect(lines.map((l) => l.name)).toEqual(["Ultimate VIP Experience"]);
     expect(lines[0].amount).toBe(130);
   });
 
@@ -235,7 +242,7 @@ describe("buildRaceChargeLines — combo integration (the single display==charge
       items: [raceItem({ date: MON, heats: itineraryHeats(MON, ["a", "b"]) }), bowlingItem(MON)],
     });
     const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).toContain("Race + Bowl Combo");
+    expect(names).toContain("Ultimate VIP Experience");
     expect(names).not.toContain("FastTrax License");
   });
 
@@ -243,7 +250,7 @@ describe("buildRaceChargeLines — combo integration (the single display==charge
     const s = comboSession();
     (s.items[0] as RaceItem).povQuantity = 2; // combo flow auto-sets racers × 1
     const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).toContain("Race + Bowl Combo");
+    expect(names).toContain("Ultimate VIP Experience");
     expect(names).not.toContain("POV Race Video");
   });
 
@@ -258,7 +265,7 @@ describe("buildRaceChargeLines — combo integration (the single display==charge
     const s = comboSession();
     (s.items[1] as BowlingItem).durationMinutes = 60; // breaks the gate
     const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).not.toContain("Race + Bowl Combo");
+    expect(names).not.toContain("Ultimate VIP Experience");
     expect(names.length).toBeGreaterThan(0); // the regular race product line(s)
   });
 

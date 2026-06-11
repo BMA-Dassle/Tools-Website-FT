@@ -83,9 +83,11 @@ export function activeComboSpecial(session: BookingSession): ActiveCombo | null 
   if (!raceItem.date || !comboAvailableOn(combo, raceItem.date)) return null;
   if (raceItem.heats.length === 0) return null;
 
-  // Bowling side first: a booked slot at exactly the combo's duration.
+  // Bowling side first: a booked slot at exactly the combo's duration, on
+  // the leg's tier (a VIP combo must actually hold a VIP lane).
   if (!bowlingItem.bookedAt) return null;
   if (bowlingItem.durationMinutes !== bowlComp.durationMinutes) return null;
+  if (bowlComp.vip && bowlingItem.tier !== "vip") return null;
   const bowlingMs = wallClockMs(bowlingItem.bookedAt);
 
   // Race side: every heat picked + assigned; per racer exactly one heat per

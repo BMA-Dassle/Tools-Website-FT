@@ -28,6 +28,7 @@ import {
   type ComboSpecial,
 } from "~/features/combos/combo-specials";
 import { modalBackdropProps } from "@/lib/a11y";
+import { formatHourLabel } from "../bowling/availability-client";
 import { DISABLED_CARD, TRACK_BADGE, TRACK_CARD, TrackInfoBanner } from "../race/track-visuals";
 
 /**
@@ -63,7 +64,7 @@ function legLabel(leg: ComboLeg): string {
   if (leg.kind === "race") return TIER_LABEL[leg.tier] ?? `${leg.tier} race`;
   if (leg.kind === "bowling") {
     const hours = leg.durationMinutes / 60;
-    return `${hours % 1 === 0 ? hours : hours.toFixed(1)} Hours of Bowling`;
+    return `${hours % 1 === 0 ? hours : hours.toFixed(1)} Hours of ${leg.vip ? "VIP " : ""}Bowling`;
   }
   return leg.slug;
 }
@@ -76,6 +77,13 @@ function legIcon(leg: ComboLeg): string {
 
 function comboFor(session: BookingSession): ComboSpecial | null {
   return session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+}
+
+/** ET wall-clock hour (0–26 chip notation) of either vendor's ISO. */
+function etHourOfIso(iso: string): number {
+  const naive = iso.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
+  const h = new Date(naive).getHours();
+  return h < 6 ? h + 24 : h;
 }
 
 function bowlingItemOf(session: BookingSession): BowlingItem | null {
@@ -445,10 +453,43 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
 
   if (!combo) return null;
 
+  // Restricted start grid (registry `startHours`, e.g. 2/4/6/8 PM): ONE cell
+  // per (hour, track) — the first FEASIBLE start inside that hour, else the
+  // first candidate greyed out (covers "lane unavailable" — the chain already
+  // factors the bowling leg). Hours with no heats at all render an
+  // Unavailable placeholder so the four slots always show. No startHours →
+  // every candidate (generic combos keep the full grid).
+  type GridCell =
+    | { kind: "chain"; hour: number | null; result: ChainResult<ComboLegPayload> }
+    | { kind: "empty"; hour: number };
+  const gridCells: GridCell[] = (() => {
+    if (!chains) return [];
+    if (!combo.startHours?.length) {
+      return chains.map((result) => ({ kind: "chain" as const, hour: null, result }));
+    }
+    const cells: GridCell[] = [];
+    for (const hour of combo.startHours) {
+      const inHour = chains
+        .filter((c) => etHourOfIso(c.anchor.startIso) === hour)
+        .sort((a, b) => a.anchor.startMs - b.anchor.startMs);
+      if (inHour.length === 0) {
+        cells.push({ kind: "empty", hour });
+        continue;
+      }
+      const tracks = [...new Set(inHour.map((c) => trackOf(c.anchor) ?? ""))].sort();
+      for (const t of tracks) {
+        const ofTrack = inHour.filter((c) => (trackOf(c.anchor) ?? "") === t);
+        const pick = ofTrack.find((c) => c.chain) ?? ofTrack[0];
+        cells.push({ kind: "chain", hour, result: pick });
+      }
+    }
+    return cells;
+  })();
+
   const anchorTracks = [
     ...new Set(
-      (chains ?? [])
-        .map((c) => trackOf(c.anchor))
+      gridCells
+        .map((c) => (c.kind === "chain" ? trackOf(c.result.anchor) : null))
         .filter((t): t is "Red" | "Blue" | "Mega" => t === "Red" || t === "Blue" || t === "Mega"),
     ),
   ];
@@ -488,7 +529,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
             style={{ borderTopColor: CYAN }}
           />
         </div>
-      ) : !megaJuniorBlocked && (chains ?? []).length === 0 ? (
+      ) : !megaJuniorBlocked && gridCells.length === 0 ? (
         <p className="py-8 text-center text-sm text-white/40">
           No {legLabel(combo.components[0]).toLowerCase()} times this day. Go back and try another
           date.
@@ -497,14 +538,35 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
         !megaJuniorBlocked && (
           <>
             {anchorTracks.length > 0 && <TrackInfoBanner tracks={anchorTracks} />}
-            {(chains ?? []).some((c) => !c.chain) && (
+            {gridCells.some((c) => c.kind === "empty" || !c.result.chain) && (
               <p className="text-center text-xs text-white/35">
-                Grayed-out times can&apos;t fit the full combo (bowling + your second race) before
-                close.
+                Grayed-out times can&apos;t fit the full experience (VIP lane + your second race) —
+                pick another slot or day.
               </p>
             )}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {(chains ?? []).map((c) => {
+            <div
+              className={`grid gap-2 ${
+                combo.startHours?.length
+                  ? "grid-cols-2 sm:grid-cols-4"
+                  : "grid-cols-2 sm:grid-cols-3"
+              }`}
+            >
+              {gridCells.map((cell) => {
+                if (cell.kind === "empty") {
+                  return (
+                    <div
+                      key={`empty-${cell.hour}`}
+                      className={`rounded-xl border p-3 text-left ${DISABLED_CARD}`}
+                      title="No full experience fits in this slot"
+                    >
+                      <span className="text-sm font-bold text-white">
+                        {formatHourLabel(cell.hour)}
+                      </span>
+                      <div className="mt-1 text-xs text-white/30">Unavailable</div>
+                    </div>
+                  );
+                }
+                const c = cell.result;
                 const isFeasible = !!c.chain;
                 const track = trackOf(c.anchor);
                 const theme = track ? TRACK_CARD[track] : undefined;
@@ -530,7 +592,9 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-sm font-bold text-white">
-                        {wallClockLabel(c.anchor.startIso)}
+                        {cell.hour != null
+                          ? formatHourLabel(cell.hour)
+                          : wallClockLabel(c.anchor.startIso)}
                       </span>
                       {badge && (
                         <span
@@ -540,6 +604,11 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                         </span>
                       )}
                     </div>
+                    {cell.hour != null && (
+                      <div className="mt-0.5 text-[11px] text-white/50">
+                        Race starts {wallClockLabel(c.anchor.startIso)}
+                      </div>
+                    )}
                     <div className="mt-1 text-xs">
                       {isFeasible ? (
                         <span className="text-emerald-400">
@@ -701,9 +770,10 @@ const ComboItineraryComponent: StepDef<RaceItem>["Component"] = ({ item, session
             <span className="text-xs font-normal text-white/40">/person</span>
           </span>
         </div>
-        {(combo.includesLicense || combo.includedPovPerRacer > 0) && (
+        {(combo.includesLicense || combo.includedPovPerRacer > 0 || combo.perks?.length) && (
           <p className="mt-1 text-xs" style={{ color: GOLD }}>
-            ✓ Racing license{combo.includedPovPerRacer > 0 ? " + POV race video" : ""} included
+            ✓ Racing license{combo.includedPovPerRacer > 0 ? " + POV race video" : ""}
+            {combo.perks?.length ? " + VIP lane perks" : ""} included
           </p>
         )}
         <div className="mt-1.5 flex items-center justify-between border-t border-white/10 pt-1.5">

@@ -210,16 +210,18 @@ export interface ComboBowlingCandidate {
 }
 
 /**
- * Candidate lane slots for a bowling leg: non-VIP experiences valid on the
- * date that offer EXACTLY the leg's duration, from a full-day 30-min probe.
+ * Candidate lane slots for a bowling leg: experiences of the leg's TIER
+ * (VIP when `vip`, regular otherwise) valid on the date that offer EXACTLY
+ * the leg's duration, from a full-day 30-min probe.
  */
 export async function fetchBowlingLegCandidates(args: {
   centerId: number;
   dateYmd: string;
   players: number;
   durationMinutes: number;
+  vip?: boolean;
 }): Promise<ComboBowlingCandidate[]> {
-  const { centerId, dateYmd, players, durationMinutes } = args;
+  const { centerId, dateYmd, players, durationMinutes, vip = false } = args;
   const centerCode = QAMF_CENTER_CODES[centerId];
   if (!centerCode) return [];
 
@@ -242,7 +244,7 @@ export async function fetchBowlingLegCandidates(args: {
         durationOption: BowlingExperienceDurationOption;
       } =>
         !!e.durationOption &&
-        !e.exp.isVip &&
+        e.exp.isVip === vip &&
         e.exp.kind !== "kbf" &&
         (!Array.isArray(e.exp.daysOfWeek) ||
           e.exp.daysOfWeek.length === 0 ||
@@ -325,6 +327,7 @@ async function legCandidates(
       dateYmd: ctx.dateYmd,
       players: ctx.party.length,
       durationMinutes: leg.durationMinutes,
+      vip: leg.vip ?? false,
     });
     return candidates.map(({ slot, experience, durationOption }) => {
       const startMs = wallClockMs(slot.bookedAt);
@@ -389,7 +392,7 @@ export function comboBowlingPatch(
   const { hour, minute } = etHourMinute(slot.bookedAt);
   return {
     variant: "hourly",
-    tier: "regular",
+    tier: experience.isVip ? "vip" : "regular",
     date: dateYmd,
     hour,
     minute,

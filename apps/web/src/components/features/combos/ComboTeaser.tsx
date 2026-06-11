@@ -42,9 +42,10 @@ export default function ComboTeaser() {
       </div>
       <Link
         href="/attractions#combos"
-        className="inline-block font-body font-bold uppercase text-white transition-all hover:scale-105 flex-shrink-0"
+        className="inline-block font-body font-bold uppercase transition-all hover:scale-105 flex-shrink-0"
         style={{
           backgroundColor: combo.accentColor,
+          color: combo.premium ? "#0a1628" : "#ffffff",
           borderRadius: "555px",
           padding: "16px 24px",
           fontSize: "14px",

@@ -35,7 +35,9 @@ import type { CenterCode } from "~/features/booking/types";
  */
 export type ComboLeg =
   | { kind: "race"; tier: RaceTier }
-  | { kind: "bowling"; durationMinutes: number }
+  /** `vip: true` books a VIP lane experience (semi-private suite, NeoVerse
+   *  wall, chips & salsa) instead of a regular lane. */
+  | { kind: "bowling"; durationMinutes: number; vip?: boolean }
   /** Forward-compat — typed, but the wizard/gate reject it until built. */
   | { kind: "attraction"; slug: string };
 
@@ -67,6 +69,20 @@ export interface ComboSpecial {
    * this many per racer (BMI $0 record) and suppresses the Square POV line.
    */
   includedPovPerRacer: number;
+  /**
+   * Restrict the start-time grid to these ET hours (0–26 chip notation, e.g.
+   * [14, 16, 18, 20] = 2/4/6/8 PM): each hour shows ONE slot per track — the
+   * first feasible first-leg start inside that hour — greyed out when no
+   * full itinerary (incl. the lane) fits from it. Absent = every start.
+   */
+  startHours?: number[];
+  /**
+   * Premium presentation: double-size marketing tile (2 columns on desktop,
+   * taller on mobile), gold treatment, perks list.
+   */
+  premium?: boolean;
+  /** Extra experience perks shown on premium surfaces (e.g. VIP lane perks). */
+  perks?: string[];
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
@@ -82,33 +98,43 @@ const COMBO_RACE_BOWL_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED 
 export const COMBO_SPECIALS: ComboSpecial[] = [
   {
     id: "race-bowl",
-    name: "Race + Bowl Combo",
+    name: "Ultimate VIP Experience",
     shortDescription:
-      "Starter race, 1.5 hours of bowling, then an Intermediate race — one price, one booking.",
+      "Starter race, 1.5 hours of VIP bowling, then an Intermediate race — license, POV video " +
+      "and VIP lane perks included. One price, one booking.",
     longDescription:
-      "Qualify on a Starter race, wind down with 1.5 hours of bowling at HeadPinz, " +
-      "then come back faster on an Intermediate race — racing license and POV race " +
-      "video included, all in one visit, booked and paid in one checkout. Pick your " +
-      "start time; we schedule the rest.",
+      "The full FastTrax + HeadPinz premium night: qualify on a Starter race, take over a " +
+      "semi-private VIP lane for 1.5 hours of bowling, then come back faster on an " +
+      "Intermediate race. Racing license, POV race video, and VIP lane perks (NeoVerse " +
+      "video wall, chips & salsa, premium glow) are all included. Pick a start time — " +
+      "2, 4, 6, or 8 PM — and we schedule the rest.",
     includes: [
       "Starter Race",
-      "1.5 Hours of Bowling",
+      "1.5 Hours of VIP Bowling",
       "Intermediate Race",
       "Racing License + POV Video",
     ],
+    perks: [
+      "Semi-private 8-lane VIP area",
+      "NeoVerse video wall",
+      "Complimentary chips & salsa",
+      "HyperBowling + premium glow lighting",
+    ],
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp",
-    accentColor: "rgb(228,28,29)",
+    accentColor: "#FFD700",
     center: "fort-myers",
     price: { weekday: 6500, weekend: 7500 },
     components: [
       { kind: "race", tier: "starter" },
-      { kind: "bowling", durationMinutes: 90 },
+      { kind: "bowling", durationMinutes: 90, vip: true },
       { kind: "race", tier: "intermediate" },
     ],
     transitionMinutes: 15,
     includesLicense: true,
     includedPovPerRacer: 1,
+    startHours: [14, 16, 18, 20],
+    premium: true,
     enabled: COMBO_RACE_BOWL_ENABLED,
     displayOrder: 10,
   },
