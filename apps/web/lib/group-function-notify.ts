@@ -20,9 +20,11 @@ import { isEventDayEt } from "@/lib/group-event-rules";
 
 const FALLBACK_URL = "https://fasttraxent.com";
 const GF_BCC = ["vendorcases@dassle.us", "jacob@headpinz.com"];
-// $20 win-back mail goes to the guest + audit archive ONLY — planners and
-// jacob are not copied (owner 2026-06-11; the receipt carries a live GAN).
-const WINBACK_BCC = ["vendorcases@dassle.us"];
+// $20 win-back mail AND balance-due dunning mail (t14/t7 reminders, T-72h
+// pay link, T-24h final ask) go to the guest + audit archive ONLY — planners
+// and jacob are not copied (owner 2026-06-11; the win-back receipt carries a
+// live GAN). Sender/reply-to stay the planner so guest replies still route.
+const AUDIT_ONLY_BCC = ["vendorcases@dassle.us"];
 
 function baseUrl(quote: GroupFunctionQuote): string {
   return quote.base_url || FALLBACK_URL;
@@ -685,8 +687,7 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
-      cc: plannerCc(quote),
-      bcc: GF_BCC,
+      bcc: AUDIT_ONLY_BCC,
       subject: `Balance Due — ${quote.event_name || quote.center_name}`,
       html: await buildBalanceLinkHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(quote.balance_cents)} for ${quote.event_name} is due.\n\nPay here: ${quote.balance_payment_link_url}\n\nThank you!\n${quote.center_name}`,
@@ -753,8 +754,7 @@ export async function notifyPaymentDueReminder(
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
-      cc: plannerCc(quote),
-      bcc: GF_BCC,
+      bcc: AUDIT_ONLY_BCC,
       subject: `Balance Due in ${daysOut} Days — ${quote.event_name || quote.center_name}`,
       html: await emailShell(
         quote,
@@ -817,8 +817,7 @@ export async function notifyBalanceDueFinal(
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
-      cc: plannerCc(quote),
-      bcc: GF_BCC,
+      bcc: AUDIT_ONLY_BCC,
       subject: `Your Event is ${dayWord} 🎉 — Settle Up & Let the Fun Begin! (${quote.event_name || quote.center_name})`,
       html: await emailShell(
         quote,
@@ -968,7 +967,7 @@ export async function notifyWinbackOffer(
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
-      bcc: WINBACK_BCC,
+      bcc: AUDIT_ONLY_BCC,
       subject: `Lock in your event & get a ${bonus} e-Gift Card!`,
       html: await emailShell(
         quote,
@@ -1032,7 +1031,7 @@ export async function notifyWinbackReceipt(
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
-      bcc: WINBACK_BCC,
+      bcc: AUDIT_ONLY_BCC,
       subject: `You're All Set — Here's Your ${bonus} e-Gift Card!`,
       html: await emailShell(
         quote,
@@ -1099,7 +1098,7 @@ export async function notifyWinbackBalanceDueFinal(
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
-      bcc: WINBACK_BCC,
+      bcc: AUDIT_ONLY_BCC,
       subject: `Your Event is ${dayWord} 🎉 — Settle Up, Get ${bonus}, Let the Fun Begin`,
       html: await emailShell(
         quote,
