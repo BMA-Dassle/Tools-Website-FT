@@ -8,6 +8,8 @@ import {
   type DepositOverviewRow,
 } from "@/lib/pandora-deposits";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
+import { ARENA_RESOURCES } from "~/features/arena-tickets/constants";
+import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
@@ -40,13 +42,14 @@ function auth(req: NextRequest): boolean {
 async function lookupGuest(
   sessionId: string,
   personId: string,
+  locationId: string = FASTTRAX_LOCATION_ID,
 ): Promise<{
   participant: Participant | null;
   track: string | null;
   raceType: string | null;
   heatNumber: number | null;
 }> {
-  const cacheKey = `pandora:participants:${FASTTRAX_LOCATION_ID}:${sessionId}:R1`;
+  const cacheKey = `pandora:participants:${locationId}:${sessionId}:R1`;
   const cached = await redis.get(cacheKey);
   if (!cached) return { participant: null, track: null, raceType: null, heatNumber: null };
 
@@ -73,8 +76,9 @@ async function lookupGuest(
 async function lookupByParticipantId(
   sessionId: string,
   participateId: string,
+  locationId: string = FASTTRAX_LOCATION_ID,
 ): Promise<Participant | null> {
-  const cacheKey = `pandora:participants:${FASTTRAX_LOCATION_ID}:${sessionId}:R1`;
+  const cacheKey = `pandora:participants:${locationId}:${sessionId}:R1`;
   const cached = await redis.get(cacheKey);
   if (!cached) return null;
   let participants: Participant[];
@@ -173,10 +177,14 @@ interface CheckInResult {
   };
 }
 
-async function checkInViaPandora(personId: string, sessionId: string): Promise<CheckInResult> {
+async function checkInViaPandora(
+  personId: string,
+  sessionId: string,
+  locationId: string = FASTTRAX_LOCATION_ID,
+): Promise<CheckInResult> {
   try {
     const body = JSON.stringify({
-      locationID: FASTTRAX_LOCATION_ID,
+      locationID: locationId,
       personID: personId,
       sessionID: Number(sessionId),
       checkedIn: true,
@@ -205,6 +213,129 @@ async function checkInViaPandora(personId: string, sessionId: string): Promise<C
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Unknown error" };
   }
+}
+
+/**
+ * HP Arena scan path — HP-prefixed QRs carry an explicit locationId
+ * (arena tickets; HP FM today, Naples-ready). Arena has NO
+ * races-current equivalent (Pandora's notification processor is
+ * FastTrax-track-only), so the green/yellow gate is the session's
+ * scheduled time: green from 60 min before start to 30 min after,
+ * yellow otherwise. No headsock (racing-only), no move-resolution
+ * (no live-session source to resolve against — the baked sessionId
+ * is used as-is; a moved player re-receives a fresh ticket from the
+ * arena cron anyway).
+ */
+const ARENA_EARLY_MIN = 60;
+const ARENA_LATE_MIN = 30;
+
+async function findArenaSession(
+  req: NextRequest,
+  locationId: string,
+  sessionId: string,
+): Promise<{ name: string; scheduledStart: string; heatNumber: number | null } | null> {
+  try {
+    const ymd = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    for (const resourceName of ARENA_RESOURCES) {
+      const qs = new URLSearchParams({
+        locationId,
+        resourceName,
+        startDate: `${ymd}T00:00:00`,
+        endDate: `${ymd}T23:59:59`,
+        // Cache-first (cron-warmed), falls through to live on miss —
+        // the desk can't wait for a cold Pandora fetch but also can't
+        // dead-end on a cache gap.
+        prefer: "cache",
+      }).toString();
+      const res = await fetch(`${req.nextUrl.origin}/api/pandora/sessions?${qs}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+      const json = await res.json();
+      const sessions = Array.isArray(json?.data) ? json.data : [];
+      const match = sessions.find(
+        (s: { sessionId?: string | number }) => String(s.sessionId ?? "") === sessionId,
+      );
+      if (match) {
+        return {
+          name: match.name ?? "",
+          scheduledStart: match.scheduledStart ?? "",
+          heatNumber: match.heatNumber ?? null,
+        };
+      }
+    }
+  } catch {
+    /* fall through to null — caller degrades to a yellow card */
+  }
+  return null;
+}
+
+async function handleArenaScan(
+  req: NextRequest,
+  locationId: string,
+  personId: string,
+  sessionId: string,
+): Promise<NextResponse> {
+  const noHeadsock = { detected: false, deducted: false, balance: 0 };
+  const session = await findArenaSession(req, locationId, sessionId);
+  const guestLookup = await lookupGuest(sessionId, personId, locationId);
+  const guest = guestLookup.participant;
+
+  const activity = session ? classifyArenaSession(session.name) : null;
+  const trackLabel = activity ? activityDisplay(activity) : "HP Arena";
+
+  const sessionInfo = {
+    track: trackLabel,
+    raceType: "",
+    heatNumber: session?.heatNumber ?? null,
+    scheduledStart: session?.scheduledStart ?? null,
+  };
+
+  let inWindow = false;
+  if (session?.scheduledStart) {
+    const startMs = new Date(session.scheduledStart).getTime();
+    if (!isNaN(startMs)) {
+      const minsUntil = (startMs - Date.now()) / 60_000;
+      inWindow = minsUntil <= ARENA_EARLY_MIN && minsUntil >= -ARENA_LATE_MIN;
+    }
+  }
+
+  if (!inWindow) {
+    // Yellow card — outside the check-in window (or session metadata
+    // unavailable). Show what we know; staff decides.
+    return NextResponse.json({
+      success: true,
+      guest: guest
+        ? { firstName: guest.firstName, lastName: guest.lastName, pictureUrl: null }
+        : null,
+      session: sessionInfo,
+      currentlyCheckingIn: false,
+      headsock: noHeadsock,
+      arena: true,
+      ...(session ? {} : { detail: "Arena session not found in today's schedule" }),
+    });
+  }
+
+  const checkinResult = await checkInViaPandora(personId, sessionId, locationId);
+  return NextResponse.json({
+    success: checkinResult.success,
+    guest: {
+      firstName: checkinResult.guest?.firstName || guest?.firstName || "",
+      lastName: checkinResult.guest?.lastName || guest?.lastName || "",
+      pictureUrl: checkinResult.guest?.pic ?? null,
+    },
+    session: sessionInfo,
+    currentlyCheckingIn: true,
+    headsock: noHeadsock,
+    arena: true,
+    ...(checkinResult.success ? {} : { detail: checkinResult.error }),
+  });
 }
 
 interface NextRace {
@@ -311,6 +442,9 @@ export async function POST(req: NextRequest) {
   // Drives move-resilient live-session resolution below; null for 3-part QRs
   // and bare paper QRs, which keep their existing behavior.
   let qrParticipantId: string | null = null;
+  // Explicit locationId off an HP-prefixed (arena) QR. Null for all FT
+  // QRs and paper QRs — those stay on the racing path below.
+  let qrLocationId: string | null = null;
 
   if (body.raw) {
     const raw = body.raw.trim();
@@ -319,6 +453,7 @@ export async function POST(req: NextRequest) {
       personId = parsed.personId;
       sessionId = parsed.sessionId;
       qrParticipantId = parsed.participantId ?? null;
+      qrLocationId = parsed.locationId ?? null;
     } else if (/^\d+$/.test(raw)) {
       // Bare number — paper QR with just the participant ID.
       // Search active sessions to find which one they're on.
@@ -339,6 +474,12 @@ export async function POST(req: NextRequest) {
       { error: "invalid input", detail: "personId must be a digit string" },
       { status: 400 },
     );
+  }
+
+  // HP Arena QR — diverges entirely from the racing flow (no
+  // races-current, no headsock, time-window gate). See handleArenaScan.
+  if (qrLocationId && personId && sessionId) {
+    return handleArenaScan(req, qrLocationId, personId, sessionId);
   }
 
   // Get races-current first (needed for both e-ticket QR and paper QR paths)
@@ -677,6 +818,10 @@ export async function GET(req: NextRequest) {
       { input: "FT:12345:67890", expect: true }, // legacy 3-part
       { input: "FT:63000000000021716:99887766", expect: true }, // 17-digit personId
       { input: "FT:12345:67890:49976218", expect: true }, // 4-part w/ participantId
+      { input: "HP:TXBSQN0FEKQ11:12345:67890", expect: true }, // arena 4-part
+      { input: "HP:TXBSQN0FEKQ11:12345:67890:49976218", expect: true }, // arena 5-part
+      { input: "HP:12345:67890:11111", expect: false }, // digits-only "locationId"
+      { input: "HP:txbs:12345:67890", expect: false }, // lowercase locationId
       { input: "NOTFT:123:456", expect: false },
       { input: "FT:123", expect: false },
       { input: "FT:abc:456", expect: false },

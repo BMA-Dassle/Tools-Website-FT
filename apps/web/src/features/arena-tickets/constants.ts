@@ -36,11 +36,12 @@ export const HEADPINZ_BASE_URL = (process.env.HEADPINZ_SITE_URL || "https://head
   "",
 );
 
-/** Check-in QR rendering on arena tickets. OFF until the staff scanner
- *  is location-aware (PR-5) — showing a QR nobody can scan would only
- *  confuse the desk. Arena desk staff already check guests in at POS,
- *  so the ticket works without it. */
-export const ARENA_QR_ENABLED = false;
+/** Check-in QR rendering on arena tickets. Enabled together with the
+ *  location-aware staff scanner (PR-5) — the /api/admin/checkin route
+ *  understands the HP QR form and gates arena scans on the session's
+ *  scheduled-time window. Flip OFF to hide the QR block from arena
+ *  tickets without touching the views. */
+export const ARENA_QR_ENABLED = true;
 
 export const HP_FM_ADDRESS = "14513 Global Parkway, Fort Myers, FL 33913";
 export const HP_FM_PHONE_DISPLAY = "(239) 302-2155";
