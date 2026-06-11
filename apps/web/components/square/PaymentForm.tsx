@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { clickableDivProps } from "@/lib/a11y";
 import SavedCardSelector from "./SavedCardSelector";
 import type { SavedCard } from "./SavedCardSelector";
 import GiftCardCapture, { type GiftCardCaptureHandle } from "./GiftCardCapture";
@@ -298,24 +299,37 @@ export default function PaymentForm({
     };
   }, []);
 
-  async function handleApplePay() {
-    if (status === "processing" || !applePayRef.current) return;
+  // Wallet tokens are ordinary card nonces — they MUST ride the same rail as
+  // typed cards. When `onTokenize` is wired (v2 checkout) the caller's reserve
+  // route does the charging AND creates the reservation; charging here instead
+  // produced payments with no booking (June 2026 orphan-charge incident).
+  async function handleWalletPay(walletRef: SquareDigitalWallet | null, walletName: string) {
+    if (status === "processing" || !walletRef) return;
     setStatus("processing");
     setErrorMessage(null);
     try {
-      const result = await (
-        applePayRef.current as unknown as {
-          tokenize: () => Promise<{ status: string; token?: string }>;
-        }
-      ).tokenize();
-      if (result.status !== "OK" || !result.token) throw new Error("Apple Pay cancelled or failed");
+      const result = await walletRef.tokenize();
+      if (result.status !== "OK" || !result.token)
+        throw new Error(`${walletName} cancelled or failed`);
+      if (onTokenize) {
+        serverLog(`[PaymentForm] ${walletName} token → onTokenize`);
+        await onTokenize({
+          cardNonce: result.token,
+          savedCardId: null,
+          giftCardNonce: giftCardNonce ?? null,
+        });
+        return;
+      }
       await processPayment(result.token, false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Apple Pay failed";
+      const msg = err instanceof Error ? err.message : `${walletName} failed`;
       setStatus("error");
       setErrorMessage(msg);
     }
   }
+
+  const handleApplePay = () => handleWalletPay(applePayRef.current, "Apple Pay");
+  const handleGooglePay = () => handleWalletPay(googlePayRef.current, "Google Pay");
 
   async function processPayment(token: string | null, usingSavedCard: boolean) {
     // `token` may be null when the gift card fully covers the bill —
@@ -516,8 +530,13 @@ export default function PaymentForm({
             Apple Pay
           </button>
         )}
+        {/* Square attach() renders the button but the integrator owns the
+            click → tokenize step; without this handler the button is inert. */}
         <div
           id="sq-google-pay"
+          {...clickableDivProps(handleGooglePay, "Pay with Google Pay", {
+            disabled: status === "processing",
+          })}
           className={googlePayReady ? "w-full min-h-[48px] [&_iframe]:!w-full" : "hidden"}
         />
       </div>
