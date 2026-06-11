@@ -1107,10 +1107,34 @@ export async function loadGiftCard(params: {
 /** Square caps a single gift card at $2,000. */
 export const GIFT_CARD_MAX_CENTS = 200_000;
 
+/** Current balance of a gift card, in cents. Throws on lookup failure. */
+export async function getGiftCardBalanceCents(giftCardId: string): Promise<number> {
+  const res = await fetch(`${SQUARE_BASE}/gift-cards/${encodeURIComponent(giftCardId)}`, {
+    headers: sqHeaders(),
+  });
+  const data = await res.json();
+  if (!res.ok || data.errors) {
+    const sqErr = data.errors?.[0];
+    throw new SquarePaymentError(
+      sqErr?.code ?? "GIFT_CARD_RETRIEVE_FAILED",
+      sqErr?.detail ?? `status ${res.status}`,
+      res.status,
+    );
+  }
+  return data.gift_card?.balance_money?.amount ?? 0;
+}
+
 /**
  * Distribute `amountCents` across the given gift cards (LOAD onto existing
  * cards up to the $2k/card cap), creating + ACTIVATING new DIGITAL cards for
- * any overflow. Returns the full list of gift card ids including any created.
+ * any overflow. Returns the full list of gift card ids including any created;
+ * callers MUST persist `createdCards` onto the quote, or the day-of payout
+ * will never see those funds.
+ *
+ * The $2k cap is on a card's BALANCE, not on the load amount — a card already
+ * holding the 50% deposit only has the remaining headroom, so any event over
+ * $2,000 total overflows onto a new card here (this broke #H2821: $1,115.50
+ * deposit + $1,115.50 balance > $2,000 → Square rejected the load).
  *
  * Mirrors the 72-hour balance-load loop so the deposit, balance auto-charge,
  * link reconcile, and reprice paths all fund the day-of gift cards identically.
@@ -1122,14 +1146,17 @@ export async function loadBalanceOntoGiftCards(params: {
   amountCents: number;
   baseKey: string;
   buyerPaymentInstrumentIds?: string[];
-}): Promise<{ giftCardIds: string[] }> {
+}): Promise<{ giftCardIds: string[]; createdCards: Array<{ id: string; gan: string | null }> }> {
   const gcIds = [...params.giftCardIds];
+  const createdCards: Array<{ id: string; gan: string | null }> = [];
   const buyer = params.buyerPaymentInstrumentIds ?? [];
   let remaining = params.amountCents;
 
-  // Top up existing cards first.
+  // Top up existing cards first, within each card's remaining balance headroom.
   for (let i = 0; i < gcIds.length && remaining > 0; i++) {
-    const loadAmount = Math.min(remaining, GIFT_CARD_MAX_CENTS);
+    const headroom = GIFT_CARD_MAX_CENTS - (await getGiftCardBalanceCents(gcIds[i]));
+    if (headroom <= 0) continue;
+    const loadAmount = Math.min(remaining, headroom);
     await loadGiftCard({
       giftCardId: gcIds[i],
       locationId: params.locationId,
@@ -1155,7 +1182,7 @@ export async function loadBalanceOntoGiftCards(params: {
     });
     const gcData = await gcRes.json();
     if (gcRes.ok && gcData.gift_card?.id) {
-      await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+      const actRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
         method: "POST",
         headers: sqHeaders(),
         body: JSON.stringify({
@@ -1171,7 +1198,16 @@ export async function loadBalanceOntoGiftCards(params: {
           },
         }),
       });
+      const actData = await actRes.json();
+      if (!actRes.ok || actData.errors) {
+        throw new SquarePaymentError(
+          actData.errors?.[0]?.code ?? "GIFT_CARD_OVERFLOW_ACTIVATE_FAILED",
+          actData.errors?.[0]?.detail ?? `status ${actRes.status}`,
+          actRes.status,
+        );
+      }
       gcIds.push(gcData.gift_card.id);
+      createdCards.push({ id: gcData.gift_card.id, gan: gcData.gift_card.gan ?? null });
     } else {
       throw new SquarePaymentError(
         gcData.errors?.[0]?.code ?? "GIFT_CARD_OVERFLOW_CREATE_FAILED",
@@ -1183,7 +1219,7 @@ export async function loadBalanceOntoGiftCards(params: {
     newIdx++;
   }
 
-  return { giftCardIds: gcIds };
+  return { giftCardIds: gcIds, createdCards };
 }
 
 /**

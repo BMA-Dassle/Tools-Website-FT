@@ -1,5 +1,33 @@
 # Lessons Learned
 
+## Square truths from the H2821 stuck balance: link orders stay OPEN, the $2k gift-card cap is on BALANCE (2026-06-11)
+
+#H2821 (ASCE, $2,231 event, event-day discovery) showed "Balance Pending" + "BALANCE LINK SENT"
+while the customer had **already paid the link two days earlier**. Two independent bugs stacked:
+
+1. **A paid Square quick-pay payment link does NOT complete its backing order.** Quick-pay orders
+   have no fulfillment, so Square leaves them `state=OPEN` forever — fully tendered, `$0` due,
+   payment `COMPLETED/CAPTURED`. The reconcile cron's paid test was `order.state === "COMPLETED"`,
+   so it polled a fully-paid order every 15 minutes and called it unpaid. Paid-detection must treat
+   *fully tendered* as paid (`tenders.length > 0 && net_amount_due === 0`, then verify the tender's
+   payment is `COMPLETED`). Same trap exists anywhere else we poll an order for payment.
+2. **Square's $2,000 gift-card cap applies to the card's BALANCE, not the load amount.**
+   `loadBalanceOntoGiftCards` topped up existing cards with `min(remaining, $2k)` — but a card
+   already holding the 50% deposit only has `$2k − balance` headroom, so EVERY event totaling
+   > $2,000 threw at balance-load time. Fix: fetch current balance, load into headroom, overflow
+   onto new cards. Corollary: **callers must persist overflow card ids/gans onto the quote**
+   (`updateGfGiftCardList`) or day-of payout never sees the funds — all three callers ignored the
+   loader's return value.
+
+Also fixed: `Promise.allSettled` summaries that count `errors++` without logging `r.reason` hide
+the only copy of the failure — the $2k bug was invisible until a log line was added.
+
+Remediated live (quote 119 #H2821 + quote 65 #H2981 — both customers had paid; gift cards loaded,
+status `balance_charged`, receipts sent). Replaced Square payment links with the self-hosted
+`/contract/{shortId}/pay` page (`/api/group-function/balance-pay` charges + loads + flips status
+synchronously) so a paid-but-unreconciled state can't recur; the reconcile cron remains for legacy
+square.link URLs only.
+
 ## Every payment entry point must ride the same rail — "effectively dead" fallbacks charge real cards (2026-06-10)
 
 35 customers (~$1,127) were charged with NO booking created over ~48h after the June 7 v1→v2
