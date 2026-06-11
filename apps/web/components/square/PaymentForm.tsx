@@ -495,7 +495,11 @@ export default function PaymentForm({
           {...clickableDivProps(handleGooglePay, "Pay with Google Pay", {
             disabled: status === "processing",
           })}
-          className={googlePayReady ? "w-full min-h-[48px] [&_iframe]:!w-full" : "hidden"}
+          className={
+            googlePayReady
+              ? "w-full min-h-[48px] flex justify-center [&_iframe]:!w-full [&>*]:mx-auto"
+              : "hidden"
+          }
         />
       </div>
       <div id="sq-apple-pay" className="hidden" />
@@ -616,9 +620,9 @@ export default function PaymentForm({
           type="button"
           onClick={() => setShowGiftCard(true)}
           disabled={status === "processing"}
-          className="w-full text-center text-sm text-white/40 underline underline-offset-2 hover:text-white/70 transition-colors disabled:opacity-40"
+          className="w-full py-3 rounded-xl border border-dashed border-white/30 text-sm font-semibold text-white/75 hover:border-[#00E2E5]/60 hover:text-white transition-colors disabled:opacity-40"
         >
-          Have a gift card?
+          🎁 Have a gift card?
         </button>
       )}
 
