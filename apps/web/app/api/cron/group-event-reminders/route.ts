@@ -154,6 +154,18 @@ export async function GET(req: NextRequest) {
 
 // ── candidate selection ───────────────────────────────────────────────
 
+/**
+ * Anti-spam backstop: a rule whose send() THROWS never writes the dedup gate
+ * (recordError) and would otherwise retry every cron tick for as long as the
+ * quote stays in its window — a deliver-then-throw bug could re-email a guest
+ * dozens of times. After this many failed attempts (ledger rows with
+ * status='failed') the rule is permanently silenced for that quote.
+ * Reported-failure sends (e.g. SendGrid reject) already write the dedup gate
+ * and never retry; intentional no-channel retries record status='skipped' and
+ * stay unlimited — they send nothing.
+ */
+const MAX_FAILED_ATTEMPTS = 3;
+
 async function selectCandidates(
   rule: ReminderRule,
   dedupKey: string,
@@ -176,6 +188,12 @@ async function selectCandidates(
         AND event_date <= NOW() + make_interval(hours => ${maxH})
         AND (${notExWb} OR is_winback = FALSE)
         AND (${notWbOnly} OR is_winback = TRUE)
+        AND (
+          SELECT COUNT(*) FROM group_event_notifications gen
+          WHERE gen.quote_id = group_function_quotes.id
+            AND gen.rule_key = ${rule.key}
+            AND gen.status = 'failed'
+        ) < ${MAX_FAILED_ATTEMPTS}
       ORDER BY event_date ASC
       LIMIT ${limit}
     `;
@@ -194,6 +212,12 @@ async function selectCandidates(
         SELECT 1 FROM contract_audit_log cal
         WHERE cal.quote_id = group_function_quotes.id AND cal.event = ${dedupKey}
       )
+      AND (
+        SELECT COUNT(*) FROM group_event_notifications gen
+        WHERE gen.quote_id = group_function_quotes.id
+          AND gen.rule_key = ${rule.key}
+          AND gen.status = 'failed'
+      ) < ${MAX_FAILED_ATTEMPTS}
     ORDER BY event_date ASC
     LIMIT ${limit}
   `;

@@ -518,6 +518,22 @@ export async function getGfQuoteByPandaDocId(
 
 // ── Balance-due queries ─────────────────────────────────────────────
 
+/**
+ * When will the remaining balance actually be charged once a card is on file?
+ * Mirrors getQuotesNeedingBalanceCharge: past event_date − 72h, the next
+ * group-balance-charge run (every 15 min) charges immediately — not "in 72 hours".
+ * Customer-facing copy must switch from "72 hours before your event" to
+ * "today" once this returns "immediate".
+ */
+export function balanceChargeTiming(
+  quote: Pick<GroupFunctionQuote, "event_date">,
+  now: Date = new Date(),
+): "72h" | "immediate" {
+  return new Date(quote.event_date).getTime() - 72 * 3_600_000 <= now.getTime()
+    ? "immediate"
+    : "72h";
+}
+
 export async function getQuotesNeedingBalanceCharge(): Promise<GroupFunctionQuote[]> {
   await ensureGfSchema();
   const q = sql();

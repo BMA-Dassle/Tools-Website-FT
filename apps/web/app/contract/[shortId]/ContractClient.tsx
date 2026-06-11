@@ -689,12 +689,24 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
               <span className="text-emerald-400">{incentiveLabel} gift card</span>
             </h2>
             <p className="mt-3 text-gray-300">
-              Re-confirm your event and add a card on file below, and we&apos;ll send you a{" "}
-              {incentiveLabel} e-gift card as our thank-you.
+              {balanceChargePast ? (
+                <>
+                  Your event is almost here — add your card now to settle your{" "}
+                  {fmtDollars(quote.totalCents - quote.priorDepositCents)} balance, and your{" "}
+                  {incentiveLabel} e-gift card still applies.
+                </>
+              ) : (
+                <>
+                  Re-confirm your event and add a card on file below, and we&apos;ll send you a{" "}
+                  {incentiveLabel} e-gift card as our thank-you.
+                </>
+              )}
             </p>
             <p className="mt-2 flex items-center gap-2 text-sm font-medium text-cyan-300">
               <IconClock size={16} className="flex-shrink-0" />
-              Adding your card now also saves time getting started on the day of your event.
+              {balanceChargePast
+                ? "Your balance is charged today when you add your card — then you're all set for the big day."
+                : "Adding your card now also saves time getting started on the day of your event."}
             </p>
           </div>
         </div>
@@ -1039,9 +1051,20 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                         <div className="flex-1">
                           <p className="font-semibold">Card on File Required</p>
                           <p className="text-sm text-gray-400">
-                            No additional deposit — your card will be saved for the remaining
-                            balance of {fmtDollars(quote.totalCents - quote.priorDepositCents)},
-                            charged 72 hours before the event
+                            {balanceChargePast ? (
+                              <>
+                                No additional deposit to pay — your card will be saved and the
+                                remaining balance of{" "}
+                                {fmtDollars(quote.totalCents - quote.priorDepositCents)} will be
+                                charged today
+                              </>
+                            ) : (
+                              <>
+                                No additional deposit — your card will be saved for the remaining
+                                balance of {fmtDollars(quote.totalCents - quote.priorDepositCents)},
+                                charged 72 hours before the event
+                              </>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -1086,9 +1109,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                           2
                         </div>
                         <div className="flex-1">
-                          <p className="font-semibold">Remaining Balance — {balanceChargeDate}</p>
+                          <p className="font-semibold">
+                            Remaining Balance —{" "}
+                            {balanceChargePast ? "Charged Today" : balanceChargeDate}
+                          </p>
                           <p className="text-sm text-gray-400">
-                            Automatically charged to your card on file, 72 hours before your event
+                            {balanceChargePast
+                              ? "Automatically charged to your card on file today"
+                              : "Automatically charged to your card on file, 72 hours before your event"}
                           </p>
                         </div>
                         <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
@@ -1241,7 +1269,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   {
                     title: "Payments",
                     text: cardOnFileOnly
-                      ? "Your previous deposit has been applied. A card on file is required for the remaining balance, charged 72 hours before your event."
+                      ? balanceChargePast
+                        ? "Your previous deposit has been applied. A card on file is required for the remaining balance, which is charged the day you add your card."
+                        : "Your previous deposit has been applied. A card on file is required for the remaining balance, charged 72 hours before your event."
                       : hasLegacyDeposit && legacyChargeCents > 0
                         ? `Your previous deposit has been applied. The remaining balance of ${fmtDollars(legacyChargeCents)} is due today.`
                         : isFullPayment
@@ -1699,14 +1729,24 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     difference and confirm.
                   </>
                 ) : cardOnFileOnly ? (
-                  <>
-                    No additional payment required today. Your card will be saved for the remaining
-                    balance of{" "}
-                    <span className="font-semibold text-white">
-                      {fmtDollars(quote.totalCents - quote.priorDepositCents)}
-                    </span>
-                    , charged 72 hours before your event.
-                  </>
+                  balanceChargePast ? (
+                    <>
+                      Your card will be saved and your remaining balance of{" "}
+                      <span className="font-semibold text-white">
+                        {fmtDollars(quote.totalCents - quote.priorDepositCents)}
+                      </span>{" "}
+                      will be charged today — your event is almost here!
+                    </>
+                  ) : (
+                    <>
+                      No additional payment required today. Your card will be saved for the
+                      remaining balance of{" "}
+                      <span className="font-semibold text-white">
+                        {fmtDollars(quote.totalCents - quote.priorDepositCents)}
+                      </span>
+                      , charged 72 hours before your event.
+                    </>
+                  )
                 ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
                   <>
                     Remaining balance:{" "}
@@ -1752,7 +1792,11 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                       and saved on file for any future changes.
                     </>
                   ) : cardOnFileOnly ? (
-                    "Your card will be saved on file for the remaining balance, charged automatically 72 hours before your event."
+                    balanceChargePast ? (
+                      "Your card will be saved on file and the remaining balance will be charged automatically today."
+                    ) : (
+                      "Your card will be saved on file for the remaining balance, charged automatically 72 hours before your event."
+                    )
                   ) : hasLegacyDeposit && legacyChargeCents > 0 ? (
                     <>
                       Your card will be charged{" "}
@@ -1765,7 +1809,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     <>
                       Your card will be saved on file. The remaining balance of{" "}
                       <strong className="text-white">{fmtDollars(quote.balanceCents)}</strong> will
-                      be automatically charged 72 hours prior to your event.
+                      be automatically charged{" "}
+                      {balanceChargePast ? "today" : "72 hours prior to your event"}.
                     </>
                   )}
                 </p>

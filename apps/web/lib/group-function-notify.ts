@@ -14,7 +14,7 @@ import { sendAdaptiveCardToChannel, updateAdaptiveCard } from "@/lib/teams-bot";
 import { PLANNERS } from "@/lib/sales-lead-config";
 import { notifyContractDataIssues } from "@/lib/group-function-alert";
 import type { GroupFunctionQuote } from "@/lib/group-function-db";
-import { parseGiftCardGans } from "@/lib/group-function-db";
+import { parseGiftCardGans, balanceChargeTiming } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
 
 const FALLBACK_URL = "https://fasttraxent.com";
@@ -136,7 +136,7 @@ export async function notifyContractSent(quote: GroupFunctionQuote): Promise<voi
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Your Event Contract — ${quote.event_name || quote.center_name}`,
-      html: buildContractSentHtml(quote, contractUrl),
+      html: await buildContractSentHtml(quote, contractUrl),
       text: `Hi ${quote.guest_first_name},\n\nYour event contract is ready to review and sign.\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nTotal: ${dollars(quote.total_cents)}\n\nReview & Sign: ${contractUrl}\n\nQuestions? Reply to this email.\n\n${pName}\n${quote.center_name}`,
     }),
 
@@ -185,7 +185,7 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Contract Updated — ${quote.event_name || quote.center_name}`,
-      html: buildContractUpdatedHtml(quote, contractUrl),
+      html: await buildContractUpdatedHtml(quote, contractUrl),
       text: `Hi ${quote.guest_first_name},\n\nYour event contract for ${quote.event_name} has been updated with new details.\n\nReview the changes: ${contractUrl}\n\nQuestions? Reply to this email.\n\n${pName}\n${quote.center_name}`,
     }),
 
@@ -211,6 +211,15 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
 // ── Deposit Paid ────────────────────────────────────────────────────
 
 export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void> {
+  // Inside 72h the balance cron charges within ~15 min of card save — never
+  // promise "72 hours before" when the charge is effectively immediate.
+  const immediate = balanceChargeTiming(quote) === "immediate";
+  const balanceLine =
+    quote.balance_cents > 0
+      ? immediate
+        ? `Your remaining balance of ${dollars(quote.balance_cents)} will be charged today.`
+        : `Your remaining balance of ${dollars(quote.balance_cents)} will be charged 72 hours before your event.`
+      : "";
   const results = await Promise.allSettled([
     quote.guest_phone
       ? voxSend(
@@ -218,9 +227,7 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
           [
             `${quote.guest_first_name}, your deposit of ${dollars(quote.deposit_due_cents)} for ${quote.event_name || "your event"} has been received!`,
             primaryGan(quote) ? `Reference: ${primaryGan(quote)}` : "",
-            quote.balance_cents > 0
-              ? `Your remaining balance of ${dollars(quote.balance_cents)} will be charged 72 hours before your event.`
-              : "",
+            balanceLine,
             `View your event: ${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_deposit`,
             `See you at ${quote.center_name}!`,
           ]
@@ -237,8 +244,8 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Deposit Received — ${quote.event_name || quote.center_name}`,
-      html: buildDepositPaidHtml(quote),
-      text: `Hi ${quote.guest_first_name},\n\nYour deposit of ${dollars(quote.deposit_due_cents)} has been received for ${quote.event_name}.\n\nReference: ${primaryGan(quote) || "N/A"}\nRemaining balance: ${dollars(quote.balance_cents)}\n\nThe remaining balance will be charged 72 hours before your event.\n\nThank you!\n${quote.center_name}`,
+      html: await buildDepositPaidHtml(quote),
+      text: `Hi ${quote.guest_first_name},\n\nYour deposit of ${dollars(quote.deposit_due_cents)} has been received for ${quote.event_name}.\n\nReference: ${primaryGan(quote) || "N/A"}${quote.balance_cents > 0 ? `\nRemaining balance: ${dollars(quote.balance_cents)}\n\n${balanceLine}` : ""}\n\nThank you!\n${quote.center_name}`,
     }),
 
     updateContractTeamsCard(quote, "deposit_paid"),
@@ -315,7 +322,7 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Waivers Required — ${quote.event_name || quote.center_name}`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         "Waivers Required",
         "Please complete waivers before your event",
@@ -337,6 +344,7 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
         </div>
 
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">You can also access the waiver link anytime from your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+        { omitWaiverNotice: true },
       ),
       text: `Hi ${quote.guest_first_name},\n\nYour deposit is confirmed! Before your event, every participant must complete a waiver.\n\nComplete waivers here: ${waiverUrl}\n\nPlease forward this link to everyone in your group. Incomplete waivers may delay check-in.\n\nQuestions? Contact ${plannerName(quote)}.\n${quote.center_name}`,
     }),
@@ -395,7 +403,7 @@ export async function notify7DayWaiverReminder(
       replyTo: quote.planner_email || undefined,
       bcc: GF_BCC,
       subject: `Action Required: Waivers Must Be Completed — ${quote.event_name || quote.center_name}`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         "Waivers Must Be Completed Within 7 Days",
         "Your event is coming up — don't wait!",
@@ -418,6 +426,7 @@ export async function notify7DayWaiverReminder(
         </div>
 
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">View your event details anytime on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+        { omitWaiverNotice: true },
       ),
       text: `Hi ${quote.guest_first_name},\n\nYour event is 7 days away! All participants must complete a waiver before arriving.\n\nComplete waivers: ${waiverUrl}\n\nPlease share this link with everyone in your group. Failure to complete waivers may result in check-in delays.\n\nIf text don't work, copy and paste the waiver link above.\n\n${quote.center_name}`,
     }),
@@ -476,7 +485,7 @@ export async function notify2DayWaiverWarning(
       replyTo: quote.planner_email || undefined,
       bcc: GF_BCC,
       subject: `ONLY 2 DAYS LEFT — Complete Waivers Now! — ${quote.event_name || quote.center_name}`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         "Only 2 Days Left to Complete Waiver!",
         "This is your final reminder",
@@ -497,6 +506,7 @@ export async function notify2DayWaiverWarning(
         </div>
 
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">If you have already completed your waiver, please disregard this email. View event details on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
+        { omitWaiverNotice: true },
       ),
       text: `URGENT: ${quote.guest_first_name}, your event is in 2 days!\n\nAll participants must complete their waiver within the next 48 hours.\n\nGuests without a signed waiver will not be able to participate.\n\nComplete waivers: ${waiverUrl}\n\nShare this link with your entire group.\n\nIf already completed, please disregard.\n\n${quote.center_name}`,
     }),
@@ -535,7 +545,7 @@ export async function notifyBalanceCharged(quote: GroupFunctionQuote): Promise<v
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Payment Complete — ${quote.event_name || quote.center_name}`,
-      html: buildBalanceChargedHtml(quote),
+      html: await buildBalanceChargedHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(quote.total_cents - quote.deposit_due_cents)} has been charged. You're all set for ${quote.event_name} on ${quote.event_date_display}!\n\nThank you!\n${quote.center_name}`,
     }),
 
@@ -674,7 +684,7 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Balance Due — ${quote.event_name || quote.center_name}`,
-      html: buildBalanceLinkHtml(quote),
+      html: await buildBalanceLinkHtml(quote),
       text: `Hi ${quote.guest_first_name},\n\nYour remaining balance of ${dollars(quote.balance_cents)} for ${quote.event_name} is due.\n\nPay here: ${quote.balance_payment_link_url}\n\nThank you!\n${quote.center_name}`,
     }),
 
@@ -742,7 +752,7 @@ export async function notifyPaymentDueReminder(
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Balance Due in ${daysOut} Days — ${quote.event_name || quote.center_name}`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         `${quote.guest_first_name}, your balance is due soon`,
         `${daysOut} days until your event balance is due`,
@@ -766,6 +776,66 @@ export async function notifyPaymentDueReminder(
   return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
 }
 
+/**
+ * Day-of final ask for events that reach event MORNING still owing. Exciting
+ * framing: get the contracted balance out of the way now, then it's all fun.
+ * Extras stay flexible — additional items can be added with the server on-site.
+ * payUrl is the existing balance payment link if present, else the contract
+ * portal — we do NOT mint a new Square link here.
+ */
+export async function notifyBalanceDueToday(
+  quote: GroupFunctionQuote,
+  payUrl: string,
+  opts?: { smsSuppressed?: boolean },
+): Promise<NotifyResult> {
+  const amountDue = quote.total_cents - quote.collected_cents;
+  const pName = plannerName(quote);
+
+  const results = await Promise.allSettled([
+    quote.guest_phone && !opts?.smsSuppressed
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event at ${quote.center_name} is TODAY! 🎉`,
+            `Get the final balance on your contract (${dollars(amountDue)}) out of the way now — then it's all fun from there: ${payUrl}`,
+            `Extras? Your server can add items on-site. Questions? Contact ${pName}.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Your Event is TODAY 🎉 — Settle Up & Let the Fun Begin! (${quote.event_name || quote.center_name})`,
+      html: await emailShell(
+        quote,
+        `${quote.guest_first_name}, your event is HERE! 🎉`,
+        "Get the final balance out of the way — then it's all fun",
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Today's the day! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} is just hours away. Take one minute to settle the final balance on your contract now, and the only thing left to do when you walk in is have fun — no paperwork, no waiting, straight to the good part.</p>
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event Total", dollars(quote.total_cents))}
+          ${pricingRow("Collected", dollars(quote.collected_cents))}
+          ${pricingRow("Contracted Balance Due Today", dollars(amountDue), true)}
+        </table>
+        ${ctaButton("Settle Up & Let the Fun Begin", payUrl)}
+        <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Want extra games, food, or add-ons? Easy — additional items can always be added with your server on-site.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name || ""} at ${quote.center_name} is TODAY! Get the final balance on your contract (${dollars(amountDue)}) out of the way now — then it's all fun from there.\n\nPay here: ${payUrl}\n\nWant extras? Additional items can always be added with your server on-site.\n\nSee you soon!\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") console.error("[gf-notify] balanceDueToday failed:", r.reason);
+  }
+  const sms = smsResult(results[0]);
+  memoLog(quote, `Day-of balance reminder sent to ${quote.guest_email}`);
+  return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
+}
+
 /** Post-event thank-you (email only — gentler, no late-night SMS). */
 export async function notifyThankYou(quote: GroupFunctionQuote): Promise<NotifyResult> {
   const venue = quote.brand === "headpinz" ? "bowling center" : "racing center";
@@ -778,12 +848,13 @@ export async function notifyThankYou(quote: GroupFunctionQuote): Promise<NotifyR
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Thank You from ${quote.center_name}!`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         `Thank you, ${quote.guest_first_name}!`,
         "We hope your event was a blast",
         `<p style="margin:0 0 16px;font-size:15px;color:#475569">Thank you for hosting <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at our ${venue}! We hope everyone had an amazing time.</p>
         <p style="margin:0 0 16px;font-size:15px;color:#475569">We'd love to host you again — just reach out anytime to start planning your next event.</p>`,
+        { omitWaiverNotice: true },
       ),
       text: `Hi ${quote.guest_first_name},\n\nThank you for hosting ${quote.event_name} at ${quote.center_name}! We hope everyone had a great time.\n\nWe'd love to host you again.\n\n${quote.center_name}`,
     }),
@@ -825,7 +896,7 @@ export async function notifyHeadcountFinal(
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Last chance to update your event — ${quote.event_name || quote.center_name}`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         `${quote.guest_first_name}, any changes before we finalize?`,
         "Last chance to update your event before we finalize your total",
@@ -864,6 +935,9 @@ export async function notifyWinbackOffer(
   const bonus = dollars(quote.incentive_cents || 2000);
   const pName = plannerName(quote);
   const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=winback`;
+  // Inside 72h the balance cron charges within ~15 min of card save — the
+  // "no charge today / 72 hours before" promise would be false. Be honest.
+  const immediate = balanceChargeTiming(quote) === "immediate";
 
   const results = await Promise.allSettled([
     quote.guest_phone && !opts?.smsSuppressed
@@ -871,7 +945,9 @@ export async function notifyWinbackOffer(
           quote.guest_phone,
           [
             `${quote.guest_first_name}, lock in ${quote.event_name || "your event"} at ${quote.center_name} & get a ${bonus} e-gift card on us!`,
-            `Add your card on file now — we'll charge the ${dollars(amountDue)} balance 72 hours before, just like normal.`,
+            immediate
+              ? `Your event is almost here — add your card on file now and we'll settle the ${dollars(amountDue)} balance today; your ${bonus} e-gift card is issued right away.`
+              : `Add your card on file now — we'll charge the ${dollars(amountDue)} balance 72 hours before, just like normal.`,
             `Get started: ${url}`,
             `Questions? Contact ${pName}.`,
           ].join("\n"),
@@ -886,22 +962,28 @@ export async function notifyWinbackOffer(
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Lock in your event & get a ${bonus} e-Gift Card!`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         `${quote.guest_first_name}, add your card & get ${bonus}`,
         `Lock in your event and we'll send you a ${bonus} e-gift card today`,
         `<p style="margin:0 0 16px;font-size:15px;color:#475569">Let's get <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name} fully locked in! Add a card on file now and we'll send you a <strong style="color:#004aad">${bonus} e-gift card</strong> right away — spend it on arrival on concessions, games, whatever you like.</p>
-        <p style="margin:0 0 16px;font-size:15px;color:#475569">No charge today — we'll automatically charge your remaining balance <strong>72 hours before your event</strong>, exactly like every other event.</p>
+        ${
+          immediate
+            ? `<p style="margin:0 0 16px;font-size:15px;color:#475569">Your event is almost here! Add your card on file now and we'll settle your remaining balance of <strong style="color:#0f172a">${dollars(amountDue)}</strong> today — and your <strong>${bonus} e-gift card</strong> still applies, issued the moment your card is on file.</p>`
+            : `<p style="margin:0 0 16px;font-size:15px;color:#475569">No charge today — we'll automatically charge your remaining balance <strong>72 hours before your event</strong>, exactly like every other event.</p>`
+        }
         <table style="width:100%;margin:16px 0;border-collapse:collapse">
           ${pricingRow("Event Total", dollars(quote.total_cents))}
           ${pricingRow("Deposit Paid", dollars(quote.deposit_due_cents))}
-          ${pricingRow("Balance (charged 72hrs before)", dollars(amountDue), true)}
+          ${pricingRow(immediate ? "Balance (charged today)" : "Balance (charged 72hrs before)", dollars(amountDue), true)}
           ${pricingRow("Your Bonus", `${bonus} e-gift card — today`, true)}
         </table>
         ${ctaButton(`Add Card & Claim ${bonus}`, url)}
         <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Your ${bonus} e-gift card is issued the moment your card is on file.</p>`,
       ),
-      text: `Hi ${quote.guest_first_name},\n\nLock in ${quote.event_name} at ${quote.center_name} and get a ${bonus} e-gift card today! Add your card on file now — no charge today; we'll charge your ${dollars(amountDue)} balance 72 hours before your event, just like normal.\n\nGet started: ${url}\n\n${quote.center_name}`,
+      text: immediate
+        ? `Hi ${quote.guest_first_name},\n\nLock in ${quote.event_name} at ${quote.center_name} and get a ${bonus} e-gift card today! Your event is almost here — add your card on file now and we'll settle your ${dollars(amountDue)} balance today; your ${bonus} e-gift card is issued right away.\n\nGet started: ${url}\n\n${quote.center_name}`
+        : `Hi ${quote.guest_first_name},\n\nLock in ${quote.event_name} at ${quote.center_name} and get a ${bonus} e-gift card today! Add your card on file now — no charge today; we'll charge your ${dollars(amountDue)} balance 72 hours before your event, just like normal.\n\nGet started: ${url}\n\n${quote.center_name}`,
     }),
   ]);
 
@@ -921,6 +1003,8 @@ export async function notifyWinbackReceipt(
 ): Promise<NotifyResult> {
   const bonus = dollars(quote.incentive_cents || 2000);
   const amountDue = quote.total_cents - quote.deposit_due_cents;
+  // Inside 72h the balance cron charges this card within ~15 min — say so.
+  const immediate = balanceChargeTiming(quote) === "immediate";
   const results = await Promise.allSettled([
     quote.guest_phone && !opts?.smsSuppressed
       ? voxSend(
@@ -928,7 +1012,9 @@ export async function notifyWinbackReceipt(
           [
             `${quote.guest_first_name}, you're all set for ${quote.event_name || "your event"} — card's on file!`,
             `Your ${bonus} e-gift card is ready: ${incentiveGan}. Spend it on arrival at ${quote.center_name}.`,
-            `We'll charge your ${dollars(amountDue)} balance 72 hours before your event.`,
+            immediate
+              ? `Your remaining balance of ${dollars(amountDue)} will be charged to your card shortly — you're all set for your event!`
+              : `We'll charge your ${dollars(amountDue)} balance 72 hours before your event.`,
           ].join("\n"),
         )
       : Promise.resolve(),
@@ -941,18 +1027,26 @@ export async function notifyWinbackReceipt(
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `You're All Set — Here's Your ${bonus} e-Gift Card!`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         `Thank you, ${quote.guest_first_name}!`,
         `Your card is on file and your ${bonus} e-gift card is ready`,
-        `<p style="margin:0 0 16px;font-size:15px;color:#475569">You're all set for <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Your card is securely on file, and we'll automatically charge your remaining balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> 72 hours before your event.</p>
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">You're all set for <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Your card is securely on file, and ${
+          immediate
+            ? `your remaining balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> will be charged shortly — you're all set for your event.`
+            : `we'll automatically charge your remaining balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> 72 hours before your event.`
+        }</p>
         <div style="background:#eef6ff;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #004aad">
           <p style="margin:0 0 6px;font-size:13px;font-weight:bold;color:#004aad;text-transform:uppercase;letter-spacing:1px">Your ${bonus} e-Gift Card</p>
           <p style="margin:0;font-size:18px;font-weight:bold;color:#0f172a;letter-spacing:1px">${incentiveGan}</p>
           <p style="margin:8px 0 0;font-size:13px;color:#475569">Spend it on arrival — concessions, games, or anything else. No need to print; just give this number at the counter.</p>
         </div>`,
       ),
-      text: `Hi ${quote.guest_first_name},\n\nYou're all set for ${quote.event_name} — your card is on file and your ${bonus} e-gift card is ready: ${incentiveGan}\n\nWe'll charge your ${dollars(amountDue)} balance 72 hours before your event. Spend your ${bonus} on arrival at ${quote.center_name}.\n\nThank you!`,
+      text: `Hi ${quote.guest_first_name},\n\nYou're all set for ${quote.event_name} — your card is on file and your ${bonus} e-gift card is ready: ${incentiveGan}\n\n${
+        immediate
+          ? `Your remaining balance of ${dollars(amountDue)} will be charged shortly — you're all set for your event.`
+          : `We'll charge your ${dollars(amountDue)} balance 72 hours before your event.`
+      } Spend your ${bonus} on arrival at ${quote.center_name}.\n\nThank you!`,
     }),
   ]);
 
@@ -961,6 +1055,68 @@ export async function notifyWinbackReceipt(
   }
   const sms = smsResult(results[0]);
   memoLog(quote, `Win-back $20 card ${incentiveGan} issued (card on file) to ${quote.guest_email}`);
+  return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
+}
+
+/**
+ * Day-of final ask for win-back events that never added a card. Their pay path
+ * is the contract portal: add a card → the balance cron charges within ~15 min
+ * → the $20 e-gift card mints. Only fires on event day (rule-gated), so the
+ * copy says "today" outright.
+ */
+export async function notifyWinbackBalanceDueToday(
+  quote: GroupFunctionQuote,
+  opts?: { smsSuppressed?: boolean },
+): Promise<NotifyResult> {
+  const amountDue = quote.total_cents - quote.deposit_due_cents;
+  const bonus = dollars(quote.incentive_cents || 2000);
+  const pName = plannerName(quote);
+  const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=winback_dayof`;
+
+  const results = await Promise.allSettled([
+    quote.guest_phone && !opts?.smsSuppressed
+      ? voxSend(
+          quote.guest_phone,
+          [
+            `${quote.guest_first_name}, your event at ${quote.center_name} is TODAY! 🎉`,
+            `Get the final balance out of the way now — add your card to settle the ${dollars(amountDue)} contracted balance, and your ${bonus} e-gift card still applies: ${url}`,
+            `Extras? Your server can add items on-site. Questions? Contact ${pName}.`,
+          ].join("\n"),
+        )
+      : Promise.resolve(),
+
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject: `Your Event is TODAY 🎉 — Settle Up, Get ${bonus}, Let the Fun Begin`,
+      html: await emailShell(
+        quote,
+        `${quote.guest_first_name}, your event is HERE! 🎉`,
+        `Settle your balance now — your ${bonus} e-gift card still applies`,
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Today's the day! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} kicks off in just a few hours. Get the final balance out of the way now: add a card on file and we'll settle your contracted balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> today — your <strong style="color:#004aad">${bonus} e-gift card</strong> is issued the moment your card is on file, and the rest of the day is pure fun.</p>
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event Total", dollars(quote.total_cents))}
+          ${pricingRow("Deposit Paid", dollars(quote.deposit_due_cents))}
+          ${pricingRow("Contracted Balance (charged today)", dollars(amountDue), true)}
+          ${pricingRow("Your Bonus", `${bonus} e-gift card — today`, true)}
+        </table>
+        ${ctaButton(`Add Card & Claim ${bonus}`, url)}
+        <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Want extra games, food, or add-ons? Easy — additional items can always be added with your server on-site.</p>`,
+      ),
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name || ""} at ${quote.center_name} is TODAY! Get the final balance out of the way now: add your card to settle the ${dollars(amountDue)} contracted balance — your ${bonus} e-gift card still applies.\n\nGet started: ${url}\n\nWant extras? Additional items can always be added with your server on-site.\n\nSee you soon!\n${quote.center_name}`,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected")
+      console.error("[gf-notify] winbackBalanceDueToday failed:", r.reason);
+  }
+  const sms = smsResult(results[0]);
+  memoLog(quote, `Day-of win-back balance reminder sent to ${quote.guest_email}`);
   return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
 }
 
@@ -1009,7 +1165,7 @@ export async function notify96HourReminder(
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Action Needed — Your Event Is Almost Here!`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         `${quote.guest_first_name}, your event is almost here`,
         "Last call to change your guest count — your balance is charged tomorrow",
@@ -1110,7 +1266,7 @@ export async function notifyBalanceReceipt(
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Payment Complete — See You Soon!`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         "You're all set!",
         `Payment complete for ${quote.event_name || "your event"}`,
@@ -1191,7 +1347,7 @@ export async function notifyEventCancelled(
       cc: plannerCc(quote),
       bcc: GF_BCC,
       subject: `Event Cancelled — ${quote.event_name || quote.center_name}`,
-      html: emailShell(
+      html: await emailShell(
         quote,
         "Event Cancelled",
         `${quote.event_name || "Your event"} has been cancelled`,
@@ -1206,6 +1362,7 @@ export async function notifyEventCancelled(
         ${refundBlock}
 
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">If you have questions about this cancellation, please contact your event planner.</p>`,
+        { omitWaiverNotice: true },
       ),
       text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name} at ${quote.center_name} has been cancelled.\n\n${hasRefund ? "A refund has been initiated. Please allow 5-10 business days.\n\n" : ""}Questions? Contact ${pName}.\n${quote.center_name}`,
     }),
@@ -1231,7 +1388,7 @@ export async function notifyApprovalNeeded(quote: GroupFunctionQuote): Promise<v
       to,
       subject: `[APPROVAL NEEDED] Post-Paid: ${quote.event_name || quote.center_name}`,
       bcc: GF_BCC,
-      html: emailShell(
+      html: await emailShell(
         quote,
         "Post-Paid Approval Required",
         `${quote.event_name || "Event"} requires management approval`,
@@ -1247,7 +1404,8 @@ export async function notifyApprovalNeeded(quote: GroupFunctionQuote): Promise<v
         ${ctaButton("Review & Approve", approveUrl)}
 
         <p style="margin:0;font-size:13px;color:#64748b;text-align:center">This event uses a post-paid account. No deposit will be collected.</p>`,
-      ),
+        { omitWaiverNotice: true },
+      ), // staff-internal: no guest waiver banner
       text: `Post-paid approval needed for ${quote.event_name}\n\nCustomer: ${quote.guest_first_name} ${quote.guest_last_name}\nTotal: ${dollars(quote.total_cents)}\nPlanner: ${plannerName(quote)}\n\nReview: ${approveUrl}`,
     }).catch((err) => console.error("[gf-notify] approval email failed:", err));
   }
@@ -1264,7 +1422,7 @@ export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<v
     cc: APPROVAL_RECIPIENTS.join(","),
     bcc: GF_BCC,
     subject: `Post-Paid Account Denied — ${quote.event_name || quote.center_name}`,
-    html: emailShell(
+    html: await emailShell(
       quote,
       "Post-Paid Account Denied",
       `${quote.event_name || "Event"} was not approved for post-paid billing`,
@@ -1280,6 +1438,7 @@ export async function notifyPostPaidDenied(quote: GroupFunctionQuote): Promise<v
       }
 
       <p style="margin:16px 0 0;font-size:13px;color:#64748b">Please convert this to a standard deposit event or contact management for further discussion.</p>`,
+      { omitWaiverNotice: true },
     ),
     text: `Post-paid account denied for ${quote.event_name}\n\n${quote.denial_reason ? `Reason: ${quote.denial_reason}\n\n` : ""}Please convert this to a standard deposit event or contact management.`,
   });
@@ -1418,14 +1577,62 @@ function buildGroupFunctionCard(
 
 // ── Premium Email HTML ──────────────────────────────────────────────
 
-function emailShell(
+// Per-quote waiver-URL cache — one BMI lookup per quote per warm lambda.
+const WAIVER_URL_CACHE = new Map<number, string | null>();
+
+/** Event-specific waiver signing link (kiosk), or null when unresolvable. */
+async function eventWaiverUrl(quote: GroupFunctionQuote): Promise<string | null> {
+  const cached = WAIVER_URL_CACHE.get(quote.id);
+  if (cached !== undefined) return cached;
+  let url: string | null = null;
+  try {
+    const { fetchProject } = await import("@/lib/bmi-office-actions");
+    const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
+    if (project?.projectReference) {
+      const clientKey = CLIENT_KEYS_NOTIFY[quote.center_code] || "headpinzftmyers";
+      url = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(String(project.projectReference))}`;
+    }
+  } catch {
+    /* non-fatal — the notice renders without a link */
+  }
+  WAIVER_URL_CACHE.set(quote.id, url);
+  return url;
+}
+
+/**
+ * Loud, unmissable waiver banner injected into EVERY guest lifecycle email
+ * (owner requirement 2026-06-11). Self-qualifying copy: only events with
+ * laser tag / gel blasters / karting need waivers, but the banner rides every
+ * email so no planner or guest can miss it. Dedicated waiver emails opt out
+ * via emailShell's omitWaiverNotice (they carry richer activity-specific copy).
+ */
+function waiverNoticeRow(waiverUrl: string | null): string {
+  return `
+  <!-- WAIVER NOTICE -->
+  <tr><td style="padding:0 40px 24px 40px;font-family:Arial,sans-serif">
+    <div style="background:#fef2f2;border:2px solid #dc2626;border-radius:12px;padding:18px;text-align:center">
+      <p style="margin:0 0 6px;font-size:15px;font-weight:bold;color:#dc2626;text-transform:uppercase;letter-spacing:1px">⚠️ Waivers Required</p>
+      <p style="margin:0 0 12px;font-size:14px;color:#7f1d1d;line-height:1.6">If your event includes <strong>laser tag, gel blasters, or go-kart racing</strong>, ALL participants must sign a waiver before the event. Share the link with everyone attending — signed waivers mean no waiting at check-in!</p>
+      ${
+        waiverUrl
+          ? `<a href="${waiverUrl}" style="display:inline-block;padding:11px 22px;background-color:#dc2626;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px;letter-spacing:1px;text-transform:uppercase;font-family:Arial,sans-serif">Sign Your Event Waiver</a>
+      <p style="margin:10px 0 0;font-size:12px;font-family:monospace;color:#7f1d1d;word-break:break-all">${waiverUrl}</p>`
+          : `<p style="margin:0;font-size:13px;color:#7f1d1d">Find your event's waiver link on your event page, or ask your planner.</p>`
+      }
+    </div>
+  </td></tr>`;
+}
+
+async function emailShell(
   quote: GroupFunctionQuote,
   heroTitle: string,
   heroSubtitle: string,
   content: string,
-): string {
+  opts?: { omitWaiverNotice?: boolean },
+): Promise<string> {
   const pName = plannerName(quote);
   const domain = quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com";
+  const waiverNotice = opts?.omitWaiverNotice ? "" : waiverNoticeRow(await eventWaiverUrl(quote));
 
   return `<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light" /><meta name="supported-color-schemes" content="light" /><style type="text/css">:root{color-scheme:light;supported-color-schemes:light}#outlook a{padding:0}a img{border:none}table td{border-collapse:collapse}body{margin:0;padding:0;background-color:#f2f3f5;-webkit-text-size-adjust:100%}a{color:#004aad}.section-label{font-size:10px;text-transform:uppercase;letter-spacing:3px;color:#004aad;font-weight:bold}.cta-btn{display:inline-block;padding:14px 28px;background-color:#004aad;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase}.cta-btn.red{background-color:#d71c1c;color:#ffffff !important}</style></head>
 <body style="margin:0;padding:0;background-color:#f2f3f5">
@@ -1451,7 +1658,7 @@ function emailShell(
   <tr><td style="padding:0 40px 24px 40px;font-family:Arial,sans-serif">
     ${content}
   </td></tr>
-
+  ${waiverNotice}
   <!-- EVENT SUMMARY -->
   <tr><td style="padding:0 40px 24px 40px;font-family:Arial,sans-serif">
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e0e0e0;border-radius:6px;overflow:hidden">
@@ -1493,7 +1700,10 @@ function pricingRow(label: string, value: string, highlight?: boolean): string {
   return `<tr><td style="padding:6px 0;color:#888;font-size:13px;font-family:Arial,sans-serif">${label}</td><td style="padding:6px 0;text-align:right;font-size:14px;font-weight:${highlight ? "bold" : "normal"};color:${highlight ? "#004aad" : "#1a1a1a"};font-family:Arial,sans-serif">${value}</td></tr>`;
 }
 
-function buildContractSentHtml(quote: GroupFunctionQuote, contractUrl: string): string {
+async function buildContractSentHtml(
+  quote: GroupFunctionQuote,
+  contractUrl: string,
+): Promise<string> {
   return emailShell(
     quote,
     `${quote.guest_first_name}, your experience awaits`,
@@ -1512,7 +1722,10 @@ function buildContractSentHtml(quote: GroupFunctionQuote, contractUrl: string): 
   );
 }
 
-function buildContractUpdatedHtml(quote: GroupFunctionQuote, contractUrl: string): string {
+async function buildContractUpdatedHtml(
+  quote: GroupFunctionQuote,
+  contractUrl: string,
+): Promise<string> {
   return emailShell(
     quote,
     "Contract Updated",
@@ -1531,7 +1744,7 @@ function buildContractUpdatedHtml(quote: GroupFunctionQuote, contractUrl: string
   );
 }
 
-function buildDepositPaidHtml(quote: GroupFunctionQuote): string {
+async function buildDepositPaidHtml(quote: GroupFunctionQuote): Promise<string> {
   return emailShell(
     quote,
     "Deposit Received!",
@@ -1550,13 +1763,13 @@ function buildDepositPaidHtml(quote: GroupFunctionQuote): string {
       ${quote.balance_cents > 0 ? pricingRow("Remaining Balance", dollars(quote.balance_cents)) : ""}
     </table>
 
-    ${quote.balance_cents > 0 ? `<p style="margin:0 0 16px;font-size:13px;color:#64748b;text-align:center">The remaining balance will be automatically charged 72 hours before your event.</p>` : ""}
+    ${quote.balance_cents > 0 ? `<p style="margin:0 0 16px;font-size:13px;color:#64748b;text-align:center">The remaining balance will be automatically charged ${balanceChargeTiming(quote) === "immediate" ? "today" : "72 hours before your event"}.</p>` : ""}
 
     ${ctaButton("View Your Event", `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_deposit`)}`,
   );
 }
 
-function buildBalanceChargedHtml(quote: GroupFunctionQuote): string {
+async function buildBalanceChargedHtml(quote: GroupFunctionQuote): Promise<string> {
   return emailShell(
     quote,
     "You're All Set!",
@@ -1578,7 +1791,7 @@ function buildBalanceChargedHtml(quote: GroupFunctionQuote): string {
   );
 }
 
-function buildBalanceLinkHtml(quote: GroupFunctionQuote): string {
+async function buildBalanceLinkHtml(quote: GroupFunctionQuote): Promise<string> {
   return emailShell(
     quote,
     "Balance Due",
