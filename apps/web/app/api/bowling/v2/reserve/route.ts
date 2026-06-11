@@ -1038,6 +1038,21 @@ export async function POST(req: NextRequest) {
           (dayofOrderData.order?.total_money?.amount as number) ?? authoritativeTotalCents;
       }
 
+      // Re-base the deposit on the TAX-INCLUSIVE day-of total now that the order
+      // exists. The estimate above (actualDepositToCharge) used the PRE-TAX
+      // subtotal whenever there was no quote (body.depositCents absent) — which
+      // under-funds the gift card by county tax, so the lane-open charge is short
+      // and Square rejects it ("The payment total does not match the order
+      // total"). This notably hit KBF (adult-game / VIP extras are 100% deposit
+      // but were funded pre-tax). The quote path already passes a tax-inclusive
+      // body.depositCents, and the reward path already used the authoritative
+      // total — both are left untouched. Matches the route's stated contract:
+      // "deposit = depositPct% of the tax-inclusive day-of total."
+      const chargeCents =
+        !loyaltyRewardId && body.depositCents == null && totalCents > 0
+          ? Math.round((totalCents * overallDepositPct) / 100)
+          : actualDepositToCharge;
+
       // ── Charge deposit via shared deposit service ───────────────
       const ganPrefix = CENTER_GAN_PREFIX[centerCode] ?? "HP";
       const ganSuffix = qamfReservationId.replace(/[^A-Za-z0-9]/g, "");
@@ -1045,7 +1060,7 @@ export async function POST(req: NextRequest) {
 
       try {
         const depositResult = await createDepositAndCharge({
-          amountCents: actualDepositToCharge,
+          amountCents: chargeCents,
           locationId: squareLocationId,
           cardSourceId: body.squareToken,
           giftCardNonce: body.giftCardNonce,
@@ -1059,7 +1074,7 @@ export async function POST(req: NextRequest) {
         squareDepositPaymentId = depositResult.depositPaymentId;
         squareGiftCardId = depositResult.giftCardId ?? undefined;
         squareGiftCardGan = depositResult.giftCardGan ?? undefined;
-        depositCents = actualDepositToCharge;
+        depositCents = chargeCents;
       } catch (err) {
         // Payment failed — delete loyalty reward to return points
         if (loyaltyRewardId) {
