@@ -52,6 +52,13 @@ export interface ComboHeatCandidate {
   /** BMI wall-clock-in-Z start (the heatId the cart stores). */
   start: string;
   stop: string;
+  /**
+   * The PRIMARY category's track (adults when present, else juniors) — the
+   * card identity in the grid, matching the normal Red/Blue heat picker.
+   * One candidate per (start, track); other categories ride the same start
+   * on whatever track they have (juniors are Blue-only off-Mega).
+   */
+  track: string | null;
   /** Min free spots across the categories (vs that category's headcount). */
   freeSpots: number;
   /** Per-category booking info for `entriesForPick`-style heat writes. */
@@ -91,10 +98,13 @@ function productsForLeg(dateYmd: string, tier: string, category: RaceCategory): 
 }
 
 /**
- * Candidate starts for ONE race leg: times where EVERY category present has a
- * block with enough free spots for that category's headcount (the combo books
- * the whole party onto one block per leg). When any racer is new and the date
- * is today, starts inside the 75-min lead window are dropped.
+ * Candidate starts for ONE race leg — one candidate per (start, PRIMARY
+ * track), matching the normal Red/Blue heat grid. The primary category
+ * (adults when present, else juniors) enumerates its per-track blocks; every
+ * OTHER category present must have a block at the SAME start (its best
+ * track) with enough free spots for its headcount — the combo books the
+ * whole party onto one start per leg. When any racer is new and the date is
+ * today, starts inside the 75-min lead window are dropped.
  */
 export async function fetchRaceLegCandidates(args: {
   dateYmd: string;
@@ -105,21 +115,19 @@ export async function fetchRaceLegCandidates(args: {
   const cats = categoriesInParty(party);
   if (cats.length === 0) return [];
 
-  // Per category: start → best block across that category's track products.
-  const perCatBlocks = new Map<
-    RaceCategory,
-    Map<string, { stop: string; freeSpots: number; productId: string; track: string | null }>
-  >();
+  type BlockInfo = { stop: string; freeSpots: number; productId: string; track: string | null };
+  // Per category: "start|track" → block (primary enumerates per-track);
+  // plus per category: start → best block across tracks (secondary match).
+  const perCatByStartTrack = new Map<RaceCategory, Map<string, BlockInfo & { start: string }>>();
+  const perCatBestByStart = new Map<RaceCategory, Map<string, BlockInfo>>();
 
   for (const { category } of cats) {
     const products = productsForLeg(dateYmd, tier, category);
     // No product for this (tier, category, schedule) — e.g. junior Starter on
     // Mega Tuesday doesn't exist → the whole leg is infeasible.
     if (products.length === 0) return [];
-    const byStart = new Map<
-      string,
-      { stop: string; freeSpots: number; productId: string; track: string | null }
-    >();
+    const byStartTrack = new Map<string, BlockInfo & { start: string }>();
+    const bestByStart = new Map<string, BlockInfo>();
     for (const product of products) {
       const availability = await bmiAdapter.getAvailability({
         date: dateYmd,
@@ -130,31 +138,33 @@ export async function fetchRaceLegCandidates(args: {
       for (const proposal of availability.proposals ?? []) {
         const block = proposal.blocks?.[0]?.block;
         if (!block?.start) continue;
-        const prev = byStart.get(block.start);
-        if (!prev || block.freeSpots > prev.freeSpots) {
-          byStart.set(block.start, {
-            stop: block.stop,
-            freeSpots: block.freeSpots,
-            productId: product.productId,
-            track: (product.track as string | null) ?? null,
-          });
-        }
+        const info: BlockInfo = {
+          stop: block.stop,
+          freeSpots: block.freeSpots,
+          productId: product.productId,
+          track: (product.track as string | null) ?? null,
+        };
+        byStartTrack.set(`${block.start}|${info.track ?? ""}`, { ...info, start: block.start });
+        const prev = bestByStart.get(block.start);
+        if (!prev || info.freeSpots > prev.freeSpots) bestByStart.set(block.start, info);
       }
     }
-    perCatBlocks.set(category, byStart);
+    perCatByStartTrack.set(category, byStartTrack);
+    perCatBestByStart.set(category, bestByStart);
   }
 
-  // Intersect starts across categories, requiring capacity per category.
   const anyNewRacer = party.some((m) => m.isNewRacer);
   const leadCutoffMs =
     anyNewRacer && isTodayEt(dateYmd) ? Date.now() + NEW_RACER_LEAD_MINUTES * 60_000 : null;
 
-  const [first, ...rest] = cats;
+  // Primary category drives the (start, track) cards; secondaries must match
+  // the start with capacity on their best track.
+  const [primary, ...rest] = cats;
   const candidates: ComboHeatCandidate[] = [];
-  for (const [start, base] of perCatBlocks.get(first.category)!) {
-    if (base.freeSpots < first.count) continue;
+  for (const base of perCatByStartTrack.get(primary.category)!.values()) {
+    if (base.freeSpots < primary.count) continue;
     const perCategory: ComboHeatCandidate["perCategory"] = {
-      [first.category]: {
+      [primary.category]: {
         productId: base.productId,
         track: base.track,
         freeSpots: base.freeSpots,
@@ -163,7 +173,7 @@ export async function fetchRaceLegCandidates(args: {
     let ok = true;
     let minFree = base.freeSpots;
     for (const { category, count } of rest) {
-      const match = perCatBlocks.get(category)!.get(start);
+      const match = perCatBestByStart.get(category)!.get(base.start);
       if (!match || match.freeSpots < count) {
         ok = false;
         break;
@@ -176,10 +186,19 @@ export async function fetchRaceLegCandidates(args: {
       minFree = Math.min(minFree, match.freeSpots);
     }
     if (!ok) continue;
-    if (leadCutoffMs != null && wallClockMs(start) < leadCutoffMs) continue;
-    candidates.push({ start, stop: base.stop, freeSpots: minFree, perCategory });
+    if (leadCutoffMs != null && wallClockMs(base.start) < leadCutoffMs) continue;
+    candidates.push({
+      start: base.start,
+      stop: base.stop,
+      track: base.track,
+      freeSpots: minFree,
+      perCategory,
+    });
   }
-  return candidates.sort((a, b) => wallClockMs(a.start) - wallClockMs(b.start));
+  return candidates.sort(
+    (a, b) =>
+      wallClockMs(a.start) - wallClockMs(b.start) || (a.track ?? "").localeCompare(b.track ?? ""),
+  );
 }
 
 /* ──────────────────────── bowling leg candidates ────────────────────── */

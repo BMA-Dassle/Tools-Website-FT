@@ -56,6 +56,39 @@ export function wallClockLabel(iso: string): string {
 }
 
 /**
+ * Per-leg candidate filters for chain assembly — index-aligned with the legs
+ * (entry 0, the anchor leg, is ignored). Lets the schedule-confirm modal
+ * offer choices like "Blue or Red for your second race": pass a filter that
+ * only admits that track's candidates and see whether a chain still fits.
+ */
+export type LegFilter<P> = ((c: LegCandidate<P>) => boolean) | null;
+
+/**
+ * Greedy-earliest chain from a GIVEN anchor, with optional per-leg filters.
+ * Returns the full chain (anchor included) or null when nothing fits.
+ */
+export function buildChainFrom<P>(
+  legCandidates: Array<Array<LegCandidate<P>>>,
+  transitionMinutes: number,
+  anchor: LegCandidate<P>,
+  filters?: Array<LegFilter<P>>,
+): LegCandidate<P>[] | null {
+  const transitionMs = transitionMinutes * 60_000;
+  const chain: LegCandidate<P>[] = [anchor];
+  let prevEnd = anchor.endMs;
+  for (let leg = 1; leg < legCandidates.length; leg++) {
+    const filter = filters?.[leg] ?? null;
+    const next = [...legCandidates[leg]]
+      .sort((a, b) => a.startMs - b.startMs)
+      .find((c) => c.startMs >= prevEnd + transitionMs && (!filter || filter(c)));
+    if (!next) return null;
+    chain.push(next);
+    prevEnd = next.endMs;
+  }
+  return chain;
+}
+
+/**
  * Assemble the earliest feasible chain for every first-leg candidate.
  *
  * `legCandidates[i]` = the day's candidates for leg i (any order; sorted
@@ -69,18 +102,9 @@ export function buildChains<P>(
   transitionMinutes: number,
 ): Array<ChainResult<P>> {
   if (legCandidates.length === 0) return [];
-  const transitionMs = transitionMinutes * 60_000;
   const sorted = legCandidates.map((c) => [...c].sort((a, b) => a.startMs - b.startMs));
-
-  return sorted[0].map((anchor) => {
-    const chain: LegCandidate<P>[] = [anchor];
-    let prevEnd = anchor.endMs;
-    for (let leg = 1; leg < sorted.length; leg++) {
-      const next = sorted[leg].find((c) => c.startMs >= prevEnd + transitionMs);
-      if (!next) return { anchor, chain: null };
-      chain.push(next);
-      prevEnd = next.endMs;
-    }
-    return { anchor, chain };
-  });
+  return sorted[0].map((anchor) => ({
+    anchor,
+    chain: buildChainFrom(sorted, transitionMinutes, anchor),
+  }));
 }

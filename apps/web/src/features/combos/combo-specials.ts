@@ -57,6 +57,16 @@ export interface ComboSpecial {
   components: ComboLeg[];
   /** Walk buffer between legs (minutes) — owner default 15. */
   transitionMinutes: number;
+  /**
+   * The racing license ($4.99/new racer) is INCLUDED in the combo price —
+   * the $0 BMI license record still books, but no separate Square line.
+   */
+  includesLicense: boolean;
+  /**
+   * POV race videos INCLUDED in the price, per racer. The combo auto-sells
+   * this many per racer (BMI $0 record) and suppresses the Square POV line.
+   */
+  includedPovPerRacer: number;
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
@@ -77,9 +87,15 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "Starter race, 1.5 hours of bowling, then an Intermediate race — one price, one booking.",
     longDescription:
       "Qualify on a Starter race, wind down with 1.5 hours of bowling at HeadPinz, " +
-      "then come back faster on an Intermediate race — all in one visit, booked and " +
-      "paid in one checkout. Pick your start time; we schedule the rest.",
-    includes: ["Starter Race", "1.5 Hours of Bowling", "Intermediate Race"],
+      "then come back faster on an Intermediate race — racing license and POV race " +
+      "video included, all in one visit, booked and paid in one checkout. Pick your " +
+      "start time; we schedule the rest.",
+    includes: [
+      "Starter Race",
+      "1.5 Hours of Bowling",
+      "Intermediate Race",
+      "Racing License + POV Video",
+    ],
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp",
     accentColor: "rgb(228,28,29)",
@@ -91,6 +107,8 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       { kind: "race", tier: "intermediate" },
     ],
     transitionMinutes: 15,
+    includesLicense: true,
+    includedPovPerRacer: 1,
     enabled: COMBO_RACE_BOWL_ENABLED,
     displayOrder: 10,
   },

@@ -229,14 +229,29 @@ describe("buildRaceChargeLines — combo integration (the single display==charge
     expect(lines[0].amount).toBe(130);
   });
 
-  it("license still charges on top for new racers (not a combo component)", () => {
+  it("license is INCLUDED — no separate Square line even with new racers", () => {
     const s = comboSession(MON, {
       party: [member("a", { isNewRacer: true }), member("b")],
       items: [raceItem({ date: MON, heats: itineraryHeats(MON, ["a", "b"]) }), bowlingItem(MON)],
     });
     const names = buildRaceChargeLines(s).map((l) => l.name);
     expect(names).toContain("Race + Bowl Combo");
-    expect(names).toContain("FastTrax License");
+    expect(names).not.toContain("FastTrax License");
+  });
+
+  it("included POV (1/racer) is absorbed — no Square POV line for the auto-set quantity", () => {
+    const s = comboSession();
+    (s.items[0] as RaceItem).povQuantity = 2; // combo flow auto-sets racers × 1
+    const names = buildRaceChargeLines(s).map((l) => l.name);
+    expect(names).toContain("Race + Bowl Combo");
+    expect(names).not.toContain("POV Race Video");
+  });
+
+  it("POV beyond the included count would still charge (defensive)", () => {
+    const s = comboSession();
+    (s.items[0] as RaceItem).povQuantity = 3; // one more than included (2 racers × 1)
+    const pov = buildRaceChargeLines(s).find((l) => l.name === "POV Race Video");
+    expect(pov).toMatchObject({ quantity: 1 });
   });
 
   it("gate failure falls back to normal item-sum race lines", () => {

@@ -34,6 +34,9 @@ describe("combo-specials registry", () => {
       { kind: "race", tier: "intermediate" },
     ]);
     expect(raceBowl.transitionMinutes).toBe(15);
+    // Owner: the pack INCLUDES the racing license and one POV per racer.
+    expect(raceBowl.includesLicense).toBe(true);
+    expect(raceBowl.includedPovPerRacer).toBe(1);
   });
 
   it("leg helpers read the ordered itinerary", () => {

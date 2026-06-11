@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChains, wallClockMs, type LegCandidate } from "./combo-itinerary";
+import { buildChainFrom, buildChains, wallClockMs, type LegCandidate } from "./combo-itinerary";
 
 /** Candidate from naive ET wall-clock times on 2026-06-01. */
 function cand(start: string, minutes: number, payload = ""): LegCandidate<string> {
@@ -72,5 +72,30 @@ describe("buildChains — greedy-earliest itinerary assembly", () => {
   it("empty leg candidates → every anchor infeasible", () => {
     const r = buildChains([[cand("12:00", 12, "s")], []], 15)[0];
     expect(r.chain).toBeNull();
+  });
+});
+
+describe("buildChainFrom — per-leg filters (track choice in the confirm modal)", () => {
+  const anchor = cand("13:00", 12, "s");
+  const lanes = [cand("13:30", 90, "b")];
+  const ints = [cand("15:15", 12, "int-red"), cand("16:00", 12, "int-blue")];
+
+  it("no filter → earliest candidate per leg", () => {
+    const chain = buildChainFrom([[anchor], lanes, ints], 15, anchor);
+    expect(chain?.map((c) => c.payload)).toEqual(["s", "b", "int-red"]);
+  });
+
+  it("a leg filter steers the pick (e.g. Blue track for the second race)", () => {
+    const chain = buildChainFrom([[anchor], lanes, ints], 15, anchor, [
+      null,
+      null,
+      (c) => c.payload === "int-blue",
+    ]);
+    expect(chain?.map((c) => c.payload)).toEqual(["s", "b", "int-blue"]);
+  });
+
+  it("returns null when the filtered leg has nothing that fits", () => {
+    const chain = buildChainFrom([[anchor], lanes, ints], 15, anchor, [null, null, () => false]);
+    expect(chain).toBeNull();
   });
 });

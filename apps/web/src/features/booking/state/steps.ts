@@ -128,7 +128,9 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     hiddenInCombo(RaceHeatPickerStepJunior as StepDef),
     ComboStartTimeStep as StepDef,
     ComboItineraryStep as StepDef,
-    RacePovStep as StepDef,
+    // Combo price INCLUDES license + POV (registry flags) — the upsell step
+    // is hidden and the combo flow auto-sets povQuantity.
+    hiddenInCombo(RacePovStep as StepDef),
     // Add-ons removed — user returns to activity picker after completing
     // race steps and adds attractions as separate cart items.
   ],
