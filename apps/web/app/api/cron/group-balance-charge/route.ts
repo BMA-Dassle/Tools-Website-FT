@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import {
   getQuotesNeedingBalanceCharge,
+  claimGfBalanceCharge,
   updateGfBalanceCharged,
   updateGfBalanceLinkSent,
   updateGfBalancePrepaid,
@@ -79,21 +80,25 @@ export async function GET(req: NextRequest) {
     total: quotes.length,
     autoCharged: 0,
     linksSent: 0,
+    skipped: 0,
     errors: 0,
   };
 
-  for (const r of results) {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     if (r.status === "fulfilled") {
       if (r.value === "auto_charged") summary.autoCharged++;
       else if (r.value === "link_sent") summary.linksSent++;
+      else summary.skipped++;
     } else {
       summary.errors++;
+      console.error(`[group-balance-charge] quote=${quotes[i].id} failed:`, r.reason);
     }
   }
 
   console.log(
     `[group-balance-charge] total=${summary.total} auto=${summary.autoCharged} ` +
-      `links=${summary.linksSent} errors=${summary.errors}`,
+      `links=${summary.linksSent} skipped=${summary.skipped} errors=${summary.errors}`,
   );
 
   return NextResponse.json({ ok: true, ...summary });
@@ -101,7 +106,16 @@ export async function GET(req: NextRequest) {
 
 async function processBalanceCharge(
   quote: GroupFunctionQuote,
-): Promise<"auto_charged" | "link_sent"> {
+): Promise<"auto_charged" | "link_sent" | "skipped"> {
+  // Atomic claim: only one runner may process a quote. A lost claim means a
+  // concurrent run (or a state change) got there first — touching the card
+  // again risks a double charge (#H2884, 2026-06-10).
+  const claimed = await claimGfBalanceCharge(quote.id, quote.balance_charge_attempts || 0);
+  if (!claimed) {
+    console.warn(`[group-balance-charge] quote=${quote.id} claim lost — skipping`);
+    return "skipped";
+  }
+
   if (quote.balance_cents <= 0) {
     // Full-prepay (booked within 96h): entire amount taken at deposit, gift card already
     // loaded. Nothing to charge — advance status so the day-of payout/close crons run.
@@ -285,7 +299,7 @@ async function processBalanceCharge(
     }
     const paymentLinkUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}/pay`;
 
-    await updateGfBalanceLinkSent(quote.id, {
+    const updated = await updateGfBalanceLinkSent(quote.id, {
       balance_payment_link_url: paymentLinkUrl,
       balance_link_sent_at: new Date().toISOString(),
       balance_charge_attempts: (quote.balance_charge_attempts || 0) + 1,
@@ -293,6 +307,14 @@ async function processBalanceCharge(
         ? "Auto-charge failed, sent payment page"
         : "No saved card, sent payment page",
     });
+    if (updated === 0) {
+      // Quote already advanced (paid by a concurrent runner / the pay page) —
+      // a "balance due" notification now would be wrong and risks double-pay.
+      console.warn(
+        `[group-balance-charge] quote=${quote.id} already paid — suppressing balance-due link`,
+      );
+      return "skipped";
+    }
 
     console.log(
       `[group-balance-charge] payment link sent for quote=${quote.id} ` + `url=${paymentLinkUrl}`,

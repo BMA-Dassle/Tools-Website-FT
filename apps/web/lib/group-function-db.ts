@@ -773,6 +773,31 @@ export async function markGfSquareSettledComplete(
   return rows.length;
 }
 
+/**
+ * Atomically claim a quote for balance processing via compare-and-swap on
+ * balance_charge_attempts. Two overlapping cron runs both read the quote in
+ * 'deposit_paid'; only the CAS winner may charge — the loser must skip
+ * entirely. Prevents the #H2884 race (2026-06-10): runner A charged the card,
+ * runner B's duplicate charge declined and clobbered the paid record with
+ * 'balance_link_sent' + a live payment link.
+ */
+export async function claimGfBalanceCharge(id: number, expectedAttempts: number): Promise<boolean> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      balance_charge_attempts = ${expectedAttempts} + 1,
+      updated_at = NOW()
+    WHERE id = ${id}
+      AND status = 'deposit_paid'
+      AND balance_charge_attempts = ${expectedAttempts}
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/** Returns the number of rows updated — 0 means the quote already advanced
+ *  (e.g. paid by a concurrent runner) and the caller must NOT notify the guest. */
 export async function updateGfBalanceLinkSent(
   id: number,
   fields: {
@@ -784,10 +809,10 @@ export async function updateGfBalanceLinkSent(
     square_balance_link_id?: string;
     square_balance_order_id?: string;
   },
-): Promise<void> {
+): Promise<number> {
   await ensureGfSchema();
   const q = sql();
-  await q`
+  const rows = await q`
     UPDATE group_function_quotes SET
       balance_payment_link_url = ${fields.balance_payment_link_url},
       balance_link_sent_at = ${fields.balance_link_sent_at},
@@ -798,7 +823,11 @@ export async function updateGfBalanceLinkSent(
       status = 'balance_link_sent',
       updated_at = NOW()
     WHERE id = ${id}
+      AND balance_paid_at IS NULL
+      AND status NOT IN ('balance_charged', 'completed', 'cancelled')
+    RETURNING id
   `;
+  return rows.length;
 }
 
 /**
