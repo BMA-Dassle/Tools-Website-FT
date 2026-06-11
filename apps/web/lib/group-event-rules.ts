@@ -132,24 +132,15 @@ export function isEventDayEt(quote: GroupFunctionQuote, now: Date = new Date()):
   return ET_DAY.format(now) === ET_DAY.format(new Date(quote.event_date));
 }
 
-/** Current hour-of-day in ET (0–23). */
-export function etHourNow(now: Date = new Date()): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    hour12: false,
-  }).formatToParts(now);
-  let hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
-  if (hour === 24) hour = 0;
-  return hour;
+/** True once NOW is within `hours` of event start (event still in the future). */
+export function withinHoursOfEvent(
+  quote: GroupFunctionQuote,
+  hours: number,
+  now: Date = new Date(),
+): boolean {
+  const ms = new Date(quote.event_date).getTime() - now.getTime();
+  return ms > 0 && ms <= hours * 3_600_000;
 }
-
-/**
- * Day-of sends wait for 9am ET so the email and SMS land together (quiet hours
- * block SMS until 9am, and the one-shot dedup gate means the first send is the
- * ONLY send — firing earlier would silently drop the SMS forever).
- */
-const DAYOF_SEND_HOUR_ET = 9;
 
 // ── rule send() implementations ──────────────────────────────────────
 
@@ -275,29 +266,24 @@ export const RULES: ReminderRule[] = [
       };
     },
   },
-  // Day-of balance ask — events that reach event MORNING still owing. The last
-  // prior touch is the T-72h decline/pay-link email; this is the final nudge:
-  // "your event is HERE, settle the contracted balance, then it's all fun."
-  // Waits for 9am ET so email+SMS land together (see DAYOF_SEND_HOUR_ET).
-  // Deliberately NOT excludeWinback: a win-back whose post-card T-72h charge
-  // declined sits in balance_link_sent (is_winback still true) and needs this;
-  // pre-card win-backs are contract_sent and can never match these statuses,
-  // so this rule and the winback variant below are mutually exclusive.
+  // Final balance ask — fires ~24 HOURS BEFORE EVENT TIME (first cron tick
+  // inside the window), clamped to the SMS-allowed hours (9am–8pm ET) so the
+  // email and text land together; a T-24h moment that falls overnight slides
+  // to 9am the next morning. One-shot. ONLY manual-pay events still owing:
+  // fully-paid events and card-on-file events never go this route — cards are
+  // the auto-charge rail's job (owner decision 2026-06-11).
   {
-    key: "rem_balance_due_dayof",
-    label: "Balance due — day of event",
+    key: "rem_balance_due_t24",
+    label: "Balance due — final ask (~24h before event time)",
     channels: ["email", "sms"],
     statuses: ["deposit_paid", "balance_link_sent"],
     window: { minHours: 0, maxHours: 24 },
-    disableEnv: "GF_REMINDER_DAYOF_BALANCE_DISABLED",
-    eligible: (ctx) =>
-      isEventDayEt(ctx.quote) &&
-      etHourNow() >= DAYOF_SEND_HOUR_ET &&
-      hasBalanceDue(ctx.quote) &&
-      Boolean(ctx.quote.balance_payment_link_url || !ctx.quote.saved_card_id),
+    excludeWinback: true,
+    disableEnv: "GF_REMINDER_BALANCE_T24_DISABLED",
+    eligible: (ctx) => !withinQuietHours() && hasBalanceDue(ctx.quote) && !ctx.quote.saved_card_id,
     send: async (ctx) => {
-      const { notifyBalanceDueToday } = await import("@/lib/group-function-notify");
-      const res = await notifyBalanceDueToday(ctx.quote, payUrl(ctx.quote, "dayof_balance"), {
+      const { notifyBalanceDueFinal } = await import("@/lib/group-function-notify");
+      const res = await notifyBalanceDueFinal(ctx.quote, payUrl(ctx.quote, "t24_balance"), {
         smsSuppressed: !ctx.allowSms,
       });
       return {
@@ -308,28 +294,28 @@ export const RULES: ReminderRule[] = [
       };
     },
   },
-  // Day-of balance ask, win-back variant — legacy events that never added a
-  // card. Their "pay" path is the contract portal (add card → the balance cron
-  // charges within ~15 min → $20 e-gift card mints). NOT gated by
-  // GF_WINBACK_DISABLED: that flag pauses the $20 OFFER drip; collecting money
-  // owed on event day should survive a drip pause.
+  // Final balance ask, win-back variant — legacy events that never added a
+  // card (the main audience for this rule). Their "pay" path is the contract
+  // portal (add card → the balance cron charges within ~15 min → $20 e-gift
+  // card mints). NOT gated by GF_WINBACK_DISABLED: that flag pauses the $20
+  // OFFER drip; collecting money owed on the eve of the event should survive
+  // a drip pause.
   {
-    key: "rem_balance_due_dayof_winback",
-    label: "Balance due — day of event ($20 win-back, add card)",
+    key: "rem_balance_due_t24_winback",
+    label: "Balance due — final ask ($20 win-back, add card)",
     channels: ["email", "sms"],
     statuses: ["contract_sent"],
     window: { minHours: 0, maxHours: 24 },
     winbackOnly: true,
-    disableEnv: "GF_REMINDER_DAYOF_BALANCE_DISABLED",
+    disableEnv: "GF_REMINDER_BALANCE_T24_DISABLED",
     eligible: (ctx) =>
-      isEventDayEt(ctx.quote) &&
-      etHourNow() >= DAYOF_SEND_HOUR_ET &&
+      !withinQuietHours() &&
       !ctx.quote.saved_card_id &&
       !ctx.quote.deposit_paid_at &&
       ctx.quote.total_cents - ctx.quote.deposit_due_cents > 0,
     send: async (ctx) => {
-      const { notifyWinbackBalanceDueToday } = await import("@/lib/group-function-notify");
-      const res = await notifyWinbackBalanceDueToday(ctx.quote, {
+      const { notifyWinbackBalanceDueFinal } = await import("@/lib/group-function-notify");
+      const res = await notifyWinbackBalanceDueFinal(ctx.quote, {
         smsSuppressed: !ctx.allowSms,
       });
       return {
@@ -359,11 +345,11 @@ export const RULES: ReminderRule[] = [
       const occ = Math.floor(days / 7); // 0 (ingestion), 1 (+7d), 2 (+14d)
       return occ >= 3 ? null : String(occ);
     },
-    // Re-offer only while they still haven't added a card / completed. On the
-    // event day itself, yield to rem_balance_due_dayof_winback so the guest
-    // gets exactly one message that morning.
+    // Re-offer only while they still haven't added a card / completed. Inside
+    // the final 24h, yield to rem_balance_due_t24_winback so the guest gets
+    // exactly one message in that stretch.
     eligible: (ctx) =>
-      !ctx.quote.saved_card_id && !ctx.quote.deposit_paid_at && !isEventDayEt(ctx.quote),
+      !ctx.quote.saved_card_id && !ctx.quote.deposit_paid_at && !withinHoursOfEvent(ctx.quote, 24),
     send: async (ctx) => {
       const { notifyWinbackOffer } = await import("@/lib/group-function-notify");
       const res = await notifyWinbackOffer(ctx.quote, { smsSuppressed: !ctx.allowSms });

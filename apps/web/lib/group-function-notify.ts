@@ -16,6 +16,7 @@ import { notifyContractDataIssues } from "@/lib/group-function-alert";
 import type { GroupFunctionQuote } from "@/lib/group-function-db";
 import { parseGiftCardGans, balanceChargeTiming } from "@/lib/group-function-db";
 import { updateGfTeamsCard } from "@/lib/group-function-db";
+import { isEventDayEt } from "@/lib/group-event-rules";
 
 const FALLBACK_URL = "https://fasttraxent.com";
 const GF_BCC = ["vendorcases@dassle.us", "jacob@headpinz.com"];
@@ -777,26 +778,31 @@ export async function notifyPaymentDueReminder(
 }
 
 /**
- * Day-of final ask for events that reach event MORNING still owing. Exciting
+ * Final balance ask, sent ~24h before EVENT TIME to manual-pay events still
+ * owing (no card on file — cards stay on the auto-charge rail). Exciting
  * framing: get the contracted balance out of the way now, then it's all fun.
- * Extras stay flexible — additional items can be added with the server on-site.
- * payUrl is the existing balance payment link if present, else the contract
- * portal — we do NOT mint a new Square link here.
+ * Extras stay flexible — additional items can be added with the server
+ * on-site. Copy is day-aware: the send normally lands the day before, but an
+ * overnight T-24h moment slides to 9am on event day. payUrl is the existing
+ * balance payment link if present, else the contract portal — we do NOT mint
+ * a new Square link here.
  */
-export async function notifyBalanceDueToday(
+export async function notifyBalanceDueFinal(
   quote: GroupFunctionQuote,
   payUrl: string,
   opts?: { smsSuppressed?: boolean },
 ): Promise<NotifyResult> {
   const amountDue = quote.total_cents - quote.collected_cents;
   const pName = plannerName(quote);
+  const dayWord = isEventDayEt(quote) ? "TODAY" : "TOMORROW";
+  const dayPhrase = dayWord.toLowerCase();
 
   const results = await Promise.allSettled([
     quote.guest_phone && !opts?.smsSuppressed
       ? voxSend(
           quote.guest_phone,
           [
-            `${quote.guest_first_name}, your event at ${quote.center_name} is TODAY! 🎉`,
+            `${quote.guest_first_name}, your event at ${quote.center_name} is ${dayWord}! 🎉`,
             `Get the final balance on your contract (${dollars(amountDue)}) out of the way now — then it's all fun from there: ${payUrl}`,
             `Extras? Your server can add items on-site. Questions? Contact ${pName}.`,
           ].join("\n"),
@@ -810,29 +816,29 @@ export async function notifyBalanceDueToday(
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
       bcc: GF_BCC,
-      subject: `Your Event is TODAY 🎉 — Settle Up & Let the Fun Begin! (${quote.event_name || quote.center_name})`,
+      subject: `Your Event is ${dayWord} 🎉 — Settle Up & Let the Fun Begin! (${quote.event_name || quote.center_name})`,
       html: await emailShell(
         quote,
-        `${quote.guest_first_name}, your event is HERE! 🎉`,
+        `${quote.guest_first_name}, your event is almost HERE! 🎉`,
         "Get the final balance out of the way — then it's all fun",
-        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Today's the day! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} is just hours away. Take one minute to settle the final balance on your contract now, and the only thing left to do when you walk in is have fun — no paperwork, no waiting, straight to the good part.</p>
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">The big day is almost here! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} kicks off ${dayPhrase}. Take one minute to settle the final balance on your contract now, and the only thing left to do when you walk in is have fun — no paperwork, no waiting, straight to the good part.</p>
         <table style="width:100%;margin:16px 0;border-collapse:collapse">
           ${pricingRow("Event Total", dollars(quote.total_cents))}
           ${pricingRow("Collected", dollars(quote.collected_cents))}
-          ${pricingRow("Contracted Balance Due Today", dollars(amountDue), true)}
+          ${pricingRow("Contracted Balance Due", dollars(amountDue), true)}
         </table>
         ${ctaButton("Settle Up & Let the Fun Begin", payUrl)}
         <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Want extra games, food, or add-ons? Easy — additional items can always be added with your server on-site.</p>`,
       ),
-      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name || ""} at ${quote.center_name} is TODAY! Get the final balance on your contract (${dollars(amountDue)}) out of the way now — then it's all fun from there.\n\nPay here: ${payUrl}\n\nWant extras? Additional items can always be added with your server on-site.\n\nSee you soon!\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name || ""} at ${quote.center_name} is ${dayWord}! Get the final balance on your contract (${dollars(amountDue)}) out of the way now — then it's all fun from there.\n\nPay here: ${payUrl}\n\nWant extras? Additional items can always be added with your server on-site.\n\nSee you soon!\n${quote.center_name}`,
     }),
   ]);
 
   for (const r of results) {
-    if (r.status === "rejected") console.error("[gf-notify] balanceDueToday failed:", r.reason);
+    if (r.status === "rejected") console.error("[gf-notify] balanceDueFinal failed:", r.reason);
   }
   const sms = smsResult(results[0]);
-  memoLog(quote, `Day-of balance reminder sent to ${quote.guest_email}`);
+  memoLog(quote, `Final balance (T-24h) reminder sent to ${quote.guest_email}`);
   return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
 }
 
@@ -1059,26 +1065,28 @@ export async function notifyWinbackReceipt(
 }
 
 /**
- * Day-of final ask for win-back events that never added a card. Their pay path
- * is the contract portal: add a card → the balance cron charges within ~15 min
- * → the $20 e-gift card mints. Only fires on event day (rule-gated), so the
- * copy says "today" outright.
+ * Final balance ask (~24h before event time), win-back variant — legacy
+ * events that never added a card. Their pay path is the contract portal:
+ * add a card → the balance cron charges within ~15 min → the $20 e-gift card
+ * mints. Copy is day-aware (normally lands the day before the event).
  */
-export async function notifyWinbackBalanceDueToday(
+export async function notifyWinbackBalanceDueFinal(
   quote: GroupFunctionQuote,
   opts?: { smsSuppressed?: boolean },
 ): Promise<NotifyResult> {
   const amountDue = quote.total_cents - quote.deposit_due_cents;
   const bonus = dollars(quote.incentive_cents || 2000);
   const pName = plannerName(quote);
-  const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=winback_dayof`;
+  const url = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=winback_t24`;
+  const dayWord = isEventDayEt(quote) ? "TODAY" : "TOMORROW";
+  const dayPhrase = dayWord.toLowerCase();
 
   const results = await Promise.allSettled([
     quote.guest_phone && !opts?.smsSuppressed
       ? voxSend(
           quote.guest_phone,
           [
-            `${quote.guest_first_name}, your event at ${quote.center_name} is TODAY! 🎉`,
+            `${quote.guest_first_name}, your event at ${quote.center_name} is ${dayWord}! 🎉`,
             `Get the final balance out of the way now — add your card to settle the ${dollars(amountDue)} contracted balance, and your ${bonus} e-gift card still applies: ${url}`,
             `Extras? Your server can add items on-site. Questions? Contact ${pName}.`,
           ].join("\n"),
@@ -1092,31 +1100,31 @@ export async function notifyWinbackBalanceDueToday(
       replyTo: quote.planner_email || undefined,
       cc: plannerCc(quote),
       bcc: GF_BCC,
-      subject: `Your Event is TODAY 🎉 — Settle Up, Get ${bonus}, Let the Fun Begin`,
+      subject: `Your Event is ${dayWord} 🎉 — Settle Up, Get ${bonus}, Let the Fun Begin`,
       html: await emailShell(
         quote,
-        `${quote.guest_first_name}, your event is HERE! 🎉`,
+        `${quote.guest_first_name}, your event is almost HERE! 🎉`,
         `Settle your balance now — your ${bonus} e-gift card still applies`,
-        `<p style="margin:0 0 16px;font-size:15px;color:#475569">Today's the day! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} kicks off in just a few hours. Get the final balance out of the way now: add a card on file and we'll settle your contracted balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> today — your <strong style="color:#004aad">${bonus} e-gift card</strong> is issued the moment your card is on file, and the rest of the day is pure fun.</p>
+        `<p style="margin:0 0 16px;font-size:15px;color:#475569">The big day is almost here! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} kicks off ${dayPhrase}. Get the final balance out of the way now: add a card on file and we'll settle your contracted balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> right away — your <strong style="color:#004aad">${bonus} e-gift card</strong> is issued the moment your card is on file, and the rest is pure fun.</p>
         <table style="width:100%;margin:16px 0;border-collapse:collapse">
           ${pricingRow("Event Total", dollars(quote.total_cents))}
           ${pricingRow("Deposit Paid", dollars(quote.deposit_due_cents))}
-          ${pricingRow("Contracted Balance (charged today)", dollars(amountDue), true)}
-          ${pricingRow("Your Bonus", `${bonus} e-gift card — today`, true)}
+          ${pricingRow("Contracted Balance (charged on card add)", dollars(amountDue), true)}
+          ${pricingRow("Your Bonus", `${bonus} e-gift card — right away`, true)}
         </table>
         ${ctaButton(`Add Card & Claim ${bonus}`, url)}
         <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Want extra games, food, or add-ons? Easy — additional items can always be added with your server on-site.</p>`,
       ),
-      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name || ""} at ${quote.center_name} is TODAY! Get the final balance out of the way now: add your card to settle the ${dollars(amountDue)} contracted balance — your ${bonus} e-gift card still applies.\n\nGet started: ${url}\n\nWant extras? Additional items can always be added with your server on-site.\n\nSee you soon!\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour event ${quote.event_name || ""} at ${quote.center_name} is ${dayWord}! Get the final balance out of the way now: add your card to settle the ${dollars(amountDue)} contracted balance — your ${bonus} e-gift card still applies.\n\nGet started: ${url}\n\nWant extras? Additional items can always be added with your server on-site.\n\nSee you soon!\n${quote.center_name}`,
     }),
   ]);
 
   for (const r of results) {
     if (r.status === "rejected")
-      console.error("[gf-notify] winbackBalanceDueToday failed:", r.reason);
+      console.error("[gf-notify] winbackBalanceDueFinal failed:", r.reason);
   }
   const sms = smsResult(results[0]);
-  memoLog(quote, `Day-of win-back balance reminder sent to ${quote.guest_email}`);
+  memoLog(quote, `Final balance (T-24h) win-back reminder sent to ${quote.guest_email}`);
   return { emailOk: emailOk(results[1]), smsOk: sms.ok, smsId: sms.id };
 }
 
