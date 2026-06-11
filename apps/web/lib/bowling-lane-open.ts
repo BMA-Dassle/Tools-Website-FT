@@ -292,11 +292,58 @@ export async function processLaneOpen(opts: {
             gift_card?: { balance_money?: { amount?: number } };
           };
           const gcBalance = gcJson.gift_card?.balance_money?.amount ?? 0;
+          const remaining = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
 
-          if (gcBalance > 0) {
+          // Permanent guard against the "payment total does not match the order
+          // total" failure: if the gift card was funded a few cents short of the
+          // tax-inclusive order (e.g. a deposit computed pre-tax), auto-comp the
+          // SMALL gap so the settle covers the order exactly instead of erroring.
+          // Bounded to ≤ $2 (county tax / rounding); a larger gap means something
+          // bigger is wrong and falls through to the capped payment for review.
+          let effectiveBalance = gcBalance;
+          const GAP_GUARD_CENTS = 200;
+          if (gcBalance > 0 && remaining > gcBalance && remaining - gcBalance <= GAP_GUARD_CENTS) {
+            const gap = remaining - gcBalance;
+            try {
+              const compRes = await fetchWithRetry(
+                `${SQUARE_BASE}/gift-cards/activities`,
+                {
+                  method: "POST",
+                  headers: sqHeaders(),
+                  body: JSON.stringify({
+                    idempotency_key: `${idempotencyBase}-gapcomp-${gap}`,
+                    gift_card_activity: {
+                      type: "ADJUST_INCREMENT",
+                      location_id: reservation.centerCode,
+                      gift_card_id: reservation.squareGiftCardId,
+                      adjust_increment_activity_details: {
+                        amount_money: { amount: gap, currency: "USD" },
+                        reason: "COMPLIMENTARY",
+                      },
+                    },
+                  }),
+                },
+                `POST gap-comp neonId=${neonId}`,
+              );
+              if (compRes.ok) {
+                effectiveBalance = gcBalance + gap;
+                console.log(
+                  `[lane-open] neonId=${neonId} auto-comped ${gap}¢ tax/rounding gap → gc=${effectiveBalance}¢`,
+                );
+              } else {
+                console.warn(
+                  `[lane-open] neonId=${neonId} gap-comp failed (${compRes.status}) — paying capped`,
+                );
+              }
+            } catch {
+              console.warn(`[lane-open] neonId=${neonId} gap-comp threw — paying capped`);
+            }
+          }
+
+          if (effectiveBalance > 0) {
             // Cap at remaining order balance to avoid overpaying
-            const remaining = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
-            const amountToPay = remaining > 0 ? Math.min(gcBalance, remaining) : gcBalance;
+            const amountToPay =
+              remaining > 0 ? Math.min(effectiveBalance, remaining) : effectiveBalance;
 
             const tPay = Date.now();
             const payRes = await fetchWithRetry(
