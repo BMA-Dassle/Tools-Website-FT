@@ -56,7 +56,11 @@ type Phase =
       savedCards?: SavedCard[];
     }
   | { step: "confirming"; bmiBillId: string }
-  | { step: "error"; message: string };
+  | { step: "error"; message: string }
+  // Charged via /api/square/pay but NO reservation was made (should be
+  // unreachable — see handlePaymentSuccess). Never offer Retry here: the
+  // customer's money is already taken and retrying double-charges them.
+  | { step: "paid-unconfirmed"; amount: number };
 
 function formatTime(iso: string): string {
   const clean = iso.replace(/Z$/, "");
@@ -389,19 +393,24 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
   // ── Payment success handler ───────────────────────────────────
 
   function handlePaymentSuccess(result: PaymentResult, bmiBillId: string) {
-    try {
-      sessionStorage.setItem(
-        `payment_${bmiBillId}`,
-        JSON.stringify({
-          cardBrand: result.cardBrand,
-          cardLast4: result.cardLast4,
-          amount: result.amount,
-          paymentId: result.paymentId,
-        }),
-      );
-    } catch {
-      /* non-fatal */
-    }
+    // PaymentForm only reaches onSuccess when a payment ran through
+    // /api/square/pay WITHOUT onTokenize — meaning the customer was charged
+    // but NO reservation was created (the June 2026 Apple Pay orphan-charge
+    // incident). We always wire onTokenize, so this should be unreachable.
+    // If it ever fires again: alert loudly, keep the session (ops needs the
+    // cart contents), and show a "don't pay again" screen — the old silent
+    // redirect to a broken confirmation is what drove double/triple retries.
+    void fetch("/api/debug-log", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          `${new Date().toISOString()} [checkout] ALERT: charge WITHOUT reserve — ` +
+            `ref=${bmiBillId} amount=$${result.amount} paymentId=${result.paymentId} ` +
+            `email=${contact.email} — wallet bypass regression, no booking was created`,
+        ],
+      }),
+    }).catch(() => {});
 
     void recordClickwrap({
       billId: bmiBillId,
@@ -414,11 +423,7 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       cardBrand: result.cardBrand ?? undefined,
     });
 
-    clearBookingSession();
-    // Fallback path: PaymentForm only reaches onSuccess when no onTokenize is
-    // wired (we always wire handleTokenize, so this is effectively dead today).
-    // Route to v2 anyway so a future non-tokenize flow doesn't drop v2 carts on v1.
-    window.location.href = buildConfirmationUrl(session, bmiBillId, true);
+    setPhase({ step: "paid-unconfirmed", amount: result.amount });
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -900,10 +905,15 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
 
   if (phase.step === "paying") {
     const { overview, bmiBillId, squareCustomerId, savedCards } = phase;
+    // Square location for the payment SDK (and any /api/square/pay fallback).
+    // Must come from the SESSION's center first — the hostname can't tell
+    // Naples from Fort Myers, which mis-located every fallback charge.
     const locationId =
-      typeof window !== "undefined" && window.location.hostname.includes("headpinz")
-        ? "headpinz"
-        : "fasttrax";
+      session.center === "naples"
+        ? "naples"
+        : typeof window !== "undefined" && window.location.hostname.includes("headpinz")
+          ? "headpinz"
+          : "fasttrax";
 
     async function handleTokenize(params: {
       cardNonce: string | null;
@@ -1062,6 +1072,28 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       <div className="flex min-h-100 flex-col items-center justify-center gap-4">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
         <p className="text-sm text-white/60">Confirming your booking…</p>
+      </div>
+    );
+  }
+
+  // Paid-but-unconfirmed phase: money was taken via the /api/square/pay
+  // fallback with no reservation. The one thing this screen must prevent is
+  // the customer paying AGAIN — no Retry, no back-to-cart.
+  if (phase.step === "paid-unconfirmed") {
+    return (
+      <div className="mx-auto flex min-h-100 max-w-md flex-col items-center justify-center gap-4 text-center">
+        <div className="text-4xl">✓</div>
+        <p className="text-lg font-bold text-white">
+          Payment received — ${phase.amount.toFixed(2)}
+        </p>
+        <p className="text-sm text-white/70">
+          Your card was charged, but we hit a snag finalizing the reservation. Our team has been
+          notified and will confirm your booking shortly.
+        </p>
+        <p className="text-sm font-semibold text-amber-300">
+          Please do NOT pay again — your payment went through. If you don&apos;t hear from us within
+          the hour, call the center and mention this screen.
+        </p>
       </div>
     );
   }
