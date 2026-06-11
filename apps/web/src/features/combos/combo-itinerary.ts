@@ -1,0 +1,86 @@
+/**
+ * Combo itinerary engine — PURE chain feasibility over an ordered list of
+ * legs. Generic by design (owner: "make sure this is usable for other
+ * packages we might make in future"): it knows nothing about racing or
+ * bowling, only about candidate events per leg and a transition buffer.
+ *
+ * The wizard supplies, per leg, the day's candidate events (race heats from
+ * BMI, lane slots from QAMF — each reduced to a wall-clock start/end). For
+ * every candidate of the FIRST leg (the customer's pickable start time) the
+ * engine greedily assembles the EARLIEST feasible chain: each subsequent
+ * leg's earliest candidate starting at/after the previous leg's end plus
+ * the transition buffer. First-leg candidates with no full chain are
+ * reported infeasible (the picker renders them disabled).
+ *
+ * ── Time normalization ──────────────────────────────────────────────
+ * BMI heat ISOs are wall-clock-in-Z notation ("…T13:24:00Z" meaning ET wall
+ * clock); QAMF bookedAt carries a real ET offset ("…T14:00:00-04:00"). Both
+ * centers are ET, so the NAIVE datetime part of either form IS the ET wall
+ * clock — `wallClockMs` strips the zone and parses the naive part, making
+ * the two vendors' times directly comparable.
+ */
+
+export interface LegCandidate<P = unknown> {
+  /** Wall-clock epoch ms (zone-stripped — see wallClockMs). */
+  startMs: number;
+  endMs: number;
+  /** Original vendor ISO (kept verbatim for booking calls + display). */
+  startIso: string;
+  /** Caller's payload (heat block / QAMF slot / …) carried through. */
+  payload: P;
+}
+
+export interface ChainResult<P = unknown> {
+  /** The first-leg candidate this chain anchors on (the pickable start). */
+  anchor: LegCandidate<P>;
+  /** Full chain INCLUDING the anchor (one entry per leg), or null when no
+   *  feasible chain exists from this anchor. */
+  chain: LegCandidate<P>[] | null;
+}
+
+/** Strip a trailing Z or ±HH:MM offset and parse the naive part as local
+ *  time — yields comparable ET wall-clock ms for both BMI and QAMF ISOs. */
+export function wallClockMs(iso: string): number {
+  const naive = iso.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
+  return new Date(naive).getTime();
+}
+
+/** Wall-clock "1:24 PM" label from either vendor's ISO. */
+export function wallClockLabel(iso: string): string {
+  const naive = iso.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
+  return new Date(naive).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/**
+ * Assemble the earliest feasible chain for every first-leg candidate.
+ *
+ * `legCandidates[i]` = the day's candidates for leg i (any order; sorted
+ * internally). Greedy-earliest is optimal here: picking the earliest valid
+ * candidate for leg i never eliminates a feasible chain that a later pick
+ * would allow (all candidates of leg i+1 valid for a later pick are also
+ * valid for an earlier one).
+ */
+export function buildChains<P>(
+  legCandidates: Array<Array<LegCandidate<P>>>,
+  transitionMinutes: number,
+): Array<ChainResult<P>> {
+  if (legCandidates.length === 0) return [];
+  const transitionMs = transitionMinutes * 60_000;
+  const sorted = legCandidates.map((c) => [...c].sort((a, b) => a.startMs - b.startMs));
+
+  return sorted[0].map((anchor) => {
+    const chain: LegCandidate<P>[] = [anchor];
+    let prevEnd = anchor.endMs;
+    for (let leg = 1; leg < sorted.length; leg++) {
+      const next = sorted[leg].find((c) => c.startMs >= prevEnd + transitionMs);
+      if (!next) return { anchor, chain: null };
+      chain.push(next);
+      prevEnd = next.endMs;
+    }
+    return { anchor, chain };
+  });
+}

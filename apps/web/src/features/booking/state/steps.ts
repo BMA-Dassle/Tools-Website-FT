@@ -83,6 +83,25 @@ import BowlingShoesStep from "~/components/features/booking/steps/bowling/Bowlin
 import BowlingFoodStep from "~/components/features/booking/steps/bowling/BowlingFoodStep";
 import KbfIdentityStep from "~/components/features/booking/steps/bowling/KbfIdentityStep";
 import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowlersStep";
+import {
+  ComboItineraryStep,
+  ComboStartTimeStep,
+} from "~/components/features/booking/steps/combo/ComboSteps";
+
+/**
+ * Hide a step on combo-special sessions. The combo runs its OWN guided flow
+ * (ComboStartTimeStep + ComboItineraryStep — the customer picks one start
+ * time, the system schedules the rest), so the per-kind product/heat picker
+ * steps and the whole bowling wizard are suppressed; the bowling item is
+ * configured programmatically. Also kills the package upsell mid-combo (no
+ * product step = no Rookie Pack / Ultimate Qualifier cards).
+ */
+function hiddenInCombo(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) => !session.comboSpecialId && step.isVisible(item, session),
+  };
+}
 
 /**
  * Default per-kind step lists. Real race components live in
@@ -100,10 +119,15 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // customer attaches at bill creation). Required — see ContactStep.
     ContactStep,
     RaceDateStep as StepDef,
-    RaceProductStepAdult as StepDef,
-    RaceHeatPickerStepAdult as StepDef,
-    RaceProductStepJunior as StepDef,
-    RaceHeatPickerStepJunior as StepDef,
+    // Combo specials replace the product/heat pickers with the guided
+    // itinerary (start time → schedule); both sets are isVisible-gated on
+    // session.comboSpecialId so exactly one set renders.
+    hiddenInCombo(RaceProductStepAdult as StepDef),
+    hiddenInCombo(RaceHeatPickerStepAdult as StepDef),
+    hiddenInCombo(RaceProductStepJunior as StepDef),
+    hiddenInCombo(RaceHeatPickerStepJunior as StepDef),
+    ComboStartTimeStep as StepDef,
+    ComboItineraryStep as StepDef,
     RacePovStep as StepDef,
     // Add-ons removed — user returns to activity picker after completing
     // race steps and adds attractions as separate cart items.
@@ -119,15 +143,17 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   bowling: [
     // Contact first so we always capture base customer info. (Bowling/KBF are
     // QAMF-vendored — no BMI bill — but the confirmation/notifications need it.)
-    ContactStep,
-    BowlingPlayersStep as StepDef,
-    BowlingSlotsStep as StepDef,
-    BowlingTierStep as StepDef,
-    BowlingOfferStep as StepDef,
-    BowlingShoesStep as StepDef,
+    // The whole list is combo-hidden: a combo's bowling item is configured
+    // programmatically by the combo steps (the cart hides its Edit too).
+    hiddenInCombo(ContactStep),
+    hiddenInCombo(BowlingPlayersStep as StepDef),
+    hiddenInCombo(BowlingSlotsStep as StepDef),
+    hiddenInCombo(BowlingTierStep as StepDef),
+    hiddenInCombo(BowlingOfferStep as StepDef),
+    hiddenInCombo(BowlingShoesStep as StepDef),
     // Attractions step removed — user returns to activity picker and
     // adds attractions as separate cart items.
-    BowlingFoodStep as StepDef,
+    hiddenInCombo(BowlingFoodStep as StepDef),
   ],
   kbf: [
     KbfIdentityStep as StepDef,

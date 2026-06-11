@@ -1,31 +1,43 @@
 /**
  * Combo Specials — declarative registry. The single source of truth for
- * (a) the marketing cards (attractions / pricing / home teaser) and
- * (b) the v2 booking flow's fixed combo pricing.
+ * (a) the marketing cards (attractions / pricing / home teaser / booking
+ * landing) and (b) the v2 booking flow's guided itinerary + fixed pricing.
  *
- * Adding a future combo is a data change here, not a UI/booking refactor.
- * Mirrors the declarative pattern of `lib/packages.ts` and
- * `features/booking/service/membership-discounts.ts`.
+ * Adding a future combo is a DATA change here, not a UI/booking refactor:
+ * `components` is the ORDERED visit itinerary (legs), and the wizard, the
+ * chain-feasibility engine (combo-itinerary.ts), and the pricing gate
+ * (combo-pricing.ts) are all driven by it. Race legs may use any tier;
+ * bowling legs any duration; `transitionMinutes` is the walk buffer
+ * between legs. Attraction legs are typed for forward-compat but NOT yet
+ * supported by the wizard (the gate rejects them).
  *
  * NAMING: in this codebase "combo" alone already means the 3-pack race SKUs
  * (`packType: "combo"`). This feature is "combo SPECIALS" — always
  * `comboSpecialId` / `ComboSpecial`, never bare `comboId`.
  *
- * See tasks/combo-specials-plan.md for the locked owner decisions:
- *  - any race tier/track (Mega included) at the flat price
+ * See tasks/combo-specials-plan.md (Revision 2) for the locked owner
+ * decisions:
+ *  - guided itinerary: Starter race → 1.5h bowling → Intermediate race;
+ *    the customer picks ONE start time, the system schedules the rest
  *  - Mon–Thu (incl. Mega Tuesday) = weekday tier; Fri–Sun = weekend tier
  *  - 100% of the combo price is charged upfront at booking
+ *  - juniors can't run the combo on Mega Tuesday (no junior Starter Mega
+ *    product) — feasibility gating surfaces this as "no times"
  */
 
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
+import type { RaceTier } from "~/features/booking/service/race-products";
 import type { CenterCode } from "~/features/booking/types";
 
-/** One component of a combo. `choose-one` is a forward-compat option group. */
-export type ComboComponent =
-  | { kind: "race"; raceCount: number }
+/**
+ * One leg of a combo's visit itinerary, in order. A race leg = ONE heat per
+ * racer at the given tier (a future "2 starter races" combo = two race legs).
+ */
+export type ComboLeg =
+  | { kind: "race"; tier: RaceTier }
   | { kind: "bowling"; durationMinutes: number }
-  | { kind: "attraction"; slug: string }
-  | { kind: "choose-one"; label: string; options: ComboComponent[] };
+  /** Forward-compat — typed, but the wizard/gate reject it until built. */
+  | { kind: "attraction"; slug: string };
 
 export interface ComboSpecial {
   /** Kebab slug — route param + session.comboSpecialId. */
@@ -33,16 +45,18 @@ export interface ComboSpecial {
   name: string;
   shortDescription: string;
   longDescription: string;
-  /** Display bullets, e.g. ["2 Go-Kart Races", "1.5 Hours of Bowling"]. */
+  /** Display bullets, e.g. ["1 Starter Race", "1.5 Hours of Bowling", …]. */
   includes: string[];
   heroImage: string;
-  /** Tailwind-free accent (used for the card's dashed border / badge). */
   accentColor: string;
   /** Physical complex. Racing is Fort Myers-only. */
   center: CenterCode;
   /** Per-PERSON price in CENTS by day tier (Mega Tuesday = weekday). */
   price: { weekday: number; weekend: number };
-  components: ComboComponent[];
+  /** ORDERED visit itinerary. */
+  components: ComboLeg[];
+  /** Walk buffer between legs (minutes) — owner default 15. */
+  transitionMinutes: number;
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
@@ -59,20 +73,24 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
   {
     id: "race-bowl",
     name: "Race + Bowl Combo",
-    shortDescription: "2 go-kart races plus 1.5 hours of bowling — one price, one booking.",
+    shortDescription:
+      "Starter race, 1.5 hours of bowling, then an Intermediate race — one price, one booking.",
     longDescription:
-      "Race two heats on our high-speed electric karts, then wind down with 1.5 hours " +
-      "of bowling at HeadPinz — all in one visit, booked and paid in one checkout.",
-    includes: ["2 Go-Kart Races", "1.5 Hours of Bowling"],
+      "Qualify on a Starter race, wind down with 1.5 hours of bowling at HeadPinz, " +
+      "then come back faster on an Intermediate race — all in one visit, booked and " +
+      "paid in one checkout. Pick your start time; we schedule the rest.",
+    includes: ["Starter Race", "1.5 Hours of Bowling", "Intermediate Race"],
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp",
     accentColor: "rgb(228,28,29)",
     center: "fort-myers",
     price: { weekday: 6500, weekend: 7500 },
     components: [
-      { kind: "race", raceCount: 2 },
+      { kind: "race", tier: "starter" },
       { kind: "bowling", durationMinutes: 90 },
+      { kind: "race", tier: "intermediate" },
     ],
+    transitionMinutes: 15,
     enabled: COMBO_RACE_BOWL_ENABLED,
     displayOrder: 10,
   },
@@ -123,25 +141,27 @@ export function comboTotalCents(
   return comboPriceCentsForDate(combo, dateYmd) * Math.max(0, Math.floor(headcount));
 }
 
-/** The fixed race component (first `race` entry), if the combo has one. */
-export function comboRaceComponent(
+/** The combo's race legs, in itinerary order. */
+export function comboRaceLegs(combo: ComboSpecial): Array<Extract<ComboLeg, { kind: "race" }>> {
+  return combo.components.filter((c): c is Extract<ComboLeg, { kind: "race" }> => {
+    return c.kind === "race";
+  });
+}
+
+/** The fixed bowling leg (first `bowling` entry), if the combo has one. */
+export function comboBowlingComponent(
   combo: ComboSpecial,
-): { kind: "race"; raceCount: number } | null {
+): Extract<ComboLeg, { kind: "bowling" }> | null {
   return (
-    (combo.components.find((c) => c.kind === "race") as { kind: "race"; raceCount: number }) ?? null
+    combo.components.find((c): c is Extract<ComboLeg, { kind: "bowling" }> => {
+      return c.kind === "bowling";
+    }) ?? null
   );
 }
 
-/** The fixed bowling component (first `bowling` entry), if the combo has one. */
-export function comboBowlingComponent(
-  combo: ComboSpecial,
-): { kind: "bowling"; durationMinutes: number } | null {
-  return (
-    (combo.components.find((c) => c.kind === "bowling") as {
-      kind: "bowling";
-      durationMinutes: number;
-    }) ?? null
-  );
+/** Heats the combo books per racer = one per race leg. */
+export function comboHeatsPerRacer(combo: ComboSpecial): number {
+  return comboRaceLegs(combo).length;
 }
 
 /* ── local helpers ─────────────────────────────────────────────────── */

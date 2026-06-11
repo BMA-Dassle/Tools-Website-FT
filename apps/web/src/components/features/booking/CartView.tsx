@@ -45,6 +45,9 @@ export interface CartViewProps {
   /** Abandon the whole in-progress booking (release vendor holds + clear cart)
    *  and start fresh — wired to the leave modal's "Start new booking" action. */
   onNewBooking: () => Promise<void> | void;
+  /** Remove the combo special as a UNIT (both seeded items + the stamp,
+   *  vendor holds released). Shown on the combo banner. */
+  onRemoveCombo?: () => Promise<void> | void;
 }
 
 export function CartView({
@@ -55,6 +58,7 @@ export function CartView({
   onRemoveHeat,
   onCheckout,
   onNewBooking,
+  onRemoveCombo,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -87,24 +91,35 @@ export function CartView({
       </div>
       <h1 className="text-2xl font-semibold text-white sm:text-3xl">Your cart</h1>
 
-      {/* Combo special: per-item estimates below show regular prices — tell the
-          customer the flat combo price takes over at checkout. */}
+      {/* Combo special: the combo prices as ONE flat per-person line at
+          checkout, and it leaves the cart as one unit too. */}
       {(() => {
         const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
         if (!combo) return null;
         return (
           <div
-            className="mt-4 rounded-xl border p-3 text-sm"
+            className="mt-4 flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
             style={{ borderColor: combo.accentColor, backgroundColor: "rgba(7,16,39,0.5)" }}
           >
-            <span className="font-semibold" style={{ color: combo.accentColor }}>
-              {combo.name}:
-            </span>{" "}
-            <span className="text-white/80">
-              ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
-              {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun, applied at checkout (plus
-              tax). Item prices below are regular rates.
-            </span>
+            <div>
+              <span className="font-semibold" style={{ color: combo.accentColor }}>
+                {combo.name}:
+              </span>{" "}
+              <span className="text-white/80">
+                ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
+                {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun, applied at checkout (plus
+                tax).
+              </span>
+            </div>
+            {onRemoveCombo && (
+              <button
+                type="button"
+                onClick={() => void onRemoveCombo()}
+                className="shrink-0 self-start rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400 sm:self-auto"
+              >
+                Remove combo
+              </button>
+            )}
           </div>
         );
       })()}
@@ -279,6 +294,11 @@ function CartItemCard({
         (item.hasBookingFee ? 2.99 : 0)
       : 0;
 
+  // Combo bowling is configured by the combo wizard (its own steps are
+  // hidden) and is charged inside the flat combo line — no Edit, no per-item
+  // estimate; Remove removes the whole combo (BookingFlow delegates).
+  const isComboBowling = !!session.comboSpecialId && item.kind === "bowling";
+
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm transition-colors hover:border-white/20">
       <div className="flex items-start justify-between gap-3">
@@ -287,23 +307,25 @@ function CartItemCard({
           <div className="mt-0.5 text-xs text-white/40">{otherItemSummary(item)}</div>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
-          >
-            Edit
-          </button>
+          {!isComboBowling && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+            >
+              Edit
+            </button>
+          )}
           <button
             type="button"
             onClick={onRemove}
             className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
           >
-            Remove
+            {isComboBowling ? "Remove combo" : "Remove"}
           </button>
         </div>
       </div>
-      {bowlingEstimate > 0 && (
+      {bowlingEstimate > 0 && !isComboBowling && (
         <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-sm">
           <span className="text-xs uppercase tracking-wider text-white/40">Est. total</span>
           <span className="font-bold text-[#00E2E5]">${bowlingEstimate.toFixed(2)}</span>

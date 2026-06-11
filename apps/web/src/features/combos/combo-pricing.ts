@@ -24,11 +24,12 @@ import type { BillLine } from "~/features/booking/service/checkout";
 import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
 
+import { wallClockMs } from "./combo-itinerary";
 import {
   comboAvailableOn,
   comboBowlingComponent,
   comboPriceCentsForDate,
-  comboRaceComponent,
+  comboRaceLegs,
   getComboSpecial,
   type ComboSpecial,
 } from "./combo-specials";
@@ -45,9 +46,14 @@ export interface ActiveCombo {
 
 /**
  * STRICT gate: the combo price applies ONLY when exactly the combo's
- * components are present and complete. Anything else returns null and the
+ * itinerary is present and complete. Anything else returns null and the
  * session prices as the sum of its items (the safe fallback — never a flat
  * price for a cart that doesn't match the offer).
+ *
+ * Generic over the registry legs (Revision 2): per racer, one heat per race
+ * leg whose TIERS run in itinerary order, and the bowling slot positioned
+ * between the race legs that surround it. The wizard enforces real buffers;
+ * this gate re-checks the STRUCTURE at charge time.
  */
 export function activeComboSpecial(session: BookingSession): ActiveCombo | null {
   const id = session.comboSpecialId;
@@ -56,9 +62,14 @@ export function activeComboSpecial(session: BookingSession): ActiveCombo | null 
   if (!combo || !combo.enabled) return null;
   if (session.center !== combo.center) return null;
 
-  const raceComp = comboRaceComponent(combo);
+  const legs = combo.components;
+  const raceLegs = comboRaceLegs(combo);
   const bowlComp = comboBowlingComponent(combo);
-  if (!raceComp || !bowlComp) return null;
+  // Attraction legs are forward-compat only — never flat-price a cart whose
+  // itinerary the wizard can't actually assemble yet.
+  if (legs.some((l) => l.kind === "attraction")) return null;
+  if (raceLegs.length === 0 || !bowlComp) return null;
+  if (legs.filter((l) => l.kind === "bowling").length !== 1) return null;
 
   // Exactly ONE race item + ONE bowling item; KBF never mixes with a combo.
   // Extra ATTRACTION items are allowed — they charge separately on top.
@@ -69,24 +80,48 @@ export function activeComboSpecial(session: BookingSession): ActiveCombo | null 
   const raceItem = raceItems[0];
   const bowlingItem = bowlingItems[0];
 
-  // Race side: a date, every heat picked + assigned, and EXACTLY raceCount
-  // heats per racer (any tier/track — locked decision #5).
   if (!raceItem.date || !comboAvailableOn(combo, raceItem.date)) return null;
   if (raceItem.heats.length === 0) return null;
-  const perRacer = new Map<string, number>();
-  for (const h of raceItem.heats) {
-    if (!h.heatId || !h.assignedTo) return null;
-    perRacer.set(h.assignedTo, (perRacer.get(h.assignedTo) ?? 0) + 1);
-  }
-  for (const count of perRacer.values()) {
-    if (count !== raceComp.raceCount) return null;
-  }
 
-  // Bowling side: a booked slot at exactly the combo's duration.
+  // Bowling side first: a booked slot at exactly the combo's duration.
   if (!bowlingItem.bookedAt) return null;
   if (bowlingItem.durationMinutes !== bowlComp.durationMinutes) return null;
+  const bowlingMs = wallClockMs(bowlingItem.bookedAt);
 
-  return { combo, raceItem, bowlingItem, racerIds: [...perRacer.keys()] };
+  // Race side: every heat picked + assigned; per racer exactly one heat per
+  // race leg, tiers in itinerary order, positioned around the bowling slot.
+  const byRacer = new Map<string, Array<{ ms: number; tier: string | undefined }>>();
+  for (const h of raceItem.heats) {
+    if (!h.heatId || !h.assignedTo) return null;
+    const list = byRacer.get(h.assignedTo) ?? [];
+    list.push({ ms: wallClockMs(h.heatId), tier: h.tier });
+    byRacer.set(h.assignedTo, list);
+  }
+  if (byRacer.size === 0) return null;
+
+  // Race-leg positions relative to the bowling leg, in itinerary order.
+  const bowlingLegIndex = legs.findIndex((l) => l.kind === "bowling");
+  const raceLegOrder = legs
+    .map((l, i) => ({ leg: l, i }))
+    .filter((e) => e.leg.kind === "race") as Array<{
+    leg: Extract<(typeof legs)[number], { kind: "race" }>;
+    i: number;
+  }>;
+
+  for (const heats of byRacer.values()) {
+    if (heats.length !== raceLegs.length) return null;
+    heats.sort((a, b) => a.ms - b.ms);
+    for (let k = 0; k < raceLegOrder.length; k++) {
+      const { leg, i } = raceLegOrder[k];
+      const heat = heats[k];
+      if (heat.tier !== leg.tier) return null;
+      // Positioned on the correct side of the bowling slot.
+      if (i < bowlingLegIndex && heat.ms >= bowlingMs) return null;
+      if (i > bowlingLegIndex && heat.ms <= bowlingMs) return null;
+    }
+  }
+
+  return { combo, raceItem, bowlingItem, racerIds: [...byRacer.keys()] };
 }
 
 /** Highest racing membership discount (%) + label for a racer — mirrors

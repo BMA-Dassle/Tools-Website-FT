@@ -4,8 +4,9 @@ import {
   COMBO_SPECIALS,
   comboAvailableOn,
   comboBowlingComponent,
+  comboHeatsPerRacer,
   comboPriceCentsForDate,
-  comboRaceComponent,
+  comboRaceLegs,
   comboTotalCents,
   enabledCombos,
   getComboSpecial,
@@ -23,12 +24,22 @@ const SUN = "2026-06-07";
 const raceBowl = getComboSpecial("race-bowl")!;
 
 describe("combo-specials registry", () => {
-  it("race-bowl exists with the locked price tiers and components", () => {
+  it("race-bowl is the locked guided itinerary: starter → 90-min bowl → intermediate", () => {
     expect(raceBowl).not.toBeNull();
     expect(raceBowl.center).toBe("fort-myers");
     expect(raceBowl.price).toEqual({ weekday: 6500, weekend: 7500 });
-    expect(comboRaceComponent(raceBowl)).toEqual({ kind: "race", raceCount: 2 });
+    expect(raceBowl.components).toEqual([
+      { kind: "race", tier: "starter" },
+      { kind: "bowling", durationMinutes: 90 },
+      { kind: "race", tier: "intermediate" },
+    ]);
+    expect(raceBowl.transitionMinutes).toBe(15);
+  });
+
+  it("leg helpers read the ordered itinerary", () => {
+    expect(comboRaceLegs(raceBowl).map((l) => l.tier)).toEqual(["starter", "intermediate"]);
     expect(comboBowlingComponent(raceBowl)).toEqual({ kind: "bowling", durationMinutes: 90 });
+    expect(comboHeatsPerRacer(raceBowl)).toBe(2);
   });
 
   it("ids are unique kebab slugs", () => {
