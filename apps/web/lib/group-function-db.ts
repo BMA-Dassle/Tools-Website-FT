@@ -697,6 +697,26 @@ export async function updateGfBalanceCharged(
 }
 
 /**
+ * Persist an expanded day-of gift-card list after a balance/reprice load overflowed
+ * onto newly created cards (events over $2k/card). Same JSON-array shape the deposit
+ * flow writes. Gans align by index with ids; a missing gan is stored as "".
+ */
+export async function updateGfGiftCardList(
+  id: number,
+  fields: { giftCardIds: string[]; giftCardGans: string[] },
+): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    UPDATE group_function_quotes SET
+      square_gift_card_id = ${JSON.stringify(fields.giftCardIds)},
+      square_gift_card_gan = ${JSON.stringify(fields.giftCardGans)},
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+}
+
+/**
  * Full-prepay events (entire amount collected at deposit — booked within 96h — so the
  * gift card is already fully loaded) have no balance to charge. Advance them straight to
  * 'balance_charged' so the day-of payout + close crons pick them up. No Square balance

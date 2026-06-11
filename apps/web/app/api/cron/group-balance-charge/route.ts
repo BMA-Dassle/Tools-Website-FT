@@ -5,7 +5,9 @@ import {
   updateGfBalanceCharged,
   updateGfBalanceLinkSent,
   updateGfBalancePrepaid,
+  updateGfGiftCardList,
   parseGiftCardIds,
+  parseGiftCardGans,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { loadBalanceOntoGiftCards } from "@/lib/square-gift-card";
@@ -175,13 +177,22 @@ async function processBalanceCharge(
       const balancePaymentId = payData.payment?.id as string;
 
       // LOAD gift cards with balance amount ($2k max per card; overflow → new cards)
-      await loadBalanceOntoGiftCards({
+      const loaded = await loadBalanceOntoGiftCards({
         giftCardIds: parseGiftCardIds(quote.square_gift_card_id),
         locationId: quote.square_location_id,
         amountCents: quote.balance_cents,
         baseKey,
         buyerPaymentInstrumentIds: [balancePaymentId],
       });
+      if (loaded.createdCards.length) {
+        await updateGfGiftCardList(quote.id, {
+          giftCardIds: loaded.giftCardIds,
+          giftCardGans: [
+            ...parseGiftCardGans(quote.square_gift_card_gan),
+            ...loaded.createdCards.map((c) => c.gan ?? ""),
+          ],
+        });
+      }
 
       await updateGfBalanceCharged(quote.id, {
         square_balance_order_id: balanceOrderId,
@@ -263,38 +274,24 @@ async function processBalanceCharge(
     }
   }
 
-  // Path B: create payment link
+  // Path B: send the guest to our self-hosted balance payment page.
+  // Square-hosted payment links are retired here: a paid quick-pay link's
+  // backing order can sit OPEN forever and the DB only learns via the
+  // reconcile poller (the #H2821 stuck-paid failure). Our page charges via
+  // /api/group-function/balance-pay, which updates the DB synchronously.
   try {
-    const linkRes = await fetch(`${SQUARE_BASE}/online-checkout/payment-links`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-bal-link-${baseKey}`,
-        quick_pay: {
-          name: `Event Balance: ${quote.event_name || "Group Event"}`,
-          price_money: { amount: quote.balance_cents, currency: "USD" },
-          location_id: quote.square_location_id,
-        },
-      }),
-    });
-    const linkData = await linkRes.json();
-    if (!linkRes.ok || !linkData.payment_link?.url) {
-      throw new Error(`Payment link failed: ${JSON.stringify(linkData).slice(0, 200)}`);
+    if (!quote.contract_short_id) {
+      throw new Error(`quote=${quote.id} has no contract_short_id — cannot build pay page URL`);
     }
-    const paymentLinkUrl = linkData.payment_link.url as string;
-    // Capture the link id + its backing order id so the reconcile poller can detect payment.
-    const paymentLinkId = linkData.payment_link.id as string | undefined;
-    const paymentLinkOrderId = linkData.payment_link.order_id as string | undefined;
+    const paymentLinkUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}/pay`;
 
     await updateGfBalanceLinkSent(quote.id, {
       balance_payment_link_url: paymentLinkUrl,
       balance_link_sent_at: new Date().toISOString(),
       balance_charge_attempts: (quote.balance_charge_attempts || 0) + 1,
       balance_last_error: quote.saved_card_id
-        ? "Auto-charge failed, sent payment link"
-        : "No saved card, sent payment link",
-      square_balance_link_id: paymentLinkId,
-      square_balance_order_id: paymentLinkOrderId,
+        ? "Auto-charge failed, sent payment page"
+        : "No saved card, sent payment page",
     });
 
     console.log(

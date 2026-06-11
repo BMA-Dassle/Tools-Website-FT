@@ -3,7 +3,12 @@ import {
   findOrCreateSquareCustomer,
   SquarePaymentError,
 } from "@/lib/square-gift-card";
-import { parseGiftCardIds, type GroupFunctionQuote } from "@/lib/group-function-db";
+import {
+  parseGiftCardIds,
+  parseGiftCardGans,
+  updateGfGiftCardList,
+  type GroupFunctionQuote,
+} from "@/lib/group-function-db";
 
 /**
  * Charge a re-price delta and fund the day-of gift cards.
@@ -115,13 +120,22 @@ export async function chargeDeltaAndLoad(params: {
   const paymentId = payData.payment?.id as string;
 
   // 3. LOAD the delta onto the existing day-of gift cards ($2k chunk; overflow → new cards).
-  await loadBalanceOntoGiftCards({
+  const loaded = await loadBalanceOntoGiftCards({
     giftCardIds: parseGiftCardIds(quote.square_gift_card_id),
     locationId: quote.square_location_id,
     amountCents: deltaCents,
     baseKey,
     buyerPaymentInstrumentIds: paymentId ? [paymentId] : [],
   });
+  if (loaded.createdCards.length) {
+    await updateGfGiftCardList(quote.id, {
+      giftCardIds: loaded.giftCardIds,
+      giftCardGans: [
+        ...parseGiftCardGans(quote.square_gift_card_gan),
+        ...loaded.createdCards.map((c) => c.gan ?? ""),
+      ],
+    });
+  }
 
   // 4. Save the card on file (new-card path) so future adjustments can auto-charge.
   let savedCardId: string | undefined;

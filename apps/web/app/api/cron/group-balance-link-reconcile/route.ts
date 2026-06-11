@@ -3,7 +3,9 @@ import {
   getQuotesWithPendingBalanceLinks,
   getWinbackQuotesNeedingIncentive,
   updateGfBalanceCharged,
+  updateGfGiftCardList,
   parseGiftCardIds,
+  parseGiftCardGans,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
 import { loadBalanceOntoGiftCards } from "@/lib/square-gift-card";
@@ -76,13 +78,15 @@ export async function GET(req: NextRequest) {
   const results = await Promise.allSettled(quotes.map((q) => reconcileQuote(q)));
 
   const summary = { total: quotes.length, reconciled: 0, pending: 0, unreconcilable: 0, errors: 0 };
-  for (const r of results) {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     if (r.status === "fulfilled") {
       if (r.value === "reconciled") summary.reconciled++;
       else if (r.value === "pending") summary.pending++;
       else summary.unreconcilable++;
     } else {
       summary.errors++;
+      console.error(`[group-balance-link-reconcile] quote=${quotes[i].id} failed:`, r.reason);
     }
   }
 
@@ -136,6 +140,27 @@ async function resolveLinkOrderId(quote: GroupFunctionQuote): Promise<string | n
   return null;
 }
 
+interface SquareOrderLite {
+  state?: string;
+  tenders?: Array<{ id?: string; payment_id?: string }>;
+  net_amount_due_money?: { amount?: number };
+}
+
+/**
+ * Quick-pay payment-link orders have no fulfillment, so Square can leave them
+ * OPEN forever after the payment captures (seen on #H2821: OPEN, $0 due, card
+ * tender attached). Treat "fully tendered" the same as COMPLETED.
+ */
+function orderIsPaid(order: SquareOrderLite | undefined): boolean {
+  if (!order) return false;
+  if (order.state === "COMPLETED") return true;
+  return (
+    order.state === "OPEN" &&
+    (order.tenders?.length ?? 0) > 0 &&
+    (order.net_amount_due_money?.amount ?? 1) === 0
+  );
+}
+
 /** Retrieve the backing order and report whether it's been paid. */
 async function isLinkOrderPaid(quote: GroupFunctionQuote): Promise<boolean> {
   const orderId = await resolveLinkOrderId(quote);
@@ -144,7 +169,7 @@ async function isLinkOrderPaid(quote: GroupFunctionQuote): Promise<boolean> {
     const res = await fetch(`${SQUARE_BASE}/orders/${orderId}`, { headers: sqHeaders() });
     if (!res.ok) return false;
     const data = await res.json();
-    return data.order?.state === "COMPLETED";
+    return orderIsPaid(data.order);
   } catch {
     return false;
   }
@@ -153,6 +178,9 @@ async function isLinkOrderPaid(quote: GroupFunctionQuote): Promise<boolean> {
 async function reconcileQuote(quote: GroupFunctionQuote): Promise<ReconcileResult> {
   const orderId = await resolveLinkOrderId(quote);
   if (!orderId) {
+    // Self-hosted pay-page quotes have no Square link/order to poll — payment
+    // arrives via /api/group-function/balance-pay, which flips status itself.
+    if (quote.balance_payment_link_url?.includes("/contract/")) return "pending";
     console.warn(
       `[group-balance-link-reconcile] quote=${quote.id} has no resolvable balance order id — skipping`,
     );
@@ -164,14 +192,29 @@ async function reconcileQuote(quote: GroupFunctionQuote): Promise<ReconcileResul
     throw new Error(`Order fetch failed (${orderRes.status}) for quote=${quote.id}`);
   }
   const orderData = await orderRes.json();
-  const order = orderData.order;
-  if (!order || order.state !== "COMPLETED") {
+  const order = orderData.order as SquareOrderLite | undefined;
+  if (!order || !orderIsPaid(order)) {
     return "pending"; // not paid yet — try again next run
   }
 
   // Paid. The link payment funds the gift-card load (best-effort instrument link).
-  const tender = (order.tenders || [])[0] as { id?: string; payment_id?: string } | undefined;
+  const tender = (order.tenders || [])[0];
   const balancePaymentId = tender?.payment_id || tender?.id || "";
+
+  // For OPEN-but-tendered orders, double-check the payment actually captured
+  // before moving money — a tender on a still-OPEN order is our only signal.
+  if (order.state !== "COMPLETED" && balancePaymentId) {
+    const payRes = await fetch(`${SQUARE_BASE}/payments/${balancePaymentId}`, {
+      headers: sqHeaders(),
+    });
+    if (!payRes.ok) {
+      throw new Error(`Payment verify failed (${payRes.status}) for quote=${quote.id}`);
+    }
+    const payData = await payRes.json();
+    if (payData.payment?.status !== "COMPLETED") {
+      return "pending";
+    }
+  }
 
   // Win-back events reach a payment link only as the 72h auto-charge DECLINE
   // fallback — by then they already have day-of gift cards (minted when the
@@ -181,13 +224,22 @@ async function reconcileQuote(quote: GroupFunctionQuote): Promise<ReconcileResul
   // LOAD the balance onto the day-of gift cards so group-dayof-pay stays fully funded.
   // Stable baseKey keyed on the quote → re-runs are idempotent (Square dedups the load).
   const baseKey = `gf-linkrec-${quote.id}`;
-  await loadBalanceOntoGiftCards({
+  const loaded = await loadBalanceOntoGiftCards({
     giftCardIds: parseGiftCardIds(quote.square_gift_card_id),
     locationId: quote.square_location_id,
     amountCents: quote.balance_cents,
     baseKey,
     buyerPaymentInstrumentIds: balancePaymentId ? [balancePaymentId] : [],
   });
+  if (loaded.createdCards.length) {
+    await updateGfGiftCardList(quote.id, {
+      giftCardIds: loaded.giftCardIds,
+      giftCardGans: [
+        ...parseGiftCardGans(quote.square_gift_card_gan),
+        ...loaded.createdCards.map((c) => c.gan ?? ""),
+      ],
+    });
+  }
 
   await updateGfBalanceCharged(quote.id, {
     square_balance_order_id: orderId,
