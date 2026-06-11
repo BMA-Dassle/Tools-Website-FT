@@ -83,6 +83,11 @@ export interface Participant {
    *  `excludeUnpaid=false` to see this field populated. */
   paid?: boolean;
 
+  /** BMI check-in confirmation timestamp (F_PAR_CONFIRMED) — set when
+   *  staff check the participant in at the desk, null/absent otherwise.
+   *  Arena e-ticket pages poll this to flip their "Checked in" state. */
+  checkedIn?: string | null;
+
   /** Optional guardian / parent contact. Only used when the racer
    *  themselves has no usable contact (no email, no phone, or
    *  explicit opt-out). See `pickVideoContact` for the fallback

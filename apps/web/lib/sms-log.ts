@@ -24,6 +24,7 @@ export interface SmsLogEntry {
   source:
     | "pre-race-cron"
     | "checkin-cron"
+    | "arena-pre-cron"
     | "booking-confirm"
     | "level-up"
     | "admin-resend"
@@ -151,7 +152,7 @@ export async function readSmsLog(
  * Returns one entry per day with a breakdown by source category, keyed
  * to what the sales admin board surfaces:
  *   - bookingConfirm  ← `source: "booking-confirm"`     (booking confirmations)
- *   - eTicket         ← `source: "pre-race-cron"`        (pre-race e-ticket SMS)
+ *   - eTicket         ← `source: "pre-race-cron" | "arena-pre-cron"` (pre-event e-ticket SMS)
  *   - checkIn         ← `source: "checkin-cron"`         (heat check-in alerts)
  *   - video           ← `source: "video-match"`          (race-video ready notifications)
  *   - other           ← anything else (admin-resend, level-up, other)
@@ -189,6 +190,7 @@ function bucketSource(s: string | undefined): keyof SmsDailyCounts["bySource"] {
     case "booking-confirm":
       return "bookingConfirm";
     case "pre-race-cron":
+    case "arena-pre-cron": // HP Arena pre-session e-tickets — same dashboard bucket
       return "eTicket";
     case "checkin-cron":
       return "checkIn";
@@ -273,7 +275,7 @@ export async function readSmsCountsRange(
 
 export interface CronRunEntry {
   ts: string;
-  cron: "pre-race" | "checkin" | "video-match";
+  cron: "pre-race" | "checkin" | "video-match" | "arena-pre";
   dryRun: boolean;
   elapsedMs: number;
   /** Caller IP / source (approximate — useful to distinguish Vercel cron vs manual curl) */

@@ -44,6 +44,24 @@ describe("checkinQrPayload", () => {
   it("throws on non-digit sessionId", () => {
     expect(() => checkinQrPayload("123", "abc")).toThrow("sessionId");
   });
+
+  it("emits the HP form when locationId is present", () => {
+    expect(checkinQrPayload(12345, 67890, null, "TXBSQN0FEKQ11")).toBe(
+      "HP:TXBSQN0FEKQ11:12345:67890",
+    );
+    expect(checkinQrPayload("12345", "67890", "49976218", "TXBSQN0FEKQ11")).toBe(
+      "HP:TXBSQN0FEKQ11:12345:67890:49976218",
+    );
+  });
+
+  it("emits the legacy FT form when locationId is absent/empty", () => {
+    expect(checkinQrPayload(12345, 67890, 49976218, null)).toBe("FT:12345:67890:49976218");
+    expect(checkinQrPayload(12345, 67890, 49976218, "")).toBe("FT:12345:67890:49976218");
+  });
+
+  it("throws on a malformed locationId", () => {
+    expect(() => checkinQrPayload("123", "456", null, "txbs lowercase")).toThrow("locationId");
+  });
 });
 
 describe("parseCheckinQr", () => {
@@ -98,6 +116,40 @@ describe("parseCheckinQr", () => {
 
   it("returns null for too many segments (5-part)", () => {
     expect(parseCheckinQr("FT:123:456:789:000")).toBeNull();
+  });
+
+  it("parses a 4-part HP payload with locationId", () => {
+    expect(parseCheckinQr("HP:TXBSQN0FEKQ11:12345:67890")).toEqual({
+      personId: "12345",
+      sessionId: "67890",
+      locationId: "TXBSQN0FEKQ11",
+    });
+  });
+
+  it("parses a 5-part HP payload with participantId", () => {
+    expect(parseCheckinQr("HP:TXBSQN0FEKQ11:12345:67890:49976218")).toEqual({
+      personId: "12345",
+      sessionId: "67890",
+      participantId: "49976218",
+      locationId: "TXBSQN0FEKQ11",
+    });
+  });
+
+  it("preserves bigint personIds in HP payloads", () => {
+    expect(parseCheckinQr("HP:TXBSQN0FEKQ11:63000000000021716:99887766")).toEqual({
+      personId: "63000000000021716",
+      sessionId: "99887766",
+      locationId: "TXBSQN0FEKQ11",
+    });
+  });
+
+  it("returns null for HP payloads with bad shapes", () => {
+    expect(parseCheckinQr("HP:12345:67890")).toBeNull(); // 3 segments — too short for HP form
+    expect(parseCheckinQr("HP:12345:67890:11111")).toBeNull(); // digits-only "locationId"
+    expect(parseCheckinQr("HP:txbs:12345:67890")).toBeNull(); // lowercase locationId
+    expect(parseCheckinQr("HP:TXBSQN0FEKQ11:abc:67890")).toBeNull(); // non-digit personId
+    expect(parseCheckinQr("HP:TXBSQN0FEKQ11:12345:67890:abc")).toBeNull(); // non-digit participantId
+    expect(parseCheckinQr("HP:TXBSQN0FEKQ11:1:2:3:4")).toBeNull(); // 6 segments
   });
 
   it("returns null for empty string", () => {

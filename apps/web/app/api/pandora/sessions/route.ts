@@ -49,7 +49,10 @@ const ALLOWED_LOCATIONS = new Set([
 // shorter "Mega" was a stale alias that returns 404 from /bmi/sessions).
 // Keep "Mega" allowlisted for any old callers but Pandora only matches
 // "Mega Track".
-const ALLOWED_RESOURCES = new Set(["Blue Track", "Red Track", "Mega", "Mega Track"]);
+// "HP Arena" is the single CF_RSC_NAME covering BOTH Nexus Laser Tag and
+// Nexus Gel Blaster sessions at HeadPinz FM (verified by live probe
+// 2026-06-11 — "Nexus Laser Tag"/"Gel Blaster" variants all 404).
+const ALLOWED_RESOURCES = new Set(["Blue Track", "Red Track", "Mega", "Mega Track", "HP Arena"]);
 
 export interface PandoraSession {
   sessionId: string; // string per Pandora schema
@@ -93,7 +96,7 @@ export async function GET(req: NextRequest) {
   }
   if (!resourceName || !ALLOWED_RESOURCES.has(resourceName)) {
     return NextResponse.json(
-      { error: "Invalid resourceName (Blue Track / Red Track / Mega Track)" },
+      { error: "Invalid resourceName (Blue Track / Red Track / Mega Track / HP Arena)" },
       { status: 400 },
     );
   }

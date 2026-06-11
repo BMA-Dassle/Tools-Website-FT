@@ -23,7 +23,7 @@ import { twilioSend, isTwilioQuotaError } from "@/lib/twilio-send";
  *     longer backoff or moves to dead.
  */
 
-export type SmsRetryCron = "pre-race-cron" | "checkin-cron";
+export type SmsRetryCron = "pre-race-cron" | "checkin-cron" | "arena-pre-cron";
 
 export interface SmsRetryAudit {
   sessionIds: (string | number)[];
@@ -43,6 +43,10 @@ export interface RetryEntry {
   lastFailedAt: string;
   lastStatus: number | null;
   lastError: string;
+  /** Sender DID override (E.164) carried through retries so a
+   *  HeadPinz-branded send isn't retried from the FastTrax number.
+   *  Absent = default VOX_FROM (back-compat for queued entries). */
+  from?: string;
 }
 
 const PENDING = "sms:retry:pending";
@@ -72,6 +76,7 @@ export async function queueRetry(params: {
   audit: SmsRetryAudit;
   status: number | null;
   error: string;
+  from?: string;
 }): Promise<void> {
   try {
     const now = new Date().toISOString();
@@ -86,6 +91,7 @@ export async function queueRetry(params: {
       lastFailedAt: now,
       lastStatus: params.status,
       lastError: (params.error || "").slice(0, 500),
+      ...(params.from ? { from: params.from } : {}),
     };
     const retryAt = Date.now() + backoffMsFor(1);
     await redis.zadd(PENDING, retryAt, JSON.stringify(entry));
@@ -386,10 +392,12 @@ export async function voxSend(
 export async function drainRetries(
   cron: SmsRetryCron,
 ): Promise<{ attempted: number; ok: number; requeued: number; dead: number; quotaQueued: number }> {
-  const DEDUP_TTL_PRE_RACE = 60 * 60 * 24;
-  const DEDUP_TTL_CHECKIN = 60 * 60 * 6;
-  const prefix = cron === "pre-race-cron" ? "alert:pre-race" : "alert:checkin";
-  const dedupTtl = cron === "pre-race-cron" ? DEDUP_TTL_PRE_RACE : DEDUP_TTL_CHECKIN;
+  const DEDUP: Record<SmsRetryCron, { prefix: string; ttl: number }> = {
+    "pre-race-cron": { prefix: "alert:pre-race", ttl: 60 * 60 * 24 },
+    "checkin-cron": { prefix: "alert:checkin", ttl: 60 * 60 * 6 },
+    "arena-pre-cron": { prefix: "alert:arena-pre", ttl: 60 * 60 * 24 },
+  };
+  const { prefix, ttl: dedupTtl } = DEDUP[cron];
 
   const { quotaEnqueue } = await import("@/lib/sms-quota");
   const due = await dueRetries(cron);
@@ -404,7 +412,11 @@ export async function drainRetries(
       continue;
     }
     const ts = new Date().toISOString();
-    const result = await voxSend(toFormatted, entry.body);
+    const result = await voxSend(
+      toFormatted,
+      entry.body,
+      entry.from ? { fromOverride: entry.from } : undefined,
+    );
     if (result.ok) {
       await removeRetry(raw);
       await logSms({
@@ -439,6 +451,7 @@ export async function drainRetries(
         source: cron,
         queuedAt: ts,
         shortCode: entry.audit.shortCode,
+        ...(entry.from ? { from: entry.from } : {}),
         audit: {
           sessionIds: entry.audit.sessionIds,
           personIds: entry.audit.personIds,

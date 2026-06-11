@@ -13,6 +13,40 @@
   NOTE: legacy attraction rows booked before this have empty `booking_metadata` → no start time →
   they're skipped (settle them manually via `?billId=…&token=…` if needed).
 
+## HP Arena E-Tickets — Laser Tag + Gel Blaster at HeadPinz FM (IN PROGRESS — 2026-06-11)
+
+**Goal:** roll the racing e-ticket system out to HP Arena sessions. Plan approved 2026-06-11
+(see `~/.claude/plans/i-want-to-rollout-magical-castle.md` for full detail). Owner decisions:
+FM only (Naples later) · laser tag + gel blaster · no "now checking in" SMS at launch (Pandora
+ask sent — arena has no races-current equivalent) · full HeadPinz identity (HP sender
+`+12393022155`, headpinz.com links, HP-branded pages).
+
+**Live-verified:** BMI resource is `"HP Arena"` (single CF_RSC_NAME covering both activities at
+`TXBSQN0FEKQ11`); arena sessions carry full racing-shaped participants; staff already flip BMI
+`checkedIn` at POS; session timestamps are true UTC.
+
+- [ ] PR-1 — shared plumbing: ticket `activity`/`brand` fields, `arena-pre-cron` source/retry
+      plumbing (`RetryEntry.from`), `HP Arena` in sessions-proxy allow-list, lean participants
+      payload + `checkedIn`, `HP:{loc}:{pid}:{sid}[:{participantId}]` QR form, `/t/` + `/g/`
+      shared-route middleware (serve on headpinz.com).
+- [ ] PR-2 — HP-branded arena ticket views (`src/features/arena-tickets/` +
+      `src/components/features/arena-tickets/`), `/t`+`/g` branch on `ticket.activity`.
+- [ ] PR-3 — arena pre-session cron (`/api/cron/arena-tickets`, service in feature module),
+      admin e-tickets list source + brand-aware resend.
+- [ ] PR-4 — vercel.json schedule (go-live; after ≥3 dry-run evenings + 1 supervised live run).
+- [ ] PR-5 — location-aware check-in scanner + flip `ARENA_QR_ENABLED`.
+- [ ] OWNER 0b: verify whether ONLINE arena bookings attach participants pre-session (book one
+      2h+ out, probe participants). If purchaser-only/none → launch covers POS/phone population;
+      follow-up = send e-ticket link at booking-confirmation time.
+- [ ] OWNER 0c: confirm arena SMS sender = existing HP number `+12393022155` (default) vs new DID.
+- [ ] OWNER 0d: sign off HP FM address + ImportantArenaInfo arrival/waiver copy.
+- [ ] PANDORA ASK (sent?): arena SessionAboutToStart support — preferred
+      `GET /v2/bmi/sessions/current/{locationID}` (any resource, races-current semantics); confirm
+      `/bmi/race/next` arena support. Unblocks `arena-checkin-alerts` cron + scanner parity.
+- ⚠️ BEFORE NAPLES: `ticket:bySession:{sid}:{pid}` + `alert:arena-pre:{sid}:{pid}` dedup keys are
+      NOT location-scoped — fine at FM (FT+HP FM share one BMI server / sessionId namespace), but
+      Naples is a separate BMI server → add a location segment to these keys first.
+
 ## Booking V1→V2 FULL CUTOVER + race-pack port (IN PROGRESS — 2026-06-07)
 
 **Goal (user directive):** V2 is the booking system. Replace ALL booking entry points
