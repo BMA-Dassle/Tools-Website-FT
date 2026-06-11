@@ -1,5 +1,27 @@
 # Lessons Learned
 
+## Crons that charge cards MUST claim atomically — overlapping runs nearly double-charged H2884 (2026-06-11)
+
+Same day as the H2821 dig: #H2884 showed "Balance Paid $0.00" inline but a "BALANCE LINK SENT"
+corner badge. Two `group-balance-charge` runs fired at the same tick and both read the quote in
+`deposit_paid`. Runner A charged the card (COMPLETED $213.72, gift card loaded, `balance_charged`).
+Runner B's duplicate charge **1.1s later** declined — only the card's duplicate-decline prevented a
+real double charge — then fell to the link fallback, **overwrote the paid record back to
+`balance_link_sent`, and emailed the guest a LIVE payment link for a balance she had just paid.**
+
+Rules (shipped in `95bc9f20`):
+
+- **Any cron that moves money must atomically claim the row before the first external write.**
+  `claimGfBalanceCharge` does a compare-and-swap on `balance_charge_attempts`; the CAS loser skips.
+  Reading `status='deposit_paid'` at scan time is NOT a guard — both runners pass it.
+- **State writers must be self-guarding, not caller-trusting.** `updateGfBalanceLinkSent` now
+  refuses rows with `balance_paid_at` set (returns rowcount; caller suppresses the guest
+  notification on 0). A "send payment link" write that can land on a paid record is a
+  double-charge invitation, whatever the caller checked earlier.
+- **Remediation pattern:** verify the real payment + gift card in Square first, flip the status
+  back, and **DELETE the stale Square payment link** (`DELETE /v2/online-checkout/payment-links/{id}`)
+  — a live link to an already-paid balance is an armed double-charge.
+
 ## Square truths from the H2821 stuck balance: link orders stay OPEN, the $2k gift-card cap is on BALANCE (2026-06-11)
 
 #H2821 (ASCE, $2,231 event, event-day discovery) showed "Balance Pending" + "BALANCE LINK SENT"
