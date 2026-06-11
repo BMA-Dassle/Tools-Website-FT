@@ -189,12 +189,10 @@ const GiftCardCapture = forwardRef<GiftCardCaptureHandle, Props>(function GiftCa
       </div>
       {/* Square's gift card iframe has no built-in placeholder (unlike the
           card widget below). The hint text on top is the user's only cue
-          that this is a number-entry field. */}
-      <div
-        id={CONTAINER_ID}
-        className="rounded-lg border border-white/15 bg-white/5 px-3 py-2"
-        style={{ minHeight: 48 }}
-      />
+          that this is a number-entry field. The iframe types BLACK text and
+          ignores our theme, so the container must stay white or the digits
+          are invisible on the dark background. */}
+      <div id={CONTAINER_ID} className="rounded-lg bg-white px-3 py-2" style={{ minHeight: 48 }} />
       <p className="text-white/40 text-xs">
         Look for the 16-digit code on the back of your gift card.
       </p>
