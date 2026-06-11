@@ -192,6 +192,9 @@ export default function PaymentForm({
   // Live Square `payments` instance so GiftCardCapture can call
   // payments.giftCard() without spinning up a second SDK instance.
   const [paymentsInstance, setPaymentsInstance] = useState<SquarePayments | null>(null);
+  // Gift card entry is collapsed behind a "Have a gift card?" toggle —
+  // it's the rarest tender, so it shouldn't take top-of-screen space.
+  const [showGiftCard, setShowGiftCard] = useState(false);
   // Applied gift card state. Null = no GC applied.
   const [giftCardNonce, setGiftCardNonce] = useState<string | null>(null);
   const [giftCardBalanceCents, setGiftCardBalanceCents] = useState<number>(0);
@@ -463,54 +466,9 @@ export default function PaymentForm({
         <p className="text-white/50 text-sm">{itemName}</p>
       </div>
 
-      {/* Gift card capture / applied summary */}
-      {giftCardNonce ? (
-        <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 flex items-start justify-between gap-3">
-          <div className="text-sm">
-            <p className="text-emerald-200 font-semibold">Gift card •••• {giftCardLast4 ?? ""}</p>
-            <p className="text-emerald-200/80 text-xs mt-0.5">
-              ${(gcAppliedCents / 100).toFixed(2)} of ${(giftCardBalanceCents / 100).toFixed(2)}{" "}
-              balance applied
-              {remainingCents > 0 ? ` · $${remainingDollars.toFixed(2)} due on card` : ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setGiftCardNonce(null);
-              setGiftCardBalanceCents(0);
-              setGiftCardLast4(null);
-              giftCardCaptureRef.current?.reset();
-            }}
-            disabled={status === "processing"}
-            className="text-xs text-white/60 hover:text-white underline disabled:opacity-40"
-          >
-            Remove
-          </button>
-        </div>
-      ) : (
-        <GiftCardCapture
-          ref={giftCardCaptureRef}
-          payments={paymentsInstance}
-          disabled={status === "processing"}
-          onApply={({ nonce, balanceCents, last4 }) => {
-            setGiftCardNonce(nonce);
-            setGiftCardBalanceCents(balanceCents);
-            setGiftCardLast4(last4);
-          }}
-        />
-      )}
-
-      {/* Saved cards (hidden when GC fully covers the bill) */}
-      {savedCards.length > 0 && remainingCents > 0 && (
-        <SavedCardSelector
-          cards={savedCards}
-          selectedCardId={selectedCardId}
-          onSelect={setSelectedCardId}
-        />
-      )}
-
-      {/* Digital wallets — hidden when GC applied (v1 mutual exclusion) */}
+      {/* Express lane first: digital wallets, then the manual card path below
+          the divider. Hidden when a GC is applied (v1 mutual exclusion) or a
+          saved card is selected (existing behavior, unchanged). */}
       <div
         className={
           !giftCardNonce && !selectedCardId && (applePayReady || googlePayReady)
@@ -547,6 +505,15 @@ export default function PaymentForm({
           <span className="text-white/30 text-xs uppercase tracking-wider">or pay with card</span>
           <div className="flex-1 h-px bg-white/10" />
         </div>
+      )}
+
+      {/* Saved cards (hidden when GC fully covers the bill) */}
+      {savedCards.length > 0 && remainingCents > 0 && (
+        <SavedCardSelector
+          cards={savedCards}
+          selectedCardId={selectedCardId}
+          onSelect={setSelectedCardId}
+        />
       )}
 
       {/* Card form (hidden when using saved card OR when GC fully covers) */}
@@ -607,21 +574,73 @@ export default function PaymentForm({
         )}
       </button>
 
-      {/* Cancel */}
-      {onCancel && (
-        <button
-          onClick={onCancel}
+      {/* Gift card — rare path, so collapsed to a text toggle until asked
+          for. Applied state renders the summary chip in the same slot. */}
+      {giftCardNonce ? (
+        <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 flex items-start justify-between gap-3">
+          <div className="text-sm">
+            <p className="text-emerald-200 font-semibold">Gift card •••• {giftCardLast4 ?? ""}</p>
+            <p className="text-emerald-200/80 text-xs mt-0.5">
+              ${(gcAppliedCents / 100).toFixed(2)} of ${(giftCardBalanceCents / 100).toFixed(2)}{" "}
+              balance applied
+              {remainingCents > 0 ? ` · $${remainingDollars.toFixed(2)} due on card` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setGiftCardNonce(null);
+              setGiftCardBalanceCents(0);
+              setGiftCardLast4(null);
+              giftCardCaptureRef.current?.reset();
+            }}
+            disabled={status === "processing"}
+            className="text-xs text-white/60 hover:text-white underline disabled:opacity-40"
+          >
+            Remove
+          </button>
+        </div>
+      ) : showGiftCard ? (
+        <GiftCardCapture
+          ref={giftCardCaptureRef}
+          payments={paymentsInstance}
           disabled={status === "processing"}
-          className="w-full text-center text-sm text-white/30 hover:text-white/50 transition-colors"
+          onApply={({ nonce, balanceCents, last4 }) => {
+            setGiftCardNonce(nonce);
+            setGiftCardBalanceCents(balanceCents);
+            setGiftCardLast4(last4);
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowGiftCard(true)}
+          disabled={status === "processing"}
+          className="w-full text-center text-sm text-white/40 underline underline-offset-2 hover:text-white/70 transition-colors disabled:opacity-40"
         >
-          ← Back
+          Have a gift card?
         </button>
       )}
 
-      {/* Security note */}
-      <p className="text-center text-white/20 text-xs">
-        Secured by Square. Your card details never touch our servers.
-      </p>
+      {/* Cancel + security note in one compact bottom row */}
+      <div
+        className={
+          onCancel ? "flex items-center justify-between gap-3 text-xs" : "text-center text-xs"
+        }
+      >
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            disabled={status === "processing"}
+            className="text-sm text-white/30 hover:text-white/50 transition-colors shrink-0"
+          >
+            ← Back
+          </button>
+        )}
+        <p className={onCancel ? "text-right text-white/20" : "text-white/20"}>
+          Secured by Square. Your card details never touch our servers.
+        </p>
+      </div>
     </div>
   );
 }
