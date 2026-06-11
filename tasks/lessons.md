@@ -1,5 +1,35 @@
 # Lessons Learned
 
+## Every payment entry point must ride the same rail — "effectively dead" fallbacks charge real cards (2026-06-10)
+
+35 customers (~$1,127) were charged with NO booking created over ~48h after the June 7 v1→v2
+redirect. Two missing HeadPinz Naples reservations (Barton $61.47, Mueller $37.07) surfaced it.
+Root cause: v2 `CheckoutStep` wires `PaymentForm`'s `onTokenize` so the reserve routes charge AND
+book atomically — and the card/saved-card/gift-card paths all honored it — but **`handleApplePay`
+called `processPayment()` directly**, charging via `/api/square/pay` and skipping the reserve
+entirely. `handlePaymentSuccess` then cleared the cart and redirected to a broken confirmation,
+which read as failure → customers retried → double/triple charges (one customer ×3 = $218).
+Google Pay was a quieter twin: `attach()` rendered the button, nothing ever called `tokenize()`.
+Bonus wound: the fallback's `locationId` came from hostname (headpinz → HP **Fort Myers**), so all
+35 charges also landed in the wrong Square location. Fixed in `2728e57d`.
+
+**Rules:**
+
+- **When adding a payment method to a component, audit EVERY submit path** (card, saved card, gift
+  card, each wallet) against every caller mode. A new entry point that skips the orchestration
+  callback is a charge-without-fulfillment bug, not a UX bug.
+- **A comment saying a fallback is "effectively dead" is a claim, not a property.** If a code path
+  would charge a customer without fulfilling, it must fail LOUDLY (server-side alert log + a
+  "payment received, do NOT pay again" screen, never a Retry button) — silence + a broken
+  confirmation is what converts one orphan charge into three.
+- **Detection signature:** Square payments with note `FastTrax - … | Ref: cart-…` are always
+  orphans (reserve-route charges write different notes). Worksheet:
+  `node apps/web/scripts/audit-orphan-cart-payments.mjs 2026-06-08` (cross-matches
+  `bowling_reservations` by buyer email; contact info for outreach lives in
+  `clickwrap_acceptances` by cart `bill_id`).
+- **Wallet payments look like `CVV_NOT_CHECKED` + `AVS_ACCEPTED`** in Square card_details — that
+  plus iPhone user agents in clickwrap is how the Apple Pay path was pinned without repro.
+
 ## Before fixing a "v2" component, confirm which route is actually LIVE — the middleware redirects v1 → step-machine (2026-06-08)
 
 KBF login wasn't populating kids/adults. I traced `/hp/book/kids-bowl-free/page.tsx` → it renders
