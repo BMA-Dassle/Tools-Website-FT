@@ -17,6 +17,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/arena-tickets",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/sms-retry-sweep",
       "schedule": "* * * * *"
     },
