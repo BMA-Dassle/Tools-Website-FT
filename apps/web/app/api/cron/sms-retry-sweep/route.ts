@@ -33,13 +33,16 @@ export async function GET(req: NextRequest) {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
 
   try {
-    const [preRace, checkin, pending] = await Promise.all([
+    const [preRace, checkin, arenaPre, pending] = await Promise.all([
       dryRun
         ? Promise.resolve({ attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0 })
         : drainRetries("pre-race-cron"),
       dryRun
         ? Promise.resolve({ attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0 })
         : drainRetries("checkin-cron"),
+      dryRun
+        ? Promise.resolve({ attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0 })
+        : drainRetries("arena-pre-cron"),
       pendingCount(),
     ]);
 
@@ -107,9 +110,15 @@ export async function GET(req: NextRequest) {
             return { ok: result.ok, status: result.status, error: result.error };
           });
 
-    const sent = preRace.ok + checkin.ok + quota.ok;
+    const sent = preRace.ok + checkin.ok + arenaPre.ok + quota.ok;
     const errors =
-      preRace.requeued + checkin.requeued + preRace.dead + checkin.dead + quota.abandoned;
+      preRace.requeued +
+      checkin.requeued +
+      arenaPre.requeued +
+      preRace.dead +
+      checkin.dead +
+      arenaPre.dead +
+      quota.abandoned;
 
     await logCronRun({
       ts: new Date().toISOString(),
@@ -119,7 +128,7 @@ export async function GET(req: NextRequest) {
       invoker: req.headers.get("x-vercel-cron")
         ? "vercel-cron"
         : req.headers.get("user-agent") || "unknown",
-      candidates: preRace.attempted + checkin.attempted + quota.attempted,
+      candidates: preRace.attempted + checkin.attempted + arenaPre.attempted + quota.attempted,
       sent,
       skipped: 0,
       errors,
@@ -131,6 +140,7 @@ export async function GET(req: NextRequest) {
       elapsedMs: Date.now() - started,
       preRace,
       checkin,
+      arenaPre,
       quota,
       quotaCooldownActive,
       pendingAfter: pending,

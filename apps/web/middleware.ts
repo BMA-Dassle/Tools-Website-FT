@@ -495,7 +495,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/marketing/") ||
     // Group function contract pages — brand is determined per-contract
     // from Neon data, not from host. Must serve on both domains.
-    pathname.startsWith("/contract/");
+    pathname.startsWith("/contract/") ||
+    // E-ticket pages — racing tickets are FT-branded, HP Arena tickets
+    // are HP-branded; brand comes from the ticket record (like /survey/),
+    // not the host. Arena SMS links point at headpinz.com/t/{id}, so
+    // these must not be /hp-rewritten (404 otherwise).
+    pathname.startsWith("/t/") ||
+    pathname.startsWith("/g/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
@@ -525,6 +531,12 @@ export async function middleware(request: NextRequest) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
     if (pathname.startsWith("/contract/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
+    // E-tickets suppress the mobile Book-Now bar on the HP host too
+    // (same rationale as the FT-host block below — focused customer
+    // flow, QR modals).
+    if (pathname.startsWith("/t/") || pathname.startsWith("/g/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
     return NextResponse.next({ request: { headers: requestHeaders } });

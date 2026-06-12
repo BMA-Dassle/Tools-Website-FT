@@ -22,9 +22,18 @@ export interface RaceTicket {
   email?: string;
   phone?: string;
   scheduledStart: string; // ISO
-  track: string; // "Blue" | "Red" | "Mega"
-  raceType: string; // "Starter" | "Intermediate" | "Pro"
+  track: string; // racing: "Blue" | "Red" | "Mega"; arena: "Laser Tag" | "Gel Blaster"
+  raceType: string; // racing: "Starter" | "Intermediate" | "Pro"; arena: session type from Pandora
   heatNumber: number;
+  /** What this ticket is for. Absent = "racing" (back-compat — every
+   *  ticket minted before the HP Arena rollout). Arena tickets reuse
+   *  the same store/pages; this discriminator drives the HP-branded
+   *  view + suppresses racing-only widgets (POV claim, headsock,
+   *  races-current polling). */
+  activity?: "racing" | "laser-tag" | "gel-blaster";
+  /** Brand identity for the SMS sender / link domain / page styling.
+   *  Absent = "fasttrax" (back-compat). */
+  brand?: "fasttrax" | "headpinz";
   /** Optional — filled in if we can correlate to a Square reservation */
   resNumber?: string;
   /** True when the SMS / email was routed to a guardian instead of
@@ -203,9 +212,11 @@ export interface GroupTicketMember {
   firstName: string;
   lastName: string;
   scheduledStart: string;
-  track: string; // "Blue" | "Red" | "Mega"
+  track: string; // racing: "Blue" | "Red" | "Mega"; arena: "Laser Tag" | "Gel Blaster"
   raceType: string;
   heatNumber: number;
+  /** See RaceTicket.activity — absent = "racing" (back-compat). */
+  activity?: "racing" | "laser-tag" | "gel-blaster";
   /** Set when THIS member was moved to a different heat — the /g page renders
    *  a "your race moved" card for just this member instead of InvalidCard. */
   movedTo?: MovedTo;
@@ -226,6 +237,10 @@ export interface GroupTicket {
   /** Guardian's first name for body-builder use. Only meaningful
    *  when recipient === "guardian". */
   guardianFirstName?: string;
+  /** See RaceTicket.brand — absent = "fasttrax" (back-compat). Groups
+   *  never mix brands: buckets are built per-cron, so a family with a
+   *  race AND an arena session gets one FT group and one HP group. */
+  brand?: "fasttrax" | "headpinz";
 }
 
 function groupKey(id: string) {

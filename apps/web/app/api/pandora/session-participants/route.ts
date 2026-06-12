@@ -294,14 +294,19 @@ export async function GET(req: NextRequest) {
 }
 
 /** Strip PII unless the caller proved server-side trust via the
- *  internal-secret header. Lean shape is just `{ personId }`. */
+ *  internal-secret header. Lean shape is `{ personId, checkedIn }` —
+ *  checkedIn is a BMI confirmation timestamp (not PII) that the
+ *  arena e-ticket pages poll to flip their "Checked in" state
+ *  (arena has no races-current equivalent to signal session state). */
 function redactIfUntrusted(
   req: NextRequest,
   full: Participant[],
-): Participant[] | { personId: string | number }[] {
+): Participant[] | { personId: string | number; checkedIn: string | null }[] {
   const internalHeader = req.headers.get("x-pandora-internal");
   const trusted = !!API_KEY && internalHeader === API_KEY;
-  return trusted ? full : full.map((p) => ({ personId: p.personId }));
+  return trusted
+    ? full
+    : full.map((p) => ({ personId: p.personId, checkedIn: p.checkedIn ?? null }));
 }
 
 /** Pandora unreachable / errored — try the Redis cache before

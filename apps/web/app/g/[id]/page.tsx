@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
 import { getGroupTicket, type GroupTicket } from "@/lib/race-tickets";
 import GroupETicketView, { type MemberInitialState } from "./GroupETicketView";
-import { FASTTRAX_OG } from "@/lib/seo";
+import ArenaGroupETicketView from "~/components/features/arena-tickets/ArenaGroupETicketView";
+import { isArenaGroup } from "~/features/arena-tickets/types";
+import { FASTTRAX_OG, HEADPINZ_OG } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,25 @@ export async function generateMetadata({ params }: PageProps) {
   }
   const count = group.members.length;
   const distinctHeats = new Set(group.members.map((m) => String(m.sessionId))).size;
+  // HP Arena groups get HeadPinz-branded metadata; brand comes from
+  // the group record, not the host (the /g route serves both domains).
+  if (isArenaGroup(group)) {
+    const title = `${count} Player${count === 1 ? "" : "s"} — HP Arena E-Ticket`;
+    const description = `${count} player${count === 1 ? "" : "s"} · ${distinctHeats} session${distinctHeats === 1 ? "" : "s"} · Show this screen at the HP Arena desk.`;
+    return {
+      title,
+      description,
+      robots: { index: false, follow: false },
+      openGraph: {
+        title,
+        description,
+        siteName: "HP Arena E-Ticket",
+        type: "website" as const,
+        images: [...HEADPINZ_OG],
+      },
+      twitter: { card: "summary" as const, title, description },
+    };
+  }
   const title = `${count} Racers — FastTrax E-Ticket`;
   const description = `${count} racer${count === 1 ? "" : "s"} · ${distinctHeats} heat${distinctHeats === 1 ? "" : "s"} · Show this screen at check-in.`;
   return {
@@ -73,6 +94,13 @@ export default async function GroupETicketPage({ params }: PageProps) {
   const { id } = await params;
   const group = await getGroupTicket(id);
   if (!group) notFound();
+
+  // HP Arena groups render their own HeadPinz-branded view — no
+  // wasCalled SSR seed needed (arena state flips on BMI checkedIn +
+  // time; see ArenaGroupETicketView).
+  if (isArenaGroup(group)) {
+    return <ArenaGroupETicketView group={group} />;
+  }
 
   // Redis-only per-session called/alerted lookups in parallel.
   // Pandora calls (races-current, session-participants) are deferred

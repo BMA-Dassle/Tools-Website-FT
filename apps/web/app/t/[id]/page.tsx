@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
 import { getRaceTicket } from "@/lib/race-tickets";
 import ETicketView from "./ETicketView";
-import { FASTTRAX_OG } from "@/lib/seo";
+import ArenaETicketView from "~/components/features/arena-tickets/ArenaETicketView";
+import { isArenaTicket } from "~/features/arena-tickets/types";
+import { FASTTRAX_OG, HEADPINZ_OG } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +30,25 @@ export async function generateMetadata({ params }: PageProps) {
         title: "E-Ticket — FastTrax",
         description: "Your FastTrax e-ticket",
       },
+    };
+  }
+  // HP Arena tickets get HeadPinz-branded metadata; brand comes from
+  // the ticket record, not the host (the /t route serves both domains).
+  if (isArenaTicket(ticket)) {
+    const title = `${ticket.firstName}'s ${ticket.track} Session — HP Arena E-Ticket`;
+    const description = `${ticket.track} · Session ${ticket.heatNumber} · Show this screen at the HP Arena desk.`;
+    return {
+      title,
+      description,
+      robots: { index: false, follow: false },
+      openGraph: {
+        title,
+        description,
+        siteName: "HP Arena E-Ticket",
+        type: "website" as const,
+        images: [...HEADPINZ_OG],
+      },
+      twitter: { card: "summary" as const, title, description },
     };
   }
   const title = `${ticket.firstName}'s ${ticket.raceType} Race — FastTrax E-Ticket`;
@@ -74,6 +95,13 @@ export default async function ETicketPage({ params }: PageProps) {
   const { id } = await params;
   const ticket = await getRaceTicket(id);
   if (!ticket) notFound();
+
+  // HP Arena tickets render their own HeadPinz-branded view — no
+  // races-current / wasCalled SSR seed needed (arena state flips on
+  // BMI checkedIn + time; see ArenaETicketView).
+  if (isArenaTicket(ticket)) {
+    return <ArenaETicketView ticket={ticket} />;
+  }
 
   const wasCalled = await wasSessionCalled(ticket.sessionId);
 
