@@ -23,6 +23,7 @@ import {
   memberEligibleBreakdown,
 } from "~/features/booking/data/race-credits";
 import { bowlingReserve, buildBowlingQuoteLineItems } from "~/features/booking/service/bowling";
+import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import {
   KBF_GAMES_PER_SESSION,
@@ -319,7 +320,15 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
         if (anyQuoted) quotedTotal = quotedSum;
       }
 
-      const estTax = bmiOverview?.tax ?? 0;
+      // Display tax must cover EVERY line Square will tax (LOCATION_TAX is
+      // ORDER-scope): the BMI-side tax as computed, PLUS 6.5% on the non-BMI
+      // review lines (bowling line items, the $2.99 booking fee, KBF extras).
+      // Without the second term a mixed cart displayed ~19¢ less than the
+      // charge (caught on the first Ultimate VIP booking: review $82.87,
+      // charged $83.06 — the fee's tax). Bowling-only carts use the quoted
+      // tax-inclusive total below instead; race-only carts add 0 here.
+      const nonBmiSubtotal = Math.max(0, preTaxSubtotal - (bmiOverview?.subtotal ?? 0));
+      const estTax = (bmiOverview?.tax ?? 0) + calculateTax(nonBmiSubtotal);
       const rewardDiscount = rewardDiscountCents / 100;
       const grossTotal = quotedTotal ?? preTaxSubtotal + estTax;
       // The HeadPinz Rewards $-off reduces the charge, so the DISPLAYED Total
