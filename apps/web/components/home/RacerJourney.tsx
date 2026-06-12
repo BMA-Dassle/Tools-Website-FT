@@ -168,10 +168,11 @@ export default function RacerJourney() {
 
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">
-            {/* Owner 2026-06-11: route race intent through /attractions (combo
-                offers first) instead of straight into the race wizard. */}
+            {/* Owner 2026-06-11: route race intent to the full activity
+                booking hub (/book — same target as the mobile footer's Book
+                bar) instead of straight into the race wizard. */}
             <Link
-              href="/attractions"
+              href="/book"
               onClick={trackBookingClick}
               className="font-body font-bold uppercase text-white px-6 py-4 rounded-full text-sm tracking-wider transition-all hover:scale-105"
               style={{ backgroundColor: "rgb(228,28,29)" }}
