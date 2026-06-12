@@ -54,6 +54,7 @@ export interface QueuedSend {
     | "pre-race-cron"
     | "checkin-cron"
     | "arena-pre-cron"
+    | "arena-checkin-cron"
     | "booking-confirm"
     | "level-up"
     | "video-match"

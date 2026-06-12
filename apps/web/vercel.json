@@ -21,6 +21,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/arena-checkin-alerts",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/sms-retry-sweep",
       "schedule": "* * * * *"
     },

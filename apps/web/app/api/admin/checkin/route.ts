@@ -217,17 +217,70 @@ async function checkInViaPandora(
 
 /**
  * HP Arena scan path — HP-prefixed QRs carry an explicit locationId
- * (arena tickets; HP FM today, Naples-ready). Arena has NO
- * races-current equivalent (Pandora's notification processor is
- * FastTrax-track-only), so the green/yellow gate is the session's
- * scheduled time: green from 60 min before start to 30 min after,
- * yellow otherwise. No headsock (racing-only), no move-resolution
- * (no live-session source to resolve against — the baked sessionId
- * is used as-is; a moved player re-receives a fresh ticket from the
- * arena cron anyway).
+ * (arena tickets; HP FM today, Naples-ready). The green/yellow gate is
+ * the LIVE called signal from Pandora's sessions/current (entries
+ * appear at SessionAboutToStart and drop ~20 min later, mirroring
+ * races-current), with the scheduled-time window (−60/+30 min) as a
+ * fallback so early walk-up check-ins and a degraded Pandora never
+ * dead-end the desk. No headsock (racing-only). Out-of-window scans
+ * look up the guest's NEXT arena session (Pandora sessions/next) so
+ * staff can say "come back at X" instead of a blank yellow.
  */
 const ARENA_EARLY_MIN = 60;
 const ARENA_LATE_MIN = 30;
+
+/** Live called arena sessions at this location — sessionIds whose
+ *  SessionAboutToStart fired in the last ~20 min. Empty set on any
+ *  failure (callers fall back to the time window). */
+async function fetchCalledArenaSessionIds(locationId: string): Promise<Set<string>> {
+  try {
+    const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${locationId}`, {
+      headers: pandoraHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return new Set();
+    const json = await res.json();
+    const list = Array.isArray(json?.data) ? json.data : [];
+    return new Set(list.map((s: { sessionId?: string | number }) => String(s.sessionId ?? "")));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Guest's next unstarted arena session via Pandora sessions/next.
+ *  Mirrors fetchNextRace's tri-state so transient Pandora failures
+ *  never read as "no session booked". */
+async function fetchNextArenaSession(
+  locationId: string,
+  idType: "person" | "participant",
+  id: string,
+): Promise<NextRaceResult> {
+  try {
+    const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/next/${locationId}/${idType}/${id}`, {
+      headers: pandoraHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.status === 404) return { status: "none" };
+    if (!res.ok) return { status: "unknown" };
+    const json = await res.json();
+    const data = json?.data;
+    if (!data) return { status: "unknown" };
+    const activity = classifyArenaSession(data.type || data.name || "");
+    return {
+      status: "found",
+      race: {
+        track: activity ? activityDisplay(activity) : (data.type ?? "HP Arena"),
+        raceType: "",
+        heatNumber: data.heatNumber ?? null,
+        scheduledStart: data.scheduledStart ?? null,
+      },
+    };
+  } catch {
+    return { status: "unknown" };
+  }
+}
 
 async function findArenaSession(
   req: NextRequest,
@@ -281,10 +334,14 @@ async function handleArenaScan(
   locationId: string,
   personId: string,
   sessionId: string,
+  participantId: string | null,
 ): Promise<NextResponse> {
   const noHeadsock = { detected: false, deducted: false, balance: 0 };
-  const session = await findArenaSession(req, locationId, sessionId);
-  const guestLookup = await lookupGuest(sessionId, personId, locationId);
+  const [session, guestLookup, calledIds] = await Promise.all([
+    findArenaSession(req, locationId, sessionId),
+    lookupGuest(sessionId, personId, locationId),
+    fetchCalledArenaSessionIds(locationId),
+  ]);
   const guest = guestLookup.participant;
 
   const activity = session ? classifyArenaSession(session.name) : null;
@@ -297,6 +354,10 @@ async function handleArenaScan(
     scheduledStart: session?.scheduledStart ?? null,
   };
 
+  // Green gate: the session was just called (live signal, drops ~20 min
+  // after call) OR we're inside the scheduled-time window (fallback for
+  // early walk-ups + degraded Pandora notifications).
+  const calledNow = calledIds.has(sessionId);
   let inWindow = false;
   if (session?.scheduledStart) {
     const startMs = new Date(session.scheduledStart).getTime();
@@ -306,9 +367,14 @@ async function handleArenaScan(
     }
   }
 
-  if (!inWindow) {
-    // Yellow card — outside the check-in window (or session metadata
-    // unavailable). Show what we know; staff decides.
+  if (!calledNow && !inWindow) {
+    // Yellow card — outside the check-in window and not called. Look up
+    // the guest's NEXT arena session so staff can say "come back at X"
+    // (mirrors the racing scanner's race/next path). Prefer the stable
+    // participantId off a 5-part QR; fall back to a person-wide scan.
+    const next = participantId
+      ? await fetchNextArenaSession(locationId, "participant", participantId)
+      : await fetchNextArenaSession(locationId, "person", personId);
     return NextResponse.json({
       success: true,
       guest: guest
@@ -318,6 +384,8 @@ async function handleArenaScan(
       currentlyCheckingIn: false,
       headsock: noHeadsock,
       arena: true,
+      ...(next.status === "found" ? { nextRace: next.race, nextRaceStatus: "found" } : {}),
+      ...(next.status === "none" ? { nextRace: null, nextRaceStatus: "none" } : {}),
       ...(session ? {} : { detail: "Arena session not found in today's schedule" }),
     });
   }
@@ -476,10 +544,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // HP Arena QR — diverges entirely from the racing flow (no
-  // races-current, no headsock, time-window gate). See handleArenaScan.
+  // HP Arena QR — diverges entirely from the racing flow (no headsock,
+  // called-signal/time-window gate, sessions/next for "come back at X").
+  // See handleArenaScan.
   if (qrLocationId && personId && sessionId) {
-    return handleArenaScan(req, qrLocationId, personId, sessionId);
+    return handleArenaScan(req, qrLocationId, personId, sessionId, qrParticipantId);
   }
 
   // Get races-current first (needed for both e-ticket QR and paper QR paths)

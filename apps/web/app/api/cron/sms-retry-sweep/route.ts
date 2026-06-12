@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
 
   try {
-    const [preRace, checkin, arenaPre, pending] = await Promise.all([
+    const [preRace, checkin, arenaPre, arenaCheckin, pending] = await Promise.all([
       dryRun
         ? Promise.resolve({ attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0 })
         : drainRetries("pre-race-cron"),
@@ -43,6 +43,9 @@ export async function GET(req: NextRequest) {
       dryRun
         ? Promise.resolve({ attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0 })
         : drainRetries("arena-pre-cron"),
+      dryRun
+        ? Promise.resolve({ attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0 })
+        : drainRetries("arena-checkin-cron"),
       pendingCount(),
     ]);
 
@@ -110,14 +113,16 @@ export async function GET(req: NextRequest) {
             return { ok: result.ok, status: result.status, error: result.error };
           });
 
-    const sent = preRace.ok + checkin.ok + arenaPre.ok + quota.ok;
+    const sent = preRace.ok + checkin.ok + arenaPre.ok + arenaCheckin.ok + quota.ok;
     const errors =
       preRace.requeued +
       checkin.requeued +
       arenaPre.requeued +
+      arenaCheckin.requeued +
       preRace.dead +
       checkin.dead +
       arenaPre.dead +
+      arenaCheckin.dead +
       quota.abandoned;
 
     await logCronRun({
@@ -128,7 +133,12 @@ export async function GET(req: NextRequest) {
       invoker: req.headers.get("x-vercel-cron")
         ? "vercel-cron"
         : req.headers.get("user-agent") || "unknown",
-      candidates: preRace.attempted + checkin.attempted + arenaPre.attempted + quota.attempted,
+      candidates:
+        preRace.attempted +
+        checkin.attempted +
+        arenaPre.attempted +
+        arenaCheckin.attempted +
+        quota.attempted,
       sent,
       skipped: 0,
       errors,
@@ -141,6 +151,7 @@ export async function GET(req: NextRequest) {
       preRace,
       checkin,
       arenaPre,
+      arenaCheckin,
       quota,
       quotaCooldownActive,
       pendingAfter: pending,

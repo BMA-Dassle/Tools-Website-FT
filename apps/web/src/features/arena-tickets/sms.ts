@@ -124,6 +124,81 @@ export function buildArenaGuardianGroupSmsBody(
   return lines.join("\n");
 }
 
+// ── "Now checking in" bodies (arena check-in alert cron) ──────────────
+// Mirror the racing checkin-alerts framing: action first, urgent, one
+// segment for the single case. Fired when Pandora's sessions/current
+// reports the session's SessionAboutToStart notification.
+
+export function buildArenaCheckinSingleSmsBody(
+  member: GroupTicketMember,
+  shortUrl: string,
+): string {
+  return [
+    `HeadPinz: NOW CHECKING IN`,
+    sessionLabelShort(member),
+    playerName(member),
+    `Head to the HP Arena desk now:`,
+    shortUrl,
+    `Have this open for check-in`,
+  ].join("\n");
+}
+
+export function buildArenaCheckinGroupSmsBody(
+  members: GroupTicketMember[],
+  shortUrl: string,
+): string {
+  const sorted = [...members].sort(
+    (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+  );
+  const bySession = new Map<string, GroupTicketMember[]>();
+  for (const m of sorted) {
+    const k = String(m.sessionId);
+    if (!bySession.has(k)) bySession.set(k, []);
+    bySession.get(k)!.push(m);
+  }
+  const lines: string[] = [`HeadPinz: NOW CHECKING IN`];
+  for (const group of bySession.values()) {
+    lines.push(sessionLabelShort(group[0]));
+    for (const m of group) lines.push(`- ${playerName(m)}`);
+  }
+  lines.push(`Head to the HP Arena desk now:`);
+  lines.push(shortUrl);
+  lines.push(`Have this open for check-in`);
+  return lines.join("\n");
+}
+
+export function buildArenaCheckinGuardianSingleSmsBody(
+  member: GroupTicketMember,
+  shortUrl: string,
+): string {
+  return [
+    `HeadPinz: NOW CHECKING IN`,
+    `Your player's session is up - head to the HP Arena desk now:`,
+    shortUrl,
+    `Have this open for check-in`,
+    `${playerName(member)} | ${sessionLabelShort(member)}`,
+  ].join("\n");
+}
+
+export function buildArenaCheckinGuardianGroupSmsBody(
+  members: GroupTicketMember[],
+  shortUrl: string,
+): string {
+  const sorted = [...members].sort(
+    (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+  );
+  const lines: string[] = [
+    `HeadPinz: NOW CHECKING IN`,
+    `Your players are up - head to the HP Arena desk now:`,
+    shortUrl,
+    `Have this open for check-in`,
+  ];
+  for (const m of sorted) {
+    lines.push(`${playerName(m)} | ${sessionLabelShort(m)}`);
+  }
+  return lines.join("\n");
+}
+
 /** Single-player MOVE body — same Was/Now framing as racing moves. */
 export function buildArenaSingleMoveSmsBody(
   member: GroupTicketMember,

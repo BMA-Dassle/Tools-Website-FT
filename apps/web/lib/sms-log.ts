@@ -25,6 +25,7 @@ export interface SmsLogEntry {
     | "pre-race-cron"
     | "checkin-cron"
     | "arena-pre-cron"
+    | "arena-checkin-cron"
     | "booking-confirm"
     | "level-up"
     | "admin-resend"
@@ -193,6 +194,7 @@ function bucketSource(s: string | undefined): keyof SmsDailyCounts["bySource"] {
     case "arena-pre-cron": // HP Arena pre-session e-tickets — same dashboard bucket
       return "eTicket";
     case "checkin-cron":
+    case "arena-checkin-cron": // HP Arena "now checking in" — same dashboard bucket
       return "checkIn";
     case "video-match":
       return "video";
@@ -275,7 +277,7 @@ export async function readSmsCountsRange(
 
 export interface CronRunEntry {
   ts: string;
-  cron: "pre-race" | "checkin" | "video-match" | "arena-pre";
+  cron: "pre-race" | "checkin" | "video-match" | "arena-pre" | "arena-checkin";
   dryRun: boolean;
   elapsedMs: number;
   /** Caller IP / source (approximate — useful to distinguish Vercel cron vs manual curl) */

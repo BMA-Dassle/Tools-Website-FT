@@ -201,6 +201,7 @@ export async function GET(req: NextRequest) {
       "pre-race-cron", // e-ticket 2hrs before race
       "checkin-cron", // check-in live notification
       "arena-pre-cron", // HP Arena e-ticket 2hrs before session
+      "arena-checkin-cron", // HP Arena "now checking in" live notification
       "admin-resend", // manual resend from this page
     ]);
     const preFiltered = pool.filter((e) => {

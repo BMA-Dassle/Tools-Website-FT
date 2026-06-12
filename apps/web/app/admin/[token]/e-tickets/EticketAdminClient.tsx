@@ -48,6 +48,7 @@ function sourceLabel(s: string): string {
   if (s === "pre-race-cron") return "eTicket";
   if (s === "checkin-cron") return "check-in";
   if (s === "arena-pre-cron") return "HP Arena";
+  if (s === "arena-checkin-cron") return "HP check-in";
   if (s === "admin-resend") return "resend";
   if (s === "video-match") return "video";
   return s;
@@ -63,6 +64,7 @@ function sourceChipClass(source: string, noConsent: boolean): string {
     case "checkin-cron":
       return "bg-emerald-500/20 text-emerald-300";
     case "arena-pre-cron":
+    case "arena-checkin-cron":
       return "bg-violet-500/20 text-violet-300";
     case "admin-resend":
       return "bg-amber-500/20 text-amber-300";
@@ -336,7 +338,7 @@ type QuotaStatus = {
 export default function EticketAdminClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayYmd());
   const [source, setSource] = useState<
-    "" | "pre-race-cron" | "checkin-cron" | "arena-pre-cron" | "admin-resend"
+    "" | "pre-race-cron" | "checkin-cron" | "arena-pre-cron" | "arena-checkin-cron" | "admin-resend"
   >("");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<EnrichedLogEntry[]>([]);
@@ -540,6 +542,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
               </option>
               <option value="arena-pre-cron" style={{ backgroundColor: "#0a1128" }}>
                 HP Arena (2hr ahead)
+              </option>
+              <option value="arena-checkin-cron" style={{ backgroundColor: "#0a1128" }}>
+                HP Arena check-in (live)
               </option>
               <option value="admin-resend" style={{ backgroundColor: "#0a1128" }}>
                 admin resends

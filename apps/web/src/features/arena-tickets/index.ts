@@ -17,3 +17,4 @@ export {
   memberActivity,
 } from "./types";
 export { runArenaTicketCron, type ArenaCronSummary } from "./service";
+export { runArenaCheckinAlerts, type ArenaCheckinSummary } from "./checkin-alerts";

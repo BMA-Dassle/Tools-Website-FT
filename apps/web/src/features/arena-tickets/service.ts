@@ -41,14 +41,8 @@ import {
   type Participant,
 } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
-import { queueRetry, voxSend } from "@/lib/sms-retry";
-import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
-import {
-  ARENA_RESOURCES,
-  HEADPINZ_BASE_URL,
-  HP_FM_LOCATION_ID,
-  VOX_FROM_HEADPINZ_FM,
-} from "./constants";
+import { ARENA_RESOURCES, HEADPINZ_BASE_URL, HP_FM_LOCATION_ID } from "./constants";
+import { sendArenaEmail, sendArenaSms, type ArenaSmsAudit } from "./send";
 import { activityDisplay, classifyArenaSession, type ArenaActivity } from "./types";
 import {
   buildArenaGroupMoveSmsBody,
@@ -149,118 +143,14 @@ async function shortenUrl(fullUrl: string): Promise<{ code: string; url: string 
   return { code, url: `${HEADPINZ_BASE_URL}/s/${code}` };
 }
 
-interface SmsAudit {
-  sessionIds: (string | number)[];
-  personIds: (string | number)[];
-  memberCount: number;
-  shortCode?: string;
-  viaGuardian?: boolean;
+/** Send paths extracted to ./send.ts so the check-in alert cron shares
+ *  the exact HP sender / retry / quota wiring. */
+function sendSms(to: string, body: string, audit: ArenaSmsAudit): Promise<boolean> {
+  return sendArenaSms("arena-pre-cron", to, body, audit);
 }
 
-/** HP-branded send — voxSend with the HeadPinz sender, arena log
- *  source, and `from` carried into both the retry queue and the quota
- *  queue so a queued arena SMS never goes out from the FastTrax DID. */
-async function sendSms(to: string, body: string, audit: SmsAudit): Promise<boolean> {
-  const ts = new Date().toISOString();
-  const toFormatted = canonicalizePhone(to);
-  if (!toFormatted) {
-    await logSms({
-      ts,
-      phone: to,
-      source: "arena-pre-cron",
-      status: null,
-      ok: false,
-      error: "invalid phone format",
-      body,
-      ...audit,
-    });
-    return false;
-  }
-
-  const result = await voxSend(toFormatted, body, {
-    fromOverride: VOX_FROM_HEADPINZ_FM,
-    fallbackPrefix: "HeadPinz: ",
-  });
-  if (result.ok) {
-    await logSms({
-      ts,
-      phone: toFormatted,
-      source: "arena-pre-cron",
-      status: result.status,
-      ok: true,
-      body,
-      provider: result.provider,
-      failedOver: result.failedOver,
-      providerMessageId: result.voxId,
-      ...audit,
-    });
-    return true;
-  }
-
-  if (result.skipped || result.quotaHit) {
-    const { quotaEnqueue } = await import("@/lib/sms-quota");
-    await quotaEnqueue({
-      phone: toFormatted,
-      body,
-      source: "arena-pre-cron",
-      queuedAt: ts,
-      shortCode: audit.shortCode,
-      from: VOX_FROM_HEADPINZ_FM,
-      fallbackPrefix: "HeadPinz: ",
-      audit: {
-        sessionIds: audit.sessionIds,
-        personIds: audit.personIds,
-        memberCount: audit.memberCount,
-      },
-    });
-    await logSms({
-      ts,
-      phone: toFormatted,
-      source: "arena-pre-cron",
-      status: result.status,
-      ok: false,
-      error: `[quota] queued for next reset window (${result.error || "429"})`,
-      body,
-      ...audit,
-    });
-    return false;
-  }
-
-  console.error(`[arena-pre] SMS ${result.status}: ${result.error}`);
-  await logSms({
-    ts,
-    phone: toFormatted,
-    source: "arena-pre-cron",
-    status: result.status,
-    ok: false,
-    error: result.error || "",
-    body,
-    ...audit,
-  });
-  await queueRetry({
-    cron: "arena-pre-cron",
-    phone: toFormatted,
-    body,
-    audit,
-    status: result.status,
-    error: result.error || "",
-    from: VOX_FROM_HEADPINZ_FM,
-  });
-  return false;
-}
-
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  const result = await sendGridEmail({
-    to,
-    subject,
-    html,
-    from: { email: process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com", name: "HeadPinz" },
-  });
-  if (!result.ok) {
-    console.error("[arena-pre] Email error:", result.status, result.error);
-    return false;
-  }
-  return true;
+function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  return sendArenaEmail(to, subject, html);
 }
 
 function memberFromCandidate(c: Candidate): GroupTicketMember {

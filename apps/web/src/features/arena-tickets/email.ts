@@ -100,6 +100,63 @@ export function buildArenaGroupEmailHtml(
   );
 }
 
+/** Green-header shell variant for the urgent "now checking in" email. */
+function checkinShell(heading: string, inner: string): string {
+  return `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden">
+        <tr><td style="background:#10b981;padding:22px 28px;color:#fff;text-align:center">
+          <p style="margin:0 0 4px 0;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;opacity:0.9">HeadPinz · HP Arena</p>
+          <h1 style="margin:0;font-size:26px;letter-spacing:-0.5px">${heading}</h1>
+        </td></tr>
+        <tr><td style="padding:26px 28px">
+          ${inner}
+          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">${HP_FM_ADDRESS}</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
+/**
+ * "Now checking in" email — single recipient or grouped (guardian
+ * fallback / shared family inbox). Same urgent tone as the racing
+ * check-in email, HP Arena wording.
+ */
+export function buildArenaCheckinEmailHtml(
+  members: GroupTicketMember[],
+  shortUrl: string,
+  recipient: "racer" | "guardian",
+): string {
+  const sorted = [...members].sort(
+    (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+  );
+  const heading =
+    recipient === "guardian" ? "Your Players Are Checking In" : "Your Session Is Checking In";
+  const intro =
+    recipient === "guardian"
+      ? "Heads up — your players' session is now checking in."
+      : "Heads up — your session is now checking in.";
+  const rows = sorted
+    .map(
+      (m) => `<tr><td style="padding:6px 0;border-bottom:1px solid #eee;">
+      <strong style="color:#1a1a1a">${m.firstName} ${m.lastName}</strong>
+      <span style="color:#555"> — ${sessionLabel(m)}</span>
+    </td></tr>`,
+    )
+    .join("");
+  return checkinShell(
+    heading,
+    `<p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">${intro}</p>
+     <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
+     <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Head straight to the <strong>HP Arena desk</strong> to gear up.</p>
+     ${cta(shortUrl, "View E-Ticket")}`,
+  );
+}
+
 /**
  * Move-aware email — at least one fresh recipient was moved to a
  * different session. Movers show "was X → now Y".

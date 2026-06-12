@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { GroupTicketMember, ParticipantTicketRef } from "@/lib/race-tickets";
 import {
+  buildArenaCheckinGroupSmsBody,
+  buildArenaCheckinGuardianGroupSmsBody,
+  buildArenaCheckinGuardianSingleSmsBody,
+  buildArenaCheckinSingleSmsBody,
   buildArenaGroupMoveSmsBody,
   buildArenaGroupSmsBody,
   buildArenaGuardianGroupSmsBody,
@@ -93,6 +97,22 @@ describe("arena SMS bodies — GSM-7 / segment budget", () => {
         { guardian: true },
       ),
     ],
+    ["checkin single", buildArenaCheckinSingleSmsBody(member(), SHORT_URL)],
+    ["checkin guardian single", buildArenaCheckinGuardianSingleSmsBody(member(), SHORT_URL)],
+    [
+      "checkin group",
+      buildArenaCheckinGroupSmsBody(
+        [member(), member({ personId: "2", firstName: "Christopher-James" })],
+        SHORT_URL,
+      ),
+    ],
+    [
+      "checkin guardian group",
+      buildArenaCheckinGuardianGroupSmsBody(
+        [member(), member({ personId: "2", firstName: "Christopher-James" })],
+        SHORT_URL,
+      ),
+    ],
   ];
 
   for (const [name, body] of bodies) {
@@ -127,6 +147,16 @@ describe("arena SMS bodies — GSM-7 / segment budget", () => {
     );
     expect(body).toContain("Was Laser Tag Session 15");
     expect(body).toContain("Now Laser Tag Session 21");
+  });
+
+  it("checkin body leads with the urgent header and names the desk", () => {
+    const body = buildArenaCheckinSingleSmsBody(
+      member({ firstName: "Avery", lastName: "Test" }),
+      SHORT_URL,
+    );
+    expect(body.startsWith("HeadPinz: NOW CHECKING IN")).toBe(true);
+    expect(body).toContain("HP Arena desk");
+    expect(body).toContain("Avery Test");
   });
 
   it("group body groups players under their session", () => {

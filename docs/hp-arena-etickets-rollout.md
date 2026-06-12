@@ -32,7 +32,24 @@ until the dedup keys are location-scoped (see Naples section).
   closed-toe shoes, lockers) and the HP FM address `14513 Global Parkway` are
   conservative defaults — review before PR-2 merges.
 
-## Pandora-team ask (copy-paste)
+## Pandora-team ask — DELIVERED 2026-06-11 ✓
+
+Pandora shipped both pieces same-day (live-verified by probe):
+
+- `GET /v2/bmi/sessions/current/{locationID}` — called arena sessions
+  (SessionAboutToStart → entry, drops ~20 min later, mirrors races/current).
+  Consumed by the `arena-checkin-alerts` cron (every 1 min): writes
+  `race:called:{sid}` (lights the ticket-page banner on already-open phones)
+  and sends the urgent "NOW CHECKING IN" SMS/email (source
+  `arena-checkin-cron`, dedup `alert:arena-checkin:{sid}:{pid}` 6h). Also the
+  scanner's primary green gate (time window kept as fallback).
+- `GET /v2/bmi/sessions/next/{locationID}/{idType}/{id}` — next unstarted
+  arena session by person/participant. Consumed by the scanner's
+  out-of-window path → "come back at X" card instead of a blank yellow.
+
+The original ask text is preserved below for reference.
+
+### Original ask (sent + fulfilled)
 
 > **Request: arena session check-in notifications at HeadPinz Fort Myers (TXBSQN0FEKQ11).**
 >

@@ -23,7 +23,11 @@ import { twilioSend, isTwilioQuotaError } from "@/lib/twilio-send";
  *     longer backoff or moves to dead.
  */
 
-export type SmsRetryCron = "pre-race-cron" | "checkin-cron" | "arena-pre-cron";
+export type SmsRetryCron =
+  | "pre-race-cron"
+  | "checkin-cron"
+  | "arena-pre-cron"
+  | "arena-checkin-cron";
 
 export interface SmsRetryAudit {
   sessionIds: (string | number)[];
@@ -396,6 +400,7 @@ export async function drainRetries(
     "pre-race-cron": { prefix: "alert:pre-race", ttl: 60 * 60 * 24 },
     "checkin-cron": { prefix: "alert:checkin", ttl: 60 * 60 * 6 },
     "arena-pre-cron": { prefix: "alert:arena-pre", ttl: 60 * 60 * 24 },
+    "arena-checkin-cron": { prefix: "alert:arena-checkin", ttl: 60 * 60 * 6 },
   };
   const { prefix, ttl: dedupTtl } = DEDUP[cron];
 
