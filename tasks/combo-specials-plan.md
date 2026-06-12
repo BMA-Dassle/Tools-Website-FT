@@ -1,9 +1,6 @@
 # Combo Specials — display + full v2 online booking
 
-> **STATUS (2026-06-10): ALL slices (1–6, incl. Revision 2 guided itinerary) IMPLEMENTED on `feat/combo-specials`.** Owner sign-off received ("Build it"; juniors blocked on Mega confirmed). Registry-generic per owner: future combos are data changes (ordered `ComboLeg[]` + `transitionMinutes`).
-> tsc clean · 490 unit tests green (31 new combos tests + 3 settlement-guard tests) · `next build` + a11y gate pass.
-> **NOT yet done:** the live e2e smoke (Square sandbox + BMI + QAMF — blocked on the bowling-v2 smoke gate per §Verification), mobile DOM inspection of the three card surfaces, and the staff canary.
-> ⚠️ **Before merging to main: set `NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED=false` in Vercel prod** — the flag defaults ON, so an unset var ships the combo live (display + booking) on deploy.
+> **STATUS (2026-06-11): MERGED TO MAIN + LAUNCHED.** Live e2e verified by owner on preview (W40311, $82.87 incl. tax + fee). Final shape: **"Ultimate VIP Experience"** — Starter race → 1.5h VIP bowling (lane must start ≤60 min after race 1) → Intermediate race (if qualified); license + 1 POV/racer + VIP perks included; fixed 2/4/6/8 PM start grid; holds fire on schedule-confirm; ops BMI bill memo; Square line → Ultimate Qualifier catalog item; staff booking alert to eric/curtis/alex/jacob. Flag `NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED` defaults ON (set "false" = kill switch). Registry-generic: future combos are data changes (ordered `ComboLeg[]`, `maxWaitMinutes`, `startHours`, included items, premium presentation).
 
 ## Context
 
