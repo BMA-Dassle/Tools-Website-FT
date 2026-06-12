@@ -146,12 +146,17 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
 
   const paymentIds: string[] = [];
   let lastPayError: string | null = null;
-
-  for (let i = 0; i < gcIds.length && remaining > 0; i++) {
-    const gcId = gcIds[i];
-
-    // Check gift card balance
-    const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${gcId}`, {
+  // Plan the per-card contributions FIRST. Square refuses a payment attached
+  // to an order unless it covers the order's full amount due, so a partial
+  // single payment can never work: one card covering everything uses the
+  // simple attach path; multiple cards must use the multi-tender PayOrder
+  // flow (delayed-capture payments + POST /orders/{id}/pay). Discovered via
+  // H2821 (2026-06-11): $2,231 due across a $2,000 + $231 card — both
+  // CreatePayment attempts rejected/canceled forever.
+  const plan: Array<{ gcId: string; amount: number; idx: number }> = [];
+  let toCover = remaining;
+  for (let i = 0; i < gcIds.length && toCover > 0; i++) {
+    const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${gcIds[i]}`, {
       headers: sqHeaders(),
     });
     if (!gcRes.ok) {
@@ -162,47 +167,128 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
     }
     const gcData = await gcRes.json();
     const gcBalance = gcData.gift_card?.balance_money?.amount ?? 0;
+    if (gcBalance <= 0) continue;
+    const amount = Math.min(gcBalance, toCover);
+    plan.push({ gcId: gcIds[i], amount, idx: i });
+    toCover -= amount;
+  }
 
-    if (gcBalance <= 0) {
-      console.log(`[group-dayof-pay] quote=${quote.id} gift card ${i} has $0 balance`);
-      continue;
-    }
+  if (plan.length === 0) {
+    throw new Error("No gift cards with available balance");
+  }
+  if (toCover > 0) {
+    // Square cannot partially pay an order; leave it for staff with a clear note.
+    throw new Error(
+      `Gift cards $${(toCover / 100).toFixed(2)} short of the $${(remaining / 100).toFixed(2)} due — staff must settle at POS`,
+    );
+  }
 
-    const amountToPay = Math.min(gcBalance, remaining);
+  const note = `Group event: ${quote.event_name || ""} (#${quote.event_number || quote.id})`;
 
+  if (plan.length === 1) {
+    // Single card covers the full amount due — direct attach + autocomplete.
+    // Location-salted key: pre-fix attempts burned `gf-dayof-pay-{id}-{i}`
+    // with the wrong location; still stable per (quote, card, location) so
+    // retries can never double-charge.
+    const { gcId, amount, idx } = plan[0];
     const payRes = await fetch(`${SQUARE_BASE}/payments`, {
       method: "POST",
       headers: sqHeaders(),
       body: JSON.stringify({
-        // Location-salted: the pre-fix attempts burned `gf-dayof-pay-{id}-{i}`
-        // with the wrong location; reusing those keys would replay the old
-        // failure forever. Still stable per (quote, card, location) so retries
-        // can never double-charge.
-        idempotency_key: `gf-dayof-pay-${quote.id}-${i}-${payLocationId}`,
+        idempotency_key: `gf-dayof-pay-${quote.id}-${idx}-${payLocationId}`,
         source_id: gcId,
-        amount_money: { amount: amountToPay, currency: "USD" },
+        amount_money: { amount, currency: "USD" },
         order_id: orderId,
         location_id: payLocationId,
         autocomplete: true,
-        note: `Group event: ${quote.event_name || ""} (#${quote.event_number || quote.id})`,
+        note,
       }),
     });
-
     if (payRes.ok) {
       const payData = await payRes.json();
-      const paymentId = payData.payment?.id;
-      const paidAmount = payData.payment?.amount_money?.amount ?? amountToPay;
-      paymentIds.push(paymentId);
-      remaining -= paidAmount;
+      paymentIds.push(payData.payment?.id);
+      remaining -= payData.payment?.amount_money?.amount ?? amount;
       console.log(
-        `[group-dayof-pay] quote=${quote.id} gc[${i}] charged $${(paidAmount / 100).toFixed(2)} ` +
-          `paymentId=${paymentId} remaining=$${(remaining / 100).toFixed(2)}`,
+        `[group-dayof-pay] quote=${quote.id} gc[${idx}] charged $${(amount / 100).toFixed(2)} ` +
+          `paymentId=${payData.payment?.id}`,
       );
     } else {
       const errData = await payRes.json().catch(() => ({}));
-      const errMsg = errData.errors?.[0]?.detail || `Payment failed (${payRes.status})`;
-      lastPayError = errMsg;
-      console.error(`[group-dayof-pay] quote=${quote.id} gc[${i}] payment failed: ${errMsg}`);
+      lastPayError = errData.errors?.[0]?.detail || `Payment failed (${payRes.status})`;
+      console.error(
+        `[group-dayof-pay] quote=${quote.id} gc[${idx}] payment failed: ${lastPayError}`,
+      );
+    }
+  } else {
+    // Multi-tender: create delayed-capture payments (NOT attached to the
+    // order), then attach + capture them atomically via PayOrder. The `mt`
+    // key namespace is deliberate — earlier direct-attach attempts burned the
+    // plain keys with rejected/canceled payments that Square replays forever.
+    const created: string[] = [];
+    let createFailed: string | null = null;
+    for (const { gcId, amount, idx } of plan) {
+      const payRes = await fetch(`${SQUARE_BASE}/payments`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `gf-dayof-mt-${quote.id}-${idx}-${payLocationId}`,
+          source_id: gcId,
+          amount_money: { amount, currency: "USD" },
+          location_id: payLocationId,
+          autocomplete: false,
+          note,
+        }),
+      });
+      if (payRes.ok) {
+        const payData = await payRes.json();
+        created.push(payData.payment?.id);
+      } else {
+        const errData = await payRes.json().catch(() => ({}));
+        createFailed = errData.errors?.[0]?.detail || `Payment create failed (${payRes.status})`;
+        console.error(
+          `[group-dayof-pay] quote=${quote.id} gc[${idx}] mt-create failed: ${createFailed}`,
+        );
+        break;
+      }
+    }
+
+    if (createFailed) {
+      // Void anything we authorized so gift-card funds aren't held hostage.
+      for (const pid of created) {
+        await fetch(`${SQUARE_BASE}/payments/${pid}/cancel`, {
+          method: "POST",
+          headers: sqHeaders(),
+        }).catch(() => {});
+      }
+      lastPayError = createFailed;
+    } else {
+      const payOrderRes = await fetch(`${SQUARE_BASE}/orders/${orderId}/pay`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `gf-dayof-payorder-${quote.id}-${payLocationId}`,
+          order_version: order.version,
+          payment_ids: created,
+        }),
+      });
+      if (payOrderRes.ok) {
+        paymentIds.push(...created);
+        remaining = 0;
+        console.log(
+          `[group-dayof-pay] quote=${quote.id} PayOrder captured ${created.length} gift-card ` +
+            `tenders for $${(plan.reduce((s, p) => s + p.amount, 0) / 100).toFixed(2)}`,
+        );
+      } else {
+        const errData = await payOrderRes.json().catch(() => ({}));
+        lastPayError = errData.errors?.[0]?.detail || `PayOrder failed (${payOrderRes.status})`;
+        console.error(`[group-dayof-pay] quote=${quote.id} PayOrder failed: ${lastPayError}`);
+        for (const pid of created) {
+          await fetch(`${SQUARE_BASE}/payments/${pid}/cancel`, {
+            method: "POST",
+            headers: sqHeaders(),
+          }).catch(() => {});
+        }
+      }
     }
   }
 
