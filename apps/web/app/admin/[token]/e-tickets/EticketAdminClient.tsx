@@ -47,9 +47,28 @@ function formatEt(iso: string): string {
 function sourceLabel(s: string): string {
   if (s === "pre-race-cron") return "eTicket";
   if (s === "checkin-cron") return "check-in";
+  if (s === "arena-pre-cron") return "HP Arena";
   if (s === "admin-resend") return "resend";
   if (s === "video-match") return "video";
   return s;
+}
+
+/** Source chip color — one place so the mobile card + desktop table
+ *  stay identical. Arena gets violet (matches the laser-tag accent). */
+function sourceChipClass(source: string, noConsent: boolean): string {
+  if (noConsent) return "bg-red-500/25 text-red-200";
+  switch (source) {
+    case "pre-race-cron":
+      return "bg-blue-500/20 text-blue-300";
+    case "checkin-cron":
+      return "bg-emerald-500/20 text-emerald-300";
+    case "arena-pre-cron":
+      return "bg-violet-500/20 text-violet-300";
+    case "admin-resend":
+      return "bg-amber-500/20 text-amber-300";
+    default:
+      return "bg-white/10 text-white/60";
+  }
 }
 
 /**
@@ -316,7 +335,9 @@ type QuotaStatus = {
 
 export default function EticketAdminClient({ token }: { token: string }) {
   const [date, setDate] = useState(todayYmd());
-  const [source, setSource] = useState<"" | "pre-race-cron" | "checkin-cron" | "admin-resend">("");
+  const [source, setSource] = useState<
+    "" | "pre-race-cron" | "checkin-cron" | "arena-pre-cron" | "admin-resend"
+  >("");
   const [q, setQ] = useState("");
   const [entries, setEntries] = useState<EnrichedLogEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -517,6 +538,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
               <option value="checkin-cron" style={{ backgroundColor: "#0a1128" }}>
                 check-in (live)
               </option>
+              <option value="arena-pre-cron" style={{ backgroundColor: "#0a1128" }}>
+                HP Arena (2hr ahead)
+              </option>
               <option value="admin-resend" style={{ backgroundColor: "#0a1128" }}>
                 admin resends
               </option>
@@ -582,17 +606,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-white/50 text-xs">{formatEt(e.ts)}</span>
                   <span
-                    className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${
-                      noConsent
-                        ? "bg-red-500/25 text-red-200"
-                        : e.source === "pre-race-cron"
-                          ? "bg-blue-500/20 text-blue-300"
-                          : e.source === "checkin-cron"
-                            ? "bg-emerald-500/20 text-emerald-300"
-                            : e.source === "admin-resend"
-                              ? "bg-amber-500/20 text-amber-300"
-                              : "bg-white/10 text-white/60"
-                    }`}
+                    className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${sourceChipClass(e.source, noConsent)}`}
                   >
                     {noConsent ? "no consent" : sourceLabel(e.source)}
                   </span>
@@ -607,11 +621,15 @@ export default function EticketAdminClient({ token }: { token: string }) {
                   )}
                 </div>
 
-                {/* Race line */}
+                {/* Race line. raceType is suppressed when it just echoes
+                    the track — arena tickets carry the activity name in
+                    BOTH fields ("Laser Tag · Heat 7 · Laser Tag"). */}
                 {(e.track || e.heatNumber || e.raceType) && (
                   <div className="text-xs text-white/60 mb-1">
                     {e.track && e.heatNumber ? `${e.track} · Heat ${e.heatNumber}` : ""}
-                    {e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
+                    {e.raceType && e.raceType !== e.track && (
+                      <span className="text-white/40 ml-1">· {e.raceType}</span>
+                    )}
                   </div>
                 )}
 
@@ -671,17 +689,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span
-                          className={`text-xs uppercase px-1.5 py-0.5 rounded ${
-                            noConsent
-                              ? "bg-red-500/25 text-red-200"
-                              : e.source === "pre-race-cron"
-                                ? "bg-blue-500/20 text-blue-300"
-                                : e.source === "checkin-cron"
-                                  ? "bg-emerald-500/20 text-emerald-300"
-                                  : e.source === "admin-resend"
-                                    ? "bg-amber-500/20 text-amber-300"
-                                    : "bg-white/10 text-white/60"
-                          }`}
+                          className={`text-xs uppercase px-1.5 py-0.5 rounded ${sourceChipClass(e.source, noConsent)}`}
                         >
                           {noConsent ? "no consent" : sourceLabel(e.source)}
                         </span>
@@ -696,7 +704,9 @@ export default function EticketAdminClient({ token }: { token: string }) {
                       <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{e.phone}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-white/70">
                         {e.track && e.heatNumber ? `${e.track} · Heat ${e.heatNumber}` : ""}
-                        {e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
+                        {e.raceType && e.raceType !== e.track && (
+                          <span className="text-white/40 ml-1">· {e.raceType}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {/* Unified pill chips — same renderer as
@@ -798,10 +808,10 @@ function EticketResendModal({
       </div>
       {entry.track && entry.heatNumber && (
         <div>
-          Race:{" "}
+          Session:{" "}
           <span className="text-white/80">
             {entry.track} · Heat {entry.heatNumber}
-            {entry.raceType ? ` · ${entry.raceType}` : ""}
+            {entry.raceType && entry.raceType !== entry.track ? ` · ${entry.raceType}` : ""}
           </span>
         </div>
       )}
