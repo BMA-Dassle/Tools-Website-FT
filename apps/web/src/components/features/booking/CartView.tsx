@@ -380,6 +380,12 @@ function RaceCartCard({
       })
     : null;
 
+  // Combo special: the flat per-person price covers the races, license and
+  // POV — the banner above the cart carries the pricing, so the card shows
+  // "included" rows and NO per-item dollars (a $9.99 license+POV estimate
+  // here read as an extra charge).
+  const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+
   // Estimate — use the SAME per-item charge builder the checkout uses
   // (raceItemChargeLines: package bundle / combo pack / single), so the cart
   // total can NEVER drift from what Square charges. The package bundle line
@@ -391,9 +397,11 @@ function RaceCartCard({
   const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
 
   const raceLinesTotal = raceItemChargeLines(item).reduce((s, l) => s + l.amount, 0);
-  const estimated = pkg
-    ? raceLinesTotal + addonsTotal
-    : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
+  const estimated = combo
+    ? 0
+    : pkg
+      ? raceLinesTotal + addonsTotal
+      : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
 
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
@@ -452,7 +460,23 @@ function RaceCartCard({
       ) : null}
 
       {/* Extras */}
-      {pkg ? (
+      {combo ? (
+        <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
+          {combo.includesLicense && newRacerCount > 0 && (
+            <ExtraRow icon="✓" label="Racing License included" amount={null} />
+          )}
+          {combo.includedPovPerRacer > 0 && (
+            <ExtraRow
+              icon="✓"
+              label={`POV Race Video included${item.povQuantity > 1 ? ` × ${item.povQuantity}` : ""}`}
+              amount={null}
+            />
+          )}
+          {item.addons.map((a) => (
+            <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
+          ))}
+        </div>
+      ) : pkg ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
           {pkg.includesLicense && (
             <ExtraRow icon="✓" label="Racing License included" amount={null} />
