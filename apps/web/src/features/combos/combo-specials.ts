@@ -83,6 +83,9 @@ export interface ComboSpecial {
   premium?: boolean;
   /** Extra experience perks shown on premium surfaces (e.g. VIP lane perks). */
   perks?: string[];
+  /** Visit-length label shown on the marketing surfaces (e.g. "≈ 3-Hour
+   *  Experience"). The schedule modal shows the REAL assembled duration. */
+  durationLabel?: string;
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
@@ -100,14 +103,15 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     id: "race-bowl",
     name: "Ultimate VIP Experience",
     shortDescription:
-      "Starter race, 1.5 hours of VIP bowling, then an Intermediate race — license, POV video " +
-      "and VIP lane perks included. One price, one booking.",
+      "A full 3-hour experience: Starter race, 1.5 hours of VIP bowling, then an Intermediate " +
+      "race — license, POV video and VIP lane perks included. One price, one booking.",
     longDescription:
-      "The full FastTrax + HeadPinz premium night: qualify on a Starter race, take over a " +
-      "semi-private VIP lane for 1.5 hours of bowling, then come back faster on an " +
-      "Intermediate race. Racing license, POV race video, and VIP lane perks (NeoVerse " +
+      "Three hours of the full FastTrax + HeadPinz premium night: qualify on a Starter race, " +
+      "take over a semi-private VIP lane for 1.5 hours of bowling, then come back faster on " +
+      "an Intermediate race. Racing license, POV race video, and VIP lane perks (NeoVerse " +
       "video wall, chips & salsa, premium glow) are all included. Pick a start time — " +
       "2, 4, 6, or 8 PM — and we schedule the rest.",
+    durationLabel: "≈ 3-Hour Experience",
     includes: [
       "Starter Race",
       "1.5 Hours of VIP Bowling",

@@ -358,6 +358,23 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
             {premium ? "Ultimate VIP" : "Best Value"}
           </span>
         </div>
+        {premium && combo.durationLabel && (
+          <div className="absolute left-3 top-3">
+            <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-xs font-medium text-white/80 backdrop-blur-sm">
+              <svg
+                className="h-3 w-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path strokeLinecap="round" d="M12 6v6l4 2" />
+              </svg>
+              {combo.durationLabel}
+            </span>
+          </div>
+        )}
         {premium && (
           <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5">
             <h3 className="font-display text-2xl font-black uppercase tracking-wider text-white sm:text-3xl">

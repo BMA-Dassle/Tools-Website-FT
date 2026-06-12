@@ -52,15 +52,36 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
         {premium && (
           <>
             <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/85 via-transparent to-transparent" />
-            <span
-              className="absolute left-4 top-4 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest"
-              style={{ backgroundColor: GOLD, color: "#0a1628" }}
-            >
-              <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
-              </svg>
-              Ultimate VIP
-            </span>
+            <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest"
+                style={{ backgroundColor: GOLD, color: "#0a1628" }}
+              >
+                <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
+                </svg>
+                Ultimate VIP
+              </span>
+              {combo.durationLabel && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest backdrop-blur-sm"
+                  style={{ backgroundColor: "rgba(7,16,39,0.75)", color: GOLD }}
+                >
+                  <svg
+                    className="h-3 w-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <path strokeLinecap="round" d="M12 6v6l4 2" />
+                  </svg>
+                  {combo.durationLabel}
+                </span>
+              )}
+            </div>
           </>
         )}
       </div>

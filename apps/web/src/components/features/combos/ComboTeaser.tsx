@@ -34,7 +34,8 @@ export default function ComboTeaser() {
           className="font-body"
           style={{ color: "rgba(245,236,238,0.8)", fontSize: "16px", lineHeight: "1.5" }}
         >
-          {combo.includes.join(" + ")} —{" "}
+          {combo.includes.join(" + ")}
+          {combo.durationLabel ? ` — ${combo.durationLabel}` : ""} —{" "}
           <strong className="text-white">
             from {formatComboPrice(combo.price.weekday)}/person
           </strong>

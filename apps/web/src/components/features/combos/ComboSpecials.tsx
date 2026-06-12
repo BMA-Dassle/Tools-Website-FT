@@ -17,6 +17,17 @@ export default function ComboSpecials({
   const combos = enabledCombos();
   if (combos.length === 0) return null;
 
+  // A LONE premium combo renders as one centered hero tile — inside the
+  // 3-column grid its col-span-2 left an empty third column, which read as
+  // off-center on desktop. Still ~double a standard card's width.
+  if (combos.length === 1 && combos[0].premium) {
+    return (
+      <div className="mx-auto w-full max-w-4xl">
+        <ComboSpecialCard combo={combos[0]} />
+      </div>
+    );
+  }
+
   return (
     <div className={gridClassName}>
       {combos.map((combo) => (

@@ -169,6 +169,17 @@ function ScheduleConfirmModal({
 
   const unitCents = comboPriceCentsForDate(combo, dateYmd);
 
+  // Real assembled visit length (first leg start → last leg end), shown to
+  // the nearest half hour — backs the "≈ 3-hour experience" marketing claim
+  // with this chain's actual times.
+  const totalMinutes = chain
+    ? Math.round((chain[chain.length - 1].endMs - anchor.startMs) / 60_000)
+    : null;
+  const durationText =
+    totalMinutes != null
+      ? `about ${(Math.round(totalMinutes / 30) / 2).toLocaleString("en-US", { maximumFractionDigits: 1 })} hours`
+      : null;
+
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80 p-4 backdrop-blur-sm sm:items-center"
@@ -188,6 +199,7 @@ function ScheduleConfirmModal({
             day: "numeric",
           })}{" "}
           · {headcount} {headcount === 1 ? "person" : "people"}
+          {durationText ? ` · ${durationText}` : ""}
         </p>
 
         {chain ? (
@@ -757,6 +769,7 @@ const ComboItineraryComponent: StepDef<RaceItem>["Component"] = ({ item, session
             day: "numeric",
           })}{" "}
           · {headcount} {headcount === 1 ? "person" : "people"}
+          {combo.durationLabel ? ` · ${combo.durationLabel}` : ""}
         </p>
       </div>
 

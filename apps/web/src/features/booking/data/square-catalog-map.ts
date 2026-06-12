@@ -162,6 +162,10 @@ export const NAME_CATALOG_MAP: Record<string, string> = {
   "FastTrax License": SQ.LICENSE,
   Headsock: SQ.HEADSOCK,
   "Ultimate Qualifier": SQ.ULTIMATE_QUALIFIER,
+  // Combo special (owner 2026-06-11): the day-of order line categorizes under
+  // the Ultimate Qualifier catalog item. Substring match also covers the
+  // per-racer discounted split lines ("Ultimate VIP Experience (… −50%)").
+  "Ultimate VIP Experience": SQ.ULTIMATE_QUALIFIER,
   "Rookie Pack": SQ.ROOKIE_PACK,
 };
 
