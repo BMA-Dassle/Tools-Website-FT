@@ -13,6 +13,7 @@ import {
 } from "~/features/booking/service/race-products";
 import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { eligiblePackages } from "~/features/booking/service/packages";
+import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
 
 /**
@@ -283,6 +284,29 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
               : "Select from races you've qualified for."}
           </p>
         </div>
+
+        {/* Ultimate VIP upsell (owner ask) — once per flow, on the first
+            category step. $X more = combo price vs the cheapest single race
+            (+ license for new racers, who buy one regardless). */}
+        {(category === "adult" || !hasAdults) &&
+          (() => {
+            const singles = sorted.filter((p) => !p.packType || p.packType === "none");
+            const minRaceCents = singles.length
+              ? Math.min(...singles.map((p) => Math.round(p.price * 100)))
+              : null;
+            const baselineCents =
+              minRaceCents != null
+                ? minRaceCents + (racerType === "new" ? Math.round(LICENSE_PRICE * 100) : 0)
+                : null;
+            return (
+              <ComboUpsellCard
+                session={session}
+                date={item.date}
+                baselineCents={baselineCents}
+                baselineLabel={racerType === "new" ? "a single race + license" : "a single race"}
+              />
+            );
+          })()}
 
         {discountRacers.length > 0 && (
           <div className="mx-auto max-w-md space-y-1 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-center text-sm text-amber-300">

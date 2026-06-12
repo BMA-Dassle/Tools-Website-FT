@@ -79,6 +79,9 @@ describe("combo-specials registry", () => {
     expect(memo).toContain("1) Starter Race");
     expect(memo).toContain("2) 1.5hr VIP Bowling at HeadPinz");
     expect(memo).toContain("3) Intermediate Race (ONLY IF QUALIFIED)");
+    expect(memo).toContain(
+      "convert their later race to a second Starter race OR issue a race credit",
+    );
     expect(memo).toContain("settles at lane-open");
   });
 });

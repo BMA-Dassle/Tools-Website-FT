@@ -89,6 +89,12 @@ export interface ComboSpecial {
   /** Visit-length label shown on the marketing surfaces (e.g. "≈ 3-Hour
    *  Experience"). The schedule modal shows the REAL assembled duration. */
   durationLabel?: string;
+  /**
+   * Customer-facing policy when a qualify-gated leg can't run (guest didn't
+   * qualify in the Starter). Shown on the booking screens AND stamped into
+   * the ops bill memo.
+   */
+  qualifyFallbackNote?: string;
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
@@ -115,6 +121,8 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "video wall, chips & salsa, premium glow) are all included. Pick a start time — " +
       "2, 4, 6, or 8 PM — and we schedule the rest.",
     durationLabel: "≈ 3-Hour Experience",
+    qualifyFallbackNote:
+      "Didn't qualify? No problem — we'll convert your Intermediate to a second Starter race, or issue you a race credit.",
     includes: [
       "Starter Race",
       "1.5 Hours of VIP Bowling",
@@ -252,6 +260,9 @@ export function comboBillMemo(combo: ComboSpecial): string {
     `*** ${combo.name.toUpperCase()} (VIP COMBO) *** Paid online at the flat per-person rate` +
     (included ? ` — ${included} INCLUDED, do not charge separately` : "") +
     `. Visit plan: ${steps.join(" -> ")}. ` +
+    (combo.qualifyFallbackNote
+      ? `If a racer does NOT qualify: convert their later race to a second Starter race OR issue a race credit. `
+      : "") +
     `Bowling is a separate HeadPinz/QAMF reservation on the same Square order (settles at lane-open).`
   );
 }

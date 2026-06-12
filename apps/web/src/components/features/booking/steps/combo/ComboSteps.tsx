@@ -120,10 +120,12 @@ function heatsComplete(item: RaceItem, session: BookingSession): boolean {
 /* ───────────────────────── Intro / overview step ─────────────────────── */
 
 /** Short customer-facing blurb per leg for the overview step. */
-function legBlurb(leg: ComboLeg): string {
+function legBlurb(leg: ComboLeg, combo: ComboSpecial): string {
   if (leg.kind === "race") {
     if (leg.tier === "starter") return "Hit the track and earn your qualification.";
-    return "Qualified in your Starter race? Come back faster.";
+    return `Qualified in your Starter race? Come back faster.${
+      combo.qualifyFallbackNote ? ` ${combo.qualifyFallbackNote}` : ""
+    }`;
   }
   if (leg.kind === "bowling") {
     return leg.vip
@@ -194,7 +196,7 @@ const ComboIntroComponent: StepDef<RaceItem>["Component"] = ({ session }) => {
               <p className="text-sm font-bold text-white">
                 {legIcon(leg)} {legLabel(leg)}
               </p>
-              <p className="mt-0.5 text-xs leading-relaxed text-white/50">{legBlurb(leg)}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-white/50">{legBlurb(leg, combo)}</p>
             </div>
           </div>
         ))}
@@ -416,6 +418,7 @@ function ScheduleConfirmModal({
         {chain && hasQualifierProgression(combo) && (
           <p className="mt-2 text-center text-[11px] text-white/40">
             🏁 Qualify in your Starter race to unlock the Intermediate race.
+            {combo.qualifyFallbackNote ? ` ${combo.qualifyFallbackNote}` : ""}
           </p>
         )}
 
@@ -1014,6 +1017,7 @@ const ComboItineraryComponent: StepDef<RaceItem>["Component"] = ({ item, session
       {hasQualifierProgression(combo) && (
         <p className="text-center text-[11px] text-white/40">
           🏁 Qualify in your Starter race to unlock the Intermediate race.
+          {combo.qualifyFallbackNote ? ` ${combo.qualifyFallbackNote}` : ""}
         </p>
       )}
 

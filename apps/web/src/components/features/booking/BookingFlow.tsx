@@ -130,6 +130,37 @@ export function BookingFlow({
       }
       return;
     }
+    // URGENT FIX (owner repro): entering a NORMAL activity route (e.g. the
+    // Karting tile → /book/race/v2) while a stale COMBO session persists in
+    // sessionStorage hijacked the flow with the Ultimate VIP steps —
+    // comboSpecialId gates the combo wizard, and it survived the navigation.
+    // A normal-entry click is intent to leave the combo: release it as a unit
+    // (same as the cart's "Remove combo" — BMI heats + QAMF lane, best-effort)
+    // and seed the requested activity on a clean cart.
+    if (session.comboSpecialId) {
+      const comboRace = session.items.find((i) => i.kind === "race");
+      const comboBowling = session.items.find((i) => i.kind === "bowling") as
+        | import("~/features/booking").BowlingItem
+        | undefined;
+      dispatch({ type: "setComboSpecial", id: null });
+      if (comboRace) {
+        dispatch({ type: "removeItem", id: comboRace.id });
+        void releaseItemBmiLines(session, comboRace);
+      }
+      if (comboBowling) {
+        dispatch({ type: "removeItem", id: comboBowling.id });
+        void releaseComboBowlingHold(comboBowling);
+      }
+      if (initialContext?.center && !session.center) {
+        dispatch({ type: "setCenter", center: initialContext.center });
+      }
+      const fresh = newItem(activity);
+      if (fresh.kind === "attraction" && slug) {
+        (fresh as AttractionItem).slug = slug;
+      }
+      dispatch({ type: "addItem", item: fresh });
+      return;
+    }
     // Seed the center from the entry URL (?location=, parsed into initialContext)
     // on a FRESH session so the picked activity books at the right complex
     // (Naples → headpinznaples clientKey) and the cart cross-sell scopes
