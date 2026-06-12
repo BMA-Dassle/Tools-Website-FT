@@ -1068,3 +1068,30 @@ BMI can still accept the payment, and we don't void the Square charge when BMI r
 - A COMPLETED Square charge does NOT imply the BMI booking exists. Verify both sides when auditing
   "did the customer actually get what they paid for."
 - Latest BMI API specs (2026-06): https://bmileisure.atlassian.net/wiki/external/YTYwMTA3YjAyNWVkNDAzMmJhNDkxZWE5OWZiYTc5YmM
+
+
+## Square: paying an ORDER with gift cards — the four rules (2026-06-12)
+
+H2821 ($2,231 day-of check, two gift cards: $2,000 + $231) was stranded for a day by four
+separate Square constraints, each discovered the hard way. H3011 (YMCA) was stranded 3 days
+by the first one alone. The group-dayof-pay cron now encodes all four.
+
+1. **Payment location MUST equal the order's location.** HeadPinz-brand events store the
+   FastTrax FM location on the quote while the day-of order is created at the HeadPinz FM
+   location — always pay at `order.location_id`, never `quote.square_location_id`.
+2. **A payment attached to an order must cover the FULL amount due.** Partial CreatePayment
+   (autocomplete:true) is rejected; a multi-card check can never be paid card-by-card that way.
+   Multi-tender = CreatePayment per card **with `order_id` AND `autocomplete:false`**, then
+   `POST /orders/{id}/pay` with all payment_ids. Creating WITHOUT order_id silently attaches
+   each payment to its own auto-generated order — PayOrder then can't adopt it.
+3. **Creating payments on an order bumps its version.** PayOrder must use the version
+   refetched AFTER the creates or it fails VERSION_MISMATCH.
+4. **Idempotency keys burn forever on a canceled payment.** Square replays the canceled
+   payment on every retry of that key — a retry loop with stable keys can never self-heal
+   after one failure+void cycle. Bump the key namespace when changing the payment shape
+   (hence gf-dayof-mt3/payorder3), and record the REAL Square error detail in the DB
+   (`dayof_payment_error`), not a generic message — the generic one cost an evening of log
+   archaeology because Vercel's log viewer truncates messages.
+
+Also: gift cards cap at $2,000 balance, so any event over $2k is ALWAYS multi-card — the
+multi-tender path is the norm for big events, not the exception.
