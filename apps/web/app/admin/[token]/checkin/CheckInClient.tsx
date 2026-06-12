@@ -29,10 +29,14 @@ interface CheckinResponse {
   nextRaceStatus?: "found" | "none" | "unknown";
 }
 
+// Accent per session kind — race tracks plus HP Arena activities
+// (the stats strip and flash screens are attraction-generic now).
 const TRACK_COLORS: Record<string, string> = {
   blue: "#004AAD",
   red: "#E53935",
   mega: "#8B5CF6",
+  "laser tag": "#8652FF",
+  "gel blaster": "#00E2E5",
 };
 const WARNING_COLOR = "#F59E0B";
 const ERROR_COLOR = "#F59E0B";
@@ -83,17 +87,20 @@ export default function CheckInClient({ token, version }: Props) {
   } | null>(null);
   const [showSelfTest, setShowSelfTest] = useState(false);
 
-  // Live session status — polled every 5s via admin endpoint (calls Pandora directly for checkedIn counts)
-  interface TrackSession {
+  // Live session status — polled every 5s via admin endpoint (calls Pandora
+  // directly for checkedIn counts). Covers called races AND HP Arena
+  // sessions in their check-in window; `track` carries the track name for
+  // races ("blue") or the activity name for arena ("Laser Tag").
+  interface ActiveSession {
     track: string;
     raceType: string;
     heatNumber: number;
-    sessionId: number;
+    sessionId: number | string;
     scheduledStart: string;
     checkedIn: number;
     total: number;
   }
-  const [activeSessions, setActiveSessions] = useState<TrackSession[]>([]);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -571,7 +578,7 @@ export default function CheckInClient({ token, version }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
         <div>
-          <h1 className="text-lg font-bold">Race Check-In</h1>
+          <h1 className="text-lg font-bold">Check-In</h1>
           <p className="text-white/40 text-xs">v{version}</p>
         </div>
         <div className="flex items-center gap-3">
@@ -614,7 +621,7 @@ export default function CheckInClient({ token, version }: Props) {
       {activeSessions.length > 0 && (
         <div className="flex gap-3 px-6 py-3 border-b border-white/10 overflow-x-auto">
           {activeSessions.map((s) => {
-            const color = TRACK_COLORS[s.track] ?? "#00E2E5";
+            const color = TRACK_COLORS[s.track.toLowerCase()] ?? "#00E2E5";
             return (
               <div
                 key={s.sessionId}

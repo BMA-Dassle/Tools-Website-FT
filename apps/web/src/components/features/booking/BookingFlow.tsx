@@ -46,6 +46,11 @@ export interface BookingFlowProps {
    *  routes to the cart's existing activity with ?checkout=1). Only takes effect
    *  on the cart view (no active item). */
   initialCheckout?: boolean;
+  /** Returning to an EXISTING cart from the landing's "View Cart" link
+   *  (?cart=1). Like `initialCheckout`, this is a cart-return intent — NOT a
+   *  fresh activity entry — so the persisted combo must be preserved, never
+   *  torn down as a "stale" session. */
+  initialCartView?: boolean;
   /** Combo-special entry (/book/combo/[id]/v2): seed a FRESH session with the
    *  combo's components (race + bowling) and stamp session.comboSpecialId so
    *  checkout charges the flat combo price. Ignored when the customer already
@@ -77,6 +82,7 @@ export function BookingFlow({
   initialPromo,
   urlCode,
   initialCheckout = false,
+  initialCartView = false,
   comboSpecialId,
 }: BookingFlowProps) {
   const initial = useMemo(
@@ -137,7 +143,16 @@ export function BookingFlow({
     // A normal-entry click is intent to leave the combo: release it as a unit
     // (same as the cart's "Remove combo" — BMI heats + QAMF lane, best-effort)
     // and seed the requested activity on a clean cart.
-    if (session.comboSpecialId) {
+    //
+    // EXCEPTION (combo checkout bug, 2026-06-12): a CART RETURN is NOT a fresh
+    // entry. The landing's "Checkout →" (?checkout=1) and "View Cart" (?cart=1)
+    // both route through the combo's first item (a race) → /book/race/v2, which
+    // looks identical to the Karting tile. Tearing the combo down here orphaned
+    // the booked BMI heats + QAMF lane and dropped a paying customer back at
+    // step 1 of a race — making the Ultimate VIP impossible to check out. When
+    // the customer is returning to their cart, leave the combo intact and fall
+    // through (the requested race is already in the cart, so nothing re-seeds).
+    if (session.comboSpecialId && !initialCheckout && !initialCartView) {
       const comboRace = session.items.find((i) => i.kind === "race");
       const comboBowling = session.items.find((i) => i.kind === "bowling") as
         | import("~/features/booking").BowlingItem

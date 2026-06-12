@@ -1,6 +1,59 @@
 # Lessons Learned
 
-## Crons that charge cards MUST claim atomically — overlapping runs nearly double-charged H2884 (2026-06-11)
+## A "stale combo" teardown that can't tell a cart RETURN from a fresh entry destroyed a booked Ultimate VIP at checkout (2026-06-12)
+
+Symptom (owner repro): book the Ultimate VIP combo end-to-end → land back on `/book/v2` →
+click **Checkout** → instead of the checkout page, the customer is dropped at **step 1 of a
+race**, with the fully-booked combo gone. Impossible to pay.
+
+Root cause: `BookingFlow`'s seeding effect had a guard `if (session.comboSpecialId) { … release
+combo + seed fresh activity … }` added by commit 4ddfcfc to stop a *stale* combo from hijacking
+a normal race-tile click with the Ultimate VIP wizard steps. But the landing cart bar's
+**Checkout** (`?checkout=1`) and **View Cart** links both route through the combo's first item
+(always a race) → `/book/race/v2`, which is byte-identical to the Karting tile's URL. So a CART
+RETURN tripped the stale-combo teardown: it released the live BMI heats + QAMF lane and seeded a
+fresh race — exactly the symptom.
+
+Fix: a cart return is not a fresh entry. Thread two intent signals from the landing —
+`initialCheckout` (already existed, `?checkout=1`) and a new `initialCartView` (`?cart=1` on the
+"View Cart" link) — and skip the teardown when either is set. The combo stays intact and the
+effect falls through harmlessly (the requested race is already in the cart, so nothing re-seeds);
+`activeItem` is null → Checkout renders `CheckoutStep`, View Cart renders `CartView`.
+
+Guardrails:
+- **A destructive "this session is stale" heuristic MUST key off explicit intent, never a URL
+  shape that two different intents share.** Checkout/View-Cart and a fresh tile click all hit
+  `/book/<cartSlug>/v2`; only an explicit query flag distinguishes them.
+- **Never release live vendor holds (BMI heats, QAMF lanes) on a mount/seed effect unless the
+  user has unambiguously asked to start over.** Auto-teardown on entry is a charge-blocking,
+  hold-orphaning hazard.
+- When you add a cart-bar link that re-enters an activity route, decide whether it's a "resume"
+  or a "fresh start" and carry that intent in the URL — don't let `BookingFlow` guess.
+- Files: `apps/web/src/components/features/booking/BookingFlow.tsx` (the guard),
+  `apps/web/app/book/v2/PromoLanding.tsx` (`?cart=1` on View Cart),
+  `apps/web/app/book/[attraction]/v2/page.tsx` + `apps/web/app/book/kbf/v2/page.tsx` (read `sp.cart`).
+
+## "Identical to X" means identical — a helpful fallback gate checked a guest into the wrong arena session (2026-06-11)
+
+HP Arena scanner launch: owner's directive was "operates identically to races" — racing checks a
+guest in ONLY when their scanned session is the one currently being called. I added a
+"helpful" fallback to the arena green gate (also pass if within −60/+30 min of scheduled start,
+to cover early walk-ups / degraded Pandora). Live incident within hours: session 48 was called, a
+guest with a session-50 ticket scanned, and session 50's start time fell inside the window — the
+scanner checked them into 50. Fixed in `cd3ca6f9` (called-only gate, race parity).
+
+Rules:
+
+- **When the owner specifies parity with an existing flow, widen NOTHING.** Every gate, guard,
+  and failure mode should match the reference implementation unless the owner explicitly asks for
+  a difference. A fallback that makes the gate more permissive is a behavior change, not a
+  robustness improvement.
+- **Time windows are not identity checks.** "Near the scheduled time" can match SEVERAL sessions
+  when slots are 15 min apart — any gate deciding "is THIS the right session?" must key on the
+  session's identity (called list membership), never on time proximity.
+- **Degraded-dependency fallbacks should fail CLOSED on state-mutating actions.** If the
+  called-list fetch fails, the right answer is the yellow card (staff decides), not "assume green
+  if the clock looks right" — same as racing behaves when races-current is down.
 
 Same day as the H2821 dig: #H2884 showed "Balance Paid $0.00" inline but a "BALANCE LINK SENT"
 corner badge. Two `group-balance-charge` runs fired at the same tick and both read the quote in
