@@ -230,7 +230,7 @@ export function PromoLanding({
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <Link
-                  href={`/book/${cartSlug}/v2`}
+                  href={`/book/${cartSlug}/v2?cart=1`}
                   className="whitespace-nowrap rounded-xl border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
                 >
                   View Cart

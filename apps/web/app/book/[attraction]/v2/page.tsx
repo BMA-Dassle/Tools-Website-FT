@@ -121,6 +121,7 @@ export default async function BookActivityV2Page({
       initialPromo={initialPromo}
       urlCode={code || null}
       initialCheckout={sp.checkout === "1"}
+      initialCartView={sp.cart === "1"}
     />
   );
 }
