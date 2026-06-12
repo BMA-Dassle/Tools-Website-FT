@@ -90,8 +90,11 @@ export default function Hero() {
 
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">
+            {/* Owner 2026-06-11: route race intent through /attractions (where
+                the Ultimate VIP tile + combo offers live) instead of straight
+                into the race wizard. */}
             <BookingLink
-              href="/book/race"
+              href="/attractions"
               className="font-body font-bold uppercase tracking-widest text-white px-6 py-4 rounded-full text-sm transition-all hover:scale-105"
               style={{
                 backgroundColor: "rgb(228,28,29)",
