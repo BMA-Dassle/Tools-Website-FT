@@ -220,10 +220,12 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
       );
     }
   } else {
-    // Multi-tender: create delayed-capture payments (NOT attached to the
-    // order), then attach + capture them atomically via PayOrder. The `mt`
-    // key namespace is deliberate — earlier direct-attach attempts burned the
-    // plain keys with rejected/canceled payments that Square replays forever.
+    // Multi-tender: create delayed-capture payments ON the order
+    // (order_id + autocomplete:false — a create without order_id gets its own
+    // auto-generated order and PayOrder then can't attach it; learned live on
+    // H2821), then capture them atomically via PayOrder. The `mt2` namespace
+    // skips keys burned by the earlier broken shapes — Square replays a
+    // canceled payment forever on its original key.
     const created: string[] = [];
     let createFailed: string | null = null;
     for (const { gcId, amount, idx } of plan) {
@@ -231,9 +233,10 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
         method: "POST",
         headers: sqHeaders(),
         body: JSON.stringify({
-          idempotency_key: `gf-dayof-mt-${quote.id}-${idx}-${payLocationId}`,
+          idempotency_key: `gf-dayof-mt3-${quote.id}-${idx}-${payLocationId}`,
           source_id: gcId,
           amount_money: { amount, currency: "USD" },
+          order_id: orderId,
           location_id: payLocationId,
           autocomplete: false,
           note,
@@ -262,12 +265,21 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
       }
       lastPayError = createFailed;
     } else {
+      // Creating payments on the order bumps its version — refetch right
+      // before PayOrder or it fails VERSION_MISMATCH (live lesson, H2821).
+      let payOrderVersion = order.version;
+      try {
+        const fresh = await fetch(`${SQUARE_BASE}/orders/${orderId}`, { headers: sqHeaders() });
+        if (fresh.ok) payOrderVersion = (await fresh.json()).order?.version ?? payOrderVersion;
+      } catch {
+        /* fall back to the original version */
+      }
       const payOrderRes = await fetch(`${SQUARE_BASE}/orders/${orderId}/pay`, {
         method: "POST",
         headers: sqHeaders(),
         body: JSON.stringify({
-          idempotency_key: `gf-dayof-payorder-${quote.id}-${payLocationId}`,
-          order_version: order.version,
+          idempotency_key: `gf-dayof-payorder3-${quote.id}-${payLocationId}`,
+          order_version: payOrderVersion,
           payment_ids: created,
         }),
       });
