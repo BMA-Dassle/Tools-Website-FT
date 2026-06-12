@@ -168,6 +168,12 @@ export async function processLaneOpen(opts: {
   let paymentId: string | undefined;
   let paymentCents: number | undefined;
   let processingError: string | undefined;
+  // The day-of order's Square location_id — the authoritative location for every
+  // Square call here. reservation.centerCode is sometimes a slug ("naples" /
+  // "fort-myers"), which Square rejects ("Not authorized to take payments with
+  // location_id=naples"); the order's location_id is always the real id. Set once
+  // the order is fetched, used by the payment / comp / loyalty / close calls.
+  let orderLocationId: string | undefined;
   // True when processingError was caused by a transient Square failure
   // (429/5xx/network) AFTER our in-function retries were exhausted. The
   // caller leaves dayof_order_sent_at NULL so the lane-poll cron retries.
@@ -206,6 +212,7 @@ export async function processLaneOpen(opts: {
       await updateBowlingReservationLaneOpen(neonId, { laneNumbers, error: msg });
       return { ok: false, laneLabel, kitchenItemsUpdated: 0, error: msg };
     }
+    orderLocationId = order.location_id;
 
     // If order is already terminal, skip Square steps but still record in Neon
     const terminal = order.state === "CANCELED" || order.state === "COMPLETED";
@@ -232,7 +239,7 @@ export async function processLaneOpen(opts: {
             body: JSON.stringify({
               order: {
                 version: order.version,
-                location_id: reservation.centerCode,
+                location_id: order.location_id,
                 // SHIPMENT fulfillment → KDS routing
                 fulfillments: [
                   {
@@ -314,7 +321,7 @@ export async function processLaneOpen(opts: {
                     idempotency_key: `${idempotencyBase}-gapcomp-${gap}`,
                     gift_card_activity: {
                       type: "ADJUST_INCREMENT",
-                      location_id: reservation.centerCode,
+                      location_id: order.location_id,
                       gift_card_id: reservation.squareGiftCardId,
                       adjust_increment_activity_details: {
                         amount_money: { amount: gap, currency: "USD" },
@@ -356,7 +363,7 @@ export async function processLaneOpen(opts: {
                   source_id: reservation.squareGiftCardId,
                   amount_money: { amount: amountToPay, currency: "USD" },
                   order_id: reservation.squareDayofOrderId,
-                  location_id: reservation.centerCode,
+                  location_id: order.location_id,
                   autocomplete: true,
                   note: `Deposit applied — ${reservation.qamfReservationId ?? `#${reservation.id}`}${laneLabel ? ` — ${laneLabel}` : ""}`,
                 }),
@@ -429,7 +436,7 @@ export async function processLaneOpen(opts: {
                 source_id: "EXTERNAL",
                 amount_money: { amount: 0, currency: "USD" },
                 order_id: reservation.squareDayofOrderId,
-                location_id: reservation.centerCode,
+                location_id: order.location_id,
                 external_details: { type: "OTHER", source: "Walk-in bowling" },
                 autocomplete: true,
               }),
@@ -473,7 +480,7 @@ export async function processLaneOpen(opts: {
               headers: sqHeaders(),
               body: JSON.stringify({
                 accumulate_points: { order_id: reservation.squareDayofOrderId },
-                location_id: reservation.centerCode,
+                location_id: orderLocationId ?? reservation.centerCode,
                 idempotency_key: `${idempotencyBase}-loyalty`,
               }),
             },
