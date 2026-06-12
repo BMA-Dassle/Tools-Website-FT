@@ -1,6 +1,26 @@
 # Lessons Learned
 
-## Crons that charge cards MUST claim atomically — overlapping runs nearly double-charged H2884 (2026-06-11)
+## "Identical to X" means identical — a helpful fallback gate checked a guest into the wrong arena session (2026-06-11)
+
+HP Arena scanner launch: owner's directive was "operates identically to races" — racing checks a
+guest in ONLY when their scanned session is the one currently being called. I added a
+"helpful" fallback to the arena green gate (also pass if within −60/+30 min of scheduled start,
+to cover early walk-ups / degraded Pandora). Live incident within hours: session 48 was called, a
+guest with a session-50 ticket scanned, and session 50's start time fell inside the window — the
+scanner checked them into 50. Fixed in `cd3ca6f9` (called-only gate, race parity).
+
+Rules:
+
+- **When the owner specifies parity with an existing flow, widen NOTHING.** Every gate, guard,
+  and failure mode should match the reference implementation unless the owner explicitly asks for
+  a difference. A fallback that makes the gate more permissive is a behavior change, not a
+  robustness improvement.
+- **Time windows are not identity checks.** "Near the scheduled time" can match SEVERAL sessions
+  when slots are 15 min apart — any gate deciding "is THIS the right session?" must key on the
+  session's identity (called list membership), never on time proximity.
+- **Degraded-dependency fallbacks should fail CLOSED on state-mutating actions.** If the
+  called-list fetch fails, the right answer is the yellow card (staff decides), not "assume green
+  if the clock looks right" — same as racing behaves when races-current is down.
 
 Same day as the H2821 dig: #H2884 showed "Balance Paid $0.00" inline but a "BALANCE LINK SENT"
 corner badge. Two `group-balance-charge` runs fired at the same tick and both read the quote in
