@@ -18,6 +18,7 @@ import type { BookingSession, PartyMember, RaceItem } from "../state/types";
 import { bmiAdapter, type BmiProposal } from "../data/bmi";
 import { registerContact } from "./bmi-register";
 import { getPackage } from "./packages";
+import { comboBillMemo, getComboSpecial } from "~/features/combos/combo-specials";
 
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
@@ -155,9 +156,9 @@ export async function bookHeatsOnAdvance(
     });
   }
 
-  // POV + package memo — ONCE, after heats book (guarded by item.povSold). The
-  // $0 POV product keeps the bill a $0 credit; the $5/racer is charged on Square
-  // (inside the package bundle, or as a standalone POV line). Packages set
+  // POV + package/combo memo — ONCE, after heats book (guarded by item.povSold).
+  // The $0 POV product keeps the bill a $0 credit; the $5/racer is charged on
+  // Square (inside the package bundle, or as a standalone POV line). Packages set
   // includesPov (not povQuantity), so derive the qty from the package + racers.
   if (billId && !item.povSold) {
     const pkg = item.packageId ? getPackage(item.packageId) : null;
@@ -172,6 +173,14 @@ export async function bookHeatsOnAdvance(
     // ops sees the acknowledgment at check-in. v1 parity (page.tsx booking/memo).
     if (pkg?.disclaimers?.billMemo) {
       await writeBillMemo(billId, pkg.disclaimers.billMemo);
+      wrote = true;
+    }
+    // Combo special: stamp the VIP package + visit plan on the bill so staff
+    // see at a glance it's the Ultimate VIP Experience — license/POV/perks
+    // prepaid, race → VIP bowling → next race only if qualified.
+    const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+    if (combo) {
+      await writeBillMemo(billId, comboBillMemo(combo));
       wrote = true;
     }
     if (wrote) {

@@ -64,23 +64,37 @@ export function wallClockLabel(iso: string): string {
 export type LegFilter<P> = ((c: LegCandidate<P>) => boolean) | null;
 
 /**
- * Greedy-earliest chain from a GIVEN anchor, with optional per-leg filters.
+ * Greedy-earliest chain from a GIVEN anchor, with optional per-leg filters
+ * and per-leg maximum waits. `maxWaitMinutes[i]` (index-aligned with the
+ * legs; entry 0 ignored) caps the idle gap before leg i: its pick must start
+ * within [prevEnd + transition, prevEnd + maxWait] — e.g. "the lane must
+ * start within 60 minutes of the first race" — else the chain is infeasible.
  * Returns the full chain (anchor included) or null when nothing fits.
+ *
+ * Greedy-earliest stays correct WITH max waits: a candidate inside one leg's
+ * window only ever ENDS earlier than a later in-window pick, so it can never
+ * push a later leg past its own window.
  */
 export function buildChainFrom<P>(
   legCandidates: Array<Array<LegCandidate<P>>>,
   transitionMinutes: number,
   anchor: LegCandidate<P>,
   filters?: Array<LegFilter<P>>,
+  maxWaitMinutes?: Array<number | null | undefined>,
 ): LegCandidate<P>[] | null {
   const transitionMs = transitionMinutes * 60_000;
   const chain: LegCandidate<P>[] = [anchor];
   let prevEnd = anchor.endMs;
   for (let leg = 1; leg < legCandidates.length; leg++) {
     const filter = filters?.[leg] ?? null;
+    const maxWait = maxWaitMinutes?.[leg];
+    const latestStart = maxWait != null ? prevEnd + maxWait * 60_000 : Number.POSITIVE_INFINITY;
     const next = [...legCandidates[leg]]
       .sort((a, b) => a.startMs - b.startMs)
-      .find((c) => c.startMs >= prevEnd + transitionMs && (!filter || filter(c)));
+      .find(
+        (c) =>
+          c.startMs >= prevEnd + transitionMs && c.startMs <= latestStart && (!filter || filter(c)),
+      );
     if (!next) return null;
     chain.push(next);
     prevEnd = next.endMs;
@@ -100,11 +114,12 @@ export function buildChainFrom<P>(
 export function buildChains<P>(
   legCandidates: Array<Array<LegCandidate<P>>>,
   transitionMinutes: number,
+  maxWaitMinutes?: Array<number | null | undefined>,
 ): Array<ChainResult<P>> {
   if (legCandidates.length === 0) return [];
   const sorted = legCandidates.map((c) => [...c].sort((a, b) => a.startMs - b.startMs));
   return sorted[0].map((anchor) => ({
     anchor,
-    chain: buildChainFrom(sorted, transitionMinutes, anchor),
+    chain: buildChainFrom(sorted, transitionMinutes, anchor, undefined, maxWaitMinutes),
   }));
 }

@@ -75,6 +75,38 @@ describe("buildChains — greedy-earliest itinerary assembly", () => {
   });
 });
 
+describe("buildChains — per-leg max waits (lane within 60 min of race 1)", () => {
+  const starters = [cand("13:00", 12, "s1"), cand("14:00", 12, "s2")];
+  const ints = [cand("18:00", 12, "i")];
+
+  it("a lane starting past the 60-min window makes the start infeasible", () => {
+    // s1 ends 13:12 → window [13:27, 14:12]. Lane at 14:30 is too late for s1
+    // but fine for s2 (ends 14:12 → window [14:27, 15:12]).
+    const lanes = [cand("14:30", 90, "late-lane")];
+    const results = buildChains([starters, lanes, ints], 15, [null, 60, null]);
+    expect(results.find((r) => r.anchor.payload === "s1")!.chain).toBeNull();
+    expect(results.find((r) => r.anchor.payload === "s2")!.chain?.map((c) => c.payload)).toEqual([
+      "s2",
+      "late-lane",
+      "i",
+    ]);
+  });
+
+  it("a lane inside the window keeps the start available", () => {
+    const lanes = [cand("13:45", 90, "ok-lane")];
+    const r = buildChains([starters, lanes, ints], 15, [null, 60, null]).find(
+      (x) => x.anchor.payload === "s1",
+    )!;
+    expect(r.chain?.map((c) => c.payload)).toEqual(["s1", "ok-lane", "i"]);
+  });
+
+  it("no max wait → distant legs still chain (legacy behavior)", () => {
+    const lanes = [cand("16:00", 90, "far-lane")];
+    const r = buildChains([starters, lanes, ints], 15)[0];
+    expect(r.chain?.map((c) => c.payload)).toEqual(["s1", "far-lane", "i"]);
+  });
+});
+
 describe("buildChainFrom — per-leg filters (track choice in the confirm modal)", () => {
   const anchor = cand("13:00", 12, "s");
   const lanes = [cand("13:30", 90, "b")];

@@ -34,12 +34,15 @@ import type { CenterCode } from "~/features/booking/types";
  * racer at the given tier (a future "2 starter races" combo = two race legs).
  */
 export type ComboLeg =
-  | { kind: "race"; tier: RaceTier }
+  | { kind: "race"; tier: RaceTier; maxWaitMinutes?: number }
   /** `vip: true` books a VIP lane experience (semi-private suite, NeoVerse
-   *  wall, chips & salsa) instead of a regular lane. */
-  | { kind: "bowling"; durationMinutes: number; vip?: boolean }
+   *  wall, chips & salsa) instead of a regular lane. `maxWaitMinutes` caps
+   *  the idle gap BEFORE this leg (from the previous leg's end): a chain
+   *  only counts as feasible when this leg starts within
+   *  [prevEnd + transitionMinutes, prevEnd + maxWaitMinutes]. */
+  | { kind: "bowling"; durationMinutes: number; vip?: boolean; maxWaitMinutes?: number }
   /** Forward-compat — typed, but the wizard/gate reject it until built. */
-  | { kind: "attraction"; slug: string };
+  | { kind: "attraction"; slug: string; maxWaitMinutes?: number };
 
 export interface ComboSpecial {
   /** Kebab slug — route param + session.comboSpecialId. */
@@ -131,7 +134,9 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     price: { weekday: 6500, weekend: 7500 },
     components: [
       { kind: "race", tier: "starter" },
-      { kind: "bowling", durationMinutes: 90, vip: true },
+      // Owner: the lane must start within 60 minutes of the first race —
+      // otherwise the start time doesn't show as available.
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 60 },
       { kind: "race", tier: "intermediate" },
     ],
     transitionMinutes: 15,
@@ -210,6 +215,45 @@ export function comboBowlingComponent(
 /** Heats the combo books per racer = one per race leg. */
 export function comboHeatsPerRacer(combo: ComboSpecial): number {
   return comboRaceLegs(combo).length;
+}
+
+/**
+ * Ops-facing BMI bill memo for a combo booking (owner ask, 2026-06-11):
+ * staff must see at a glance that this is the VIP package, that license/POV/
+ * perks are already paid, and the visit order — race, bowling, then the next
+ * race ONLY IF the guest qualified in the starter. Registry-driven so future
+ * combos describe themselves.
+ */
+export function comboBillMemo(combo: ComboSpecial): string {
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  let sawStarter = false;
+  const steps = combo.components.map((leg, i) => {
+    if (leg.kind === "race") {
+      const qualified = sawStarter && leg.tier !== "starter" ? " (ONLY IF QUALIFIED)" : "";
+      if (leg.tier === "starter") sawStarter = true;
+      return `${i + 1}) ${cap(leg.tier)} Race${qualified}`;
+    }
+    if (leg.kind === "bowling") {
+      const hours = leg.durationMinutes / 60;
+      return `${i + 1}) ${hours % 1 === 0 ? hours : hours.toFixed(1)}hr ${
+        leg.vip ? "VIP " : ""
+      }Bowling at HeadPinz`;
+    }
+    return `${i + 1}) ${leg.slug}`;
+  });
+  const included = [
+    combo.includesLicense ? "racing license" : null,
+    combo.includedPovPerRacer > 0 ? "POV video" : null,
+    combo.perks?.length ? "VIP lane perks" : null,
+  ]
+    .filter(Boolean)
+    .join(" + ");
+  return (
+    `*** ${combo.name.toUpperCase()} (VIP COMBO) *** Paid online at the flat per-person rate` +
+    (included ? ` — ${included} INCLUDED, do not charge separately` : "") +
+    `. Visit plan: ${steps.join(" -> ")}. ` +
+    `Bowling is a separate HeadPinz/QAMF reservation on the same Square order (settles at lane-open).`
+  );
 }
 
 /* ── local helpers ─────────────────────────────────────────────────── */

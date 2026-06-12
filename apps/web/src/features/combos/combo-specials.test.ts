@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMBO_SPECIALS,
   comboAvailableOn,
+  comboBillMemo,
   comboBowlingComponent,
   comboHeatsPerRacer,
   comboPriceCentsForDate,
@@ -31,7 +32,8 @@ describe("combo-specials registry", () => {
     expect(raceBowl.price).toEqual({ weekday: 6500, weekend: 7500 });
     expect(raceBowl.components).toEqual([
       { kind: "race", tier: "starter" },
-      { kind: "bowling", durationMinutes: 90, vip: true },
+      // Owner: the lane must start within 60 minutes of the first race.
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 60 },
       { kind: "race", tier: "intermediate" },
     ]);
     expect(raceBowl.transitionMinutes).toBe(15);
@@ -50,6 +52,7 @@ describe("combo-specials registry", () => {
       kind: "bowling",
       durationMinutes: 90,
       vip: true,
+      maxWaitMinutes: 60,
     });
     expect(comboHeatsPerRacer(raceBowl)).toBe(2);
   });
@@ -67,6 +70,16 @@ describe("combo-specials registry", () => {
   it("enabledCombos respects displayOrder", () => {
     const orders = enabledCombos().map((c) => c.displayOrder ?? 0);
     expect([...orders].sort((a, b) => a - b)).toEqual(orders);
+  });
+
+  it("comboBillMemo tells ops it's VIP, what's prepaid, and the qualify-gated plan", () => {
+    const memo = comboBillMemo(raceBowl);
+    expect(memo).toContain("ULTIMATE VIP EXPERIENCE (VIP COMBO)");
+    expect(memo).toContain("racing license + POV video + VIP lane perks INCLUDED");
+    expect(memo).toContain("1) Starter Race");
+    expect(memo).toContain("2) 1.5hr VIP Bowling at HeadPinz");
+    expect(memo).toContain("3) Intermediate Race (ONLY IF QUALIFIED)");
+    expect(memo).toContain("settles at lane-open");
   });
 });
 

@@ -6,9 +6,11 @@ import { qamfCenterIdForCode } from "~/features/booking";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import type { RaceHeatAssignment } from "~/features/booking/state/types";
+import { bookHeatsOnAdvance } from "~/features/booking/service/race";
 import {
   comboBowlingPatch,
   fetchComboLegCandidates,
+  holdComboBowling,
   releaseComboBowlingHold,
   type ComboLegPayload,
 } from "~/features/combos/combo-booking";
@@ -79,6 +81,19 @@ function comboFor(session: BookingSession): ComboSpecial | null {
   return session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
 }
 
+/** Does the itinerary run a higher-tier race AFTER a starter (the Ultimate
+ *  pattern: you qualify in race 1, then run race 2)? Drives the customer
+ *  "qualify to unlock" note on the schedule screens. */
+function hasQualifierProgression(combo: ComboSpecial): boolean {
+  let sawStarter = false;
+  for (const leg of combo.components) {
+    if (leg.kind !== "race") continue;
+    if (leg.tier === "starter") sawStarter = true;
+    else if (sawStarter) return true;
+  }
+  return false;
+}
+
 /** ET wall-clock hour (0–26 chip notation) of either vendor's ISO. */
 function etHourOfIso(iso: string): number {
   const naive = iso.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
@@ -130,6 +145,9 @@ function ScheduleConfirmModal({
   // Per-leg track override (race legs after the anchor). null/absent = earliest.
   const [trackChoice, setTrackChoice] = useState<Record<number, string>>({});
 
+  // Per-leg gap caps (e.g. the lane must start within 60 min of race 1).
+  const maxWaits = combo.components.map((l) => l.maxWaitMinutes ?? null);
+
   const filtersFor = (choices: Record<number, string>): Array<LegFilter<ComboLegPayload>> =>
     combo.components.map((leg, i) => {
       const chosen = choices[i];
@@ -138,7 +156,14 @@ function ScheduleConfirmModal({
     });
 
   const chain = useMemo(
-    () => buildChainFrom(legCandidates, combo.transitionMinutes, anchor, filtersFor(trackChoice)),
+    () =>
+      buildChainFrom(
+        legCandidates,
+        combo.transitionMinutes,
+        anchor,
+        filtersFor(trackChoice),
+        maxWaits,
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [legCandidates, combo, anchor, trackChoice],
   );
@@ -159,6 +184,7 @@ function ScheduleConfirmModal({
             combo.transitionMinutes,
             anchor,
             filtersFor({ ...trackChoice, [i]: t }),
+            maxWaits,
           ) != null,
       );
       if (viable.length > 0) out.set(i, viable);
@@ -266,6 +292,12 @@ function ScheduleConfirmModal({
           </p>
         )}
 
+        {chain && hasQualifierProgression(combo) && (
+          <p className="mt-2 text-center text-[11px] text-white/40">
+            🏁 Qualify in your Starter race to unlock the Intermediate race.
+          </p>
+        )}
+
         <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-white/60">{combo.name}</span>
@@ -305,7 +337,7 @@ function ScheduleConfirmModal({
             onClick={() => chain && onConfirm(chain)}
             className="flex-1 rounded-xl bg-[#00E2E5] px-4 py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {busy ? "Saving…" : "Confirm Schedule"}
+            {busy ? "Reserving…" : "Confirm Schedule"}
           </button>
         </div>
       </div>
@@ -367,7 +399,11 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
         setFetched({
           key: fetchKey,
           legCandidates,
-          chains: buildChains(legCandidates, combo.transitionMinutes),
+          chains: buildChains(
+            legCandidates,
+            combo.transitionMinutes,
+            combo.components.map((l) => l.maxWaitMinutes ?? null),
+          ),
           error: null,
         });
       } catch (err) {
@@ -444,19 +480,62 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
         povSold: false,
       });
 
-      // Bowling leg → fully configure the bowling item (hold comes at the
-      // schedule step's advance).
+      // Bowling leg → fully configure the bowling item.
       const bowlingEntry = chain.find((e) => e.payload.kind === "bowling");
-      if (bowling && bowlingEntry && bowlingEntry.payload.kind === "bowling" && date) {
+      const bowlingPatch =
+        bowling && bowlingEntry && bowlingEntry.payload.kind === "bowling" && date
+          ? comboBowlingPatch(bowlingEntry.payload, party.length, date)
+          : null;
+      if (bowling && bowlingPatch) {
+        dispatch({ type: "updateItem", id: bowling.id, patch: bowlingPatch });
+      }
+
+      // HOLD EVERYTHING NOW (owner: spots are held the moment the schedule is
+      // confirmed, not on Next). The closure's session/item are stale — the
+      // dispatches above haven't re-rendered yet — so book against locally
+      // updated copies; the bmiLineId/hold dispatches inside apply cleanly to
+      // the store's already-updated state. BookingFlow's Next handler stays as
+      // an idempotent backstop (booked heats / live holds are skipped).
+      const updatedItem: RaceItem = {
+        ...item,
+        heats,
+        povQuantity: combo.includedPovPerRacer * party.length,
+        povSold: false,
+      };
+      const updatedBowling = bowling && bowlingPatch ? { ...bowling, ...bowlingPatch } : bowling;
+      const updatedSession: BookingSession = {
+        ...session,
+        items: session.items.map((i) =>
+          i.id === item.id
+            ? updatedItem
+            : updatedBowling && i.id === updatedBowling.id
+              ? updatedBowling
+              : i,
+        ),
+      };
+      await bookHeatsOnAdvance(updatedSession, updatedItem, dispatch);
+      if (updatedBowling && !updatedBowling.qamfReservationId) {
+        const qamfReservationId = await holdComboBowling({
+          session: updatedSession,
+          item: updatedBowling,
+          centerId,
+        });
         dispatch({
-          type: "updateItem",
-          id: bowling.id,
-          patch: comboBowlingPatch(bowlingEntry.payload, party.length, date),
+          type: "setBowlingHold",
+          itemId: updatedBowling.id,
+          qamfReservationId,
+          qamfCenterId: centerId,
         });
       }
 
       setPendingAnchor(null);
       dispatch({ type: "next" });
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? `Couldn't hold your schedule: ${err.message}`
+          : "Couldn't hold your schedule. Please pick another time.",
+      );
     } finally {
       setSwitching(false);
       setBusy?.(false);
@@ -775,6 +854,12 @@ const ComboItineraryComponent: StepDef<RaceItem>["Component"] = ({ item, session
 
       <ItineraryList item={item} session={session} />
 
+      {hasQualifierProgression(combo) && (
+        <p className="text-center text-[11px] text-white/40">
+          🏁 Qualify in your Starter race to unlock the Intermediate race.
+        </p>
+      )}
+
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm">
         <div className="flex items-center justify-between">
           <span className="text-white/60">{combo.name}</span>
@@ -801,7 +886,7 @@ const ComboItineraryComponent: StepDef<RaceItem>["Component"] = ({ item, session
       </div>
 
       <p className="text-center text-xs text-white/35">
-        Hitting Next reserves your races and holds your bowling lane.
+        Your races and lane are reserved while you finish checkout.
       </p>
     </div>
   );
