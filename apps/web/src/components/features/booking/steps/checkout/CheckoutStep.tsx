@@ -23,6 +23,7 @@ import {
   memberEligibleBreakdown,
 } from "~/features/booking/data/race-credits";
 import { bowlingReserve, buildBowlingQuoteLineItems } from "~/features/booking/service/bowling";
+import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import {
   KBF_GAMES_PER_SESSION,
   kbfAdultGamesTotalCents,
@@ -111,6 +112,13 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
   const raceItem = session.items.find((i): i is RaceItem => i.kind === "race") ?? null;
   const raceDate = raceItem?.date ?? null;
 
+  // Combo special active: the session charges the flat combo price (one line,
+  // built inside buildRaceChargeLines). The bowling item's own line items are
+  // suppressed from the review (the charge path suppresses them identically in
+  // buildCombinedLineItems), and race-credit redemption is hidden — credits
+  // don't combine with the flat price.
+  const comboActive = activeComboSpecial(session) != null;
+
   const heatCountForMember = (memberId: string): number => {
     let n = 0;
     for (const it of session.items) {
@@ -126,6 +134,7 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
   // (Membership → Weekday → Anytime → Comp; see race-credits.ts).
   const [creditChoices, setCreditChoices] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
+    if (comboActive) return init; // flat combo price — no credit redemption
     for (const m of session.party) {
       if (!m.bmiPersonId || m.isNewRacer) continue;
       if (heatCountForMember(m.id) <= 0) continue;
@@ -134,15 +143,17 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
     return init;
   });
 
-  const creditEligible = session.party
-    .filter((m) => m.bmiPersonId && !m.isNewRacer)
-    .map((m) => ({
-      member: m,
-      heats: heatCountForMember(m.id),
-      available: memberEligibleCreditTotal(m.creditBalances, raceDate),
-      breakdown: memberEligibleBreakdown(m.creditBalances, raceDate),
-    }))
-    .filter((e) => e.heats > 0 && e.available > 0);
+  const creditEligible = comboActive
+    ? []
+    : session.party
+        .filter((m) => m.bmiPersonId && !m.isNewRacer)
+        .map((m) => ({
+          member: m,
+          heats: heatCountForMember(m.id),
+          available: memberEligibleCreditTotal(m.creditBalances, raceDate),
+          breakdown: memberEligibleBreakdown(m.creditBalances, raceDate),
+        }))
+        .filter((e) => e.heats > 0 && e.available > 0);
 
   // Party + session carrying each racer's opt-in, threaded into the reserve calls.
   // Heats of a member with redeemCredits are covered by their combined eligible
@@ -194,10 +205,13 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       setPhase({ step: "booking", progress: "Calculating your total…" });
       const reviewLines: BillOverview["lines"] = [];
 
-      // Bowling line items — include bookedAt time
+      // Bowling line items — include bookedAt time. In combo mode the combo
+      // line (inside bmiOverview, via buildRaceChargeLines) is the whole
+      // race+bowl charge, so the bowling items are NOT separately listed —
+      // identical suppression to buildCombinedLineItems (booking fee stays).
       for (const item of session.items) {
         if (item.kind !== "bowling" && item.kind !== "kbf") continue;
-        for (const li of item.lineItems) {
+        for (const li of comboActive ? [] : item.lineItems) {
           reviewLines.push({
             name: li.label ?? `Item #${li.squareProductId}`,
             quantity: li.quantity,

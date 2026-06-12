@@ -13,6 +13,7 @@ import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
+import { getComboSpecial } from "~/features/combos";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
 
 /** Resolve a race line's display name from our own registries instead
@@ -1390,6 +1391,11 @@ export default function ConfirmationPage() {
   const heroIsRacing = heroActivity ? heroActivity.kind === "racing" : bookingType === "racing";
   const heroTitle = heroIsRacing ? "You're on the grid!" : "You're booked!";
 
+  // Combo special: stamped on the booking record at checkout
+  // (saveBookingDetails → comboSpecial). Drives the celebratory banner.
+  const comboSpecialId = (bookingRec?.comboSpecial as string | null | undefined) ?? null;
+  const comboSpecial = comboSpecialId ? getComboSpecial(comboSpecialId) : null;
+
   return (
     <div className="min-h-screen bg-[#000418]">
       {expressLane && (
@@ -1476,7 +1482,19 @@ export default function ConfirmationPage() {
               <h1 className="text-4xl md:text-5xl font-display uppercase tracking-widest text-white mb-2">
                 {heroTitle}
               </h1>
-              {heroActivity && (
+              {comboSpecial && (
+                <p
+                  className="mx-auto mb-2 inline-block rounded-full border px-4 py-1.5 font-display text-sm uppercase tracking-widest sm:text-base"
+                  style={{
+                    color: comboSpecial.accentColor,
+                    borderColor: comboSpecial.accentColor,
+                    backgroundColor: "rgba(7,16,39,0.6)",
+                  }}
+                >
+                  You booked the {comboSpecial.name}!
+                </p>
+              )}
+              {heroActivity && !comboSpecial && (
                 <p
                   className="font-display text-lg sm:text-xl uppercase tracking-widest mb-1"
                   style={{ color: heroCfg?.color ?? "#00E2E5" }}

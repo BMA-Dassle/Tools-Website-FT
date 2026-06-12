@@ -7,6 +7,8 @@ import AutoplayVideo from "@/components/headpinz/AutoplayVideo";
 import SeoFaq from "@/components/headpinz/SeoFaq";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG } from "@/lib/seo";
+import ComboSpecials from "~/components/features/combos/ComboSpecials";
+import { enabledCombos } from "~/features/combos";
 
 export const metadata: Metadata = {
   title: "All Attractions - Bowling, Laser Tag, Gel Blasters, VIP, Arcade | HeadPinz Fort Myers",
@@ -233,6 +235,36 @@ export default function AttractionsPage() {
         {/* Bottom accent gradient line */}
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#fd5b56] via-white/60 to-[#123075]" />
       </section>
+
+      {/* ====== ULTIMATE VIP EXPERIENCE (combo special, registry-driven) ====== */}
+      {enabledCombos().length > 0 && (
+        <section id="combos" style={{ padding: "clamp(40px, 8vw, 80px) clamp(16px, 4vw, 32px) 0" }}>
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center">
+              <p className="font-body text-[#FFD700] text-xs uppercase tracking-[0.3em] mb-3">
+                Race Next Door · Bowl VIP Here
+              </p>
+              <h2
+                className="font-heading font-black uppercase text-white"
+                style={{
+                  fontSize: "clamp(32px, 7vw, 60px)",
+                  lineHeight: "1.05",
+                  letterSpacing: "-1px",
+                  marginBottom: "16px",
+                  textShadow: "0 0 40px rgba(255,215,0,0.3)",
+                }}
+              >
+                The Ultimate VIP Experience
+              </h2>
+              <div
+                className="mx-auto h-1 w-24 rounded-full mb-10"
+                style={{ background: "linear-gradient(90deg, #FFD700, #fd5b56)" }}
+              />
+            </div>
+            <ComboSpecials />
+          </div>
+        </section>
+      )}
 
       {/* ====== ATTRACTION CARDS — Alternating layout ====== */}
       <section

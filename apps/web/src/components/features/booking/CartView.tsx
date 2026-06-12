@@ -16,6 +16,7 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
+import { getComboSpecial } from "~/features/combos/combo-specials";
 import { modalBackdropProps } from "@/lib/a11y";
 import { AdditionalActivities } from "./AdditionalActivities";
 
@@ -44,6 +45,9 @@ export interface CartViewProps {
   /** Abandon the whole in-progress booking (release vendor holds + clear cart)
    *  and start fresh — wired to the leave modal's "Start new booking" action. */
   onNewBooking: () => Promise<void> | void;
+  /** Remove the combo special as a UNIT (both seeded items + the stamp,
+   *  vendor holds released). Shown on the combo banner. */
+  onRemoveCombo?: () => Promise<void> | void;
 }
 
 export function CartView({
@@ -54,6 +58,7 @@ export function CartView({
   onRemoveHeat,
   onCheckout,
   onNewBooking,
+  onRemoveCombo,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -85,6 +90,39 @@ export function CartView({
         )}
       </div>
       <h1 className="text-2xl font-semibold text-white sm:text-3xl">Your cart</h1>
+
+      {/* Combo special: the combo prices as ONE flat per-person line at
+          checkout, and it leaves the cart as one unit too. */}
+      {(() => {
+        const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+        if (!combo) return null;
+        return (
+          <div
+            className="mt-4 flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+            style={{ borderColor: combo.accentColor, backgroundColor: "rgba(7,16,39,0.5)" }}
+          >
+            <div>
+              <span className="font-semibold" style={{ color: combo.accentColor }}>
+                {combo.name}:
+              </span>{" "}
+              <span className="text-white/80">
+                ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
+                {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun, applied at checkout (plus
+                tax).
+              </span>
+            </div>
+            {onRemoveCombo && (
+              <button
+                type="button"
+                onClick={() => void onRemoveCombo()}
+                className="shrink-0 self-start rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400 sm:self-auto"
+              >
+                Remove combo
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {session.items.length === 0 ? (
         <p className="mt-6 text-sm text-white/50">No items yet.</p>
@@ -256,6 +294,11 @@ function CartItemCard({
         (item.hasBookingFee ? 2.99 : 0)
       : 0;
 
+  // Combo bowling is configured by the combo wizard (its own steps are
+  // hidden) and is charged inside the flat combo line — no Edit, no per-item
+  // estimate; Remove removes the whole combo (BookingFlow delegates).
+  const isComboBowling = !!session.comboSpecialId && item.kind === "bowling";
+
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm transition-colors hover:border-white/20">
       <div className="flex items-start justify-between gap-3">
@@ -264,23 +307,25 @@ function CartItemCard({
           <div className="mt-0.5 text-xs text-white/40">{otherItemSummary(item)}</div>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
-          >
-            Edit
-          </button>
+          {!isComboBowling && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+            >
+              Edit
+            </button>
+          )}
           <button
             type="button"
             onClick={onRemove}
             className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
           >
-            Remove
+            {isComboBowling ? "Remove combo" : "Remove"}
           </button>
         </div>
       </div>
-      {bowlingEstimate > 0 && (
+      {bowlingEstimate > 0 && !isComboBowling && (
         <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-sm">
           <span className="text-xs uppercase tracking-wider text-white/40">Est. total</span>
           <span className="font-bold text-[#00E2E5]">${bowlingEstimate.toFixed(2)}</span>
@@ -335,6 +380,12 @@ function RaceCartCard({
       })
     : null;
 
+  // Combo special: the flat per-person price covers the races, license and
+  // POV — the banner above the cart carries the pricing, so the card shows
+  // "included" rows and NO per-item dollars (a $9.99 license+POV estimate
+  // here read as an extra charge).
+  const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+
   // Estimate — use the SAME per-item charge builder the checkout uses
   // (raceItemChargeLines: package bundle / combo pack / single), so the cart
   // total can NEVER drift from what Square charges. The package bundle line
@@ -346,9 +397,11 @@ function RaceCartCard({
   const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
 
   const raceLinesTotal = raceItemChargeLines(item).reduce((s, l) => s + l.amount, 0);
-  const estimated = pkg
-    ? raceLinesTotal + addonsTotal
-    : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
+  const estimated = combo
+    ? 0
+    : pkg
+      ? raceLinesTotal + addonsTotal
+      : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
 
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
@@ -407,7 +460,23 @@ function RaceCartCard({
       ) : null}
 
       {/* Extras */}
-      {pkg ? (
+      {combo ? (
+        <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
+          {combo.includesLicense && newRacerCount > 0 && (
+            <ExtraRow icon="✓" label="Racing License included" amount={null} />
+          )}
+          {combo.includedPovPerRacer > 0 && (
+            <ExtraRow
+              icon="✓"
+              label={`POV Race Video included${item.povQuantity > 1 ? ` × ${item.povQuantity}` : ""}`}
+              amount={null}
+            />
+          )}
+          {item.addons.map((a) => (
+            <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
+          ))}
+        </div>
+      ) : pkg ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
           {pkg.includesLicense && (
             <ExtraRow icon="✓" label="Racing License included" amount={null} />

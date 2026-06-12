@@ -194,6 +194,10 @@ export function crossSellFor(session: BookingSession): ActivityOffering[] {
   );
   const base = session.center ? offeringsAt(session.center) : allOfferings().slice();
   return base.filter((o) => {
+    // Combo special: only ATTRACTIONS may join the cart. Adding another
+    // race/bowling/KBF would break the strict pricing gate and silently fall
+    // the whole cart back to item-sum (regular) rates — a charge surprise.
+    if (session.comboSpecialId && o.kind !== "attraction") return false;
     const key = o.kind === "attraction" ? `attraction:${o.attractionSlug}` : o.kind;
     return !inCart.has(key);
   });

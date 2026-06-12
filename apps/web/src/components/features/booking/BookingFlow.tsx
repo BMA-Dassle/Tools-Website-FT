@@ -30,6 +30,9 @@ import {
 } from "~/features/booking/service/checkout";
 import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTimer";
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
+import { comboBowlingComponent, getComboSpecial } from "~/features/combos/combo-specials";
+import { holdComboBowling, releaseComboBowlingHold } from "~/features/combos/combo-booking";
+import { qamfCenterIdForCode } from "~/features/booking/types";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 export interface BookingFlowProps {
@@ -43,6 +46,11 @@ export interface BookingFlowProps {
    *  routes to the cart's existing activity with ?checkout=1). Only takes effect
    *  on the cart view (no active item). */
   initialCheckout?: boolean;
+  /** Combo-special entry (/book/combo/[id]/v2): seed a FRESH session with the
+   *  combo's components (race + bowling) and stamp session.comboSpecialId so
+   *  checkout charges the flat combo price. Ignored when the customer already
+   *  has a non-combo cart in progress. */
+  comboSpecialId?: string;
 }
 
 /**
@@ -69,6 +77,7 @@ export function BookingFlow({
   initialPromo,
   urlCode,
   initialCheckout = false,
+  comboSpecialId,
 }: BookingFlowProps) {
   const initial = useMemo(
     () => emptySession({ entryBrand, context: initialContext, appliedPromo: initialPromo ?? null }),
@@ -94,6 +103,33 @@ export function BookingFlow({
   // Seed first item or detect cross-sell arrival — runs after storage hydration
   useEffect(() => {
     if (!hydrated) return;
+    // Combo-special entry: seed a FRESH session with the combo's components —
+    // one race item (heat count enforced via session.comboSpecialId) + one
+    // bowling item preset to the combo's duration — at the combo's center, and
+    // stamp comboSpecialId (once, like appliedPromo). A resumed combo session
+    // is left alone; an existing NON-combo cart is also left alone (we never
+    // clobber a cart in progress — the customer can finish or start over).
+    if (comboSpecialId) {
+      const combo = getComboSpecial(comboSpecialId);
+      if (combo && combo.enabled && session.items.length === 0) {
+        if (!session.center) {
+          dispatch({ type: "setCenter", center: combo.center });
+        }
+        dispatch({ type: "setComboSpecial", id: combo.id });
+        const raceItem = newItem("race");
+        dispatch({ type: "addItem", item: raceItem });
+        const bowlComp = comboBowlingComponent(combo);
+        const bowlingItem: SessionItem = {
+          ...(newItem("bowling") as Extract<SessionItem, { kind: "bowling" }>),
+          variant: "hourly",
+          durationMinutes: bowlComp?.durationMinutes ?? null,
+        };
+        dispatch({ type: "addItem", item: bowlingItem });
+        // Race first: addItem activates the LAST added item (bowling).
+        dispatch({ type: "setActiveItem", id: raceItem.id });
+      }
+      return;
+    }
     // Seed the center from the entry URL (?location=, parsed into initialContext)
     // on a FRESH session so the picked activity books at the right complex
     // (Naples → headpinznaples clientKey) and the cart cross-sell scopes
@@ -254,11 +290,36 @@ export function BookingFlow({
     );
   }
 
+  // Remove the WHOLE combo as a unit: both seeded items + the combo stamp,
+  // releasing the BMI heats and the QAMF lane hold. Removing only one half
+  // would silently fall back to item-sum pricing — a charge surprise, not a
+  // feature. Extra attraction items the customer added stay in the cart.
+  const handleRemoveCombo = async () => {
+    const raceItem = session.items.find((i) => i.kind === "race");
+    const bowlingItem = session.items.find((i) => i.kind === "bowling") as
+      | import("~/features/booking").BowlingItem
+      | undefined;
+    const remaining = session.items.filter((i) => i.kind !== "race" && i.kind !== "bowling");
+    dispatch({ type: "setComboSpecial", id: null });
+    if (raceItem) dispatch({ type: "removeItem", id: raceItem.id });
+    if (bowlingItem) dispatch({ type: "removeItem", id: bowlingItem.id });
+    if (raceItem) await releaseItemBmiLines(session, raceItem);
+    if (bowlingItem) await releaseComboBowlingHold(bowlingItem);
+    if (remaining.length === 0) {
+      window.location.href = "/book/v2";
+    }
+  };
+
   // Remove a whole cart item, releasing any BMI bill lines it booked early (race
   // heats / attraction slot) so it isn't still confirmed at checkout. Last item
-  // → back to the activity picker.
+  // → back to the activity picker. On a combo session, removing either combo
+  // half removes the COMBO (see handleRemoveCombo).
   const handleRemoveItem = async (id: string) => {
     const item = session.items.find((i) => i.id === id);
+    if (session.comboSpecialId && item && (item.kind === "race" || item.kind === "bowling")) {
+      await handleRemoveCombo();
+      return;
+    }
     const wasLast = session.items.length <= 1;
     dispatch({ type: "removeItem", id });
     if (item) await releaseItemBmiLines(session, item);
@@ -320,6 +381,7 @@ export function BookingFlow({
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => setCheckoutActive(true)}
           onNewBooking={handleStartOver}
+          onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
         />
         {reservationExpired && hasActiveHold && (
           <ReservationExpiredModal
@@ -349,6 +411,7 @@ export function BookingFlow({
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => setCheckoutActive(true)}
           onNewBooking={handleStartOver}
+          onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
         />
       </div>
     );
@@ -423,6 +486,47 @@ export function BookingFlow({
           err instanceof Error
             ? `Failed to reserve heats: ${err.message}`
             : "Failed to reserve heats. Please try again.",
+        );
+      } finally {
+        setBookingHeats(false);
+      }
+      return;
+    }
+
+    // Combo special: confirming the itinerary books the BMI heats AND creates
+    // the QAMF lane hold for the programmatically-configured bowling item —
+    // both under the reservation timer. All-or-nothing UX: a lane-hold failure
+    // keeps the customer on the schedule (heats stay held; they can re-pick).
+    if (currentStep.id === "combo-itinerary" && activeItem.kind === "race") {
+      const raceItem = activeItem as import("~/features/booking").RaceItem;
+      setBookingHeatsProgress("Reserving your races…");
+      setBookingHeats(true);
+      try {
+        await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+        const bowlingItem = session.items.find((i) => i.kind === "bowling") as
+          | import("~/features/booking").BowlingItem
+          | undefined;
+        if (bowlingItem && !bowlingItem.qamfReservationId) {
+          setBookingHeatsProgress("Holding your bowling lane…");
+          const centerId = bowlingItem.qamfCenterId ?? qamfCenterIdForCode(session.center) ?? 9172;
+          const qamfReservationId = await holdComboBowling({
+            session,
+            item: bowlingItem,
+            centerId,
+          });
+          dispatch({
+            type: "setBowlingHold",
+            itemId: bowlingItem.id,
+            qamfReservationId,
+            qamfCenterId: centerId,
+          });
+        }
+        advanceToNextStep();
+      } catch (err) {
+        alert(
+          err instanceof Error
+            ? `Couldn't lock in your schedule: ${err.message}`
+            : "Couldn't lock in your schedule. Please try again.",
         );
       } finally {
         setBookingHeats(false);

@@ -979,19 +979,32 @@ export async function findReusableReservation(
  * The race-dayof-pay cron cross-references these against BMI "Arrived" projects,
  * then charges the gift card against the open day-of order. Naturally a small
  * set (only unpaid races awaiting check-in), so no date window needed.
+ *
+ * Excludes races whose day-of order is SHARED with a bowling/KBF reservation
+ * (combo specials: race + bowling in one session = one Square order). For those,
+ * LANE-OPEN settles the combined order — same NOT EXISTS guard as the attraction
+ * query below. Never auto-settle bowling at race start: the bowling value would
+ * be charged before lanes open (and any attached food fired to the kitchen).
+ * A racer who skips bowling leaves the order for auto-close/manual settle —
+ * accepted in tasks/combo-specials-plan.md (locked decision #6).
  */
 export async function getRaceReservationsAwaitingDayofPay(): Promise<BowlingReservation[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
   const rows = await q`
-    SELECT * FROM bowling_reservations
-    WHERE product_kind = 'race'
-      AND status = 'confirmed'
-      AND dayof_order_sent_at IS NULL
-      AND square_gift_card_id IS NOT NULL
-      AND square_dayof_order_id IS NOT NULL
-    ORDER BY booked_at DESC
+    SELECT r.* FROM bowling_reservations r
+    WHERE r.product_kind = 'race'
+      AND r.status = 'confirmed'
+      AND r.dayof_order_sent_at IS NULL
+      AND r.square_gift_card_id IS NOT NULL
+      AND r.square_dayof_order_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM bowling_reservations b
+        WHERE b.square_dayof_order_id = r.square_dayof_order_id
+          AND b.product_kind IN ('open', 'kbf')
+      )
+    ORDER BY r.booked_at DESC
     LIMIT 500
   `;
   return rows.map((r) => rowToReservation(r as Record<string, unknown>));
