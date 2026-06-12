@@ -125,6 +125,13 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
     return;
   }
 
+  // Pay at the ORDER's location, not the quote's. Square rejects a payment
+  // whose location differs from its order's — HeadPinz-brand events store the
+  // FastTrax location on the quote while the day-of order is created at the
+  // HeadPinz location, which stranded fully-funded events (H2821/H3011,
+  // 2026-06-11): every CreatePayment failed and the cron retried forever.
+  const payLocationId = order.location_id || quote.square_location_id;
+
   let remaining = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
   if (remaining <= 0) {
     await q`UPDATE group_function_quotes SET
@@ -138,6 +145,7 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
   }
 
   const paymentIds: string[] = [];
+  let lastPayError: string | null = null;
 
   for (let i = 0; i < gcIds.length && remaining > 0; i++) {
     const gcId = gcIds[i];
@@ -166,11 +174,15 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
       method: "POST",
       headers: sqHeaders(),
       body: JSON.stringify({
-        idempotency_key: `gf-dayof-pay-${quote.id}-${i}`,
+        // Location-salted: the pre-fix attempts burned `gf-dayof-pay-{id}-{i}`
+        // with the wrong location; reusing those keys would replay the old
+        // failure forever. Still stable per (quote, card, location) so retries
+        // can never double-charge.
+        idempotency_key: `gf-dayof-pay-${quote.id}-${i}-${payLocationId}`,
         source_id: gcId,
         amount_money: { amount: amountToPay, currency: "USD" },
         order_id: orderId,
-        location_id: quote.square_location_id,
+        location_id: payLocationId,
         autocomplete: true,
         note: `Group event: ${quote.event_name || ""} (#${quote.event_number || quote.id})`,
       }),
@@ -189,6 +201,7 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
     } else {
       const errData = await payRes.json().catch(() => ({}));
       const errMsg = errData.errors?.[0]?.detail || `Payment failed (${payRes.status})`;
+      lastPayError = errMsg;
       console.error(`[group-dayof-pay] quote=${quote.id} gc[${i}] payment failed: ${errMsg}`);
     }
   }
@@ -209,7 +222,7 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
               headers: sqHeaders(),
               body: JSON.stringify({
                 order: {
-                  location_id: quote.square_location_id,
+                  location_id: payLocationId,
                   version,
                   state: "COMPLETED",
                 },
@@ -235,6 +248,8 @@ async function payDayofOrder(quote: GroupFunctionQuote): Promise<void> {
         (remaining > 0 ? ` — $${(remaining / 100).toFixed(2)} still remaining` : " — fully paid"),
     );
   } else {
-    throw new Error("No gift card payments succeeded");
+    // Surface the real Square error in the DB — the generic message cost an
+    // evening of log archaeology (2026-06-11).
+    throw new Error(`No gift card payments succeeded${lastPayError ? `: ${lastPayError}` : ""}`);
   }
 }
