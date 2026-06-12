@@ -30,6 +30,7 @@ import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
+import { notifyComboBooked } from "~/features/combos/combo-notify";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
 import {
@@ -1089,6 +1090,19 @@ async function unifiedReserveInner(
       }
       throw err;
     }
+  }
+
+  // Combo special: staff booking alert (owner 2026-06-11 — eric/curtis/alex/
+  // jacob). Fired only after EVERYTHING above succeeded; never throws.
+  if (session.comboSpecialId) {
+    await notifyComboBooked({
+      session,
+      contact,
+      bmiBillId: session.bmiBillId,
+      bmiReservationNumber,
+      squareDayofOrderId,
+      totalCents: dayofTotalCents,
+    });
   }
 
   return {
