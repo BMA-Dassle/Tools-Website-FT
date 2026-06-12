@@ -117,6 +117,127 @@ function heatsComplete(item: RaceItem, session: BookingSession): boolean {
   );
 }
 
+/* ───────────────────────── Intro / overview step ─────────────────────── */
+
+/** Short customer-facing blurb per leg for the overview step. */
+function legBlurb(leg: ComboLeg): string {
+  if (leg.kind === "race") {
+    if (leg.tier === "starter") return "Hit the track and earn your qualification.";
+    return "Qualified in your Starter race? Come back faster.";
+  }
+  if (leg.kind === "bowling") {
+    return leg.vip
+      ? "Walk next door to your semi-private VIP lane — NeoVerse wall, chips & salsa, premium glow."
+      : "Walk next door to your lane at HeadPinz.";
+  }
+  return "";
+}
+
+const ComboIntroComponent: StepDef<RaceItem>["Component"] = ({ session }) => {
+  const combo = comboFor(session);
+  if (!combo) return null;
+
+  const included = [
+    combo.includesLicense ? "Racing license" : null,
+    combo.includedPovPerRacer > 0 ? "POV race video for every racer" : null,
+    ...(combo.perks ?? []),
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div className="text-center">
+        <h2
+          className="font-display text-3xl font-black uppercase tracking-widest"
+          style={{ color: GOLD, textShadow: `0 0 28px ${GOLD}55` }}
+        >
+          {combo.name}
+        </h2>
+        <p className="mt-2 text-sm text-white/60">{combo.shortDescription}</p>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider">
+          {combo.durationLabel && (
+            <span
+              className="rounded-full px-3 py-1"
+              style={{ backgroundColor: `${GOLD}1f`, color: GOLD }}
+            >
+              {combo.durationLabel}
+            </span>
+          )}
+          <span className="rounded-full bg-white/10 px-3 py-1 text-white/80">
+            ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
+            {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun
+          </span>
+          {combo.startHours?.length === 4 && (
+            <span className="rounded-full bg-white/10 px-3 py-1 text-white/80">
+              Starts 2 · 4 · 6 · 8 PM
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* How it works — the itinerary, numbered */}
+      <div className="space-y-2">
+        <p className="text-center text-[11px] uppercase tracking-[2px] text-white/35">
+          How your visit works
+        </p>
+        {combo.components.map((leg, i) => (
+          <div
+            key={`intro-leg-${i}`}
+            className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
+          >
+            <span
+              className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-black"
+              style={{ backgroundColor: `${GOLD}22`, color: GOLD }}
+            >
+              {i + 1}
+            </span>
+            <div>
+              <p className="text-sm font-bold text-white">
+                {legIcon(leg)} {legLabel(leg)}
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-white/50">{legBlurb(leg)}</p>
+            </div>
+          </div>
+        ))}
+        <p className="text-center text-[11px] text-white/40">
+          You pick ONE start time — we schedule the whole visit around it.
+        </p>
+      </div>
+
+      {/* Everything included */}
+      {included.length > 0 && (
+        <div
+          className="rounded-2xl border p-4"
+          style={{ borderColor: `${GOLD}40`, backgroundColor: `${GOLD}0a` }}
+        >
+          <p
+            className="mb-2 text-center text-[11px] uppercase tracking-[2px]"
+            style={{ color: GOLD }}
+          >
+            All included in the price
+          </p>
+          <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {included.map((perk) => (
+              <li key={perk} className="flex items-center gap-2 text-sm text-white/80">
+                <span
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                  style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
+                >
+                  ✓
+                </span>
+                {perk}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="text-center text-xs text-white/35">
+        Next: tell us who&apos;s racing and bowling.
+      </p>
+    </div>
+  );
+};
+
 /* ───────────────── schedule confirm modal ───────────────────────────── */
 
 function trackOf(c: LegCandidate<ComboLegPayload>): string | null {
@@ -383,6 +504,10 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
   } | null>(null);
   const [switching, setSwitching] = useState(false);
   const [pendingAnchor, setPendingAnchor] = useState<LegCandidate<ComboLegPayload> | null>(null);
+  // Live per-leg load status (keyed on fetchKey so a date change resets it):
+  // each leg ticks ✓ as its availability lands — a checklist, not a blind
+  // spinner. All setState calls happen inside async callbacks (lint-safe).
+  const [legsDone, setLegsDone] = useState<{ key: string; done: number[] } | null>(null);
 
   useEffect(() => {
     if (!combo || !date || megaJuniorBlocked) return;
@@ -394,6 +519,14 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
           dateYmd: date,
           party,
           centerId,
+          onLegDone: (legIndex) => {
+            if (cancelled) return;
+            setLegsDone((prev) =>
+              prev?.key === fetchKey
+                ? { key: fetchKey, done: [...prev.done, legIndex] }
+                : { key: fetchKey, done: [legIndex] },
+            );
+          },
         });
         if (cancelled) return;
         setFetched({
@@ -592,8 +725,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
           Pick Your Start Time
         </h2>
         <p className="mt-1 text-sm text-white/40">
-          Choose when your {legLabel(combo.components[0])} starts — we&apos;ll schedule the rest of
-          your {combo.name} around it.
+          {`Choose when your ${legLabel(combo.components[0])} starts — we'll schedule the rest of your ${combo.name} around it.`}
         </p>
       </div>
 
@@ -614,16 +746,41 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div
-            className="h-8 w-8 animate-spin rounded-full border-2 border-white/15"
-            style={{ borderTopColor: CYAN }}
-          />
+        /* Live per-leg checklist — each leg ticks ✓ as its availability lands,
+           so the multi-vendor lookup never reads as a stuck spinner. */
+        <div className="mx-auto max-w-xs space-y-2 py-10">
+          <p className="mb-3 text-center text-xs uppercase tracking-[2px] text-white/35">
+            Building your schedule
+          </p>
+          {combo.components.map((leg, i) => {
+            const done = legsDone?.key === fetchKey && legsDone.done.includes(i);
+            return (
+              <div
+                key={`legstatus-${i}`}
+                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm"
+              >
+                <span className={done ? "text-white/85" : "text-white/45"}>
+                  {legIcon(leg)} {legLabel(leg)}
+                </span>
+                {done ? (
+                  <span className="font-bold text-emerald-400">✓</span>
+                ) : (
+                  <span
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white/15"
+                    style={{ borderTopColor: CYAN }}
+                    aria-hidden
+                  />
+                )}
+              </div>
+            );
+          })}
+          <p className="pt-1 text-center text-[11px] text-white/30">
+            Checking live race times and lane availability…
+          </p>
         </div>
       ) : !megaJuniorBlocked && gridCells.length === 0 ? (
         <p className="py-8 text-center text-sm text-white/40">
-          No {legLabel(combo.components[0]).toLowerCase()} times this day. Go back and try another
-          date.
+          {`No ${legLabel(combo.components[0]).toLowerCase()} times this day. Go back and try another date.`}
         </p>
       ) : (
         !megaJuniorBlocked && (
@@ -898,6 +1055,14 @@ const startTimeCanAdvance: StepDef<RaceItem>["canAdvance"] = (item, session) =>
   heatsComplete(item, session) && bowlingItemOf(session)?.bookedAt
     ? true
     : { reason: "Pick a start time" };
+
+export const ComboIntroStep: StepDef<RaceItem> = {
+  id: "combo-intro",
+  title: "Overview",
+  Component: ComboIntroComponent,
+  isVisible: (_item, session) => !!session.comboSpecialId,
+  canAdvance: () => true,
+};
 
 export const ComboStartTimeStep: StepDef<RaceItem> = {
   id: "combo-start",

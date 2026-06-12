@@ -84,6 +84,7 @@ import BowlingFoodStep from "~/components/features/booking/steps/bowling/Bowling
 import KbfIdentityStep from "~/components/features/booking/steps/bowling/KbfIdentityStep";
 import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowlersStep";
 import {
+  ComboIntroStep,
   ComboItineraryStep,
   ComboStartTimeStep,
 } from "~/components/features/booking/steps/combo/ComboSteps";
@@ -111,6 +112,10 @@ function hiddenInCombo(step: StepDef): StepDef {
  */
 export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [
+    // Combo specials open with an OVERVIEW step (owner ask) — what the
+    // Ultimate VIP Experience is, the 1-2-3 itinerary, what's included.
+    // Combo-gated, so the normal race flow is untouched.
+    ComboIntroStep as StepDef,
     // New vs returning racer — its own step so the wizard Back/Next navigate it.
     RaceExperienceStep as StepDef,
     RacePartyStep as StepDef,

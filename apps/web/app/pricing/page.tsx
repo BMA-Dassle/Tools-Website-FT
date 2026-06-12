@@ -662,9 +662,42 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* ── Section: FastTrax Combos (2-col: image left, text+cards right) ── */}
+      {/* ── Section: FastTrax Combos — the Ultimate VIP tile leads full-width;
+            the race ADD-ONS (with their book-a-heat-first instructions) sit in
+            their own 2-col block below. ── */}
       <section className="bg-[#000418]" style={{ padding: "clamp(60px, 10vw, 120px) 0" }}>
-        <div className="max-w-7xl mx-auto px-8 flex flex-col lg:flex-row gap-16 items-center">
+        <div className="max-w-7xl mx-auto px-8">
+          <h2
+            className="font-heading font-black uppercase text-white text-center"
+            style={{
+              fontSize: "clamp(32px, 8vw, 72px)",
+              lineHeight: "1",
+              letterSpacing: "3px",
+              marginBottom: "16px",
+              textShadow: glowShadow,
+            }}
+          >
+            fastTrax Combos
+          </h2>
+          <p
+            className="font-body mx-auto text-center"
+            style={{
+              color: "rgba(245,236,238,0.8)",
+              fontSize: "18px",
+              lineHeight: "1.6",
+              maxWidth: "640px",
+              marginBottom: "40px",
+            }}
+          >
+            One booking, one price — or stack add-ons onto any race. Either way, the best deals on
+            the campus live here.
+          </p>
+
+          {/* Combo specials (registry-driven; hidden when flag is off) */}
+          <ComboSpecials />
+        </div>
+
+        <div className="max-w-7xl mx-auto px-8 mt-16 flex flex-col lg:flex-row gap-16 items-center">
           {/* Left column: image */}
           <div
             className="flex-1 relative w-full lg:w-auto"
@@ -683,33 +716,28 @@ export default function PricingPage() {
             />
           </div>
 
-          {/* Right column: heading + how to book + combo cards */}
+          {/* Right column: add-on heading + how to book + add-on cards */}
           <div style={{ flex: "0 0 54%" }}>
-            <h2
+            <h3
               className="font-heading font-black uppercase text-white"
               style={{
-                fontSize: "clamp(32px, 8vw, 72px)",
-                lineHeight: "1",
-                letterSpacing: "3px",
+                fontSize: "clamp(26px, 5vw, 44px)",
+                lineHeight: "1.05",
+                letterSpacing: "2px",
                 marginBottom: "16px",
                 textShadow: glowShadow,
               }}
             >
-              fastTrax Combos
-            </h2>
+              Race Add-Ons
+            </h3>
             <p
               className="font-body mb-8"
               style={{ color: "rgba(245,236,238,0.8)", fontSize: "18px", lineHeight: "1.6" }}
             >
-              <strong>How to Book:</strong> To secure combo pricing, book your racing heat first
+              <strong>How to Book:</strong> To secure add-on pricing, book your racing heat first
               through the website or app, then select these attractions as add-ons during the
               checkout process.
             </p>
-
-            {/* Combo specials (registry-driven; hidden when flag is off) */}
-            <div className="mb-5">
-              <ComboSpecials gridClassName="grid grid-cols-1 gap-5" />
-            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Gel Blaster Add-On */}

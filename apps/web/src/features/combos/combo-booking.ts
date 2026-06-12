@@ -121,36 +121,50 @@ export async function fetchRaceLegCandidates(args: {
   const perCatByStartTrack = new Map<RaceCategory, Map<string, BlockInfo & { start: string }>>();
   const perCatBestByStart = new Map<RaceCategory, Map<string, BlockInfo>>();
 
-  for (const { category } of cats) {
-    const products = productsForLeg(dateYmd, tier, category);
+  // All (category × track-product) availability calls fire in PARALLEL — they
+  // were serial awaits, which made the start-time grid feel stuck on a blind
+  // spinner for multi-track tiers.
+  const catResults = await Promise.all(
+    cats.map(async ({ category }) => {
+      const products = productsForLeg(dateYmd, tier, category);
+      if (products.length === 0) return { category, byStartTrack: null, bestByStart: null };
+      const byStartTrack = new Map<string, BlockInfo & { start: string }>();
+      const bestByStart = new Map<string, BlockInfo>();
+      const availabilities = await Promise.all(
+        products.map(async (product) => ({
+          product,
+          availability: await bmiAdapter.getAvailability({
+            date: dateYmd,
+            productId: product.productId,
+            pageId: product.pageId,
+            quantity: 1,
+          }),
+        })),
+      );
+      for (const { product, availability } of availabilities) {
+        for (const proposal of availability.proposals ?? []) {
+          const block = proposal.blocks?.[0]?.block;
+          if (!block?.start) continue;
+          const info: BlockInfo = {
+            stop: block.stop,
+            freeSpots: block.freeSpots,
+            productId: product.productId,
+            track: (product.track as string | null) ?? null,
+          };
+          byStartTrack.set(`${block.start}|${info.track ?? ""}`, { ...info, start: block.start });
+          const prev = bestByStart.get(block.start);
+          if (!prev || info.freeSpots > prev.freeSpots) bestByStart.set(block.start, info);
+        }
+      }
+      return { category, byStartTrack, bestByStart };
+    }),
+  );
+  for (const r of catResults) {
     // No product for this (tier, category, schedule) — e.g. junior Starter on
     // Mega Tuesday doesn't exist → the whole leg is infeasible.
-    if (products.length === 0) return [];
-    const byStartTrack = new Map<string, BlockInfo & { start: string }>();
-    const bestByStart = new Map<string, BlockInfo>();
-    for (const product of products) {
-      const availability = await bmiAdapter.getAvailability({
-        date: dateYmd,
-        productId: product.productId,
-        pageId: product.pageId,
-        quantity: 1,
-      });
-      for (const proposal of availability.proposals ?? []) {
-        const block = proposal.blocks?.[0]?.block;
-        if (!block?.start) continue;
-        const info: BlockInfo = {
-          stop: block.stop,
-          freeSpots: block.freeSpots,
-          productId: product.productId,
-          track: (product.track as string | null) ?? null,
-        };
-        byStartTrack.set(`${block.start}|${info.track ?? ""}`, { ...info, start: block.start });
-        const prev = bestByStart.get(block.start);
-        if (!prev || info.freeSpots > prev.freeSpots) bestByStart.set(block.start, info);
-      }
-    }
-    perCatByStartTrack.set(category, byStartTrack);
-    perCatBestByStart.set(category, bestByStart);
+    if (!r.byStartTrack || !r.bestByStart) return [];
+    perCatByStartTrack.set(r.category, r.byStartTrack);
+    perCatBestByStart.set(r.category, r.bestByStart);
   }
 
   const anyNewRacer = party.some((m) => m.isNewRacer);
@@ -282,20 +296,27 @@ const DEFAULT_RACE_LEG_MINUTES = 30;
 
 /**
  * Fetch every leg's candidates for `buildChains`, in the combo's itinerary
- * order. Attraction legs throw — typed for forward-compat, not yet built.
+ * order. Legs load IN PARALLEL (BMI dayplanner + the QAMF full-day probe are
+ * each seconds-slow; serializing them doubled the spinner). `onLegDone`
+ * fires per leg as it resolves so the wizard can show a live checklist
+ * instead of a blind spinner. Attraction legs throw — typed for
+ * forward-compat, not yet built.
  */
 export async function fetchComboLegCandidates(args: {
   combo: ComboSpecial;
   dateYmd: string;
   party: PartyMember[];
   centerId: number;
+  onLegDone?: (legIndex: number) => void;
 }): Promise<Array<Array<LegCandidate<ComboLegPayload>>>> {
-  const { combo, dateYmd, party, centerId } = args;
-  const out: Array<Array<LegCandidate<ComboLegPayload>>> = [];
-  for (const leg of combo.components) {
-    out.push(await legCandidates(leg, { combo, dateYmd, party, centerId }));
-  }
-  return out;
+  const { combo, dateYmd, party, centerId, onLegDone } = args;
+  return Promise.all(
+    combo.components.map(async (leg, i) => {
+      const candidates = await legCandidates(leg, { combo, dateYmd, party, centerId });
+      onLegDone?.(i);
+      return candidates;
+    }),
+  );
 }
 
 async function legCandidates(
