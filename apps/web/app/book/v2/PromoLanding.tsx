@@ -311,26 +311,40 @@ export function PromoLanding({
 }
 
 /** Combo-special landing card — same visual language as AttractionCard, with a
- *  gold "Best Value" badge, the per-person day-tier pricing, and both venue
- *  logos (a combo spans FastTrax racing + HeadPinz bowling). */
+ *  gold "Best Value"/"Ultimate VIP" badge, the per-person day-tier pricing, and
+ *  both venue logos (a combo spans FastTrax racing + HeadPinz bowling).
+ *  Premium combos render DOUBLE: two grid columns on sm+ and a much taller
+ *  image band on mobile, so the tile dominates the grid. */
 function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
   const fmtPrice = (cents: number) =>
     Number.isInteger(cents / 100) ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+  const premium = !!combo.premium;
 
   return (
     <Link
       href={`/book/combo/${combo.id}/v2`}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6"
-      style={{ borderColor: `${gold}55`, boxShadow: `0 0 24px ${gold}1a` }}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6 ${
+        premium ? "sm:col-span-2" : ""
+      }`}
+      style={{
+        borderColor: `${gold}55`,
+        boxShadow: premium ? `0 0 32px ${gold}2e` : `0 0 24px ${gold}1a`,
+      }}
     >
-      {/* Hero image */}
-      <div className="relative aspect-16/10 overflow-hidden">
+      {/* Hero image — premium gets a double-height band */}
+      <div
+        className={`relative overflow-hidden ${premium ? "aspect-square sm:aspect-[21/9]" : "aspect-16/10"}`}
+      >
         <Image
           src={combo.heroImage}
           alt={combo.name}
           fill
           className="object-cover transition-transform duration-500 group-hover:scale-105"
-          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          sizes={
+            premium
+              ? "(max-width: 640px) 100vw, 66vw"
+              : "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          }
         />
         <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
         <div className="absolute right-3 top-3">
@@ -341,16 +355,28 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
             <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
             </svg>
-            Best Value
+            {premium ? "Ultimate VIP" : "Best Value"}
           </span>
         </div>
+        {premium && (
+          <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5">
+            <h3 className="font-display text-2xl font-black uppercase tracking-wider text-white sm:text-3xl">
+              {combo.name}
+            </h3>
+            {(combo.perks?.length ?? 0) > 0 && (
+              <p className="mt-1 text-xs text-white/70 sm:text-sm">{combo.perks!.join(" · ")}</p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Content */}
+      {/* Content (premium carries the name on the image overlay instead) */}
       <div className="flex flex-1 flex-col p-4 sm:p-5">
-        <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
-          {combo.name}
-        </h3>
+        {!premium && (
+          <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
+            {combo.name}
+          </h3>
+        )}
         <p className="font-body mb-2 text-sm leading-relaxed text-white/50">
           {combo.includes.join(" + ")}
         </p>

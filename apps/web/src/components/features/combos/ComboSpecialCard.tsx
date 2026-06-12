@@ -25,7 +25,7 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
 
   return (
     <div
-      className={`flex flex-col ${premium ? "sm:col-span-2" : ""}`}
+      className={`flex flex-col ${premium ? "sm:col-span-2 lg:col-span-2" : ""}`}
       style={{
         backgroundColor: "rgba(7,16,39,0.5)",
         border: `1.78px dashed ${combo.accentColor}`,
@@ -34,11 +34,12 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
         boxShadow: premium ? `0 0 32px ${GOLD}26` : undefined,
       }}
     >
-      {/* Card image — premium gets a taller band (double-height mobile feel) */}
+      {/* Card image — premium gets a DOUBLE-height band (vs the 150–200px
+          standard card) so the tile reads twice the size on mobile too */}
       <div
         className="relative flex-shrink-0"
         style={{
-          height: premium ? "clamp(260px, 52vw, 320px)" : "clamp(150px, 25vw, 200px)",
+          height: premium ? "clamp(300px, 60vw, 400px)" : "clamp(150px, 25vw, 200px)",
         }}
       >
         <Image
