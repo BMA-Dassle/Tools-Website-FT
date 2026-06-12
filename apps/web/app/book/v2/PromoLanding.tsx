@@ -10,7 +10,8 @@ import {
   type Brand,
   type CenterCode,
 } from "~/features/booking";
-import { peekBookingSession } from "~/features/booking/hooks";
+import { clearBookingSession, peekBookingSession } from "~/features/booking/hooks";
+import { abandonBooking } from "~/features/booking/service/checkout";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { ComboSpecial } from "~/features/combos";
 
@@ -110,6 +111,24 @@ export function PromoLanding({
   );
   const [rejected, setRejected] = useState(seedRejected);
   const [submitting, setSubmitting] = useState(false);
+  const [clearingCart, setClearingCart] = useState(false);
+
+  /** Release every vendor hold (BMI bill + QAMF lanes) and start fresh —
+   *  identical teardown to the cart pages' "New booking". */
+  async function clearCart() {
+    if (clearingCart) return;
+    if (!window.confirm("Clear your cart and start over? Your held spots will be released.")) {
+      return;
+    }
+    setClearingCart(true);
+    try {
+      const s = peekBookingSession();
+      if (s) await abandonBooking(s);
+    } finally {
+      clearBookingSession();
+      window.location.href = "/book/v2";
+    }
+  }
 
   async function submitCode(e?: React.FormEvent) {
     e?.preventDefault();
@@ -196,29 +215,42 @@ export function PromoLanding({
       </section>
 
       {hasCart ? (
-        /* Cart checkout bar — replaces promo input when items are booked */
+        /* Cart checkout bar — replaces promo input when items are booked.
+           "Clear cart" (owner ask): mid-flow exits stranded customers with a
+           cart they couldn't empty from here — this releases every vendor
+           hold and starts fresh, same as the cart pages' New booking. */
         <section className="px-4 pb-6 sm:pb-8">
-          <div className="mx-auto flex max-w-2xl flex-col gap-3 rounded-2xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-white">
-                {cartItemCount} activit{cartItemCount === 1 ? "y" : "ies"} in your cart
-              </p>
-              <p className="text-xs text-white/40">Add more below or checkout when ready</p>
+          <div className="mx-auto max-w-2xl rounded-2xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 px-6 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white">
+                  {cartItemCount} activit{cartItemCount === 1 ? "y" : "ies"} in your cart
+                </p>
+                <p className="text-xs text-white/40">Add more below or checkout when ready</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <Link
+                  href={`/book/${cartSlug}/v2`}
+                  className="whitespace-nowrap rounded-xl border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
+                >
+                  View Cart
+                </Link>
+                <Link
+                  href={`/book/${cartSlug}/v2?checkout=1`}
+                  className="whitespace-nowrap rounded-xl bg-[#00E2E5] px-5 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
+                >
+                  Checkout →
+                </Link>
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <Link
-                href={`/book/${cartSlug}/v2`}
-                className="whitespace-nowrap rounded-xl border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
-              >
-                View Cart
-              </Link>
-              <Link
-                href={`/book/${cartSlug}/v2?checkout=1`}
-                className="whitespace-nowrap rounded-xl bg-[#00E2E5] px-5 py-2.5 text-sm font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
-              >
-                Checkout →
-              </Link>
-            </div>
+            <button
+              type="button"
+              disabled={clearingCart}
+              onClick={() => void clearCart()}
+              className="mt-2 text-xs text-red-400/60 underline-offset-2 transition-colors hover:text-red-400 hover:underline disabled:opacity-50"
+            >
+              {clearingCart ? "Clearing…" : "✕ Clear cart & start over"}
+            </button>
           </div>
         </section>
       ) : (
