@@ -8,7 +8,7 @@ import {
   type DepositOverviewRow,
 } from "@/lib/pandora-deposits";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
-import { ARENA_RESOURCES } from "~/features/arena-tickets/constants";
+import { ARENA_RESOURCES, HP_FM_LOCATION_ID } from "~/features/arena-tickets/constants";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
@@ -776,20 +776,29 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Session stats — returns checked-in counts for active sessions
+  // Session stats — returns checked-in counts for CURRENTLY-CALLED
+  // sessions across every ticketed attraction: races from races-current
+  // plus HP Arena sessions from sessions/current. Identical semantics —
+  // a session appears when its SessionAboutToStart fires and drops
+  // ~20 min later.
   const action = req.nextUrl.searchParams.get("action");
   if (action === "session-stats") {
+    interface SessionStat {
+      track: string;
+      raceType: string;
+      heatNumber: number;
+      sessionId: number | string;
+      scheduledStart: string;
+      checkedIn: number;
+      total: number;
+      /** Locates the participant fetch — arena rows count at HP FM. */
+      locationId: string;
+    }
     try {
+      const sessions: SessionStat[] = [];
+
+      // Racing — currently-called heats per track.
       const current = await fetchCurrentRaces(req);
-      const sessions: {
-        track: string;
-        raceType: string;
-        heatNumber: number;
-        sessionId: number;
-        scheduledStart: string;
-        checkedIn: number;
-        total: number;
-      }[] = [];
       for (const [track, data] of Object.entries(current)) {
         if (!data || typeof data !== "object") continue;
         const d = data as {
@@ -807,13 +816,54 @@ export async function GET(req: NextRequest) {
           scheduledStart: d.scheduledStart ?? "",
           checkedIn: 0,
           total: 0,
+          locationId: FASTTRAX_LOCATION_ID,
         });
       }
+
+      // HP Arena — currently-called sessions (sessions/current carries
+      // the full session detail, so no schedule lookup needed).
+      try {
+        const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${HP_FM_LOCATION_ID}`, {
+          headers: pandoraHeaders(),
+          cache: "no-store",
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const called = Array.isArray(json?.data)
+            ? (json.data as {
+                sessionId?: string;
+                type?: string;
+                heatNumber?: number;
+                scheduledStart?: string | null;
+              }[])
+            : [];
+          for (const s of called) {
+            const sid = String(s.sessionId ?? "");
+            if (!sid) continue;
+            const activity = classifyArenaSession(s.type ?? "");
+            if (!activity) continue; // parties / events — not ticketed
+            sessions.push({
+              track: activityDisplay(activity),
+              raceType: "",
+              heatNumber: s.heatNumber ?? 0,
+              sessionId: sid,
+              scheduledStart: s.scheduledStart ?? "",
+              checkedIn: 0,
+              total: 0,
+              locationId: HP_FM_LOCATION_ID,
+            });
+          }
+        }
+      } catch {
+        /* arena stats are best-effort — racing rows still render */
+      }
+
       await Promise.all(
         sessions.map(async (s) => {
           try {
             const pRes = await fetch(
-              `${PANDORA_BASE}/v2/bmi/session/${FASTTRAX_LOCATION_ID}/${s.sessionId}/participants?excludeRemoved=true`,
+              `${PANDORA_BASE}/v2/bmi/session/${s.locationId}/${s.sessionId}/participants?excludeRemoved=true`,
               { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(5000) },
             );
             if (!pRes.ok) return;
@@ -825,6 +875,11 @@ export async function GET(req: NextRequest) {
             /* silent */
           }
         }),
+      );
+
+      // Soonest start first so the strip reads left-to-right in time order.
+      sessions.sort(
+        (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
       );
       return NextResponse.json({ sessions });
     } catch {
