@@ -54,6 +54,7 @@ export default async function KbfV2Page({
       initialPromo={initialPromo}
       urlCode={code || null}
       initialCheckout={sp.checkout === "1"}
+      initialCartView={sp.cart === "1"}
     />
   );
 }
