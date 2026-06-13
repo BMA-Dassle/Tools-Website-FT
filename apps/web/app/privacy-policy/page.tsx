@@ -322,10 +322,10 @@ export default async function PrivacyPolicyPage() {
               <ul className="font-body text-white/80 space-y-2" style={listStyle}>
                 <li>
                   <strong>Service providers</strong> who run parts of our business on our behalf —
-                  payments (Square), reservations and waivers (BMI Leisure, Pandora), kart-timing
-                  and ticketing (SMS-Timing), analytics (Microsoft, Google, Vercel), hosting
-                  (Vercel), and live chat / phone (3CX). They may use the data only to provide their
-                  service to us.
+                  payments (Square), reservations and waivers (BMI Leisure), kart-timing and
+                  ticketing (SMS-Timing), analytics (Microsoft, Google, Vercel), hosting (Vercel),
+                  and live chat / phone (3CX). They may use the data only to provide their service
+                  to us.
                 </li>
                 <li>
                   <strong>Advertising and analytics partners</strong> (Meta, Google) as described
