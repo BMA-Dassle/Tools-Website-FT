@@ -483,6 +483,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/accessibility/") ||
     pathname === "/cancellation-policy" ||
     pathname.startsWith("/cancellation-policy/") ||
+    pathname === "/privacy-policy" ||
+    pathname.startsWith("/privacy-policy/") ||
     pathname.startsWith("/event/") ||
     // Guest-survey landing pages (PR-GS2). Bowling surveys are HP-branded
     // and racing surveys are FT-branded, but the page lives at /survey/*
