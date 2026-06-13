@@ -3,6 +3,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { FASTTRAX_OG, HEADPINZ_OG } from "@/lib/seo";
+import HeadPinzNav from "@/components/headpinz/Nav";
 
 /**
  * Privacy Policy — served on both fasttraxent.com and headpinz.com via the
@@ -74,6 +75,11 @@ export default async function PrivacyPolicyPage() {
 
   return (
     <div style={{ backgroundColor: bg }} className="min-h-screen text-white">
+      {/* On headpinz.com the root layout suppresses all chrome (showChrome is
+          false for the HeadPinz brand), so shared top-level pages must render
+          their own HeadPinz nav — same pattern as /survey and /contract.
+          FastTrax keeps the root layout's <Nav /> (showChrome is true there). */}
+      {isHeadPinz && <HeadPinzNav />}
       <BreadcrumbJsonLd
         items={[
           { name: brandName, url: brandHome },
@@ -81,8 +87,13 @@ export default async function PrivacyPolicyPage() {
         ]}
       />
 
-      {/* Hero */}
-      <section style={{ padding: "clamp(80px, 14vw, 160px) clamp(16px, 4vw, 32px) 40px" }}>
+      {/* Hero — extra top clearance on HeadPinz, whose fixed nav is taller
+          than FastTrax's (matches the /survey pt-28/sm:pt-36 offset). */}
+      <section
+        style={{
+          padding: `${isHeadPinz ? "clamp(116px, 16vw, 170px)" : "clamp(80px, 14vw, 160px)"} clamp(16px, 4vw, 32px) 40px`,
+        }}
+      >
         <div className="max-w-3xl mx-auto text-center">
           <div
             className="uppercase font-bold mb-4"
