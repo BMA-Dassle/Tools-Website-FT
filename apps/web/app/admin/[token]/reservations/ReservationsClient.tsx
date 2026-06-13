@@ -2787,19 +2787,37 @@ export default function ReservationsClient({ token }: { token: string }) {
                           padding: "10px 12px",
                         }}
                       >
+                        {/* Row 1: identity (name · #num · date · guest · phone · guests · planner)
+                            + status, on a single wrapping line to stay compact on desktop. */}
                         <div
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
-                            alignItems: "center",
-                            marginBottom: 4,
+                            alignItems: "baseline",
+                            gap: 8,
+                            flexWrap: "wrap",
                           }}
                         >
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontWeight: 700, fontSize: 14 }}>{ge.eventName}</span>
-                            <span style={{ fontSize: 11, color: "var(--ba-muted)" }}>
-                              #{ge.eventNumber}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "baseline",
+                              flexWrap: "wrap",
+                              gap: "2px 10px",
+                              minWidth: 0,
+                              fontSize: 12,
+                              color: "var(--ba-muted)",
+                            }}
+                          >
+                            <span style={{ fontWeight: 700, fontSize: 14, color: "var(--ba-fg)" }}>
+                              {ge.eventName}
                             </span>
+                            <span style={{ fontSize: 11 }}>#{ge.eventNumber}</span>
+                            <span>{ge.eventDateDisplay}</span>
+                            <span>{ge.guestName}</span>
+                            {ge.guestPhone && <span>{ge.guestPhone}</span>}
+                            {ge.guestCount && <span>{ge.guestCount} guests</span>}
+                            {ge.plannerName && <span>Planner: {ge.plannerName}</span>}
                           </div>
                           <span
                             style={{
@@ -2807,28 +2825,18 @@ export default function ReservationsClient({ token }: { token: string }) {
                               fontWeight: 600,
                               color: sColor,
                               textTransform: "uppercase",
+                              whiteSpace: "nowrap",
                             }}
                           >
                             {ge.status.replace(/_/g, " ")}
                           </span>
                         </div>
+                        {/* Row 2: money · GAN · card · status badges, with the
+                            contract/order actions pushed to the right edge. */}
                         <div
                           style={{
                             display: "flex",
-                            flexWrap: "wrap",
-                            gap: "4px 16px",
-                            fontSize: 12,
-                            color: "var(--ba-muted)",
-                          }}
-                        >
-                          <span>{ge.eventDateDisplay}</span>
-                          <span>{ge.guestName}</span>
-                          {ge.guestPhone && <span>{ge.guestPhone}</span>}
-                          {ge.guestCount && <span>{ge.guestCount} guests</span>}
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
+                            alignItems: "center",
                             flexWrap: "wrap",
                             gap: "4px 12px",
                             fontSize: 12,
@@ -2859,19 +2867,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                             {ge.balancePaidAt ? " ✓ Paid" : ""}
                           </span>
                           <span style={{ fontWeight: 700 }}>Total: {fmtD(ge.totalCents)}</span>
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: "4px 12px",
-                            fontSize: 11,
-                            marginTop: 4,
-                            color: "var(--ba-muted)",
-                          }}
-                        >
                           {ge.squareGiftCardGan && (
-                            <span>
+                            <span style={{ fontSize: 11, color: "var(--ba-muted)" }}>
                               GAN:{" "}
                               {(() => {
                                 try {
@@ -2883,10 +2880,11 @@ export default function ReservationsClient({ token }: { token: string }) {
                               })()}
                             </span>
                           )}
-                          {ge.plannerName && <span>Planner: {ge.plannerName}</span>}
-                          {ge.savedCardId && <span style={{ color: "#22c55e" }}>Card on file</span>}
+                          {ge.savedCardId && (
+                            <span style={{ fontSize: 11, color: "#22c55e" }}>Card on file</span>
+                          )}
                           {!ge.savedCardId && ge.depositPaidAt && (
-                            <span style={{ color: "#f59e0b" }}>No card saved</span>
+                            <span style={{ fontSize: 11, color: "#f59e0b" }}>No card saved</span>
                           )}
                           {ge.depositPaidAt && (
                             <span
@@ -2936,47 +2934,49 @@ export default function ReservationsClient({ token }: { token: string }) {
                               Balance Pending
                             </span>
                           )}
-                        </div>
-                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                          {ge.contractShortId && (
-                            <a
-                              href={`/contract/${ge.contractShortId}`}
-                              target="_blank"
-                              rel="noopener"
-                              style={{
-                                fontSize: 11,
-                                color: "#22d3ee",
-                                textDecoration: "none",
-                                fontWeight: 600,
-                              }}
-                            >
-                              View Contract
-                            </a>
-                          )}
-                          {ge.squareDayofOrderId && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setOrderTarget({
-                                  guestName: ge.eventName,
-                                  squareDayofOrderId: ge.squareDayofOrderId,
-                                  rewardDiscountCents: 0,
-                                })
-                              }
-                              style={{
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                padding: 0,
-                                fontSize: 11,
-                                color: "#22d3ee",
-                                fontWeight: 600,
-                                textDecoration: "underline",
-                                textDecorationColor: "rgba(34,211,238,0.3)",
-                              }}
-                            >
-                              View Square Order
-                            </button>
+                          {(ge.contractShortId || ge.squareDayofOrderId) && (
+                            <span style={{ marginLeft: "auto", display: "flex", gap: 12 }}>
+                              {ge.contractShortId && (
+                                <a
+                                  href={`/contract/${ge.contractShortId}`}
+                                  target="_blank"
+                                  rel="noopener"
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#22d3ee",
+                                    textDecoration: "none",
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  View Contract
+                                </a>
+                              )}
+                              {ge.squareDayofOrderId && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setOrderTarget({
+                                      guestName: ge.eventName,
+                                      squareDayofOrderId: ge.squareDayofOrderId,
+                                      rewardDiscountCents: 0,
+                                    })
+                                  }
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    padding: 0,
+                                    fontSize: 11,
+                                    color: "#22d3ee",
+                                    fontWeight: 600,
+                                    textDecoration: "underline",
+                                    textDecorationColor: "rgba(34,211,238,0.3)",
+                                  }}
+                                >
+                                  View Square Order
+                                </button>
+                              )}
+                            </span>
                           )}
                         </div>
                       </div>

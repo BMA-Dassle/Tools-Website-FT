@@ -788,6 +788,10 @@ async function unifiedReserveInner(
             squareCustomerId: input.squareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
+            // Combo (Ultimate VIP): stamp the combo id so the reservations
+            // portal can flag + group this VIP bowling leg with its race leg
+            // (they share square_dayof_order_id).
+            comboSpecialId: session.comboSpecialId ?? undefined,
           },
           item.lineItems.map((li) => ({
             squareProductId: li.squareProductId,
@@ -1022,6 +1026,9 @@ async function unifiedReserveInner(
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
             bookingMetadata,
+            // Combo (Ultimate VIP): stamp the combo id on the race/attraction
+            // leg too, so it groups with the VIP bowling leg in the portal.
+            comboSpecialId: session.comboSpecialId ?? undefined,
           },
           bmiLines,
         );
