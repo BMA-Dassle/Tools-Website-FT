@@ -73,8 +73,18 @@ interface Reservation {
     totalPriceDollars: number;
     timeLabel: string;
   }>;
+  /** Combo special id (e.g. 'race-bowl') when this row is one leg of a VIP combo. */
+  comboSpecialId?: string;
   insertedAt: string;
   lines: ReservationLine[];
+}
+
+/** Display metadata for a combo special, keyed by combo id (from the server registry). */
+interface ComboMeta {
+  name: string;
+  accentColor: string;
+  includes: string[];
+  center: string;
 }
 
 interface GroupEvent {
@@ -141,6 +151,18 @@ const CENTER_SLUGS: Record<string, string> = {
   "fast-trax": "LAB52GY480CJF",
 };
 
+/** Center codes stored as slugs (combos store session.center, e.g. "fort-myers"). */
+const CENTER_LABELS_BY_SLUG: Record<string, string> = {
+  "fort-myers": "Fort Myers",
+  naples: "Naples",
+  fasttrax: "FastTrax",
+};
+
+/** Resolve a center label whether the row stored a Square location ID or a slug. */
+function centerLabel(code: string): string {
+  return CENTERS[code] ?? CENTER_LABELS_BY_SLUG[code] ?? code;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   confirmed: "#22c55e",
   confirm_pending: "#f59e0b",
@@ -197,6 +219,13 @@ const KIND_BADGE: Record<string, { label: string; color: string; bg: string; bor
     color: "#f59e0b",
     bg: "rgba(245,158,11,0.15)",
     border: "rgba(245,158,11,0.3)",
+  },
+  // Gold treatment for the Ultimate VIP combo — matches the combo accentColor.
+  vip: {
+    label: "VIP",
+    color: "#d4af37",
+    bg: "rgba(212,175,55,0.18)",
+    border: "rgba(212,175,55,0.45)",
   },
 };
 
@@ -1667,6 +1696,10 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [kindFilter, setKindFilter] = useState<string | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [groupEvents, setGroupEvents] = useState<GroupEvent[]>([]);
+  // VIP combos for the date, fetched UNSCOPED of center (a combo spans FastTrax
+  // racing + HeadPinz bowling) so they surface in every location's portal view.
+  const [vipReservations, setVipReservations] = useState<Reservation[]>([]);
+  const [comboMeta, setComboMeta] = useState<Record<string, ComboMeta>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -1733,12 +1766,16 @@ export default function ReservationsClient({ token }: { token: string }) {
         const data = await res.json();
         setReservations(data.reservations ?? []);
         setGroupEvents(data.groupEvents ?? []);
+        setVipReservations(data.vipReservations ?? []);
+        setComboMeta(data.comboMeta ?? {});
         setError(null);
       } catch (err) {
         if (!silent) {
           setError(err instanceof Error ? err.message : "Failed to load");
           setReservations([]);
           setGroupEvents([]);
+          setVipReservations([]);
+          setComboMeta({});
         }
       } finally {
         setLoading(false);
@@ -1815,6 +1852,68 @@ export default function ReservationsClient({ token }: { token: string }) {
     }
     return list;
   }, [reservations, search, hideCancelled, hideWalkins, kindFilter]);
+
+  // VIP combos — group the legs (race + bowling) that share one day-of order.
+  // A combo books as 2 rows with the same square_dayof_order_id; the bowling
+  // leg carries the real lane + slot time, the race leg(s) are the karting heats.
+  const comboGroups = useMemo(() => {
+    const byOrder = new Map<string, Reservation[]>();
+    for (const r of vipReservations) {
+      const key = r.squareDayofOrderId || r.bmiBillId || `id-${r.id}`;
+      const arr = byOrder.get(key) ?? [];
+      arr.push(r);
+      byOrder.set(key, arr);
+    }
+    const groups = Array.from(byOrder.entries()).map(([key, legs]) => {
+      const sorted = [...legs].sort((a, b) => a.bookedAt.localeCompare(b.bookedAt));
+      const bowling = sorted.find((l) => l.productKind === "open" || l.productKind === "kbf");
+      const races = sorted.filter((l) => l.productKind === "race");
+      // Anchor time = the bowling slot (real schedule); fall back to earliest leg.
+      const anchor = bowling ?? sorted[0];
+      const comboId = sorted.find((l) => l.comboSpecialId)?.comboSpecialId ?? "";
+      const allCancelled = sorted.every(
+        (l) => l.status === "cancelled" || l.status === "completed",
+      );
+      return {
+        key,
+        comboId,
+        meta: comboMeta[comboId],
+        legs: sorted,
+        bowling,
+        races,
+        anchor,
+        guestName: anchor.guestName ?? "Guest",
+        guestPhone: anchor.guestPhone,
+        playerCount: anchor.playerCount,
+        centerCode: anchor.centerCode,
+        lane: bowling?.dayofOrderLane,
+        totalCents: sorted.reduce((s, l) => s + (l.totalCents ?? 0), 0),
+        allCancelled,
+      };
+    });
+    let out = groups;
+    if (hideCancelled) out = out.filter((g) => !g.allCancelled);
+    if (search.trim()) {
+      const query = search.toLowerCase().trim();
+      out = out.filter((g) =>
+        g.legs.some((l) =>
+          [l.guestName, l.guestEmail, l.guestPhone, l.qamfReservationId, l.dayofOrderLane].some(
+            (f) => f?.toLowerCase().includes(query),
+          ),
+        ),
+      );
+    }
+    return out.sort((a, b) => a.anchor.bookedAt.localeCompare(b.anchor.bookedAt));
+  }, [vipReservations, comboMeta, hideCancelled, search]);
+
+  const vipActive = kindFilter === "vip";
+
+  // Group events respect the "Active Only" toggle just like reservations do:
+  // hide completed events (cancelled/denied are already excluded server-side).
+  const visibleGroupEvents = useMemo(
+    () => (hideCancelled ? groupEvents.filter((g) => g.status !== "completed") : groupEvents),
+    [groupEvents, hideCancelled],
+  );
 
   // Stats
   const active = filtered.filter((r) => r.status !== "cancelled" && r.status !== "completed");
@@ -2312,6 +2411,31 @@ export default function ReservationsClient({ token }: { token: string }) {
               </button>
             );
           })}
+          {/* VIP combos — special filter (not a productKind). Always shows all
+              VIP combos for the date across centers (FastTrax + HeadPinz). */}
+          {(() => {
+            const badge = KIND_BADGE.vip;
+            const count = new Set(
+              vipReservations.map((r) => r.squareDayofOrderId || r.bmiBillId || `id-${r.id}`),
+            ).size;
+            return (
+              <button
+                type="button"
+                onClick={() => setKindFilter(vipActive ? null : "vip")}
+                style={{
+                  ...NAV_BTN,
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  backgroundColor: vipActive ? badge.bg : "var(--ba-input-bg)",
+                  borderColor: vipActive ? badge.border : "var(--ba-input-border)",
+                  color: vipActive ? badge.color : "var(--ba-muted)",
+                }}
+              >
+                ★ {badge.label}
+                <span style={{ marginLeft: 3, opacity: 0.7, fontSize: "0.6rem" }}>({count})</span>
+              </button>
+            );
+          })()}
           <button
             type="button"
             onClick={() => setDate(todayET())}
@@ -2434,14 +2558,200 @@ export default function ReservationsClient({ token }: { token: string }) {
           >
             {error}
           </div>
-        ) : filtered.length === 0 && groupEvents.length === 0 ? (
+        ) : vipActive ? (
+          comboGroups.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
+              {search ? "No matching VIP combos." : "No VIP combos for this date."}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  color: "#d4af37",
+                  marginBottom: 4,
+                }}
+              >
+                ★ VIP Combos ({comboGroups.length}) — all centers
+              </div>
+              {comboGroups.map((g) => {
+                const name = g.meta?.name ?? "VIP Combo";
+                const accent = g.meta?.accentColor ?? "#d4af37";
+                const steps = g.meta?.includes ?? [
+                  "Starter Race",
+                  "1.5 Hours of VIP Bowling",
+                  "Intermediate Race",
+                ];
+                const bowlingTime = g.bowling ? fmtTime(g.bowling.bookedAt) : null;
+                return (
+                  <div
+                    key={g.key}
+                    style={{
+                      borderRadius: 12,
+                      border: "1px solid rgba(212,175,55,0.45)",
+                      borderLeft: `4px solid ${accent}`,
+                      background: "rgba(212,175,55,0.06)",
+                      padding: "14px 16px",
+                      opacity: g.allCancelled ? 0.55 : 1,
+                    }}
+                  >
+                    {/* Header */}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "baseline",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: "var(--ba-fg)", fontSize: "1rem" }}>
+                        <span style={{ color: accent }}>★</span> {name}
+                      </div>
+                      <div style={{ fontWeight: 700, color: "#22c55e" }}>
+                        {dollars(g.totalCents)}
+                      </div>
+                    </div>
+
+                    {/* Guest line */}
+                    <div
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "var(--ba-muted)",
+                        marginTop: 2,
+                        marginBottom: 10,
+                      }}
+                    >
+                      {g.guestName}
+                      {g.guestPhone ? ` · ${g.guestPhone}` : ""}
+                      {g.playerCount ? ` · ${g.playerCount}p` : ""} · {centerLabel(g.centerCode)}
+                    </div>
+
+                    {/* Itinerary / schedule */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {steps.map((step, i) => {
+                        const isBowling = /bowl/i.test(step);
+                        const isRace = /race/i.test(step);
+                        const icon = isBowling ? "🎳" : isRace ? "🏁" : "•";
+                        const loc = isBowling
+                          ? `HeadPinz ${centerLabel(g.centerCode)}`
+                          : isRace
+                            ? "FastTrax"
+                            : "";
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              fontSize: "0.85rem",
+                              color: "var(--ba-fg)",
+                            }}
+                          >
+                            <span style={{ width: 18, textAlign: "center" }}>{icon}</span>
+                            <span style={{ flex: 1 }}>{step}</span>
+                            {isBowling && bowlingTime && (
+                              <span style={{ fontWeight: 700, color: accent }}>
+                                {bowlingTime}
+                                {g.lane ? ` · Lane ${g.lane}` : ""}
+                              </span>
+                            )}
+                            {loc && (
+                              <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
+                                {loc}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Per-leg status + actions */}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        marginTop: 12,
+                        paddingTop: 10,
+                        borderTop: "1px solid var(--ba-input-border)",
+                      }}
+                    >
+                      {g.legs.map((leg) => (
+                        <div
+                          key={leg.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: "0.72rem",
+                            color: "var(--ba-muted)",
+                            border: "1px solid var(--ba-input-border)",
+                            borderRadius: 8,
+                            padding: "3px 8px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              color: KIND_BADGE[leg.productKind]?.color ?? "var(--ba-fg)",
+                            }}
+                          >
+                            {KIND_FULL_LABELS[leg.productKind] ?? leg.productKind}
+                          </span>
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              backgroundColor: STATUS_COLORS[leg.status] ?? "#6b7280",
+                              display: "inline-block",
+                            }}
+                          />
+                          <span>{STATUS_LABELS[leg.status] ?? leg.status}</span>
+                          {leg.qamfReservationId && <span>· QAMF {leg.qamfReservationId}</span>}
+                          {leg.dayofOrderLane && <span>· Lane {leg.dayofOrderLane}</span>}
+                        </div>
+                      ))}
+                      {g.anchor.squareDayofOrderId && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOrderTarget({
+                              guestName: g.guestName,
+                              squareDayofOrderId: g.anchor.squareDayofOrderId ?? null,
+                              rewardDiscountCents: g.anchor.rewardDiscountCents ?? 0,
+                              squareLoyaltyRewardId: g.anchor.squareLoyaltyRewardId,
+                            })
+                          }
+                          style={{
+                            ...NAV_BTN,
+                            fontSize: "0.72rem",
+                            fontWeight: 600,
+                            marginLeft: "auto",
+                          }}
+                        >
+                          View order
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : filtered.length === 0 && visibleGroupEvents.length === 0 ? (
           <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
             {search ? "No matching reservations." : "No reservations for this date."}
           </div>
         ) : (
           <>
             {/* ── Group Function Events ────────────────────────── */}
-            {groupEvents.length > 0 && (
+            {visibleGroupEvents.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div
                   style={{
@@ -2453,10 +2763,10 @@ export default function ReservationsClient({ token }: { token: string }) {
                     marginBottom: 8,
                   }}
                 >
-                  Group Events ({groupEvents.length})
+                  Group Events ({visibleGroupEvents.length})
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {groupEvents.map((ge) => {
+                  {visibleGroupEvents.map((ge) => {
                     const statusColors: Record<string, string> = {
                       contract_sent: "#f59e0b",
                       deposit_paid: "#22c55e",
@@ -2866,6 +3176,24 @@ export default function ReservationsClient({ token }: { token: string }) {
                       >
                         {KIND_BADGE[r.productKind]?.label ?? r.productKind}
                       </span>
+                      {r.comboSpecialId && (
+                        <span
+                          style={{
+                            padding: "0px 4px",
+                            borderRadius: 3,
+                            fontSize: "0.6rem",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.02em",
+                            backgroundColor: KIND_BADGE.vip.bg,
+                            color: KIND_BADGE.vip.color,
+                            border: `1px solid ${KIND_BADGE.vip.border}`,
+                          }}
+                          title="Part of an Ultimate VIP combo"
+                        >
+                          ★ VIP
+                        </span>
+                      )}
                       <span style={{ color: "var(--ba-muted)", fontSize: "0.65rem" }}>
                         {r.playerCount ?? "—"}p
                       </span>
@@ -3282,6 +3610,24 @@ export default function ReservationsClient({ token }: { token: string }) {
                           >
                             {r.productKind === "kbf" ? "KBF" : "Open"}
                           </span>
+                          {r.comboSpecialId && (
+                            <span
+                              style={{
+                                marginLeft: 5,
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                fontSize: "0.62rem",
+                                fontWeight: 700,
+                                textTransform: "uppercase",
+                                backgroundColor: KIND_BADGE.vip.bg,
+                                color: KIND_BADGE.vip.color,
+                                border: `1px solid ${KIND_BADGE.vip.border}`,
+                              }}
+                              title="Part of an Ultimate VIP combo"
+                            >
+                              ★ VIP
+                            </span>
+                          )}
                           <span
                             style={{ marginLeft: 5, color: "var(--ba-muted)", fontSize: "0.68rem" }}
                           >
