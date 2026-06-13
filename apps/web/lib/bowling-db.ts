@@ -355,6 +355,15 @@ export async function ensureBowlingSchema(): Promise<void> {
   // doesn't use it (has its own player/line tables).
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS booking_metadata JSONB`;
 
+  // ── Combo special linkage (Ultimate VIP Experience) ──────────────
+  // A combo books as TWO rows (a `race` leg + an `open` bowling leg) that
+  // share one square_dayof_order_id. Neither product_kind says "VIP", so we
+  // stamp the combo id (e.g. 'race-bowl') on BOTH legs at insert time. This
+  // is the ONLY queryable VIP marker — the rest lives in Redis / BMI memo.
+  // Lets the reservations portal filter + group VIP combos across centers.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS combo_special_id TEXT`;
+  await q`CREATE INDEX IF NOT EXISTS br_combo ON bowling_reservations(combo_special_id) WHERE combo_special_id IS NOT NULL`;
+
   schemaReady = true;
 }
 
@@ -604,6 +613,12 @@ export interface BowlingReservation {
   }>;
   /** Type-specific metadata (race heats, attraction details). Null for bowling. */
   bookingMetadata?: Record<string, unknown>;
+  /**
+   * Combo special id (e.g. 'race-bowl' = Ultimate VIP Experience) when this row
+   * is one leg of a combo. Stamped on BOTH the race leg and the bowling leg,
+   * which share a square_dayof_order_id. Undefined for ordinary reservations.
+   */
+  comboSpecialId?: string;
   insertedAt: string;
 }
 
@@ -805,6 +820,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
       if (typeof raw === "object") return raw as Record<string, unknown>;
       return undefined;
     })(),
+    comboSpecialId: (row.combo_special_id as string) ?? undefined,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -868,7 +884,7 @@ export async function insertBowlingReservation(
       guest_name, guest_email, guest_phone, notes,
       booking_source, square_customer_id,
       square_loyalty_reward_id, reward_discount_cents,
-      loyalty_action, attraction_bookings, booking_metadata
+      loyalty_action, attraction_bookings, booking_metadata, combo_special_id
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
       ${r.qamfReservationId ?? null}, ${r.bmiBillId ?? null}, ${r.bmiReservationNumber ?? null},
@@ -880,7 +896,8 @@ export async function insertBowlingReservation(
       ${r.bookingSource ?? "web"}, ${r.squareCustomerId ?? null},
       ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0},
       ${r.loyaltyAction ?? null}, ${JSON.stringify(r.attractionBookings ?? [])}::jsonb,
-      ${r.bookingMetadata ? JSON.stringify(r.bookingMetadata) : null}::jsonb
+      ${r.bookingMetadata ? JSON.stringify(r.bookingMetadata) : null}::jsonb,
+      ${r.comboSpecialId ?? null}
     )
     RETURNING *
   `;
@@ -1141,6 +1158,11 @@ export async function listBowlingReservations(opts: {
   startDate: string; // 'YYYY-MM-DD' inclusive
   endDate: string; // 'YYYY-MM-DD' inclusive
   centerCode?: string;
+  /** Match any of several center_code values. Needed because center_code holds
+   *  two namespaces today (Square location IDs for bowling, slugs for
+   *  race/attraction) — one logical center can span both. Takes precedence over
+   *  `centerCode` when provided. See tasks/future/center-code-normalization.md. */
+  centerCodes?: string[];
   productKinds?: ReservationProductKind[];
 }): Promise<BowlingReservationWithLines[]> {
   if (!isDbConfigured()) return [];
@@ -1151,7 +1173,8 @@ export async function listBowlingReservations(opts: {
   // template tag consumed `::date` as a parameter type hint, stripping it from
   // the SQL — so the AT TIME ZONE was applied to a bare text parameter, which
   // Postgres silently mis-interpreted.  Casting the column side is unambiguous.
-  const hasCenter = !!opts.centerCode;
+  const centerCodes = opts.centerCodes ?? (opts.centerCode ? [opts.centerCode] : undefined);
+  const hasCenter = !!centerCodes && centerCodes.length > 0;
   const hasKinds = opts.productKinds && opts.productKinds.length > 0;
 
   const rows =
@@ -1160,7 +1183,7 @@ export async function listBowlingReservations(opts: {
         SELECT * FROM bowling_reservations
         WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
           AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-          AND center_code = ${opts.centerCode}
+          AND center_code = ANY(${centerCodes!}::text[])
           AND product_kind = ANY(${opts.productKinds!}::text[])
         ORDER BY booked_at ASC
       `
@@ -1169,7 +1192,7 @@ export async function listBowlingReservations(opts: {
         SELECT * FROM bowling_reservations
         WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
           AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-          AND center_code = ${opts.centerCode}
+          AND center_code = ANY(${centerCodes!}::text[])
         ORDER BY booked_at ASC
       `
         : hasKinds
@@ -1208,6 +1231,45 @@ export async function listBowlingReservations(opts: {
     ...r,
     lines: linesByRes.get(r.id) ?? [],
   }));
+}
+
+/**
+ * List VIP combo legs for a date range — rows with combo_special_id set,
+ * across ALL centers (combos span FastTrax racing + HeadPinz bowling, so the
+ * reservations portal surfaces them regardless of the center it's scoped to).
+ * Returns each leg with its lines; the caller groups by square_dayof_order_id.
+ */
+export async function listVipComboReservations(opts: {
+  startDate: string; // 'YYYY-MM-DD' inclusive
+  endDate: string; // 'YYYY-MM-DD' inclusive
+}): Promise<BowlingReservationWithLines[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE combo_special_id IS NOT NULL
+      AND (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
+      AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
+    ORDER BY booked_at ASC
+  `;
+  const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  if (!reservations.length) return [];
+
+  const ids = reservations.map((r) => r.id);
+  const lineRows = await q`
+    SELECT * FROM bowling_reservation_lines
+    WHERE reservation_id = ANY(${ids})
+    ORDER BY id
+  `;
+  const linesByRes = new Map<number, (ReservationLine & { id: number; reservationId: number })[]>();
+  for (const lr of lineRows) {
+    const line = rowToLine(lr as Record<string, unknown>);
+    const arr = linesByRes.get(line.reservationId) ?? [];
+    arr.push(line);
+    linesByRes.set(line.reservationId, arr);
+  }
+  return reservations.map((r) => ({ ...r, lines: linesByRes.get(r.id) ?? [] }));
 }
 
 export async function updateBowlingReservationStatus(

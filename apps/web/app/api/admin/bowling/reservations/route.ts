@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   listBowlingReservations,
+  listVipComboReservations,
   updateBowlingReservationShortCode,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
 import { getSurveysForReservations } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
 import { sql } from "@/lib/db";
+import { getComboSpecial } from "~/features/combos/combo-specials";
 
 /**
  * GET /api/admin/bowling/reservations?token=...&date=YYYY-MM-DD&center=...
@@ -37,11 +39,24 @@ export async function GET(req: NextRequest) {
     ? (kindParam.split(",").filter(Boolean) as ReservationProductKind[])
     : undefined;
 
+  // BRIDGE: center_code carries two namespaces today — bowling rows store the
+  // Square location ID, race/attraction rows store a center slug (defaulting to
+  // 'fort-myers'). So one physical center's reservations span both. Map the
+  // requested location to every center_code its rows live under, so the board
+  // (esp. the FastTrax embed, which is racing) isn't empty. Remove once
+  // center_code is normalized — see tasks/future/center-code-normalization.md.
+  const CENTER_CODE_ALIASES: Record<string, string[]> = {
+    TXBSQN0FEKQ11: ["TXBSQN0FEKQ11"], // HeadPinz Fort Myers — bowling only
+    PPTR5G2N0QXF7: ["PPTR5G2N0QXF7", "naples"], // HeadPinz Naples — bowling + slug attractions
+    LAB52GY480CJF: ["LAB52GY480CJF", "fort-myers"], // FastTrax — racing/attractions under the fort-myers slug
+  };
+  const centerCodes = center ? (CENTER_CODE_ALIASES[center] ?? [center]) : undefined;
+
   try {
     const reservations = await listBowlingReservations({
       startDate: date,
       endDate: date,
-      centerCode: center,
+      centerCodes,
       productKinds,
     });
 
@@ -132,7 +147,30 @@ export async function GET(req: NextRequest) {
       createdAt: r.created_at,
     }));
 
-    return NextResponse.json({ reservations: enriched, groupEvents });
+    // VIP combos for the date — fetched UNSCOPED (all centers) because a combo
+    // spans FastTrax racing + HeadPinz bowling, so staff at either location must
+    // see it regardless of the center this portal is scoped to. The two legs
+    // share a square_dayof_order_id; the client groups on that.
+    const vipReservations = await listVipComboReservations({ startDate: date, endDate: date });
+    const comboMeta: Record<
+      string,
+      { name: string; accentColor: string; includes: string[]; center: string }
+    > = {};
+    for (const r of vipReservations) {
+      const id = r.comboSpecialId;
+      if (!id || comboMeta[id]) continue;
+      const combo = getComboSpecial(id);
+      if (combo) {
+        comboMeta[id] = {
+          name: combo.name,
+          accentColor: combo.accentColor,
+          includes: combo.includes,
+          center: combo.center,
+        };
+      }
+    }
+
+    return NextResponse.json({ reservations: enriched, groupEvents, vipReservations, comboMeta });
   } catch (err) {
     console.error("[admin/bowling/reservations]", err);
     return NextResponse.json({ error: "Failed to load reservations" }, { status: 500 });
