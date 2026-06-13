@@ -167,6 +167,10 @@ export default function Footer() {
           <Link href="/accessibility" className="hover:text-white/60 transition-colors">
             Accessibility
           </Link>
+          <span className="mx-2">·</span>
+          <Link href="/privacy-policy" className="hover:text-white/60 transition-colors">
+            Privacy
+          </Link>
         </p>
       </div>
 

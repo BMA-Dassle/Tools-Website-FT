@@ -48,6 +48,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     { url: `${ft}/alternatives`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${ft}/privacy-policy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     ...listAlternatives("ft").map((a) => ({
       url: `${ft}/alternatives/${a.slug}`,
       lastModified: now,
@@ -121,6 +122,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     { url: `${hp}/alternatives`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${hp}/privacy-policy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     ...listAlternatives("hp").map((a) => ({
       url: `${hp}/alternatives/${a.slug}`,
       lastModified: now,
