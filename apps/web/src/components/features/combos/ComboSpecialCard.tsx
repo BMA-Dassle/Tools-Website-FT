@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 import BookingLink from "@/components/BookingLink";
-import type { ComboSpecial } from "~/features/combos";
+import { comboStartHoursLabel, type ComboSpecial } from "~/features/combos";
 
 const GOLD = "#FFD700";
 
@@ -149,11 +149,11 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
             {" "}
             · {formatComboPrice(combo.price.weekend)}/person Fri–Sun
           </span>
-          {premium && combo.startHours?.length === 4 && (
+          {premium && combo.startHours?.length ? (
             <span className="block" style={{ color: "rgba(245,236,238,0.6)", fontSize: "13px" }}>
-              Start times: 2 PM · 4 PM · 6 PM · 8 PM
+              Start times: {comboStartHoursLabel(combo)}
             </span>
-          )}
+          ) : null}
         </p>
         <BookingLink
           href={`/book/combo/${combo.id}/v2`}

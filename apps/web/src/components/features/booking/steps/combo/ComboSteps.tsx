@@ -25,6 +25,7 @@ import {
 import {
   comboHeatsPerRacer,
   comboPriceCentsForDate,
+  comboStartHoursLabel,
   getComboSpecial,
   type ComboLeg,
   type ComboSpecial,
@@ -168,11 +169,11 @@ const ComboIntroComponent: StepDef<RaceItem>["Component"] = ({ session }) => {
             ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
             {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun
           </span>
-          {combo.startHours?.length === 4 && (
+          {combo.startHours?.length ? (
             <span className="rounded-full bg-white/10 px-3 py-1 text-white/80">
-              Starts 2 · 4 · 6 · 8 PM
+              Starts {comboStartHoursLabel(combo)}
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 

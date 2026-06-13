@@ -8,6 +8,7 @@ import {
   comboHeatsPerRacer,
   comboPriceCentsForDate,
   comboRaceLegs,
+  comboStartHoursLabel,
   comboTotalCents,
   enabledCombos,
   getComboSpecial,
@@ -40,9 +41,10 @@ describe("combo-specials registry", () => {
     // Owner: the pack INCLUDES the racing license and one POV per racer.
     expect(raceBowl.includesLicense).toBe(true);
     expect(raceBowl.includedPovPerRacer).toBe(1);
-    // Premium presentation + the fixed 2/4/6/8 PM start grid.
+    // Premium presentation + the fixed 2/4/6/8/10 PM start grid.
     expect(raceBowl.premium).toBe(true);
-    expect(raceBowl.startHours).toEqual([14, 16, 18, 20]);
+    expect(raceBowl.startHours).toEqual([14, 16, 18, 20, 22]);
+    expect(comboStartHoursLabel(raceBowl)).toBe("2 · 4 · 6 · 8 · 10 PM");
     expect(raceBowl.perks?.length).toBeGreaterThan(0);
   });
 

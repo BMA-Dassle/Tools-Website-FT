@@ -6,6 +6,7 @@ export {
   comboPriceCentsForDate,
   comboRaceLegs,
   comboReservationNote,
+  comboStartHoursLabel,
   comboTotalCents,
   enabledCombos,
   getComboSpecial,

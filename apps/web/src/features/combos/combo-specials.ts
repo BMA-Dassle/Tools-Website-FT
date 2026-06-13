@@ -119,7 +119,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "take over a semi-private VIP lane for 1.5 hours of bowling, then come back faster on " +
       "an Intermediate race. Racing license, POV race video, and VIP lane perks (NeoVerse " +
       "video wall, chips & salsa, premium glow) are all included. Pick a start time — " +
-      "2, 4, 6, or 8 PM — and we schedule the rest.",
+      "2, 4, 6, 8, or 10 PM — and we schedule the rest.",
     durationLabel: "≈ 3-Hour Experience",
     qualifyFallbackNote:
       "Didn't qualify? No problem — we'll convert your Intermediate to a second Starter race, or issue you a race credit.",
@@ -151,7 +151,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     transitionMinutes: 15,
     includesLicense: true,
     includedPovPerRacer: 1,
-    startHours: [14, 16, 18, 20],
+    startHours: [14, 16, 18, 20, 22],
     premium: true,
     enabled: COMBO_RACE_BOWL_ENABLED,
     displayOrder: 10,
@@ -224,6 +224,23 @@ export function comboBowlingComponent(
 /** Heats the combo books per racer = one per race leg. */
 export function comboHeatsPerRacer(combo: ComboSpecial): number {
   return comboRaceLegs(combo).length;
+}
+
+/**
+ * Human label for the combo's fixed start times, e.g. "2 · 4 · 6 · 8 · 10 PM"
+ * — derived from `startHours` (0–26 chip notation) so adding/removing a slot
+ * is a one-line registry change. Returns "" when the combo has no fixed grid.
+ */
+export function comboStartHoursLabel(combo: ComboSpecial): string {
+  const hours = combo.startHours;
+  if (!hours?.length) return "";
+  const mer = (h: number) => (h % 24 < 12 ? "AM" : "PM");
+  const h12 = (h: number) => h % 12 || 12;
+  const sameMeridiem = hours.every((h) => mer(h) === mer(hours[0]));
+  if (sameMeridiem) {
+    return `${hours.map(h12).join(" · ")} ${mer(hours[0])}`;
+  }
+  return hours.map((h) => `${h12(h)} ${mer(h)}`).join(" · ");
 }
 
 /**
