@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   COMBO_SPECIALS,
   comboAvailableOn,
-  comboBillMemo,
   comboBowlingComponent,
+  comboReservationNote,
   comboHeatsPerRacer,
   comboPriceCentsForDate,
   comboRaceLegs,
@@ -72,17 +72,24 @@ describe("combo-specials registry", () => {
     expect([...orders].sort((a, b) => a - b)).toEqual(orders);
   });
 
-  it("comboBillMemo tells ops it's VIP, what's prepaid, and the qualify-gated plan", () => {
-    const memo = comboBillMemo(raceBowl);
+  it("comboReservationNote tells ops it's VIP, what's prepaid, the plan, and the lane", () => {
+    const memo = comboReservationNote(raceBowl, "28");
     expect(memo).toContain("ULTIMATE VIP EXPERIENCE (VIP COMBO)");
-    expect(memo).toContain("racing license + POV video + VIP lane perks INCLUDED");
+    expect(memo).toContain("racing license + POV video + VIP lane perks + shoes INCLUDED");
     expect(memo).toContain("1) Starter Race");
-    expect(memo).toContain("2) 1.5hr VIP Bowling at HeadPinz");
+    expect(memo).toContain("2) 1.5hr VIP Bowling at HeadPinz — Lane 28");
     expect(memo).toContain("3) Intermediate Race (ONLY IF QUALIFIED)");
+    expect(memo).toContain("Bowling lane: 28");
     expect(memo).toContain(
       "convert their later race to a second Starter race OR issue a race credit",
     );
     expect(memo).toContain("settles at lane-open");
+  });
+
+  it("comboReservationNote omits the lane line when none is assigned yet", () => {
+    const memo = comboReservationNote(raceBowl, null);
+    expect(memo).not.toContain("Lane");
+    expect(memo).toContain("ULTIMATE VIP EXPERIENCE (VIP COMBO)");
   });
 });
 

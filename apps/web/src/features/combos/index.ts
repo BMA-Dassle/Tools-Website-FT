@@ -5,6 +5,7 @@ export {
   comboHeatsPerRacer,
   comboPriceCentsForDate,
   comboRaceLegs,
+  comboReservationNote,
   comboTotalCents,
   enabledCombos,
   getComboSpecial,

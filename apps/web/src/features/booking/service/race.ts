@@ -18,7 +18,6 @@ import type { BookingSession, PartyMember, RaceItem } from "../state/types";
 import { bmiAdapter, type BmiProposal } from "../data/bmi";
 import { registerContact } from "./bmi-register";
 import { getPackage } from "./packages";
-import { comboBillMemo, getComboSpecial } from "~/features/combos/combo-specials";
 
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
@@ -175,14 +174,11 @@ export async function bookHeatsOnAdvance(
       await writeBillMemo(billId, pkg.disclaimers.billMemo);
       wrote = true;
     }
-    // Combo special: stamp the VIP package + visit plan on the bill so staff
-    // see at a glance it's the Ultimate VIP Experience — license/POV/perks
-    // prepaid, race → VIP bowling → next race only if qualified.
-    const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
-    if (combo) {
-      await writeBillMemo(billId, comboBillMemo(combo));
-      wrote = true;
-    }
+    // NOTE: the combo VIP memo is NOT written here. BMI's booking/memo is a
+    // single OVERWRITING field, and the confirmation page rewrites it once via
+    // buildReservationMemo (Express Lane + booking URL + combo note + POV +
+    // paid). A separate write here gets clobbered — and surfaced wrong. The
+    // combo note (with the assigned bowling lane) is composed there instead.
     if (wrote) {
       dispatch({
         type: "updateItem",

@@ -30,6 +30,7 @@ import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
+import { getComboSpecial } from "~/features/combos/combo-specials";
 import { notifyComboBooked } from "~/features/combos/combo-notify";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
@@ -822,14 +823,27 @@ async function unifiedReserveInner(
 
       const finalParts: string[] = [];
 
-      // Shoe status — first line so staff see it at a glance
+      // Combo special (Ultimate VIP): this bowling leg is the combo's VIP lane.
+      // Lead the QAMF note with a VIP banner so HeadPinz staff see it's the
+      // package, and treat shoes as INCLUDED (owner: VIP includes shoes — the
+      // generic slug check below misses VIP hourly experiences).
+      const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+      if (combo) {
+        finalParts.push(`*** ${combo.name.toUpperCase()} — VIP LANE (paid online) ***`);
+      }
+
+      // Shoe status — staff see it at a glance
       const hasShoeAddOn = item.lineItems.some((li) =>
         (li.label ?? "").toLowerCase().includes("shoe"),
       );
       const shoesIncluded =
-        item.experienceSlug?.includes("fun-4-all") || item.experienceSlug?.includes("pizza-bowl");
+        !!combo ||
+        item.experienceSlug?.includes("fun-4-all") ||
+        item.experienceSlug?.includes("pizza-bowl");
       let shoeLine: string;
-      if (hasShoeAddOn) {
+      if (combo) {
+        shoeLine = "Shoes included (VIP)";
+      } else if (hasShoeAddOn) {
         const shoeQty = item.lineItems
           .filter((li) => (li.label ?? "").toLowerCase().includes("shoe"))
           .reduce((s, li) => s + li.quantity, 0);
@@ -868,6 +882,34 @@ async function unifiedReserveInner(
         log(`[unified-reserve] Final patch OK: title="${finalTitle}"`);
       } catch (err) {
         log(`[unified-reserve] Final patch FAILED: ${err instanceof Error ? err.message : err}`);
+      }
+
+      // Combo special: stamp the assigned QAMF lane onto the Redis booking
+      // record (keyed by the combo's BMI bill) so the confirmation page can
+      // fold it into the single reservation memo it writes (the lane is QAMF
+      // data the page never otherwise sees). Best-effort, non-fatal.
+      if (session.comboSpecialId && session.bmiBillId && qamfLanes.length > 0) {
+        const lane = qamfLanes
+          .map((l) => l.LaneNumber)
+          .filter((n) => n != null)
+          .join(", ");
+        if (lane) {
+          try {
+            const key = `bookingrecord:${session.bmiBillId}`;
+            const existing = await redis.get(key);
+            if (existing) {
+              const rec = typeof existing === "string" ? JSON.parse(existing) : existing;
+              await redis.set(
+                key,
+                JSON.stringify({ ...rec, bowlingLane: lane }),
+                "EX",
+                60 * 60 * 24 * 90,
+              );
+            }
+          } catch (err) {
+            log(`[unified-reserve] booking-record lane stamp failed: ${err}`);
+          }
+        }
       }
     } catch (err) {
       // QAMF failed after the deposit was CAPTURED. Do NOT roll back — a captured

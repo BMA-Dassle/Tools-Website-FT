@@ -13,7 +13,7 @@ import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
-import { getComboSpecial } from "~/features/combos";
+import { comboReservationNote, getComboSpecial } from "~/features/combos";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
 
 /** Resolve a race line's display name from our own registries instead
@@ -1079,6 +1079,14 @@ export default function ConfirmationPage() {
           const uqNote = pkgId
             ? (getPackageIgnoreFlag(pkgId)?.disclaimers?.billMemo ?? null)
             : null;
+          // Combo special (Ultimate VIP): lead the memo with the VIP banner +
+          // visit plan + assigned bowling lane (persisted to the booking record
+          // by unified-reserve from QAMF). Written here — not server-side — so
+          // it survives this single OVERWRITING booking/memo write.
+          const comboId = bookingRecord?.comboSpecial as string | null | undefined;
+          const combo = comboId ? getComboSpecial(comboId) : null;
+          const comboLane = (bookingRecord?.bowlingLane as string | null | undefined) ?? null;
+          const comboNote = combo ? comboReservationNote(combo, comboLane) : null;
           const memoLines: OrderLine[] =
             overview?.lines && overview.lines.length > 0
               ? overview.lines
@@ -1091,6 +1099,7 @@ export default function ConfirmationPage() {
               .map((c) => `${c.resNumber} (${c.racerName})`)
               .join(", ");
             const memo = buildReservationMemo({
+              comboNote: conf.billId === id ? comboNote : null,
               expressLaneResNumber: allWaiversValid ? conf.resNumber : null,
               bookingUrl: origin ? `${origin}/book/confirmation/v2?billId=${conf.billId}` : null,
               ultimateQualifierNote: uqNote,

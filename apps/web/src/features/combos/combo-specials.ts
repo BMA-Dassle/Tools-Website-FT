@@ -133,6 +133,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "Semi-private 8-lane VIP area",
       "NeoVerse video wall",
       "Complimentary chips & salsa",
+      "Bowling shoes included",
       "HyperBowling + premium glow lighting",
     ],
     heroImage:
@@ -226,13 +227,17 @@ export function comboHeatsPerRacer(combo: ComboSpecial): number {
 }
 
 /**
- * Ops-facing BMI bill memo for a combo booking (owner ask, 2026-06-11):
+ * Staff-facing combo note for the BMI RESERVATION MEMO (owner ask, 2026-06-11):
  * staff must see at a glance that this is the VIP package, that license/POV/
- * perks are already paid, and the visit order — race, bowling, then the next
- * race ONLY IF the guest qualified in the starter. Registry-driven so future
- * combos describe themselves.
+ * perks/shoes are already paid, the visit order — race, bowling, then the next
+ * race ONLY IF the guest qualified in the Starter — and the assigned bowling
+ * lane (QAMF). Registry-driven so future combos describe themselves.
+ *
+ * Written via buildReservationMemo on the confirmation page (the single
+ * OVERWRITING booking/memo field), NOT a separate write — a separate write
+ * gets clobbered by that combined memo.
  */
-export function comboBillMemo(combo: ComboSpecial): string {
+export function comboReservationNote(combo: ComboSpecial, lane?: string | null): string {
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   let sawStarter = false;
   const steps = combo.components.map((leg, i) => {
@@ -243,27 +248,29 @@ export function comboBillMemo(combo: ComboSpecial): string {
     }
     if (leg.kind === "bowling") {
       const hours = leg.durationMinutes / 60;
+      const laneStr = lane ? ` — Lane ${lane}` : "";
       return `${i + 1}) ${hours % 1 === 0 ? hours : hours.toFixed(1)}hr ${
         leg.vip ? "VIP " : ""
-      }Bowling at HeadPinz`;
+      }Bowling at HeadPinz${laneStr}`;
     }
     return `${i + 1}) ${leg.slug}`;
   });
   const included = [
     combo.includesLicense ? "racing license" : null,
     combo.includedPovPerRacer > 0 ? "POV video" : null,
-    combo.perks?.length ? "VIP lane perks" : null,
+    combo.perks?.length ? "VIP lane perks + shoes" : null,
   ]
     .filter(Boolean)
     .join(" + ");
   return (
     `*** ${combo.name.toUpperCase()} (VIP COMBO) *** Paid online at the flat per-person rate` +
     (included ? ` — ${included} INCLUDED, do not charge separately` : "") +
-    `. Visit plan: ${steps.join(" -> ")}. ` +
+    `. Visit plan: ${steps.join(" -> ")}.` +
+    (lane ? ` Bowling lane: ${lane}.` : "") +
     (combo.qualifyFallbackNote
-      ? `If a racer does NOT qualify: convert their later race to a second Starter race OR issue a race credit. `
+      ? ` If a racer does NOT qualify: convert their later race to a second Starter race OR issue a race credit.`
       : "") +
-    `Bowling is a separate HeadPinz/QAMF reservation on the same Square order (settles at lane-open).`
+    ` Bowling is a separate HeadPinz/QAMF reservation on the same Square order (settles at lane-open).`
   );
 }
 

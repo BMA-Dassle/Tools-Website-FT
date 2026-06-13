@@ -10,8 +10,9 @@
  * express-lane memo" bug. Build ONE memo here and write it once so nothing is
  * lost.
  *
- * Priority (high → low): Express Lane, Booking URL, Ultimate Qualifier, 3-Race
- * Pack, POV codes, group-related reservations, amount paid.
+ * Priority (high → low): Combo (Ultimate VIP) note, Express Lane, Booking URL,
+ * Ultimate Qualifier, 3-Race Pack, POV codes, group-related reservations,
+ * amount paid.
  */
 
 /** Staff-facing note for combo 3-race packs. */
@@ -19,6 +20,10 @@ export const THREE_RACE_PACK_MEMO =
   "** 3-RACE PACK ** Customer purchased a 3-race pack — all 3 heats are booked on this one bill/reservation.";
 
 export interface ReservationMemoParts {
+  /** Combo special (Ultimate VIP) staff note — VIP banner, prepaid-includes,
+   *  visit plan, assigned bowling lane, qualify fallback. Highest priority so
+   *  it leads the memo. From features/combos comboReservationNote(). */
+  comboNote?: string | null;
   /** Reservation number when the party is Express Lane eligible (all returning
    *  racers hold valid waivers → skip Guest Services). */
   expressLaneResNumber?: string | null;
@@ -40,6 +45,9 @@ export interface ReservationMemoParts {
 export function buildReservationMemo(parts: ReservationMemoParts): string {
   const lines: string[] = [];
 
+  if (parts.comboNote) {
+    lines.push(parts.comboNote);
+  }
   if (parts.expressLaneResNumber) {
     lines.push(
       `** EXPRESS LANE ** ${parts.expressLaneResNumber} — all waivers valid; skip Guest Services.`,
