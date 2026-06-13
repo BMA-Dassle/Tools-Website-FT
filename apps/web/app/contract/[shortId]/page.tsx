@@ -88,6 +88,7 @@ export default async function ContractPage(props: {
         taxCents: quote.tax_cents,
         depositDueCents: quote.deposit_due_cents,
         balanceCents: quote.balance_cents,
+        collectedCents: quote.collected_cents,
         lineItems: quote.line_items as Array<{
           name: string;
           price: number;

@@ -1095,3 +1095,30 @@ by the first one alone. The group-dayof-pay cron now encodes all four.
 
 Also: gift cards cap at $2,000 balance, so any event over $2k is ALWAYS multi-card — the
 multi-tender path is the norm for big events, not the exception.
+
+
+## Group contracts: balance_cents must derive from collected_cents, never deposit_due_cents (2026-06-12)
+
+H2925 (Tracie Thomas, HPFM 6/14): guest paid the original $746.56 in full (deposit 5/28 +
+72h auto-charge 6/11, collected_cents = 74656). Party was then repriced 2 lanes -> 4 lanes
+($1,589.73). The dispatch cron's POST-SIGNING update path recomputed
+`balance_cents = totalCents - existing.deposit_due_cents`, which erased every payment beyond
+the deposit: the contract showed "$381.61 paid / $1,208.12 due". Resending can't fix it - the
+resend re-enters the same cron. A sweep found one more victim (H1136, completed, paid in full,
+showed $449.51 due). Both rows repaired in place.
+
+**Guardrails:**
+- The schema's universal rule (`collected_cents` comment in group-function-db.ts) is the ONLY
+  valid derivation: `amount_due = total_cents - collected_cents`. `deposit_due_cents` is a
+  point-in-time quote of the FIRST payment, not a record of money received - it is even
+  rewritten on reprice (full-total within 96h of the event), so it can't reconstruct payments.
+- Display must read the same source the charge path reads. resign-settle charges
+  `total - collected`; the contract page now displays paid = `collected_cents` and
+  due = `total - collected` for re-signs, so displayed amount == charged amount even if
+  balance_cents is ever stale again (same principle as the Statsig displayed-vs-charged rule).
+- Data-repair sweep for this corruption class:
+  `SELECT id FROM group_function_quotes WHERE deposit_paid_at IS NOT NULL AND collected_cents > 0
+   AND balance_cents <> GREATEST(0, total_cents - collected_cents)
+   AND status IN ('deposit_paid','resign_required','balance_charged','balance_link_sent','completed')`
+- Money was never at risk here: resign-settle, the 72h cron (status-gated), and /pay
+  (balance_paid_at-gated) all guard correctly. The blast radius was display + stored balance only.

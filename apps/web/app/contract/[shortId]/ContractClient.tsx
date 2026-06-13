@@ -48,6 +48,7 @@ interface QuoteProps {
   taxCents: number;
   depositDueCents: number;
   balanceCents: number;
+  collectedCents: number;
   lineItems: Array<{ name: string; price: number; qty: number; total: number }>;
   depositPaidAt: string | null;
   giftCardGan: string | null;
@@ -148,9 +149,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   }
 
   const isResign = quote.status === "resign_required" && Boolean(quote.depositPaidAt);
-  const depositPaidCents = isResign
-    ? Math.max(0, quote.totalCents - quote.balanceCents)
-    : quote.depositDueCents;
+  // Re-sign money facts come from collected_cents — the same source resign-settle charges
+  // (delta = total - collected) — so the displayed amount always matches the actual charge,
+  // regardless of what balance_cents holds.
+  const resignDueCents = Math.max(0, quote.totalCents - quote.collectedCents);
   const isFullPayment = quote.balanceCents === 0;
   const isPostPaid = quote.isPostPaid;
   const hasLegacyDeposit = quote.priorDepositCents > 0 && !quote.depositPaidAt;
@@ -160,9 +162,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const isWinback = quote.isWinback;
   const incentiveLabel = `$${Math.round((quote.incentiveCents || 2000) / 100)}`;
   // On re-sign of a paid-in-full event that's now priced UP, we charge the difference
-  // (quote.balanceCents) to the card on file. If there's no card on file, the re-sign keeps the
+  // (resignDueCents) to the card on file. If there's no card on file, the re-sign keeps the
   // pay step so the guest adds one; otherwise the delta is charged server-side on completion.
-  const resignNeedsCard = isResign && quote.balanceCents > 0 && !quote.hasCardOnFile;
+  const resignNeedsCard = isResign && resignDueCents > 0 && !quote.hasCardOnFile;
   const STEPS = isResign
     ? buildSteps(true, false).filter((s) => s.key !== "pay" || resignNeedsCard)
     : buildSteps(isFullPayment, isPostPaid);
@@ -979,16 +981,16 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                       <IconCircleCheck size={16} />
                     </div>
                     <div className="flex-1">
-                      <p className="font-semibold text-emerald-400">Deposit Already Paid</p>
+                      <p className="font-semibold text-emerald-400">Already Paid</p>
                       <p className="text-sm text-gray-400">
-                        Your deposit has been applied — just re-confirm below
+                        Your payments have been applied — just re-confirm below
                       </p>
                     </div>
                     <p className="text-lg font-bold text-emerald-400">
-                      {fmtDollars(depositPaidCents)}
+                      {fmtDollars(quote.collectedCents)}
                     </p>
                   </div>
-                  {quote.balanceCents > 0 && (
+                  {resignDueCents > 0 && (
                     <>
                       <div className="ml-4 h-6 border-l border-dashed border-white/20" />
                       <div className="flex items-center gap-3">
@@ -1006,7 +1008,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                               : "Automatically charged to your card on file"}
                           </p>
                         </div>
-                        <p className="text-lg font-bold">{fmtDollars(quote.balanceCents)}</p>
+                        <p className="text-lg font-bold">{fmtDollars(resignDueCents)}</p>
                       </div>
                     </>
                   )}
@@ -1723,9 +1725,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     Your event total is now{" "}
                     <span className="font-semibold text-white">{fmtDollars(quote.totalCents)}</span>
                     . Add a card to pay the{" "}
-                    <span className="font-semibold text-white">
-                      {fmtDollars(quote.balanceCents)}
-                    </span>{" "}
+                    <span className="font-semibold text-white">{fmtDollars(resignDueCents)}</span>{" "}
                     difference and confirm.
                   </>
                 ) : cardOnFileOnly ? (
@@ -1788,8 +1788,8 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   {isResign ? (
                     <>
                       Your card will be charged{" "}
-                      <strong className="text-white">{fmtDollars(quote.balanceCents)}</strong> now
-                      and saved on file for any future changes.
+                      <strong className="text-white">{fmtDollars(resignDueCents)}</strong> now and
+                      saved on file for any future changes.
                     </>
                   ) : cardOnFileOnly ? (
                     balanceChargePast ? (
@@ -1830,7 +1830,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                 {processing
                   ? "Processing..."
                   : isResign
-                    ? `Pay ${fmtDollars(quote.balanceCents)} & Confirm`
+                    ? `Pay ${fmtDollars(resignDueCents)} & Confirm`
                     : cardOnFileOnly
                       ? "Save Card & Confirm"
                       : hasLegacyDeposit && legacyChargeCents > 0

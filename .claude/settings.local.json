@@ -210,7 +210,12 @@
       "Bash(ls tasks/)",
       "Bash(ls tasks/future/)",
       "Bash(tee /tmp/tcb.log)",
-      "Bash(tee /tmp/tcc.log)"
+      "Bash(tee /tmp/tcc.log)",
+      "PowerShell(npx turbo run lint build --filter=fasttrax-web)",
+      "PowerShell(Set-Location apps\\\\web; npx eslint \"app/api/cron/group-quote-dispatch/route.ts\" \"app/contract/[shortId]/page.tsx\" \"app/contract/[shortId]/ContractClient.tsx\"; Write-Host \"eslint exit: $LASTEXITCODE\")",
+      "PowerShell(git show \"HEAD:apps/web/app/contract/[shortId]/ContractClient.tsx\" | Set-Content -LiteralPath \"app\\\\contract\\\\[shortId]\\\\ContractClient.head.tsx\" -Encoding utf8; $head = npx eslint \"app/contract/[shortId]/ContractClient.head.tsx\" 2>$null | Select-String -Pattern \"problems\"; $curr = npx eslint \"app/contract/[shortId]/ContractClient.tsx\" 2>$null | Select-String -Pattern \"problems\"; Remove-Item -LiteralPath \"app\\\\contract\\\\[shortId]\\\\ContractClient.head.tsx\" -Force; Write-Host \"HEAD version: $head\"; Write-Host \"Current version: $curr\")",
+      "PowerShell(npx prettier --check \"app/api/cron/group-quote-dispatch/route.ts\" \"app/contract/[shortId]/page.tsx\" \"app/contract/[shortId]/ContractClient.tsx\")",
+      "PowerShell(git show \"HEAD:apps/web/app/contract/[shortId]/page.tsx\" | npx prettier --stdin-filepath \"app/contract/[shortId]/page.tsx\" --check; Write-Host \"page.tsx HEAD: $LASTEXITCODE\"; git show \"HEAD:apps/web/app/api/cron/group-quote-dispatch/route.ts\" | npx prettier --stdin-filepath \"app/api/cron/group-quote-dispatch/route.ts\" --check; Write-Host \"route.ts HEAD: $LASTEXITCODE\")"
     ],
     "additionalDirectories": [
       "\\tmp"

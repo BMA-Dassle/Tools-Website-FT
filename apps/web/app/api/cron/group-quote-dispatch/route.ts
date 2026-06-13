@@ -337,7 +337,10 @@ async function processQueueItem(
       existing.status === "completed")
   ) {
     const priceChanged = existing.total_cents !== totalCents;
-    const balanceCents = totalCents - existing.deposit_due_cents;
+    // Universal rule: amount due = total - collected (see collected_cents schema comment).
+    // Deriving from deposit_due_cents erases payments beyond the deposit — a paid-in-full
+    // guest repriced 2→4 lanes showed deposit-only paid (H2925, 2026-06-12).
+    const balanceCents = totalCents - existing.collected_cents;
     const postSignChanges: string[] = [];
     if (priceChanged) postSignChanges.push(`total: ${existing.total_cents} → ${totalCents}`);
     if (existing.event_name !== item.event.name)
