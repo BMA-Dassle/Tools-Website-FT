@@ -9,6 +9,13 @@ import { getSurveysForReservations } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
+import { getReservation } from "@/lib/qamf-bowling";
+
+/** QAMF numeric center ids (mirrors bowling-lane-poll). */
+const QAMF_CENTER_ID: Record<string, number> = {
+  TXBSQN0FEKQ11: 9172, // HeadPinz Fort Myers
+  PPTR5G2N0QXF7: 3148, // HeadPinz Naples
+};
 
 /**
  * GET /api/admin/bowling/reservations?token=...&date=YYYY-MM-DD&center=...
@@ -152,6 +159,33 @@ export async function GET(req: NextRequest) {
     // see it regardless of the center this portal is scoped to. The two legs
     // share a square_dayof_order_id; the client groups on that.
     const vipReservations = await listVipComboReservations({ startDate: date, endDate: date });
+
+    // Enrich combo BOWLING legs with their QAMF lane. dayof_order_lane is only
+    // persisted at lane-open, so an upcoming combo shows no lane even though the
+    // VIP lane is already reserved in QAMF — fetch it. Best-effort; never fails
+    // the response.
+    await Promise.all(
+      vipReservations.map(async (r) => {
+        if (
+          (r.productKind !== "open" && r.productKind !== "kbf") ||
+          r.dayofOrderLane ||
+          !r.qamfReservationId
+        )
+          return;
+        const centerId = QAMF_CENTER_ID[r.centerCode];
+        if (!centerId) return;
+        try {
+          const qr = await getReservation(centerId, r.qamfReservationId);
+          const lanes = (qr.Lanes ?? [])
+            .map((l) => l.LaneNumber)
+            .filter((n): n is number => typeof n === "number");
+          if (lanes.length) r.dayofOrderLane = lanes.join(", ");
+        } catch {
+          /* non-fatal — lane just stays blank */
+        }
+      }),
+    );
+
     const comboMeta: Record<
       string,
       { name: string; accentColor: string; includes: string[]; center: string }
