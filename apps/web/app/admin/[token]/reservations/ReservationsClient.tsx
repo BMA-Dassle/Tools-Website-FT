@@ -117,6 +117,8 @@ interface ComboMergeInfo {
   totalCents: number;
   orders: Array<{ orderId: string; kind: "Racing" | "Bowling"; leg: Reservation }>;
   legCount: number;
+  /** Race leg's BMI bill — drives the multi-attraction (v2) confirmation view. */
+  raceBillId?: string;
 }
 
 interface GroupEvent {
@@ -2174,7 +2176,11 @@ export default function ReservationsClient({ token }: { token: string }) {
       }));
       const totalCents =
         orders.reduce((s, o) => s + (o.leg.totalCents ?? 0), 0) || anchor.totalCents;
-      out.push({ ...anchor, comboMerge: { totalCents, orders, legCount: legs.length } });
+      const raceBillId = legs.find((l) => l.productKind === "race")?.bmiBillId;
+      out.push({
+        ...anchor,
+        comboMerge: { totalCents, orders, legCount: legs.length, raceBillId },
+      });
     }
     return out.sort((a, b) => (a.eventAt ?? a.bookedAt).localeCompare(b.eventAt ?? b.bookedAt));
   }, [filtered]);
@@ -3412,7 +3418,11 @@ export default function ReservationsClient({ token }: { token: string }) {
                 const isCancelled = r.status === "cancelled";
                 const centerShort = centerShortOf(r.centerCode);
                 const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
-                const cPath = confirmPath(r);
+                // A combo's View opens the multi-attraction (v2) confirmation via
+                // the race leg's BMI bill, not the bowling-only page.
+                const cPath = r.comboMerge?.raceBillId
+                  ? `/book/confirmation/v2?billId=${r.comboMerge.raceBillId}`
+                  : confirmPath(r);
                 return (
                   <div
                     key={r.id}
@@ -4597,10 +4607,17 @@ export default function ReservationsClient({ token }: { token: string }) {
                                   </button>
                                 );
                               })()}
-                            {/* View — opens confirmation page */}
-                            {confirmPath(r) && (
+                            {/* View — combo opens the multi-attraction (v2) view via
+                                the race leg's BMI bill; else the normal confirmation. */}
+                            {(r.comboMerge?.raceBillId
+                              ? `/book/confirmation/v2?billId=${r.comboMerge.raceBillId}`
+                              : confirmPath(r)) && (
                               <a
-                                href={confirmPath(r)!}
+                                href={
+                                  r.comboMerge?.raceBillId
+                                    ? `/book/confirmation/v2?billId=${r.comboMerge.raceBillId}`
+                                    : confirmPath(r)!
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{
