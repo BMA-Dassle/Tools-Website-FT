@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { aQuestion } from "~/test/builders/survey";
-import { isQuestionVisible, visibleQuestions, type AnswerMap } from "./gating";
+import {
+  isQuestionVisible,
+  visibleQuestions,
+  ratingSubject,
+  lowRatedSubjects,
+  adaptiveClosingPrompt,
+  type AnswerMap,
+} from "./gating";
 
 describe("isQuestionVisible", () => {
   const gate = aQuestion({
@@ -103,5 +110,93 @@ describe("visibleQuestions", () => {
     const list = [q1, q2, q3];
     const answers: AnswerMap = { "1": "No" };
     expect(visibleQuestions(list, answers)).toEqual([q1, q3]);
+  });
+});
+
+describe("ratingSubject", () => {
+  it("strips 'How was' lead-in and trailing question mark", () => {
+    expect(ratingSubject("How was your racing experience?")).toBe("your racing experience");
+  });
+  it("strips 'How were' lead-in", () => {
+    expect(ratingSubject("How were our karting team members (track crew)?")).toBe(
+      "our karting team members (track crew)",
+    );
+  });
+  it("strips 'Rate' lead-in", () => {
+    expect(ratingSubject("Rate the food & drinks")).toBe("the food & drinks");
+  });
+  it("falls back to the trimmed text when no lead-in matches", () => {
+    expect(ratingSubject("Overall vibe")).toBe("Overall vibe");
+  });
+});
+
+describe("lowRatedSubjects", () => {
+  const race = aQuestion({
+    id: 1,
+    tag: "racing",
+    ordinal: 1,
+    question: "How was your racing experience?",
+    kind: "rating_1_5",
+  });
+  const crew = aQuestion({
+    id: 2,
+    tag: "racing",
+    ordinal: 2,
+    question: "How were our karting team members (track crew)?",
+    kind: "rating_1_5",
+  });
+  const food = aQuestion({
+    id: 3,
+    tag: "food_drink",
+    ordinal: 2,
+    question: "Rate the food & drinks",
+    kind: "rating_1_5",
+  });
+  const yesno = aQuestion({
+    id: 4,
+    tag: "racing",
+    ordinal: 3,
+    question: "Did you experience a slow-down?",
+    kind: "yes_no",
+  });
+  const all = [race, crew, food, yesno];
+
+  it("returns nothing when all ratings are 4+", () => {
+    expect(lowRatedSubjects(all, { "1": 5, "2": 4, "3": 5 })).toEqual([]);
+  });
+  it("includes only ratings at or below 3, in question order", () => {
+    expect(lowRatedSubjects(all, { "1": 3, "2": 5, "3": 2 })).toEqual([
+      "your racing experience",
+      "the food & drinks",
+    ]);
+  });
+  it("ignores unanswered ratings and non-rating kinds", () => {
+    expect(lowRatedSubjects(all, { "2": 1, "4": "Yes" })).toEqual([
+      "our karting team members (track crew)",
+    ]);
+  });
+  it("treats exactly 3 as low", () => {
+    expect(lowRatedSubjects([race], { "1": 3 })).toEqual(["your racing experience"]);
+  });
+});
+
+describe("adaptiveClosingPrompt", () => {
+  const fallback = "Anything else you'd like to share?";
+  it("returns the fallback when there are no low scores", () => {
+    expect(adaptiveClosingPrompt([], fallback)).toBe(fallback);
+  });
+  it("uses singular 'it' for one low score and names it", () => {
+    const p = adaptiveClosingPrompt(["your racing experience"], fallback);
+    expect(p).toContain("your racing experience");
+    expect(p).toContain("make it better");
+    expect(p).toContain("3 or below");
+  });
+  it("uses 'those' and an oxford-comma list for multiple low scores", () => {
+    const p = adaptiveClosingPrompt(
+      ["your racing experience", "the food & drinks", "our track crew"],
+      fallback,
+    );
+    expect(p).toContain("your racing experience, the food & drinks, and our track crew");
+    expect(p).toContain("make those better");
   });
 });

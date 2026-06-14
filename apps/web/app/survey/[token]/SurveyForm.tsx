@@ -6,7 +6,12 @@ import type { GuestSurveyQuestion } from "@/lib/guest-survey-db";
 // re-exports service.ts which transitively pulls ioredis into the client
 // bundle. ioredis uses Node-only modules (dns/fs/net/tls) and Turbopack
 // fails the build.
-import { visibleQuestions, type AnswerMap } from "~/features/guest-survey/gating";
+import {
+  visibleQuestions,
+  lowRatedSubjects,
+  adaptiveClosingPrompt,
+  type AnswerMap,
+} from "~/features/guest-survey/gating";
 
 /**
  * Survey brand. "headpinz" (bowling, the original/live path) and "fasttrax"
@@ -145,6 +150,9 @@ export function SurveyForm({ token, centerName, questions, brand = "headpinz" }:
   }
 
   const visible = useMemo(() => visibleQuestions(questions, answers), [questions, answers]);
+  // Subjects scored 3-or-below — drives the adaptive prompt on the
+  // `low_rating_followup` closing question (recomputed live as ratings change).
+  const lowSubjects = useMemo(() => lowRatedSubjects(questions, answers), [questions, answers]);
   const answeredCount = visible.filter((q) => answers[String(q.id)] != null).length;
   const canSubmit = answeredCount > 0 && submitState.kind === "idle";
 
@@ -224,6 +232,11 @@ export function SurveyForm({ token, centerName, questions, brand = "headpinz" }:
             key={q.id}
             t={t}
             question={q}
+            promptOverride={
+              q.kind === "low_rating_followup"
+                ? adaptiveClosingPrompt(lowSubjects, q.question)
+                : undefined
+            }
             value={answers[String(q.id)]}
             onChange={(v) => setAnswer(q.id, v)}
           />
@@ -269,11 +282,13 @@ function Shell({ t, children }: { t: Theme; children: React.ReactNode }) {
 interface QuestionFieldProps {
   t: Theme;
   question: GuestSurveyQuestion;
+  /** Overrides the displayed prompt (used by the adaptive low-rating box). */
+  promptOverride?: string;
   value: AnswerMap[string];
   onChange: (v: AnswerMap[string]) => void;
 }
 
-function QuestionField({ t, question, value, onChange }: QuestionFieldProps) {
+function QuestionField({ t, question, promptOverride, value, onChange }: QuestionFieldProps) {
   // Plain <div> rather than <fieldset>/<legend>: the default legend
   // styling positions the label BREAKING the top border (sticking out
   // above the card) instead of sitting inside. Eric reported "questions
@@ -286,7 +301,7 @@ function QuestionField({ t, question, value, onChange }: QuestionFieldProps) {
       style={{ backgroundColor: t.card, border: `1px solid ${t.border}` }}
     >
       <div id={headingId} className="font-heading font-semibold text-base leading-snug mb-3">
-        {question.question}
+        {promptOverride ?? question.question}
       </div>
       <div role="group" aria-labelledby={headingId}>
         {question.kind === "rating_1_5" ? (
@@ -296,6 +311,7 @@ function QuestionField({ t, question, value, onChange }: QuestionFieldProps) {
         ) : question.kind === "multi" ? (
           <MultiChoice t={t} choices={question.choices ?? []} value={value} onChange={onChange} />
         ) : (
+          // "text" and "low_rating_followup" both render as a free-text box.
           <TextInput t={t} value={value} onChange={onChange} />
         )}
       </div>

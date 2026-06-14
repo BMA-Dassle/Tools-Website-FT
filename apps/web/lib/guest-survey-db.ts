@@ -56,7 +56,7 @@ export async function ensureGuestSurveySchema(): Promise<void> {
   // ── guest_survey_questions ───────────────────────────────────────
   // Tag values: 'baseline' | 'bowling' | 'fnb_service' | 'food_drink' |
   //             'gel_blaster' | 'arcade' | 'racing'
-  // 'kind' values: 'rating_1_5' | 'multi' | 'text' | 'yes_no'
+  // 'kind' values: 'rating_1_5' | 'multi' | 'text' | 'yes_no' | 'low_rating_followup'
   //
   // Gating:
   //   gate_ordinal + gate_answer → "only show this question if the question
@@ -132,7 +132,12 @@ export type SurveyOrigin = "bowling" | "racing";
 
 export type SurveyRewardKind = "gift_card" | "pinz" | "declined";
 
-export type SurveyQuestionKind = "rating_1_5" | "multi" | "text" | "yes_no";
+// 'low_rating_followup' is an always-visible free-text box (renders like
+// 'text') whose PROMPT is dynamic in the UI: if the guest scored any
+// rating_1_5 question a 3 or below, it names those items and asks what we
+// could have done better; otherwise it shows its stored fallback text
+// ("Anything else you'd like to share?"). Stored + aggregated as free text.
+export type SurveyQuestionKind = "rating_1_5" | "multi" | "text" | "yes_no" | "low_rating_followup";
 
 export type SurveyQuestionTag =
   | "baseline"
@@ -806,7 +811,8 @@ export async function getQuestionStats(opts: {
         stat.distribution[answer] = (stat.distribution[answer] ?? 0) + 1;
       } else if (stat.kind === "yes_no" || stat.kind === "multi") {
         stat.distribution[answer] = (stat.distribution[answer] ?? 0) + 1;
-      } else if (stat.kind === "text") {
+      } else if (stat.kind === "text" || stat.kind === "low_rating_followup") {
+        // low_rating_followup is free text — aggregate like a text question.
         if (stat.recentTextAnswers.length < 25) {
           stat.recentTextAnswers.push(answer);
         }
@@ -1305,10 +1311,14 @@ export const GUEST_SURVEY_QUESTIONS_SEED: SeedQuestion[] = [
     kind: "text",
   },
   {
+    // Adaptive catch-all: renders as a free-text box. The UI rewrites the
+    // prompt when the guest scored any rating a 3 or below ("what could we
+    // have done to make <X> better?"); otherwise it's the plain
+    // "Anything else?" below. Stored text is the no-low-score fallback.
     tag: "closing",
     ordinal: 2,
     question: "Anything else you'd like to share?",
-    kind: "text",
+    kind: "low_rating_followup",
   },
 ];
 
