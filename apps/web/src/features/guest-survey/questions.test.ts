@@ -25,15 +25,6 @@ describe("pickTags", () => {
       ]);
     });
 
-    it("ignores purchaseTags for bowling visits (fnb_service wins per policy)", () => {
-      expect(
-        pickTags({
-          origin: "bowling",
-          purchaseTags: ["food_drink", "arcade", "gel_blaster"],
-        }),
-      ).toEqual(["baseline", "bowling", "fnb_service", "closing"]);
-    });
-
     it("never exceeds the MAX_TAGS_PER_SURVEY cap", () => {
       const tags = pickTags({ origin: "bowling" });
       expect(tags.length).toBeLessThanOrEqual(MAX_TAGS_PER_SURVEY);
@@ -41,51 +32,24 @@ describe("pickTags", () => {
   });
 
   describe("racing origin", () => {
-    it("returns [baseline, racing, closing] when no purchases", () => {
-      expect(pickTags({ origin: "racing" })).toEqual(["baseline", "racing", "closing"]);
+    it("returns the fixed [baseline, racing, food_drink, closing] set", () => {
+      // food_drink is ALWAYS included for racing — its Q1 ("Did you
+      // purchase food or drinks?") self-gates the rest of the block.
+      expect(pickTags({ origin: "racing" })).toEqual([
+        "baseline",
+        "racing",
+        "food_drink",
+        "closing",
+      ]);
     });
 
-    it("appends the single highest-priority cross-sell tag BEFORE closing", () => {
-      // priority order: food_drink > arcade > gel_blaster
-      expect(
-        pickTags({
-          origin: "racing",
-          purchaseTags: ["arcade", "gel_blaster"],
-        }),
-      ).toEqual(["baseline", "racing", "arcade", "closing"]);
-    });
-
-    it("picks food_drink over arcade when both purchased", () => {
-      expect(
-        pickTags({
-          origin: "racing",
-          purchaseTags: ["arcade", "food_drink"],
-        }),
-      ).toEqual(["baseline", "racing", "food_drink", "closing"]);
-    });
-
-    it("never exceeds 4 tags even with all cross-sells purchased", () => {
-      const tags = pickTags({
-        origin: "racing",
-        purchaseTags: ["food_drink", "arcade", "gel_blaster"],
-      });
-      expect(tags).toHaveLength(4);
-      expect(tags).toEqual(["baseline", "racing", "food_drink", "closing"]);
-    });
-
-    it("ignores non-cross-sell tags in purchaseTags (bowling, fnb_service)", () => {
-      // Defensive — these shouldn't appear in racing context, but if they
-      // somehow do, they must not displace a legitimate cross-sell tag.
-      expect(
-        pickTags({
-          origin: "racing",
-          purchaseTags: ["bowling", "fnb_service", "arcade"],
-        }),
-      ).toEqual(["baseline", "racing", "arcade", "closing"]);
+    it("never exceeds the MAX_TAGS_PER_SURVEY cap", () => {
+      const tags = pickTags({ origin: "racing" });
+      expect(tags.length).toBeLessThanOrEqual(MAX_TAGS_PER_SURVEY);
     });
 
     it("baseline always comes first, closing always comes last", () => {
-      const tags = pickTags({ origin: "racing", purchaseTags: ["food_drink"] });
+      const tags = pickTags({ origin: "racing" });
       expect(tags[0]).toBe("baseline");
       expect(tags[tags.length - 1]).toBe("closing");
     });

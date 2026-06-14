@@ -277,7 +277,13 @@ export async function readSmsCountsRange(
 
 export interface CronRunEntry {
   ts: string;
-  cron: "pre-race" | "checkin" | "video-match" | "arena-pre" | "arena-checkin";
+  cron:
+    | "pre-race"
+    | "checkin"
+    | "video-match"
+    | "arena-pre"
+    | "arena-checkin"
+    | "racing-survey-sweep";
   dryRun: boolean;
   elapsedMs: number;
   /** Caller IP / source (approximate — useful to distinguish Vercel cron vs manual curl) */

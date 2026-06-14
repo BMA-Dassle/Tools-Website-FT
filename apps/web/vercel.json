@@ -33,6 +33,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/racing-survey-sweep",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/kbf-sync",
       "schedule": "*/15 * * * *"
     },

@@ -129,6 +129,88 @@ export function renderBowlingSurveyInviteEmail(opts: {
   return { subject, html, text };
 }
 
+export interface RacingSurveyInviteVars {
+  /** The short-link code, e.g. "a1B2c3". Rendered as `{domain}/s/{code}`. */
+  code: string;
+  /** Brand domain — defaults to "fasttraxent.com". */
+  domain?: string;
+}
+
+/**
+ * Racing survey invitation SMS — FastTrax.
+ *
+ * Sent ~15 min after the racer's video text. Mirrors the bowling invite's
+ * 4-line layout (greeting / ask + reward / link / STOP footer) and the same
+ * $5 gift card or 500 Pinz reward. Plain ASCII for 1-segment GSM-7.
+ */
+export function renderRacingSurveyInvite(vars: RacingSurveyInviteVars): string {
+  const domain = vars.domain ?? "fasttraxent.com";
+  const body =
+    `Thanks for racing at FastTrax! How was it?\n` +
+    `Take 60 sec to tell us. We'll send you a $5 gift card or 500 Pinz.\n` +
+    `${domain}/s/${vars.code}\n` +
+    `STOP to opt out`;
+  assertGsm7Safe(body, "racing_survey_invite");
+  return body;
+}
+
+/**
+ * Email version of the racing survey invitation — SMS-failure fallback,
+ * same contract as renderBowlingSurveyInviteEmail but FastTrax-framed and
+ * defaulting to the fasttraxent.com domain.
+ */
+export function renderRacingSurveyInviteEmail(opts: {
+  code: string;
+  guestName?: string | null;
+  domain?: string;
+  phoneE164?: string;
+}): { subject: string; html: string; text: string } {
+  const domain = opts.domain ?? "fasttraxent.com";
+  const surveyUrl = `https://${domain}/s/${opts.code}`;
+  const greeting = opts.guestName ? `Hi ${opts.guestName.split(" ")[0]},` : "Hi there,";
+  const unsubUrl =
+    `https://${domain}/marketing/unsubscribe?` +
+    (opts.phoneE164 ? `phone=${encodeURIComponent(opts.phoneE164)}` : "");
+  const subject = `How was your race at FastTrax?`;
+  const text =
+    `${greeting}\n\n` +
+    `Thanks for racing with us! We'd love your feedback - it takes about 60 seconds.\n\n` +
+    `As a thank-you, you can pick either 500 Pinz or a $5 e-gift card.\n\n` +
+    `Take the survey: ${surveyUrl}\n\n` +
+    `Thanks,\nFastTrax Team\n\n` +
+    `Unsubscribe: ${unsubUrl}`;
+  const html =
+    `<!doctype html><html><body style="margin:0;padding:0;background:#f5f7fb;font-family:` +
+    `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;` +
+    `color:#0a0a0a;">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" ` +
+    `style="background:#f5f7fb;padding:24px 0;"><tr><td align="center">` +
+    `<table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" ` +
+    `style="max-width:480px;background:#ffffff;border-radius:14px;` +
+    `box-shadow:0 4px 14px rgba(0,0,0,0.10);overflow:hidden;">` +
+    `<tr><td style="background:#0a0a0a;padding:20px 24px;color:#ffffff;` +
+    `font-size:18px;font-weight:700;letter-spacing:0.3px;">FastTrax</td></tr>` +
+    `<tr><td style="padding:24px;font-size:15px;line-height:1.55;color:#0a0a0a;">` +
+    `<p style="margin:0 0 12px;">${escapeHtml(greeting)}</p>` +
+    `<p style="margin:0 0 16px;">Thanks for racing with us! We'd love a minute of your time - ` +
+    `the survey takes about 60 seconds.</p>` +
+    `<p style="margin:0 0 20px;">As a thank-you, you can pick <strong>500 Pinz</strong> or a ` +
+    `<strong>$5 e-gift card</strong> when you're done.</p>` +
+    `<p style="margin:0 0 24px;text-align:center;">` +
+    `<a href="${surveyUrl}" style="display:inline-block;background:#e11d2a;color:#ffffff;` +
+    `text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:999px;">` +
+    `Take the survey</a></p>` +
+    `<p style="margin:0;color:#5b6b85;font-size:13px;">If the button doesn't work, paste this ` +
+    `into your browser:<br><span style="word-break:break-all;color:#0a0a0a;">${escapeHtml(surveyUrl)}</span></p>` +
+    `</td></tr>` +
+    `<tr><td style="background:#f5f7fb;padding:14px 24px;font-size:11px;color:#7b8aa3;` +
+    `line-height:1.5;">` +
+    `FastTrax - Thanks for racing. ` +
+    `<a href="${unsubUrl}" style="color:#7b8aa3;text-decoration:underline;">Unsubscribe</a>` +
+    `</td></tr></table></td></tr></table></body></html>`;
+  return { subject, html, text };
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -144,5 +226,7 @@ function escapeHtml(s: string): string {
 export const TEMPLATE_KEYS = {
   bowlingSurveyInvite: "bowling_survey_invite",
   bowlingSurveyInviteEmail: "bowling_survey_invite_email",
+  racingSurveyInvite: "racing_survey_invite",
+  racingSurveyInviteEmail: "racing_survey_invite_email",
 } as const;
 export type TemplateKey = (typeof TEMPLATE_KEYS)[keyof typeof TEMPLATE_KEYS];

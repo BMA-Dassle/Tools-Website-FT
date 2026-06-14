@@ -33,7 +33,10 @@ export type SkipReason =
   | "no_marketing_consent"
   | "audience_resolve_failed"
   | "no_phone"
-  | "no_db";
+  | "no_db"
+  // Racing only: the racer is a minor (a guardian is on file). We never
+  // survey minors, and we never redirect the survey to the guardian.
+  | "minor";
 
 export interface EnqueueBowlingSurveyInput {
   /** Neon bowling_reservations.id — used as the origin_ref. */
@@ -50,4 +53,24 @@ export interface EnqueueBowlingSurveyInput {
   visitDate: string;
   /** ISO timestamp the guest is considered to have completed the visit. */
   completedAt?: string;
+}
+
+export interface EnqueueRacingSurveyInput {
+  /** vt3 video code — unique per race video; used as the origin_ref so the
+   *  (origin='racing', origin_ref) unique index makes the send idempotent. */
+  videoCode: string;
+  /** Racer's OWN phone (never the guardian's). Empty/absent → skip. */
+  phone?: string;
+  /** Racer display name (single string, e.g. "Ada Lovelace"). */
+  guestName?: string;
+  /** Racer's OWN email — optional, used for the SMS-failure fallback. */
+  guestEmail?: string;
+  /** FastTrax Square location id (center_code) — "LAB52GY480CJF". */
+  centerCode: string;
+  /** Visit date in YYYY-MM-DD (center timezone). */
+  visitDate: string;
+  /** True when a guardian is on file for this racer (i.e. a minor). When
+   *  true the survey is skipped outright — minors are never surveyed and
+   *  the invite is never redirected to the guardian. */
+  isMinor?: boolean;
 }

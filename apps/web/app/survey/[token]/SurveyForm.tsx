@@ -8,16 +8,61 @@ import type { GuestSurveyQuestion } from "@/lib/guest-survey-db";
 // fails the build.
 import { visibleQuestions, type AnswerMap } from "~/features/guest-survey/gating";
 
-const HP_BG = "#0a1628"; // matches body background set in root layout
-const HP_CARD = "rgba(7,16,39,0.95)"; // deep navy panel
-const HP_BORDER = "rgba(255,255,255,0.08)";
-const HP_BORDER_ACTIVE = "#fd5b56"; // coral accent
-const HP_TEXT_MUTED = "rgba(255,255,255,0.65)";
+/**
+ * Survey brand. "headpinz" (bowling, the original/live path) and "fasttrax"
+ * (racing). The form is identical in structure — only the palette, the
+ * fixed-nav clearance, and a couple of loyalty-program labels differ.
+ */
+export type SurveyBrand = "headpinz" | "fasttrax";
+
+interface Theme {
+  /** Page background — matches the body bg the root layout sets per brand. */
+  bg: string;
+  /** Question / reward card panel. */
+  card: string;
+  /** Hairline border on cards + inputs. */
+  border: string;
+  /** Accent: selected pills, primary button, error text. */
+  accent: string;
+  /** Translucent accent fill behind selected pills. */
+  accentFill: string;
+  /** Muted secondary text. */
+  muted: string;
+  /** Tailwind top-padding that clears the brand's fixed nav. */
+  navClear: string;
+  /** Loyalty program name shown on the Pinz reward. */
+  rewardsProgram: string;
+}
+
+const THEMES: Record<SurveyBrand, Theme> = {
+  headpinz: {
+    bg: "#0a1628",
+    card: "rgba(7,16,39,0.95)",
+    border: "rgba(255,255,255,0.08)",
+    accent: "#fd5b56", // coral
+    accentFill: "rgba(253,91,86,0.18)",
+    muted: "rgba(255,255,255,0.65)",
+    navClear: "pt-36 sm:pt-44",
+    rewardsProgram: "HeadPinz Rewards",
+  },
+  fasttrax: {
+    bg: "#000418",
+    card: "rgba(10,16,36,0.92)",
+    border: "rgba(255,255,255,0.08)",
+    accent: "#E53935", // ft-red
+    accentFill: "rgba(229,57,53,0.18)",
+    muted: "rgba(255,255,255,0.65)",
+    navClear: "pt-28 sm:pt-36",
+    rewardsProgram: "FastTrax Rewards",
+  },
+};
 
 interface SurveyFormProps {
   token: string;
   centerName: string;
   questions: GuestSurveyQuestion[];
+  /** Defaults to "headpinz" so the live bowling survey is unchanged. */
+  brand?: SurveyBrand;
 }
 
 type SubmitState =
@@ -46,13 +91,16 @@ interface RewardSummary {
 }
 
 /**
- * Mobile-first guest survey form, HeadPinz-branded.
+ * Mobile-first guest survey form. Brand-aware (HeadPinz bowling / FastTrax
+ * racing) via the `brand` prop — see THEMES above.
  *
  * Renders all currently-visible questions in a single scrollable column.
- * Gating runs live as the user answers — fnb_service Q2-5 reveal once Q1=Yes.
- * No reward picker yet — that ships in PR-GS3.
+ * Gating runs live as the user answers — e.g. food_drink Q2-5 reveal once
+ * Q1=Yes, and the racing slow-down explainer reveals only when the racer
+ * says they didn't understand.
  */
-export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
+export function SurveyForm({ token, centerName, questions, brand = "headpinz" }: SurveyFormProps) {
+  const t = THEMES[brand];
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
 
@@ -133,8 +181,9 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
 
   if (submitState.kind === "picking_reward" || submitState.kind === "issuing_reward") {
     return (
-      <Shell>
+      <Shell t={t}>
         <RewardPicker
+          t={t}
           centerName={centerName}
           loading={submitState.kind === "issuing_reward"}
           loadingKind={submitState.kind === "issuing_reward" ? submitState.kind2 : null}
@@ -149,17 +198,22 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
 
   if (submitState.kind === "reward_issued") {
     return (
-      <Shell>
-        <RewardConfirmation reward={submitState.reward} centerName={centerName} token={token} />
+      <Shell t={t}>
+        <RewardConfirmation
+          t={t}
+          reward={submitState.reward}
+          centerName={centerName}
+          token={token}
+        />
       </Shell>
     );
   }
 
   return (
-    <Shell>
+    <Shell t={t}>
       <header className="mb-7">
         <h1 className="font-heading text-3xl font-bold leading-tight">How was your visit?</h1>
-        <p className="text-sm mt-2" style={{ color: HP_TEXT_MUTED }}>
+        <p className="text-sm mt-2" style={{ color: t.muted }}>
           {centerName} · 60 seconds · {visible.length} question{visible.length === 1 ? "" : "s"}
         </p>
       </header>
@@ -168,6 +222,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
         {visible.map((q) => (
           <QuestionField
             key={q.id}
+            t={t}
             question={q}
             value={answers[String(q.id)]}
             onChange={(v) => setAnswer(q.id, v)}
@@ -175,7 +230,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
         ))}
 
         {submitState.kind === "error" ? (
-          <p className="text-sm" style={{ color: HP_BORDER_ACTIVE }} role="alert">
+          <p className="text-sm" style={{ color: t.accent }} role="alert">
             {submitState.message}
           </p>
         ) : null}
@@ -184,7 +239,7 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
           type="submit"
           disabled={!canSubmit}
           className="w-full rounded-lg font-heading font-bold py-3.5 text-base text-white transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ backgroundColor: HP_BORDER_ACTIVE }}
+          style={{ backgroundColor: t.accent }}
         >
           {submitState.kind === "submitting" ? "Submitting…" : "Submit"}
         </button>
@@ -193,14 +248,14 @@ export function SurveyForm({ token, centerName, questions }: SurveyFormProps) {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  // pt-28 / sm:pt-36 clears the fixed HeadPinzNav rendered above — same
-  // offset booking pages use (apps/web/app/hp/book/page.tsx). Without
-  // this the nav overlaps the page heading "How was your visit?".
+function Shell({ t, children }: { t: Theme; children: React.ReactNode }) {
+  // navClear pads past the brand's fixed nav so it doesn't overlap the page
+  // heading "How was your visit?" (HeadPinzNav and the FastTrax Nav have
+  // different heights — see THEMES).
   return (
     <main
-      className="text-white font-body pt-36 sm:pt-44"
-      style={{ backgroundColor: HP_BG, paddingBottom: "16px" }}
+      className={`text-white font-body ${t.navClear}`}
+      style={{ backgroundColor: t.bg, paddingBottom: "16px" }}
     >
       <div className="w-full max-w-md mx-auto px-4">{children}</div>
     </main>
@@ -212,12 +267,13 @@ function Shell({ children }: { children: React.ReactNode }) {
 // ─────────────────────────────────────────────────────────────────
 
 interface QuestionFieldProps {
+  t: Theme;
   question: GuestSurveyQuestion;
   value: AnswerMap[string];
   onChange: (v: AnswerMap[string]) => void;
 }
 
-function QuestionField({ question, value, onChange }: QuestionFieldProps) {
+function QuestionField({ t, question, value, onChange }: QuestionFieldProps) {
   // Plain <div> rather than <fieldset>/<legend>: the default legend
   // styling positions the label BREAKING the top border (sticking out
   // above the card) instead of sitting inside. Eric reported "questions
@@ -227,20 +283,20 @@ function QuestionField({ question, value, onChange }: QuestionFieldProps) {
   return (
     <div
       className="rounded-xl p-4"
-      style={{ backgroundColor: HP_CARD, border: `1px solid ${HP_BORDER}` }}
+      style={{ backgroundColor: t.card, border: `1px solid ${t.border}` }}
     >
       <div id={headingId} className="font-heading font-semibold text-base leading-snug mb-3">
         {question.question}
       </div>
       <div role="group" aria-labelledby={headingId}>
         {question.kind === "rating_1_5" ? (
-          <Rating1to5 value={value} onChange={onChange} />
+          <Rating1to5 t={t} value={value} onChange={onChange} />
         ) : question.kind === "yes_no" ? (
-          <YesNo value={value} onChange={onChange} />
+          <YesNo t={t} value={value} onChange={onChange} />
         ) : question.kind === "multi" ? (
-          <MultiChoice choices={question.choices ?? []} value={value} onChange={onChange} />
+          <MultiChoice t={t} choices={question.choices ?? []} value={value} onChange={onChange} />
         ) : (
-          <TextInput value={value} onChange={onChange} />
+          <TextInput t={t} value={value} onChange={onChange} />
         )}
       </div>
     </div>
@@ -255,17 +311,19 @@ function pillClass(selected: boolean): string {
   ].join(" ");
 }
 
-function pillStyle(selected: boolean): React.CSSProperties {
+function pillStyle(t: Theme, selected: boolean): React.CSSProperties {
   return {
-    border: `2px solid ${selected ? HP_BORDER_ACTIVE : "rgba(255,255,255,0.18)"}`,
-    backgroundColor: selected ? "rgba(253,91,86,0.18)" : "transparent",
+    border: `2px solid ${selected ? t.accent : "rgba(255,255,255,0.18)"}`,
+    backgroundColor: selected ? t.accentFill : "transparent",
   };
 }
 
 function Rating1to5({
+  t,
   value,
   onChange,
 }: {
+  t: Theme;
   value: AnswerMap[string];
   onChange: (v: number) => void;
 }) {
@@ -281,7 +339,7 @@ function Rating1to5({
             aria-checked={selected}
             onClick={() => onChange(n)}
             className={pillClass(selected)}
-            style={pillStyle(selected)}
+            style={pillStyle(t, selected)}
           >
             {n}
           </button>
@@ -291,7 +349,15 @@ function Rating1to5({
   );
 }
 
-function YesNo({ value, onChange }: { value: AnswerMap[string]; onChange: (v: string) => void }) {
+function YesNo({
+  t,
+  value,
+  onChange,
+}: {
+  t: Theme;
+  value: AnswerMap[string];
+  onChange: (v: string) => void;
+}) {
   return (
     <div className="flex gap-2" role="radiogroup">
       {["Yes", "No"].map((label) => {
@@ -304,7 +370,7 @@ function YesNo({ value, onChange }: { value: AnswerMap[string]; onChange: (v: st
             aria-checked={selected}
             onClick={() => onChange(label)}
             className={pillClass(selected)}
-            style={pillStyle(selected)}
+            style={pillStyle(t, selected)}
           >
             {label}
           </button>
@@ -315,10 +381,12 @@ function YesNo({ value, onChange }: { value: AnswerMap[string]; onChange: (v: st
 }
 
 function MultiChoice({
+  t,
   choices,
   value,
   onChange,
 }: {
+  t: Theme;
   choices: string[];
   value: AnswerMap[string];
   onChange: (v: string) => void;
@@ -339,7 +407,7 @@ function MultiChoice({
               "transition-colors duration-150",
               selected ? "text-white font-semibold" : "text-white/80",
             ].join(" ")}
-            style={pillStyle(selected)}
+            style={pillStyle(t, selected)}
           >
             {choice}
           </button>
@@ -350,9 +418,11 @@ function MultiChoice({
 }
 
 function TextInput({
+  t,
   value,
   onChange,
 }: {
+  t: Theme;
   value: AnswerMap[string];
   onChange: (v: string) => void;
 }) {
@@ -367,7 +437,7 @@ function TextInput({
         border: `2px solid rgba(255,255,255,0.18)`,
       }}
       onFocus={(e) => {
-        e.currentTarget.style.borderColor = HP_BORDER_ACTIVE;
+        e.currentTarget.style.borderColor = t.accent;
       }}
       onBlur={(e) => {
         e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)";
@@ -381,6 +451,7 @@ function TextInput({
 // ─────────────────────────────────────────────────────────────────
 
 interface RewardPickerProps {
+  t: Theme;
   centerName: string;
   loading: boolean;
   loadingKind: RewardKind | null;
@@ -389,6 +460,7 @@ interface RewardPickerProps {
 }
 
 function RewardPicker({
+  t,
   centerName,
   loading,
   loadingKind,
@@ -399,7 +471,7 @@ function RewardPicker({
     <div>
       <header className="mb-6">
         <h1 className="font-heading text-3xl font-bold leading-tight">Thanks for your feedback!</h1>
-        <p className="text-sm mt-2" style={{ color: HP_TEXT_MUTED }}>
+        <p className="text-sm mt-2" style={{ color: t.muted }}>
           Pick your reward — we&apos;ll send it as soon as you tap.
         </p>
       </header>
@@ -409,8 +481,8 @@ function RewardPicker({
           role="alert"
           className="rounded-lg p-3 mb-4 text-sm"
           style={{
-            backgroundColor: "rgba(253,91,86,0.12)",
-            border: `1px solid ${HP_BORDER_ACTIVE}`,
+            backgroundColor: t.accentFill,
+            border: `1px solid ${t.accent}`,
             color: "#ffd6d4",
           }}
         >
@@ -421,14 +493,16 @@ function RewardPicker({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <RewardCard
+          t={t}
           title="500 Pinz"
           body="~$5 toward your next visit"
-          subBody="We'll enroll you in HeadPinz Rewards if you're not already a member."
+          subBody={`We'll enroll you in ${t.rewardsProgram} if you're not already a member.`}
           disabled={loading}
           loading={loadingKind === "pinz"}
           onClick={() => onPick("pinz")}
         />
         <RewardCard
+          t={t}
           title="$5 e-gift card"
           body="Redeem at the bar or front desk"
           subBody=" "
@@ -438,7 +512,7 @@ function RewardPicker({
         />
       </div>
 
-      <p className="text-xs mt-6 text-center" style={{ color: HP_TEXT_MUTED }}>
+      <p className="text-xs mt-6 text-center" style={{ color: t.muted }}>
         See you at {centerName} soon.
       </p>
     </div>
@@ -446,6 +520,7 @@ function RewardPicker({
 }
 
 function RewardCard(props: {
+  t: Theme;
   title: string;
   body: string;
   subBody: string;
@@ -453,6 +528,7 @@ function RewardCard(props: {
   loading: boolean;
   onClick: () => void;
 }) {
+  const { t } = props;
   return (
     <button
       type="button"
@@ -460,23 +536,19 @@ function RewardCard(props: {
       onClick={props.onClick}
       className="w-full text-left rounded-xl p-5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       style={{
-        backgroundColor: HP_CARD,
-        border: `2px solid ${props.loading ? HP_BORDER_ACTIVE : "rgba(255,255,255,0.12)"}`,
+        backgroundColor: t.card,
+        border: `2px solid ${props.loading ? t.accent : "rgba(255,255,255,0.12)"}`,
       }}
     >
       <div className="font-heading text-xl font-bold mb-1">{props.title}</div>
       <div className="text-sm text-white/85 leading-snug">{props.body}</div>
       {props.subBody.trim() ? (
-        <div className="text-xs mt-3 leading-snug" style={{ color: HP_TEXT_MUTED }}>
+        <div className="text-xs mt-3 leading-snug" style={{ color: t.muted }}>
           {props.subBody}
         </div>
       ) : null}
       {props.loading ? (
-        <div
-          className="text-xs mt-3 font-semibold"
-          style={{ color: HP_BORDER_ACTIVE }}
-          role="status"
-        >
+        <div className="text-xs mt-3 font-semibold" style={{ color: t.accent }} role="status">
           Sending…
         </div>
       ) : null}
@@ -485,18 +557,19 @@ function RewardCard(props: {
 }
 
 interface RewardConfirmationProps {
+  t: Theme;
   reward: RewardSummary;
   centerName: string;
   token: string;
 }
 
-function RewardConfirmation({ reward, centerName, token }: RewardConfirmationProps) {
+function RewardConfirmation({ t, reward, centerName, token }: RewardConfirmationProps) {
   if (reward.kind === "pinz") {
     return (
       <div>
         <h1 className="font-heading text-3xl font-bold mb-3">You got Pinz!</h1>
         <p className="text-white/85 leading-relaxed mb-2">
-          <strong>{reward.value} Pinz</strong> added to your HeadPinz Rewards account.
+          <strong>{reward.value} Pinz</strong> added to your {t.rewardsProgram} account.
         </p>
         {typeof reward.newBalance === "number" ? (
           <p className="text-white/70 text-sm">
@@ -510,14 +583,16 @@ function RewardConfirmation({ reward, centerName, token }: RewardConfirmationPro
     );
   }
   // gift_card
-  return <GiftCardConfirmation reward={reward} centerName={centerName} token={token} />;
+  return <GiftCardConfirmation t={t} reward={reward} centerName={centerName} token={token} />;
 }
 
 function GiftCardConfirmation({
+  t,
   reward,
   centerName,
   token,
 }: {
+  t: Theme;
   reward: RewardSummary;
   centerName: string;
   token: string;
@@ -560,13 +635,13 @@ function GiftCardConfirmation({
       {reward.qrDataUrl || reward.gan ? (
         <div
           className="rounded-xl p-5 mb-4 flex flex-col items-center"
-          style={{ backgroundColor: HP_CARD, border: `1px solid ${HP_BORDER}` }}
+          style={{ backgroundColor: t.card, border: `1px solid ${t.border}` }}
         >
           {reward.qrDataUrl ? (
             <>
               <div
                 className="text-[10px] uppercase tracking-[0.2em] mb-3"
-                style={{ color: HP_TEXT_MUTED }}
+                style={{ color: t.muted }}
               >
                 Scan to view balance
               </div>
@@ -583,11 +658,11 @@ function GiftCardConfirmation({
           {reward.gan ? (
             <div
               className="w-full mt-4 pt-4 text-center"
-              style={{ borderTop: `1px solid ${HP_BORDER}` }}
+              style={{ borderTop: `1px solid ${t.border}` }}
             >
               <div
                 className="text-[10px] uppercase tracking-[0.2em] mb-2"
-                style={{ color: HP_TEXT_MUTED }}
+                style={{ color: t.muted }}
               >
                 Gift card number
               </div>
@@ -603,20 +678,14 @@ function GiftCardConfirmation({
       {reward.promoCode ? (
         <div
           className="rounded-xl p-4 mb-4 text-center"
-          style={{
-            backgroundColor: "rgba(253,91,86,0.08)",
-            border: `1px solid ${HP_BORDER_ACTIVE}`,
-          }}
+          style={{ backgroundColor: t.accentFill, border: `1px solid ${t.accent}` }}
         >
-          <div
-            className="text-[10px] uppercase tracking-[0.2em] mb-1"
-            style={{ color: HP_TEXT_MUTED }}
-          >
+          <div className="text-[10px] uppercase tracking-[0.2em] mb-1" style={{ color: t.muted }}>
             Reward code
           </div>
           <div
             className="font-heading text-2xl font-bold tracking-widest"
-            style={{ color: HP_BORDER_ACTIVE }}
+            style={{ color: t.accent }}
           >
             {reward.promoCode}
           </div>
@@ -631,7 +700,7 @@ function GiftCardConfirmation({
             target="_blank"
             rel="noopener noreferrer"
             className="block w-full rounded-lg font-heading font-bold py-3.5 text-base text-center text-white"
-            style={{ backgroundColor: HP_BORDER_ACTIVE }}
+            style={{ backgroundColor: t.accent }}
           >
             Add to Apple Wallet
           </a>
@@ -654,14 +723,14 @@ function GiftCardConfirmation({
               : "Text this to my phone"}
         </button>
         {smsError ? (
-          <p className="text-sm text-center" style={{ color: HP_BORDER_ACTIVE }} role="alert">
+          <p className="text-sm text-center" style={{ color: t.accent }} role="alert">
             {smsError}
           </p>
         ) : null}
       </div>
 
       {reward.balanceUrl ? (
-        <p className="text-xs text-center mt-5" style={{ color: HP_TEXT_MUTED }}>
+        <p className="text-xs text-center mt-5" style={{ color: t.muted }}>
           Or check balance later at{" "}
           <a
             href={reward.balanceUrl}

@@ -18,11 +18,18 @@ import {
   recordTouch,
   renderBowlingSurveyInvite,
   renderBowlingSurveyInviteEmail,
+  renderRacingSurveyInvite,
+  renderRacingSurveyInviteEmail,
   resolveAudienceMember,
   splitGuestName,
 } from "~/features/marketing";
 import { pickQuestions, pickTags } from "./questions";
-import type { EnqueueBowlingSurveyInput, EnqueueOutcome, SkipReason } from "./types";
+import type {
+  EnqueueBowlingSurveyInput,
+  EnqueueRacingSurveyInput,
+  EnqueueOutcome,
+  SkipReason,
+} from "./types";
 
 /**
  * Guest survey orchestration — bowling.
@@ -291,6 +298,263 @@ export async function enqueueBowlingSurvey(
       visitDate: input.visitDate,
       tags,
       shortCode,
+      provider: deliveredChannel === "sms" ? smsProvider : "sendgrid",
+      failedOver: deliveredChannel === "email" ? true : smsFailedOver,
+      ...(deliveredChannel === "email" && smsError ? { smsErrorBeforeEmail: smsError } : {}),
+    },
+  });
+
+  return { status: "sent", surveyId: survey.id, token, tags };
+}
+
+/**
+ * Guest survey orchestration — racing (FastTrax).
+ *
+ * Called from the racing-survey-sweep cron ~15 min after the racer's video
+ * notification fired. Idempotent on (origin='racing', origin_ref=videoCode).
+ *
+ * Mirrors enqueueBowlingSurvey step-for-step, with three deltas:
+ *   - Minors are skipped outright (input.isMinor) — we never survey a minor
+ *     and never redirect the invite to the guardian. This is the FIRST gate.
+ *   - origin='racing', origin_ref=videoCode, centerCode = FastTrax Square
+ *     location, tag set = [baseline, racing, food_drink, closing].
+ *   - FastTrax-branded SMS/email on the fasttraxent.com domain.
+ *
+ * The delivery + rollback + touch tail is intentionally parallel to the
+ * bowling path rather than shared: the bowling function is in production and
+ * brand-specific, so a sibling keeps the diff contained and the live path
+ * untouched.
+ */
+export async function enqueueRacingSurvey(
+  input: EnqueueRacingSurveyInput,
+): Promise<EnqueueOutcome> {
+  // ── Step 0: never survey a minor ──────────────────────────────────
+  // A guardian on file = minor racer. Hard skip before any work.
+  if (input.isMinor) {
+    return { status: "skipped", reason: "minor" };
+  }
+  if (!input.phone) {
+    return { status: "skipped", reason: "no_phone" };
+  }
+  if (!isDbConfigured()) {
+    return { status: "skipped", reason: "no_db" };
+  }
+
+  // Self-heal: seed the question pool on first use (idempotent no-op once seeded).
+  await seedGuestSurveyQuestionsIfEmpty().catch((err) =>
+    console.warn("[guest-survey] auto-seed failed (non-fatal):", err),
+  );
+
+  // ── Idempotency on (origin, origin_ref=videoCode) ─────────────────
+  const existing = await getGuestSurveyByOriginRef({
+    origin: "racing",
+    originRef: input.videoCode,
+  });
+  if (existing) {
+    return {
+      status: "skipped",
+      reason: "already_sent_for_origin_ref",
+      detail: `existing survey ${existing.id}`,
+    };
+  }
+
+  // ── Resolve Square customer ───────────────────────────────────────
+  const { firstName, lastName } = splitGuestName(input.guestName ?? "");
+  let audience;
+  try {
+    audience = await resolveAudienceMember({
+      phone: input.phone,
+      firstName,
+      lastName,
+      email: input.guestEmail,
+    });
+  } catch (err) {
+    return {
+      status: "skipped",
+      reason: "audience_resolve_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+  const { squareCustomerId, phoneE164 } = audience;
+
+  // ── Marketing consent (implicit-via-transactional) ────────────────
+  // The racer just received a transactional video SMS, which covers a
+  // single post-visit survey. Only an EXPLICIT STOP blocks.
+  const consent = await getConsent(phoneE164);
+  if (consent && consent.optedIn === false) {
+    await recordSkipTouch({
+      customerId: squareCustomerId,
+      phoneE164,
+      reservationId: input.videoCode,
+      reason: "no_marketing_consent",
+    });
+    return { status: "skipped", reason: "no_marketing_consent" };
+  }
+
+  // ── 30-day frequency cap (shared 'guest_survey' campaign) ─────────
+  const cap = await canSend({
+    customerId: squareCustomerId,
+    campaign: "guest_survey",
+    windowDays: 30,
+  });
+  if (!cap.allowed) {
+    await recordSkipTouch({
+      customerId: squareCustomerId,
+      phoneE164,
+      reservationId: input.videoCode,
+      reason: "within_frequency_window",
+      meta: { lastSentAt: cap.lastSentAt?.toISOString() },
+    });
+    return { status: "skipped", reason: "within_frequency_window" };
+  }
+
+  // ── Pick tags + questions ─────────────────────────────────────────
+  const tags = pickTags({ origin: "racing" });
+  const questions = await pickQuestions(tags);
+
+  // ── Insert row + shorten URL ──────────────────────────────────────
+  const token = randomUUID();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const context = {
+    origin: "racing" as const,
+    centerCode: input.centerCode,
+    visitDate: input.visitDate,
+    tags,
+    videoCode: input.videoCode,
+  };
+
+  const survey = await insertGuestSurvey({
+    token,
+    squareCustomerId,
+    phoneE164,
+    origin: "racing",
+    originRef: input.videoCode,
+    centerCode: input.centerCode,
+    visitDate: input.visitDate,
+    context,
+    questions,
+    expiresAt,
+  });
+
+  // ── Short-link + SMS, with row rollback on failure ────────────────
+  let shortCode: string;
+  try {
+    shortCode = await shortenUrl(`/survey/${token}`);
+  } catch (err) {
+    await deleteGuestSurveyByToken(token).catch(() => {});
+    return {
+      status: "skipped",
+      reason: "audience_resolve_failed",
+      detail: `short link failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const body = renderRacingSurveyInvite({ code: shortCode });
+  const centerSmsFrom = CENTER_META[input.centerCode]?.smsFrom;
+
+  let smsOk = false;
+  let smsStatus: number | null = null;
+  let smsError: string | undefined;
+  let smsProvider: "vox" | "twilio" = "vox";
+  let smsFailedOver = false;
+  let providerMessageId: string | undefined;
+
+  try {
+    const result = await voxSend(phoneE164, body, { fromOverride: centerSmsFrom });
+    smsOk = result.ok;
+    smsStatus = result.status ?? null;
+    smsError = result.error;
+    smsProvider = result.provider ?? "vox";
+    smsFailedOver = result.failedOver ?? false;
+    providerMessageId = result.voxId ?? result.twilioSid;
+  } catch (err) {
+    smsError = err instanceof Error ? err.message : String(err);
+  }
+
+  // ── Email fallback if SMS failed and we have an email ─────────────
+  let deliveredChannel: "sms" | "email" | null = smsOk ? "sms" : null;
+  let emailError: string | undefined;
+  let emailStatus: number | null = null;
+  if (!smsOk && input.guestEmail) {
+    const email = renderRacingSurveyInviteEmail({
+      code: shortCode,
+      guestName: input.guestName,
+      phoneE164,
+    });
+    const guestDisplayName = input.guestName?.trim() || undefined;
+    const result = await sendEmail({
+      to: input.guestEmail,
+      toName: guestDisplayName,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+    });
+    emailStatus = result.status;
+    emailError = result.error;
+    if (result.ok) {
+      deliveredChannel = "email";
+      await updateGuestSurveyContext({ token, patch: { channel: "email" } }).catch((err) =>
+        console.warn(`[guest-survey] context update (email channel) failed for ${token}:`, err),
+      );
+    }
+  }
+
+  if (!deliveredChannel) {
+    await deleteGuestSurveyByToken(token).catch((delErr) =>
+      console.warn(`[guest-survey] rollback delete failed for ${token} (non-fatal):`, delErr),
+    );
+    await recordSkipTouch({
+      customerId: squareCustomerId,
+      phoneE164,
+      reservationId: input.videoCode,
+      reason: "audience_resolve_failed",
+      meta: {
+        smsError,
+        smsStatus,
+        emailAttempted: Boolean(input.guestEmail),
+        emailError,
+        emailStatus,
+      },
+    });
+    return {
+      status: "skipped",
+      reason: "audience_resolve_failed",
+      detail: input.guestEmail
+        ? `sms + email failed: sms=${smsError ?? "?"} email=${emailError ?? "?"}`
+        : `sms send failed: ${smsError ?? "unknown"}`,
+    };
+  }
+
+  if (deliveredChannel === "sms") {
+    await logSms({
+      ts: new Date().toISOString(),
+      phone: phoneE164,
+      source: "guest-survey",
+      status: smsStatus,
+      ok: true,
+      provider: smsProvider,
+      failedOver: smsFailedOver,
+      shortCode,
+      body,
+      providerMessageId,
+    });
+  }
+
+  await recordTouch({
+    customerId: squareCustomerId,
+    phoneE164,
+    campaign: "guest_survey",
+    channel: deliveredChannel,
+    event: "sent",
+    refId: token,
+    meta: {
+      origin: "racing",
+      centerCode: input.centerCode,
+      visitDate: input.visitDate,
+      tags,
+      shortCode,
+      videoCode: input.videoCode,
       provider: deliveredChannel === "sms" ? smsProvider : "sendgrid",
       failedOver: deliveredChannel === "email" ? true : smsFailedOver,
       ...(deliveredChannel === "email" && smsError ? { smsErrorBeforeEmail: smsError } : {}),

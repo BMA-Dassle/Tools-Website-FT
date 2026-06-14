@@ -30,9 +30,17 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   const survey = await getGuestSurveyByToken(token);
   if (!survey) notFound();
 
-  const centerName = CENTER_META[survey.centerCode]?.name ?? "HeadPinz";
+  // Racing surveys are FastTrax-branded; bowling stays HeadPinz. The page
+  // serves on both domains (see middleware isSharedTopLevelRoute), so brand
+  // off the survey ORIGIN, not the host — a racing survey link opened on
+  // headpinz.com still renders FastTrax, and vice-versa.
+  const isRacing = survey.origin === "racing";
+  const centerName = CENTER_META[survey.centerCode]?.name ?? (isRacing ? "FastTrax" : "HeadPinz");
   const hdrs = await headers();
-  const isHeadPinz = hdrs.get("x-brand") === "headpinz";
+  // HeadPinz chrome (HP Nav/Footer added by this page) applies to bowling
+  // only. For FastTrax racing the root layout already renders the FT
+  // Nav/Footer, so BrandShell falls through to bare children.
+  const isHeadPinz = hdrs.get("x-brand") === "headpinz" && !isRacing;
 
   if (survey.completedAt) {
     return (
@@ -69,6 +77,7 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
       <SurveyForm
         token={token}
         centerName={centerName}
+        brand={isRacing ? "fasttrax" : "headpinz"}
         questions={survey.questions as GuestSurveyQuestion[]}
       />
     </BrandShell>

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { enqueueBowlingSurvey } from "~/features/guest-survey";
+import { enqueueBowlingSurvey, enqueueRacingSurvey } from "~/features/guest-survey";
 import { deleteGuestSurveysByPhone } from "@/lib/guest-survey-db";
 import { deleteMarketingTouchesByPhone } from "@/lib/marketing-db";
 import { normalizePhoneE164, recordOptIn } from "~/features/marketing";
+
+/** FastTrax Square location id — default center for racing test sends. */
+const FASTTRAX_CENTER_CODE = "LAB52GY480CJF";
 
 /**
  * POST /api/admin/guest-survey/send-test
@@ -39,6 +42,9 @@ export async function POST(req: NextRequest) {
     centerCode?: string;
     reservationId?: string;
     ensureOptIn?: boolean;
+    /** "bowling" (default) | "racing". Racing uses the FastTrax flow +
+     *  branding and defaults centerCode to the FastTrax Square location. */
+    origin?: "bowling" | "racing";
     /** Force-retry: wipe prior guest_surveys + marketing_touches rows for this
      *  phone before enqueuing. Used to re-test the same phone within the
      *  30-day cap window. Destructive — admin only. */
@@ -50,7 +56,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  if (!body.phone || !body.guestName || !body.centerCode) {
+  const origin = body.origin === "racing" ? "racing" : "bowling";
+  // centerCode is required for bowling; racing defaults to FastTrax.
+  const centerCode = body.centerCode ?? (origin === "racing" ? FASTTRAX_CENTER_CODE : undefined);
+
+  if (!body.phone || !body.guestName || !centerCode) {
     return NextResponse.json(
       { error: "phone, guestName, centerCode are required" },
       { status: 400 },
@@ -99,25 +109,38 @@ export async function POST(req: NextRequest) {
   // point).
   const phoneDigits = phoneE164.replace(/\D/g, "");
   const dayStamp = new Date().toISOString().slice(0, 10);
-  const reservationId = body.reservationId ?? `admin-test-${phoneDigits}-${dayStamp}`;
+  // origin_ref (reservationId for bowling, videoCode for racing) — stable
+  // per-day so re-running the SAME test on the SAME day is idempotent.
+  const originRef = body.reservationId ?? `admin-test-${phoneDigits}-${dayStamp}`;
 
   const visitDate = new Date().toLocaleDateString("en-CA", {
     timeZone: "America/New_York",
   });
 
   console.log(
-    `[admin-debug] send-test phone=${phoneE164} center=${body.centerCode}` +
-      ` reservationId=${reservationId} ensureOptIn=${body.ensureOptIn !== false}`,
+    `[admin-debug] send-test origin=${origin} phone=${phoneE164} center=${centerCode}` +
+      ` originRef=${originRef} ensureOptIn=${body.ensureOptIn !== false}`,
   );
 
-  const outcome = await enqueueBowlingSurvey({
-    reservationId,
-    phone: phoneE164,
-    guestName: body.guestName,
-    guestEmail: body.guestEmail,
-    centerCode: body.centerCode,
-    visitDate,
-  });
+  const outcome =
+    origin === "racing"
+      ? await enqueueRacingSurvey({
+          videoCode: originRef,
+          phone: phoneE164,
+          guestName: body.guestName,
+          guestEmail: body.guestEmail,
+          centerCode,
+          visitDate,
+          isMinor: false,
+        })
+      : await enqueueBowlingSurvey({
+          reservationId: originRef,
+          phone: phoneE164,
+          guestName: body.guestName,
+          guestEmail: body.guestEmail,
+          centerCode,
+          visitDate,
+        });
 
   console.log(`[admin-debug] send-test outcome=${JSON.stringify(outcome)}`);
 

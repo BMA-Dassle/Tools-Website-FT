@@ -139,7 +139,13 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith("/api/admin/sales/") ||
       pathname.startsWith("/api/admin/videos/") ||
       pathname.startsWith("/api/admin/e-tickets/") ||
-      pathname.startsWith("/api/admin/pov-codes/");
+      pathname.startsWith("/api/admin/pov-codes/") ||
+      // Guest-survey results (stats / list / question-stats) — the HeadPinz
+      // portal pulls these via x-api-key. Read-only analytics endpoints;
+      // racing results filter with ?origin=racing. Same key list
+      // (SALES_API_KEYS), same backend + Neon DB for both brands — there is
+      // no separate FastTrax survey API.
+      pathname.startsWith("/api/admin/guest-survey/");
     if (apiKeyEligible) {
       const provided =
         request.headers.get("x-api-key") || request.nextUrl.searchParams.get("apiKey");

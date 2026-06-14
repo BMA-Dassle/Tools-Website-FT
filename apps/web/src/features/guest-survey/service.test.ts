@@ -25,6 +25,7 @@ vi.mock("@/lib/bowling-lane-ready-notify", () => ({
   CENTER_META: {
     TXBSQN0FEKQ11: { name: "HeadPinz Fort Myers", smsFrom: "+12393022155" },
     PPTR5G2N0QXF7: { name: "HeadPinz Naples", smsFrom: "+12394553755" },
+    LAB52GY480CJF: { name: "FastTrax", smsFrom: "+12394819666" },
   },
 }));
 
@@ -50,6 +51,12 @@ vi.mock("~/features/marketing", () => ({
     html: `<a href="/s/${code}">survey</a>`,
     text: `Take the survey: /s/${code}`,
   })),
+  renderRacingSurveyInvite: vi.fn(({ code }: { code: string }) => `MOCK RACING SMS /s/${code}`),
+  renderRacingSurveyInviteEmail: vi.fn(({ code }: { code: string }) => ({
+    subject: "How was your race at FastTrax?",
+    html: `<a href="/s/${code}">survey</a>`,
+    text: `Take the survey: /s/${code}`,
+  })),
   resolveAudienceMember: vi.fn(),
   splitGuestName: vi.fn((name: string) => ({
     firstName: name.split(" ")[0] ?? "",
@@ -70,7 +77,7 @@ import { shortenUrl } from "@/lib/short-url";
 import { sendEmail } from "@/lib/sendgrid";
 import { canSend, getConsent, recordTouch, resolveAudienceMember } from "~/features/marketing";
 import * as smsMock from "~/test/mocks/sms";
-import { enqueueBowlingSurvey } from "./service";
+import { enqueueBowlingSurvey, enqueueRacingSurvey } from "./service";
 
 const mockedIsDbConfigured = vi.mocked(isDbConfigured);
 const mockedGetExisting = vi.mocked(getGuestSurveyByOriginRef);
@@ -451,5 +458,107 @@ describe("enqueueBowlingSurvey — email fallback when SMS fails", () => {
     expect(result.status).toBe("skipped");
     expect(mockedSendEmail).not.toHaveBeenCalled();
     expect(mockedDelete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("enqueueRacingSurvey", () => {
+  const VIDEO_CODE = "vid12345AB";
+  const racingInput = () => ({
+    videoCode: VIDEO_CODE,
+    phone: PHONE_INPUT,
+    guestName: "Ada Lovelace",
+    guestEmail: "ada@example.com",
+    centerCode: "LAB52GY480CJF",
+    visitDate: VISIT_DATE,
+  });
+
+  it("NEVER surveys a minor — skips 'minor' before any DB/Square work", async () => {
+    const result = await enqueueRacingSurvey({ ...racingInput(), isMinor: true });
+
+    expect(result).toEqual({ status: "skipped", reason: "minor" });
+    // Hard stop before resolving the customer, inserting, or sending.
+    expect(mockedGetExisting).not.toHaveBeenCalled();
+    expect(mockedResolve).not.toHaveBeenCalled();
+    expect(mockedInsert).not.toHaveBeenCalled();
+    expect(smsMock.allSends()).toHaveLength(0);
+  });
+
+  it("sends a FastTrax survey on origin='racing' with origin_ref=videoCode", async () => {
+    mockedInsert.mockResolvedValueOnce({
+      id: "survey-uuid-racing",
+      token: "tok-r",
+      squareCustomerId: SQUARE_CUSTOMER_ID,
+      phoneE164: PHONE_E164,
+      origin: "racing",
+      originRef: VIDEO_CODE,
+      centerCode: "LAB52GY480CJF",
+      visitDate: VISIT_DATE,
+      context: {},
+      questions: [aQuestion()],
+      responses: null,
+      rewardKind: null,
+      rewardRef: null,
+      rewardValue: null,
+      sentAt: "2026-06-14T20:00:00.000Z",
+      openedAt: null,
+      completedAt: null,
+      expiresAt: "2026-06-21T20:00:00.000Z",
+      createdAt: "2026-06-14T20:00:00.000Z",
+    });
+
+    const result = await enqueueRacingSurvey(racingInput());
+
+    expect(result.status).toBe("sent");
+    if (result.status !== "sent") return;
+    expect(result.tags).toEqual(["baseline", "racing", "food_drink", "closing"]);
+
+    // Idempotency check ran against (origin='racing', origin_ref=videoCode)
+    expect(mockedGetExisting).toHaveBeenCalledWith({ origin: "racing", originRef: VIDEO_CODE });
+
+    const insertedArg = mockedInsert.mock.calls[0][0];
+    expect(insertedArg.origin).toBe("racing");
+    expect(insertedArg.originRef).toBe(VIDEO_CODE);
+    expect(insertedArg.centerCode).toBe("LAB52GY480CJF");
+
+    // SMS sent from the FastTrax number
+    const send = smsMock.lastSend();
+    expect(send?.to).toBe(PHONE_E164);
+    expect(send?.fromOverride).toBe("+12394819666");
+  });
+
+  it("returns 'no_phone' when the racer has no phone", async () => {
+    const result = await enqueueRacingSurvey({ ...racingInput(), phone: "" });
+    expect(result).toEqual({ status: "skipped", reason: "no_phone" });
+    expect(mockedResolve).not.toHaveBeenCalled();
+  });
+
+  it("de-dupes on origin_ref (already surveyed for this video)", async () => {
+    mockedGetExisting.mockResolvedValueOnce({
+      id: "existing-racing",
+      token: "existing-tok",
+      squareCustomerId: SQUARE_CUSTOMER_ID,
+      phoneE164: PHONE_E164,
+      origin: "racing",
+      originRef: VIDEO_CODE,
+      centerCode: "LAB52GY480CJF",
+      visitDate: VISIT_DATE,
+      context: {},
+      questions: [],
+      responses: null,
+      rewardKind: null,
+      rewardRef: null,
+      rewardValue: null,
+      sentAt: "2026-06-13T20:00:00.000Z",
+      openedAt: null,
+      completedAt: null,
+      expiresAt: "2026-06-20T20:00:00.000Z",
+      createdAt: "2026-06-13T20:00:00.000Z",
+    });
+
+    const result = await enqueueRacingSurvey(racingInput());
+    expect(result.status).toBe("skipped");
+    if (result.status !== "skipped") return;
+    expect(result.reason).toBe("already_sent_for_origin_ref");
+    expect(mockedInsert).not.toHaveBeenCalled();
   });
 });

@@ -64,13 +64,12 @@ export async function ensureGuestSurveySchema(): Promise<void> {
   //   The picker still grabs all matching questions; the survey UI hides
   //   gated ones at render time until their gate is satisfied.
   //
-  // Tag selection policy (consumed by PR-GS2's picker):
-  //   - baseline is always included
-  //   - For bowling visits: tags = [baseline, bowling, fnb_service] (always 3)
-  //   - For racing visits:  tags = [baseline, racing] + at most 1 cross-sell
-  //                         tag (food_drink / arcade / gel_blaster) derived
-  //                         from same-day Square purchases
-  //   - Max 3 tags per survey
+  // Tag selection policy (authoritative copy lives in questions.ts):
+  //   - baseline + closing are always included
+  //   - For bowling visits: tags = [baseline, bowling, fnb_service, closing]
+  //   - For racing visits:  tags = [baseline, racing, food_drink, closing]
+  //                         (food_drink self-gates on its purchase Q1)
+  //   - Max 4 tags per survey
   //   - No question-count cap; gating keeps the survey adaptive
   await q`
     CREATE TABLE IF NOT EXISTS guest_survey_questions (
@@ -1082,10 +1081,10 @@ interface SeedQuestion {
  * Canonical question pool. Mirrors the user-approved seed dated 2026-05-20.
  * Exported for tests + admin tooling.
  *
- * Picker policy (consumed in PR-GS2):
- *   - bowling visits  → tags = [baseline, bowling, fnb_service]
- *   - racing visits   → tags = [baseline, racing] + ≤1 cross-sell tag
- *   - max 3 tags total; no question-count cap (gating keeps length adaptive)
+ * Picker policy (authoritative copy in questions.ts):
+ *   - bowling visits  → tags = [baseline, bowling, fnb_service, closing]
+ *   - racing visits   → tags = [baseline, racing, food_drink, closing]
+ *   - max 4 tags total; no question-count cap (gating keeps length adaptive)
  */
 export const GUEST_SURVEY_QUESTIONS_SEED: SeedQuestion[] = [
   // ── baseline ────────────────────────────────────────────────────
@@ -1164,16 +1163,60 @@ export const GUEST_SURVEY_QUESTIONS_SEED: SeedQuestion[] = [
     kind: "yes_no",
   },
 
-  // ── food_drink (quality, not service) ───────────────────────────
-  { tag: "food_drink", ordinal: 1, question: "Rate the food & drinks", kind: "rating_1_5" },
+  // ── food_drink (racing-only tag — self-contained food + service) ──
+  // Used ONLY by racing surveys (bowling uses fnb_service instead — see
+  // the racing tag policy in questions.ts). Q1 is the
+  // purchase gate: a racer who bought nothing answers "No" and skips
+  // straight to the manager-check (Q7, independent). The service +
+  // manager-check questions mirror the HeadPinz fnb_service set so
+  // racing food gets the same scrutiny as bowling lane service.
+  {
+    tag: "food_drink",
+    ordinal: 1,
+    question: "Did you purchase any food or drinks during your visit?",
+    kind: "yes_no",
+  },
   {
     tag: "food_drink",
     ordinal: 2,
+    question: "Rate the food & drinks",
+    kind: "rating_1_5",
+    gateOrdinal: 1,
+    gateAnswer: "Yes",
+  },
+  {
+    tag: "food_drink",
+    ordinal: 3,
     question: "How fast was your order ready?",
     kind: "multi",
     choices: ["Very fast", "Fast", "OK", "Slow", "Very slow"],
+    gateOrdinal: 1,
+    gateAnswer: "Yes",
   },
-  { tag: "food_drink", ordinal: 3, question: "Was your order correct?", kind: "yes_no" },
+  {
+    tag: "food_drink",
+    ordinal: 4,
+    question: "Was your order correct?",
+    kind: "yes_no",
+    gateOrdinal: 1,
+    gateAnswer: "Yes",
+  },
+  {
+    tag: "food_drink",
+    ordinal: 5,
+    question: "Did a team member offer more food or drinks without you having to flag them down?",
+    kind: "yes_no",
+    gateOrdinal: 1,
+    gateAnswer: "Yes",
+  },
+  {
+    // Independent (no gate) — a manager may check on a racer whether or
+    // not they bought food, exactly like the bowling fnb_service Q6.
+    tag: "food_drink",
+    ordinal: 6,
+    question: "Did a manager check on you during your visit?",
+    kind: "yes_no",
+  },
 
   // ── gel_blaster ─────────────────────────────────────────────────
   { tag: "gel_blaster", ordinal: 1, question: "How was Gel Blaster?", kind: "rating_1_5" },
@@ -1196,19 +1239,61 @@ export const GUEST_SURVEY_QUESTIONS_SEED: SeedQuestion[] = [
   },
 
   // ── racing ──────────────────────────────────────────────────────
-  { tag: "racing", ordinal: 1, question: "How was your race?", kind: "rating_1_5" },
+  // Ordered by moment, likes grouped: the race itself (1-5: experience →
+  // crew → the on-track slow-down chain) then arrival / Guest Services
+  // (6-8). The slow-down chain is gated: understand (Q4, only if Q3=Yes)
+  // → SmartKart explainer (Q5, only if Q4=No), so the explanation is
+  // shown ONLY to racers who said they didn't understand the slow-down.
+  { tag: "racing", ordinal: 1, question: "How was your racing experience?", kind: "rating_1_5" },
   {
     tag: "racing",
     ordinal: 2,
-    question: "One thing you'd change?",
-    kind: "multi",
-    choices: ["Faster karts", "Good as-is", "Slower karts", "More race variety"],
+    question: "How were our karting team members (track crew)?",
+    kind: "rating_1_5",
   },
   {
     tag: "racing",
     ordinal: 3,
-    question: "Was Guest Services quick at check-in?",
+    question: "Did you experience a slow-down during your race?",
     kind: "yes_no",
+  },
+  {
+    tag: "racing",
+    ordinal: 4,
+    question: "Did you understand why your kart slowed down?",
+    kind: "yes_no",
+    gateOrdinal: 3,
+    gateAnswer: "Yes",
+  },
+  {
+    tag: "racing",
+    ordinal: 5,
+    question:
+      "Good to know: our SmartKart system slows ONLY a kart near a spin-out, while everyone else keeps racing - most tracks slow the whole field. For a full red-flag stop, we credit your time back. Does that make sense now?",
+    kind: "yes_no",
+    gateOrdinal: 4,
+    gateAnswer: "No",
+  },
+  {
+    tag: "racing",
+    ordinal: 6,
+    question: "How was our Guest Services team that greeted you upstairs?",
+    kind: "rating_1_5",
+  },
+  {
+    tag: "racing",
+    ordinal: 7,
+    question: "Did you book a reservation in advance?",
+    kind: "yes_no",
+  },
+  {
+    tag: "racing",
+    ordinal: 8,
+    question: "After booking at the front desk, how long until you got on track?",
+    kind: "multi",
+    choices: ["Under 15 min", "15-30 min", "30-45 min", "45+ min"],
+    gateOrdinal: 7,
+    gateAnswer: "No",
   },
 
   // ── closing (universal — always rendered last) ──────────────────

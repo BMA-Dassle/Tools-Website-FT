@@ -23,6 +23,11 @@ const SITE_URL = "https://headpinz.com";
 export const CENTER_META: Record<string, { name: string; smsFrom: string }> = {
   TXBSQN0FEKQ11: { name: "HeadPinz Fort Myers", smsFrom: "+12393022155" },
   PPTR5G2N0QXF7: { name: "HeadPinz Naples", smsFrom: "+12394553755" },
+  // FastTrax racing — Square location id LAB52GY480CJF (see
+  // race-credit-redeem.ts). smsFrom is the default VOX_FROM the race-video
+  // text already sends from, so the +15-min racing survey arrives from the
+  // same number the racer just received their video on.
+  LAB52GY480CJF: { name: "FastTrax", smsFrom: "+12394819666" },
 };
 
 function normalizePhone(phone: string): string {
