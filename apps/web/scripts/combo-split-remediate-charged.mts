@@ -108,6 +108,9 @@ const groups = (await q`
 
 for (const g of groups) {
   const oldId = g.oid;
+  // Square payments idempotency_key max is 45 chars; the order id alone is 28,
+  // so derive a short, stable base from its tail.
+  const kb = `cs${oldId.slice(-12)}`;
   const o = (await (await fetch(`${SQB}/orders/${oldId}`, { headers: H })).json()).order as {
     version?: number;
     customer_id?: string;
@@ -158,7 +161,7 @@ for (const g of groups) {
   const refRes = await fetch(`${SQB}/refunds`, {
     method: "POST",
     headers: H,
-    body: JSON.stringify({ idempotency_key: `remediate-charged-${oldId}-refund`, payment_id: paymentId, amount_money: { amount: tenderAmt, currency: "USD" }, reason: "combo revenue split (re-allocate to FastTrax)" }),
+    body: JSON.stringify({ idempotency_key: `${kb}-refund`, payment_id: paymentId, amount_money: { amount: tenderAmt, currency: "USD" }, reason: "combo revenue split (re-allocate to FastTrax)" }),
   });
   const refData = await refRes.json();
   if (!refRes.ok || refData.errors) {
@@ -182,10 +185,10 @@ for (const g of groups) {
   // 3) create split orders + charge each
   const ftItems = [li(SQ.UQ, "VIP Exp - Starter Race", ppl, 1700), li(SQ.UQ, "VIP Exp - Intermediate Race", ppl, 1700), li(SQ.POV, "VIP Exp - POV Video", ppl, 500), li(SQ.LICENSE, "VIP Exp - FastTrax License", ppl, 499)];
   const hpItems = [li(SQ.VIP_BOWLING, "VIP Exp - VIP Bowling", ppl, we ? 2601 : 1601), li(SQ.SHOE, "VIP Exp - Shoes", ppl, 500), li(SQ.BOOKING_FEE, "VIP Exp - Booking Fee", 1, 299)];
-  const ft = await createOrder(FASTTRAX_FM, ftItems, `remediate-charged-${oldId}-ft`, o.customer_id, 0);
-  const hp = await createOrder(HEADPINZ_FM, hpItems, `remediate-charged-${oldId}-hp`, o.customer_id, hpDisc);
-  const ftPay = await chargeGiftCard(ft.id, FASTTRAX_FM, gcId, ft.total, `remediate-charged-${oldId}-ft-pay`);
-  const hpPay = await chargeGiftCard(hp.id, HEADPINZ_FM, gcId, hp.total, `remediate-charged-${oldId}-hp-pay`);
+  const ft = await createOrder(FASTTRAX_FM, ftItems, `${kb}-ft`, o.customer_id, 0);
+  const hp = await createOrder(HEADPINZ_FM, hpItems, `${kb}-hp`, o.customer_id, hpDisc);
+  const ftPay = await chargeGiftCard(ft.id, FASTTRAX_FM, gcId, ft.total, `${kb}-ftpay`);
+  const hpPay = await chargeGiftCard(hp.id, HEADPINZ_FM, gcId, hp.total, `${kb}-hppay`);
   console.log(`  created+charged FastTrax ${ft.id.slice(0, 8)} $${(ft.total / 100).toFixed(2)} (pay ${String(ftPay).slice(0, 8)}) + HeadPinz ${hp.id.slice(0, 8)} $${(hp.total / 100).toFixed(2)} (pay ${String(hpPay).slice(0, 8)})`);
 
   // 4) repoint Neon rows + fix totals
@@ -196,7 +199,7 @@ for (const g of groups) {
   // 5) cancel the old (refunded) order
   try {
     const fresh = (await (await fetch(`${SQB}/orders/${oldId}`, { headers: H })).json()).order;
-    const cRes = await fetch(`${SQB}/orders/${oldId}`, { method: "PUT", headers: H, body: JSON.stringify({ idempotency_key: `remediate-charged-${oldId}-cancel`, order: { version: fresh?.version, state: "CANCELED" } }) });
+    const cRes = await fetch(`${SQB}/orders/${oldId}`, { method: "PUT", headers: H, body: JSON.stringify({ idempotency_key: `${kb}-cancel`, order: { version: fresh?.version, state: "CANCELED" } }) });
     console.log(`  old order cancel: ${cRes.ok ? "OK" : `FAILED ${cRes.status} (orphaned, non-fatal)`}`);
   } catch (e) {
     console.log(`  old order cancel error (non-fatal): ${e instanceof Error ? e.message : e}`);

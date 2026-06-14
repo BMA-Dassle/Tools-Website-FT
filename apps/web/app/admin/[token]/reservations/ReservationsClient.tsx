@@ -4251,7 +4251,40 @@ export default function ReservationsClient({ token }: { token: string }) {
 
                         {/* Square — order sent status (clickable to view line items) */}
                         <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                          {r.squareDayofOrderId ? (
+                          {r.comboMerge ? (
+                            // A combo has two day-of orders — one button each so both
+                            // are reachable from the main list (not just the VIP filter).
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              {r.comboMerge.orders.map((o) => (
+                                <button
+                                  key={o.orderId}
+                                  type="button"
+                                  onClick={() =>
+                                    setOrderTarget({
+                                      guestName: r.guestName || "Guest",
+                                      squareDayofOrderId: o.orderId,
+                                      rewardDiscountCents: o.leg.rewardDiscountCents,
+                                      squareLoyaltyRewardId: o.leg.squareLoyaltyRewardId,
+                                    })
+                                  }
+                                  style={{
+                                    background: "none",
+                                    border: "1px solid var(--ba-border)",
+                                    borderRadius: 5,
+                                    cursor: "pointer",
+                                    padding: "1px 6px",
+                                    fontSize: "0.6rem",
+                                    fontWeight: 600,
+                                    color: KIND_BADGE.vip.color,
+                                    textAlign: "left",
+                                  }}
+                                  title={`View ${o.kind} order`}
+                                >
+                                  {o.kind}
+                                </button>
+                              ))}
+                            </div>
+                          ) : r.squareDayofOrderId ? (
                             <button
                               type="button"
                               onClick={() =>
