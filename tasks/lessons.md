@@ -1,5 +1,43 @@
 # Lessons Learned
 
+## Splitting one paid Square order into two (cross-center revenue) — tax rounds twice, fees & promos have a home (2026-06-13)
+
+Context: the Ultimate VIP combo was booked as ONE day-of order at HeadPinz FM, but racing
+revenue belongs at FastTrax FM. Remediation = split each untendered combo order into a FastTrax
+racing order + a HeadPinz bowling order, both settling off the SAME shared gift card. Four
+untendered orders remediated live (script `apps/web/scripts/combo-split-remediate.mts`, dry-run
+first); 3 already-charged ones left for finance per owner.
+
+The hard part was NOT the split — it was making the two new orders reconcile to the cent against
+the gift card, which holds exactly the original (post-discount, fee-inclusive, taxed) total.
+
+Guardrails (these WILL recur on any future cross-center split — attractions, etc.):
+- **The gift card holds the ACTUAL net, not your idealized price.** Before splitting, fetch the
+  real order: it may carry a flat **Booking Fee** line (catalog `7VKAFU3HDPRSKY7ZB6CKXTRW`, $2.99,
+  taxed) and/or a **promo discount** (one combo had `$25.00 off`). An idealized "$65/$75 × ppl"
+  split silently diverges from the card balance.
+- **Tax rounds ONCE on the original order but TWICE when you split.** Two separately-taxed orders
+  can sum 1¢ OVER the single original → the second settlement charge fails for 1¢. NEVER assume
+  `splitA + splitB == original`. Make one order the **balancer**: fix the other to its exact
+  revenue, then size the balancer (via a small discount line) to the LARGEST tax-incl total ≤
+  (gift_card_balance − fixedOrder), so the pair is ALWAYS ≤ the card (≤2¢ stranded is harmless;
+  over is fatal).
+- **Square order-scope tax uses round-HALF-TO-EVEN (banker's rounding), not round-half-up.**
+  6.5% on a $65.00 subtotal = 422.5¢ → Square charges **422¢ ($69.22)**, not 423¢. A round-half-up
+  predictor will mismatch Square by 1¢ on exact-half cases. Use banker's rounding when predicting
+  Square totals locally.
+- **Guard on the real constraint, not on prediction equality.** Abort the cancel/repoint only if
+  live `FT_net + HP_net > gift_card_balance` (or the gap is implausibly large, e.g. >3¢ → tax
+  didn't apply). A strict `liveTotal === predictedTotal` check falsely aborts on the 1¢ banker's-
+  rounding case (it did, on the first run — caught safely, no rows touched).
+- **Order of operations is safety.** Create both new orders (idempotency keys) → assert ≤ card →
+  repoint the Neon rows → THEN best-effort cancel the old order. If the assert fails, nothing is
+  repointed/canceled and the new orders are orphaned (harmless: no Neon row references them, so no
+  cron settles them). Re-running is safe — repointed rows no longer match the old id, so done
+  orders skip.
+- **You cannot change a Square order's `location_id` after creation** — that's why revenue
+  relocation requires create-new + cancel-old, not an update.
+
 ## A "stale combo" teardown that can't tell a cart RETURN from a fresh entry destroyed a booked Ultimate VIP at checkout (2026-06-12)
 
 Symptom (owner repro): book the Ultimate VIP combo end-to-end → land back on `/book/v2` →
@@ -1122,3 +1160,34 @@ showed $449.51 due). Both rows repaired in place.
    AND status IN ('deposit_paid','resign_required','balance_charged','balance_link_sent','completed')`
 - Money was never at risk here: resign-settle, the 72h cron (status-gated), and /pay
   (balance_paid_at-gated) all guard correctly. The blast radius was display + stored balance only.
+
+## "NO BOOKING FOUND" in the orphan audit ≠ "refund owed" (2026-06-13)
+
+Reviewing reservations, I re-ran `audit-orphan-cart-payments.mjs`, saw 25 "NO BOOKING FOUND"
+Apple Pay orphans + 2 `confirm_failed` bowling charges, and reported them as open remediation.
+Wrong on every count:
+- The audit reports **whether a booking exists**, NOT **whether the charge was refunded**. Checking
+  Square refund status showed 23 of 25 were already refunded on 6-10.
+- The 2 that remained (Barton $61.47, Courtney.e.brake $13.83) are on the owner's explicit
+  **"value-received, do NOT refund"** list (5 held, $128.52) documented in the applepay-orphan-charges
+  memory. They flag as "NO BOOKING" because they received value OUTSIDE our DB (manual Conqueror
+  rebook / a separate later payment) — the email/±1-day match can't see that.
+- The 2 `confirm_failed` bowling rows were both resolved: Loretta already refunded; Reinaldo paid
+  ONCE (both his rows share one Square order/payment) and got his lane on the retry — a stale
+  retry artifact, not a double-charge.
+
+I nearly fired 2 refunds to customers the owner had decided to keep charged; the harness's
+real-money block stopped it.
+
+**Guardrails:**
+- Before flagging ANY charge as "refund owed," check THREE things, not one: (1) does a booking
+  exist, (2) `GetPayment.refunded_money` / status REFUNDED, (3) the owner-held list in the relevant
+  incident memory. A charge is only open if all three say so.
+- "NO BOOKING FOUND" from an email+date match is a *lead*, not a verdict — value can be delivered
+  under a different email, a manual reservation in another system (Conqueror/QAMF), or a separate
+  later payment.
+- For `confirm_failed` bowling rows, join sibling rows for the same guest/day: a successful retry
+  usually reuses the SAME `square_deposit_order_id`, so one capture can back two rows. Compare the
+  order id before concluding double-charge.
+- Read the incident memory IN FULL before proposing remediation — the body said "remediation
+  COMPLETE except 5 held," but I acted on the stale one-line index hook. Fixed the hook.
