@@ -1072,6 +1072,35 @@ export async function getAttractionReservationsAwaitingDayofPay(): Promise<Bowli
 }
 
 /**
+ * No-show bowling/KBF reservations to close at end of night: a past slot that
+ * was NEVER checked in (status still 'confirmed', no checkin_method), with an
+ * open day-of order. The bowling-no-show-close cron settles these by applying
+ * the prepaid gift card to the order and COMPLETING it WITHOUT a fulfillment —
+ * so the no-show's deposit is collected but the KDS/kitchen never fires (that's
+ * the lane-open-only step). Combo legs are excluded (they settle via their own
+ * combined-order flow). booked_at IS the lane slot for bowling, so a 2-hour
+ * buffer guarantees the session has ended before we close it.
+ */
+export async function getNoShowBowlingReservations(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE product_kind IN ('open', 'kbf')
+      AND status = 'confirmed'
+      AND checkin_method IS NULL
+      AND dayof_order_sent_at IS NULL
+      AND square_dayof_order_id IS NOT NULL
+      AND combo_special_id IS NULL
+      AND booked_at < NOW() - INTERVAL '2 hours'
+    ORDER BY booked_at ASC
+    LIMIT 500
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Look up a reservation by QAMF reservation ID.
  * Used by the webhook consumer to find the Neon row for an incoming event.
  */

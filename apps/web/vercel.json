@@ -119,6 +119,10 @@
     {
       "path": "/api/cron/group-square-settled-close",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/bowling-no-show-close",
+      "schedule": "0 8 * * *"
     }
   ]
 }
