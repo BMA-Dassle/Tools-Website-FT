@@ -101,6 +101,16 @@ interface ComboMeta {
   center: string;
 }
 
+/** One step of a VIP combo's itinerary (race heat → bowling slot → race heat). */
+interface ComboScheduleStep {
+  icon: string;
+  label: string;
+  iso: string | null;
+  lane?: string;
+  loc: string;
+  pending?: boolean;
+}
+
 interface GroupEvent {
   id: number;
   contractShortId: string;
@@ -1785,6 +1795,14 @@ export default function ReservationsClient({ token }: { token: string }) {
     discountCents: number;
     remainingCents: number;
   } | null>(null);
+  // Combo schedule popover (also reachable from a VIP row in the main list).
+  const [scheduleTarget, setScheduleTarget] = useState<{
+    guestName: string;
+    name: string;
+    accent: string;
+    centerCode: string;
+    schedule: ComboScheduleStep[];
+  } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   async function setCheckinMethod(neonId: number, method: "self" | "desk" | null) {
@@ -1893,16 +1911,24 @@ export default function ReservationsClient({ token }: { token: string }) {
       list = list.filter((r) => !r.bookingSource || r.bookingSource === "web");
     }
     if (hideCancelled) {
-      // "Active Only": always drop cancelled + completed. Also drop `arrived`
-      // RACING rows — QAMF gives bowling a real `completed` status (so arrived
-      // bowlers stay visible until they truly finish), but races never get one,
-      // so an arrived race is effectively done and should fall off.
-      list = list.filter(
-        (r) =>
-          r.status !== "cancelled" &&
-          r.status !== "completed" &&
-          !(r.status === "arrived" && r.productKind === "race"),
-      );
+      // "Active Only": drop cancelled + completed. Also drop `arrived` RACING
+      // rows — QAMF gives bowling a real `completed` status (so arrived bowlers
+      // stay visible until they truly finish), but races never get one, so an
+      // arrived race is effectively done. Past-event no-shows are flipped to a
+      // terminal status by the reservation-status-close cron (not filtered here).
+      const todayStr = todayET();
+      list = list.filter((r) => {
+        if (r.status === "cancelled" || r.status === "completed" || r.status === "no_show")
+          return false;
+        if (r.status === "arrived" && r.productKind === "race") return false;
+        // Past-event reservations whose day-of order is already settled (sent/
+        // closed — includes no-show closes that only stamp dayof_order_sent_at,
+        // not status) are DONE; hide them under Active Only. Today/future rows
+        // and not-yet-settled past rows (still need attention) stay visible.
+        const evDate = (r.eventAt ?? r.bookedAt).slice(0, 10);
+        if (evDate < todayStr && r.dayofOrderSentAt) return false;
+        return true;
+      });
     }
     if (kindFilter && kindFilter !== "vip") {
       list = list.filter((r) => r.productKind === kindFilter);
@@ -1925,13 +1951,16 @@ export default function ReservationsClient({ token }: { token: string }) {
     return list;
   }, [reservations, search, hideCancelled, hideWalkins, kindFilter]);
 
-  // VIP combos — group the legs (race + bowling) that share one day-of order.
-  // A combo books as 2 rows with the same square_dayof_order_id; the bowling
-  // leg carries the real lane + slot time, the race leg(s) are the karting heats.
+  // VIP combos — group the legs (race + bowling) of one combo together.
+  // The combo always books ONE deposit order, but its DAY-OF revenue splits
+  // into two orders (racing → FastTrax FM, bowling → HeadPinz FM). So we
+  // correlate on the shared square_deposit_order_id, which survives that split;
+  // fall back to the day-of order id for pre-deposit-era rows. The bowling leg
+  // carries the real lane + slot time, the race leg(s) are the karting heats.
   const comboGroups = useMemo(() => {
     const byOrder = new Map<string, Reservation[]>();
     for (const r of vipReservations) {
-      const key = r.squareDayofOrderId || r.bmiBillId || `id-${r.id}`;
+      const key = r.squareDepositOrderId || r.squareDayofOrderId || r.bmiBillId || `id-${r.id}`;
       const arr = byOrder.get(key) ?? [];
       arr.push(r);
       byOrder.set(key, arr);
@@ -1970,14 +1999,9 @@ export default function ReservationsClient({ token }: { token: string }) {
         : ([...heatTimes].reverse().find((h) => h.ms > bowlingMs)?.iso ?? null);
       const expectsIntermediate = (meta?.includes ?? []).some((s) => /intermediate/i.test(s));
 
-      const schedule: Array<{
-        icon: string;
-        label: string;
-        iso: string | null;
-        lane?: string;
-        loc: string;
-        pending?: boolean;
-      }> = [{ icon: "🏁", label: "Starter Race", iso: starterIso, loc: "FastTrax" }];
+      const schedule: ComboScheduleStep[] = [
+        { icon: "🏁", label: "Starter Race", iso: starterIso, loc: "FastTrax" },
+      ];
       if (bowling) {
         schedule.push({
           icon: "🎳",
@@ -2005,6 +2029,26 @@ export default function ReservationsClient({ token }: { token: string }) {
         });
       }
 
+      // Distinct day-of Square orders in this combo: after the split a combo
+      // has TWO (racing → FastTrax, bowling → HeadPinz); pre-split combos share
+      // ONE. Legs of the same order share that order's total, so collapse by
+      // order id (keep one representative leg per order).
+      const dayofOrders = Array.from(
+        sorted
+          .reduce((m, l) => {
+            if (!l.squareDayofOrderId) return m;
+            const cur = m.get(l.squareDayofOrderId);
+            if (!cur || (l.totalCents ?? 0) > (cur.totalCents ?? 0)) m.set(l.squareDayofOrderId, l);
+            return m;
+          }, new Map<string, Reservation>())
+          .values(),
+      ).map((leg) => ({
+        orderId: leg.squareDayofOrderId as string,
+        leg,
+        kind: leg.productKind === "race" ? ("Racing" as const) : ("Bowling" as const),
+        totalCents: leg.totalCents ?? 0,
+      }));
+
       return {
         key,
         comboId,
@@ -2018,9 +2062,14 @@ export default function ReservationsClient({ token }: { token: string }) {
         playerCount: anchor.playerCount,
         centerCode: anchor.centerCode,
         lane: bowling?.dayofOrderLane,
-        // Both legs store the SAME full day-of order total (dayofTotalCents),
-        // so take the max (the shared order total) — summing double-counts it.
-        totalCents: Math.max(0, ...sorted.map((l) => l.totalCents ?? 0)),
+        dayofOrders,
+        // Sum the DISTINCT day-of orders. After the split a combo's two orders
+        // each carry their own total (racing + bowling); a pre-split combo has
+        // one order so the sum is just that order. Never max (under-counts a
+        // split) and never sum raw legs (double-counts a shared order).
+        totalCents: dayofOrders.length
+          ? dayofOrders.reduce((s, o) => s + o.totalCents, 0)
+          : Math.max(0, ...sorted.map((l) => l.totalCents ?? 0)),
         schedule,
         allCancelled,
       };
@@ -2039,6 +2088,32 @@ export default function ReservationsClient({ token }: { token: string }) {
     }
     return out.sort((a, b) => a.anchor.bookedAt.localeCompare(b.anchor.bookedAt));
   }, [vipReservations, comboMeta, hideCancelled, search]);
+
+  // Combo schedule lookup so a VIP row in the MAIN list can open its itinerary.
+  // Keyed by every id a row might carry (deposit + each day-of order id), since
+  // a main-list leg correlates to its combo by whichever id it has.
+  const comboScheduleByKey = useMemo(() => {
+    const m = new Map<
+      string,
+      { name: string; accent: string; centerCode: string; schedule: ComboScheduleStep[] }
+    >();
+    for (const g of comboGroups) {
+      const entry = {
+        name: g.meta?.name ?? "VIP Combo",
+        accent: g.meta?.accentColor ?? "#d4af37",
+        centerCode: g.centerCode,
+        schedule: g.schedule,
+      };
+      for (const leg of g.legs) {
+        if (leg.squareDepositOrderId) m.set(leg.squareDepositOrderId, entry);
+        if (leg.squareDayofOrderId) m.set(leg.squareDayofOrderId, entry);
+      }
+    }
+    return m;
+  }, [comboGroups]);
+  const comboScheduleFor = (r: Reservation) =>
+    comboScheduleByKey.get(r.squareDepositOrderId ?? "") ??
+    comboScheduleByKey.get(r.squareDayofOrderId ?? "");
 
   const vipActive = kindFilter === "vip";
 
@@ -2170,6 +2245,75 @@ export default function ReservationsClient({ token }: { token: string }) {
             void load();
           }}
         />
+      )}
+
+      {/* VIP combo schedule (itinerary) modal */}
+      {scheduleTarget && (
+        <div {...modalBackdropProps(() => setScheduleTarget(null))}>
+          <div
+            style={{
+              background: "var(--ba-modal-bg)",
+              borderRadius: 12,
+              padding: 24,
+              border: `1px solid ${scheduleTarget.accent}`,
+              borderLeft: `4px solid ${scheduleTarget.accent}`,
+              maxWidth: 460,
+              width: "100%",
+              maxHeight: "80vh",
+              overflow: "auto",
+            }}
+          >
+            <h3 style={{ margin: "0 0 2px", fontSize: "0.95rem", fontWeight: 700 }}>
+              <span style={{ color: scheduleTarget.accent }}>★</span> {scheduleTarget.name}
+            </h3>
+            <p style={{ margin: "0 0 16px", color: "var(--ba-muted)", fontSize: "0.8rem" }}>
+              {scheduleTarget.guestName} · {centerLabel(scheduleTarget.centerCode)}
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {scheduleTarget.schedule.map((step, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    fontSize: "0.85rem",
+                    color: "var(--ba-fg)",
+                  }}
+                >
+                  <span style={{ width: 18, textAlign: "center" }}>{step.icon}</span>
+                  <span
+                    style={{
+                      minWidth: 84,
+                      fontWeight: 800,
+                      fontSize: "1rem",
+                      color: step.iso ? scheduleTarget.accent : "var(--ba-muted)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {step.iso ? fmtClock(step.iso) : step.pending ? "—" : "TBD"}
+                  </span>
+                  <span style={{ flex: 1, fontWeight: 600 }}>
+                    {step.label}
+                    {step.lane ? (
+                      <span style={{ color: scheduleTarget.accent, fontWeight: 700 }}>
+                        {" "}
+                        · Lane {step.lane}
+                      </span>
+                    ) : null}
+                    {step.pending ? (
+                      <span style={{ color: "var(--ba-muted)", fontWeight: 400 }}>
+                        {" "}
+                        (if qualified)
+                      </span>
+                    ) : null}
+                  </span>
+                  <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>{step.loc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Square order details modal */}
@@ -2854,27 +2998,27 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {leg.dayofOrderLane && <span>· Lane {leg.dayofOrderLane}</span>}
                         </div>
                       ))}
-                      {g.anchor.squareDayofOrderId && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setOrderTarget({
-                              guestName: g.guestName,
-                              squareDayofOrderId: g.anchor.squareDayofOrderId ?? null,
-                              rewardDiscountCents: g.anchor.rewardDiscountCents ?? 0,
-                              squareLoyaltyRewardId: g.anchor.squareLoyaltyRewardId,
-                            })
-                          }
-                          style={{
-                            ...NAV_BTN,
-                            fontSize: "0.72rem",
-                            fontWeight: 600,
-                            marginLeft: "auto",
-                          }}
-                        >
-                          View order
-                        </button>
-                      )}
+                      {/* One button per day-of order — a split combo has two
+                          (Racing → FastTrax, Bowling → HeadPinz); pre-split has one. */}
+                      <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                        {g.dayofOrders.map((o) => (
+                          <button
+                            key={o.orderId}
+                            type="button"
+                            onClick={() =>
+                              setOrderTarget({
+                                guestName: g.guestName,
+                                squareDayofOrderId: o.orderId,
+                                rewardDiscountCents: o.leg.rewardDiscountCents ?? 0,
+                                squareLoyaltyRewardId: o.leg.squareLoyaltyRewardId,
+                              })
+                            }
+                            style={{ ...NAV_BTN, fontSize: "0.72rem", fontWeight: 600 }}
+                          >
+                            {g.dayofOrders.length > 1 ? `${o.kind} order` : "View order"}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 );
@@ -3128,8 +3272,13 @@ export default function ReservationsClient({ token }: { token: string }) {
                     key={r.id}
                     style={{
                       borderRadius: 8,
-                      border: "1px solid var(--ba-border)",
-                      backgroundColor: "var(--ba-bg2)",
+                      border: r.comboSpecialId
+                        ? `1px solid ${KIND_BADGE.vip.border}`
+                        : "1px solid var(--ba-border)",
+                      borderLeft: r.comboSpecialId
+                        ? `4px solid ${KIND_BADGE.vip.color}`
+                        : "1px solid var(--ba-border)",
+                      backgroundColor: r.comboSpecialId ? KIND_BADGE.vip.bg : "var(--ba-bg2)",
                       opacity: isCancelled ? 0.45 : 1,
                       padding: "8px 10px",
                     }}
@@ -3324,6 +3473,37 @@ export default function ReservationsClient({ token }: { token: string }) {
                           ★ VIP
                         </span>
                       )}
+                      {r.comboSpecialId &&
+                        (() => {
+                          const c = comboScheduleFor(r);
+                          return c ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setScheduleTarget({
+                                  guestName: r.guestName ?? "Guest",
+                                  name: c.name,
+                                  accent: c.accent,
+                                  centerCode: c.centerCode,
+                                  schedule: c.schedule,
+                                })
+                              }
+                              style={{
+                                padding: "0px 5px",
+                                borderRadius: 3,
+                                fontSize: "0.6rem",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                backgroundColor: "transparent",
+                                color: KIND_BADGE.vip.color,
+                                border: `1px solid ${KIND_BADGE.vip.border}`,
+                              }}
+                              title="View the VIP itinerary"
+                            >
+                              📅 Schedule
+                            </button>
+                          ) : null;
+                        })()}
                       <span style={{ color: "var(--ba-muted)", fontSize: "0.65rem" }}>
                         {r.playerCount ?? "—"}p
                       </span>
@@ -3664,6 +3844,10 @@ export default function ReservationsClient({ token }: { token: string }) {
                         style={{
                           borderBottom: "1px solid var(--ba-border)",
                           opacity: rowOpacity,
+                          backgroundColor: r.comboSpecialId ? KIND_BADGE.vip.bg : undefined,
+                          boxShadow: r.comboSpecialId
+                            ? `inset 3px 0 0 ${KIND_BADGE.vip.color}`
+                            : undefined,
                         }}
                       >
                         {/* Time */}
@@ -3758,6 +3942,38 @@ export default function ReservationsClient({ token }: { token: string }) {
                               ★ VIP
                             </span>
                           )}
+                          {r.comboSpecialId &&
+                            (() => {
+                              const c = comboScheduleFor(r);
+                              return c ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setScheduleTarget({
+                                      guestName: r.guestName ?? "Guest",
+                                      name: c.name,
+                                      accent: c.accent,
+                                      centerCode: c.centerCode,
+                                      schedule: c.schedule,
+                                    })
+                                  }
+                                  style={{
+                                    marginLeft: 5,
+                                    padding: "1px 6px",
+                                    borderRadius: 4,
+                                    fontSize: "0.62rem",
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    backgroundColor: "transparent",
+                                    color: KIND_BADGE.vip.color,
+                                    border: `1px solid ${KIND_BADGE.vip.border}`,
+                                  }}
+                                  title="View the VIP itinerary"
+                                >
+                                  📅 Schedule
+                                </button>
+                              ) : null;
+                            })()}
                           <span
                             style={{ marginLeft: 5, color: "var(--ba-muted)", fontSize: "0.68rem" }}
                           >
