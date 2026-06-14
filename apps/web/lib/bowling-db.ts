@@ -1089,7 +1089,9 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
   const rows = await q`
     SELECT * FROM bowling_reservations
     WHERE product_kind IN ('open', 'kbf')
-      AND status = 'confirmed'
+      -- 'no_show' included: the status-close cron flips never-checked-in past
+      -- bowling to no_show for visibility BEFORE this nightly money settle runs.
+      AND status IN ('confirmed', 'no_show')
       AND checkin_method IS NULL
       AND dayof_order_sent_at IS NULL
       AND square_dayof_order_id IS NOT NULL
@@ -1122,10 +1124,16 @@ export async function closePastReservationStatuses(
   if (!isDbConfigured()) return { completed: 0, noShow: 0, pendingSettle: 0 };
   await ensureBowlingSchema();
   const q = sql();
-  const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  // Flip once the event's actual TIME has passed (2h buffer = session ended),
+  // not just whole past days — so TODAY's already-finished slots flip intra-day
+  // instead of lingering until tomorrow. cutoff = (now − 2h) as a naive ET
+  // wall-clock ISO; event_at is the same shape, so a lexical compare is
+  // chronological.
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    .toLocaleString("sv-SE", { timeZone: "America/New_York" })
+    .replace(" ", "T");
   const rows = (await q`
-    SELECT id, status, checkin_method ci, (dayof_order_sent_at IS NOT NULL) sent,
-           (square_gift_card_id IS NOT NULL) gc, total_cents,
+    SELECT id, product_kind pk, status, checkin_method ci, (dayof_order_sent_at IS NOT NULL) sent,
            COALESCE(
              (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
              (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
@@ -1134,26 +1142,33 @@ export async function closePastReservationStatuses(
     FROM bowling_reservations
     WHERE combo_special_id IS NULL AND status IN ('confirmed', 'arrived')
   `) as Array<Record<string, unknown>>;
-  const past = rows.filter((r) => String(r.event_at).slice(0, 10) < todayET);
+  const past = rows.filter((r) => String(r.event_at) < cutoff);
+  // Showed up or already settled → completed.
   const toCompleted = past
     .filter((r) => r.status === "arrived" || r.ci != null || r.sent === true)
     .map((r) => r.id as number);
+  // Bowling/KBF that was never checked in and not settled → no_show NOW
+  // (visibility), regardless of whether it's funded. The money is decoupled:
+  // bowling-no-show-close (which also queries 'no_show') charges the funded ones
+  // at end of night. Races/attractions are NOT flipped here — race-dayof-pay
+  // settles them within minutes, after which they land in toCompleted above.
   const toNoShow = past
     .filter(
       (r) =>
         r.status === "confirmed" &&
         r.ci == null &&
         r.sent !== true &&
-        (r.gc !== true || (r.total_cents as number) === 0),
+        (r.pk === "open" || r.pk === "kbf"),
     )
     .map((r) => r.id as number);
+  // Past, unsettled race/attraction awaiting their (fast) settle cron.
   const pendingSettle = past.filter(
     (r) =>
       r.status === "confirmed" &&
       r.ci == null &&
       r.sent !== true &&
-      r.gc === true &&
-      (r.total_cents as number) > 0,
+      r.pk !== "open" &&
+      r.pk !== "kbf",
   ).length;
 
   if (!opts.dryRun) {
