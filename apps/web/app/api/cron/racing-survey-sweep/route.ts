@@ -83,12 +83,20 @@ export async function GET(req: NextRequest) {
   //                   send or reach a minor.
   const force = url.searchParams.get("force") === "1";
   const windowMinRaw = Number(url.searchParams.get("windowMin"));
+  // once=<key>: one-shot guard. Lets a *recurring* Vercel cron entry behave
+  // as a single fire — the first invocation claims the Redis key and runs;
+  // every later invocation (e.g. the same daily cron tomorrow) sees the key
+  // and no-ops. Used to schedule the week-long backfill for a specific day
+  // without a bespoke one-time scheduler. TTL 7d so the key self-expires.
+  const onceKey = url.searchParams.get("once");
   const minAge = force ? 0 : NOTIFY_MIN_AGE_MS;
   const maxAge =
     Number.isFinite(windowMinRaw) && windowMinRaw > 0
       ? windowMinRaw * 60 * 1000
       : NOTIFY_MAX_AGE_MS;
   const scanWindow = Math.max(SCAN_WINDOW_MS, maxAge);
+  // Wider read for big backfills; the normal 6-h sweep never needs near this.
+  const scanLimit = force || maxAge > NOTIFY_MAX_AGE_MS ? 5000 : 1000;
   const started = Date.now();
 
   if (process.env.GUEST_SURVEY_DISABLED === "true") {
@@ -98,6 +106,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Acquire the run-lock FIRST so two sweeps never process the same matches
+  // concurrently (the cap is enforced sequentially within one run — see the
+  // loop — so overlap is the only way the same person could be double-sent).
   if (!dryRun) {
     const acquired = await redis.set(CRON_LOCK_KEY, "1", "EX", CRON_LOCK_TTL, "NX");
     if (!acquired) {
@@ -120,12 +131,43 @@ export async function GET(req: NextRequest) {
   let errors = 0;
 
   try {
+    // One-shot guard — claimed only AFTER we hold the lock and are about to
+    // run, so a lock-collision never burns the key (which would make the
+    // backfill silently skip forever). Released-by-TTL, not by us.
+    if (onceKey && !dryRun) {
+      // 90-day TTL: long enough that the daily cron entry can't re-fire the
+      // backfill before someone removes it from vercel.json (the entry should
+      // be deleted after its single run — it's a one-shot via this sentinel).
+      const claimed = await redis.set(
+        `racing-survey-backfill:${onceKey}`,
+        "1",
+        "EX",
+        90 * 24 * 60 * 60,
+        "NX",
+      );
+      if (claimed !== "OK") {
+        return NextResponse.json(
+          { ok: true, skipped: "once-already-fired", onceKey },
+          { headers: { "Cache-Control": "no-store" } },
+        );
+      }
+    }
+
     const now = Date.now();
     const matches = await listMatchesInRange({
       startMs: now - scanWindow,
       endMs: now,
-      limit: 1000,
+      limit: scanLimit,
     });
+
+    // Anti-spam layer 1 (in-run): a racer with several visits in the window
+    // has several matches here. We attempt AT MOST ONE survey per racer per
+    // run, keyed on their phone — so multiple visits can never fan out into
+    // multiple sends even before the (layer 2) 30-day per-customer cap and
+    // (layer 3) origin_ref idempotency get involved. matches are newest-first,
+    // so the kept one is their most recent visit.
+    const seenPhones = new Set<string>();
+    let dedupedMultiVisit = 0;
 
     for (const m of matches) {
       const at = notifyAtMs(m);
@@ -157,9 +199,15 @@ export async function GET(req: NextRequest) {
         skippedNoPhone++;
         continue;
       }
+      // One attempt per racer per run (covers the multi-visit backfill case).
+      if (seenPhones.has(phone)) {
+        dedupedMultiVisit++;
+        continue;
+      }
+      seenPhones.add(phone);
 
       if (dryRun) {
-        sent++; // would-send count in dry-run
+        sent++; // would-send count in dry-run (already deduped per racer)
         continue;
       }
 
@@ -217,6 +265,7 @@ export async function GET(req: NextRequest) {
         windowMin: maxAge / 60000,
         elapsedMs: Date.now() - started,
         scanned: matches.length,
+        dedupedMultiVisit,
         candidates,
         sent,
         tooEarly,

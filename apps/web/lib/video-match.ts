@@ -418,13 +418,16 @@ export async function listMatchesInRange(opts: {
   limit?: number;
 }): Promise<VideoMatch[]> {
   const { startMs, endMs, limit = 200 } = opts;
+  // Ceiling raised 1000 -> 5000 to support the racing-survey week backfill
+  // (a 7-day window can exceed 1000 matches on a busy stretch). Other
+  // callers pass much smaller limits, so the higher ceiling is inert for them.
   const ids = await redis.zrevrangebyscore(
     MATCH_LOG_KEY,
     endMs,
     startMs,
     "LIMIT",
     0,
-    Math.max(1, Math.min(1000, limit)),
+    Math.max(1, Math.min(5000, limit)),
   );
   if (!ids || ids.length === 0) return [];
   // ids are `${sessionId}:${personId}` — split and bulk-fetch.

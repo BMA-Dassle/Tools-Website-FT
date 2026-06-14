@@ -37,6 +37,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/racing-survey-sweep?force=1&windowMin=10080&once=2026-06-14",
+      "schedule": "2 15 * * *"
+    },
+    {
       "path": "/api/cron/kbf-sync",
       "schedule": "*/15 * * * *"
     },
