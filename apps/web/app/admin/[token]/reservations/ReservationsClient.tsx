@@ -1788,6 +1788,13 @@ export default function ReservationsClient({ token }: { token: string }) {
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Reservation | null>(null);
   const [checkinTarget, setCheckinTarget] = useState<Reservation | null>(null);
+  // Contact details (phone/email) shown on clicking the guest name — keeps them
+  // out of the row so the row stays single-line.
+  const [contactTarget, setContactTarget] = useState<{
+    name: string;
+    phone?: string;
+    email?: string;
+  } | null>(null);
   const [orderTarget, setOrderTarget] = useState<{
     guestName: string;
     squareDayofOrderId: string | null;
@@ -2287,6 +2294,74 @@ export default function ReservationsClient({ token }: { token: string }) {
             void load();
           }}
         />
+      )}
+
+      {/* Guest contact (phone / email) — opened from the name */}
+      {contactTarget && (
+        <div
+          {...modalBackdropProps(() => setContactTarget(null))}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "var(--ba-overlay)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--ba-modal-bg)",
+              borderRadius: 12,
+              padding: 24,
+              border: "1px solid var(--ba-modal-border)",
+              maxWidth: 380,
+              width: "100%",
+            }}
+          >
+            <h3 style={{ margin: "0 0 14px", fontSize: "0.95rem", fontWeight: 700 }}>
+              {contactTarget.name}
+            </h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {contactTarget.phone ? (
+                <a
+                  href={`tel:${contactTarget.phone}`}
+                  style={{ color: "#60a5fa", fontSize: "0.9rem", textDecoration: "none" }}
+                >
+                  📞 {contactTarget.phone}
+                </a>
+              ) : (
+                <span style={{ color: "var(--ba-muted)", fontSize: "0.85rem" }}>No phone</span>
+              )}
+              {contactTarget.email ? (
+                <a
+                  href={`mailto:${contactTarget.email}`}
+                  style={{
+                    color: "#60a5fa",
+                    fontSize: "0.9rem",
+                    textDecoration: "none",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  ✉️ {contactTarget.email}
+                </a>
+              ) : (
+                <span style={{ color: "var(--ba-muted)", fontSize: "0.85rem" }}>No email</span>
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={() => setContactTarget(null)}
+                style={{ ...NAV_BTN, fontSize: "0.8rem", fontWeight: 600 }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* VIP combo schedule (itinerary) modal */}
@@ -3327,7 +3402,7 @@ export default function ReservationsClient({ token }: { token: string }) {
             <div className="md:hidden flex flex-col gap-1.5">
               {displayRows.map((r) => {
                 const isCancelled = r.status === "cancelled";
-                const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
+                const centerShort = centerLabel(r.centerCode) === "Naples" ? "NAP" : "FM";
                 const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
                 const cPath = confirmPath(r);
                 return (
@@ -3900,7 +3975,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                   {displayRows.map((r) => {
                     const isCancelled = r.status === "cancelled";
                     const rowOpacity = isCancelled ? 0.45 : 1;
-                    const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
+                    const centerShort = centerLabel(r.centerCode) === "Naples" ? "NAP" : "FM";
                     return (
                       <tr
                         key={r.id}
@@ -3928,18 +4003,43 @@ export default function ReservationsClient({ token }: { token: string }) {
                               gap: 6,
                             }}
                           >
-                            {r.guestName ||
-                              (r.bookingSource && r.bookingSource !== "web" ? (
-                                <span
-                                  style={{
-                                    color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)",
-                                  }}
-                                >
-                                  {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
-                                </span>
-                              ) : (
-                                "—"
-                              ))}
+                            {r.guestName ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setContactTarget({
+                                    name: r.guestName!,
+                                    phone: r.guestPhone,
+                                    email: r.guestEmail,
+                                  })
+                                }
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: 0,
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                  color: "var(--ba-fg)",
+                                  textAlign: "left",
+                                  textDecoration: "underline",
+                                  textDecorationColor: "var(--ba-border)",
+                                  textUnderlineOffset: 2,
+                                }}
+                                title="View phone / email"
+                              >
+                                {r.guestName}
+                              </button>
+                            ) : r.bookingSource && r.bookingSource !== "web" ? (
+                              <span
+                                style={{
+                                  color: SOURCE_COLORS[r.bookingSource] ?? "var(--ba-muted)",
+                                }}
+                              >
+                                {SOURCE_LABELS[r.bookingSource] ?? r.bookingSource}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
                             <span
                               style={{
                                 fontSize: "0.6rem",
@@ -3950,11 +4050,6 @@ export default function ReservationsClient({ token }: { token: string }) {
                               {centerShort}
                             </span>
                           </div>
-                          {r.guestPhone && (
-                            <div style={{ color: "var(--ba-muted)", fontSize: "0.68rem" }}>
-                              {r.guestPhone}
-                            </div>
-                          )}
                           {r.survey && (
                             <div style={{ marginTop: 3 }}>
                               <SurveyChip survey={r.survey} />
