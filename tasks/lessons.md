@@ -1,5 +1,44 @@
 # Lessons Learned
 
+## Express Lane eligibility must judge the WHOLE party, not the personId-bearing subset (2026-06-13)
+
+Ops flagged four reservations (W40849, W40705, W40712, W40861) that got Express Lane with "not
+enough returning racers." Every one was a 2-racer party: racer #1 a returning racer with a
+`bmiPersonId` + valid waiver, racer #2 a name typed in by the guest (Ross / Jade / Gary / toddick)
+with **`personId: null`** — no BMI person, no waiver on file. They still got express, so a person
+who needs to sign at Guest Services was waved through.
+
+Root cause — the eligibility check **filtered the party down to members that already had a
+personId, then asked "are all of *those* waivers valid?"** A personId-less second racer was
+silently dropped from the decision instead of disqualifying the party. "1 returning + 1
+unregistered" → express.
+
+This existed in **three** places, all with the same shape:
+- `apps/web/src/features/booking/service/checkout.ts` — `party.filter(m => m.bmiPersonId)` then
+  `.every(waiverValid)` → wrote the `fastLane` flag to the booking record.
+- `apps/web/app/book/confirmation/v2/page.tsx` — `racers.map(r => r.personId).filter(Boolean)`
+  then trusted `fastLane` or re-checked waivers on that filtered set. This also writes the BMI
+  **`** EXPRESS LANE **` reservation memo** the front desk reads (via `buildReservationMemo`'s
+  `expressLaneResNumber`), so the bug reached staff, not just the green confirmation UI.
+- `apps/web/app/book/confirmation/page.tsx` (v1) — same filter. v1 is NOT redirected to v2 — it's
+  the shared/legacy post-payment landing (see middleware ~line 615 + checkout.ts:1213) — so it had
+  to be fixed too.
+
+**Fix:** express requires that EVERY racer is a resolved returning racer with a valid waiver.
+- checkout: `party.length > 0 && party.every(m => !!m.bmiPersonId && !m.isNewRacer && m.waiverValid === true)`.
+- both confirmation pages: gate on `allRacersResolved = racers.length > 0 && racers.every(r => !!r.personId)`
+  BEFORE trusting `fastLane` or running the per-personId waiver check. Any null personId → express dropped.
+
+**Guardrails:**
+- An eligibility/all-clear check over a party must iterate the FULL roster. `.filter(hasId)` before
+  `.every(valid)` is a silent bug: the members you dropped are exactly the ones that should block.
+- A racer with no `bmiPersonId` / `personId` has no waiver on record by definition — treat "missing
+  id" as *disqualifying* (or as "needs registration"), never as "skip this one."
+- Separate concern, not yet built: when a second racer genuinely signed in / is a real returning
+  racer, the flow should resolve them to a personId and link them to the reservation
+  (`/api/pandora/schedule` also filters on `r.personId`, so unresolved racers aren't even scheduled).
+  That registration path is a follow-up — this fix only makes the unresolved case correctly DROP express.
+
 ## Splitting one paid Square order into two (cross-center revenue) — tax rounds twice, fees & promos have a home (2026-06-13)
 
 Context: the Ultimate VIP combo was booked as ONE day-of order at HeadPinz FM, but racing

@@ -347,12 +347,17 @@ export async function saveBookingDetails(
     qamfReservationId: b.qamfReservationId,
   }));
 
-  // Express Lane: all returning racers must have valid Pandora waivers.
+  // Express Lane: EVERY racer in the party must be a returning racer with a
+  // valid Pandora waiver. A single new/unresolved racer (no bmiPersonId, or
+  // isNewRacer) has no waiver on file and must visit Guest Services — so the
+  // whole party loses express. Previously this filtered the party down to only
+  // members that already had a bmiPersonId, silently dropping a typed-in second
+  // racer and granting express to a "1 returning + 1 unregistered" party.
   // The confirmation page reads bookingRecord.fastLane to skip the live
   // Pandora re-check and immediately show the green express lane experience.
-  const returningRacers = session.party.filter((m) => m.bmiPersonId);
   const fastLane =
-    returningRacers.length > 0 && returningRacers.every((m) => m.waiverValid === true);
+    session.party.length > 0 &&
+    session.party.every((m) => !!m.bmiPersonId && !m.isNewRacer && m.waiverValid === true);
 
   try {
     await fetch("/api/booking-record", {

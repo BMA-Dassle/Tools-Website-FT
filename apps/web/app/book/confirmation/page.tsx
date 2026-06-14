@@ -703,8 +703,14 @@ export default function ConfirmationPage() {
         const hasReturningRacers = personIds.length > 0;
 
         // Express Lane: if already verified in booking record, trust it. Otherwise check waivers.
+        // EVERY racer must be a resolved returning racer. A racer with no
+        // personId (a new/unregistered second racer typed in by name) has no
+        // waiver on file and must be sent to Guest Services — that drops express
+        // for the whole party, even if the one resolved racer's waiver is valid.
+        const allRacersV1 = (bookingRecord?.racers ?? []) as Array<{ personId?: string | null }>;
+        const allRacersResolved = allRacersV1.length > 0 && allRacersV1.every((r) => !!r.personId);
         let allWaiversValid = false;
-        if (detectedType === "racing" && hasReturningRacers) {
+        if (detectedType === "racing" && hasReturningRacers && allRacersResolved) {
           if (bookingRecord?.fastLane === true) {
             allWaiversValid = true;
             setExpressLane(true);

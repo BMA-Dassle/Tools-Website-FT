@@ -728,9 +728,15 @@ export default function ConfirmationPage() {
         // Express Lane: returning racers with valid waivers skip Guest Services.
         // Gate on actual racer data, not the brittle detectBookingType heuristic
         // (which can't see racing on a converted/seeded order with no live overview).
-        const hasRacers = (bookingRecord?.racers?.length ?? 0) > 0;
+        const allRacers = (bookingRecord?.racers ?? []) as Array<{ personId?: string | null }>;
+        const hasRacers = allRacers.length > 0;
+        // EVERY racer must be a resolved returning racer. A racer with no
+        // personId (a new/unregistered second racer typed in by name) has no
+        // waiver on file and must be sent to Guest Services — that drops express
+        // for the whole party, even if the one resolved racer's waiver is valid.
+        const allRacersResolved = hasRacers && allRacers.every((r) => !!r.personId);
         let allWaiversValid = false;
-        if (hasRacers && hasReturningRacers) {
+        if (hasRacers && hasReturningRacers && allRacersResolved) {
           if (bookingRecord?.fastLane === true) {
             allWaiversValid = true;
             setExpressLane(true);
