@@ -31,6 +31,7 @@ import {
 import {
   canonicalizePhone,
   hasSmsConsent,
+  noContactReason,
   pickContactWithGuardianFallback,
   pickPhone,
   type ContactCandidate,
@@ -233,6 +234,7 @@ export async function runArenaCheckinAlerts(opts: {
   const freshEmailByEmail = new Map<string, Candidate[]>();
   const allByEmail = new Map<string, Candidate[]>();
   const noConsentByPhone = new Map<string, Candidate[]>();
+  const noContact: Candidate[] = [];
 
   for (const c of candidates) {
     const resolved = pickContactWithGuardianFallback(c.participant);
@@ -240,9 +242,22 @@ export async function runArenaCheckinAlerts(opts: {
 
     if (!resolved) {
       const playerPhone = canonicalizePhone(pickPhone(c.participant));
+      const guardianPhone = canonicalizePhone(
+        c.participant.guardian?.mobilePhone || c.participant.guardian?.homePhone || null,
+      );
       if (playerPhone && !hasSmsConsent(c.participant)) {
+        // Player has a phone but opted out of marketing SMS → needs verbal OK.
         if (!noConsentByPhone.has(playerPhone)) noConsentByPhone.set(playerPhone, []);
         noConsentByPhone.get(playerPhone)!.push(c);
+      } else if (guardianPhone) {
+        // Minor whose only contact is a guardian with a phone the picker
+        // rejected (guardian opted out of SMS). Route into the SAME "needs
+        // verbal OK" surface keyed on the guardian's number.
+        if (!noConsentByPhone.has(guardianPhone)) noConsentByPhone.set(guardianPhone, []);
+        noConsentByPhone.get(guardianPhone)!.push(c);
+      } else {
+        // No reachable phone for player OR guardian → surface for desk follow-up.
+        noContact.push(c);
       }
       skipped++;
       continue;
@@ -416,6 +431,38 @@ export async function runArenaCheckinAlerts(opts: {
       console.error(`[arena-checkin] consent-skip log error for phone=${phone}:`, err);
     }
     skipped += members.length;
+  }
+
+  // No-reachable-contact audit — players with no usable phone/email for
+  // themselves OR a guardian. Previously skipped silently; mint a ticket so
+  // the row shows the name + is resendable after staff collect a contact, and
+  // log a skipped row with the reason. One row per (session, person), deduped.
+  for (const c of noContact) {
+    const auditKey = `eticket-nocontact:arena-checkin:${c.session.sessionId}:${c.participant.personId}`;
+    if (dryRun || (await redis.get(auditKey))) continue;
+    try {
+      const ticketId = await upsertRaceTicket(ticketFromCandidate(c));
+      const { code, url } = await shortenUrl(`${HEADPINZ_BASE_URL}/t/${ticketId}`);
+      await logSms({
+        ts: new Date().toISOString(),
+        phone: "",
+        source: "arena-checkin-cron",
+        status: null,
+        ok: false,
+        error: noContactReason(c.participant),
+        body: buildArenaCheckinSingleSmsBody(memberFromCandidate(c), url),
+        sessionIds: [c.session.sessionId],
+        personIds: [c.participant.personId],
+        memberCount: 1,
+        shortCode: code,
+      });
+      await redis.set(auditKey, "1", "EX", DEDUP_TTL);
+    } catch (err) {
+      console.error(
+        `[arena-checkin] no-contact audit log error for personId=${c.participant.personId}:`,
+        err,
+      );
+    }
   }
 
   // Email path.
