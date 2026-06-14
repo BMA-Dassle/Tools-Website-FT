@@ -1023,7 +1023,10 @@ export async function getRaceReservationsAwaitingDayofPay(): Promise<BowlingRese
     WHERE r.product_kind = 'race'
       AND r.status = 'confirmed'
       AND r.dayof_order_sent_at IS NULL
-      AND r.square_gift_card_id IS NOT NULL
+      -- Funded ($-model w/ gift card) OR $0-model (no gift card, paid in full at
+      -- booking). The $0 ones have no gift card to charge — chargeDayof just
+      -- COMPLETES their already-$0 order so they don't sit "Pending" forever.
+      AND (r.square_gift_card_id IS NOT NULL OR r.total_cents = 0)
       AND r.square_dayof_order_id IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM bowling_reservations b
@@ -1053,7 +1056,9 @@ export async function getAttractionReservationsAwaitingDayofPay(): Promise<Bowli
     WHERE r.product_kind = 'attraction'
       AND r.status = 'confirmed'
       AND r.dayof_order_sent_at IS NULL
-      AND r.square_gift_card_id IS NOT NULL
+      -- Funded (gift card) OR $0-model (paid in full at booking, no gift card);
+      -- chargeDayof COMPLETES the $0 ones so they don't sit "Pending".
+      AND (r.square_gift_card_id IS NOT NULL OR r.total_cents = 0)
       AND r.square_dayof_order_id IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM bowling_reservations b

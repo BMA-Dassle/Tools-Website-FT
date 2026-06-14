@@ -220,7 +220,6 @@ async function chargeDayof(
   r: BowlingReservation,
 ): Promise<{ paid: boolean; paymentId?: string; note: string }> {
   const orderId = r.squareDayofOrderId!;
-  const gcId = r.squareGiftCardId!;
 
   const orderRes = await fetch(`${SQUARE_BASE}/orders/${orderId}`, { headers: sqHeaders() });
   if (!orderRes.ok) return { paid: false, note: `order fetch ${orderRes.status}` };
@@ -230,8 +229,29 @@ async function chargeDayof(
 
   if (order.state === "COMPLETED") return { paid: true, note: "order already COMPLETED" };
   let remaining: number = order.net_amount_due_money?.amount ?? order.total_money?.amount ?? 0;
-  if (remaining <= 0) return { paid: true, note: "order $0 remaining" };
+  if (remaining <= 0) {
+    // $0-model race/attraction: nothing owed (paid in full at booking, often no
+    // gift card). COMPLETE the open order so it stops showing "Pending" — this
+    // is the gap that left $0 races stuck until a manual sweep. No charge.
+    try {
+      const version = order.version;
+      if (version) {
+        await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
+          method: "PUT",
+          headers: sqHeaders(),
+          body: JSON.stringify({ order: { location_id: locationId, version, state: "COMPLETED" } }),
+        });
+      }
+    } catch {
+      /* non-fatal — order is already $0, harmless if it stays open */
+    }
+    return { paid: true, note: "order $0 — completed" };
+  }
 
+  // Balance due → needs the funded gift card. $0-model rows reach here only if
+  // their order unexpectedly has a balance with no card to cover it; skip safely.
+  const gcId = r.squareGiftCardId;
+  if (!gcId) return { paid: false, note: "balance due but no gift card" };
   const gcRes = await fetch(`${SQUARE_BASE}/gift-cards/${gcId}`, { headers: sqHeaders() });
   if (!gcRes.ok) return { paid: false, note: `gift card fetch ${gcRes.status}` };
   const gcBalance: number = (await gcRes.json()).gift_card?.balance_money?.amount ?? 0;
