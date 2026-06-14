@@ -556,6 +556,7 @@ export interface BowlingReservation {
     | "confirm_failed"
     | "arrived"
     | "completed"
+    | "no_show"
     | "cancelled";
   /** Number of times the QAMF confirmation has been retried by the cron. */
   qamfConfirmAttempts: number;
@@ -1098,6 +1099,70 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
     LIMIT 500
   `;
   return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * End-of-night status close: flip PAST-event reservations that are still in a
+ * non-terminal status to a terminal one, so "Active Only" (which hides
+ * completed/no_show/cancelled) stops showing yesterday's leftovers. Visibility
+ * only — money settlement is owned by the settle crons (bowling-no-show-close,
+ * race-dayof-pay); this runs AFTER them.
+ *
+ * Per past-event reservation (event time from booking_metadata heat/slot, else
+ * booked_at; combos excluded — held):
+ *   - showed/settled (arrived | checkin_method | dayof_order_sent_at) → completed
+ *   - never-shown + unsettled + nothing to collect (no gift card OR $0) → no_show
+ *   - never-shown + unsettled + funded (gift card + money) → LEFT untouched so
+ *     the settle crons charge it first; the next run then flips it (completed).
+ * confirm_failed / confirm_pending are LEFT (real issues that should surface).
+ */
+export async function closePastReservationStatuses(
+  opts: { dryRun?: boolean } = {},
+): Promise<{ completed: number; noShow: number; pendingSettle: number }> {
+  if (!isDbConfigured()) return { completed: 0, noShow: 0, pendingSettle: 0 };
+  await ensureBowlingSchema();
+  const q = sql();
+  const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const rows = (await q`
+    SELECT id, status, checkin_method ci, (dayof_order_sent_at IS NOT NULL) sent,
+           (square_gift_card_id IS NOT NULL) gc, total_cents,
+           COALESCE(
+             (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
+             (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+             to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
+           ) AS event_at
+    FROM bowling_reservations
+    WHERE combo_special_id IS NULL AND status IN ('confirmed', 'arrived')
+  `) as Array<Record<string, unknown>>;
+  const past = rows.filter((r) => String(r.event_at).slice(0, 10) < todayET);
+  const toCompleted = past
+    .filter((r) => r.status === "arrived" || r.ci != null || r.sent === true)
+    .map((r) => r.id as number);
+  const toNoShow = past
+    .filter(
+      (r) =>
+        r.status === "confirmed" &&
+        r.ci == null &&
+        r.sent !== true &&
+        (r.gc !== true || (r.total_cents as number) === 0),
+    )
+    .map((r) => r.id as number);
+  const pendingSettle = past.filter(
+    (r) =>
+      r.status === "confirmed" &&
+      r.ci == null &&
+      r.sent !== true &&
+      r.gc === true &&
+      (r.total_cents as number) > 0,
+  ).length;
+
+  if (!opts.dryRun) {
+    if (toCompleted.length)
+      await q`UPDATE bowling_reservations SET status = 'completed' WHERE id = ANY(${toCompleted})`;
+    if (toNoShow.length)
+      await q`UPDATE bowling_reservations SET status = 'no_show' WHERE id = ANY(${toNoShow})`;
+  }
+  return { completed: toCompleted.length, noShow: toNoShow.length, pendingSettle };
 }
 
 /**

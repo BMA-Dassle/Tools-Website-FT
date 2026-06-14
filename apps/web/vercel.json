@@ -123,6 +123,10 @@
     {
       "path": "/api/cron/bowling-no-show-close",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/reservation-status-close",
+      "schedule": "30 8 * * *"
     }
   ]
 }
