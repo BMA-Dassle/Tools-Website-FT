@@ -3,7 +3,8 @@
  * of features/combos/index.ts so client bundles never pull it).
  *
  * Owner (2026-06-11): email eric@, curtis@, alex@ and jacob@headpinz.com
- * whenever an Ultimate VIP Experience books. Fired by unifiedReserve after
+ * whenever an Ultimate VIP Experience books. (2026-06-13: added abigail@,
+ * bruce@headpinz.com and jeff@, jamil@fasttraxent.com.) Fired by unifiedReserve after
  * the booking fully succeeds (deposit captured, QAMF confirmed, BMI
  * confirmed). Best-effort: never throws — a mail hiccup must not fail a
  * paid booking.
@@ -20,6 +21,10 @@ const COMBO_BOOKED_RECIPIENTS = [
   "curtis@headpinz.com",
   "alex@headpinz.com",
   "jacob@headpinz.com",
+  "abigail@headpinz.com",
+  "bruce@headpinz.com",
+  "jeff@fasttraxent.com",
+  "jamil@fasttraxent.com",
 ];
 
 export async function notifyComboBooked(args: {
