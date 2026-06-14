@@ -619,6 +619,14 @@ export interface BowlingReservation {
    * which share a square_dayof_order_id. Undefined for ordinary reservations.
    */
   comboSpecialId?: string;
+  /**
+   * The real EVENT time as a naive ET wall-clock ISO ("2026-06-15T13:30:00"):
+   * the earliest race heat / attraction slot, or booked_at for bowling/KBF.
+   * Computed by the list queries — the board should display & sort on this, not
+   * booked_at (which is the booking timestamp for race/attraction anchors).
+   * Undefined when fetched by a path that doesn't compute it.
+   */
+  eventAt?: string;
   insertedAt: string;
 }
 
@@ -821,6 +829,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
       return undefined;
     })(),
     comboSpecialId: (row.combo_special_id as string) ?? undefined,
+    eventAt: (row.event_at as string) ?? undefined,
     insertedAt: (row.inserted_at as Date).toISOString(),
   };
 }
@@ -1168,47 +1177,37 @@ export async function listBowlingReservations(opts: {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
-  // Convert booked_at to ET date and compare directly.  Previous approach
-  // (`$1::date AT TIME ZONE 'America/New_York'`) broke because the Neon sql
-  // template tag consumed `::date` as a parameter type hint, stripping it from
-  // the SQL — so the AT TIME ZONE was applied to a bare text parameter, which
-  // Postgres silently mis-interpreted.  Casting the column side is unambiguous.
   const centerCodes = opts.centerCodes ?? (opts.centerCode ? [opts.centerCode] : undefined);
   const hasCenter = !!centerCodes && centerCodes.length > 0;
-  const hasKinds = opts.productKinds && opts.productKinds.length > 0;
+  const hasKinds = !!opts.productKinds && opts.productKinds.length > 0;
 
-  const rows =
-    hasCenter && hasKinds
-      ? await q`
-        SELECT * FROM bowling_reservations
-        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
-          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-          AND center_code = ANY(${centerCodes!}::text[])
-          AND product_kind = ANY(${opts.productKinds!}::text[])
-        ORDER BY booked_at ASC
-      `
-      : hasCenter
-        ? await q`
-        SELECT * FROM bowling_reservations
-        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
-          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-          AND center_code = ANY(${centerCodes!}::text[])
-        ORDER BY booked_at ASC
-      `
-        : hasKinds
-          ? await q`
-        SELECT * FROM bowling_reservations
-        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
-          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-          AND product_kind = ANY(${opts.productKinds!}::text[])
-        ORDER BY booked_at ASC
-      `
-          : await q`
-        SELECT * FROM bowling_reservations
-        WHERE (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
-          AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-        ORDER BY booked_at ASC
-      `;
+  // Filter / sort / display by the EVENT time, not booked_at. For race &
+  // attraction rows, booked_at is the BOOKING timestamp (when the guest paid),
+  // so a race booked today for next month would otherwise show up on today's
+  // board looking overdue. The real activity time lives in booking_metadata:
+  // race HEATS (heatId) or attraction SLOTS (slot) — both naive ET wall-clock
+  // ISO ("2026-06-15T13:30:00"). Bowling/KBF have no such metadata and fall back
+  // to booked_at (which IS their lane slot). event_at is a naive ET ISO; we
+  // date-filter on its first 10 chars (lexical compare == chronological for
+  // ISO), which also sidesteps the ::date param-hint pitfall the neon tag has.
+  const centerCond = hasCenter ? q`AND s.center_code = ANY(${centerCodes!}::text[])` : q``;
+  const kindCond = hasKinds ? q`AND s.product_kind = ANY(${opts.productKinds!}::text[])` : q``;
+  const rows = await q`
+    SELECT * FROM (
+      SELECT *,
+        COALESCE(
+          (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
+        ) AS event_at
+      FROM bowling_reservations
+    ) s
+    WHERE left(s.event_at, 10) >= ${opts.startDate}
+      AND left(s.event_at, 10) <= ${opts.endDate}
+      ${centerCond}
+      ${kindCond}
+    ORDER BY s.event_at ASC
+  `;
   const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
   if (!reservations.length) return [];
 
@@ -1246,12 +1245,24 @@ export async function listVipComboReservations(opts: {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
+  // Filter by EVENT date (heat/slot time), not booked_at — so a combo whose
+  // race leg was booked days before the event still surfaces on the event date,
+  // and BOTH legs (race heat date + bowling slot date, which match) come back
+  // together. See listBowlingReservations for the event_at rationale.
   const rows = await q`
-    SELECT * FROM bowling_reservations
-    WHERE combo_special_id IS NOT NULL
-      AND (booked_at AT TIME ZONE 'America/New_York')::date >= ${opts.startDate}::date
-      AND (booked_at AT TIME ZONE 'America/New_York')::date <= ${opts.endDate}::date
-    ORDER BY booked_at ASC
+    SELECT * FROM (
+      SELECT *,
+        COALESCE(
+          (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
+        ) AS event_at
+      FROM bowling_reservations
+      WHERE combo_special_id IS NOT NULL
+    ) s
+    WHERE left(s.event_at, 10) >= ${opts.startDate}
+      AND left(s.event_at, 10) <= ${opts.endDate}
+    ORDER BY s.event_at ASC
   `;
   const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
   if (!reservations.length) return [];

@@ -75,6 +75,9 @@ interface Reservation {
   }>;
   /** Combo special id (e.g. 'race-bowl') when this row is one leg of a VIP combo. */
   comboSpecialId?: string;
+  /** Real event time (naive ET ISO): race heat / attraction slot, else booked_at.
+   *  The board displays + sorts on this, not booked_at. */
+  eventAt?: string;
   /** Type-specific metadata. Race legs carry `heats` whose `heatId` is the
    *  heat's block-start ISO — the real per-heat schedule time. */
   bookingMetadata?: {
@@ -442,6 +445,18 @@ function dollars(cents: number): string {
 
 function confirmPath(r: Reservation): string | null {
   return r.shortCode ? `/s/${r.shortCode}` : null;
+}
+
+/**
+ * Check In + Cancel are bowling-only actions (QAMF lane open / bowling refund).
+ * They don't apply to race/attraction rows, and we also hide them on a bowling
+ * reservation that has attractions attached — cancelling/checking-in a mixed
+ * bowling+attraction booking from here isn't safe (the attraction legs live in
+ * BMI). So: only plain open/KBF bowling with no attraction add-ons.
+ */
+function bowlingActionable(r: Reservation): boolean {
+  const isBowling = r.productKind === "open" || r.productKind === "kbf";
+  return isBowling && (r.attractionBookings?.length ?? 0) === 0;
 }
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -3144,7 +3159,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {fmtTime(r.bookedAt)}
+                          {fmtClock(r.eventAt ?? r.bookedAt)}
                         </span>
                         <span
                           style={{
@@ -3474,7 +3489,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                     {/* Row 4: action buttons */}
                     {!isCancelled && r.status !== "completed" && (
                       <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-                        {r.status !== "arrived" && !r.checkinMethod && (
+                        {r.status !== "arrived" && !r.checkinMethod && bowlingActionable(r) && (
                           <button
                             type="button"
                             onClick={() => setCheckinTarget(r)}
@@ -3563,7 +3578,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             Resend
                           </button>
                         )}
-                        {r.status !== "arrived" && (
+                        {r.status !== "arrived" && bowlingActionable(r) && (
                           <button
                             type="button"
                             onClick={() => setCancelTarget(r)}
@@ -3653,7 +3668,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                       >
                         {/* Time */}
                         <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                          {fmtTime(r.bookedAt)}
+                          {fmtClock(r.eventAt ?? r.bookedAt)}
                         </td>
 
                         {/* Guest — name, phone, center tag */}
@@ -4119,11 +4134,12 @@ export default function ReservationsClient({ token }: { token: string }) {
                         {/* Actions — check-in, resched, view, resend, cancel */}
                         <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                           <div style={{ display: "flex", gap: 4 }}>
-                            {/* Check In — hidden once arrived or already checked in */}
+                            {/* Check In — bowling-only; hidden once arrived or already checked in */}
                             {!isCancelled &&
                               r.status !== "completed" &&
                               r.status !== "arrived" &&
-                              !r.checkinMethod && (
+                              !r.checkinMethod &&
+                              bowlingActionable(r) && (
                                 <button
                                   type="button"
                                   onClick={() => setCheckinTarget(r)}
@@ -4224,27 +4240,30 @@ export default function ReservationsClient({ token }: { token: string }) {
                                   Resend
                                 </button>
                               )}
-                            {/* Cancel */}
-                            {!isCancelled && r.status !== "arrived" && r.status !== "completed" && (
-                              <button
-                                type="button"
-                                onClick={() => setCancelTarget(r)}
-                                style={{
-                                  background: "none",
-                                  border: "1px solid rgba(239,68,68,0.3)",
-                                  borderRadius: 5,
-                                  color: "#ef4444",
-                                  cursor: "pointer",
-                                  fontSize: "0.6rem",
-                                  fontWeight: 600,
-                                  padding: "2px 6px",
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.03em",
-                                }}
-                              >
-                                Cancel
-                              </button>
-                            )}
+                            {/* Cancel — bowling-only */}
+                            {!isCancelled &&
+                              r.status !== "arrived" &&
+                              r.status !== "completed" &&
+                              bowlingActionable(r) && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCancelTarget(r)}
+                                  style={{
+                                    background: "none",
+                                    border: "1px solid rgba(239,68,68,0.3)",
+                                    borderRadius: 5,
+                                    color: "#ef4444",
+                                    cursor: "pointer",
+                                    fontSize: "0.6rem",
+                                    fontWeight: 600,
+                                    padding: "2px 6px",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.03em",
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              )}
                           </div>
                         </td>
                       </tr>
