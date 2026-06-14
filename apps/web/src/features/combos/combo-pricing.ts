@@ -197,7 +197,10 @@ export function comboItemizedLines(session: BookingSession): ComboItemLine[] | n
     )
     .map((e) => ({
       key: e.line.key,
-      name: e.line.label,
+      // Prefix every combo line so the Square day-of orders (and checkout
+      // review) read clearly as the VIP Experience — keeps the product's own
+      // catalog id, only the display name changes.
+      name: `VIP Exp - ${e.line.label}`,
       entity: e.line.entity,
       catalogObjectId: e.line.catalogObjectId,
       quantity: e.qty,

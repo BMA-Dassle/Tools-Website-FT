@@ -290,16 +290,16 @@ describe("buildRaceChargeLines — combo integration (display == charge seam)", 
     const names = lines.map((l) => l.name);
     expect(names).toEqual(
       expect.arrayContaining([
-        "Starter Race",
-        "Intermediate Race",
-        "POV Video",
-        "FastTrax License",
-        "VIP Bowling",
-        "Shoes",
+        "VIP Exp - Starter Race",
+        "VIP Exp - Intermediate Race",
+        "VIP Exp - POV Video",
+        "VIP Exp - FastTrax License",
+        "VIP Exp - VIP Bowling",
+        "VIP Exp - Shoes",
       ]),
     );
-    // No on-top "FastTrax License" beyond the combo's own; no legacy POV line.
-    expect(names.filter((n) => n === "FastTrax License")).toHaveLength(1);
+    // No on-top license beyond the combo's own; no legacy POV line.
+    expect(names.filter((n) => n === "VIP Exp - FastTrax License")).toHaveLength(1);
     expect(names).not.toContain("POV Race Video");
     // Total = 2 × $65 = $130.
     expect(sumCents(lines)).toBe(13000);
@@ -309,7 +309,7 @@ describe("buildRaceChargeLines — combo integration (display == charge seam)", 
     const s = newComboSession();
     (s.items[1] as BowlingItem).durationMinutes = 60; // breaks the gate
     const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).not.toContain("VIP Bowling");
+    expect(names).not.toContain("VIP Exp - VIP Bowling");
     expect(names.length).toBeGreaterThan(0);
   });
 

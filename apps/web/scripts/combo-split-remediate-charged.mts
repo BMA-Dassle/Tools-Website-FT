@@ -180,8 +180,8 @@ for (const g of groups) {
   }
 
   // 3) create split orders + charge each
-  const ftItems = [li(SQ.UQ, "Starter Race", ppl, 1700), li(SQ.UQ, "Intermediate Race", ppl, 1700), li(SQ.POV, "POV Video", ppl, 500), li(SQ.LICENSE, "FastTrax License", ppl, 499)];
-  const hpItems = [li(SQ.VIP_BOWLING, "VIP Bowling", ppl, we ? 2601 : 1601), li(SQ.SHOE, "Shoes", ppl, 500), li(SQ.BOOKING_FEE, "Booking Fee", 1, 299)];
+  const ftItems = [li(SQ.UQ, "VIP Exp - Starter Race", ppl, 1700), li(SQ.UQ, "VIP Exp - Intermediate Race", ppl, 1700), li(SQ.POV, "VIP Exp - POV Video", ppl, 500), li(SQ.LICENSE, "VIP Exp - FastTrax License", ppl, 499)];
+  const hpItems = [li(SQ.VIP_BOWLING, "VIP Exp - VIP Bowling", ppl, we ? 2601 : 1601), li(SQ.SHOE, "VIP Exp - Shoes", ppl, 500), li(SQ.BOOKING_FEE, "VIP Exp - Booking Fee", 1, 299)];
   const ft = await createOrder(FASTTRAX_FM, ftItems, `remediate-charged-${oldId}-ft`, o.customer_id, 0);
   const hp = await createOrder(HEADPINZ_FM, hpItems, `remediate-charged-${oldId}-hp`, o.customer_id, hpDisc);
   const ftPay = await chargeGiftCard(ft.id, FASTTRAX_FM, gcId, ft.total, `remediate-charged-${oldId}-ft-pay`);

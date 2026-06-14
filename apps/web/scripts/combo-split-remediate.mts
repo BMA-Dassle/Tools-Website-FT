@@ -164,19 +164,19 @@ for (const oldId of ORDERS) {
 
   // FastTrax racing = exact racing revenue
   const ftItems = [
-    li(SQ.UQ, "Starter Race", ppl, 1700),
-    li(SQ.UQ, "Intermediate Race", ppl, 1700),
-    li(SQ.POV, "POV Video", ppl, 500),
-    li(SQ.LICENSE, "FastTrax License", ppl, 499),
+    li(SQ.UQ, "VIP Exp - Starter Race", ppl, 1700),
+    li(SQ.UQ, "VIP Exp - Intermediate Race", ppl, 1700),
+    li(SQ.POV, "VIP Exp - POV Video", ppl, 500),
+    li(SQ.LICENSE, "VIP Exp - FastTrax License", ppl, 499),
   ];
   const ftSubtotal = ppl * 4399;
   const ftTotal = taxIncl(ftSubtotal);
 
   // HeadPinz bowling = balancer: bowling + shoes + booking fee, minus discount
   const hpItems = [
-    li(SQ.VIP_BOWLING, "VIP Bowling", ppl, we ? 2601 : 1601),
-    li(SQ.SHOE, "Shoes", ppl, 500),
-    li(SQ.BOOKING_FEE, "Booking Fee", 1, 299),
+    li(SQ.VIP_BOWLING, "VIP Exp - VIP Bowling", ppl, we ? 2601 : 1601),
+    li(SQ.SHOE, "VIP Exp - Shoes", ppl, 500),
+    li(SQ.BOOKING_FEE, "VIP Exp - Booking Fee", 1, 299),
   ];
   const hpNatural = ppl * (we ? 2601 : 1601) + ppl * 500 + 299;
   const hpTarget = gcBal - ftTotal;

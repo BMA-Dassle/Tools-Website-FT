@@ -111,6 +111,14 @@ interface ComboScheduleStep {
   pending?: boolean;
 }
 
+/** Attached to the single main-list row that represents a whole VIP combo
+ *  (its two legs collapsed): the combined total and one entry per day-of order. */
+interface ComboMergeInfo {
+  totalCents: number;
+  orders: Array<{ orderId: string; kind: "Racing" | "Bowling"; leg: Reservation }>;
+  legCount: number;
+}
+
 interface GroupEvent {
   id: number;
   contractShortId: string;
@@ -2118,16 +2126,56 @@ export default function ReservationsClient({ token }: { token: string }) {
     [groupEvents, hideCancelled],
   );
 
+  // Collapse VIP combo legs into ONE main-list row. A split combo has two
+  // day-of orders (racing + bowling) = two reservation legs; show a single row
+  // anchored on the bowling leg (it carries the lane + check-in actions) with
+  // the COMBINED total and one view button per day-of order. Non-combo rows
+  // pass through. Grouped on the shared deposit order — same key as the VIP
+  // combo cards — so it survives the day-of split.
+  const displayRows = useMemo(() => {
+    const comboLegs = new Map<string, Reservation[]>();
+    const out: Array<Reservation & { comboMerge?: ComboMergeInfo }> = [];
+    for (const r of filtered) {
+      if (r.comboSpecialId) {
+        const k = r.squareDepositOrderId || r.squareDayofOrderId || `id-${r.id}`;
+        const arr = comboLegs.get(k);
+        if (arr) arr.push(r);
+        else comboLegs.set(k, [r]);
+      } else {
+        out.push(r);
+      }
+    }
+    for (const legs of comboLegs.values()) {
+      const anchor =
+        legs.find((l) => l.productKind === "open" || l.productKind === "kbf") ?? legs[0];
+      const byOrder = new Map<string, Reservation>();
+      for (const l of legs)
+        if (l.squareDayofOrderId && !byOrder.has(l.squareDayofOrderId))
+          byOrder.set(l.squareDayofOrderId, l);
+      const orders = Array.from(byOrder.values()).map((l) => ({
+        orderId: l.squareDayofOrderId as string,
+        kind: l.productKind === "race" ? ("Racing" as const) : ("Bowling" as const),
+        leg: l,
+      }));
+      const totalCents =
+        orders.reduce((s, o) => s + (o.leg.totalCents ?? 0), 0) || anchor.totalCents;
+      out.push({ ...anchor, comboMerge: { totalCents, orders, legCount: legs.length } });
+    }
+    return out.sort((a, b) => (a.eventAt ?? a.bookedAt).localeCompare(b.eventAt ?? b.bookedAt));
+  }, [filtered]);
+
   // Stats
-  const active = filtered.filter((r) => r.status !== "cancelled" && r.status !== "completed");
+  const active = displayRows.filter((r) => r.status !== "cancelled" && r.status !== "completed");
   const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
   const totalCompletedAll = reservations.filter((r) => r.status === "completed").length;
   const totalWalkins = reservations.filter(
     (r) => r.bookingSource && r.bookingSource !== "web",
   ).length;
   const totalHidden = totalCancelledAll + totalCompletedAll;
-  const totalDeposit = active.reduce((s, r) => s + r.depositCents, 0);
-  const totalRevenue = active.reduce((s, r) => s + r.totalCents, 0);
+  // Combo rows carry the COMBINED total across their two day-of orders (and are
+  // 100% prepaid, so deposit == total); use it so revenue isn't under/double-counted.
+  const totalDeposit = active.reduce((s, r) => s + (r.comboMerge?.totalCents ?? r.depositCents), 0);
+  const totalRevenue = active.reduce((s, r) => s + (r.comboMerge?.totalCents ?? r.totalCents), 0);
   const totalPlayers = active.reduce((s, r) => s + (r.playerCount ?? 0), 0);
 
   function copyLink(r: Reservation) {
@@ -2317,6 +2365,15 @@ export default function ReservationsClient({ token }: { token: string }) {
                   <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>{step.loc}</span>
                 </div>
               ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={() => setScheduleTarget(null)}
+                style={{ ...NAV_BTN, fontSize: "0.8rem", fontWeight: 600 }}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -3031,7 +3088,7 @@ export default function ReservationsClient({ token }: { token: string }) {
               })}
             </div>
           )
-        ) : filtered.length === 0 && visibleGroupEvents.length === 0 ? (
+        ) : displayRows.length === 0 && visibleGroupEvents.length === 0 ? (
           <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
             {search ? "No matching reservations." : "No reservations for this date."}
           </div>
@@ -3268,7 +3325,7 @@ export default function ReservationsClient({ token }: { token: string }) {
 
             {/* ── Mobile card list (<md) ────────────────────────── */}
             <div className="md:hidden flex flex-col gap-1.5">
-              {filtered.map((r) => {
+              {displayRows.map((r) => {
                 const isCancelled = r.status === "cancelled";
                 const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
                 const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
@@ -3538,7 +3595,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                         {r.depositCents > 0 ? (
                           <>
                             <span style={{ color: "#22c55e", fontWeight: 600, fontSize: "0.7rem" }}>
-                              {dollars(r.depositCents)}
+                              {dollars(r.comboMerge?.totalCents ?? r.depositCents)}
                             </span>
                             <span
                               style={{
@@ -3550,7 +3607,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               /
                             </span>
                             <span style={{ color: "var(--ba-muted)", fontSize: "0.6rem" }}>
-                              {dollars(r.totalCents)}
+                              {dollars(r.comboMerge?.totalCents ?? r.totalCents)}
                             </span>
                           </>
                         ) : r.bookingSource && r.bookingSource !== "web" ? (
@@ -3840,7 +3897,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((r) => {
+                  {displayRows.map((r) => {
                     const isCancelled = r.status === "cancelled";
                     const rowOpacity = isCancelled ? 0.45 : 1;
                     const centerShort = CENTERS[r.centerCode] === "Fort Myers" ? "FM" : "NAP";
@@ -4308,11 +4365,11 @@ export default function ReservationsClient({ token }: { token: string }) {
                           {r.depositCents > 0 ? (
                             <>
                               <span style={{ color: "#22c55e", fontWeight: 600 }}>
-                                {dollars(r.depositCents)}
+                                {dollars(r.comboMerge?.totalCents ?? r.depositCents)}
                               </span>
                               <span style={{ color: "var(--ba-muted)", margin: "0 2px" }}>/</span>
                               <span style={{ color: "var(--ba-muted)" }}>
-                                {dollars(r.totalCents)}
+                                {dollars(r.comboMerge?.totalCents ?? r.totalCents)}
                               </span>
                             </>
                           ) : r.bookingSource && r.bookingSource !== "web" ? (
