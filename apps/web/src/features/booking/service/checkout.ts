@@ -49,6 +49,14 @@ export interface BillLine {
    *  redeems gets their own discounted line zeroed — not a sibling full-price
    *  line, and never double-counted. */
   membershipDiscountPct?: number;
+  /** Combo split: the real Square catalog VARIATION id this line books under
+   *  (price-overridden). Set on itemized combo lines; the reserve flow uses it
+   *  directly instead of resolving from bmiProductId. */
+  squareCatalogObjectId?: string;
+  /** Combo split: which entity's day-of order this line routes to
+   *  ("fasttrax-fm" | "headpinz-fm"). Drives the two-order split in
+   *  unified-reserve; undefined = the session's default single order. */
+  comboEntity?: string;
 }
 
 export interface BillOverview {

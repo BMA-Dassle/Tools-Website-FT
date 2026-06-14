@@ -21,7 +21,7 @@
  */
 
 import type { BillLine } from "~/features/booking/service/checkout";
-import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
+import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
 
 import { wallClockMs } from "./combo-itinerary";
@@ -31,6 +31,8 @@ import {
   comboPriceCentsForDate,
   comboRaceLegs,
   getComboSpecial,
+  type ComboEntity,
+  type ComboRevenueLine,
   type ComboSpecial,
 } from "./combo-specials";
 
@@ -126,64 +128,151 @@ export function activeComboSpecial(session: BookingSession): ActiveCombo | null 
   return { combo, raceItem, bowlingItem, racerIds: [...byRacer.keys()] };
 }
 
-/** Highest racing membership discount (%) + label for a racer — mirrors
- *  checkout.ts `racingDiscountForMember` so combo split lines group racers
- *  identically to race split lines. */
-function discountForRacer(
-  session: BookingSession,
-  racerId: string,
-): { percent: number; label: string | null } {
-  const member = session.party.find((p) => p.id === racerId);
-  if (!member?.memberships?.length) return { percent: 0, label: null };
-  let percent = 0;
-  let label: string | null = null;
-  for (const d of membershipDiscountsForNames(member.memberships)) {
-    if (d.categories.includes("racing") && d.percentOff > percent) {
-      percent = d.percentOff;
-      label = d.label;
-    }
-  }
-  return { percent, label };
+/* ── Itemized revenue split (Model A) ─────────────────────────────────── */
+
+/** One itemized combo line, routed to an entity's Square day-of order. */
+export interface ComboItemLine {
+  key: string;
+  name: string;
+  entity: ComboEntity;
+  catalogObjectId: string;
+  quantity: number;
+  /** Per-unit cents (after license reallocation). */
+  unitCents: number;
 }
 
 /**
- * The combo's Square charge lines — ONE line per racer-discount-group at the
- * per-person price for the race date — or null when the gate doesn't pass.
- * Suppresses nothing itself: callers replace the per-item race product lines
- * and the bowling line items with this. License + POV still charge on top
- * (they're not combo components).
+ * Itemize the combo's flat per-person price into per-line, per-entity charge
+ * lines from the registry `revenueSplit`. Returns null when the gate fails OR
+ * the combo has no revenueSplit (caller flat-prices instead).
+ *
+ * Computed per racer then aggregated by (line, unit cents), so new vs
+ * returning racers (license reallocation) collapse into the right quantities.
+ * NO membership discount is applied — the combo IS a fixed promotional bundle;
+ * stacking an employee/league discount on top is intentionally not supported
+ * (book à la carte for that). Sums to exactly the flat per-person price.
+ */
+export function comboItemizedLines(session: BookingSession): ComboItemLine[] | null {
+  const active = activeComboSpecial(session);
+  if (!active) return null;
+  const { combo, raceItem, racerIds } = active;
+  const split = combo.revenueSplit;
+  if (!split || split.length === 0) return null;
+
+  const weekend = scheduleForDate(raceItem.date!) === "weekend";
+  const cents = (l: ComboRevenueLine) => (weekend ? l.weekendCents : l.weekdayCents);
+  const byKey = new Map(split.map((l) => [l.key, l] as const));
+  const isNew = (rid: string) => !!session.party.find((p) => p.id === rid)?.isNewRacer;
+
+  // (lineKey, unitCents) → aggregated quantity.
+  const agg = new Map<string, { line: ComboRevenueLine; unitCents: number; qty: number }>();
+  for (const rid of racerIds) {
+    const perLineCents = new Map<string, number>();
+    for (const l of split) {
+      const applies =
+        l.appliesTo === "allRacers" || (l.appliesTo === "newRacersOnly" && isNew(rid));
+      if (applies) {
+        perLineCents.set(l.key, (perLineCents.get(l.key) ?? 0) + cents(l));
+      } else if (l.reallocateTo) {
+        // Skipped (e.g. returning racer's license) → roll onto the target line
+        // so the per-person total stays exact.
+        perLineCents.set(l.reallocateTo, (perLineCents.get(l.reallocateTo) ?? 0) + cents(l));
+      }
+    }
+    for (const [key, c] of perLineCents) {
+      const line = byKey.get(key);
+      if (!line) continue;
+      const aggKey = `${key}|${c}`;
+      const e = agg.get(aggKey) ?? { line, unitCents: c, qty: 0 };
+      e.qty += 1;
+      agg.set(aggKey, e);
+    }
+  }
+
+  const order = new Map(split.map((l, i) => [l.key, i] as const));
+  return [...agg.values()]
+    .sort(
+      (a, b) =>
+        (order.get(a.line.key) ?? 0) - (order.get(b.line.key) ?? 0) || a.unitCents - b.unitCents,
+    )
+    .map((e) => ({
+      key: e.line.key,
+      name: e.line.label,
+      entity: e.line.entity,
+      catalogObjectId: e.line.catalogObjectId,
+      quantity: e.qty,
+      unitCents: e.unitCents,
+    }));
+}
+
+/**
+ * The combo's Square charge lines — ITEMIZED per the revenue split (races,
+ * POV, license, VIP bowling, shoes), each tagged with its entity + catalog
+ * variation so the reserve flow can route it to that entity's day-of order.
+ * Falls back to ONE flat line when a combo has no revenueSplit. Null when the
+ * gate doesn't pass (caller uses normal item-sum pricing).
+ *
+ * Consumed by buildRaceChargeLines → drives the checkout review (display) AND
+ * the charge; comboOrderGroups regroups these by entity for the two orders, so
+ * displayed == charged across both.
  */
 export function comboChargeLines(session: BookingSession): BillLine[] | null {
   const active = activeComboSpecial(session);
   if (!active) return null;
   const { combo, raceItem, racerIds } = active;
-
-  const unit = comboPriceCentsForDate(combo, raceItem.date!) / 100;
   const earliestHeat = raceItem.heats
     .map((h) => h.heatId)
     .filter((s): s is string => !!s)
     .sort()[0];
 
-  // Group racers by their racing discount %, full-price group first —
-  // identical naming + split semantics to checkout.ts splitByDiscount.
-  const groups = new Map<number, { label: string | null; count: number }>();
-  for (const racerId of racerIds) {
-    const { percent, label } = discountForRacer(session, racerId);
-    const g = groups.get(percent) ?? { label, count: 0 };
-    g.count += 1;
-    groups.set(percent, g);
+  const itemized = comboItemizedLines(session);
+  if (itemized) {
+    return itemized.map((l) => ({
+      name: l.name,
+      quantity: l.quantity,
+      amount: round2((l.unitCents * l.quantity) / 100),
+      time: earliestHeat,
+      squareCatalogObjectId: l.catalogObjectId,
+      comboEntity: l.entity,
+    }));
   }
 
-  return [...groups.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([percent, g]) => {
-      const base = unit * g.count;
-      return {
-        name: percent > 0 ? `${combo.name} (${g.label ?? "Member"} −${percent}%)` : combo.name,
-        quantity: g.count,
-        amount: round2(percent > 0 ? base * (1 - percent / 100) : base),
-        time: earliestHeat,
-        ...(percent > 0 ? { membershipDiscountPct: percent } : {}),
-      };
-    });
+  // Legacy fallback: one flat combo line (combo without a revenueSplit).
+  const unit = comboPriceCentsForDate(combo, raceItem.date!) / 100;
+  return [
+    {
+      name: combo.name,
+      quantity: racerIds.length,
+      amount: round2(unit * racerIds.length),
+      time: earliestHeat,
+    },
+  ];
+}
+
+/**
+ * Group the combo's itemized lines by entity → one Square day-of order per
+ * entity. Returns null when the gate fails or there's no revenueSplit (the
+ * caller then creates a single order). Each group carries the lines to charge;
+ * the reserve flow resolves the entity → Square location id + location tax,
+ * creates the order, and the ONE shared gift card funds all groups.
+ */
+export interface ComboOrderGroup {
+  entity: ComboEntity;
+  lines: ComboItemLine[];
+  subtotalCents: number;
+}
+export function comboOrderGroups(session: BookingSession): ComboOrderGroup[] | null {
+  const itemized = comboItemizedLines(session);
+  if (!itemized) return null;
+  const byEntity = new Map<ComboEntity, ComboItemLine[]>();
+  for (const l of itemized) {
+    const arr = byEntity.get(l.entity) ?? [];
+    arr.push(l);
+    byEntity.set(l.entity, arr);
+  }
+  return [...byEntity.entries()].map(([entity, lines]) => ({
+    entity,
+    lines,
+    subtotalCents: lines.reduce((s, l) => s + l.unitCents * l.quantity, 0),
+  }));
 }

@@ -13,7 +13,12 @@ import {
   type RaceItem,
 } from "~/features/booking/state/types";
 
-import { activeComboSpecial, comboChargeLines } from "./combo-pricing";
+import {
+  activeComboSpecial,
+  comboChargeLines,
+  comboItemizedLines,
+  comboOrderGroups,
+} from "./combo-pricing";
 
 // June 2026: the 1st is a Monday; the 2nd is Mega Tuesday; the 6th a Saturday.
 const MON = "2026-06-01";
@@ -193,87 +198,123 @@ describe("activeComboSpecial — strict itinerary gate", () => {
   });
 });
 
-describe("comboChargeLines — flat per-person pricing", () => {
-  it("Mon–Thu: one line, $65/person × 2 racers = $130, timed at the starter", () => {
-    const lines = comboChargeLines(comboSession())!;
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ name: "Ultimate VIP Experience", quantity: 2, amount: 130 });
-    expect(lines[0].time).toBe(`${MON}T13:00:00Z`);
+/** Sum of a line set in cents. */
+function sumCents(lines: Array<{ amount: number }>): number {
+  return Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100);
+}
+
+// 2 NEW racers (so license applies); MON weekday.
+function newComboSession(date = MON): BookingSession {
+  return comboSession(date, {
+    party: [member("a", { isNewRacer: true }), member("b", { isNewRacer: true })],
+    items: [raceItem({ date, heats: itineraryHeats(date, ["a", "b"]) }), bowlingItem(date)],
+  });
+}
+
+describe("comboItemizedLines — Model A split (sums to the flat per-person price)", () => {
+  it("2 new racers Mon–Thu: itemized to $65pp, routed to the right entities", () => {
+    const lines = comboItemizedLines(newComboSession())!;
+    const byKey = Object.fromEntries(lines.map((l) => [l.key, l]));
+    expect(byKey["starter-race"]).toMatchObject({
+      quantity: 2,
+      unitCents: 1700,
+      entity: "fasttrax-fm",
+    });
+    expect(byKey["intermediate-race"]).toMatchObject({ unitCents: 1700, entity: "fasttrax-fm" });
+    expect(byKey["pov"]).toMatchObject({ unitCents: 500, entity: "fasttrax-fm" });
+    expect(byKey["license"]).toMatchObject({ quantity: 2, unitCents: 499, entity: "fasttrax-fm" });
+    expect(byKey["vip-bowling"]).toMatchObject({ unitCents: 1601, entity: "headpinz-fm" });
+    expect(byKey["shoes"]).toMatchObject({ unitCents: 500, entity: "headpinz-fm" });
+    // 2 × $65 = $130
+    const total = lines.reduce((s, l) => s + l.unitCents * l.quantity, 0);
+    expect(total).toBe(13000);
   });
 
-  it("Mega Tuesday prices as weekday ($65)", () => {
-    const lines = comboChargeLines(comboSession(TUE))!;
-    expect(lines[0].amount).toBe(130);
+  it("weekend uplift lands entirely on VIP bowling; racing flat", () => {
+    const wd = comboItemizedLines(newComboSession(MON))!;
+    const we = comboItemizedLines(newComboSession(SAT))!;
+    const bowl = (ls: typeof wd) => ls.find((l) => l.key === "vip-bowling")!.unitCents;
+    const race = (ls: typeof wd) => ls.find((l) => l.key === "starter-race")!.unitCents;
+    expect(bowl(wd)).toBe(1601);
+    expect(bowl(we)).toBe(2601); // +$10
+    expect(race(wd)).toBe(race(we)); // racing unchanged
+    expect(we.reduce((s, l) => s + l.unitCents * l.quantity, 0)).toBe(15000); // 2 × $75
   });
 
-  it("Fri–Sun: $75/person × 2 racers = $150", () => {
-    const lines = comboChargeLines(comboSession(SAT))!;
-    expect(lines).toHaveLength(1);
-    expect(lines[0].amount).toBe(150);
+  it("Mega Tuesday prices as weekday", () => {
+    expect(
+      comboItemizedLines(newComboSession(TUE))!.reduce((s, l) => s + l.unitCents * l.quantity, 0),
+    ).toBe(13000);
   });
 
-  it("splits per racer membership discount — full-price line first", () => {
+  it("returning racer: license drops and rolls onto Starter Race (still $65pp)", () => {
+    // a = new, b = returning.
     const s = comboSession(MON, {
-      party: [member("a", { memberships: ["Employee Pass"] }), member("b")],
+      party: [member("a", { isNewRacer: true }), member("b", { isNewRacer: false })],
       items: [raceItem({ date: MON, heats: itineraryHeats(MON, ["a", "b"]) }), bowlingItem(MON)],
     });
-    const lines = comboChargeLines(s)!;
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatchObject({ name: "Ultimate VIP Experience", quantity: 1, amount: 65 });
-    expect(lines[1]).toMatchObject({
-      name: "Ultimate VIP Experience (Employee Pass −50%)",
-      quantity: 1,
-      amount: 32.5,
-      membershipDiscountPct: 50,
-    });
+    const lines = comboItemizedLines(s)!;
+    // license only for the 1 new racer
+    expect(lines.find((l) => l.key === "license")).toMatchObject({ quantity: 1, unitCents: 499 });
+    // two Starter Race lines: $17.00 (new) + $21.99 (returning, license rolled in)
+    const starters = lines.filter((l) => l.key === "starter-race");
+    expect(starters.map((l) => l.unitCents).sort((x, y) => x - y)).toEqual([1700, 2199]);
+    // still 2 × $65
+    expect(lines.reduce((s, l) => s + l.unitCents * l.quantity, 0)).toBe(13000);
   });
 });
 
-describe("buildRaceChargeLines — combo integration (the single display==charge seam)", () => {
-  it("combo session: combo line REPLACES the race product lines", () => {
-    const lines = buildRaceChargeLines(comboSession());
-    expect(lines.map((l) => l.name)).toEqual(["Ultimate VIP Experience"]);
-    expect(lines[0].amount).toBe(130);
+describe("comboOrderGroups — one Square order per entity", () => {
+  it("2 new racers Mon–Thu: FastTrax $87.98 + HeadPinz $42.04 = $130", () => {
+    const groups = comboOrderGroups(newComboSession())!;
+    const ft = groups.find((g) => g.entity === "fasttrax-fm")!;
+    const hp = groups.find((g) => g.entity === "headpinz-fm")!;
+    expect(ft.subtotalCents).toBe(8798); // 2×(1700+1700+500+499)
+    expect(hp.subtotalCents).toBe(4202); // 2×(1601+500)
+    expect(ft.subtotalCents + hp.subtotalCents).toBe(13000);
+    // every line carries a real catalog variation id
+    for (const g of groups)
+      for (const l of g.lines) expect(l.catalogObjectId).toMatch(/^[A-Z0-9]{20,}$/);
   });
 
-  it("license is INCLUDED — no separate Square line even with new racers", () => {
-    const s = comboSession(MON, {
-      party: [member("a", { isNewRacer: true }), member("b")],
-      items: [raceItem({ date: MON, heats: itineraryHeats(MON, ["a", "b"]) }), bowlingItem(MON)],
-    });
-    const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).toContain("Ultimate VIP Experience");
-    expect(names).not.toContain("FastTrax License");
+  it("weekend: HeadPinz carries the uplift ($62.02), FastTrax unchanged ($87.98)", () => {
+    const groups = comboOrderGroups(newComboSession(SAT))!;
+    expect(groups.find((g) => g.entity === "fasttrax-fm")!.subtotalCents).toBe(8798);
+    expect(groups.find((g) => g.entity === "headpinz-fm")!.subtotalCents).toBe(6202); // 2×(2601+500)
   });
+});
 
-  it("included POV (1/racer) is absorbed — no Square POV line for the auto-set quantity", () => {
-    const s = comboSession();
-    (s.items[0] as RaceItem).povQuantity = 2; // combo flow auto-sets racers × 1
-    const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).toContain("Ultimate VIP Experience");
+describe("buildRaceChargeLines — combo integration (display == charge seam)", () => {
+  it("combo session: itemized lines REPLACE the race product lines, no separate license/POV", () => {
+    const lines = buildRaceChargeLines(newComboSession());
+    const names = lines.map((l) => l.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "Starter Race",
+        "Intermediate Race",
+        "POV Video",
+        "FastTrax License",
+        "VIP Bowling",
+        "Shoes",
+      ]),
+    );
+    // No on-top "FastTrax License" beyond the combo's own; no legacy POV line.
+    expect(names.filter((n) => n === "FastTrax License")).toHaveLength(1);
     expect(names).not.toContain("POV Race Video");
-  });
-
-  it("POV beyond the included count would still charge (defensive)", () => {
-    const s = comboSession();
-    (s.items[0] as RaceItem).povQuantity = 3; // one more than included (2 racers × 1)
-    const pov = buildRaceChargeLines(s).find((l) => l.name === "POV Race Video");
-    expect(pov).toMatchObject({ quantity: 1 });
+    // Total = 2 × $65 = $130.
+    expect(sumCents(lines)).toBe(13000);
   });
 
   it("gate failure falls back to normal item-sum race lines", () => {
-    const s = comboSession();
+    const s = newComboSession();
     (s.items[1] as BowlingItem).durationMinutes = 60; // breaks the gate
     const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).not.toContain("Ultimate VIP Experience");
-    expect(names.length).toBeGreaterThan(0); // the regular race product line(s)
+    expect(names).not.toContain("VIP Bowling");
+    expect(names.length).toBeGreaterThan(0);
   });
 
-  it("is deterministic — two calls produce byte-identical output (display === charge)", () => {
-    const s = comboSession(MON, {
-      party: [member("a", { memberships: ["Employee Pass"] }), member("b", { isNewRacer: true })],
-      items: [raceItem({ date: MON, heats: itineraryHeats(MON, ["a", "b"]) }), bowlingItem(MON)],
-    });
+  it("is deterministic — two calls byte-identical (display === charge)", () => {
+    const s = newComboSession();
     expect(JSON.stringify(buildRaceChargeLines(s))).toBe(JSON.stringify(buildRaceChargeLines(s)));
   });
 });

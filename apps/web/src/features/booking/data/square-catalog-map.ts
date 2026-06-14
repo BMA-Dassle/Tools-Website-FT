@@ -40,6 +40,12 @@ const SQ = {
   ROOKIE_PACK: "37MC3KLD5JMMBHGYG6JILZ7P",
   GEL_BLASTER: "IPAKRTMOYX37ATF7UBJCXQSP",
   LASER_TAG: "TXNWQI43HNMX2EHP72ZPUVXU",
+  // POV / ViewPoint Cameras (variation, $0 default → price-overridden per booking).
+  POV: "6BJ7HF2VGITYIA3FRS4RK2AV",
+  // VIP bowling experience (variation, variable price → overridden). Combo bowling line.
+  VIP_BOWLING: "R66TY2VTICYUH4NM3F4UQVLF",
+  // Shoe rental ($5 variation) — combo's split-out shoe line.
+  SHOE_RENTAL: "BVJ2ZSW6N4FPSPSPSB4IN7LA",
   DUCKPIN: "EXW7E74IRPYJAQFA4YIIEW3G",
   SHUFFLY_30: "J2FGLI7X4FSO4X35W4ZXI52L",
   SHUFFLY_1HR: "47RPZJOQU3VSIDFRFBPNZPED",

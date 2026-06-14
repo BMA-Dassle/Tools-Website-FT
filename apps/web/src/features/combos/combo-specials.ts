@@ -28,6 +28,35 @@
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import type { RaceTier } from "~/features/booking/service/race-products";
 import type { CenterCode } from "~/features/booking/types";
+import { SQUARE_CATALOG_IDS } from "~/features/booking/data/square-catalog-map";
+
+/**
+ * Which Square location/entity a revenue line books to. Each maps to a Square
+ * location id at reserve time, producing ONE day-of order per entity present.
+ * A combo's flat per-person price is itemized across these lines so revenue
+ * lands at the entity that owns it (racing → FastTrax, bowling → HeadPinz).
+ * Generic so cross-center attraction combos reuse it.
+ */
+export type ComboEntity = "fasttrax-fm" | "headpinz-fm";
+
+/** One itemized revenue line of a combo's flat per-person price. */
+export interface ComboRevenueLine {
+  key: string;
+  /** Day-of order line name. */
+  label: string;
+  /** Owning entity → its own Square day-of order + location tax. */
+  entity: ComboEntity;
+  /** Real Square catalog VARIATION id; the line uses a base_price_money override. */
+  catalogObjectId: string;
+  /** Per-person cents by day tier (Mega Tuesday = weekday). */
+  weekdayCents: number;
+  weekendCents: number;
+  /** "allRacers" books for every racer; "newRacersOnly" only for new racers
+   *  (the license). A skipped newRacersOnly line reallocates its cents to
+   *  `reallocateTo` so the per-person total stays exact. */
+  appliesTo: "allRacers" | "newRacersOnly";
+  reallocateTo?: string;
+}
 
 /**
  * One leg of a combo's visit itinerary, in order. A race leg = ONE heat per
@@ -95,6 +124,13 @@ export interface ComboSpecial {
    * the ops bill memo.
    */
   qualifyFallbackNote?: string;
+  /**
+   * Itemized per-person revenue split (Model A). Each line books to its
+   * entity's Square day-of order via a real catalog variation + price
+   * override; the lines sum to the flat per-person price for the day tier.
+   * Absent = single flat combo line on one order (legacy behavior).
+   */
+  revenueSplit?: ComboRevenueLine[];
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
@@ -153,6 +189,67 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     includedPovPerRacer: 1,
     startHours: [14, 16, 18, 20, 22],
     premium: true,
+    // Model A (owner-approved 2026-06-13): itemized split → two day-of orders.
+    // FastTrax racing (flat both tiers) + HeadPinz VIP bowling (weekend uplift
+    // on the bowling line). Sums to 6500 wd / 7500 we per person; returning
+    // racers' skipped $4.99 license rolls onto the Starter Race line.
+    revenueSplit: [
+      {
+        key: "starter-race",
+        label: "Starter Race",
+        entity: "fasttrax-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER,
+        weekdayCents: 1700,
+        weekendCents: 1700,
+        appliesTo: "allRacers",
+      },
+      {
+        key: "intermediate-race",
+        label: "Intermediate Race",
+        entity: "fasttrax-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER,
+        weekdayCents: 1700,
+        weekendCents: 1700,
+        appliesTo: "allRacers",
+      },
+      {
+        key: "pov",
+        label: "POV Video",
+        entity: "fasttrax-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.POV,
+        weekdayCents: 500,
+        weekendCents: 500,
+        appliesTo: "allRacers",
+      },
+      {
+        key: "license",
+        label: "FastTrax License",
+        entity: "fasttrax-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.LICENSE,
+        weekdayCents: 499,
+        weekendCents: 499,
+        appliesTo: "newRacersOnly",
+        reallocateTo: "starter-race",
+      },
+      {
+        key: "vip-bowling",
+        label: "VIP Bowling",
+        entity: "headpinz-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.VIP_BOWLING,
+        weekdayCents: 1601,
+        weekendCents: 2601,
+        appliesTo: "allRacers",
+      },
+      {
+        key: "shoes",
+        label: "Shoes",
+        entity: "headpinz-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.SHOE_RENTAL,
+        weekdayCents: 500,
+        weekendCents: 500,
+        appliesTo: "allRacers",
+      },
+    ],
     enabled: COMBO_RACE_BOWL_ENABLED,
     displayOrder: 10,
   },
