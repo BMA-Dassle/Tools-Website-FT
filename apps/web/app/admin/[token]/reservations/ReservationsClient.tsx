@@ -1916,19 +1916,13 @@ export default function ReservationsClient({ token }: { token: string }) {
       // stay visible until they truly finish), but races never get one, so an
       // arrived race is effectively done. Past-event no-shows are flipped to a
       // terminal status by the reservation-status-close cron (not filtered here).
-      const todayStr = todayET();
-      list = list.filter((r) => {
-        if (r.status === "cancelled" || r.status === "completed" || r.status === "no_show")
-          return false;
-        if (r.status === "arrived" && r.productKind === "race") return false;
-        // Past-event reservations whose day-of order is already settled (sent/
-        // closed — includes no-show closes that only stamp dayof_order_sent_at,
-        // not status) are DONE; hide them under Active Only. Today/future rows
-        // and not-yet-settled past rows (still need attention) stay visible.
-        const evDate = (r.eventAt ?? r.bookedAt).slice(0, 10);
-        if (evDate < todayStr && r.dayofOrderSentAt) return false;
-        return true;
-      });
+      list = list.filter(
+        (r) =>
+          r.status !== "cancelled" &&
+          r.status !== "completed" &&
+          r.status !== "no_show" &&
+          !(r.status === "arrived" && r.productKind === "race"),
+      );
     }
     if (kindFilter && kindFilter !== "vip") {
       list = list.filter((r) => r.productKind === kindFilter);
@@ -2249,7 +2243,19 @@ export default function ReservationsClient({ token }: { token: string }) {
 
       {/* VIP combo schedule (itinerary) modal */}
       {scheduleTarget && (
-        <div {...modalBackdropProps(() => setScheduleTarget(null))}>
+        <div
+          {...modalBackdropProps(() => setScheduleTarget(null))}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "var(--ba-overlay)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
           <div
             style={{
               background: "var(--ba-modal-bg)",
