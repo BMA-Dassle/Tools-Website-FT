@@ -292,3 +292,18 @@ export function pickContactWithGuardianFallback(
 
 /** Back-compat alias — older code referenced this by the video-only name. */
 export const pickVideoContact = pickContactWithGuardianFallback;
+
+/**
+ * Reason a participant has NO reachable contact — for the e-ticket
+ * "no contact on file" audit row. Call only when
+ * `pickContactWithGuardianFallback` returned null AND there is no usable
+ * phone for the racer or a guardian (i.e. nothing to even collect verbal
+ * consent against). Distinguishes "guardian on file but unreachable" from
+ * "no contact at all" so staff know whether to chase the parent or capture
+ * a contact from scratch at the desk.
+ */
+export function noContactReason(racer: { guardian?: GuardianContact | null }): string {
+  return racer.guardian
+    ? "guardian on file but no reachable phone/email — collect contact at desk"
+    : "no contact on file — collect contact at desk";
+}

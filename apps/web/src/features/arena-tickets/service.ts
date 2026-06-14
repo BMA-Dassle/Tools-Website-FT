@@ -35,6 +35,7 @@ import {
 import {
   canonicalizePhone,
   hasSmsConsent,
+  noContactReason,
   pickContactWithGuardianFallback,
   pickPhone,
   type ContactCandidate,
@@ -262,6 +263,7 @@ export async function runArenaTicketCron(opts: { dryRun: boolean }): Promise<Are
   const freshEmailByEmail = new Map<string, Candidate[]>();
   const allByEmail = new Map<string, Candidate[]>();
   const noConsentByPhone = new Map<string, Candidate[]>();
+  const noContact: Candidate[] = [];
 
   for (const c of candidates) {
     const resolved = pickContactWithGuardianFallback(c.participant);
@@ -269,9 +271,24 @@ export async function runArenaTicketCron(opts: { dryRun: boolean }): Promise<Are
 
     if (!resolved) {
       const playerPhone = canonicalizePhone(pickPhone(c.participant));
+      const guardianPhone = canonicalizePhone(
+        c.participant.guardian?.mobilePhone || c.participant.guardian?.homePhone || null,
+      );
       if (playerPhone && !hasSmsConsent(c.participant)) {
+        // Player has a phone but opted out of marketing SMS → needs verbal OK.
         if (!noConsentByPhone.has(playerPhone)) noConsentByPhone.set(playerPhone, []);
         noConsentByPhone.get(playerPhone)!.push(c);
+      } else if (guardianPhone) {
+        // Minor whose only contact is a guardian with a phone the picker
+        // rejected (guardian opted out of SMS). Previously dropped silently;
+        // route into the SAME "needs verbal OK" surface keyed on the
+        // guardian's number so staff can collect consent + resend to them.
+        if (!noConsentByPhone.has(guardianPhone)) noConsentByPhone.set(guardianPhone, []);
+        noConsentByPhone.get(guardianPhone)!.push(c);
+      } else {
+        // No reachable phone for player OR guardian → surface so staff can
+        // collect a contact at the desk instead of it vanishing.
+        noContact.push(c);
       }
       skipped++;
       continue;
@@ -485,6 +502,41 @@ export async function runArenaTicketCron(opts: { dryRun: boolean }): Promise<Are
       console.error(`[arena-pre] consent-skip log error for phone=${phone}:`, err);
     }
     skipped += members.length;
+  }
+
+  // 3c. No-reachable-contact audit — players with no usable phone/email for
+  //     themselves OR a guardian (booked with no contact, or a guardian who
+  //     has none / is fully opted out). Previously skipped silently with zero
+  //     log trace, so a whole session could look like "nothing sent". Mint a
+  //     ticket so the admin row shows the player name + is resendable once
+  //     staff collect a contact at the desk, and log a skipped row with the
+  //     reason. One row per (session, person), deduped for the operating window.
+  for (const c of noContact) {
+    const auditKey = `eticket-nocontact:arena-pre:${c.session.sessionId}:${c.participant.personId}`;
+    if (dryRun || (await redis.get(auditKey))) continue;
+    try {
+      const ticketId = await upsertRaceTicket(ticketFromCandidate(c));
+      const { code, url } = await shortenUrl(`${HEADPINZ_BASE_URL}/t/${ticketId}`);
+      await logSms({
+        ts: new Date().toISOString(),
+        phone: "",
+        source: "arena-pre-cron",
+        status: null,
+        ok: false,
+        error: noContactReason(c.participant),
+        body: buildArenaSingleSmsBody(memberFromCandidate(c), url),
+        sessionIds: [c.session.sessionId],
+        personIds: [c.participant.personId],
+        memberCount: 1,
+        shortCode: code,
+      });
+      await redis.set(auditKey, "1", "EX", DEDUP_TTL);
+    } catch (err) {
+      console.error(
+        `[arena-pre] no-contact audit log error for personId=${c.participant.personId}:`,
+        err,
+      );
+    }
   }
 
   // 4. Email path.

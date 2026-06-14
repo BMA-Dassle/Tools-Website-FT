@@ -10,6 +10,7 @@ import {
 import {
   canonicalizePhone,
   hasSmsConsent,
+  noContactReason,
   pickContactChannel,
   pickContactWithGuardianFallback,
   pickPhone,
@@ -809,6 +810,7 @@ export async function GET(req: NextRequest) {
     const freshEmailByEmail = new Map<string, Candidate[]>();
     const allByEmail = new Map<string, Candidate[]>();
     const noConsentByPhone = new Map<string, Candidate[]>();
+    const noContact: Candidate[] = [];
 
     for (const c of candidates) {
       const resolved = pickContactWithGuardianFallback(c.participant);
@@ -816,9 +818,21 @@ export async function GET(req: NextRequest) {
 
       if (!resolved) {
         const racerPhone = canonicalizePhone(pickPhone(c.participant));
+        const guardianPhone = canonicalizePhone(
+          c.participant.guardian?.mobilePhone || c.participant.guardian?.homePhone || null,
+        );
         if (racerPhone && !hasSmsConsent(c.participant)) {
+          // Racer phone opted out → needs verbal OK (existing).
           if (!noConsentByPhone.has(racerPhone)) noConsentByPhone.set(racerPhone, []);
           noConsentByPhone.get(racerPhone)!.push(c);
+        } else if (guardianPhone) {
+          // Minor whose guardian has a phone the picker rejected (opted out) →
+          // SAME verbal-OK surface, keyed on the guardian's number.
+          if (!noConsentByPhone.has(guardianPhone)) noConsentByPhone.set(guardianPhone, []);
+          noConsentByPhone.get(guardianPhone)!.push(c);
+        } else {
+          // No reachable phone for racer OR guardian → surface for desk follow-up.
+          noContact.push(c);
         }
         skipped++;
         continue;
@@ -1031,6 +1045,51 @@ export async function GET(req: NextRequest) {
         console.error(`[checkin-alerts] consent-skip log error for phone=${phone}:`, err);
       }
       skipped += members.length;
+    }
+
+    // No-reachable-contact audit — racers with no usable phone/email for
+    // themselves OR a guardian. Previously skipped silently; mint a ticket so
+    // the row shows the racer name + is resendable once staff collect a
+    // contact, and log a skipped row with the reason. One per (session, person).
+    for (const c of noContact) {
+      const auditKey = `eticket-nocontact:checkin:${c.race.sessionId}:${c.participant.personId}`;
+      if (dryRun || (await redis.get(auditKey))) continue;
+      try {
+        const ticket: RaceTicket = {
+          sessionId: c.race.sessionId,
+          locationId: FASTTRAX_LOCATION_ID,
+          personId: c.participant.personId,
+          firstName: c.participant.firstName || "Racer",
+          lastName: c.participant.lastName || "",
+          email: c.participant.email || undefined,
+          phone: pickPhone(c.participant) || undefined,
+          scheduledStart: c.race.scheduledStart,
+          track: c.trackDisplay,
+          raceType: c.race.raceType,
+          heatNumber: c.race.heatNumber,
+        };
+        const ticketId = await upsertRaceTicket(ticket);
+        const { code, url } = await shortenUrl(`${BASE}/t/${ticketId}`);
+        await logSms({
+          ts: new Date().toISOString(),
+          phone: "",
+          source: "checkin-cron",
+          status: null,
+          ok: false,
+          error: noContactReason(c.participant),
+          body: buildSingleSmsBody(c.race, memberFromCandidate(c), url),
+          sessionIds: [c.race.sessionId],
+          personIds: [c.participant.personId],
+          memberCount: 1,
+          shortCode: code,
+        });
+        await redis.set(auditKey, "1", "EX", DEDUP_TTL);
+      } catch (err) {
+        console.error(
+          `[checkin-alerts] no-contact audit log error for personId=${c.participant.personId}:`,
+          err,
+        );
+      }
     }
 
     // Email path — bucket by destination email. Multiple racers (guardian
