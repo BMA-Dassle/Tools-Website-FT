@@ -195,6 +195,14 @@ function centerLabel(code: string): string {
   return CENTERS[code] ?? CENTER_LABELS_BY_SLUG[code] ?? code;
 }
 
+/** Compact center tag: HPN (HeadPinz Naples), HPFM (HeadPinz Fort Myers), FT (FastTrax). */
+function centerShortOf(code: string): string {
+  const label = centerLabel(code);
+  if (label === "Naples") return "HPN";
+  if (label === "FastTrax") return "FT";
+  return "HPFM";
+}
+
 const STATUS_COLORS: Record<string, string> = {
   confirmed: "#22c55e",
   confirm_pending: "#f59e0b",
@@ -3402,7 +3410,7 @@ export default function ReservationsClient({ token }: { token: string }) {
             <div className="md:hidden flex flex-col gap-1.5">
               {displayRows.map((r) => {
                 const isCancelled = r.status === "cancelled";
-                const centerShort = centerLabel(r.centerCode) === "Naples" ? "NAP" : "FM";
+                const centerShort = centerShortOf(r.centerCode);
                 const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
                 const cPath = confirmPath(r);
                 return (
@@ -3975,7 +3983,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                   {displayRows.map((r) => {
                     const isCancelled = r.status === "cancelled";
                     const rowOpacity = isCancelled ? 0.45 : 1;
-                    const centerShort = centerLabel(r.centerCode) === "Naples" ? "NAP" : "FM";
+                    const centerShort = centerShortOf(r.centerCode);
                     return (
                       <tr
                         key={r.id}
@@ -4442,17 +4450,6 @@ export default function ReservationsClient({ token }: { token: string }) {
                                     >
                                       {dayofSourceLabel(r.dayofOrderSource)}
                                     </span>
-                                  )}
-                                  {r.dayofPaymentId && (
-                                    <div
-                                      style={{
-                                        fontSize: "0.55rem",
-                                        color: "var(--ba-muted)",
-                                        marginTop: 1,
-                                      }}
-                                    >
-                                      {r.dayofPaymentId.slice(-8)}
-                                    </div>
                                   )}
                                   {r.dayofOrderError && (
                                     <div
