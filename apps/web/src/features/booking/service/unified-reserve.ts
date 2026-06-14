@@ -29,7 +29,7 @@ import {
 import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
-import { activeComboSpecial } from "~/features/combos/combo-pricing";
+import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { notifyComboBooked } from "~/features/combos/combo-notify";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
@@ -438,50 +438,103 @@ async function unifiedReserveInner(
     await validateCreditRedemptions(creditRedemptions);
   }
 
-  // ── 3. Create ONE Square day-of order ─────────────────────────────
-  const taxCatalogId = LOCATION_TAX[locationId];
-  const orderTaxes = taxCatalogId
-    ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
-    : [];
-
-  const dayofOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: `unified-dayof-${baseKey}`,
-      order: {
-        location_id: locationId,
-        ...(input.squareCustomerId ? { customer_id: input.squareCustomerId } : {}),
-        line_items: sqLineItems.map((li) => {
-          if (li.catalogObjectId) {
+  // ── 3. Create the Square day-of order(s) ──────────────────────────
+  // Default: ONE order at the session's location. COMBO SPLIT: the itemized
+  // revenue lines are grouped by entity (FastTrax racing + HeadPinz bowling)
+  // into TWO orders at their own locations, each with its own location tax —
+  // so revenue books where it belongs. One deposit + one shared gift card
+  // fund both (a Square gift card is seller-wide), and each location's
+  // settlement (race-dayof-pay / lane-open) charges the card for ITS order's
+  // own outstanding total. See tasks/combo-split-orders-plan.md.
+  const createDayofOrder = async (
+    locId: string,
+    items: SquareLineItem[],
+    keySuffix: string,
+  ): Promise<{ orderId: string; totalCents: number }> => {
+    const taxCatalogId = LOCATION_TAX[locId];
+    const orderTaxes = taxCatalogId
+      ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
+      : [];
+    const res = await fetch(`${SQUARE_BASE}/orders`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: `unified-dayof-${baseKey}-${keySuffix}`,
+        order: {
+          location_id: locId,
+          ...(input.squareCustomerId ? { customer_id: input.squareCustomerId } : {}),
+          line_items: items.map((li) => {
+            if (li.catalogObjectId) {
+              return {
+                catalog_object_id: li.catalogObjectId,
+                quantity: li.quantity,
+                ...(li.basePriceMoney ? { base_price_money: li.basePriceMoney } : {}),
+                ...(li.note ? { note: li.note } : {}),
+              };
+            }
             return {
-              catalog_object_id: li.catalogObjectId,
+              name: li.name,
               quantity: li.quantity,
-              ...(li.basePriceMoney ? { base_price_money: li.basePriceMoney } : {}),
+              base_price_money: li.basePriceMoney,
               ...(li.note ? { note: li.note } : {}),
             };
-          }
-          return {
-            name: li.name,
-            quantity: li.quantity,
-            base_price_money: li.basePriceMoney,
-            ...(li.note ? { note: li.note } : {}),
-          };
-        }),
-        ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
-      },
-    }),
-  });
+          }),
+          ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
+        },
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.errors) {
+      const sqErr = data.errors?.[0];
+      throw new Error(`Square order failed: ${sqErr?.code}: ${sqErr?.detail}`);
+    }
+    const orderId: string = data.order?.id;
+    if (!orderId) throw new Error("Square order returned no ID");
+    return { orderId, totalCents: data.order?.total_money?.amount ?? 0 };
+  };
 
-  const dayofData = await dayofOrderRes.json();
-  if (!dayofOrderRes.ok || dayofData.errors) {
-    const sqErr = dayofData.errors?.[0];
-    throw new Error(`Square order failed: ${sqErr?.code}: ${sqErr?.detail}`);
+  // squareDayofOrderId = the PRIMARY order (race/BMI anchor + the return value).
+  // bowlingDayofOrderId = the order the bowling Neon row settles against (its
+  // own order in a combo; the same single order otherwise).
+  const orderGroups = comboOrderGroups(session);
+  let squareDayofOrderId: string;
+  let dayofTotalCents: number;
+  let bowlingDayofOrderId: string;
+  // Per-order tax-inclusive totals, stored on each Neon row so settlement +
+  // reporting reflect that order's share (not the combined combo total).
+  // Both equal dayofTotalCents for a single order.
+  let bowlingOrderTotalCents: number;
+  let raceOrderTotalCents: number;
+  if (orderGroups) {
+    const byEntity: Record<string, { orderId: string; totalCents: number }> = {};
+    for (const g of orderGroups) {
+      const locId =
+        g.entity === "fasttrax-fm" ? SQUARE_LOCATIONS.FASTTRAX_FM : SQUARE_LOCATIONS.HEADPINZ_FM;
+      const items: SquareLineItem[] = g.lines.map((l) => ({
+        name: l.name,
+        quantity: String(l.quantity),
+        catalogObjectId: l.catalogObjectId,
+        basePriceMoney: { amount: l.unitCents, currency: "USD" },
+      }));
+      byEntity[g.entity] = await createDayofOrder(locId, items, g.entity);
+    }
+    const ft = byEntity["fasttrax-fm"];
+    const hp = byEntity["headpinz-fm"];
+    // FastTrax racing order anchors the BMI/race side; HeadPinz order settles
+    // via lane-open. If a combo ever has only one entity, both point at it.
+    squareDayofOrderId = ft?.orderId ?? hp!.orderId;
+    bowlingDayofOrderId = hp?.orderId ?? squareDayofOrderId;
+    bowlingOrderTotalCents = hp?.totalCents ?? 0;
+    raceOrderTotalCents = ft?.totalCents ?? 0;
+    dayofTotalCents = (ft?.totalCents ?? 0) + (hp?.totalCents ?? 0);
+  } else {
+    const single = await createDayofOrder(locationId, sqLineItems, "single");
+    squareDayofOrderId = single.orderId;
+    bowlingDayofOrderId = single.orderId;
+    bowlingOrderTotalCents = single.totalCents;
+    raceOrderTotalCents = single.totalCents;
+    dayofTotalCents = single.totalCents;
   }
-
-  const squareDayofOrderId: string = dayofData.order?.id;
-  if (!squareDayofOrderId) throw new Error("Square order returned no ID");
-  let dayofTotalCents: number = dayofData.order?.total_money?.amount ?? 0;
 
   // ── 4. Loyalty reward ─────────────────────────────────────────────
   let loyaltyRewardId: string | undefined;
@@ -544,9 +597,11 @@ async function unifiedReserveInner(
   }
 
   // ── 5. Charge ONE deposit ─────────────────────────────────────────
-  const rawDepositCents = loyaltyRewardId
-    ? Math.round((dayofTotalCents * depositPct) / 100)
-    : Math.round((dayofTotalCents * depositPct) / 100);
+  // CRITICAL (combo split): dayofTotalCents is the SUM of BOTH day-of orders
+  // (FastTrax racing + HeadPinz bowling, tax-inclusive). The single deposit is
+  // depositPct% of that combined total, so the one shared gift card is loaded
+  // with the full amount and each order's settlement can draw its own share.
+  const rawDepositCents = Math.round((dayofTotalCents * depositPct) / 100);
   const depositCents = Math.max(0, rawDepositCents - (loyaltyRewardId ? 0 : rewardDiscountCents));
 
   let depositResult: {
@@ -772,11 +827,14 @@ async function unifiedReserveInner(
             qamfReservationId,
             squareDepositOrderId: depositResult.depositOrderId ?? undefined,
             squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
-            squareDayofOrderId,
+            // Combo split: the bowling row settles its OWN HeadPinz order via
+            // lane-open (the shared gift card funds it). Single carts: the one
+            // order. Totals reflect the bowling order's share (100% deposit).
+            squareDayofOrderId: bowlingDayofOrderId,
             squareGiftCardId: depositResult.giftCardId ?? undefined,
             squareGiftCardGan: depositResult.giftCardGan ?? undefined,
-            depositCents,
-            totalCents: dayofTotalCents,
+            depositCents: orderGroups ? bowlingOrderTotalCents : depositCents,
+            totalCents: bowlingOrderTotalCents,
             status: qamfConfirmed ? "confirmed" : "confirm_pending",
             bookedAt: item.bookedAt ?? new Date().toISOString(),
             playerCount,
@@ -1007,11 +1065,15 @@ async function unifiedReserveInner(
             bmiBillId,
             squareDepositOrderId: depositResult.depositOrderId ?? undefined,
             squareDepositPaymentId: depositResult.depositPaymentId ?? undefined,
+            // Combo split: the race anchor settles its OWN FastTrax order via
+            // race-dayof-pay (shared gift card funds it). Totals reflect the
+            // racing order's share (100% deposit). squareDayofOrderId is the
+            // FastTrax order for a combo, the single order otherwise.
             squareDayofOrderId,
             squareGiftCardId: depositResult.giftCardId ?? undefined,
             squareGiftCardGan: depositResult.giftCardGan ?? undefined,
-            depositCents,
-            totalCents: dayofTotalCents,
+            depositCents: orderGroups ? raceOrderTotalCents : depositCents,
+            totalCents: orderGroups ? raceOrderTotalCents : dayofTotalCents,
             status: "confirm_pending",
             bookedAt: new Date().toISOString(),
             playerCount:

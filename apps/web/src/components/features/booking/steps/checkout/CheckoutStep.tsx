@@ -220,7 +220,10 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
             time: item.bookedAt ?? undefined,
           });
         }
-        if (item.hasBookingFee) {
+        // Combo special is all-inclusive at the flat per-person price (no
+        // separate booking fee) — the split day-of orders don't add one, so
+        // the review mustn't either (displayed == charged).
+        if (item.hasBookingFee && !comboActive) {
           reviewLines.push({ name: "Booking Fee", quantity: 1, amount: 2.99 });
         }
         // KBF extras the server charges but item.lineItems (free games) don't
