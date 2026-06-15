@@ -1230,3 +1230,42 @@ real-money block stopped it.
   order id before concluding double-charge.
 - Read the incident memory IN FULL before proposing remediation — the body said "remediation
   COMPLETE except 5 held," but I acted on the stale one-line index hook. Fixed the hook.
+
+## Synthetic/derived product ids bypass the Square catalog map → ad-hoc lines → QBO miscategorization (2026-06-15)
+
+QBO journal-entry sync flagged 97 recent racing orders (June 9-14, all from our v2 site) as
+"missing Square category": each race line imported as a loose item ("Starter Race", "Pro Race",
+"Intermediate Race", "POV Race Video") instead of rolling up under "Racing 303". The user asked
+whether it was old data or a live v2 bug — it was **live**.
+
+Two causes, both producing Square line items with **no `catalog_object_id`** (and therefore no
+`reporting_category`, which is what the QBO sync keys off):
+
+1. **Combined-card synthetic ids.** Commit `1d059dfc` (Jun 9, on main) added `combineTrackVariants()`,
+   which merges adult Red+Blue single races into one bare-named card carrying a **synthetic product
+   id `m:<id>:<id>`**. The reserve route does `lookupCatalogId(bmiProductId) ?? lookupCatalogIdByName(name)`
+   — the synthetic id isn't a `SQUARE_CATALOG_MAP` key and the bare name "Starter Race" isn't a
+   `NAME_CATALOG_MAP` key, so **both lookups missed → ad-hoc line.**
+2. **POV never mapped.** `POV_PRODUCT_ID "43746981"` (checkout.ts) was absent from `SQUARE_CATALOG_MAP`
+   even though an `SQ.POV` catalog variation existed → every POV upsell sold ad-hoc.
+
+Fix (categorization only — does NOT touch price): `lookupCatalogId` now resolves `m:` ids via any
+component track id (all components of a tier map to the same item, so juniors stay JR_*, adults stay
+KARTING — verified by a parametrized test over every real combined card). Added `"43746981": SQ.POV`
+and a `"POV Race Video"` name fallback. Both day-of order builders (reserve/route.ts and
+unified-reserve.ts) route through `lookupCatalogId`, so the single change fixes all future orders.
+
+**Guardrails:**
+- When you introduce a **synthetic, merged, or otherwise derived product/line id** (anything that
+  isn't a raw upstream id), audit EVERY consumer that keys off the raw id — `SQUARE_CATALOG_MAP`,
+  tax maps, build-key resolution, credit attribution. A new id format silently falls through
+  `?? null` fallbacks to a degraded-but-not-erroring path (here: ad-hoc Square line).
+- **Don't "fix" categorization with broad name substrings.** Adding "Starter Race" to
+  `NAME_CATALOG_MAP` would mis-match "Junior Starter Race Blue" → adult Karting (lookup uses
+  `includes()`). Resolve by id, not by fuzzy name.
+- A missing Square category on a line item = missing `catalog_object_id`. The "Sales (Categories)"
+  tab in the QBO sync lists the line **name** as the entity when it can't resolve a catalog category.
+- "These could be old" is a hypothesis to TEST, not assume: pull `created_at` + per-line
+  `catalog_object_id` on the actual flagged order ids. Here the dates (this week) + the bare-name
+  product registry diff proved it live. UQ/Rookie ad-hoc were the opposite — all dated 6/9, fixed
+  by `2623356f` on 6/10, so already self-resolved; only historical remediation needed.
