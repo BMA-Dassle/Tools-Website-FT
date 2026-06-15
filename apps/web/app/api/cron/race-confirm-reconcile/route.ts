@@ -10,7 +10,10 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { confirmBmiPayment } from "~/features/booking/service/bmi-confirm";
-import { activateGiftCardForDeposit } from "~/features/booking/service/deposit";
+import {
+  activateGiftCardForDeposit,
+  getDepositOrderLineItem,
+} from "~/features/booking/service/deposit";
 import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
 import { SQUARE_LOCATIONS } from "~/features/booking/data/square-catalog-map";
 import { verifyCron } from "@/lib/cron-auth";
@@ -116,6 +119,18 @@ async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<Rec
   try {
     // ── 1. Gift card never funded after capture → re-create + activate ──
     if (!r.squareGiftCardId && r.squareDepositPaymentId && r.depositCents > 0) {
+      // If the deposit order's line item is a GIFT_CARD sale (v2 model), recover
+      // via the order link so the recovered card is also booked as a gift-card
+      // sale; otherwise fall back to the legacy buyer_payment_instrument path.
+      // Keyed off the order's actual line-item type, not the live flag, so a
+      // retry always matches how the order was originally created.
+      let orderLink: { depositOrderId: string; lineItemUid: string } | undefined;
+      if (r.squareDepositOrderId) {
+        const li = await getDepositOrderLineItem(r.squareDepositOrderId);
+        if (li?.itemType === "GIFT_CARD" && li.uid) {
+          orderLink = { depositOrderId: r.squareDepositOrderId, lineItemUid: li.uid };
+        }
+      }
       const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
         baseKey: reserveBaseKey(bmiBillId),
         locationId: depositLocationId(r),
@@ -123,6 +138,7 @@ async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<Rec
         ganPrefix: r.productKind === "race" ? "RACE" : "ATTR",
         ganSuffix: bmiBillId.slice(-8),
         paymentIds: [r.squareDepositPaymentId],
+        ...(orderLink ?? {}),
       });
       await updateBowlingReservationSquareIds(r.id, {
         squareGiftCardId: giftCardId,

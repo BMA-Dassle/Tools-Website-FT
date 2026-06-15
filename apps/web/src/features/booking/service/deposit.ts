@@ -11,6 +11,21 @@
  *   4. ACTIVATE gift card with deposit amount
  *
  * On failure at any step, previous steps are rolled back.
+ *
+ * ── Gift-card-SALE model (flag DEPOSIT_GC_SALE_V2) ────────────────────────
+ * When the flag is on, the deposit order's line item is typed `GIFT_CARD` and
+ * the ACTIVATE links to it via `order_id` + `line_item_uid` (the same proven
+ * pattern as `mintDigitalGiftCard`), instead of `amount_money` +
+ * `buyer_payment_instrument_ids`. Square then books the deposit as a gift-card
+ * SALE (excluded from gross sales) rather than a plain itemized sale — which
+ * stops the deposit from being counted in gross sales twice (once on the
+ * deposit order, once again when the gift card is redeemed against the day-of
+ * order). Customer-visible behaviour (charge, custom GAN, balance, lane-open
+ * redemption) is unchanged; only Square's revenue classification changes.
+ *
+ * Flag OFF = byte-for-byte the original behaviour. The recovery path keys off
+ * the deposit order's actual line-item type (not the live flag), so retries are
+ * always consistent with how the order was originally created.
  */
 import { randomBytes } from "crypto";
 import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
@@ -18,6 +33,19 @@ import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 const SQUARE_VERSION = "2024-12-18";
+
+/** Single line-item name for every booking-path deposit (race/attraction/
+ *  bowling) so the receipt + sales reports read consistently. */
+const DEPOSIT_LINE_ITEM_NAME = "Reservation Deposit";
+
+/**
+ * Gift-card-sale model toggle. Read at call time (not module load) so tests and
+ * a preview deploy can flip it via env without a rebuild. Default OFF — opt in
+ * with DEPOSIT_GC_SALE_V2="true". See the header note above.
+ */
+export function giftCardSaleEnabled(): boolean {
+  return process.env.DEPOSIT_GC_SALE_V2 === "true";
+}
 
 function sqHeaders() {
   return {
@@ -101,8 +129,12 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
   }
 
   const baseKey = params.baseKey ?? randomBytes(8).toString("hex");
+  const saleMode = giftCardSaleEnabled();
 
   // ── 1. Deposit order ─────────────────────────────────────────────────
+  // In gift-card-sale mode the single line item is typed GIFT_CARD so Square
+  // books it as a gift-card sale (not gross sales). No tax either way — the
+  // deposit is already a fraction of the tax-inclusive day-of total.
   const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
     method: "POST",
     headers: sqHeaders(),
@@ -113,8 +145,9 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
         reference_id: note.slice(0, 40),
         line_items: [
           {
-            name: "Reservation Deposit",
+            name: DEPOSIT_LINE_ITEM_NAME,
             quantity: "1",
+            ...(saleMode ? { item_type: "GIFT_CARD" } : {}),
             base_price_money: { amount: amountCents, currency: "USD" },
           },
         ],
@@ -132,6 +165,12 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
   const depositOrderId: string = depositOrderData.order?.id;
   if (!depositOrderId) {
     throw new Error("Deposit order returned no ID");
+  }
+  // GIFT_CARD activation links to this line item by uid. Captured from the
+  // create response so we never have to re-fetch the order on the happy path.
+  const depositLineItemUid: string | undefined = depositOrderData.order?.line_items?.[0]?.uid;
+  if (saleMode && !depositLineItemUid) {
+    throw new Error("GIFT_CARD deposit order returned no line item uid");
   }
 
   // ── 2. Charge via multi-tender ───────────────────────────────────────
@@ -185,6 +224,9 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
       ganPrefix,
       ganSuffix,
       paymentIds: [gcPaymentId, cardPaymentId].filter((id): id is string => Boolean(id)),
+      ...(saleMode && depositLineItemUid
+        ? { depositOrderId, lineItemUid: depositLineItemUid }
+        : {}),
     });
     console.log(
       `[deposit] success depositOrderId=${depositOrderId} amount=${amountCents} gc=${gcApprovedCents} card=${cardApprovedCents}`,
@@ -232,9 +274,19 @@ export async function activateGiftCardForDeposit(params: {
   ganPrefix: string;
   ganSuffix: string;
   paymentIds: string[];
+  /**
+   * Gift-card-sale (v2) recovery/activation link. When BOTH are set, ACTIVATE
+   * uses `order_id` + `line_item_uid` (Square reads the load amount off the
+   * GIFT_CARD line item) instead of `amount_money` + `buyer_payment_instrument_ids`.
+   * The two forms are mutually exclusive — Square rejects a request that carries
+   * both. Omit them for the legacy (flag-off) path.
+   */
+  depositOrderId?: string;
+  lineItemUid?: string;
 }): Promise<{ giftCardId: string; giftCardGan: string }> {
   const customGan = `${params.ganPrefix}${params.ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
   const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
+  const orderLinked = Boolean(params.depositOrderId && params.lineItemUid);
 
   const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
     method: "POST",
@@ -268,21 +320,66 @@ export async function activateGiftCardForDeposit(params: {
         type: "ACTIVATE",
         location_id: params.locationId,
         gift_card_id: giftCardId,
-        activate_activity_details: {
-          amount_money: { amount: params.amountCents, currency: "USD" },
-          buyer_payment_instrument_ids: params.paymentIds,
-        },
+        // Order-linked and amount/instrument forms are mutually exclusive —
+        // Square errors if both appear in activate_activity_details.
+        activate_activity_details: orderLinked
+          ? { order_id: params.depositOrderId, line_item_uid: params.lineItemUid }
+          : {
+              amount_money: { amount: params.amountCents, currency: "USD" },
+              buyer_payment_instrument_ids: params.paymentIds,
+            },
       },
     }),
   });
-  const activateData = await activateRes.json();
-  if (!activateRes.ok || activateData.errors) {
+  const activateData = await activateRes.json().catch(() => ({}));
+  // Square can return HTTP 200 with `errors` populated (e.g. an idempotency
+  // replay of a prior failure), so checking `!ok` alone misses those.
+  if (!activateRes.ok || activateData.errors?.length) {
     const sqErr = activateData.errors?.[0];
     throw new Error(
       `gift card activation failed: ${sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(activateData)}`,
     );
   }
+  // Order-linked ACTIVATE has a silent "$0 PENDING card" failure mode (see
+  // mintDigitalGiftCard) — verify a real balance came back before returning.
+  if (orderLinked) {
+    const loaded =
+      activateData.gift_card_activity?.gift_card_balance_money?.amount ??
+      activateData.gift_card_activity?.activate_activity_details?.amount_money?.amount ??
+      0;
+    if (!loaded) {
+      throw new Error("gift card activation returned a $0 balance (order-linked)");
+    }
+  }
   return { giftCardId, giftCardGan };
+}
+
+/**
+ * Fetch the single line item on a deposit order — its uid + item_type. Used by
+ * race-confirm-reconcile to decide how to recover a gift card whose creation
+ * failed after capture: if the deposit order's line item is `GIFT_CARD` (the
+ * v2 sale model), recover via the order link so the recovered card is also
+ * booked as a gift-card sale; otherwise fall back to the legacy
+ * buyer_payment_instrument path. Returns null on any fetch error (caller then
+ * uses the legacy path). Reads the order's actual type rather than the live
+ * flag, so recovery always matches how the order was originally created.
+ */
+export async function getDepositOrderLineItem(
+  orderId: string,
+): Promise<{ uid: string; itemType: string } | null> {
+  try {
+    const res = await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
+      headers: sqHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const li = data.order?.line_items?.[0];
+    if (!li?.uid) return null;
+    return { uid: li.uid as string, itemType: (li.item_type as string) ?? "" };
+  } catch {
+    return null;
+  }
 }
 
 // NOTE: `rollbackDeposit` was removed (2026-06-07, blocker #2). The deposit is
