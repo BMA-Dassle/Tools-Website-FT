@@ -24,10 +24,16 @@ function sqHeaders() {
   };
 }
 
+/** Created day-of order: its id plus Square's authoritative tax-inclusive total (cents). */
+export interface DayofOrder {
+  id: string;
+  totalCents: number;
+}
+
 export async function createDayofOrder(
   quote: GroupFunctionQuote,
   baseKey: string,
-): Promise<string | undefined> {
+): Promise<DayofOrder | undefined> {
   const rawItems = quote.line_items as Array<{
     name: string;
     price: number;
@@ -66,7 +72,9 @@ export async function createDayofOrder(
       }),
     });
     const data = await res.json();
-    if (res.ok && data.order?.id) return data.order.id;
+    if (res.ok && data.order?.id) {
+      return { id: data.order.id, totalCents: data.order.total_money?.amount ?? 0 };
+    }
     console.warn("[gf-dayof] catalog day-of order failed, falling back to ad-hoc:", data);
   } catch (err) {
     console.warn("[gf-dayof] catalog day-of order error, falling back to ad-hoc:", err);
@@ -95,7 +103,7 @@ export async function createDayofOrder(
     const data = await res.json();
     if (res.ok && data.order?.id) {
       console.log("[gf-dayof] day-of order created via ad-hoc fallback:", data.order.id);
-      return data.order.id;
+      return { id: data.order.id, totalCents: data.order.total_money?.amount ?? 0 };
     }
     console.error("[gf-dayof] ad-hoc day-of order also failed:", data);
   } catch (err) {

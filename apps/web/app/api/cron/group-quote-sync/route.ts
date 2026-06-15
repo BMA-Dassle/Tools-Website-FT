@@ -131,13 +131,13 @@ export async function GET(req: NextRequest) {
 
       for (const mq of missingDayof) {
         try {
-          const orderId = await createDayofOrder(mq, randomBytes(8).toString("hex"));
-          if (orderId) {
-            await q`UPDATE group_function_quotes SET square_dayof_order_id = ${orderId}, updated_at = NOW()
+          const dayof = await createDayofOrder(mq, randomBytes(8).toString("hex"));
+          if (dayof) {
+            await q`UPDATE group_function_quotes SET square_dayof_order_id = ${dayof.id}, updated_at = NOW()
               WHERE id = ${mq.id} AND (square_dayof_order_id IS NULL OR square_dayof_order_id = '')`;
             dayofBackfilled++;
             console.log(
-              `[group-quote-sync] backfilled day-of order quote=${mq.id} order=${orderId}`,
+              `[group-quote-sync] backfilled day-of order quote=${mq.id} order=${dayof.id}`,
             );
           } else {
             console.error(`[group-quote-sync] day-of order backfill returned no id quote=${mq.id}`);

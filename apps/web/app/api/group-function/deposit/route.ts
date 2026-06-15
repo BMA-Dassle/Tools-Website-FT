@@ -17,6 +17,12 @@ import {
 import { createDayofOrder } from "@/lib/group-function-dayof";
 import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
+import { notifyDispatchError } from "@/lib/group-function-alert";
+
+// Per-line Square rounding can make the day-of order total differ from our stored
+// total by a few cents. A larger gap means the displayed contract is stale — halt
+// the charge rather than bill an amount the customer never saw.
+const DEPOSIT_MISMATCH_TOLERANCE_CENTS = 50;
 
 /**
  * Group function deposit payment endpoint.
@@ -99,15 +105,63 @@ export async function POST(req: NextRequest) {
     return handleLegacyDeposit(quote, priorDepositCents, cardSourceId, baseKey);
   }
 
-  // 1. Create the day-of Square order (OPEN — staff redeems at event)
-  const dayofOrderId = await createDayofOrder(quote, baseKey);
+  // 1. Create the day-of Square order (OPEN — staff redeems at event). This order
+  //    carries the tax (as a service charge), so its total_money is the authoritative
+  //    tax-inclusive total — the single source of truth for the deposit.
+  const dayof = await createDayofOrder(quote, baseKey);
+  const dayofOrderId = dayof?.id;
+  const dayofTotalCents = dayof?.totalCents ?? null;
+
+  // Derive the deposit FROM the day-of order total (never a pre-tax/independently
+  // computed amount — see lessons.md "deposit must equal the day-of order total").
+  // 96h full-payment vs 50% is preserved from dispatch's decision. If the day-of
+  // order couldn't be created (best-effort; sync cron backfills later), fall back to
+  // the stored value so the deposit charge isn't blocked.
+  const isFullPayment = quote.deposit_due_cents >= quote.total_cents;
+  const depositCents =
+    dayofTotalCents != null
+      ? isFullPayment
+        ? dayofTotalCents
+        : Math.round(dayofTotalCents / 2)
+      : quote.deposit_due_cents;
+  const effectiveTotalCents = dayofTotalCents ?? quote.total_cents;
+
+  // Displayed-vs-charged guard: the contract showed quote.deposit_due_cents. If the
+  // day-of-derived deposit diverges beyond per-line rounding, the contract is stale —
+  // hard-fail and alert instead of silently charging a different amount.
+  if (
+    dayofTotalCents != null &&
+    Math.abs(depositCents - quote.deposit_due_cents) > DEPOSIT_MISMATCH_TOLERANCE_CENTS
+  ) {
+    await updateGfDepositAttempt(
+      quote.id,
+      `DEPOSIT_MISMATCH: displayed=${quote.deposit_due_cents} dayofDerived=${depositCents} orderTotal=${dayofTotalCents}`,
+    );
+    await notifyDispatchError({
+      reservationId: quote.bmi_reservation_id,
+      centerName: quote.center_name,
+      plannerEmail: quote.planner_email ?? undefined,
+      error: new Error(
+        `Deposit mismatch for "${quote.event_name}": contract shows $${(quote.deposit_due_cents / 100).toFixed(2)} ` +
+          `but day-of order total $${(dayofTotalCents / 100).toFixed(2)} implies $${(depositCents / 100).toFixed(2)}. Charge halted.`,
+      ),
+    }).catch(() => {});
+    return NextResponse.json(
+      {
+        error:
+          "This contract's pricing is out of date. Our team has been notified — please try again shortly.",
+        code: "PRICING_STALE",
+      },
+      { status: 409 },
+    );
+  }
 
   // 2. Create deposit order. Break out the service charge into its own line so the
   //    portal's Service Charges page detects it. The full contract service charge is
   //    collected on the deposit (capped at the deposit amount).
   const ganSuffix = quote.bmi_reservation_id.slice(-8);
   const serviceChargeCents = serviceChargeCentsFromLineItems(quote.line_items);
-  const depositServiceCharge = Math.min(serviceChargeCents, quote.deposit_due_cents);
+  const depositServiceCharge = Math.min(serviceChargeCents, depositCents);
 
   try {
     const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
@@ -120,7 +174,7 @@ export async function POST(req: NextRequest) {
           reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
           line_items: buildPaymentLineItems(
             "Group Event Deposit",
-            quote.deposit_due_cents,
+            depositCents,
             depositServiceCharge,
           ),
         },
@@ -136,7 +190,7 @@ export async function POST(req: NextRequest) {
     const multiTender = await authorizeMultiTender({
       orderId: depositOrderId,
       locationId: quote.square_location_id,
-      totalCents: quote.deposit_due_cents,
+      totalCents: depositCents,
       baseKey,
       giftCardNonce: giftCardNonce || undefined,
       cardSourceId: cardSourceId || undefined,
@@ -155,7 +209,7 @@ export async function POST(req: NextRequest) {
 
     const gcIds: string[] = [];
     const gcGans: string[] = [];
-    let depositRemaining = quote.deposit_due_cents;
+    let depositRemaining = depositCents;
     let gcIndex = 0;
 
     while (depositRemaining > 0) {
@@ -265,7 +319,7 @@ export async function POST(req: NextRequest) {
       saved_card_id: savedCardId,
       square_dayof_order_id: dayofOrderId,
       deposit_paid_at: new Date().toISOString(),
-      balance_cents: quote.total_cents - quote.deposit_due_cents,
+      balance_cents: effectiveTotalCents - depositCents,
     });
 
     if (savedCardLast4 || savedCardBrand) {
@@ -302,7 +356,7 @@ export async function POST(req: NextRequest) {
       await recordProjectPayment({
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
-        amountDollars: quote.deposit_due_cents / 100,
+        amountDollars: depositCents / 100,
       });
 
       const { noteTimestamp } = await import("@/lib/bmi-office-actions");
@@ -311,7 +365,7 @@ export async function POST(req: NextRequest) {
       await appendProjectPrivateNote({
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
-        note: `[${ts}] Deposit paid: $${(quote.deposit_due_cents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((quote.total_cents - quote.deposit_due_cents) / 100).toFixed(2)}`,
+        note: `[${ts}] Deposit paid: $${(depositCents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((effectiveTotalCents - depositCents) / 100).toFixed(2)}`,
         contractUrl,
       });
     } catch (err) {
@@ -337,8 +391,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       action: "deposit_paid",
       giftCardGan,
-      depositCents: quote.deposit_due_cents,
-      balanceCents: quote.total_cents - quote.deposit_due_cents,
+      depositCents,
+      balanceCents: effectiveTotalCents - depositCents,
     });
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -369,11 +423,17 @@ async function handleLegacyDeposit(
   }
 
   const isFullPayment = quote.balance_cents === 0;
-  const chargeCents = isFullPayment ? Math.max(0, quote.total_cents - priorDepositCents) : 0;
 
   try {
-    // 1. Create day-of Square order — try catalog IDs first, fall back to ad-hoc
-    const dayofOrderId = await createDayofOrder(quote, baseKey);
+    // 1. Create day-of Square order — try catalog IDs first, fall back to ad-hoc.
+    //    Its total_money (tax-inclusive) is the authoritative event total.
+    const dayof = await createDayofOrder(quote, baseKey);
+    const dayofOrderId = dayof?.id;
+    const effectiveTotalCents = dayof?.totalCents ?? quote.total_cents;
+
+    // Full payment charges the remaining event total (less the prior BMI deposit),
+    // derived from the day-of order total so it can't diverge from what staff redeem.
+    const chargeCents = isFullPayment ? Math.max(0, effectiveTotalCents - priorDepositCents) : 0;
 
     // 2. Find/create Square customer
     const custResult = await findOrCreateSquareCustomer(quote);
@@ -524,7 +584,7 @@ async function handleLegacyDeposit(
     const gcIds = JSON.stringify([compGc.giftCardId]);
     const gcGans = JSON.stringify([compGc.gan]);
     const totalDeposited = priorDepositCents + chargeCents;
-    const balanceCents = Math.max(0, quote.total_cents - totalDeposited);
+    const balanceCents = Math.max(0, effectiveTotalCents - totalDeposited);
 
     // 6. Update Neon
     await updateGfDepositPaid(quote.id, {
