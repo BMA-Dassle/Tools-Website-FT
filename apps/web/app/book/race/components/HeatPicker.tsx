@@ -9,7 +9,7 @@ import {
   violatesMinGapAfter,
   packageGapTooltip,
 } from "@/lib/heat-conflict";
-import { getGroupEventForDate } from "@/lib/group-events";
+import { getGroupEventForDate, getRaceBlockWindowsForDate } from "@/lib/group-events";
 
 interface HeatPickerProps {
   race: ClassifiedProduct;
@@ -209,6 +209,12 @@ export default function HeatPicker({
   // Safety net: block normal bookings on group event (facility buyout) dates.
   // Group event pages pass `heatRosters` so they're excluded from this guard.
   const groupEventBlock = !heatRosters ? getGroupEventForDate(date.split("T")[0]) : null;
+
+  // Time-granular reservation: "event-window" events (e.g. FastTrax 4:30–5:30)
+  // reserve only a slice of the day. Public pickers (no heatRosters) disable the
+  // heats overlapping those windows; the event's own picker passes heatRosters so
+  // it can still book them. Empty on every date without such an event.
+  const blockWindows = !heatRosters ? getRaceBlockWindowsForDate(date.split("T")[0]) : [];
   if (groupEventBlock) {
     return (
       <div className="space-y-6">
@@ -315,23 +321,35 @@ export default function HeatPicker({
                 return hS < mE && hE > mS;
               })();
 
+              // Event-window reservation (e.g. FastTrax 4:30–5:30) — heats
+              // overlapping a reserved window are disabled for the public.
+              const isEventReserved = blockWindows.some((w) => {
+                const hS = parseLocal(block.start).getTime();
+                const hE = parseLocal(block.stop).getTime();
+                const wS = parseLocal(w.startIso).getTime();
+                const wE = parseLocal(w.stopIso).getTime();
+                return hS < wE && hE > wS;
+              });
+
               // Distinguish "not enough spots" from "too close to picked
               // heat" — both disable the card but the label needs to
               // tell the guest why. Previously both collapsed into the
               // spots message, so conflict heats silently showed
               // "Need 1, only N left" even when N > 0.
               const isLowCap = block.freeSpots < quantity;
-              const isFull = isLowCap || isConflict || isGapViolation;
+              const isFull = isLowCap || isConflict || isGapViolation || isEventReserved;
               const isSelected = selectedIdx === idx;
-              const statusLabel = isGapViolation
-                ? `Available ${minutesAfterEnd!.minutes} min after ${minutesAfterEnd!.refLabel}`
-                : isConflict
-                  ? "Too close to picked heat"
-                  : isLowCap
-                    ? `Need ${quantity}, only ${block.freeSpots} left`
-                    : spotsLabel(block.freeSpots, block.capacity).label;
+              const statusLabel = isEventReserved
+                ? "Reserved for event"
+                : isGapViolation
+                  ? `Available ${minutesAfterEnd!.minutes} min after ${minutesAfterEnd!.refLabel}`
+                  : isConflict
+                    ? "Too close to picked heat"
+                    : isLowCap
+                      ? `Need ${quantity}, only ${block.freeSpots} left`
+                      : spotsLabel(block.freeSpots, block.capacity).label;
               const statusClass =
-                isGapViolation || isConflict
+                isEventReserved || isGapViolation || isConflict
                   ? "text-amber-400"
                   : isLowCap
                     ? "text-red-400"
@@ -397,10 +415,10 @@ export default function HeatPicker({
                   )}
                   <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${isLowCap ? "bg-red-500" : isConflict || isGapViolation ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
+                      className={`h-full rounded-full ${isLowCap ? "bg-red-500" : isConflict || isGapViolation || isEventReserved ? "bg-amber-400/50" : block.freeSpots / block.capacity <= 0.3 ? "bg-amber-400" : "bg-emerald-400"}`}
                       style={{
                         width:
-                          isConflict || isGapViolation
+                          isConflict || isGapViolation || isEventReserved
                             ? "100%"
                             : `${(block.freeSpots / block.capacity) * 100}%`,
                       }}

@@ -23,7 +23,7 @@ import {
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { holdPickedHeats } from "~/features/booking/service/race";
 import { RacerSelectorModal } from "./RacerSelectorModal";
-import { getGroupEventForDate } from "@/lib/group-events";
+import { getGroupEventForDate, getRaceBlockWindowsForDate } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
 import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
@@ -546,6 +546,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       );
     }
 
+    // Event-window reservations (e.g. FastTrax 4:30–5:30) — heats overlapping a
+    // reserved window are disabled for the public. Empty on dates with no such
+    // event. (Full-day buyouts are handled by the groupEventBlock guard above.)
+    const blockWindows = getRaceBlockWindowsForDate(item.date);
+
     const isLoading = queries.some((q) => q.isLoading);
     const hasError = queries.some((q) => q.isError);
     const displayDate = new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
@@ -624,23 +629,35 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 conflictBlocks.some((p) =>
                   heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
                 );
+              const isEventReserved =
+                !isSelected &&
+                blockWindows.some((w) => {
+                  const hS = blockStartMs;
+                  const hE = parseLocal(block.stop).getTime();
+                  const wS = parseLocal(w.startIso).getTime();
+                  const wE = parseLocal(w.stopIso).getTime();
+                  return hS < wE && hE > wS;
+                });
               const isLowCap = block.freeSpots < partySize;
               const isCapped = atCap && !isSelected;
-              const isFull = isLowCap || isConflict || isCapped;
-              const statusLabel = isConflict
-                ? "Too close to picked heat"
-                : isLowCap
-                  ? `Need ${partySize}, only ${block.freeSpots} left`
-                  : isCapped
-                    ? "Unselect a picked heat to change"
-                    : spotsLabel(block.freeSpots, block.capacity).label;
-              const statusClass = isConflict
-                ? "text-amber-400"
-                : isLowCap
-                  ? "text-red-400"
-                  : isCapped
-                    ? "text-white/40"
-                    : spotsLabel(block.freeSpots, block.capacity).text;
+              const isFull = isLowCap || isConflict || isCapped || isEventReserved;
+              const statusLabel = isEventReserved
+                ? "Reserved for event"
+                : isConflict
+                  ? "Too close to picked heat"
+                  : isLowCap
+                    ? `Need ${partySize}, only ${block.freeSpots} left`
+                    : isCapped
+                      ? "Unselect a picked heat to change"
+                      : spotsLabel(block.freeSpots, block.capacity).label;
+              const statusClass =
+                isEventReserved || isConflict
+                  ? "text-amber-400"
+                  : isLowCap
+                    ? "text-red-400"
+                    : isCapped
+                      ? "text-white/40"
+                      : spotsLabel(block.freeSpots, block.capacity).text;
               const isThisHolding = holdingKey === heatKey(tp.productId, block.start);
 
               // On a combined (multi-track) grid, tint each card by its track to
@@ -695,14 +712,17 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                       className={`h-full rounded-full ${
                         isLowCap
                           ? "bg-red-500"
-                          : isConflict
+                          : isConflict || isEventReserved
                             ? "bg-amber-400/50"
                             : block.freeSpots / block.capacity <= 0.3
                               ? "bg-amber-400"
                               : "bg-emerald-400"
                       }`}
                       style={{
-                        width: isConflict ? "100%" : `${(block.freeSpots / block.capacity) * 100}%`,
+                        width:
+                          isConflict || isEventReserved
+                            ? "100%"
+                            : `${(block.freeSpots / block.capacity) * 100}%`,
                       }}
                     />
                   </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
 import { useParams } from "next/navigation";
 import {
   getGroupEvent,
@@ -265,13 +265,18 @@ export default function GroupEventPage() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const email = (form.get("email") as string).trim().toLowerCase();
-    const domain = email.split("@")[1];
-    if (!domain || !event!.allowedDomains.includes(domain)) {
-      const allowed = event!.allowedDomains.filter(
-        (d) => d !== "headpinz.com" && d !== "fasttraxent.com",
-      );
-      setGateError(`This event is for @${allowed[0]} employees`);
-      return;
+    // Open-access events skip the company-domain check — any valid email gets in
+    // (the input is type="email" required, so the address itself is validated).
+    const open = (event!.accessMode ?? "domain") === "open";
+    if (!open) {
+      const domain = email.split("@")[1];
+      if (!domain || !event!.allowedDomains.includes(domain)) {
+        const allowed = event!.allowedDomains.filter(
+          (d) => d !== "headpinz.com" && d !== "fasttraxent.com",
+        );
+        setGateError(`This event is for @${allowed[0]} employees`);
+        return;
+      }
     }
     setGateError("");
     sessionStorage.setItem(sessionKey(slug, "email"), email);
@@ -318,9 +323,10 @@ export default function GroupEventPage() {
 
     try {
       // Shared Pandora onboard: create person → check waiver → fetch template
+      const pandoraLocation = event?.pandoraLocation ?? "headpinz";
       const result = await pandoraOnboardGuest(
-        { firstName, lastName, email, birthdate, location: "headpinz" },
-        "headpinz",
+        { firstName, lastName, email, birthdate, location: pandoraLocation },
+        pandoraLocation,
       );
       setPersonId(result.personId);
       sessionStorage.setItem(sessionKey(slug, "personId"), result.personId);
@@ -812,6 +818,36 @@ export default function GroupEventPage() {
     }
   }
 
+  // ── RSVP without booking — record attendance for guests who aren't racing ──
+  // On racing-only events there are no free-flow checkboxes, so this is the only
+  // way a non-racer leaves an RSVP record (name/email/waiver, no reservations).
+  async function handleAttendOnly() {
+    if (!guest) return;
+    setBookingInProgress(true);
+    setBookingError(null);
+    try {
+      const res = await fetch("/api/group-event/rsvp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          email: guest.email,
+          name: guest.displayName,
+          freeflow: selectedFreeflow,
+          reservations: existingReservations,
+          personId,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save RSVP");
+      setStep("confirmation");
+    } catch (err) {
+      console.error("[group-event] Attend-only RSVP failed:", err);
+      setBookingError(err instanceof Error ? err.message : "Couldn't save your RSVP.");
+    } finally {
+      setBookingInProgress(false);
+    }
+  }
+
   // ── Time formatting ──────────────────────────────────────────────────────
 
   function formatTime(iso: string): string {
@@ -831,6 +867,8 @@ export default function GroupEventPage() {
 
   const reservationAttractions = getReservationAttractions(event);
   const freeflowAttractions = getFreeflowAttractions(event);
+  const hasFreeflow = freeflowAttractions.length > 0;
+  const isOpenAccess = (event.accessMode ?? "domain") === "open";
   const eventDateDisplay = new Date(event.eventDate + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -838,8 +876,21 @@ export default function GroupEventPage() {
     year: "numeric",
   });
 
+  // Accent theming — honor event.accentColor (default cyan). Tailwind v4 applies
+  // opacity modifiers to CSS-variable colors via color-mix, so `bg-(--accent)/8`
+  // reproduces the prior `bg-(--accent)/8` exactly when --accent is cyan; healthnet
+  // therefore renders identically while FastTrax picks up its red.
+  const accent = event.accentColor;
+  const accentFg = event.accentTextColor ?? "#000418";
+  const accentHover = event.accentHoverColor ?? "#ffffff";
+  const accentStyle = {
+    "--accent": accent,
+    "--accent-fg": accentFg,
+    "--accent-hover": accentHover,
+  } as CSSProperties;
+
   return (
-    <div className="min-h-screen bg-[#000418] pt-[140px]">
+    <div className="min-h-screen bg-[#000418] pt-[140px]" style={accentStyle}>
       {/* Header */}
       <div className="border-b border-white/10 bg-white/3">
         <div className="max-w-2xl mx-auto px-4 py-6 text-center">
@@ -850,7 +901,9 @@ export default function GroupEventPage() {
               className="h-12 md:h-16 mx-auto mb-4 object-contain"
             />
           )}
-          <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-1">Private Event</p>
+          <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-1">
+            {event.eventKicker ?? "Private Event"}
+          </p>
           <h1 className="text-2xl md:text-3xl font-display text-white uppercase tracking-widest">
             {event.eventTitle}
           </h1>
@@ -876,20 +929,22 @@ export default function GroupEventPage() {
                 Welcome
               </h2>
               <p className="text-white/50 text-sm mb-6">
-                Enter your company email to access the event.
+                {isOpenAccess
+                  ? "Enter your email to get started."
+                  : "Enter your company email to access the event."}
               </p>
               <form onSubmit={handleGateSubmit} className="space-y-4">
                 <input
                   name="email"
                   type="email"
                   required
-                  placeholder="you@company.com"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm"
+                  placeholder={isOpenAccess ? "you@email.com" : "you@company.com"}
+                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
                 />
                 {gateError && <p className="text-red-400 text-xs">{gateError}</p>}
                 <button
                   type="submit"
-                  className="w-full py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors"
+                  className="w-full py-3 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors"
                 >
                   Continue
                 </button>
@@ -915,14 +970,14 @@ export default function GroupEventPage() {
                     type="text"
                     required
                     placeholder="First name"
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm"
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
                   />
                   <input
                     name="lastName"
                     type="text"
                     required
                     placeholder="Last name"
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm"
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
                   />
                 </div>
                 <div>
@@ -938,7 +993,7 @@ export default function GroupEventPage() {
                       name="birth-year"
                       required
                       defaultValue=""
-                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
+                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
                     >
                       <option
                         value=""
@@ -963,7 +1018,7 @@ export default function GroupEventPage() {
                       name="birth-month"
                       required
                       defaultValue=""
-                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
+                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
                     >
                       <option
                         value=""
@@ -999,7 +1054,7 @@ export default function GroupEventPage() {
                       name="birth-day"
                       required
                       defaultValue=""
-                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-[#00E2E5]/50 focus:ring-1 focus:ring-[#00E2E5]/30 outline-none text-sm [color-scheme:dark]"
+                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
                     >
                       <option
                         value=""
@@ -1024,11 +1079,11 @@ export default function GroupEventPage() {
                 <button
                   type="submit"
                   disabled={waiverLoading}
-                  className="w-full py-3 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors disabled:opacity-50"
+                  className="w-full py-3 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors disabled:opacity-50"
                 >
                   {waiverLoading ? (
                     <span className="flex items-center justify-center gap-2">
-                      <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
+                      <span className="w-4 h-4 border-2 border-(--accent-fg)/30 border-t-(--accent-fg) rounded-full animate-spin" />
                       Setting up...
                     </span>
                   ) : (
@@ -1046,7 +1101,7 @@ export default function GroupEventPage() {
             <WaiverSigning
               personId={personId}
               template={waiverTemplate}
-              location="headpinz"
+              location={event.pandoraLocation ?? "headpinz"}
               onComplete={() => {
                 setWaiverValid(true);
                 setStep("dashboard");
@@ -1082,17 +1137,29 @@ export default function GroupEventPage() {
             </div>
 
             {/* Event info banner */}
-            <div className="rounded-xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-4 space-y-2 text-sm text-white/70 leading-relaxed">
-              <p>
-                <strong className="text-white">Go-Kart Racing, Laser Tag, and Gel Blaster</strong>{" "}
-                all require a signed waiver and a pre-booked time slot. You can only book for
-                yourself, but your name will appear on the booking so your coworkers can see
-                who&rsquo;s in each session.
-              </p>
-              <p>
-                All other activities are <strong className="text-white">free-flow</strong> and
-                available at your leisure throughout the event.
-              </p>
+            <div className="rounded-xl border border-(--accent)/20 bg-(--accent)/5 p-4 space-y-2 text-sm text-white/70 leading-relaxed">
+              {hasFreeflow ? (
+                <>
+                  <p>
+                    <strong className="text-white">
+                      Go-Kart Racing, Laser Tag, and Gel Blaster
+                    </strong>{" "}
+                    all require a signed waiver and a pre-booked time slot. You can only book for
+                    yourself, but your name will appear on the booking so your coworkers can see
+                    who&rsquo;s in each session.
+                  </p>
+                  <p>
+                    All other activities are <strong className="text-white">free-flow</strong> and
+                    available at your leisure throughout the event.
+                  </p>
+                </>
+              ) : (
+                <p>
+                  <strong className="text-white">Go-Kart Racing</strong> requires a signed waiver
+                  and a pre-booked time slot. You can only book for yourself, but your name will
+                  appear on the heat so others can see who&rsquo;s racing.
+                </p>
+              )}
               {event.mealWindow && (
                 <p className="text-amber-300/90">
                   <strong className="text-amber-300">{event.mealWindow.label}</strong> is served at{" "}
@@ -1150,7 +1217,7 @@ export default function GroupEventPage() {
                           confirmed
                             ? "border-emerald-500/30"
                             : inCart
-                              ? "border-[#00E2E5]/40 ring-1 ring-[#00E2E5]/20"
+                              ? "border-(--accent)/40 ring-1 ring-(--accent)/20"
                               : "border-white/10 hover:border-white/25 cursor-pointer"
                         }
                       `}
@@ -1176,7 +1243,7 @@ export default function GroupEventPage() {
                               </span>
                             )}
                             {inCart && !confirmed && (
-                              <span className="text-[#00E2E5] text-xs font-semibold bg-[#00E2E5]/15 px-2 py-0.5 rounded-full">
+                              <span className="text-(--accent) text-xs font-semibold bg-(--accent)/15 px-2 py-0.5 rounded-full">
                                 Selected
                               </span>
                             )}
@@ -1190,14 +1257,14 @@ export default function GroupEventPage() {
                             </p>
                           )}
                           {inCart && cartItem && (
-                            <p className="text-[#00E2E5]/70 text-xs mt-1 font-medium">
+                            <p className="text-(--accent)/70 text-xs mt-1 font-medium">
                               {cartItem.track ? `${cartItem.track} Track · ` : ""}
                               {formatTime(cartItem.block.start)}
                               <span className="text-white/30 ml-2">(tap to change)</span>
                             </p>
                           )}
                           {!isDone && (
-                            <p className="text-[#00E2E5] text-xs font-semibold mt-1">
+                            <p className="text-(--accent) text-xs font-semibold mt-1">
                               Tap to reserve &rsaquo;
                             </p>
                           )}
@@ -1209,56 +1276,58 @@ export default function GroupEventPage() {
               </div>
             </div>
 
-            {/* Free-flow activities */}
-            <div>
-              <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
-                I Plan to Attend
-              </h3>
-              <div className="rounded-xl border border-white/10 bg-white/3 p-3 space-y-2">
-                {freeflowAttractions.map((attr) => {
-                  const checked = selectedFreeflow.includes(attr.slug);
-                  return (
-                    <label
-                      key={attr.slug}
-                      className={`flex items-center gap-3 cursor-pointer group rounded-lg p-2 transition-colors ${checked ? "bg-[#00E2E5]/8" : "hover:bg-white/3"}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const next = checked
-                            ? selectedFreeflow.filter((s) => s !== attr.slug)
-                            : [...selectedFreeflow, attr.slug];
-                          saveFreeflow(next);
-                        }}
-                        className="w-4 h-4 shrink-0 rounded border-white/20 bg-white/5 text-[#00E2E5] focus:ring-[#00E2E5]/30 accent-[#00E2E5]"
-                      />
-                      {attr.image && (
-                        <img
-                          src={attr.image}
-                          alt={attr.label}
-                          className="w-10 h-10 rounded-lg object-cover shrink-0"
+            {/* Free-flow activities — only when the event has any freeflow attractions */}
+            {hasFreeflow && (
+              <div>
+                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
+                  I Plan to Attend
+                </h3>
+                <div className="rounded-xl border border-white/10 bg-white/3 p-3 space-y-2">
+                  {freeflowAttractions.map((attr) => {
+                    const checked = selectedFreeflow.includes(attr.slug);
+                    return (
+                      <label
+                        key={attr.slug}
+                        className={`flex items-center gap-3 cursor-pointer group rounded-lg p-2 transition-colors ${checked ? "bg-(--accent)/8" : "hover:bg-white/3"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            const next = checked
+                              ? selectedFreeflow.filter((s) => s !== attr.slug)
+                              : [...selectedFreeflow, attr.slug];
+                            saveFreeflow(next);
+                          }}
+                          className="w-4 h-4 shrink-0 rounded border-white/20 bg-white/5 text-(--accent) focus:ring-(--accent)/30 accent-(--accent)"
                         />
-                      )}
-                      <div className="min-w-0">
-                        <span className="text-white text-sm font-medium group-hover:text-white/90">
-                          {attr.label}
-                        </span>
-                        <p className="text-white/30 text-xs truncate">{attr.description}</p>
-                      </div>
-                    </label>
-                  );
-                })}
-                {freeflowSaved && (
-                  <p className="text-emerald-400 text-xs text-center animate-pulse">Saved!</p>
-                )}
+                        {attr.image && (
+                          <img
+                            src={attr.image}
+                            alt={attr.label}
+                            className="w-10 h-10 rounded-lg object-cover shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <span className="text-white text-sm font-medium group-hover:text-white/90">
+                            {attr.label}
+                          </span>
+                          <p className="text-white/30 text-xs truncate">{attr.description}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                  {freeflowSaved && (
+                    <p className="text-emerald-400 text-xs text-center animate-pulse">Saved!</p>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ── Cart: Your Selections ── */}
             <div ref={cartRef}>
               {cart.length > 0 && (
-                <div className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-5 space-y-4">
+                <div className="rounded-xl border border-(--accent)/30 bg-(--accent)/5 p-5 space-y-4">
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">
                     Your Reservations
                   </h3>
@@ -1277,7 +1346,7 @@ export default function GroupEventPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-[#00E2E5]/70 text-xs">
+                          <p className="text-(--accent)/70 text-xs">
                             {formatTime(item.block.start)} &rarr; {formatTime(item.block.stop)}
                           </p>
                         </div>
@@ -1301,11 +1370,11 @@ export default function GroupEventPage() {
                   <button
                     onClick={handleConfirmAll}
                     disabled={bookingInProgress}
-                    className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full py-3.5 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {bookingInProgress ? (
                       <span className="flex items-center justify-center gap-2">
-                        <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
+                        <span className="w-4 h-4 border-2 border-(--accent-fg)/30 border-t-(--accent-fg) rounded-full animate-spin" />
                         Confirming reservations...
                       </span>
                     ) : (
@@ -1319,10 +1388,21 @@ export default function GroupEventPage() {
               )}
 
               {cart.length === 0 && !existingReservations.length && (
-                <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-center">
+                <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-center space-y-3">
                   <p className="text-white/30 text-sm">
-                    Select your activities above, then confirm them all at once here.
+                    {hasFreeflow
+                      ? "Select your activities above, then confirm them all at once here."
+                      : "Reserve a kart above — or, if you're not racing, just let us know you're coming."}
                   </p>
+                  {!hasFreeflow && (
+                    <button
+                      onClick={handleAttendOnly}
+                      disabled={bookingInProgress}
+                      className="w-full py-3 rounded-xl font-bold text-sm border border-(--accent)/40 text-(--accent) hover:bg-(--accent)/10 transition-colors disabled:opacity-50"
+                    >
+                      {bookingInProgress ? "Saving…" : "I'm attending — not racing"}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1331,7 +1411,9 @@ export default function GroupEventPage() {
             <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
               <p>
                 &middot; All activities are <strong className="text-white/60">complimentary</strong>{" "}
-                for {event.companyName} team members.
+                {isOpenAccess
+                  ? `for ${event.companyName} guests.`
+                  : `for ${event.companyName} team members.`}
               </p>
               {event.includesLicense && (
                 <p>
@@ -1588,7 +1670,9 @@ export default function GroupEventPage() {
                 You&rsquo;re All Set!
               </h2>
               <p className="text-white/50 text-sm">
-                Your reservations are confirmed, {guest.firstName}.
+                {existingReservations.length > 0
+                  ? `Your reservations are confirmed, ${guest.firstName}.`
+                  : `You're on the list, ${guest.firstName} — see you there!`}
               </p>
             </div>
 
@@ -1692,7 +1776,7 @@ export default function GroupEventPage() {
                     const attr = freeflowAttractions.find((a) => a.slug === slug);
                     return (
                       <div key={slug} className="flex items-center gap-3">
-                        <span className="text-[#00E2E5] text-xs">&#10003;</span>
+                        <span className="text-(--accent) text-xs">&#10003;</span>
                         <span className="text-white/70 text-sm">{attr?.label || slug}</span>
                       </div>
                     );
