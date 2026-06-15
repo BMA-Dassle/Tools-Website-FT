@@ -28,7 +28,11 @@
  * always consistent with how the order was originally created.
  */
 import { randomBytes } from "crypto";
-import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
+import {
+  authorizeMultiTender,
+  GIFT_CARD_MAX_CENTS,
+  SquarePaymentError,
+} from "@/lib/square-gift-card";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -45,6 +49,26 @@ const DEPOSIT_LINE_ITEM_NAME = "Reservation Deposit";
  */
 export function giftCardSaleEnabled(): boolean {
   return process.env.DEPOSIT_GC_SALE_V2 === "true";
+}
+
+/**
+ * Split a total into gift-card chunks, each ≤ the $2,000/card Square cap. A
+ * deposit (esp. group events) that exceeds $2k must fund multiple cards; in the
+ * gift-card-sale model each chunk also becomes its own `GIFT_CARD` line item so
+ * a card can ACTIVATE against it by `line_item_uid`. Order is preserved so the
+ * Nth chunk maps to the Nth line item. Returns [] for a non-positive total.
+ *
+ * Examples: 4399 → [4399]; 250000 → [200000, 50000]; 400000 → [200000, 200000].
+ */
+export function giftCardSaleChunks(totalCents: number): number[] {
+  const chunks: number[] = [];
+  let remaining = totalCents;
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, GIFT_CARD_MAX_CENTS);
+    chunks.push(chunk);
+    remaining -= chunk;
+  }
+  return chunks;
 }
 
 function sqHeaders() {

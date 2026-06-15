@@ -15,6 +15,7 @@ import {
   SquarePaymentError,
 } from "@/lib/square-gift-card";
 import { createDayofOrder } from "@/lib/group-function-dayof";
+import { giftCardSaleEnabled, giftCardSaleChunks } from "~/features/booking/service/deposit";
 import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 import { notifyDispatchError } from "@/lib/group-function-alert";
@@ -156,14 +157,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Create deposit order. Break out the service charge into its own line so the
-  //    portal's Service Charges page detects it. The full contract service charge is
-  //    collected on the deposit (capped at the deposit amount).
+  // 2. Create deposit order.
+  //    Gift-card-sale mode (DEPOSIT_GC_SALE_V2): the deposit is sold as
+  //    GIFT_CARD line items — one per ≤$2k chunk — so each chunk funds a card
+  //    via order_id + line_item_uid and Square books it as a gift-card SALE
+  //    (excluded from gross sales → no double-count with the day-of order). The
+  //    service charge is NOT broken out here; it's realized on the day-of order
+  //    at redemption. Legacy mode keeps the service-charge breakout line for the
+  //    portal's Service Charges page.
+  const saleMode = giftCardSaleEnabled();
   const ganSuffix = quote.bmi_reservation_id.slice(-8);
   const serviceChargeCents = serviceChargeCentsFromLineItems(quote.line_items);
   const depositServiceCharge = Math.min(serviceChargeCents, depositCents);
+  const chunks = giftCardSaleChunks(depositCents);
 
   try {
+    const depositLineItems = saleMode
+      ? chunks.map((amount) => ({
+          name: "Group Event Deposit",
+          quantity: "1",
+          item_type: "GIFT_CARD" as const,
+          base_price_money: { amount, currency: "USD" as const },
+        }))
+      : buildPaymentLineItems("Group Event Deposit", depositCents, depositServiceCharge);
+
     const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
       method: "POST",
       headers: sqHeaders(),
@@ -172,11 +189,7 @@ export async function POST(req: NextRequest) {
         order: {
           location_id: quote.square_location_id,
           reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
-          line_items: buildPaymentLineItems(
-            "Group Event Deposit",
-            depositCents,
-            depositServiceCharge,
-          ),
+          line_items: depositLineItems,
         },
       }),
     });
@@ -185,6 +198,17 @@ export async function POST(req: NextRequest) {
       throw new Error(`Deposit order failed: ${JSON.stringify(depositOrderData).slice(0, 300)}`);
     }
     const depositOrderId = depositOrderData.order.id as string;
+    // In sale mode the Nth GIFT_CARD line item's uid funds the Nth chunk's card.
+    const lineItemUids: string[] = saleMode
+      ? ((depositOrderData.order.line_items ?? []) as Array<{ uid?: string }>).map(
+          (li) => li.uid ?? "",
+        )
+      : [];
+    if (saleMode && lineItemUids.filter(Boolean).length !== chunks.length) {
+      throw new Error(
+        `Deposit order returned ${lineItemUids.filter(Boolean).length} line uids, expected ${chunks.length}`,
+      );
+    }
 
     // 3. Charge via multi-tender (gift card partial + card remainder)
     const multiTender = await authorizeMultiTender({
@@ -199,8 +223,7 @@ export async function POST(req: NextRequest) {
 
     const depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
 
-    // 4. Create DIGITAL gift cards in $2k chunks (Square max per card)
-    const GC_MAX_CENTS = 200_000;
+    // 4. Create + activate one DIGITAL gift card per ≤$2k chunk.
     const prefix = quote.gan_prefix || "GRPF";
     const baseGan = `${prefix}${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
     const paymentIds = [multiTender.gcPaymentId, multiTender.cardPaymentId].filter(
@@ -209,11 +232,9 @@ export async function POST(req: NextRequest) {
 
     const gcIds: string[] = [];
     const gcGans: string[] = [];
-    let depositRemaining = depositCents;
-    let gcIndex = 0;
 
-    while (depositRemaining > 0) {
-      const chunkCents = Math.min(depositRemaining, GC_MAX_CENTS);
+    for (let gcIndex = 0; gcIndex < chunks.length; gcIndex++) {
+      const chunkCents = chunks[gcIndex];
       const suffix = gcIndex === 0 ? "" : String.fromCharCode(65 + gcIndex); // "", "B", "C", ...
       const customGan = `${baseGan}${suffix}`;
       const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
@@ -240,7 +261,12 @@ export async function POST(req: NextRequest) {
       const gcId = gcData.gift_card.id as string;
       const gcGan = gcData.gift_card.gan as string;
 
-      // 5. Activate with chunk amount (unlinked — no customer_id)
+      // 5. Activate. Sale mode links to the chunk's GIFT_CARD line item (Square
+      //    reads the load amount from it → booked as a gift-card sale); legacy
+      //    mode passes the amount + funding instruments. Mutually exclusive
+      //    forms — Square rejects a request carrying both. Activation failure is
+      //    logged, not thrown: the deposit is already captured and baseKey is
+      //    per-request, so throwing here would risk a double charge on retry.
       const actRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
         method: "POST",
         headers: sqHeaders(),
@@ -250,25 +276,26 @@ export async function POST(req: NextRequest) {
             type: "ACTIVATE",
             location_id: quote.square_location_id,
             gift_card_id: gcId,
-            activate_activity_details: {
-              amount_money: { amount: chunkCents, currency: "USD" },
-              buyer_payment_instrument_ids: paymentIds,
-            },
+            activate_activity_details: saleMode
+              ? { order_id: depositOrderId, line_item_uid: lineItemUids[gcIndex] }
+              : {
+                  amount_money: { amount: chunkCents, currency: "USD" },
+                  buyer_payment_instrument_ids: paymentIds,
+                },
           },
         }),
       });
       const actData = await actRes.json();
-      if (!actRes.ok) {
+      if (!actRes.ok || actData.errors) {
         console.error(`[gf-deposit] gift card #${gcIndex} activation failed:`, actData);
       }
 
       gcIds.push(gcId);
       gcGans.push(gcGan);
-      depositRemaining -= chunkCents;
-      gcIndex++;
 
       console.log(
-        `[gf-deposit] gift card #${gcIndex}: ${gcGan} activated with $${(chunkCents / 100).toFixed(2)}`,
+        `[gf-deposit] gift card #${gcIndex + 1}/${chunks.length}: ${gcGan} ` +
+          `activated $${(chunkCents / 100).toFixed(2)} (saleMode=${saleMode})`,
       );
     }
 

@@ -13,9 +13,31 @@ import {
   activateGiftCardForDeposit,
   createDepositAndCharge,
   getDepositOrderLineItem,
+  giftCardSaleChunks,
 } from "./deposit";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
+
+describe("giftCardSaleChunks — $2k/card split", () => {
+  it("keeps a sub-cap deposit as a single chunk", () => {
+    expect(giftCardSaleChunks(4399)).toEqual([4399]);
+    expect(giftCardSaleChunks(200_000)).toEqual([200_000]);
+  });
+  it("splits an over-cap deposit into ≤$2k chunks summing to the total", () => {
+    expect(giftCardSaleChunks(250_000)).toEqual([200_000, 50_000]);
+    expect(giftCardSaleChunks(400_000)).toEqual([200_000, 200_000]);
+    expect(giftCardSaleChunks(450_000)).toEqual([200_000, 200_000, 50_000]);
+    // #H2821 shape: $2,231.00 deposit must NOT be a single $2,231 card.
+    const chunks = giftCardSaleChunks(223_100);
+    expect(chunks).toEqual([200_000, 23_100]);
+    expect(chunks.reduce((a, b) => a + b, 0)).toBe(223_100);
+    expect(chunks.every((c) => c <= 200_000)).toBe(true);
+  });
+  it("returns [] for a non-positive total", () => {
+    expect(giftCardSaleChunks(0)).toEqual([]);
+    expect(giftCardSaleChunks(-100)).toEqual([]);
+  });
+});
 
 interface MockCall {
   url: string;
