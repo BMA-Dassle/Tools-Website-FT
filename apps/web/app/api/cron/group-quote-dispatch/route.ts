@@ -22,6 +22,7 @@ import {
   notifyApprovalNeeded,
 } from "@/lib/group-function-notify";
 import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
+import { taxCents as computeTaxCents, subtotalCents } from "@/lib/group-function-pricing";
 import { verifyCron } from "@/lib/cron-auth";
 import { formatEtDateTime } from "@/lib/et-time";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
@@ -222,7 +223,9 @@ async function processQueueItem(
   }
 
   const taxExempt = isTaxExempt(item.products);
-  const taxCents = taxExempt ? 0 : Math.round(item.tax * 100);
+  // `let`: the service-charge correction branch below re-derives this from the
+  // corrected products so it can never go stale relative to the subtotal.
+  let taxCents = taxExempt ? 0 : Math.round(item.tax * 100);
   // total_cents is the tax-inclusive grand total (matches the sync cron, deposit
   // route, and contract display). item.totalBill is the pre-tax subtotal.
   let totalCents = Math.round(item.totalBill * 100) + taxCents;
@@ -439,12 +442,17 @@ async function processQueueItem(
     if (scCheck.corrected) {
       activeProducts = scCheck.products;
       const oldTotal = totalCents;
-      // Recalculate from corrected products so DB stays consistent with BMI
-      totalCents = Math.round(activeProducts.reduce((s, p) => s + p.total, 0) * 100) + taxCents;
+      const oldTax = taxCents;
+      // Recompute tax AND total from the corrected products. Correcting the
+      // service-charge line changes the taxable subtotal, so the tax must be
+      // re-derived here too — reusing the pre-correction taxCents silently
+      // under/over-counts tax on the service-charge delta (the #72 drift).
+      taxCents = computeTaxCents(activeProducts, taxExempt);
+      totalCents = subtotalCents(activeProducts) + taxCents;
       depositDueCents = fullPaymentRequired ? totalCents : Math.round(totalCents / 2);
       console.log(
         `[group-quote-dispatch] service charge corrected for reservation=${item.reservationId} ` +
-          `(total ${oldTotal} → ${totalCents})`,
+          `(total ${oldTotal} → ${totalCents}, tax ${oldTax} → ${taxCents})`,
       );
     }
   } catch (err) {

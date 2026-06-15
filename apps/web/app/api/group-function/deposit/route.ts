@@ -15,8 +15,15 @@ import {
   SquarePaymentError,
 } from "@/lib/square-gift-card";
 import { createDayofOrder } from "@/lib/group-function-dayof";
+import { giftCardSaleEnabled, giftCardSaleChunks } from "~/features/booking/service/deposit";
 import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
+import { notifyDispatchError } from "@/lib/group-function-alert";
+
+// Per-line Square rounding can make the day-of order total differ from our stored
+// total by a few cents. A larger gap means the displayed contract is stale — halt
+// the charge rather than bill an amount the customer never saw.
+const DEPOSIT_MISMATCH_TOLERANCE_CENTS = 50;
 
 /**
  * Group function deposit payment endpoint.
@@ -99,17 +106,81 @@ export async function POST(req: NextRequest) {
     return handleLegacyDeposit(quote, priorDepositCents, cardSourceId, baseKey);
   }
 
-  // 1. Create the day-of Square order (OPEN — staff redeems at event)
-  const dayofOrderId = await createDayofOrder(quote, baseKey);
+  // 1. Create the day-of Square order (OPEN — staff redeems at event). This order
+  //    carries the tax (as a service charge), so its total_money is the authoritative
+  //    tax-inclusive total — the single source of truth for the deposit.
+  const dayof = await createDayofOrder(quote, baseKey);
+  const dayofOrderId = dayof?.id;
+  const dayofTotalCents = dayof?.totalCents ?? null;
 
-  // 2. Create deposit order. Break out the service charge into its own line so the
-  //    portal's Service Charges page detects it. The full contract service charge is
-  //    collected on the deposit (capped at the deposit amount).
+  // Derive the deposit FROM the day-of order total (never a pre-tax/independently
+  // computed amount — see lessons.md "deposit must equal the day-of order total").
+  // 96h full-payment vs 50% is preserved from dispatch's decision. If the day-of
+  // order couldn't be created (best-effort; sync cron backfills later), fall back to
+  // the stored value so the deposit charge isn't blocked.
+  const isFullPayment = quote.deposit_due_cents >= quote.total_cents;
+  const depositCents =
+    dayofTotalCents != null
+      ? isFullPayment
+        ? dayofTotalCents
+        : Math.round(dayofTotalCents / 2)
+      : quote.deposit_due_cents;
+  const effectiveTotalCents = dayofTotalCents ?? quote.total_cents;
+
+  // Displayed-vs-charged guard: the contract showed quote.deposit_due_cents. If the
+  // day-of-derived deposit diverges beyond per-line rounding, the contract is stale —
+  // hard-fail and alert instead of silently charging a different amount.
+  if (
+    dayofTotalCents != null &&
+    Math.abs(depositCents - quote.deposit_due_cents) > DEPOSIT_MISMATCH_TOLERANCE_CENTS
+  ) {
+    await updateGfDepositAttempt(
+      quote.id,
+      `DEPOSIT_MISMATCH: displayed=${quote.deposit_due_cents} dayofDerived=${depositCents} orderTotal=${dayofTotalCents}`,
+    );
+    await notifyDispatchError({
+      reservationId: quote.bmi_reservation_id,
+      centerName: quote.center_name,
+      plannerEmail: quote.planner_email ?? undefined,
+      error: new Error(
+        `Deposit mismatch for "${quote.event_name}": contract shows $${(quote.deposit_due_cents / 100).toFixed(2)} ` +
+          `but day-of order total $${(dayofTotalCents / 100).toFixed(2)} implies $${(depositCents / 100).toFixed(2)}. Charge halted.`,
+      ),
+    }).catch(() => {});
+    return NextResponse.json(
+      {
+        error:
+          "This contract's pricing is out of date. Our team has been notified — please try again shortly.",
+        code: "PRICING_STALE",
+      },
+      { status: 409 },
+    );
+  }
+
+  // 2. Create deposit order.
+  //    Gift-card-sale mode (DEPOSIT_GC_SALE_V2): the deposit is sold as
+  //    GIFT_CARD line items — one per ≤$2k chunk — so each chunk funds a card
+  //    via order_id + line_item_uid and Square books it as a gift-card SALE
+  //    (excluded from gross sales → no double-count with the day-of order). The
+  //    service charge is NOT broken out here; it's realized on the day-of order
+  //    at redemption. Legacy mode keeps the service-charge breakout line for the
+  //    portal's Service Charges page.
+  const saleMode = giftCardSaleEnabled();
   const ganSuffix = quote.bmi_reservation_id.slice(-8);
   const serviceChargeCents = serviceChargeCentsFromLineItems(quote.line_items);
-  const depositServiceCharge = Math.min(serviceChargeCents, quote.deposit_due_cents);
+  const depositServiceCharge = Math.min(serviceChargeCents, depositCents);
+  const chunks = giftCardSaleChunks(depositCents);
 
   try {
+    const depositLineItems = saleMode
+      ? chunks.map((amount) => ({
+          name: "Group Event Deposit",
+          quantity: "1",
+          item_type: "GIFT_CARD" as const,
+          base_price_money: { amount, currency: "USD" as const },
+        }))
+      : buildPaymentLineItems("Group Event Deposit", depositCents, depositServiceCharge);
+
     const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
       method: "POST",
       headers: sqHeaders(),
@@ -118,11 +189,7 @@ export async function POST(req: NextRequest) {
         order: {
           location_id: quote.square_location_id,
           reference_id: `GF Deposit: ${quote.event_number || ""}`.slice(0, 40),
-          line_items: buildPaymentLineItems(
-            "Group Event Deposit",
-            quote.deposit_due_cents,
-            depositServiceCharge,
-          ),
+          line_items: depositLineItems,
         },
       }),
     });
@@ -131,12 +198,23 @@ export async function POST(req: NextRequest) {
       throw new Error(`Deposit order failed: ${JSON.stringify(depositOrderData).slice(0, 300)}`);
     }
     const depositOrderId = depositOrderData.order.id as string;
+    // In sale mode the Nth GIFT_CARD line item's uid funds the Nth chunk's card.
+    const lineItemUids: string[] = saleMode
+      ? ((depositOrderData.order.line_items ?? []) as Array<{ uid?: string }>).map(
+          (li) => li.uid ?? "",
+        )
+      : [];
+    if (saleMode && lineItemUids.filter(Boolean).length !== chunks.length) {
+      throw new Error(
+        `Deposit order returned ${lineItemUids.filter(Boolean).length} line uids, expected ${chunks.length}`,
+      );
+    }
 
     // 3. Charge via multi-tender (gift card partial + card remainder)
     const multiTender = await authorizeMultiTender({
       orderId: depositOrderId,
       locationId: quote.square_location_id,
-      totalCents: quote.deposit_due_cents,
+      totalCents: depositCents,
       baseKey,
       giftCardNonce: giftCardNonce || undefined,
       cardSourceId: cardSourceId || undefined,
@@ -145,8 +223,7 @@ export async function POST(req: NextRequest) {
 
     const depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
 
-    // 4. Create DIGITAL gift cards in $2k chunks (Square max per card)
-    const GC_MAX_CENTS = 200_000;
+    // 4. Create + activate one DIGITAL gift card per ≤$2k chunk.
     const prefix = quote.gan_prefix || "GRPF";
     const baseGan = `${prefix}${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
     const paymentIds = [multiTender.gcPaymentId, multiTender.cardPaymentId].filter(
@@ -155,11 +232,9 @@ export async function POST(req: NextRequest) {
 
     const gcIds: string[] = [];
     const gcGans: string[] = [];
-    let depositRemaining = quote.deposit_due_cents;
-    let gcIndex = 0;
 
-    while (depositRemaining > 0) {
-      const chunkCents = Math.min(depositRemaining, GC_MAX_CENTS);
+    for (let gcIndex = 0; gcIndex < chunks.length; gcIndex++) {
+      const chunkCents = chunks[gcIndex];
       const suffix = gcIndex === 0 ? "" : String.fromCharCode(65 + gcIndex); // "", "B", "C", ...
       const customGan = `${baseGan}${suffix}`;
       const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
@@ -186,7 +261,12 @@ export async function POST(req: NextRequest) {
       const gcId = gcData.gift_card.id as string;
       const gcGan = gcData.gift_card.gan as string;
 
-      // 5. Activate with chunk amount (unlinked — no customer_id)
+      // 5. Activate. Sale mode links to the chunk's GIFT_CARD line item (Square
+      //    reads the load amount from it → booked as a gift-card sale); legacy
+      //    mode passes the amount + funding instruments. Mutually exclusive
+      //    forms — Square rejects a request carrying both. Activation failure is
+      //    logged, not thrown: the deposit is already captured and baseKey is
+      //    per-request, so throwing here would risk a double charge on retry.
       const actRes = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
         method: "POST",
         headers: sqHeaders(),
@@ -196,25 +276,26 @@ export async function POST(req: NextRequest) {
             type: "ACTIVATE",
             location_id: quote.square_location_id,
             gift_card_id: gcId,
-            activate_activity_details: {
-              amount_money: { amount: chunkCents, currency: "USD" },
-              buyer_payment_instrument_ids: paymentIds,
-            },
+            activate_activity_details: saleMode
+              ? { order_id: depositOrderId, line_item_uid: lineItemUids[gcIndex] }
+              : {
+                  amount_money: { amount: chunkCents, currency: "USD" },
+                  buyer_payment_instrument_ids: paymentIds,
+                },
           },
         }),
       });
       const actData = await actRes.json();
-      if (!actRes.ok) {
+      if (!actRes.ok || actData.errors) {
         console.error(`[gf-deposit] gift card #${gcIndex} activation failed:`, actData);
       }
 
       gcIds.push(gcId);
       gcGans.push(gcGan);
-      depositRemaining -= chunkCents;
-      gcIndex++;
 
       console.log(
-        `[gf-deposit] gift card #${gcIndex}: ${gcGan} activated with $${(chunkCents / 100).toFixed(2)}`,
+        `[gf-deposit] gift card #${gcIndex + 1}/${chunks.length}: ${gcGan} ` +
+          `activated $${(chunkCents / 100).toFixed(2)} (saleMode=${saleMode})`,
       );
     }
 
@@ -265,7 +346,7 @@ export async function POST(req: NextRequest) {
       saved_card_id: savedCardId,
       square_dayof_order_id: dayofOrderId,
       deposit_paid_at: new Date().toISOString(),
-      balance_cents: quote.total_cents - quote.deposit_due_cents,
+      balance_cents: effectiveTotalCents - depositCents,
     });
 
     if (savedCardLast4 || savedCardBrand) {
@@ -302,7 +383,7 @@ export async function POST(req: NextRequest) {
       await recordProjectPayment({
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
-        amountDollars: quote.deposit_due_cents / 100,
+        amountDollars: depositCents / 100,
       });
 
       const { noteTimestamp } = await import("@/lib/bmi-office-actions");
@@ -311,7 +392,7 @@ export async function POST(req: NextRequest) {
       await appendProjectPrivateNote({
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
-        note: `[${ts}] Deposit paid: $${(quote.deposit_due_cents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((quote.total_cents - quote.deposit_due_cents) / 100).toFixed(2)}`,
+        note: `[${ts}] Deposit paid: $${(depositCents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((effectiveTotalCents - depositCents) / 100).toFixed(2)}`,
         contractUrl,
       });
     } catch (err) {
@@ -337,8 +418,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       action: "deposit_paid",
       giftCardGan,
-      depositCents: quote.deposit_due_cents,
-      balanceCents: quote.total_cents - quote.deposit_due_cents,
+      depositCents,
+      balanceCents: effectiveTotalCents - depositCents,
     });
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -369,11 +450,17 @@ async function handleLegacyDeposit(
   }
 
   const isFullPayment = quote.balance_cents === 0;
-  const chargeCents = isFullPayment ? Math.max(0, quote.total_cents - priorDepositCents) : 0;
 
   try {
-    // 1. Create day-of Square order — try catalog IDs first, fall back to ad-hoc
-    const dayofOrderId = await createDayofOrder(quote, baseKey);
+    // 1. Create day-of Square order — try catalog IDs first, fall back to ad-hoc.
+    //    Its total_money (tax-inclusive) is the authoritative event total.
+    const dayof = await createDayofOrder(quote, baseKey);
+    const dayofOrderId = dayof?.id;
+    const effectiveTotalCents = dayof?.totalCents ?? quote.total_cents;
+
+    // Full payment charges the remaining event total (less the prior BMI deposit),
+    // derived from the day-of order total so it can't diverge from what staff redeem.
+    const chargeCents = isFullPayment ? Math.max(0, effectiveTotalCents - priorDepositCents) : 0;
 
     // 2. Find/create Square customer
     const custResult = await findOrCreateSquareCustomer(quote);
@@ -524,7 +611,7 @@ async function handleLegacyDeposit(
     const gcIds = JSON.stringify([compGc.giftCardId]);
     const gcGans = JSON.stringify([compGc.gan]);
     const totalDeposited = priorDepositCents + chargeCents;
-    const balanceCents = Math.max(0, quote.total_cents - totalDeposited);
+    const balanceCents = Math.max(0, effectiveTotalCents - totalDeposited);
 
     // 6. Update Neon
     await updateGfDepositPaid(quote.id, {
