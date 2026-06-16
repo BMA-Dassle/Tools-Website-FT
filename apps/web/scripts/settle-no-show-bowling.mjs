@@ -28,7 +28,8 @@ const H = {
 const B = "https://connect.squareup.com/v2";
 
 const rows = await sql`
-  SELECT id, product_kind pk, guest_name gn, square_dayof_order_id oid, square_gift_card_id gc,
+  SELECT id, product_kind pk, guest_name gn, qamf_reservation_id qid,
+         square_dayof_order_id oid, square_gift_card_id gc,
          (booked_at AT TIME ZONE 'America/New_York')::date::text d
   FROM bowling_reservations
   WHERE product_kind IN ('open','kbf')
@@ -98,7 +99,7 @@ for (const r of rows) {
           order_id: r.oid,
           location_id: loc,
           autocomplete: true,
-          note: `no-show close ${r.pk} (neon ${r.id})`,
+          note: `No-show deposit forfeited — ${r.qid ?? `#${r.id}`}`,
         }),
       });
       if (!pr.ok) {

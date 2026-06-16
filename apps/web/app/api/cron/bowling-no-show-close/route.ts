@@ -92,6 +92,11 @@ async function closeNoShow(
   if (gcBalance <= 0) return { closed: false, charged: 0, note: "gift card $0 balance" };
 
   const amountToPay = Math.min(gcBalance, remaining);
+  // Tie the note to the reservation the way lane-open does (its note is
+  // `Deposit applied — {qamfReservationId ?? #id}`). The internal Neon row id
+  // ("neon 5860") means nothing to staff reading the Square receipt — the QAMF
+  // reservation id is what they can actually look up in the bowling POS.
+  const reservationRef = r.qamfReservationId ?? `#${r.id}`;
   const payRes = await fetch(`${SQUARE_BASE}/payments`, {
     method: "POST",
     headers: sqHeaders(),
@@ -102,7 +107,7 @@ async function closeNoShow(
       order_id: orderId,
       location_id: locationId,
       autocomplete: true,
-      note: `no-show close ${r.productKind} (neon ${r.id})`,
+      note: `No-show deposit forfeited — ${reservationRef}`,
     }),
   });
   if (!payRes.ok) {

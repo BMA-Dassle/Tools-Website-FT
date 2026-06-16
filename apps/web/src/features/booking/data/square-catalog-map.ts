@@ -134,6 +134,12 @@ export const SQUARE_CATALOG_MAP: Record<string, string> = {
   "43733133": SQ.JR_FRI_SUN, // Existing Starter Blue
   "43729633": SQ.JR_FRI_SUN, // Existing Int Blue
 
+  // ── POV / ViewPoint race video ($5 add-on) ─────────────────────────
+  // Standalone POV upsell line (checkout.ts POV_PRODUCT_ID). Without this it
+  // booked ad-hoc (no category) and imported to QBO as a loose "POV Race Video"
+  // item instead of rolling up under the POV catalog item.
+  "43746981": SQ.POV,
+
   // ── Gel Blaster ────────────────────────────────────────────────────
   "8976680": SQ.GEL_BLASTER, // HeadPinz FM
   "7565025": SQ.GEL_BLASTER, // Naples
@@ -173,13 +179,33 @@ export const NAME_CATALOG_MAP: Record<string, string> = {
   // per-racer discounted split lines ("Ultimate VIP Experience (… −50%)").
   "Ultimate VIP Experience": SQ.ULTIMATE_QUALIFIER,
   "Rookie Pack": SQ.ROOKIE_PACK,
+  // Standalone POV video line — secondary to the productId map above (the name
+  // is globally unique, so no substring collision with other race lines).
+  "POV Race Video": SQ.POV,
 };
+
+/** Synthetic prefix for a combined Red+Blue single-race card. Must mirror
+ *  `COMBINED_PREFIX` in race-products.ts (`combineTrackVariants`). */
+const COMBINED_ID_PREFIX = "m:";
 
 /**
  * Look up the Square catalog variation ID for a BMI product.
  * Returns null for unmapped products (which use ad-hoc line items).
+ *
+ * Combined single-race cards carry a synthetic id `m:<id>:<id>` (the merged
+ * Red/Blue track product ids — see race-products.ts `combineTrackVariants`).
+ * That synthetic id isn't a key here, so resolve it via any component track id
+ * (both adult tracks of a tier map to the same Karting item). Without this the
+ * combined card booked ad-hoc with no Square category, surfacing in the QBO
+ * journal sync as a loose "Starter/Intermediate/Pro Race" item.
  */
 export function lookupCatalogId(bmiProductId: string): string | null {
+  if (bmiProductId.startsWith(COMBINED_ID_PREFIX)) {
+    for (const part of bmiProductId.slice(COMBINED_ID_PREFIX.length).split(":")) {
+      if (SQUARE_CATALOG_MAP[part]) return SQUARE_CATALOG_MAP[part];
+    }
+    return null;
+  }
   return SQUARE_CATALOG_MAP[bmiProductId] ?? null;
 }
 
