@@ -27,6 +27,7 @@ import {
   IconGift,
   IconChristmasTree,
   IconClock,
+  IconSnowflake,
   type IconProps,
 } from "@tabler/icons-react";
 import type { ForwardRefExoticComponent, RefAttributes } from "react";
@@ -169,6 +170,51 @@ export default function GroupEventPage() {
   const [nowMs, setNowMs] = useState<number | null>(null);
   // Snowflake image for react-snowfall (loaded client-side).
   const [snowImages, setSnowImages] = useState<HTMLImageElement[] | undefined>(undefined);
+  // Shake-to-flurry / "cause a blizzard" snow burst.
+  const [flurry, setFlurry] = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
+  const flurryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastShake = useRef({ x: 0, y: 0, z: 0, t: 0 });
+
+  const triggerFlurry = useCallback(() => {
+    setFlurry(true);
+    if (flurryTimer.current) clearTimeout(flurryTimer.current);
+    flurryTimer.current = setTimeout(() => setFlurry(false), 2200);
+  }, []);
+
+  const handleMotion = useCallback(
+    (e: DeviceMotionEvent) => {
+      const a = e.accelerationIncludingGravity;
+      if (!a) return;
+      const now = Date.now();
+      const dt = now - lastShake.current.t;
+      if (dt < 120) return;
+      const dx = (a.x ?? 0) - lastShake.current.x;
+      const dy = (a.y ?? 0) - lastShake.current.y;
+      const dz = (a.z ?? 0) - lastShake.current.z;
+      lastShake.current = { x: a.x ?? 0, y: a.y ?? 0, z: a.z ?? 0, t: now };
+      const jerk = (Math.sqrt(dx * dx + dy * dy + dz * dz) / dt) * 10000;
+      if (jerk > 900) triggerFlurry();
+    },
+    [triggerFlurry],
+  );
+
+  // "Cause a blizzard" / "shake your phone" button. On iOS, taps grant motion
+  // access (required); elsewhere it just bursts the snow.
+  const handleFlurryButton = useCallback(async () => {
+    triggerFlurry();
+    const DME = window.DeviceMotionEvent as unknown as {
+      requestPermission?: () => Promise<"granted" | "denied">;
+    };
+    if (DME && typeof DME.requestPermission === "function") {
+      try {
+        if ((await DME.requestPermission()) === "granted")
+          window.addEventListener("devicemotion", handleMotion);
+      } catch {
+        /* user declined */
+      }
+    }
+  }, [triggerFlurry, handleMotion]);
   // "Look up my RSVP" by email or phone.
   const [lookupOpen, setLookupOpen] = useState(false);
   const [lookupBusy, setLookupBusy] = useState(false);
@@ -247,6 +293,22 @@ export default function GroupEventPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time decorative image load
     setSnowImages([img]);
   }, [event]);
+
+  // ── Shake-to-flurry: detect touch (for copy) + auto-listen where allowed ───
+  useEffect(() => {
+    if (!event?.landing) return;
+    const touch = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time capability read
+    setIsTouch(touch);
+    // iOS gates devicemotion behind a tap (handled by the button); everywhere
+    // else we can listen immediately.
+    const DME = window.DeviceMotionEvent as unknown as { requestPermission?: unknown } | undefined;
+    const needsTap = !!DME && typeof DME.requestPermission === "function";
+    if (touch && !needsTap) {
+      window.addEventListener("devicemotion", handleMotion);
+      return () => window.removeEventListener("devicemotion", handleMotion);
+    }
+  }, [event, handleMotion]);
 
   // ── Hero video: honor reduced-motion / Save-Data, pick source by viewport ──
   // src starts null so SSR + first paint show the poster still; the effect then
@@ -1209,11 +1271,11 @@ export default function GroupEventPage() {
       {/* Snowfall — react-snowfall canvas using the real snowflake image */}
       {landing && (
         <Snowfall
-          snowflakeCount={120}
+          snowflakeCount={flurry ? 260 : 120}
           images={snowImages}
           radius={[1, 13]}
-          speed={[0.4, 1.5]}
-          wind={[-0.5, 1.2]}
+          speed={flurry ? [3, 9] : [0.4, 1.5]}
+          wind={flurry ? [-5, 5] : [-0.5, 1.2]}
           style={{
             position: "absolute",
             inset: 0,
@@ -1331,6 +1393,19 @@ export default function GroupEventPage() {
                     >
                       {landing.ctaLabel ?? "Sign Up"}
                     </button>
+                    {/* Fun: shake (mobile) / cause a blizzard (desktop) → snow burst */}
+                    <div className="mt-6">
+                      <button
+                        type="button"
+                        onClick={handleFlurryButton}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-white/55 transition-colors hover:text-white/90"
+                      >
+                        <IconSnowflake className="h-4 w-4" stroke={1.5} />
+                        {isTouch
+                          ? "Because we like fun — shake your phone!"
+                          : "We like to have fun — cause a blizzard!"}
+                      </button>
+                    </div>
                   </div>
                 </section>
 
