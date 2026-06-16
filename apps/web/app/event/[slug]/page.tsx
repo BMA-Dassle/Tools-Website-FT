@@ -18,6 +18,19 @@ import HeatPicker from "@/app/book/race/components/HeatPicker";
 import { pandoraOnboardGuest } from "@/lib/pandora";
 import type { PandoraWaiverTemplate } from "@/lib/pandora";
 import WaiverSigning from "@/components/pandora/WaiverSigning";
+import {
+  IconGlassCocktail,
+  IconToolsKitchen2,
+  IconBowling,
+  IconCar,
+  IconGift,
+  IconChristmasTree,
+  IconClock,
+  type IconProps,
+} from "@tabler/icons-react";
+import type { ForwardRefExoticComponent, RefAttributes } from "react";
+
+type TablerIcon = ForwardRefExoticComponent<IconProps & RefAttributes<SVGSVGElement>>;
 
 // ── Track info (mirrors ProductPicker's TRACK_INFO) ──────────────────────────
 
@@ -53,6 +66,7 @@ const TRACK_INFO: Record<
 
 type Step =
   | "gate"
+  | "signup" // dedicated RSVP screen: pick center → enter email
   | "mode" // choose: just attending vs. race with us (racing venues only)
   | "attend" // just-attending RSVP form (name + company + guests)
   | "name"
@@ -90,15 +104,15 @@ function makeDisplayName(first: string, last: string): string {
   return `${first} ${last.charAt(0).toUpperCase()}.`;
 }
 
-/** Festive emoji for a "what's included" perk, matched by keyword. */
-function includedIcon(item: string): string {
+/** Tabler icon for a "what's included" perk, matched by keyword. */
+function includedIcon(item: string): TablerIcon {
   const s = item.toLowerCase();
-  if (s.includes("drink")) return "🍸";
-  if (s.includes("buffet") || s.includes("food")) return "🍽️";
-  if (s.includes("bowl")) return "🎳";
-  if (s.includes("race") || s.includes("kart")) return "🏎️";
-  if (s.includes("gift")) return "🎁";
-  return "🎄";
+  if (s.includes("drink")) return IconGlassCocktail;
+  if (s.includes("buffet") || s.includes("food")) return IconToolsKitchen2;
+  if (s.includes("bowl")) return IconBowling;
+  if (s.includes("race") || s.includes("kart")) return IconCar;
+  if (s.includes("gift")) return IconGift;
+  return IconChristmasTree;
 }
 
 function sessionKey(slug: string, key: string): string {
@@ -363,7 +377,8 @@ export default function GroupEventPage() {
     const firstName = (form.get("firstName") as string).trim();
     const lastName = (form.get("lastName") as string).trim();
     const company = (form.get("company") as string).trim();
-    const guests = Math.min(2, Math.max(1, Number(form.get("guests")) || 1));
+    // Additional guests beyond the registrant (0–2).
+    const guests = Math.min(2, Math.max(0, Number(form.get("guests")) || 0));
     if (!firstName || !lastName) return;
     const email = guest!.email;
     const displayName = makeDisplayName(firstName, lastName);
@@ -1075,780 +1090,853 @@ export default function GroupEventPage() {
   } as CSSProperties;
 
   return (
-    <div className="min-h-screen bg-[#000418] pt-[140px]" style={accentStyle}>
-      {/* Compact header — funnel steps, and any event without a landing config */}
-      {!showLanding && (
-        <div className="border-b border-white/10 bg-white/3">
-          <div className="max-w-2xl mx-auto px-4 py-6 text-center">
-            {event.heroImage && (
-              <img
-                src={event.heroImage}
-                alt={event.companyName}
-                className="h-12 md:h-16 mx-auto mb-4 object-contain"
-              />
-            )}
-            <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-1">
-              {event.eventKicker ?? "Private Event"}
-            </p>
-            <h1 className="text-2xl md:text-3xl font-display text-white uppercase tracking-widest">
-              {event.eventTitle}
-            </h1>
-            <p className="text-white/50 text-sm mt-2">
-              {selectedLocation
-                ? `${selectedLocation.label} · ${fmtLocDate(selectedLocation.date, true)} · ${landing?.eventTime ?? ""}`
-                : `${eventDateDisplay} · ${landing?.eventTime ?? `${event.startTime} – ${event.endTime}`}`}
-            </p>
-          </div>
+    <div className="relative min-h-screen bg-[#000418] pt-[140px]" style={accentStyle}>
+      {/* Festive backdrop — fills the dark space behind everything (landing only) */}
+      {landing?.backgrounds?.included && (
+        <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
+          <img
+            src={landing.backgrounds.included}
+            alt=""
+            className="h-full w-full object-cover opacity-[0.14]"
+          />
+          <div className="absolute inset-0 bg-[#000418]/70" />
         </div>
       )}
-
-      {/* ═══ LANDING — full marketing page on the entry step (public promos) ═══ */}
-      {showLanding && landing && (
-        <div>
-          {/* ── Hero ── */}
-          <section className="relative flex min-h-[72vh] w-full items-center overflow-hidden">
-            {hero.motion && hero.src && landing.heroVideo ? (
-              <video
-                key={hero.src}
-                className="absolute inset-0 h-full w-full object-cover"
-                poster={landing.heroVideo.poster}
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                aria-hidden="true"
-              >
-                <source src={hero.src} type="video/mp4" />
-              </video>
-            ) : (
-              landing.heroVideo && (
+      <div className="relative z-10">
+        {/* Compact header — funnel steps, and any event without a landing config */}
+        {!showLanding && (
+          <div className="border-b border-white/10 bg-white/3">
+            <div className="max-w-2xl mx-auto px-4 py-6 text-center">
+              {event.heroImage && (
                 <img
-                  src={landing.heroVideo.poster}
-                  alt=""
-                  aria-hidden="true"
-                  className="absolute inset-0 h-full w-full object-cover"
+                  src={event.heroImage}
+                  alt={event.companyName}
+                  className="h-12 md:h-16 mx-auto mb-4 object-contain"
                 />
-              )
-            )}
-            {/* Legibility overlay */}
-            <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/75 via-[#000418]/45 to-[#000418]" />
-            {/* Hero content */}
-            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 py-16 text-center">
-              <p className="mb-3 text-xs uppercase tracking-[0.3em] text-white/60 md:text-sm">
-                {event.companyName}
+              )}
+              <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-1">
+                {event.eventKicker ?? "Private Event"}
               </p>
-              <h1 className="font-display text-4xl uppercase leading-tight tracking-widest text-white md:text-6xl">
-                {landing.headline ?? event.eventTitle}
+              <h1 className="text-2xl md:text-3xl font-display text-white uppercase tracking-widest">
+                {event.eventTitle}
               </h1>
-              {landing.freeBadge && (
-                <span className="mt-4 inline-block rounded-full bg-(--accent) px-4 py-1.5 text-sm font-bold uppercase tracking-widest text-(--accent-fg)">
-                  {landing.freeBadge}
-                </span>
-              )}
-              {landing.tagline && (
-                <p className="mx-auto mt-5 max-w-xl text-base text-white/80 md:text-lg">
-                  {landing.tagline}
-                </p>
-              )}
-              <p className="mt-4 text-sm font-medium text-white/70 md:text-base">
-                {landing.locations && landing.locations.length > 0
-                  ? selectedLocation
-                    ? `${selectedLocation.label} · ${fmtLocDate(selectedLocation.date, true)} · ${landing.eventTime ?? ""}`
-                    : landing.locations
-                        .map((l) => `${l.label} ${fmtLocDate(l.date)}`)
-                        .join("  ·  ") + (landing.eventTime ? `  ·  ${landing.eventTime}` : "")
-                  : `${eventDateDisplay} · ${landing.eventTime ?? `${fmt12(event.startTime)} – ${fmt12(event.endTime)}`}`}
+              <p className="text-white/50 text-sm mt-2">
+                {selectedLocation
+                  ? `${selectedLocation.label} · ${fmtLocDate(selectedLocation.date, true)} · ${landing?.eventTime ?? ""}`
+                  : `${eventDateDisplay} · ${landing?.eventTime ?? `${event.startTime} – ${event.endTime}`}`}
               </p>
-              <button
-                type="button"
-                onClick={() =>
-                  document.getElementById("ge-signup")?.scrollIntoView({ behavior: "smooth" })
-                }
-                className="mt-8 rounded-xl bg-(--accent) px-8 py-4 text-base font-bold text-(--accent-fg) shadow-lg transition-colors hover:bg-(--accent-hover)"
-              >
-                {landing.ctaLabel ?? "Sign Up"}
-              </button>
             </div>
-          </section>
-
-          {/* ── Experience + What's included ── */}
-          <div className="mx-auto max-w-4xl px-4 pt-14">
-            {landing.intro && (
-              <p className="mx-auto max-w-2xl text-center text-lg leading-relaxed text-white/70 md:text-xl">
-                {landing.intro}
-              </p>
-            )}
-          </div>
-
-          {/* ── What's included (festive) ── */}
-          {landing.included && landing.included.length > 0 && (
-            <div className="mx-auto max-w-5xl px-4 pt-14">
-              <div className="relative overflow-hidden rounded-3xl border border-(--accent)/25">
-                {landing.backgrounds?.included && (
-                  <div aria-hidden className="pointer-events-none absolute inset-0">
-                    <img
-                      src={landing.backgrounds.included}
-                      alt=""
-                      className="h-full w-full object-cover opacity-30"
-                    />
-                    <div className="absolute inset-0 bg-[#000418]/75" />
-                  </div>
-                )}
-                <div className="relative p-6 md:p-10">
-                  <h2 className="text-center font-display text-2xl uppercase tracking-widest text-white md:text-3xl">
-                    What&rsquo;s Included
-                  </h2>
-                  <p className="mb-8 mt-1 text-center text-sm text-white/60">
-                    Our gift to every guest &#127876;
-                  </p>
-                  <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                    {landing.included.map((inc) => (
-                      <div
-                        key={inc.item}
-                        className="rounded-2xl border border-white/15 bg-white/5 p-5 text-center backdrop-blur-sm"
-                      >
-                        <div className="mb-2 text-3xl" aria-hidden>
-                          {includedIcon(inc.item)}
-                        </div>
-                        <p className="font-display text-sm uppercase tracking-widest text-white">
-                          {inc.item}
-                        </p>
-                        {inc.note && (
-                          <p className="mt-1 text-xs leading-relaxed text-white/60">{inc.note}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── Feature video — real FastTrax racing (Fort Myers) ── */}
-          {landing.featureVideo && (
-            <div className="mx-auto max-w-5xl px-4 pt-14">
-              <div className="mb-6 text-center">
-                <h2 className="font-display text-2xl uppercase tracking-widest text-white md:text-3xl">
-                  {landing.featureVideo.heading ?? "The Main Event"}
-                </h2>
-                {landing.featureVideo.text && (
-                  <p className="mx-auto mt-2 max-w-xl text-sm text-white/60 md:text-base">
-                    {landing.featureVideo.text}
-                  </p>
-                )}
-              </div>
-              <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/10">
-                {hero.motion ? (
-                  <video
-                    className="absolute inset-0 h-full w-full object-cover"
-                    poster={landing.featureVideo.poster}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="none"
-                    aria-hidden="true"
-                  >
-                    <source src={landing.featureVideo.src} type="video/mp4" />
-                  </video>
-                ) : (
-                  <img
-                    src={landing.featureVideo.poster}
-                    alt=""
-                    aria-hidden="true"
-                    className="absolute inset-0 h-full w-full object-cover"
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── Gallery ── */}
-          {landing.gallery && landing.gallery.length > 0 && (
-            <div className="mx-auto max-w-6xl px-4 pt-14 pb-14">
-              <div className="grid auto-rows-[130px] grid-cols-2 gap-3 md:auto-rows-[150px] md:grid-cols-3">
-                {landing.gallery.map((g, i) => (
-                  <picture
-                    key={g.webp}
-                    className={`block overflow-hidden rounded-xl border border-white/10 ${
-                      i === 0 ? "col-span-2 row-span-2" : ""
-                    }`}
-                  >
-                    <source srcSet={g.webp} type="image/webp" />
-                    <img
-                      src={g.jpg}
-                      alt={g.alt}
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  </picture>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Sign up: choose location → RSVP ── */}
-          <div id="ge-signup" className="mx-auto max-w-2xl px-4 pb-20 pt-4">
-            <div className="relative overflow-hidden rounded-2xl border border-(--accent)/30 bg-white/3 p-8">
-              {landing.backgrounds?.signup && (
-                <div aria-hidden className="pointer-events-none absolute inset-0">
-                  <img
-                    src={landing.backgrounds.signup}
-                    alt=""
-                    className="h-full w-full object-cover opacity-25"
-                  />
-                  <div className="absolute inset-0 bg-[#000418]/80" />
-                </div>
-              )}
-              <div className="relative">
-                {landing.locations && landing.locations.length > 0 && !selectedLocation ? (
-                  <>
-                    <h2 className="mb-1 text-center font-display text-2xl uppercase tracking-widest text-white">
-                      Choose Your Location
-                    </h2>
-                    <p className="mb-6 text-center text-sm text-white/50">
-                      Two festive evenings — pick the one near you to RSVP.
-                    </p>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {landing.locations.map((loc) => (
-                        <button
-                          key={loc.key}
-                          type="button"
-                          onClick={() => {
-                            setSelectedLocation(loc);
-                            setGateError("");
-                            try {
-                              sessionStorage.setItem(sessionKey(slug, "location"), loc.key);
-                            } catch {
-                              /* sessionStorage unavailable */
-                            }
-                          }}
-                          className="rounded-xl border border-white/10 bg-white/5 p-5 text-left transition-colors hover:border-(--accent)/50 hover:bg-white/10"
-                        >
-                          <p className="font-display text-lg uppercase tracking-widest text-white">
-                            {loc.label}
-                          </p>
-                          <p className="mt-1 text-xl font-bold leading-tight text-(--accent)">
-                            {fmtLocDate(loc.date, true)}
-                          </p>
-                          <p className="text-sm font-semibold text-white/70">{landing.eventTime}</p>
-                          {landing.countdown && countdownStr(loc.date) && (
-                            <span className="mt-2 inline-block rounded-full bg-(--accent)/15 px-3 py-1 text-xs font-bold text-(--accent)">
-                              &#9203; {countdownStr(loc.date)} away
-                            </span>
-                          )}
-                          <p className="mt-2 text-xs leading-relaxed text-white/50">{loc.venue}</p>
-                          <p className="text-xs leading-relaxed text-white/40">{loc.address}</p>
-                          {loc.racing && (
-                            <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-(--accent)/80">
-                              Includes go-kart racing
-                            </p>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="mx-auto max-w-md text-center">
-                    <h2 className="mb-2 font-display text-2xl uppercase tracking-widest text-white">
-                      {landing.ctaLabel ?? "Sign Up"}
-                    </h2>
-                    {selectedLocation && (
-                      <p className="mb-5 text-sm text-white/60">
-                        <span className="text-white">{selectedLocation.label}</span> ·{" "}
-                        {fmtLocDate(selectedLocation.date, true)} · {landing.eventTime}
-                        {landing.locations && landing.locations.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedLocation(null);
-                              setGateError("");
-                              try {
-                                sessionStorage.removeItem(sessionKey(slug, "location"));
-                              } catch {
-                                /* sessionStorage unavailable */
-                              }
-                            }}
-                            className="ml-2 text-(--accent) underline underline-offset-2 hover:text-(--accent-hover)"
-                          >
-                            change
-                          </button>
-                        )}
-                      </p>
-                    )}
-                    <p className="mb-6 text-sm text-white/50">Enter your email to RSVP.</p>
-                    <form onSubmit={handleGateSubmit} className="space-y-4">
-                      <input
-                        name="email"
-                        type="email"
-                        required
-                        placeholder="you@email.com"
-                        className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
-                      />
-                      {gateError && <p className="text-xs text-red-400">{gateError}</p>}
-                      <button
-                        type="submit"
-                        className="w-full rounded-xl bg-(--accent) py-3 text-sm font-bold text-(--accent-fg) transition-colors hover:bg-(--accent-hover)"
-                      >
-                        {landing.ctaLabel ?? "Continue"}
-                      </button>
-                    </form>
-                  </div>
-                )}
-                {landing.finePrint && (
-                  <p className="mt-6 text-center text-[11px] leading-relaxed text-white/30">
-                    {landing.finePrint}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="relative">
-        {landing && step !== "gate" && landing.backgrounds?.form && (
-          <div aria-hidden className="pointer-events-none absolute inset-0">
-            <img
-              src={landing.backgrounds.form}
-              alt=""
-              className="h-full w-full object-cover opacity-20"
-            />
-            <div className="absolute inset-0 bg-[#000418]/85" />
           </div>
         )}
-        <div className="relative max-w-2xl mx-auto px-4 py-8">
-          {/* ═══ STEP: Email Gate (plain — events without a landing config) ═══ */}
-          {step === "gate" && !landing && (
-            <div className="max-w-md mx-auto">
-              <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
-                {event.heroImage && (
-                  <img
-                    src={event.heroImage}
-                    alt={event.companyName}
-                    className="h-10 mx-auto mb-4 object-contain"
-                  />
-                )}
-                <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">
-                  Welcome
-                </h2>
-                <p className="text-white/50 text-sm mb-6">
-                  {isOpenAccess
-                    ? "Enter your email to get started."
-                    : "Enter your company email to access the event."}
-                </p>
-                <form onSubmit={handleGateSubmit} className="space-y-4">
-                  <input
-                    name="email"
-                    type="email"
-                    required
-                    placeholder={isOpenAccess ? "you@email.com" : "you@company.com"}
-                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
-                  />
-                  {gateError && <p className="text-red-400 text-xs">{gateError}</p>}
-                  <button
-                    type="submit"
-                    className="w-full py-3 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors"
-                  >
-                    Continue
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
 
-          {/* ═══ STEP: How are you joining? (racing venues) ═══ */}
-          {step === "mode" && (
-            <div className="max-w-md mx-auto">
-              <div className="rounded-2xl border border-white/10 bg-white/3 p-8">
-                <h2 className="mb-1 text-center text-xl font-display uppercase tracking-widest text-white">
-                  How are you joining us?
-                </h2>
-                <p className="mb-6 text-center text-sm text-white/50">
-                  {selectedLocation?.label} &middot;{" "}
-                  {selectedLocation && fmtLocDate(selectedLocation.date, true)}
-                </p>
-                <div className="space-y-3">
+        {/* ═══ LANDING — marketing (gate) + dedicated RSVP screen (signup) ═══ */}
+        {landing && (step === "gate" || step === "signup") && (
+          <div>
+            {step === "gate" && (
+              <>
+                {/* ── Hero ── */}
+                <section className="relative flex min-h-[72vh] w-full items-center overflow-hidden">
+                  {hero.motion && hero.src && landing.heroVideo ? (
+                    <video
+                      key={hero.src}
+                      className="absolute inset-0 h-full w-full object-cover"
+                      poster={landing.heroVideo.poster}
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      preload="metadata"
+                      aria-hidden="true"
+                    >
+                      <source src={hero.src} type="video/mp4" />
+                    </video>
+                  ) : (
+                    landing.heroVideo && (
+                      <img
+                        src={landing.heroVideo.poster}
+                        alt=""
+                        aria-hidden="true"
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                    )
+                  )}
+                  {/* Legibility overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/75 via-[#000418]/45 to-[#000418]" />
+                  {/* Hero content */}
+                  <div className="relative z-10 mx-auto w-full max-w-3xl px-4 py-16 text-center">
+                    <p className="mb-3 text-xs uppercase tracking-[0.3em] text-white/60 md:text-sm">
+                      {event.companyName}
+                    </p>
+                    <h1 className="font-display text-4xl uppercase leading-tight tracking-widest text-white md:text-6xl">
+                      {landing.headline ?? event.eventTitle}
+                    </h1>
+                    {landing.freeBadge && (
+                      <span className="mt-4 inline-block rounded-full bg-(--accent) px-4 py-1.5 text-sm font-bold uppercase tracking-widest text-(--accent-fg)">
+                        {landing.freeBadge}
+                      </span>
+                    )}
+                    {landing.tagline && (
+                      <p className="mx-auto mt-5 max-w-xl text-base text-white/80 md:text-lg">
+                        {landing.tagline}
+                      </p>
+                    )}
+                    <p className="mt-4 text-sm font-medium text-white/70 md:text-base">
+                      {landing.locations && landing.locations.length > 0
+                        ? selectedLocation
+                          ? `${selectedLocation.label} · ${fmtLocDate(selectedLocation.date, true)} · ${landing.eventTime ?? ""}`
+                          : landing.locations
+                              .map((l) => `${l.label} ${fmtLocDate(l.date)}`)
+                              .join("  ·  ") +
+                            (landing.eventTime ? `  ·  ${landing.eventTime}` : "")
+                        : `${eventDateDisplay} · ${landing.eventTime ?? `${fmt12(event.startTime)} – ${fmt12(event.endTime)}`}`}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setStep("signup")}
+                      className="mt-8 rounded-xl bg-(--accent) px-8 py-4 text-base font-bold text-(--accent-fg) shadow-lg transition-colors hover:bg-(--accent-hover)"
+                    >
+                      {landing.ctaLabel ?? "Sign Up"}
+                    </button>
+                  </div>
+                </section>
+
+                {/* ── Live countdown band — both events ── */}
+                {landing.countdown && landing.locations && landing.locations.length > 0 && (
+                  <div className="mx-auto max-w-5xl px-4 pt-10">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {landing.locations.map((loc) => (
+                        <div
+                          key={loc.key}
+                          className="flex items-center justify-between rounded-2xl border border-(--accent)/25 bg-white/5 px-5 py-4 backdrop-blur-sm"
+                        >
+                          <div>
+                            <p className="font-display text-sm uppercase tracking-widest text-white">
+                              {loc.label}
+                            </p>
+                            <p className="text-xs text-white/55">
+                              {fmtLocDate(loc.date, true)} · {landing.eventTime}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-display text-2xl font-bold leading-none text-(--accent)">
+                              {countdownStr(loc.date) ?? " "}
+                            </p>
+                            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-white/40">
+                              until the party
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Experience + What's included ── */}
+                <div className="mx-auto max-w-4xl px-4 pt-14">
+                  {landing.intro && (
+                    <p className="mx-auto max-w-2xl text-center text-lg leading-relaxed text-white/70 md:text-xl">
+                      {landing.intro}
+                    </p>
+                  )}
+                </div>
+
+                {/* ── What's included (festive) ── */}
+                {landing.included && landing.included.length > 0 && (
+                  <div className="mx-auto max-w-5xl px-4 pt-14">
+                    <div className="relative overflow-hidden rounded-3xl border border-(--accent)/25">
+                      {landing.backgrounds?.included && (
+                        <div aria-hidden className="pointer-events-none absolute inset-0">
+                          <img
+                            src={landing.backgrounds.included}
+                            alt=""
+                            className="h-full w-full object-cover opacity-30"
+                          />
+                          <div className="absolute inset-0 bg-[#000418]/75" />
+                        </div>
+                      )}
+                      <div className="relative p-6 md:p-10">
+                        <h2 className="text-center font-display text-2xl uppercase tracking-widest text-white md:text-3xl">
+                          What&rsquo;s Included
+                        </h2>
+                        <p className="mb-8 mt-1 flex items-center justify-center gap-1.5 text-center text-sm text-white/60">
+                          <IconGift className="h-4 w-4 text-(--accent)" stroke={1.5} />
+                          Our gift to every guest
+                        </p>
+                        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                          {landing.included.map((inc) => {
+                            const Icon = includedIcon(inc.item);
+                            return (
+                              <div
+                                key={inc.item}
+                                className="rounded-2xl border border-white/15 bg-white/5 p-5 text-center backdrop-blur-sm"
+                              >
+                                <Icon
+                                  className="mx-auto mb-2 h-8 w-8 text-(--accent)"
+                                  stroke={1.5}
+                                  aria-hidden
+                                />
+                                <p className="font-display text-sm uppercase tracking-widest text-white">
+                                  {inc.item}
+                                </p>
+                                {inc.note && (
+                                  <p className="mt-1 text-xs leading-relaxed text-white/60">
+                                    {inc.note}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Feature video — real FastTrax racing (Fort Myers) ── */}
+                {landing.featureVideo && (
+                  <div className="mx-auto max-w-5xl px-4 pt-14">
+                    <div className="mb-6 text-center">
+                      <h2 className="font-display text-2xl uppercase tracking-widest text-white md:text-3xl">
+                        {landing.featureVideo.heading ?? "The Main Event"}
+                      </h2>
+                      {landing.featureVideo.text && (
+                        <p className="mx-auto mt-2 max-w-xl text-sm text-white/60 md:text-base">
+                          {landing.featureVideo.text}
+                        </p>
+                      )}
+                    </div>
+                    <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/10">
+                      {hero.motion ? (
+                        <video
+                          className="absolute inset-0 h-full w-full object-cover"
+                          poster={landing.featureVideo.poster}
+                          autoPlay
+                          muted
+                          loop
+                          playsInline
+                          preload="none"
+                          aria-hidden="true"
+                        >
+                          <source src={landing.featureVideo.src} type="video/mp4" />
+                        </video>
+                      ) : (
+                        <img
+                          src={landing.featureVideo.poster}
+                          alt=""
+                          aria-hidden="true"
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Gallery ── */}
+                {landing.gallery && landing.gallery.length > 0 && (
+                  <div className="mx-auto max-w-6xl px-4 pt-14 pb-14">
+                    <div className="grid auto-rows-[130px] grid-cols-2 gap-3 md:auto-rows-[150px] md:grid-cols-3">
+                      {landing.gallery.map((g, i) => (
+                        <picture
+                          key={g.webp}
+                          className={`block overflow-hidden rounded-xl border border-white/10 ${
+                            i === 0 ? "col-span-2 row-span-2" : ""
+                          }`}
+                        >
+                          <source srcSet={g.webp} type="image/webp" />
+                          <img
+                            src={g.jpg}
+                            alt={g.alt}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                        </picture>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Closing CTA → dedicated RSVP screen ── */}
+                <div className="px-4 pb-20 pt-4 text-center">
                   <button
                     type="button"
-                    onClick={() => setStep("attend")}
-                    className="w-full rounded-xl border border-white/15 bg-white/5 p-5 text-left transition-colors hover:border-(--accent)/50 hover:bg-white/10"
+                    onClick={() => setStep("signup")}
+                    className="rounded-xl bg-(--accent) px-10 py-4 text-base font-bold text-(--accent-fg) shadow-lg transition-colors hover:bg-(--accent-hover)"
                   >
-                    <p className="font-display text-base uppercase tracking-widest text-white">
-                      Just Attending
-                    </p>
-                    <p className="mt-1 text-sm text-white/55">
-                      Holiday bites, drinks &amp; complimentary bowling. Bring up to 2 — one quick
-                      RSVP.
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStep("name")}
-                    className="w-full rounded-xl border border-(--accent)/40 bg-(--accent)/10 p-5 text-left transition-colors hover:border-(--accent) hover:bg-(--accent)/20"
-                  >
-                    <p className="font-display text-base uppercase tracking-widest text-white">
-                      Attending + Racing 🏎️
-                    </p>
-                    <p className="mt-1 text-sm text-white/55">
-                      Everything above, plus a go-kart race. Each racer registers individually
-                      (waiver required).
-                    </p>
+                    {landing.ctaLabel ?? "Sign Up"}
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setStep("gate")}
-                  className="mt-5 w-full text-center text-xs text-white/40 transition-colors hover:text-white/70"
-                >
-                  &larr; Back
-                </button>
-              </div>
-            </div>
-          )}
+              </>
+            )}
 
-          {/* ═══ STEP: Just-attending RSVP (name + company + guests) ═══ */}
-          {step === "attend" && (
-            <div className="max-w-md mx-auto">
-              <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
-                <h2 className="mb-2 text-xl font-display uppercase tracking-widest text-white">
-                  Reserve Your Spot
-                </h2>
-                <p className="mb-6 text-sm text-white/50">
-                  {selectedLocation?.label} &middot;{" "}
-                  {selectedLocation && fmtLocDate(selectedLocation.date, true)} &middot;{" "}
-                  {landing?.eventTime}
-                </p>
-                <form onSubmit={handleAttendSubmit} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      name="firstName"
-                      type="text"
-                      required
-                      placeholder="First name"
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
-                    />
-                    <input
-                      name="lastName"
-                      type="text"
-                      required
-                      placeholder="Last name"
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
-                    />
-                  </div>
-                  <input
-                    name="company"
-                    type="text"
-                    placeholder="Company name"
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
-                  />
-                  <div className="text-left">
-                    <label
-                      htmlFor="ge-guests"
-                      className="mb-1.5 ml-1 block text-left text-xs text-white/40"
+            {/* ── Dedicated RSVP screen: choose center → email ── */}
+            {step === "signup" && (
+              <div id="ge-signup" className="mx-auto max-w-2xl px-4 pb-20 pt-4">
+                <div className="relative overflow-hidden rounded-2xl border border-(--accent)/30 bg-white/3 p-8">
+                  {landing.backgrounds?.signup && (
+                    <div aria-hidden className="pointer-events-none absolute inset-0">
+                      <img
+                        src={landing.backgrounds.signup}
+                        alt=""
+                        className="h-full w-full object-cover opacity-25"
+                      />
+                      <div className="absolute inset-0 bg-[#000418]/80" />
+                    </div>
+                  )}
+                  <div className="relative">
+                    {landing.locations && landing.locations.length > 0 && !selectedLocation ? (
+                      <>
+                        <h2 className="mb-1 text-center font-display text-2xl uppercase tracking-widest text-white">
+                          Choose Your Location
+                        </h2>
+                        <p className="mb-6 text-center text-sm text-white/50">
+                          Two festive evenings — pick the one near you to RSVP.
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {landing.locations.map((loc) => (
+                            <button
+                              key={loc.key}
+                              type="button"
+                              onClick={() => {
+                                setSelectedLocation(loc);
+                                setGateError("");
+                                try {
+                                  sessionStorage.setItem(sessionKey(slug, "location"), loc.key);
+                                } catch {
+                                  /* sessionStorage unavailable */
+                                }
+                              }}
+                              className="rounded-xl border border-white/10 bg-white/5 p-5 text-left transition-colors hover:border-(--accent)/50 hover:bg-white/10"
+                            >
+                              <p className="font-display text-lg uppercase tracking-widest text-white">
+                                {loc.label}
+                              </p>
+                              <p className="mt-1 text-xl font-bold leading-tight text-(--accent)">
+                                {fmtLocDate(loc.date, true)}
+                              </p>
+                              <p className="text-sm font-semibold text-white/70">
+                                {landing.eventTime}
+                              </p>
+                              {landing.countdown && countdownStr(loc.date) && (
+                                <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-(--accent)/15 px-3 py-1 text-xs font-bold text-(--accent)">
+                                  <IconClock className="h-3.5 w-3.5" stroke={2} />
+                                  {countdownStr(loc.date)} away
+                                </span>
+                              )}
+                              <p className="mt-2 text-xs leading-relaxed text-white/50">
+                                {loc.venue}
+                              </p>
+                              <p className="text-xs leading-relaxed text-white/40">{loc.address}</p>
+                              {loc.racing && (
+                                <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-(--accent)/80">
+                                  Includes go-kart racing
+                                </p>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mx-auto max-w-md text-center">
+                        <h2 className="mb-2 font-display text-2xl uppercase tracking-widest text-white">
+                          {landing.ctaLabel ?? "Sign Up"}
+                        </h2>
+                        {selectedLocation && (
+                          <p className="mb-5 text-sm text-white/60">
+                            <span className="text-white">{selectedLocation.label}</span> ·{" "}
+                            {fmtLocDate(selectedLocation.date, true)} · {landing.eventTime}
+                            {landing.locations && landing.locations.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedLocation(null);
+                                  setGateError("");
+                                  try {
+                                    sessionStorage.removeItem(sessionKey(slug, "location"));
+                                  } catch {
+                                    /* sessionStorage unavailable */
+                                  }
+                                }}
+                                className="ml-2 text-(--accent) underline underline-offset-2 hover:text-(--accent-hover)"
+                              >
+                                change
+                              </button>
+                            )}
+                          </p>
+                        )}
+                        <p className="mb-6 text-sm text-white/50">Enter your email to RSVP.</p>
+                        <form onSubmit={handleGateSubmit} className="space-y-4">
+                          <input
+                            name="email"
+                            type="email"
+                            required
+                            placeholder="you@email.com"
+                            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
+                          />
+                          {gateError && <p className="text-xs text-red-400">{gateError}</p>}
+                          <button
+                            type="submit"
+                            className="w-full rounded-xl bg-(--accent) py-3 text-sm font-bold text-(--accent-fg) transition-colors hover:bg-(--accent-hover)"
+                          >
+                            {landing.ctaLabel ?? "Continue"}
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                    {landing.finePrint && (
+                      <p className="mt-6 text-center text-[11px] leading-relaxed text-white/30">
+                        {landing.finePrint}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setStep("gate")}
+                      className="mt-5 w-full text-center text-xs text-white/40 transition-colors hover:text-white/70"
                     >
-                      Number attending (up to 2)
-                    </label>
-                    <select
-                      id="ge-guests"
-                      name="guests"
-                      defaultValue="1"
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none [color-scheme:dark] focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
-                    >
-                      <option value="1" style={{ backgroundColor: "#000418", color: "#fff" }}>
-                        1 — just me
-                      </option>
-                      <option value="2" style={{ backgroundColor: "#000418", color: "#fff" }}>
-                        2 — me + a guest
-                      </option>
-                    </select>
+                      &larr; Back to event details
+                    </button>
                   </div>
-                  {waiverError && <p className="text-xs text-red-400">{waiverError}</p>}
-                  <button
-                    type="submit"
-                    disabled={waiverLoading}
-                    className="w-full rounded-xl bg-(--accent) py-3 text-sm font-bold text-(--accent-fg) transition-colors hover:bg-(--accent-hover) disabled:opacity-50"
-                  >
-                    {waiverLoading ? "Saving…" : "Confirm RSVP"}
-                  </button>
-                </form>
-                {selectedLocation?.racing && (
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="relative">
+          <div className="relative max-w-2xl mx-auto px-4 py-8">
+            {/* ═══ STEP: Email Gate (plain — events without a landing config) ═══ */}
+            {step === "gate" && !landing && (
+              <div className="max-w-md mx-auto">
+                <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
+                  {event.heroImage && (
+                    <img
+                      src={event.heroImage}
+                      alt={event.companyName}
+                      className="h-10 mx-auto mb-4 object-contain"
+                    />
+                  )}
+                  <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">
+                    Welcome
+                  </h2>
+                  <p className="text-white/50 text-sm mb-6">
+                    {isOpenAccess
+                      ? "Enter your email to get started."
+                      : "Enter your company email to access the event."}
+                  </p>
+                  <form onSubmit={handleGateSubmit} className="space-y-4">
+                    <input
+                      name="email"
+                      type="email"
+                      required
+                      placeholder={isOpenAccess ? "you@email.com" : "you@company.com"}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
+                    />
+                    {gateError && <p className="text-red-400 text-xs">{gateError}</p>}
+                    <button
+                      type="submit"
+                      className="w-full py-3 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors"
+                    >
+                      Continue
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ═══ STEP: How are you joining? (racing venues) ═══ */}
+            {step === "mode" && (
+              <div className="max-w-md mx-auto">
+                <div className="rounded-2xl border border-white/10 bg-white/3 p-8">
+                  <h2 className="mb-1 text-center text-xl font-display uppercase tracking-widest text-white">
+                    How are you joining us?
+                  </h2>
+                  <p className="mb-6 text-center text-sm text-white/50">
+                    {selectedLocation?.label} &middot;{" "}
+                    {selectedLocation && fmtLocDate(selectedLocation.date, true)}
+                  </p>
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setStep("attend")}
+                      className="w-full rounded-xl border border-white/15 bg-white/5 p-5 text-left transition-colors hover:border-(--accent)/50 hover:bg-white/10"
+                    >
+                      <p className="font-display text-base uppercase tracking-widest text-white">
+                        Just Attending
+                      </p>
+                      <p className="mt-1 text-sm text-white/55">
+                        Holiday bites, drinks &amp; complimentary bowling. Bring up to 2 — one quick
+                        RSVP.
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStep("name")}
+                      className="w-full rounded-xl border border-(--accent)/40 bg-(--accent)/10 p-5 text-left transition-colors hover:border-(--accent) hover:bg-(--accent)/20"
+                    >
+                      <p className="flex items-center gap-2 font-display text-base uppercase tracking-widest text-white">
+                        <IconCar className="h-5 w-5 text-(--accent)" stroke={1.5} />
+                        Attending + Racing
+                      </p>
+                      <p className="mt-1 text-sm text-white/55">
+                        Everything above, plus a go-kart race. Each racer registers individually
+                        (waiver required).
+                      </p>
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setStep("mode")}
-                    className="mt-4 w-full text-center text-xs text-white/40 transition-colors hover:text-white/70"
+                    onClick={() => setStep("gate")}
+                    className="mt-5 w-full text-center text-xs text-white/40 transition-colors hover:text-white/70"
                   >
                     &larr; Back
                   </button>
-                )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* ═══ STEP: Name + Birthdate (racing registration) ═══ */}
-          {step === "name" && (
-            <div className="max-w-md mx-auto">
-              <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
-                <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">
-                  Racer Details
-                </h2>
-                <p className="text-white/50 text-sm mb-6">
-                  {nameNeedsDob
-                    ? "Used for heat rosters and your activity waiver."
-                    : "So we know who's joining us."}
-                </p>
-                <form onSubmit={handleNameSubmit} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
+            {/* ═══ STEP: Just-attending RSVP (name + company + guests) ═══ */}
+            {step === "attend" && (
+              <div className="max-w-md mx-auto">
+                <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
+                  <h2 className="mb-2 text-xl font-display uppercase tracking-widest text-white">
+                    Reserve Your Spot
+                  </h2>
+                  <p className="mb-6 text-sm text-white/50">
+                    {selectedLocation?.label} &middot;{" "}
+                    {selectedLocation && fmtLocDate(selectedLocation.date, true)} &middot;{" "}
+                    {landing?.eventTime}
+                  </p>
+                  <form onSubmit={handleAttendSubmit} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        name="firstName"
+                        type="text"
+                        required
+                        placeholder="First name"
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
+                      />
+                      <input
+                        name="lastName"
+                        type="text"
+                        required
+                        placeholder="Last name"
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
+                      />
+                    </div>
                     <input
-                      name="firstName"
+                      name="company"
                       type="text"
-                      required
-                      placeholder="First name"
-                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
+                      placeholder="Company name"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
                     />
-                    <input
-                      name="lastName"
-                      type="text"
-                      required
-                      placeholder="Last name"
-                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
-                    />
-                  </div>
-                  {nameNeedsDob && (
-                    <div>
+                    <div className="text-left">
                       <label
-                        htmlFor="ge-birth-year"
-                        className="block text-left text-white/40 text-xs mb-1.5 ml-1"
+                        htmlFor="ge-guests"
+                        className="mb-1.5 ml-1 block text-left text-xs text-white/40"
                       >
-                        Date of Birth
+                        Additional guests (up to 2)
                       </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <select
-                          id="ge-birth-year"
-                          name="birth-year"
-                          required
-                          defaultValue=""
-                          className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
+                      <select
+                        id="ge-guests"
+                        name="guests"
+                        defaultValue="0"
+                        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none [color-scheme:dark] focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
+                      >
+                        <option value="0" style={{ backgroundColor: "#000418", color: "#fff" }}>
+                          Just me
+                        </option>
+                        <option value="1" style={{ backgroundColor: "#000418", color: "#fff" }}>
+                          +1 guest
+                        </option>
+                        <option value="2" style={{ backgroundColor: "#000418", color: "#fff" }}>
+                          +2 guests
+                        </option>
+                      </select>
+                    </div>
+                    {waiverError && <p className="text-xs text-red-400">{waiverError}</p>}
+                    <button
+                      type="submit"
+                      disabled={waiverLoading}
+                      className="w-full rounded-xl bg-(--accent) py-3 text-sm font-bold text-(--accent-fg) transition-colors hover:bg-(--accent-hover) disabled:opacity-50"
+                    >
+                      {waiverLoading ? "Saving…" : "Confirm RSVP"}
+                    </button>
+                  </form>
+                  {selectedLocation?.racing && (
+                    <button
+                      type="button"
+                      onClick={() => setStep("mode")}
+                      className="mt-4 w-full text-center text-xs text-white/40 transition-colors hover:text-white/70"
+                    >
+                      &larr; Back
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ═══ STEP: Name + Birthdate (racing registration) ═══ */}
+            {step === "name" && (
+              <div className="max-w-md mx-auto">
+                <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
+                  <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">
+                    Racer Details
+                  </h2>
+                  <p className="text-white/50 text-sm mb-6">
+                    {nameNeedsDob
+                      ? "Used for heat rosters and your activity waiver."
+                      : "So we know who's joining us."}
+                  </p>
+                  <form onSubmit={handleNameSubmit} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        name="firstName"
+                        type="text"
+                        required
+                        placeholder="First name"
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
+                      />
+                      <input
+                        name="lastName"
+                        type="text"
+                        required
+                        placeholder="Last name"
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
+                      />
+                    </div>
+                    {nameNeedsDob && (
+                      <div>
+                        <label
+                          htmlFor="ge-birth-year"
+                          className="block text-left text-white/40 text-xs mb-1.5 ml-1"
                         >
-                          <option
-                            value=""
-                            disabled
-                            style={{ backgroundColor: "#000418", color: "#fff" }}
+                          Date of Birth
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <select
+                            id="ge-birth-year"
+                            name="birth-year"
+                            required
+                            defaultValue=""
+                            className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
                           >
-                            Year
-                          </option>
-                          {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(
-                            (y) => (
+                            <option
+                              value=""
+                              disabled
+                              style={{ backgroundColor: "#000418", color: "#fff" }}
+                            >
+                              Year
+                            </option>
+                            {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(
+                              (y) => (
+                                <option
+                                  key={y}
+                                  value={y}
+                                  style={{ backgroundColor: "#000418", color: "#fff" }}
+                                >
+                                  {y}
+                                </option>
+                              ),
+                            )}
+                          </select>
+                          <select
+                            name="birth-month"
+                            required
+                            defaultValue=""
+                            className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
+                          >
+                            <option
+                              value=""
+                              disabled
+                              style={{ backgroundColor: "#000418", color: "#fff" }}
+                            >
+                              Month
+                            </option>
+                            {[
+                              "Jan",
+                              "Feb",
+                              "Mar",
+                              "Apr",
+                              "May",
+                              "Jun",
+                              "Jul",
+                              "Aug",
+                              "Sep",
+                              "Oct",
+                              "Nov",
+                              "Dec",
+                            ].map((m, i) => (
                               <option
-                                key={y}
-                                value={y}
+                                key={i + 1}
+                                value={i + 1}
                                 style={{ backgroundColor: "#000418", color: "#fff" }}
                               >
-                                {y}
+                                {m}
                               </option>
-                            ),
-                          )}
-                        </select>
-                        <select
-                          name="birth-month"
-                          required
-                          defaultValue=""
-                          className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
-                        >
-                          <option
-                            value=""
-                            disabled
-                            style={{ backgroundColor: "#000418", color: "#fff" }}
+                            ))}
+                          </select>
+                          <select
+                            name="birth-day"
+                            required
+                            defaultValue=""
+                            className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
                           >
-                            Month
-                          </option>
-                          {[
-                            "Jan",
-                            "Feb",
-                            "Mar",
-                            "Apr",
-                            "May",
-                            "Jun",
-                            "Jul",
-                            "Aug",
-                            "Sep",
-                            "Oct",
-                            "Nov",
-                            "Dec",
-                          ].map((m, i) => (
                             <option
-                              key={i + 1}
-                              value={i + 1}
+                              value=""
+                              disabled
                               style={{ backgroundColor: "#000418", color: "#fff" }}
                             >
-                              {m}
+                              Day
                             </option>
-                          ))}
-                        </select>
-                        <select
-                          name="birth-day"
-                          required
-                          defaultValue=""
-                          className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
-                        >
-                          <option
-                            value=""
-                            disabled
-                            style={{ backgroundColor: "#000418", color: "#fff" }}
-                          >
-                            Day
-                          </option>
-                          {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                            <option
-                              key={d}
-                              value={d}
-                              style={{ backgroundColor: "#000418", color: "#fff" }}
-                            >
-                              {d}
-                            </option>
-                          ))}
-                        </select>
+                            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                              <option
+                                key={d}
+                                value={d}
+                                style={{ backgroundColor: "#000418", color: "#fff" }}
+                              >
+                                {d}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {waiverError && <p className="text-red-400 text-xs">{waiverError}</p>}
-                  <button
-                    type="submit"
-                    disabled={waiverLoading}
-                    className="w-full py-3 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors disabled:opacity-50"
-                  >
-                    {waiverLoading ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <span className="w-4 h-4 border-2 border-(--accent-fg)/30 border-t-(--accent-fg) rounded-full animate-spin" />
-                        Setting up...
-                      </span>
-                    ) : (
-                      "Continue"
                     )}
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* ═══ STEP: Waiver ═══ */}
-          {step === "waiver" && waiverTemplate && personId && (
-            <div className="max-w-md mx-auto">
-              <WaiverSigning
-                personId={personId}
-                template={waiverTemplate}
-                location={event.pandoraLocation ?? "headpinz"}
-                onComplete={() => {
-                  setWaiverValid(true);
-                  setStep("dashboard");
-                  fetchExistingRsvp(slug, guest!.email);
-                }}
-              />
-            </div>
-          )}
-
-          {/* ═══ STEP: Dashboard ═══ */}
-          {step === "dashboard" && guest && (
-            <div className="space-y-8">
-              <div className="text-center">
-                <p className="text-white/50 text-sm">
-                  Welcome, <span className="text-white font-semibold">{guest.firstName}</span>!
-                </p>
-                <p className="text-white/30 text-xs mt-1">Choose your activities below</p>
-                <button
-                  onClick={() => {
-                    sessionStorage.removeItem(sessionKey(slug, "email"));
-                    sessionStorage.removeItem(sessionKey(slug, "firstName"));
-                    sessionStorage.removeItem(sessionKey(slug, "lastName"));
-                    setGuest(null);
-                    setCart([]);
-                    setExistingReservations([]);
-                    setSelectedFreeflow([]);
-                    setStep("gate");
-                  }}
-                  className="text-white/30 text-xs mt-2 hover:text-white/60 underline underline-offset-2 transition-colors"
-                >
-                  Not {guest.firstName}? Switch account
-                </button>
-              </div>
-
-              {/* Event info banner */}
-              <div className="rounded-xl border border-(--accent)/20 bg-(--accent)/5 p-4 space-y-2 text-sm text-white/70 leading-relaxed">
-                {hasFreeflow ? (
-                  <>
-                    <p>
-                      <strong className="text-white">
-                        Go-Kart Racing, Laser Tag, and Gel Blaster
-                      </strong>{" "}
-                      all require a signed waiver and a pre-booked time slot. You can only book for
-                      yourself, but your name will appear on the booking so your coworkers can see
-                      who&rsquo;s in each session.
-                    </p>
-                    <p>
-                      All other activities are <strong className="text-white">free-flow</strong> and
-                      available at your leisure throughout the event.
-                    </p>
-                  </>
-                ) : (
-                  <p>
-                    <strong className="text-white">Go-Kart Racing</strong> requires a signed waiver
-                    and a pre-booked time slot. You can only book for yourself, but your name will
-                    appear on the heat so others can see who&rsquo;s racing.
-                  </p>
-                )}
-                {event.mealWindow && (
-                  <p className="text-amber-300/90">
-                    <strong className="text-amber-300">{event.mealWindow.label}</strong> is served
-                    at {event.mealWindow.location} from{" "}
-                    <strong className="text-amber-300">
-                      {new Date(`2000-01-01T${event.mealWindow.startTime}`).toLocaleTimeString(
-                        "en-US",
-                        { hour: "numeric", minute: "2-digit", hour12: true },
-                      )}{" "}
-                      &ndash;{" "}
-                      {new Date(`2000-01-01T${event.mealWindow.endTime}`).toLocaleTimeString(
-                        "en-US",
-                        { hour: "numeric", minute: "2-digit", hour12: true },
+                    {waiverError && <p className="text-red-400 text-xs">{waiverError}</p>}
+                    <button
+                      type="submit"
+                      disabled={waiverLoading}
+                      className="w-full py-3 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors disabled:opacity-50"
+                    >
+                      {waiverLoading ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <span className="w-4 h-4 border-2 border-(--accent-fg)/30 border-t-(--accent-fg) rounded-full animate-spin" />
+                          Setting up...
+                        </span>
+                      ) : (
+                        "Continue"
                       )}
-                    </strong>
-                    &mdash; plan your reservations around it!
-                  </p>
-                )}
+                    </button>
+                  </form>
+                </div>
               </div>
+            )}
 
-              {/* Reservation-based activities */}
-              <div>
-                <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
-                  Reserve a Time Slot
-                </h3>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                  {reservationAttractions.map((attr) => {
-                    const confirmed = isAttractionConfirmed(attr.slug);
-                    const inCart = isAttractionSelected(attr.slug);
-                    const cartItem = getCartItem(attr.slug);
-                    const existingBooking = getExistingBooking(attr.slug);
-                    const isDone = confirmed || inCart;
+            {/* ═══ STEP: Waiver ═══ */}
+            {step === "waiver" && waiverTemplate && personId && (
+              <div className="max-w-md mx-auto">
+                <WaiverSigning
+                  personId={personId}
+                  template={waiverTemplate}
+                  location={event.pandoraLocation ?? "headpinz"}
+                  onComplete={() => {
+                    setWaiverValid(true);
+                    setStep("dashboard");
+                    fetchExistingRsvp(slug, guest!.email);
+                  }}
+                />
+              </div>
+            )}
 
-                    return (
-                      <button
-                        key={attr.slug}
-                        onClick={() => {
-                          if (confirmed) return;
-                          if (inCart) {
-                            // Allow re-picking by removing from cart and opening picker
-                            removeFromCart(attr.slug);
-                          }
-                          if (attr.slug === "racing") {
-                            setStep("racing-track");
-                          } else {
-                            setActiveAttraction(attr);
-                            fetchAttractionSlots(attr);
-                            setStep("attraction-slots");
-                          }
-                        }}
-                        disabled={confirmed}
-                        className={`
+            {/* ═══ STEP: Dashboard ═══ */}
+            {step === "dashboard" && guest && (
+              <div className="space-y-8">
+                <div className="text-center">
+                  <p className="text-white/50 text-sm">
+                    Welcome, <span className="text-white font-semibold">{guest.firstName}</span>!
+                  </p>
+                  <p className="text-white/30 text-xs mt-1">Choose your activities below</p>
+                  <button
+                    onClick={() => {
+                      sessionStorage.removeItem(sessionKey(slug, "email"));
+                      sessionStorage.removeItem(sessionKey(slug, "firstName"));
+                      sessionStorage.removeItem(sessionKey(slug, "lastName"));
+                      setGuest(null);
+                      setCart([]);
+                      setExistingReservations([]);
+                      setSelectedFreeflow([]);
+                      setStep("gate");
+                    }}
+                    className="text-white/30 text-xs mt-2 hover:text-white/60 underline underline-offset-2 transition-colors"
+                  >
+                    Not {guest.firstName}? Switch account
+                  </button>
+                </div>
+
+                {/* Event info banner */}
+                <div className="rounded-xl border border-(--accent)/20 bg-(--accent)/5 p-4 space-y-2 text-sm text-white/70 leading-relaxed">
+                  {hasFreeflow ? (
+                    <>
+                      <p>
+                        <strong className="text-white">
+                          Go-Kart Racing, Laser Tag, and Gel Blaster
+                        </strong>{" "}
+                        all require a signed waiver and a pre-booked time slot. You can only book
+                        for yourself, but your name will appear on the booking so your coworkers can
+                        see who&rsquo;s in each session.
+                      </p>
+                      <p>
+                        All other activities are <strong className="text-white">free-flow</strong>{" "}
+                        and available at your leisure throughout the event.
+                      </p>
+                    </>
+                  ) : (
+                    <p>
+                      <strong className="text-white">Go-Kart Racing</strong> requires a signed
+                      waiver and a pre-booked time slot. You can only book for yourself, but your
+                      name will appear on the heat so others can see who&rsquo;s racing.
+                    </p>
+                  )}
+                  {event.mealWindow && (
+                    <p className="text-amber-300/90">
+                      <strong className="text-amber-300">{event.mealWindow.label}</strong> is served
+                      at {event.mealWindow.location} from{" "}
+                      <strong className="text-amber-300">
+                        {new Date(`2000-01-01T${event.mealWindow.startTime}`).toLocaleTimeString(
+                          "en-US",
+                          { hour: "numeric", minute: "2-digit", hour12: true },
+                        )}{" "}
+                        &ndash;{" "}
+                        {new Date(`2000-01-01T${event.mealWindow.endTime}`).toLocaleTimeString(
+                          "en-US",
+                          { hour: "numeric", minute: "2-digit", hour12: true },
+                        )}
+                      </strong>
+                      &mdash; plan your reservations around it!
+                    </p>
+                  )}
+                </div>
+
+                {/* Reservation-based activities */}
+                <div>
+                  <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
+                    Reserve a Time Slot
+                  </h3>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                    {reservationAttractions.map((attr) => {
+                      const confirmed = isAttractionConfirmed(attr.slug);
+                      const inCart = isAttractionSelected(attr.slug);
+                      const cartItem = getCartItem(attr.slug);
+                      const existingBooking = getExistingBooking(attr.slug);
+                      const isDone = confirmed || inCart;
+
+                      return (
+                        <button
+                          key={attr.slug}
+                          onClick={() => {
+                            if (confirmed) return;
+                            if (inCart) {
+                              // Allow re-picking by removing from cart and opening picker
+                              removeFromCart(attr.slug);
+                            }
+                            if (attr.slug === "racing") {
+                              setStep("racing-track");
+                            } else {
+                              setActiveAttraction(attr);
+                              fetchAttractionSlots(attr);
+                              setStep("attraction-slots");
+                            }
+                          }}
+                          disabled={confirmed}
+                          className={`
                         w-full rounded-xl border overflow-hidden text-left transition-all
                         ${
                           confirmed
@@ -1858,379 +1946,384 @@ export default function GroupEventPage() {
                               : "border-white/10 hover:border-white/25 cursor-pointer"
                         }
                       `}
-                      >
-                        {/* Image */}
-                        <div className="relative h-32 sm:h-40 w-full">
-                          {attr.image ? (
-                            <img
-                              src={attr.image}
-                              alt={attr.label}
-                              className={`w-full h-full object-cover object-top ${isDone ? "opacity-50" : ""}`}
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-white/5" />
-                          )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-[#000418] via-[#000418]/70 to-[#000418]/20" />
-                          <div className="absolute bottom-0 left-0 right-0 p-4">
-                            <div className="flex items-center gap-2">
-                              <span className="text-white font-bold text-base">{attr.label}</span>
-                              {confirmed && (
-                                <span className="text-emerald-400 text-xs font-semibold bg-emerald-500/15 px-2 py-0.5 rounded-full">
-                                  &#10003; Confirmed
-                                </span>
+                        >
+                          {/* Image */}
+                          <div className="relative h-32 sm:h-40 w-full">
+                            {attr.image ? (
+                              <img
+                                src={attr.image}
+                                alt={attr.label}
+                                className={`w-full h-full object-cover object-top ${isDone ? "opacity-50" : ""}`}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-white/5" />
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#000418] via-[#000418]/70 to-[#000418]/20" />
+                            <div className="absolute bottom-0 left-0 right-0 p-4">
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-bold text-base">{attr.label}</span>
+                                {confirmed && (
+                                  <span className="text-emerald-400 text-xs font-semibold bg-emerald-500/15 px-2 py-0.5 rounded-full">
+                                    &#10003; Confirmed
+                                  </span>
+                                )}
+                                {inCart && !confirmed && (
+                                  <span className="text-(--accent) text-xs font-semibold bg-(--accent)/15 px-2 py-0.5 rounded-full">
+                                    Selected
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-white/50 text-xs mt-0.5">{attr.description}</p>
+                              {confirmed && existingBooking && (
+                                <p className="text-emerald-400/70 text-xs mt-1 font-medium">
+                                  {existingBooking.track
+                                    ? `${existingBooking.track} Track · ${formatTime(existingBooking.time!)}`
+                                    : formatTime(existingBooking.time!)}
+                                </p>
                               )}
-                              {inCart && !confirmed && (
-                                <span className="text-(--accent) text-xs font-semibold bg-(--accent)/15 px-2 py-0.5 rounded-full">
-                                  Selected
-                                </span>
+                              {inCart && cartItem && (
+                                <p className="text-(--accent)/70 text-xs mt-1 font-medium">
+                                  {cartItem.track ? `${cartItem.track} Track · ` : ""}
+                                  {formatTime(cartItem.block.start)}
+                                  <span className="text-white/30 ml-2">(tap to change)</span>
+                                </p>
+                              )}
+                              {!isDone && (
+                                <p className="text-(--accent) text-xs font-semibold mt-1">
+                                  Tap to reserve &rsaquo;
+                                </p>
                               )}
                             </div>
-                            <p className="text-white/50 text-xs mt-0.5">{attr.description}</p>
-                            {confirmed && existingBooking && (
-                              <p className="text-emerald-400/70 text-xs mt-1 font-medium">
-                                {existingBooking.track
-                                  ? `${existingBooking.track} Track · ${formatTime(existingBooking.time!)}`
-                                  : formatTime(existingBooking.time!)}
-                              </p>
-                            )}
-                            {inCart && cartItem && (
-                              <p className="text-(--accent)/70 text-xs mt-1 font-medium">
-                                {cartItem.track ? `${cartItem.track} Track · ` : ""}
-                                {formatTime(cartItem.block.start)}
-                                <span className="text-white/30 ml-2">(tap to change)</span>
-                              </p>
-                            )}
-                            {!isDone && (
-                              <p className="text-(--accent) text-xs font-semibold mt-1">
-                                Tap to reserve &rsaquo;
-                              </p>
-                            )}
                           </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Free-flow activities — only when the event has any freeflow attractions */}
+                {hasFreeflow && (
+                  <div>
+                    <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
+                      I Plan to Attend
+                    </h3>
+                    <div className="rounded-xl border border-white/10 bg-white/3 p-3 space-y-2">
+                      {freeflowAttractions.map((attr) => {
+                        const checked = selectedFreeflow.includes(attr.slug);
+                        return (
+                          <label
+                            key={attr.slug}
+                            className={`flex items-center gap-3 cursor-pointer group rounded-lg p-2 transition-colors ${checked ? "bg-(--accent)/8" : "hover:bg-white/3"}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const next = checked
+                                  ? selectedFreeflow.filter((s) => s !== attr.slug)
+                                  : [...selectedFreeflow, attr.slug];
+                                saveFreeflow(next);
+                              }}
+                              className="w-4 h-4 shrink-0 rounded border-white/20 bg-white/5 text-(--accent) focus:ring-(--accent)/30 accent-(--accent)"
+                            />
+                            {attr.image && (
+                              <img
+                                src={attr.image}
+                                alt={attr.label}
+                                className="w-10 h-10 rounded-lg object-cover shrink-0"
+                              />
+                            )}
+                            <div className="min-w-0">
+                              <span className="text-white text-sm font-medium group-hover:text-white/90">
+                                {attr.label}
+                              </span>
+                              <p className="text-white/30 text-xs truncate">{attr.description}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                      {freeflowSaved && (
+                        <p className="text-emerald-400 text-xs text-center animate-pulse">Saved!</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Cart: Your Selections ── */}
+                <div ref={cartRef}>
+                  {cart.length > 0 && (
+                    <div className="rounded-xl border border-(--accent)/30 bg-(--accent)/5 p-5 space-y-4">
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                        Your Reservations
+                      </h3>
+                      <div className="space-y-2">
+                        {cart.map((item) => (
+                          <div
+                            key={item.attractionSlug}
+                            className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2"
+                          >
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-white text-sm font-medium">{item.label}</p>
+                                {item.heldOrderId && (
+                                  <span className="text-emerald-400 text-[10px] font-semibold bg-emerald-500/15 px-1.5 py-0.5 rounded">
+                                    Held
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-(--accent)/70 text-xs">
+                                {formatTime(item.block.start)} &rarr; {formatTime(item.block.stop)}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => removeFromCart(item.attractionSlug)}
+                              className="text-white/30 hover:text-red-400 transition-colors text-xs"
+                              aria-label={`Remove ${item.label}`}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {bookingError && (
+                        <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-3 text-center">
+                          <p className="text-red-400 text-sm">{bookingError}</p>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleConfirmAll}
+                        disabled={bookingInProgress}
+                        className="w-full py-3.5 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {bookingInProgress ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <span className="w-4 h-4 border-2 border-(--accent-fg)/30 border-t-(--accent-fg) rounded-full animate-spin" />
+                            Confirming reservations...
+                          </span>
+                        ) : (
+                          `Confirm ${cart.length} Reservation${cart.length === 1 ? "" : "s"}`
+                        )}
+                      </button>
+                      <p className="text-white/30 text-[11px] text-center">
+                        All reservations will be booked together under your name.
+                      </p>
+                    </div>
+                  )}
+
+                  {cart.length === 0 && !existingReservations.length && (
+                    <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-center space-y-3">
+                      <p className="text-white/30 text-sm">
+                        {hasFreeflow
+                          ? "Select your activities above, then confirm them all at once here."
+                          : "Reserve a kart above — or, if you're not racing, just let us know you're coming."}
+                      </p>
+                      {!hasFreeflow && (
+                        <button
+                          onClick={handleAttendOnly}
+                          disabled={bookingInProgress}
+                          className="w-full py-3 rounded-xl font-bold text-sm border border-(--accent)/40 text-(--accent) hover:bg-(--accent)/10 transition-colors disabled:opacity-50"
+                        >
+                          {bookingInProgress ? "Saving…" : "I'm attending — not racing"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Info footer */}
+                <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
+                  <p>
+                    &middot; All activities are{" "}
+                    <strong className="text-white/60">complimentary</strong>{" "}
+                    {isOpenAccess
+                      ? `for ${event.companyName} guests.`
+                      : `for ${event.companyName} team members.`}
+                  </p>
+                  {event.includesLicense && (
+                    <p>
+                      &middot; Racing license fee is{" "}
+                      <strong className="text-white/60">included</strong> &mdash; no charge at
+                      check-in.
+                    </p>
+                  )}
+                  <p>
+                    &middot; Please arrive{" "}
+                    <strong className="text-white/60">15 minutes early</strong> for racing check-in.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ═══ STEP: Track Picker ═══ */}
+            {step === "racing-track" && (
+              <div className="space-y-6">
+                <div className="text-center">
+                  <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+                    Pick Your Track
+                  </h2>
+                  <p className="text-white/50 text-sm">Two indoor tracks — choose your style</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {(["Blue", "Red"] as const).map((trackName) => {
+                    const info = TRACK_INFO[trackName];
+                    const trackConfig = event.attractions
+                      .find((a) => a.slug === "racing")
+                      ?.bmiTracks?.find((t) => t.track === trackName);
+                    if (!info || !trackConfig) return null;
+                    const ringClass =
+                      info.accent === "red"
+                        ? "border-red-500/40 hover:border-red-500 hover:ring-red-500/30"
+                        : "border-blue-500/40 hover:border-blue-500 hover:ring-blue-500/30";
+                    const titleClass = info.accent === "red" ? "text-red-300" : "text-blue-300";
+                    return (
+                      <button
+                        key={trackName}
+                        onClick={() => {
+                          setSelectedTrack(trackName);
+                          setStep("racing-heat");
+                        }}
+                        className={`group relative overflow-hidden rounded-xl text-left border transition-all duration-200 hover:scale-[1.02] hover:ring-2 cursor-pointer ${ringClass}`}
+                      >
+                        <div className="relative aspect-[21/9] sm:aspect-[4/3]">
+                          <img
+                            src={info.image}
+                            alt={info.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+                        </div>
+                        <div className="p-3">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <h4
+                              className={`font-display text-base uppercase tracking-wide ${titleClass}`}
+                            >
+                              {info.title}
+                            </h4>
+                            <span className="text-white/50 text-xs font-mono">{info.stat}</span>
+                          </div>
+                          <p className="text-white/70 text-xs leading-snug">{info.tagline}</p>
                         </div>
                       </button>
                     );
                   })}
                 </div>
+                <button
+                  onClick={() => setStep("dashboard")}
+                  className="text-sm text-white/40 hover:text-white/70 transition-colors"
+                >
+                  &larr; Back to activities
+                </button>
               </div>
+            )}
 
-              {/* Free-flow activities — only when the event has any freeflow attractions */}
-              {hasFreeflow && (
-                <div>
-                  <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-3">
-                    I Plan to Attend
-                  </h3>
-                  <div className="rounded-xl border border-white/10 bg-white/3 p-3 space-y-2">
-                    {freeflowAttractions.map((attr) => {
-                      const checked = selectedFreeflow.includes(attr.slug);
-                      return (
-                        <label
-                          key={attr.slug}
-                          className={`flex items-center gap-3 cursor-pointer group rounded-lg p-2 transition-colors ${checked ? "bg-(--accent)/8" : "hover:bg-white/3"}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              const next = checked
-                                ? selectedFreeflow.filter((s) => s !== attr.slug)
-                                : [...selectedFreeflow, attr.slug];
-                              saveFreeflow(next);
-                            }}
-                            className="w-4 h-4 shrink-0 rounded border-white/20 bg-white/5 text-(--accent) focus:ring-(--accent)/30 accent-(--accent)"
-                          />
-                          {attr.image && (
-                            <img
-                              src={attr.image}
-                              alt={attr.label}
-                              className="w-10 h-10 rounded-lg object-cover shrink-0"
-                            />
-                          )}
-                          <div className="min-w-0">
-                            <span className="text-white text-sm font-medium group-hover:text-white/90">
-                              {attr.label}
-                            </span>
-                            <p className="text-white/30 text-xs truncate">{attr.description}</p>
-                          </div>
-                        </label>
-                      );
-                    })}
-                    {freeflowSaved && (
-                      <p className="text-emerald-400 text-xs text-center animate-pulse">Saved!</p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Cart: Your Selections ── */}
-              <div ref={cartRef}>
-                {cart.length > 0 && (
-                  <div className="rounded-xl border border-(--accent)/30 bg-(--accent)/5 p-5 space-y-4">
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                      Your Reservations
-                    </h3>
-                    <div className="space-y-2">
-                      {cart.map((item) => (
-                        <div
-                          key={item.attractionSlug}
-                          className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-white text-sm font-medium">{item.label}</p>
-                              {item.heldOrderId && (
-                                <span className="text-emerald-400 text-[10px] font-semibold bg-emerald-500/15 px-1.5 py-0.5 rounded">
-                                  Held
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-(--accent)/70 text-xs">
-                              {formatTime(item.block.start)} &rarr; {formatTime(item.block.stop)}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => removeFromCart(item.attractionSlug)}
-                            className="text-white/30 hover:text-red-400 transition-colors text-xs"
-                            aria-label={`Remove ${item.label}`}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    {bookingError && (
-                      <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-3 text-center">
-                        <p className="text-red-400 text-sm">{bookingError}</p>
-                      </div>
-                    )}
-
-                    <button
-                      onClick={handleConfirmAll}
-                      disabled={bookingInProgress}
-                      className="w-full py-3.5 rounded-xl font-bold text-sm bg-(--accent) text-(--accent-fg) hover:bg-(--accent-hover) transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {bookingInProgress ? (
-                        <span className="flex items-center justify-center gap-2">
-                          <span className="w-4 h-4 border-2 border-(--accent-fg)/30 border-t-(--accent-fg) rounded-full animate-spin" />
-                          Confirming reservations...
-                        </span>
-                      ) : (
-                        `Confirm ${cart.length} Reservation${cart.length === 1 ? "" : "s"}`
-                      )}
-                    </button>
-                    <p className="text-white/30 text-[11px] text-center">
-                      All reservations will be booked together under your name.
-                    </p>
-                  </div>
-                )}
-
-                {cart.length === 0 && !existingReservations.length && (
-                  <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-center space-y-3">
-                    <p className="text-white/30 text-sm">
-                      {hasFreeflow
-                        ? "Select your activities above, then confirm them all at once here."
-                        : "Reserve a kart above — or, if you're not racing, just let us know you're coming."}
-                    </p>
-                    {!hasFreeflow && (
-                      <button
-                        onClick={handleAttendOnly}
-                        disabled={bookingInProgress}
-                        className="w-full py-3 rounded-xl font-bold text-sm border border-(--accent)/40 text-(--accent) hover:bg-(--accent)/10 transition-colors disabled:opacity-50"
-                      >
-                        {bookingInProgress ? "Saving…" : "I'm attending — not racing"}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Info footer */}
-              <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
-                <p>
-                  &middot; All activities are{" "}
-                  <strong className="text-white/60">complimentary</strong>{" "}
-                  {isOpenAccess
-                    ? `for ${event.companyName} guests.`
-                    : `for ${event.companyName} team members.`}
-                </p>
-                {event.includesLicense && (
-                  <p>
-                    &middot; Racing license fee is{" "}
-                    <strong className="text-white/60">included</strong> &mdash; no charge at
-                    check-in.
-                  </p>
-                )}
-                <p>
-                  &middot; Please arrive <strong className="text-white/60">15 minutes early</strong>{" "}
-                  for racing check-in.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* ═══ STEP: Track Picker ═══ */}
-          {step === "racing-track" && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
-                  Pick Your Track
-                </h2>
-                <p className="text-white/50 text-sm">Two indoor tracks — choose your style</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {(["Blue", "Red"] as const).map((trackName) => {
-                  const info = TRACK_INFO[trackName];
-                  const trackConfig = event.attractions
-                    .find((a) => a.slug === "racing")
-                    ?.bmiTracks?.find((t) => t.track === trackName);
-                  if (!info || !trackConfig) return null;
-                  const ringClass =
-                    info.accent === "red"
-                      ? "border-red-500/40 hover:border-red-500 hover:ring-red-500/30"
-                      : "border-blue-500/40 hover:border-blue-500 hover:ring-blue-500/30";
-                  const titleClass = info.accent === "red" ? "text-red-300" : "text-blue-300";
-                  return (
-                    <button
-                      key={trackName}
-                      onClick={() => {
-                        setSelectedTrack(trackName);
-                        setStep("racing-heat");
-                      }}
-                      className={`group relative overflow-hidden rounded-xl text-left border transition-all duration-200 hover:scale-[1.02] hover:ring-2 cursor-pointer ${ringClass}`}
-                    >
-                      <div className="relative aspect-[21/9] sm:aspect-[4/3]">
-                        <img
-                          src={info.image}
-                          alt={info.title}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-                      </div>
-                      <div className="p-3">
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <h4
-                            className={`font-display text-base uppercase tracking-wide ${titleClass}`}
-                          >
-                            {info.title}
-                          </h4>
-                          <span className="text-white/50 text-xs font-mono">{info.stat}</span>
-                        </div>
-                        <p className="text-white/70 text-xs leading-snug">{info.tagline}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-              <button
-                onClick={() => setStep("dashboard")}
-                className="text-sm text-white/40 hover:text-white/70 transition-colors"
-              >
-                &larr; Back to activities
-              </button>
-            </div>
-          )}
-
-          {/* ═══ STEP: Heat Picker ═══ */}
-          {step === "racing-heat" && selectedTrack && (
-            <div className="space-y-6">
-              <HeatPicker
-                race={{
-                  productId: event.attractions
-                    .find((a) => a.slug === "racing")!
-                    .bmiTracks!.find((t) => t.track === selectedTrack)!.productId,
-                  pageId: event.attractions
-                    .find((a) => a.slug === "racing")!
-                    .bmiTracks!.find((t) => t.track === selectedTrack)!.pageId,
-                  name: `Starter Race ${selectedTrack}`,
-                  tier: "starter",
-                  category: "adult",
-                  track: selectedTrack,
-                  price: 0,
-                  isCombo: false,
-                  packType: "none",
-                  raceCount: 1,
-                  sessionGroup: "Karting",
-                  raw: {
-                    id: 0,
+            {/* ═══ STEP: Heat Picker ═══ */}
+            {step === "racing-heat" && selectedTrack && (
+              <div className="space-y-6">
+                <HeatPicker
+                  race={{
+                    productId: event.attractions
+                      .find((a) => a.slug === "racing")!
+                      .bmiTracks!.find((t) => t.track === selectedTrack)!.productId,
+                    pageId: event.attractions
+                      .find((a) => a.slug === "racing")!
+                      .bmiTracks!.find((t) => t.track === selectedTrack)!.pageId,
                     name: `Starter Race ${selectedTrack}`,
-                    info: "",
-                    hasPicture: false,
+                    tier: "starter",
+                    category: "adult",
+                    track: selectedTrack,
+                    price: 0,
                     isCombo: false,
-                    minAge: null,
-                    maxAge: null,
-                    isMembersOnly: false,
-                    minAmount: -1,
-                    maxAmount: 10,
-                    resourceKind: "Race",
-                    kind: 2,
-                    bookingMode: 0,
-                    productGroup: "Karting",
-                    prices: [{ amount: 0, kind: 0, shortName: "m", depositKind: 0 }],
-                    resources: [],
-                    dynamicGroups: null,
-                    xRef: null,
-                  },
-                }}
-                date={event.eventDate}
-                quantity={1}
-                onQuantityChange={() => {}}
-                onConfirm={handleRaceHeatSelect}
-                onBack={() => setStep("racing-track")}
-                confirmLabel={bookingInProgress ? "Reserving..." : "Reserve This Heat"}
-                packageMode={true}
-                immediateConfirm={false}
-                heatRosters={heatRosters}
-                mealWarning={
-                  event.mealWindow
-                    ? {
-                        label: event.mealWindow.label,
-                        eventDate: event.eventDate,
-                        startTime: event.mealWindow.startTime,
-                        endTime: event.mealWindow.endTime,
-                      }
-                    : undefined
-                }
-                timeWindow={{ start: event.startTime, end: event.endTime }}
-              />
-            </div>
-          )}
-
-          {/* ═══ STEP: Attraction Time Slots ═══ */}
-          {step === "attraction-slots" && activeAttraction && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
-                  {activeAttraction.label}
-                </h2>
-                <p className="text-white/50 text-sm">Pick a session time</p>
+                    packType: "none",
+                    raceCount: 1,
+                    sessionGroup: "Karting",
+                    raw: {
+                      id: 0,
+                      name: `Starter Race ${selectedTrack}`,
+                      info: "",
+                      hasPicture: false,
+                      isCombo: false,
+                      minAge: null,
+                      maxAge: null,
+                      isMembersOnly: false,
+                      minAmount: -1,
+                      maxAmount: 10,
+                      resourceKind: "Race",
+                      kind: 2,
+                      bookingMode: 0,
+                      productGroup: "Karting",
+                      prices: [{ amount: 0, kind: 0, shortName: "m", depositKind: 0 }],
+                      resources: [],
+                      dynamicGroups: null,
+                      xRef: null,
+                    },
+                  }}
+                  date={event.eventDate}
+                  quantity={1}
+                  onQuantityChange={() => {}}
+                  onConfirm={handleRaceHeatSelect}
+                  onBack={() => setStep("racing-track")}
+                  confirmLabel={bookingInProgress ? "Reserving..." : "Reserve This Heat"}
+                  packageMode={true}
+                  immediateConfirm={false}
+                  heatRosters={heatRosters}
+                  mealWarning={
+                    event.mealWindow
+                      ? {
+                          label: event.mealWindow.label,
+                          eventDate: event.eventDate,
+                          startTime: event.mealWindow.startTime,
+                          endTime: event.mealWindow.endTime,
+                        }
+                      : undefined
+                  }
+                  timeWindow={{ start: event.startTime, end: event.endTime }}
+                />
               </div>
+            )}
 
-              {attractionLoading ? (
-                <div className="h-48 flex items-center justify-center">
-                  <div className="w-8 h-8 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+            {/* ═══ STEP: Attraction Time Slots ═══ */}
+            {step === "attraction-slots" && activeAttraction && (
+              <div className="space-y-6">
+                <div className="text-center">
+                  <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-1">
+                    {activeAttraction.label}
+                  </h2>
+                  <p className="text-white/50 text-sm">Pick a session time</p>
                 </div>
-              ) : attractionSlots.length === 0 ? (
-                <div className="h-48 flex flex-col items-center justify-center gap-3">
-                  <p className="text-white/40 text-sm">No sessions available for this date.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {attractionSlots.map((proposal, idx) => {
-                    const block = proposal.blocks?.[0]?.block;
-                    if (!block) return null;
-                    const isFull = block.freeSpots < 1;
-                    const mealOverlap = event.mealWindow
-                      ? heatOverlapsMeal(block.start, block.stop, event.eventDate, event.mealWindow)
-                      : false;
-                    return (
-                      <button
-                        key={idx}
-                        onClick={() => {
-                          if (isFull) return;
-                          handleAttractionSlotSelect(activeAttraction, proposal, block);
-                        }}
-                        disabled={isFull}
-                        className={`
+
+                {attractionLoading ? (
+                  <div className="h-48 flex items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+                  </div>
+                ) : attractionSlots.length === 0 ? (
+                  <div className="h-48 flex flex-col items-center justify-center gap-3">
+                    <p className="text-white/40 text-sm">No sessions available for this date.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {attractionSlots.map((proposal, idx) => {
+                      const block = proposal.blocks?.[0]?.block;
+                      if (!block) return null;
+                      const isFull = block.freeSpots < 1;
+                      const mealOverlap = event.mealWindow
+                        ? heatOverlapsMeal(
+                            block.start,
+                            block.stop,
+                            event.eventDate,
+                            event.mealWindow,
+                          )
+                        : false;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            if (isFull) return;
+                            handleAttractionSlotSelect(activeAttraction, proposal, block);
+                          }}
+                          disabled={isFull}
+                          className={`
                         rounded-xl border p-3 text-left transition-all duration-150
                         ${
                           isFull
@@ -2240,239 +2333,242 @@ export default function GroupEventPage() {
                               : "border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10 cursor-pointer"
                         }
                       `}
-                      >
-                        <div className="text-white font-bold text-base mb-0.5">
-                          {formatTime(block.start)}
-                        </div>
-                        <div className="text-white/40 text-xs mb-1">
-                          &rarr; {formatTime(block.stop)}
-                        </div>
-                        <div
-                          className={`text-xs font-medium ${isFull ? "text-red-400" : "text-emerald-400"}`}
                         >
-                          {isFull
-                            ? "Full"
-                            : `${block.freeSpots} spot${block.freeSpots === 1 ? "" : "s"} open`}
-                        </div>
-                        {mealOverlap && !isFull && (
-                          <div className="flex items-center gap-1 mt-1.5 text-amber-400 text-[10px] font-medium">
-                            <svg
-                              className="w-3 h-3 shrink-0"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-                            Overlaps with food buffet
+                          <div className="text-white font-bold text-base mb-0.5">
+                            {formatTime(block.start)}
                           </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              <button
-                onClick={() => {
-                  setActiveAttraction(null);
-                  setStep("dashboard");
-                }}
-                className="text-sm text-white/40 hover:text-white/70 transition-colors"
-              >
-                &larr; Back to activities
-              </button>
-            </div>
-          )}
-
-          {/* ═══ STEP: Confirmation ═══ */}
-          {step === "confirmation" && guest && (
-            <div className="max-w-md mx-auto space-y-6">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-                  <svg
-                    className="w-8 h-8 text-emerald-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
-                  You&rsquo;re All Set!
-                </h2>
-                <p className="text-white/50 text-sm">
-                  {existingReservations.length > 0
-                    ? `Your reservations are confirmed, ${guest.firstName}.`
-                    : `You're on the list, ${guest.firstName} — see you there!`}
-                </p>
-              </div>
-
-              {/* RSVP summary — venue/date (+ company & party size for "just attending") */}
-              {selectedLocation && (
-                <div className="rounded-xl border border-(--accent)/20 bg-(--accent)/5 p-4 text-center text-sm">
-                  <p className="font-semibold text-white">
-                    {selectedLocation.label} &middot; {fmtLocDate(selectedLocation.date, true)}
-                  </p>
-                  <p className="mt-0.5 text-white/60">
-                    {landing?.eventTime} &middot; {selectedLocation.venue}
-                  </p>
-                  {attendInfo && (
-                    <p className="mt-2 text-white/50">
-                      {attendInfo.company ? `${attendInfo.company} · ` : ""}
-                      {attendInfo.guests} {attendInfo.guests === 1 ? "guest" : "guests"}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Waiver status badge — only for racers (those who onboarded) */}
-              {!!personId && (
-                <div
-                  className={`rounded-xl p-4 text-center ${waiverValid ? "border border-emerald-500/30 bg-emerald-500/8" : "border-2 border-amber-500/40 bg-amber-500/8"}`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    {waiverValid ? (
-                      <>
-                        <svg
-                          className="w-5 h-5 text-emerald-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-                          />
-                        </svg>
-                        <span className="text-emerald-400 font-bold text-sm">Waiver Signed</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="w-5 h-5 text-amber-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                        <span className="text-amber-400 font-bold text-sm">Waiver Pending</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Reserved activities */}
-              {existingReservations.length > 0 && (
-                <div>
-                  <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">
-                    Reserved Activities
-                  </h3>
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
-                    {existingReservations.map((r, i) => (
-                      <div key={i} className="flex items-center justify-between">
-                        <div>
-                          <p className="text-white text-sm font-medium">
-                            {r.type === "racing"
-                              ? `Go-Kart Racing · ${r.track} Track`
-                              : r.type === "gel-blaster"
-                                ? "Nexus Gel Blaster"
-                                : r.type === "laser-tag"
-                                  ? "Nexus Laser Tag"
-                                  : r.type}
-                          </p>
-                          {r.time && (
-                            <p className="text-emerald-400/70 text-xs">{formatTime(r.time)}</p>
+                          <div className="text-white/40 text-xs mb-1">
+                            &rarr; {formatTime(block.stop)}
+                          </div>
+                          <div
+                            className={`text-xs font-medium ${isFull ? "text-red-400" : "text-emerald-400"}`}
+                          >
+                            {isFull
+                              ? "Full"
+                              : `${block.freeSpots} spot${block.freeSpots === 1 ? "" : "s"} open`}
+                          </div>
+                          {mealOverlap && !isFull && (
+                            <div className="flex items-center gap-1 mt-1.5 text-amber-400 text-[10px] font-medium">
+                              <svg
+                                className="w-3 h-3 shrink-0"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                              </svg>
+                              Overlaps with food buffet
+                            </div>
                           )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-emerald-400 text-xs font-semibold">&#10003;</span>
-                          {r.billId && (
-                            <button
-                              onClick={() => handleCancelReservation(r.billId!)}
-                              disabled={cancellingBillId === r.billId}
-                              className="text-white/25 hover:text-red-400 transition-colors text-xs disabled:opacity-50"
-                              title="Cancel this reservation"
-                            >
-                              {cancellingBillId === r.billId ? (
-                                <span className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin inline-block" />
-                              ) : (
-                                "✕"
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Free-flow activities */}
-              {selectedFreeflow.length > 0 && (
-                <div>
-                  <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">
-                    Free-Flow Activities
-                  </h3>
-                  <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-2">
-                    {selectedFreeflow.map((slug) => {
-                      const attr = freeflowAttractions.find((a) => a.slug === slug);
-                      return (
-                        <div key={slug} className="flex items-center gap-3">
-                          <span className="text-(--accent) text-xs">&#10003;</span>
-                          <span className="text-white/70 text-sm">{attr?.label || slug}</span>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
-                </div>
-              )}
+                )}
 
-              {bookingError && (
-                <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-3 text-center">
-                  <p className="text-red-400 text-sm">{bookingError}</p>
-                </div>
-              )}
+                <button
+                  onClick={() => {
+                    setActiveAttraction(null);
+                    setStep("dashboard");
+                  }}
+                  className="text-sm text-white/40 hover:text-white/70 transition-colors"
+                >
+                  &larr; Back to activities
+                </button>
+              </div>
+            )}
 
-              <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
-                <p>
-                  &middot; Please arrive <strong className="text-white/60">15 minutes early</strong>{" "}
-                  for check-in.
-                </p>
-                {event.includesLicense && !!personId && (
-                  <p>
-                    &middot; Racing license fee is{" "}
-                    <strong className="text-white/60">included</strong> &mdash; no charge.
+            {/* ═══ STEP: Confirmation ═══ */}
+            {step === "confirmation" && guest && (
+              <div className="max-w-md mx-auto space-y-6">
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                    <svg
+                      className="w-8 h-8 text-emerald-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <h2 className="text-2xl font-display text-white uppercase tracking-widest mb-2">
+                    You&rsquo;re All Set!
+                  </h2>
+                  <p className="text-white/50 text-sm">
+                    {existingReservations.length > 0
+                      ? `Your reservations are confirmed, ${guest.firstName}.`
+                      : `You're on the list, ${guest.firstName} — see you there!`}
                   </p>
+                </div>
+
+                {/* RSVP summary — venue/date (+ company & party size for "just attending") */}
+                {selectedLocation && (
+                  <div className="rounded-xl border border-(--accent)/20 bg-(--accent)/5 p-4 text-center text-sm">
+                    <p className="font-semibold text-white">
+                      {selectedLocation.label} &middot; {fmtLocDate(selectedLocation.date, true)}
+                    </p>
+                    <p className="mt-0.5 text-white/60">
+                      {landing?.eventTime} &middot; {selectedLocation.venue}
+                    </p>
+                    {attendInfo && (
+                      <p className="mt-2 text-white/50">
+                        {attendInfo.company ? `${attendInfo.company} · ` : ""}
+                        {attendInfo.guests === 0
+                          ? "Just you"
+                          : `You +${attendInfo.guests} guest${attendInfo.guests === 1 ? "" : "s"}`}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Waiver status badge — only for racers (those who onboarded) */}
+                {!!personId && (
+                  <div
+                    className={`rounded-xl p-4 text-center ${waiverValid ? "border border-emerald-500/30 bg-emerald-500/8" : "border-2 border-amber-500/40 bg-amber-500/8"}`}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      {waiverValid ? (
+                        <>
+                          <svg
+                            className="w-5 h-5 text-emerald-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                            />
+                          </svg>
+                          <span className="text-emerald-400 font-bold text-sm">Waiver Signed</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg
+                            className="w-5 h-5 text-amber-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          <span className="text-amber-400 font-bold text-sm">Waiver Pending</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Reserved activities */}
+                {existingReservations.length > 0 && (
+                  <div>
+                    <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">
+                      Reserved Activities
+                    </h3>
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+                      {existingReservations.map((r, i) => (
+                        <div key={i} className="flex items-center justify-between">
+                          <div>
+                            <p className="text-white text-sm font-medium">
+                              {r.type === "racing"
+                                ? `Go-Kart Racing · ${r.track} Track`
+                                : r.type === "gel-blaster"
+                                  ? "Nexus Gel Blaster"
+                                  : r.type === "laser-tag"
+                                    ? "Nexus Laser Tag"
+                                    : r.type}
+                            </p>
+                            {r.time && (
+                              <p className="text-emerald-400/70 text-xs">{formatTime(r.time)}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-emerald-400 text-xs font-semibold">&#10003;</span>
+                            {r.billId && (
+                              <button
+                                onClick={() => handleCancelReservation(r.billId!)}
+                                disabled={cancellingBillId === r.billId}
+                                className="text-white/25 hover:text-red-400 transition-colors text-xs disabled:opacity-50"
+                                title="Cancel this reservation"
+                              >
+                                {cancellingBillId === r.billId ? (
+                                  <span className="w-3 h-3 border border-white/30 border-t-white/80 rounded-full animate-spin inline-block" />
+                                ) : (
+                                  "✕"
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Free-flow activities */}
+                {selectedFreeflow.length > 0 && (
+                  <div>
+                    <h3 className="text-xs text-white/40 uppercase tracking-[0.15em] font-semibold mb-2">
+                      Free-Flow Activities
+                    </h3>
+                    <div className="rounded-xl border border-white/10 bg-white/3 p-4 space-y-2">
+                      {selectedFreeflow.map((slug) => {
+                        const attr = freeflowAttractions.find((a) => a.slug === slug);
+                        return (
+                          <div key={slug} className="flex items-center gap-3">
+                            <span className="text-(--accent) text-xs">&#10003;</span>
+                            <span className="text-white/70 text-sm">{attr?.label || slug}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {bookingError && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-3 text-center">
+                    <p className="text-red-400 text-sm">{bookingError}</p>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-white/8 bg-white/3 p-4 text-xs text-white/40 space-y-1">
+                  <p>
+                    &middot; Please arrive{" "}
+                    <strong className="text-white/60">15 minutes early</strong> for check-in.
+                  </p>
+                  {event.includesLicense && !!personId && (
+                    <p>
+                      &middot; Racing license fee is{" "}
+                      <strong className="text-white/60">included</strong> &mdash; no charge.
+                    </p>
+                  )}
+                </div>
+
+                {!!personId && (
+                  <button
+                    onClick={() => setStep("dashboard")}
+                    className="w-full py-3 rounded-xl font-bold text-sm border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
+                  >
+                    &larr; Back to Activities
+                  </button>
                 )}
               </div>
-
-              {!!personId && (
-                <button
-                  onClick={() => setStep("dashboard")}
-                  className="w-full py-3 rounded-xl font-bold text-sm border border-white/20 text-white/70 hover:border-white/40 hover:text-white transition-colors"
-                >
-                  &larr; Back to Activities
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

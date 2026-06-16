@@ -1,5 +1,14 @@
 # Lessons Learned
 
+## No decorative emoji in UI/design — use @tabler/icons-react (2026-06-15)
+
+Owner feedback on the Christmas in July landing page: emoji used as icons/decoration (🎄🏎️🍸⏱)
+"look AI." Decorative emoji cheapen a designed page and read as AI-generated. **Rule: never use
+emoji as icons or flourishes in the product UI.** Use the project's icon library
+**`@tabler/icons-react`** (already a dependency) — e.g. `IconGlassCocktail`, `IconBowling`,
+`IconCar`, `IconGift`, `IconClock`, `IconChristmasTree`. Render `<IconX className="h-8 w-8
+text-(--accent)" stroke={1.5} />`. Plain text is fine when no icon fits; don't substitute an emoji.
+
 ## Express Lane eligibility must judge the WHOLE party, not the personId-bearing subset (2026-06-13)
 
 Ops flagged four reservations (W40849, W40705, W40712, W40861) that got Express Lane with "not
