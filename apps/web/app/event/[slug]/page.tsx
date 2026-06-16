@@ -170,51 +170,15 @@ export default function GroupEventPage() {
   const [nowMs, setNowMs] = useState<number | null>(null);
   // Snowflake image for react-snowfall (loaded client-side).
   const [snowImages, setSnowImages] = useState<HTMLImageElement[] | undefined>(undefined);
-  // Shake-to-flurry / "cause a blizzard" snow burst.
+  // "Make it snow" burst — a tap briefly cranks the snowfall (all platforms).
   const [flurry, setFlurry] = useState(false);
-  const [isTouch, setIsTouch] = useState(false);
   const flurryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastShake = useRef({ x: 0, y: 0, z: 0, t: 0 });
 
   const triggerFlurry = useCallback(() => {
     setFlurry(true);
     if (flurryTimer.current) clearTimeout(flurryTimer.current);
     flurryTimer.current = setTimeout(() => setFlurry(false), 2200);
   }, []);
-
-  const handleMotion = useCallback(
-    (e: DeviceMotionEvent) => {
-      const a = e.accelerationIncludingGravity;
-      if (!a) return;
-      const now = Date.now();
-      const dt = now - lastShake.current.t;
-      if (dt < 120) return;
-      const dx = (a.x ?? 0) - lastShake.current.x;
-      const dy = (a.y ?? 0) - lastShake.current.y;
-      const dz = (a.z ?? 0) - lastShake.current.z;
-      lastShake.current = { x: a.x ?? 0, y: a.y ?? 0, z: a.z ?? 0, t: now };
-      const jerk = (Math.sqrt(dx * dx + dy * dy + dz * dz) / dt) * 10000;
-      if (jerk > 900) triggerFlurry();
-    },
-    [triggerFlurry],
-  );
-
-  // "Cause a blizzard" / "shake your phone" button. On iOS, taps grant motion
-  // access (required); elsewhere it just bursts the snow.
-  const handleFlurryButton = useCallback(async () => {
-    triggerFlurry();
-    const DME = window.DeviceMotionEvent as unknown as {
-      requestPermission?: () => Promise<"granted" | "denied">;
-    };
-    if (DME && typeof DME.requestPermission === "function") {
-      try {
-        if ((await DME.requestPermission()) === "granted")
-          window.addEventListener("devicemotion", handleMotion);
-      } catch {
-        /* user declined */
-      }
-    }
-  }, [triggerFlurry, handleMotion]);
   // "Look up my RSVP" by email or phone.
   const [lookupOpen, setLookupOpen] = useState(false);
   const [lookupBusy, setLookupBusy] = useState(false);
@@ -293,22 +257,6 @@ export default function GroupEventPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time decorative image load
     setSnowImages([img]);
   }, [event]);
-
-  // ── Shake-to-flurry: detect touch (for copy) + auto-listen where allowed ───
-  useEffect(() => {
-    if (!event?.landing) return;
-    const touch = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time capability read
-    setIsTouch(touch);
-    // iOS gates devicemotion behind a tap (handled by the button); everywhere
-    // else we can listen immediately.
-    const DME = window.DeviceMotionEvent as unknown as { requestPermission?: unknown } | undefined;
-    const needsTap = !!DME && typeof DME.requestPermission === "function";
-    if (touch && !needsTap) {
-      window.addEventListener("devicemotion", handleMotion);
-      return () => window.removeEventListener("devicemotion", handleMotion);
-    }
-  }, [event, handleMotion]);
 
   // ── Hero video: honor reduced-motion / Save-Data, pick source by viewport ──
   // src starts null so SSR + first paint show the poster still; the effect then
@@ -1363,7 +1311,7 @@ export default function GroupEventPage() {
                     <p className="mb-3 text-xs uppercase tracking-[0.3em] text-white/60 md:text-sm">
                       {event.companyName}
                     </p>
-                    <h1 className="font-display text-5xl font-black uppercase leading-[0.92] tracking-tight text-white [-webkit-text-stroke:1.5px_rgba(0,0,0,0.45)] drop-shadow-[0_3px_12px_rgba(0,0,0,0.65)] sm:text-6xl md:text-8xl">
+                    <h1 className="font-display text-5xl uppercase leading-[0.92] tracking-tight text-white drop-shadow-[0_3px_16px_rgba(0,0,0,0.8)] sm:text-6xl md:text-8xl">
                       {landing.headline ?? event.eventTitle}
                     </h1>
                     {landing.freeBadge && (
@@ -1393,17 +1341,15 @@ export default function GroupEventPage() {
                     >
                       {landing.ctaLabel ?? "Sign Up"}
                     </button>
-                    {/* Fun: shake (mobile) / cause a blizzard (desktop) → snow burst */}
+                    {/* Fun: tap → snow burst (works on every platform) */}
                     <div className="mt-6">
                       <button
                         type="button"
-                        onClick={handleFlurryButton}
+                        onClick={triggerFlurry}
                         className="inline-flex items-center gap-1.5 text-xs font-medium text-white/55 transition-colors hover:text-white/90"
                       >
                         <IconSnowflake className="h-4 w-4" stroke={1.5} />
-                        {isTouch
-                          ? "Because we like fun — shake your phone!"
-                          : "We like to have fun — cause a blizzard!"}
+                        Because we like fun — tap to cause a blizzard!
                       </button>
                     </div>
                   </div>

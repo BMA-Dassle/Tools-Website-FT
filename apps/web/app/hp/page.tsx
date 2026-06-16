@@ -146,7 +146,7 @@ export default function HeadPinzHome() {
           poster="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
         >
           <source
-            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/headpinz-hero-v3.mp4"
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-nologo-720.mp4"
             type="video/mp4"
           />
         </video>
