@@ -8,19 +8,20 @@ import { modalBackdropProps } from "@/lib/a11y";
  * Have-A-Ball league signup modal.
  * Step 1: bowler info  ->  Step 2: card entry + join.
  *
- * Mid-season aware: on open it fetches a quote from the server (back-pay for
- * weeks already played + the go-forward weekly schedule) and submits a single
- * /join call. The server owns all money math — this component sends no amounts.
+ * On open it fetches a quote from the server (the go-forward weekly schedule
+ * for whatever weeks remain) and submits a single /join call. The server owns
+ * all money math — this component sends no amounts.
  */
 
 interface JoinPlan {
   status: "preseason" | "midseason" | "closed";
-  backPayWeeks: number;
-  backPayAmountCents: number;
   subStartDate: string;
   remainingCharges: number;
   weeklyTotalCents: number;
-  seasonTotalCents: number;
+  totalDueCents: number;
+  /** Weeks already played — disclosed as a retro payment owed, not charged here. */
+  missedWeeks: number;
+  retroAmountCents: number;
 }
 
 function usd(cents: number): string {
@@ -92,7 +93,7 @@ export default function SignupModal({ onClose }: Props) {
   const [planError, setPlanError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{ subscriptionId: string } | null>(null);
   const cardRef = useRef<CardCaptureHandle>(null);
-  // Stable per-mount id so a network retry can't double-charge the back-pay.
+  // Stable per-mount id so a network retry can't create a duplicate subscription.
   // Generated in an effect (crypto is impure / unavailable during SSR render).
   const joinAttemptId = useRef<string>("");
   useEffect(() => {
@@ -109,7 +110,7 @@ export default function SignupModal({ onClose }: Props) {
     };
   }, []);
 
-  // Fetch the current quote (back-pay + go-forward schedule) on open.
+  // Fetch the current quote (go-forward schedule for the remaining weeks) on open.
   useEffect(() => {
     let cancelled = false;
     fetch("/api/leagues/have-a-ball/quote")
@@ -177,10 +178,8 @@ export default function SignupModal({ onClose }: Props) {
   }
 
   const headerSub = plan
-    ? plan.backPayWeeks > 0
-      ? `Season's underway · jump in · ${usd(plan.weeklyTotalCents)}/week · ball included`
-      : `Starts ${longDate(plan.subStartDate)} · ${usd(plan.weeklyTotalCents)}/week · ball included`
-    : "$21.30/week · 12-week season · ball included";
+    ? `Starts ${longDate(plan.subStartDate)} · ${usd(plan.weeklyTotalCents)}/week · ball included`
+    : "$21.30/week · ball included";
 
   return (
     <div
@@ -248,21 +247,28 @@ export default function SignupModal({ onClose }: Props) {
 
               {step === "info" && (
                 <form onSubmit={handleInfoNext} className="space-y-4">
-                  {plan && plan.backPayWeeks > 0 && (
+                  {plan && plan.status === "midseason" && (
                     <div className="rounded-lg border border-[#fd5b56]/40 bg-[#fd5b56]/10 p-4 text-sm">
                       <p className="text-white font-semibold mb-1">
-                        The season&apos;s already underway — here&apos;s how joining now works:
+                        The season&apos;s already underway — jump in now:
                       </p>
                       <p className="text-white/75 leading-relaxed">
-                        You&apos;ll pay a one-time{" "}
-                        <strong className="text-white">{usd(plan.backPayAmountCents)}</strong>{" "}
-                        catch-up today for the {plan.backPayWeeks} week
-                        {plan.backPayWeeks === 1 ? "" : "s"} already played, then{" "}
+                        Your card is set up for the{" "}
+                        <strong className="text-white">
+                          {plan.remainingCharges} remaining week
+                        </strong>
+                        {plan.remainingCharges === 1 ? "" : "s"} —{" "}
                         <strong className="text-white">{usd(plan.weeklyTotalCents)}/week</strong>{" "}
-                        starting {longDate(plan.subStartDate)}. Same {usd(plan.seasonTotalCents)}{" "}
-                        season total as everyone else — you&apos;ll confirm the card on the next
-                        step.
+                        starting {longDate(plan.subStartDate)}. No charge today.
                       </p>
+                      {plan.missedWeeks > 0 && (
+                        <p className="text-white/75 leading-relaxed mt-2">
+                          Heads up: you&apos;ll also be responsible for a one-time retro payment of{" "}
+                          <strong className="text-white">{usd(plan.retroAmountCents)}</strong> for
+                          the {plan.missedWeeks} week{plan.missedWeeks === 1 ? "" : "s"} already
+                          played. A HeadPinz team member will arrange this with you separately.
+                        </p>
+                      )}
                     </div>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -354,45 +360,31 @@ export default function SignupModal({ onClose }: Props) {
                     <p className="text-white font-semibold mb-2">
                       Signing up: {bowler.firstName} {bowler.lastName}
                     </p>
-                    {plan && plan.backPayWeeks > 0 ? (
+                    {plan ? (
                       <>
-                        <div className="flex justify-between py-1">
-                          <span>
-                            Catch-up today ({plan.backPayWeeks} week
-                            {plan.backPayWeeks === 1 ? "" : "s"} already played)
-                          </span>
-                          <strong className="text-white">{usd(plan.backPayAmountCents)}</strong>
-                        </div>
-                        <div className="flex justify-between py-1 border-t border-white/10 mt-1 pt-2">
-                          <span>
-                            Then {usd(plan.weeklyTotalCents)}/week × {plan.remainingCharges}, from{" "}
-                            {longDate(plan.subStartDate)}
-                          </span>
+                        <p>
+                          Your card will be charged{" "}
                           <strong className="text-white">
-                            {usd(plan.weeklyTotalCents * plan.remainingCharges)}
-                          </strong>
-                        </div>
-                        <div className="flex justify-between py-1 border-t border-white/10 mt-1 pt-2 text-white">
-                          <span className="font-semibold">Season total</span>
-                          <strong>{usd(plan.seasonTotalCents)}</strong>
-                        </div>
-                        <p className="mt-3 text-xs text-white/45">
-                          You&apos;ll be charged {usd(plan.backPayAmountCents)} today; weekly
-                          billing starts {longDate(plan.subStartDate)}. Cancel any time by
-                          contacting HeadPinz.
+                            {usd(plan.weeklyTotalCents)} every week for {plan.remainingCharges} week
+                            {plan.remainingCharges === 1 ? "" : "s"}
+                          </strong>{" "}
+                          ($20 + 6.5% Lee County tax), starting{" "}
+                          <strong className="text-white">{longDate(plan.subStartDate)}</strong>.
+                          Total: {usd(plan.totalDueCents)}. You won&apos;t be charged anything
+                          today. Cancel any time by contacting HeadPinz.
                         </p>
+                        {plan.missedWeeks > 0 && (
+                          <p className="mt-3 rounded-md border border-[#fd5b56]/40 bg-[#fd5b56]/10 px-3 py-2 text-white/80">
+                            <strong className="text-white">One-time retro payment:</strong> because
+                            the season is underway, you&apos;re also responsible for a one-time{" "}
+                            <strong className="text-white">{usd(plan.retroAmountCents)}</strong>{" "}
+                            retro payment for the {plan.missedWeeks} week
+                            {plan.missedWeeks === 1 ? "" : "s"} already played. A HeadPinz team
+                            member will arrange this with you separately — it is{" "}
+                            <strong>not</strong> charged here.
+                          </p>
+                        )}
                       </>
-                    ) : plan ? (
-                      <p>
-                        Your card will be charged{" "}
-                        <strong className="text-white">
-                          {usd(plan.weeklyTotalCents)} every week for {plan.remainingCharges} weeks
-                        </strong>{" "}
-                        ($20 + 6.5% Lee County tax), starting{" "}
-                        <strong className="text-white">{longDate(plan.subStartDate)}</strong>.
-                        Season total: {usd(plan.seasonTotalCents)}. You won&apos;t be charged
-                        anything today. Cancel any time by contacting HeadPinz.
-                      </p>
                     ) : (
                       <p className="text-white/40">Loading pricing…</p>
                     )}
@@ -423,11 +415,7 @@ export default function SignupModal({ onClose }: Props) {
                         boxShadow: "0 0 24px rgba(253,91,86,0.4)",
                       }}
                     >
-                      {submitting
-                        ? "Processing…"
-                        : plan && plan.backPayWeeks > 0
-                          ? `Pay ${usd(plan.backPayAmountCents)} & Reserve My Spot`
-                          : "Reserve My Spot"}
+                      {submitting ? "Processing…" : "Reserve My Spot"}
                     </button>
                   </div>
                 </div>
@@ -450,23 +438,18 @@ export default function SignupModal({ onClose }: Props) {
                     You&apos;re In, {bowler.firstName}!
                   </h3>
                   <p className="text-white/60 text-sm max-w-md mx-auto">
-                    {plan && plan.backPayWeeks > 0 ? (
+                    Your first weekly charge runs on{" "}
+                    <strong className="text-white">
+                      {plan ? longDate(plan.subStartDate) : "the start date"}
+                    </strong>
+                    .{" "}
+                    {plan && plan.missedWeeks > 0 && (
                       <>
-                        We charged{" "}
-                        <strong className="text-white">{usd(plan.backPayAmountCents)}</strong> for
-                        the weeks already played. Your weekly {usd(plan.weeklyTotalCents)} billing
-                        starts <strong className="text-white">{longDate(plan.subStartDate)}</strong>
-                        .
+                        We&apos;ll reach out about the one-time{" "}
+                        <strong className="text-white">{usd(plan.retroAmountCents)}</strong> retro
+                        payment for the weeks already played.{" "}
                       </>
-                    ) : (
-                      <>
-                        Your first weekly charge runs on{" "}
-                        <strong className="text-white">
-                          {plan ? longDate(plan.subStartDate) : "the start date"}
-                        </strong>
-                        .
-                      </>
-                    )}{" "}
+                    )}
                     We&apos;ll email ball selection and lane details soon.
                   </p>
                   <div className="inline-block rounded-lg bg-white/5 border border-white/10 px-4 py-2 text-xs text-white/50">

@@ -11,7 +11,6 @@ const bg = "#0a1628";
 
 interface JoinPlan {
   status: "preseason" | "midseason" | "closed";
-  backPayWeeks: number;
   remainingCharges: number;
 }
 
@@ -26,7 +25,7 @@ export default function HaveABallPage() {
       .catch(() => {});
   }, []);
 
-  const midSeason = plan?.status === "midseason" && plan.backPayWeeks > 0;
+  const midSeason = plan?.status === "midseason";
 
   return (
     <div style={{ backgroundColor: bg }}>
@@ -192,7 +191,7 @@ export default function HaveABallPage() {
           </div>
           <p className="text-white/40 text-xs mt-4 text-center">
             {midSeason
-              ? "Season's underway — join now, catch up on the weeks already played in one charge, then $20 auto-billed each week. Plus 6.5% Lee County tax."
+              ? "Season's underway — your card is set up for the weeks remaining ($20 auto-billed each week, nothing charged today). You'll also owe a one-time retro payment for the weeks already played, arranged separately with our team. Plus 6.5% Lee County tax."
               : "Your card is charged $20 automatically each week starting May 26, 2026. No charge today. Plus 6.5% Lee County tax."}
           </p>
           <div className="text-center mt-8">
@@ -298,11 +297,11 @@ export default function HaveABallPage() {
         items={[
           {
             q: "When does the league start?",
-            a: "The season started Tuesday, May 26, 2026 at 6:30 PM and runs 12 consecutive weeks. It's already underway — you can still join mid-season. You'll catch up on the weeks already played in a single charge, then continue with the regular weekly billing.",
+            a: "The season started Tuesday, May 26, 2026 at 6:30 PM and runs 12 consecutive weeks. It's already underway — you can still join mid-season. Your card is set up for the weeks that remain; the weeks already played are handled as a one-time retro payment arranged with our team.",
           },
           {
             q: "How much does it cost?",
-            a: "$20 per person per week for 12 weeks ($240, plus 6.5% Lee County sales tax = $255.60 total). $14.50 goes to lineage (lanes + shoes), $5.50 goes toward your end-of-season ball. Your card is auto-charged each week — no big upfront payment. Joining mid-season costs the same total: weeks already played are charged once today, the rest bill weekly.",
+            a: "$20 per person per week for 12 weeks ($240, plus 6.5% Lee County sales tax = $255.60 for the full season). $14.50 goes to lineage (lanes + shoes), $5.50 goes toward your end-of-season ball. Your card is auto-charged each week — no big upfront payment. Joining mid-season? Your card is billed weekly only for the weeks that remain, and the weeks already played are settled as a one-time retro payment arranged with our team.",
           },
           {
             q: "Do I really get to keep the ball?",
@@ -318,7 +317,7 @@ export default function HaveABallPage() {
           },
           {
             q: "When will my card be charged?",
-            a: "If you sign up before the season, the first $20 charge runs on the start date and then weekly. If you join mid-season, you're charged once today for the weeks already played, then $20 (plus tax) automatically each week until the season ends.",
+            a: "If you sign up before the season, the first $20 charge runs on the start date and then weekly. If you join mid-season, nothing is charged at signup — your weekly $20 (plus tax) billing starts the next Tuesday and runs until the season ends. The weeks already played are handled as a one-time retro payment arranged with our team.",
           },
           {
             q: "How do I cancel?",
@@ -353,7 +352,7 @@ export default function HaveABallPage() {
           </h2>
           <p className="text-white/70 max-w-lg mx-auto mb-8">
             {midSeason
-              ? "The season's already rolling — lock your spot now, catch up on the weeks played, and you're in."
+              ? "The season's already rolling — lock your spot now and your card picks up the weeks remaining. A one-time retro payment for the weeks already played is arranged separately."
               : "Lock your spot in the Have-A-Ball league now — first charge runs May 26, not today."}
           </p>
           <button

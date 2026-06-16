@@ -1,12 +1,12 @@
 import { HAB_LAST_CHARGE_DATE, habFormatDate, habFormatUsd, type JoinPlan } from "./schedule";
 
 /**
- * Have-A-Ball signup emails — back-pay aware.
+ * Have-A-Ball signup emails.
  *
  * Two distinct sends on each signup:
  *   - bowler confirmation (customer-facing)
- *   - staff notification (ops-facing) — spells out the back-pay charge and the
- *     subscription that was created, with amounts, dates, and Square IDs.
+ *   - staff notification (ops-facing) — spells out the subscription that was
+ *     created, with the weekly amount, dates, and Square IDs.
  * Both render the real money breakdown from the authoritative JoinPlan.
  */
 
@@ -35,8 +35,6 @@ export interface HabEmailParams {
   dob?: string;
   teamName?: string;
   subscriptionId: string;
-  /** Square payment ID for the one-time back-pay charge (null if none). */
-  backPayPaymentId?: string | null;
   plan: JoinPlan;
 }
 
@@ -46,22 +44,25 @@ export function renderHabEmail(p: HabEmailParams): string {
     ? `<p style="margin:0 0 8px 0"><strong>Team / Bowling with:</strong> ${escape(p.teamName)}</p>`
     : "";
 
-  // Billing block adapts to whether there's back-pay (mid-season) or not.
-  const backPayBlock =
-    plan.backPayWeeks > 0
-      ? `<p style="margin:0 0 8px 0;line-height:1.5">Charged today: <strong>${habFormatUsd(
-          plan.backPayAmountCents,
-        )}</strong> — ${plan.backPayWeeks} week${plan.backPayWeeks === 1 ? "" : "s"} already played (catch-up).</p>
-         <p style="margin:0 0 8px 0;line-height:1.5">Then <strong>${habFormatUsd(
-           plan.weeklyTotalCents,
-         )} every week for ${plan.remainingCharges} weeks</strong>, starting <strong>${habFormatDate(
-           plan.subStartDate,
-         )}</strong>.</p>`
-      : `<p style="margin:0 0 8px 0;line-height:1.5">Your card will be charged <strong>${habFormatUsd(
-          plan.weeklyTotalCents,
-        )} every week for ${plan.remainingCharges} weeks</strong>, starting <strong>${habFormatDate(
-          plan.subStartDate,
-        )}</strong>. No charge today.</p>`;
+  const billingBlock = `<p style="margin:0 0 8px 0;line-height:1.5">Your card will be charged <strong>${habFormatUsd(
+    plan.weeklyTotalCents,
+  )} every week for ${plan.remainingCharges} week${
+    plan.remainingCharges === 1 ? "" : "s"
+  }</strong>, starting <strong>${habFormatDate(plan.subStartDate)}</strong>. No charge today.</p>`;
+
+  // Mid-season joiners owe a one-time retro payment for the weeks already
+  // played. This is disclosed here but collected separately by HeadPinz staff —
+  // the signup did NOT charge it.
+  const retroBlock =
+    plan.missedWeeks > 0
+      ? `<div style="background:#fff7f7;border:1px solid #f3c0bf;padding:14px 18px;margin:12px 0;border-radius:6px">
+           <p style="margin:0;font-size:14px;line-height:1.5;color:#1a1a1a"><strong>One-time retro payment:</strong> because the season is already underway, you're also responsible for a one-time retro payment of <strong>${habFormatUsd(
+             plan.retroAmountCents,
+           )}</strong> for the ${plan.missedWeeks} week${
+             plan.missedWeeks === 1 ? "" : "s"
+           } already played. A HeadPinz team member will arrange this with you separately — it was <strong>not</strong> charged today.</p>
+         </div>`
+      : "";
 
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
@@ -77,9 +78,7 @@ export function renderHabEmail(p: HabEmailParams): string {
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">Hey ${escape(p.firstName)} — you're officially signed up for the Have-A-Ball League. See you on the lanes!</p>
 
           <div style="background:#fff7f7;border-left:4px solid #fd5b56;padding:16px 20px;margin:20px 0;border-radius:4px">
-            <p style="margin:0 0 6px 0;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1px">${
-              plan.backPayWeeks > 0 ? "Your First League Night" : "League Starts"
-            }</p>
+            <p style="margin:0 0 6px 0;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1px">League Night</p>
             <p style="margin:0;font-size:22px;font-weight:bold;color:#1a1a1a">Tuesdays · 6:30 PM</p>
             <p style="margin:8px 0 0 0;font-size:13px;color:#555">HeadPinz Fort Myers, 14513 Global Parkway</p>
           </div>
@@ -91,12 +90,13 @@ export function renderHabEmail(p: HabEmailParams): string {
           ${teamLine}
 
           <h3 style="margin:24px 0 12px 0;font-size:16px;color:#1a1a1a;border-bottom:1px solid #eee;padding-bottom:8px">Billing</h3>
-          ${backPayBlock}
+          ${billingBlock}
+          ${retroBlock}
           <p style="margin:0 0 4px 0;font-size:14px;color:#555">· $14.50 lineage (lanes + shoes) + $5.50 toward your ball, per week</p>
           <p style="margin:0 0 4px 0;font-size:14px;color:#555">· Prices include 6.5% Lee County sales tax</p>
-          <p style="margin:12px 0 0 0;font-size:14px;color:#555">Season total: ${habFormatUsd(
-            plan.seasonTotalCents,
-          )} (12 weeks — same for every bowler).</p>
+          <p style="margin:12px 0 0 0;font-size:14px;color:#555">Total: ${habFormatUsd(
+            plan.totalDueCents,
+          )} over ${plan.remainingCharges} week${plan.remainingCharges === 1 ? "" : "s"}.</p>
 
           <h3 style="margin:24px 0 12px 0;font-size:16px;color:#1a1a1a;border-bottom:1px solid #eee;padding-bottom:8px">What's Next</h3>
           <p style="margin:0 0 8px 0;line-height:1.5">We'll send a ball-selection email — pick between the Brunswick T-Zone or Columbia White Dot, four colors each.</p>
@@ -115,49 +115,40 @@ export function renderHabEmail(p: HabEmailParams): string {
 
 /**
  * Staff/ops notification — spells out exactly what was set up for this signup:
- * the one-time back-pay charge AND the recurring subscription, with amounts,
- * dates, and Square IDs so the team can reconcile against Square.
+ * the recurring subscription, with the weekly amount, dates, and Square IDs so
+ * the team can reconcile against Square.
  */
 export function renderHabStaffEmail(p: HabEmailParams): string {
   const { plan } = p;
-  const midSeason = plan.backPayWeeks > 0;
+  const midSeason = plan.status === "midseason";
 
   const row = (label: string, value: string) =>
     `<tr><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#666;font-size:13px;white-space:nowrap">${label}</td>` +
     `<td style="padding:6px 12px;border-bottom:1px solid #eee;color:#1a1a1a;font-size:14px;font-weight:600">${value}</td></tr>`;
-
-  const subTotalCents = plan.remainingCharges * plan.weeklyTotalCents;
-
-  // Back-pay row(s) — only when there are weeks already played.
-  const backPayRows = midSeason
-    ? row(
-        "Back-pay charged today",
-        `${habFormatUsd(plan.backPayAmountCents)} · ${plan.backPayWeeks} week${
-          plan.backPayWeeks === 1 ? "" : "s"
-        } already played`,
-      ) +
-      (p.backPayPaymentId
-        ? row(
-            "Back-pay payment ID",
-            `<span style="font-family:monospace;font-size:12px">${escape(p.backPayPaymentId)}</span>`,
-          )
-        : row(
-            "Back-pay payment ID",
-            '<span style="color:#c00">— not recorded (check Square)</span>',
-          ))
-    : row("Back-pay charged today", "None — signed up before the season");
 
   const subscriptionRows =
     plan.remainingCharges > 0
       ? row(
           "Subscription",
           `${habFormatUsd(plan.weeklyTotalCents)}/week × ${plan.remainingCharges} (${habFormatUsd(
-            subTotalCents,
+            plan.totalDueCents,
           )})`,
         ) +
         row("First weekly charge", habFormatDate(plan.subStartDate)) +
         row("Final charge", habFormatDate(HAB_LAST_CHARGE_DATE))
       : row("Subscription", "None — final week");
+
+  // Retro owed for weeks already played — NOT charged by the form. Flagged here
+  // in red so staff know to collect it manually.
+  const retroRow =
+    plan.missedWeeks > 0
+      ? row(
+          "Retro to collect (NOT charged)",
+          `<span style="color:#c00">${habFormatUsd(plan.retroAmountCents)} · ${
+            plan.missedWeeks
+          } week${plan.missedWeeks === 1 ? "" : "s"} already played — collect separately</span>`,
+        )
+      : "";
 
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
@@ -169,7 +160,9 @@ export function renderHabStaffEmail(p: HabEmailParams): string {
           <h1 style="margin:0;font-size:22px">New signup: ${escape(p.firstName)} ${escape(p.lastName)}</h1>
           <p style="margin:6px 0 0 0;font-size:13px;color:#9fb0c8">${
             midSeason
-              ? `Mid-season — ${habFormatUsd(plan.backPayAmountCents)} back-pay charged + subscription created`
+              ? `Mid-season — subscription for the ${plan.remainingCharges} remaining week${
+                  plan.remainingCharges === 1 ? "" : "s"
+                } created · ${habFormatUsd(plan.retroAmountCents)} retro to collect`
               : "Pre-season — full 12-week subscription created"
           }</p>
         </td></tr>
@@ -186,16 +179,22 @@ export function renderHabStaffEmail(p: HabEmailParams): string {
 
           <h3 style="margin:0 0 10px 0;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#888">What Was Set Up</h3>
           <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:8px;overflow:hidden">
-            ${backPayRows}
             ${subscriptionRows}
-            ${row("Season total (all bowlers)", habFormatUsd(plan.seasonTotalCents))}
+            ${retroRow}
+            ${row("Subscription total (auto-charged)", habFormatUsd(plan.totalDueCents))}
             ${row("Subscription ID", `<span style="font-family:monospace;font-size:12px">${escape(p.subscriptionId)}</span>`)}
           </table>
 
           <p style="margin:20px 0 0 0;font-size:12px;color:#aaa">
-            Reconcile in Square: the back-pay shows as a one-time payment; the subscription bills weekly through ${habFormatDate(
+            Reconcile in Square: the subscription bills weekly through ${habFormatDate(
               HAB_LAST_CHARGE_DATE,
-            )}.
+            )}.${
+              plan.missedWeeks > 0
+                ? ` The ${habFormatUsd(plan.retroAmountCents)} retro for ${plan.missedWeeks} week${
+                    plan.missedWeeks === 1 ? "" : "s"
+                  } already played was NOT charged — collect it separately.`
+                : ""
+            }
           </p>
         </td></tr>
       </table>
@@ -241,9 +240,9 @@ export async function sendHabConfirmationEmail(p: HabEmailParams): Promise<void>
   };
 
   const staffSubject =
-    p.plan.backPayWeeks > 0
-      ? `Have-A-Ball signup: ${p.firstName} ${p.lastName} — ${habFormatUsd(p.plan.backPayAmountCents)} back-pay + subscription`
-      : `Have-A-Ball signup: ${p.firstName} ${p.lastName} — subscription`;
+    p.plan.missedWeeks > 0
+      ? `Have-A-Ball signup: ${p.firstName} ${p.lastName} — subscription (${p.plan.remainingCharges} wk) + ${habFormatUsd(p.plan.retroAmountCents)} retro to collect`
+      : `Have-A-Ball signup: ${p.firstName} ${p.lastName} — subscription (${p.plan.remainingCharges} wk)`;
 
   await Promise.all([
     send(

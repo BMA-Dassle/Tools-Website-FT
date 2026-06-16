@@ -6,13 +6,17 @@
  * floating-point money.
  *
  * The league bills 12 weekly charges of $20 + Lee County tax, every Tuesday
- * from the season start. A mid-season joiner pays the SAME season total:
- *   - back-pay = weeks already played (or playable today), charged once today
- *   - subscription = remaining Tuesdays, capped to stop after the final charge
+ * from the season start. The online form only sets up the SUBSCRIPTION over the
+ * remaining Tuesdays — it does not charge for weeks already played. A mid-season
+ * joiner is, however, responsible for a one-time RETRO payment covering the
+ * weeks already missed; that amount is disclosed here (missedWeeks /
+ * retroAmountCents) for the form + emails, but collected separately by staff —
+ * the form never charges it.
  *
- * Join-day rule (confirmed with ops): signing up on a league Tuesday counts
- * that day as a back-pay week (they bowl that night); the subscription starts
- * the NEXT Tuesday. Deterministic — no reliance on same-day Square billing.
+ * Join-day rule: the subscription starts the NEXT Tuesday after signup, so a
+ * bowler who joins on a league Tuesday is not billed for that night by the
+ * subscription (it counts as a missed/retro week). Deterministic — no reliance
+ * on same-day Square billing.
  */
 
 /** HeadPinz Fort Myers Square location. */
@@ -66,18 +70,22 @@ export type JoinStatus = "preseason" | "midseason" | "closed";
 
 export interface JoinPlan {
   status: JoinStatus;
-  /** Number of weeks billed as a one-time back-pay lump sum (0 pre-season). */
-  backPayWeeks: number;
-  /** Back-pay total incl. tax, in cents. */
-  backPayAmountCents: number;
-  /** YYYY-MM-DD the recurring subscription should start (next unbilled Tuesday). */
+  /** YYYY-MM-DD the recurring subscription starts (next upcoming Tuesday). */
   subStartDate: string;
   /** Number of remaining weekly subscription charges. */
   remainingCharges: number;
   /** Per-week charge incl. tax, in cents. */
   weeklyTotalCents: number;
-  /** Full-season total incl. tax, in cents (same for every bowler). */
-  seasonTotalCents: number;
+  /** Subscription total over the remaining weeks (auto-charged), in cents. */
+  totalDueCents: number;
+  /**
+   * Weeks already played before this signup. DISCLOSURE ONLY — the bowler owes
+   * a one-time retro payment for these, collected separately by staff. The form
+   * never charges this.
+   */
+  missedWeeks: number;
+  /** One-time retro amount owed for missed weeks incl. tax, in cents (disclosure only). */
+  retroAmountCents: number;
   /** canceled_date to cap the subscription at the final charge. */
   canceledDate: string;
 }
@@ -94,32 +102,34 @@ export function habTodayYmd(now: Date = new Date()): string {
 }
 
 /**
- * Compute the back-pay + go-forward breakdown for a bowler joining on `todayYmd`.
+ * Compute the go-forward subscription plan for a bowler joining on `todayYmd`,
+ * plus the disclosure-only retro amount owed for weeks already missed.
  *
- * - Before the season: back-pay = 0, full 12-week subscription from May 26.
- * - During the season: back-pay covers every billing date on or before today
- *   (today counts — they bowl tonight); the subscription starts the next date.
+ * - Before the season: full 12-week subscription from May 26, no retro.
+ * - During the season: a subscription over the remaining (future) Tuesdays only.
+ *   Weeks already played are surfaced as missedWeeks / retroAmountCents so the
+ *   form + emails can tell the bowler they owe a one-time retro payment — but
+ *   the form never charges it (staff collect it separately).
  * - After the final charge: closed.
  *
- * Invariant: backPayWeeks + remainingCharges === HAB_TOTAL_WEEKS (unless closed),
- * so every bowler's season total is identical.
+ * Invariant: missedWeeks + remainingCharges === HAB_TOTAL_WEEKS (unless closed).
  */
 export function computeJoinPlan(todayYmd: string): JoinPlan {
   const base = {
     weeklyTotalCents: HAB_WEEKLY_TOTAL_CENTS,
-    seasonTotalCents: HAB_SEASON_TOTAL_CENTS,
     canceledDate: HAB_CANCEL_DATE,
   };
 
-  // Pre-season — original behavior: no back-pay, full season from day one.
+  // Pre-season — full season from day one, nothing missed.
   if (todayYmd < HAB_SEASON_START) {
     return {
       ...base,
       status: "preseason",
-      backPayWeeks: 0,
-      backPayAmountCents: 0,
       subStartDate: HAB_SEASON_START,
       remainingCharges: HAB_TOTAL_WEEKS,
+      totalDueCents: HAB_TOTAL_WEEKS * HAB_WEEKLY_TOTAL_CENTS,
+      missedWeeks: 0,
+      retroAmountCents: 0,
     };
   }
 
@@ -128,15 +138,17 @@ export function computeJoinPlan(todayYmd: string): JoinPlan {
     return {
       ...base,
       status: "closed",
-      backPayWeeks: HAB_TOTAL_WEEKS,
-      backPayAmountCents: 0,
       subStartDate: HAB_LAST_CHARGE_DATE,
       remainingCharges: 0,
+      totalDueCents: 0,
+      missedWeeks: HAB_TOTAL_WEEKS,
+      retroAmountCents: HAB_TOTAL_WEEKS * HAB_WEEKLY_TOTAL_CENTS,
     };
   }
 
-  // Mid-season: today counts as back-pay; subscription starts the next date.
-  const backPayWeeks = HAB_BILLING_DATES.filter((d) => d <= todayYmd).length;
+  // Mid-season: subscription picks up the remaining (future) Tuesdays only.
+  // Weeks on or before today are "missed" — disclosed as a retro amount owed.
+  const missedWeeks = HAB_BILLING_DATES.filter((d) => d <= todayYmd).length;
   const futureDates = HAB_BILLING_DATES.filter((d) => d > todayYmd);
   const remainingCharges = futureDates.length;
   const subStartDate = futureDates[0] ?? HAB_LAST_CHARGE_DATE;
@@ -144,10 +156,11 @@ export function computeJoinPlan(todayYmd: string): JoinPlan {
   return {
     ...base,
     status: "midseason",
-    backPayWeeks,
-    backPayAmountCents: backPayWeeks * HAB_WEEKLY_TOTAL_CENTS,
     subStartDate,
     remainingCharges,
+    totalDueCents: remainingCharges * HAB_WEEKLY_TOTAL_CENTS,
+    missedWeeks,
+    retroAmountCents: missedWeeks * HAB_WEEKLY_TOTAL_CENTS,
   };
 }
 

@@ -13,17 +13,16 @@ import {
 import { sendHabConfirmationEmail } from "./email";
 
 /**
- * Have-A-Ball mid-season join orchestration.
+ * Have-A-Ball join orchestration.
  *
- * One atomic flow replacing the old 3-call modal sequence:
+ * One atomic flow:
  *   1. Create Square customer (email-only — phone kept in our record)
  *   2. Save the card on file
  *   3. Recompute the join plan SERVER-SIDE (never trust client amounts)
- *   4. Back-pay: charge the saved card once for weeks already played
- *      (real catalog order + Lee County tax, so it itemizes correctly)
- *   5. Subscription: create it starting the next Tuesday, capped via
- *      canceled_date so it stops after the final season charge
- *   6. Persist the signup record + send the confirmation email
+ *   4. Subscription: create it starting the next Tuesday, capped via
+ *      canceled_date so it stops after the final season charge. A mid-season
+ *      joiner is billed only for the weeks that remain — no catch-up charge.
+ *   5. Persist the signup record + send the confirmation email
  *
  * Money rule (CLAUDE.md): the displayed quote and the charge derive from the
  * SAME computeJoinPlan() — and we recompute here at charge time rather than
@@ -52,7 +51,7 @@ export interface HabJoinInput {
   dob: string;
   teamName?: string | null;
   smsOptIn?: boolean;
-  /** Client-generated id so a network retry can't double-charge the back-pay. */
+  /** Client-generated id so a network retry can't create a duplicate subscription. */
   joinAttemptId: string;
 }
 
@@ -61,7 +60,6 @@ export interface HabJoinResult {
   subscriptionId: string;
   customerId: string;
   cardId: string;
-  backPayPaymentId: string | null;
   plan: JoinPlan;
 }
 
@@ -109,69 +107,6 @@ async function saveCard(p: {
   return { cardId: "", error: data.errors?.[0]?.detail || "Card save failed" };
 }
 
-/** Build an order with N × Have-A-Ball item + Lee County tax. Used for back-pay. */
-async function createBackPayOrder(p: {
-  customerId: string;
-  weeks: number;
-}): Promise<{ orderId: string; totalCents: number; error?: string }> {
-  const TAX_UID = "line-tax";
-  const res = await fetch(`${SQUARE_BASE}/orders`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: randomUUID(),
-      order: {
-        location_id: HAB_LOCATION_ID,
-        state: "OPEN",
-        customer_id: p.customerId,
-        reference_id: "hab-backpay",
-        line_items: [
-          {
-            catalog_object_id: HAB_ITEM_VARIATION_ID,
-            quantity: String(p.weeks),
-            applied_taxes: [{ tax_uid: TAX_UID }],
-          },
-        ],
-        taxes: [{ uid: TAX_UID, catalog_object_id: HAB_LEE_COUNTY_TAX_ID, scope: "LINE_ITEM" }],
-      },
-    }),
-  });
-  const data = await res.json();
-  if (data.order?.id) {
-    return { orderId: data.order.id, totalCents: data.order.total_money?.amount ?? 0 };
-  }
-  console.error("[hab/join] back-pay order failed:", JSON.stringify(data));
-  return { orderId: "", totalCents: 0, error: data.errors?.[0]?.detail || "Back-pay order failed" };
-}
-
-/** Charge the saved card on file for the back-pay order total. */
-async function chargeBackPay(p: {
-  customerId: string;
-  cardId: string;
-  orderId: string;
-  amountCents: number;
-  idempotencyKey: string;
-}): Promise<{ paymentId: string; error?: string }> {
-  const res = await fetch(`${SQUARE_BASE}/payments`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: p.idempotencyKey,
-      source_id: p.cardId,
-      customer_id: p.customerId,
-      location_id: HAB_LOCATION_ID,
-      order_id: p.orderId,
-      amount_money: { amount: p.amountCents, currency: "USD" },
-      autocomplete: true,
-      note: "Have-A-Ball mid-season back-pay (weeks already played)",
-    }),
-  });
-  const data = await res.json();
-  if (data.payment?.id) return { paymentId: data.payment.id };
-  console.error("[hab/join] back-pay charge failed:", JSON.stringify(data));
-  return { paymentId: "", error: data.errors?.[0]?.detail || "Back-pay charge failed" };
-}
-
 /** Draft order used as the subscription's recurring billing template. */
 async function createSubTemplate(customerId: string): Promise<{ orderId: string; error?: string }> {
   const TAX_UID = "line-tax";
@@ -207,12 +142,13 @@ async function createSubscription(p: {
   startDate: string;
   canceledDate: string;
   orderTemplateId: string;
+  idempotencyKey: string;
 }): Promise<{ subscriptionId: string; status: string; error?: string }> {
   const res = await fetch(`${SQUARE_BASE}/subscriptions`, {
     method: "POST",
     headers: sqHeaders(),
     body: JSON.stringify({
-      idempotency_key: randomUUID(),
+      idempotency_key: p.idempotencyKey,
       location_id: HAB_LOCATION_ID,
       plan_variation_id: HAB_PLAN_VARIATION_ID,
       customer_id: p.customerId,
@@ -246,8 +182,7 @@ export async function processHabJoin(
     return { error: "The Have-A-Ball season has ended — signups are closed.", status: 409 };
   }
   if (plan.remainingCharges === 0) {
-    // Final week: nothing left to subscribe to. Hand to staff rather than
-    // charging a full season as a lump sum.
+    // Final week: nothing left to subscribe to. Hand to staff.
     return {
       error: "It's the final week of the season — please call HeadPinz to join.",
       status: 409,
@@ -266,35 +201,11 @@ export async function processHabJoin(
   const card = await saveCard({ customerId: cust.customerId, cardToken: input.cardToken });
   if (card.error) return { error: card.error };
 
-  // 3. Back-pay (weeks already played) — one immediate card-on-file charge.
-  let backPayPaymentId: string | null = null;
-  if (plan.backPayWeeks > 0) {
-    const order = await createBackPayOrder({
-      customerId: cust.customerId,
-      weeks: plan.backPayWeeks,
-    });
-    if (order.error) return { error: `Back-pay: ${order.error}` };
-
-    const charge = await chargeBackPay({
-      customerId: cust.customerId,
-      cardId: card.cardId,
-      orderId: order.orderId,
-      amountCents: order.totalCents, // Square-authoritative total (tax included)
-      // Square caps idempotency_key at 45 chars. joinAttemptId is a 36-char
-      // UUID, so the prefix must stay short: "bp-" + 36 = 39.
-      idempotencyKey: `bp-${input.joinAttemptId}`,
-    });
-    if (charge.error) return { error: `Back-pay charge: ${charge.error}` };
-    backPayPaymentId = charge.paymentId;
-  }
-
-  // 4. Subscription for the remaining weeks, capped at season end.
+  // 3. Subscription for the remaining weeks, capped at season end. A mid-season
+  // joiner pays only for the weeks left — no charge today; first bill is the
+  // next Tuesday.
   const template = await createSubTemplate(cust.customerId);
-  if (template.error) {
-    return {
-      error: `${template.error} (back-pay ${backPayPaymentId ? "WAS" : "was not"} charged — contact ops)`,
-    };
-  }
+  if (template.error) return { error: template.error };
 
   const sub = await createSubscription({
     customerId: cust.customerId,
@@ -302,14 +213,14 @@ export async function processHabJoin(
     startDate: plan.subStartDate,
     canceledDate: plan.canceledDate,
     orderTemplateId: template.orderId,
+    // Square caps idempotency_key at 45 chars. joinAttemptId is a 36-char UUID,
+    // so the prefix must stay short: "sub-" + 36 = 40. Keyed off the attempt id
+    // so a network retry can't create a duplicate subscription.
+    idempotencyKey: `sub-${input.joinAttemptId}`,
   });
-  if (sub.error) {
-    return {
-      error: `${sub.error} (back-pay ${backPayPaymentId ? "WAS" : "was not"} charged — contact ops)`,
-    };
-  }
+  if (sub.error) return { error: sub.error };
 
-  // 5. Persist + notify (non-fatal — money already moved).
+  // 4. Persist + notify (non-fatal — subscription already created).
   const record = {
     subscriptionId: sub.subscriptionId,
     customerId: cust.customerId,
@@ -322,11 +233,12 @@ export async function processHabJoin(
     teamName: input.teamName || null,
     smsOptIn: input.smsOptIn ?? false,
     startDate: plan.subStartDate,
-    backPayWeeks: plan.backPayWeeks,
-    backPayAmountCents: plan.backPayAmountCents,
-    backPayPaymentId,
     remainingCharges: plan.remainingCharges,
-    seasonTotalCents: plan.seasonTotalCents,
+    totalDueCents: plan.totalDueCents,
+    // Disclosure-only: retro owed for weeks already played, collected by staff
+    // separately — NOT charged by this flow.
+    missedWeeks: plan.missedWeeks,
+    retroAmountCents: plan.retroAmountCents,
     signedUpAt: new Date().toISOString(),
   };
   try {
@@ -351,7 +263,6 @@ export async function processHabJoin(
       dob: input.dob || undefined,
       teamName: input.teamName || undefined,
       subscriptionId: sub.subscriptionId,
-      backPayPaymentId,
       plan,
     });
   } catch (err) {
@@ -363,7 +274,6 @@ export async function processHabJoin(
     subscriptionId: sub.subscriptionId,
     customerId: cust.customerId,
     cardId: card.cardId,
-    backPayPaymentId,
     plan,
   };
 }

@@ -18,56 +18,61 @@ describe("have-a-ball schedule — shared by quote (display) + join (charge)", (
     expect(HAB_TOTAL_WEEKS).toBe(12);
   });
 
-  it("pre-season: no back-pay, full 12-week sub from May 26", () => {
+  it("pre-season: no missed weeks, full 12-week sub from May 26", () => {
     const p = computeJoinPlan("2026-05-01");
     expect(p.status).toBe("preseason");
-    expect(p.backPayWeeks).toBe(0);
-    expect(p.backPayAmountCents).toBe(0);
+    expect(p.missedWeeks).toBe(0);
+    expect(p.retroAmountCents).toBe(0);
     expect(p.subStartDate).toBe(HAB_SEASON_START);
     expect(p.remainingCharges).toBe(12);
+    expect(p.totalDueCents).toBe(12 * HAB_WEEKLY_TOTAL_CENTS);
   });
 
-  it("on season-start day (May 26): that day is back-pay, sub starts Jun 2", () => {
+  it("on season-start day (May 26): that day is a missed/retro week, sub starts Jun 2", () => {
     const p = computeJoinPlan("2026-05-26");
     expect(p.status).toBe("midseason");
-    expect(p.backPayWeeks).toBe(1);
-    expect(p.backPayAmountCents).toBe(2130);
+    expect(p.missedWeeks).toBe(1);
+    expect(p.retroAmountCents).toBe(2130);
     expect(p.subStartDate).toBe("2026-06-02");
     expect(p.remainingCharges).toBe(11);
+    expect(p.totalDueCents).toBe(11 * HAB_WEEKLY_TOTAL_CENTS);
   });
 
-  it("joining on Tue June 9 → 3 back-pay weeks, sub starts June 16, 9 charges", () => {
+  it("joining on Tue June 9 → 3 missed weeks (retro), sub starts June 16, 9 charges", () => {
     const p = computeJoinPlan("2026-06-09");
     expect(p.status).toBe("midseason");
-    expect(p.backPayWeeks).toBe(3); // May 26, Jun 2, Jun 9
-    expect(p.backPayAmountCents).toBe(6390); // 3 × $21.30
+    expect(p.missedWeeks).toBe(3); // May 26, Jun 2, Jun 9
+    expect(p.retroAmountCents).toBe(6390); // 3 × $21.30 — disclosure only
     expect(p.subStartDate).toBe("2026-06-16");
     expect(p.remainingCharges).toBe(9);
+    expect(p.totalDueCents).toBe(9 * HAB_WEEKLY_TOTAL_CENTS); // only the weeks left are charged
     expect(p.canceledDate).toBe(HAB_CANCEL_DATE);
   });
 
   it("mid-week (non-Tuesday) joins use the most recent Tuesday as the boundary", () => {
     // Thu Jun 11 — same as Jun 9: Jun 9 already played, next charge Jun 16.
     const p = computeJoinPlan("2026-06-11");
-    expect(p.backPayWeeks).toBe(3);
+    expect(p.missedWeeks).toBe(3);
     expect(p.subStartDate).toBe("2026-06-16");
     expect(p.remainingCharges).toBe(9);
   });
 
-  it("every join date keeps the season total identical (back-pay + sub)", () => {
+  it("missed + remaining always span the full season (retro is disclosure only)", () => {
     for (const today of ["2026-05-26", "2026-06-09", "2026-07-01", "2026-08-04", "2026-08-11"]) {
       const p = computeJoinPlan(today);
-      expect(p.backPayWeeks + p.remainingCharges).toBe(HAB_TOTAL_WEEKS);
-      const subTotal = p.remainingCharges * HAB_WEEKLY_TOTAL_CENTS;
-      expect(p.backPayAmountCents + subTotal).toBe(HAB_SEASON_TOTAL_CENTS);
+      expect(p.missedWeeks + p.remainingCharges).toBe(HAB_TOTAL_WEEKS);
+      expect(p.retroAmountCents + p.totalDueCents).toBe(HAB_SEASON_TOTAL_CENTS);
+      // The subscription only ever charges the remaining weeks.
+      expect(p.totalDueCents).toBe(p.remainingCharges * HAB_WEEKLY_TOTAL_CENTS);
     }
   });
 
-  it("final charge day (Aug 11): all 12 weeks back-pay, no remaining sub charges", () => {
+  it("final charge day (Aug 11): 12 missed weeks, no remaining sub charges", () => {
     const p = computeJoinPlan("2026-08-11");
     expect(p.status).toBe("midseason");
-    expect(p.backPayWeeks).toBe(12);
+    expect(p.missedWeeks).toBe(12);
     expect(p.remainingCharges).toBe(0);
+    expect(p.totalDueCents).toBe(0);
   });
 
   it("after season end (Aug 12+): closed", () => {

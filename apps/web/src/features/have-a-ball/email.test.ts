@@ -12,40 +12,34 @@ const base = {
   subscriptionId: "sub_ABC123",
 };
 
-describe("renderHabStaffEmail — ops notification reflects back-pay + subscription", () => {
-  it("mid-season: shows the back-pay charge, payment ID, and the subscription schedule", () => {
-    const plan = computeJoinPlan("2026-06-09"); // 3 back-pay weeks, sub Jun 16 × 9
-    const html = renderHabStaffEmail({ ...base, backPayPaymentId: "pay_XYZ789", plan });
+describe("renderHabStaffEmail — ops notification reflects subscription + retro to collect", () => {
+  it("mid-season: subscription schedule + the retro amount staff must collect separately", () => {
+    const plan = computeJoinPlan("2026-06-09"); // 3 missed weeks (retro), sub Jun 16 × 9
+    const html = renderHabStaffEmail({ ...base, plan });
 
-    // Header makes the dual setup obvious
-    expect(html).toContain("back-pay charged + subscription created");
-    // Back-pay charge
-    expect(html).toContain("$63.90");
-    expect(html).toContain("3 weeks already played");
-    expect(html).toContain("pay_XYZ789");
-    // Subscription
+    // Header makes the setup obvious
+    expect(html).toContain("subscription for the 9 remaining weeks created");
+    expect(html).toContain("$63.90 retro to collect");
+    // Subscription (auto-charged) — only the remaining weeks
     expect(html).toContain("$21.30/week × 9");
     expect(html).toContain("June 16, 2026"); // first weekly charge
     expect(html).toContain("August 11, 2026"); // final charge
-    // Totals + IDs
-    expect(html).toContain("$255.60");
+    expect(html).toContain("$191.70"); // 9 × $21.30 subscription total
+    // Retro — disclosed, NOT charged
+    expect(html).toContain("$63.90");
+    expect(html).toContain("3 weeks already played");
+    expect(html).toContain("collect separately");
+    // IDs + bowler details
     expect(html).toContain("sub_ABC123");
-    // Bowler details
     expect(html).toContain("Pin Crushers");
     expect(html).toContain("dana@example.com");
   });
 
-  it("flags a missing back-pay payment ID so staff can investigate", () => {
-    const plan = computeJoinPlan("2026-06-09");
-    const html = renderHabStaffEmail({ ...base, backPayPaymentId: null, plan });
-    expect(html).toContain("not recorded (check Square)");
-  });
-
-  it("pre-season: no back-pay, just the subscription", () => {
+  it("pre-season: just the subscription, no retro to collect", () => {
     const plan = computeJoinPlan("2026-05-01");
-    const html = renderHabStaffEmail({ ...base, backPayPaymentId: null, plan });
-    expect(html).toContain("None — signed up before the season");
+    const html = renderHabStaffEmail({ ...base, plan });
     expect(html).toContain("$21.30/week × 12");
     expect(html).not.toContain("already played");
+    expect(html).not.toContain("retro to collect");
   });
 });

@@ -4,8 +4,8 @@ import { processHabJoin } from "~/features/have-a-ball/service";
 /**
  * POST /api/leagues/have-a-ball/join
  *
- * One atomic mid-season signup: customer + saved card → back-pay charge →
- * season-capped subscription → persist + email. All money math is recomputed
+ * One atomic signup: customer + saved card → season-capped subscription over
+ * the remaining weeks → persist + email. All money math is recomputed
  * server-side in the service; the client sends no amounts.
  */
 
@@ -46,7 +46,6 @@ export async function POST(req: NextRequest) {
       ok: true,
       subscriptionId: result.subscriptionId,
       customerId: result.customerId,
-      backPayPaymentId: result.backPayPaymentId,
       plan: result.plan,
     });
   } catch (err) {
