@@ -1,5 +1,38 @@
 # Open Tasks
 
+## Christmas in July — landing page (B2B holiday open house, 2 locations) — IN PROGRESS 2026-06-15
+
+Branch: `feat/xmas-in-july-landing` off `origin/feat/xmas-in-july-event` (NOT yet on main).
+URL slug stays `xmas-in-july`; display title is **"Christmas in July"**.
+
+**What it actually is (per flyer — corrected mid-build):** a festive **business-leader open house**,
+NOT a public free-race promo. Holiday bites + signature drinks + venue/party-hosting pitch.
+Included per guest: 2 drink tickets · holiday buffet (TBD) · complimentary bowling · 1 go-kart race (FM).
+**Two events, one page, choose location:** Fort Myers 7/30 (HeadPinz & FastTrax, racing) and
+Naples 7/23 (HeadPinz only — NO FastTrax, so RSVP-only). Both 4–7 PM; racing slot 4:30–5:30 PM.
+Open RSVP. Decisions: one page w/ location chooser · RSVP + race booking · open access.
+
+### Done
+- [x] Assets on Vercel Blob (`events/xmas-in-july/`): bowling hero loop (1080/720 + poster), 7 gallery
+      photos (WebP+JPEG, family pic dropped → 6 used). Upload script `scripts/upload-xmas-assets.mjs`.
+- [x] Racing video = reused FastTrax homepage hero (`images/hero/hero-video.mp4` + `hero-racing.webp`).
+- [x] `group-events.ts`: `GroupEventLanding` (heroVideo, included[], locations[], featureVideo, gallery,
+      finePrint, eventTime) + `GroupEventLocation` (key/label/venue/date/address/racing). Populated
+      `xmas-in-july` with B2B copy, both locations, what's-included. Dropped hard `minAge:18`.
+- [x] Page: location-aware hero (bowling video) → "What's Included" → racing feature video → gallery →
+      location chooser → RSVP. Naples branch skips waiver/DOB (RSVP-only); FM keeps race-booking funnel.
+      Reduced-motion/Save-Data → poster. Confirmation hides waiver/racing-license for Naples.
+- [x] RSVP endpoint stores `location` (both venues share the slug — only differentiator for ops).
+- [x] tsc clean · build clean · a11y gate 0 violations · SSR renders all sections + chooser.
+
+### TODO
+- [ ] **GF photos** — owner sending 2–3 group-function photos; optimize + upload + slot into gallery.
+- [ ] Buffet menu (TBD on flyer) — copy update when known.
+- [ ] Live smoke on a deploy: FM path (choose FM → email → name+DOB → waiver → book race heat) +
+      Naples path (choose Naples → email → name → RSVP confirmation). Verify RSVPs tagged by location.
+- [ ] Commit + push branch (not committed yet) → PR link.
+- [ ] Confirm with owner: keep slug `xmas-in-july` or add `christmas-in-july` alias.
+
 ## ⚠️ Temporary fallbacks to remove later
 
 - **Race + standalone-attraction day-of auto-charge on start-time-passed** (added 2026-06-09,

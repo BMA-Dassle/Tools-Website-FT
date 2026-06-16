@@ -39,6 +39,8 @@ export interface GroupEventRsvp {
   reservations: GroupEventReservation[];
   /** BMI person ID — preserved across cancels so waiver link survives rebook */
   personId?: string;
+  /** Chosen venue for multi-location events (e.g. "fort-myers" | "naples"). */
+  location?: string;
   updatedAt: string;
 }
 
@@ -73,7 +75,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { slug, email, name, freeflow = [], reservations, personId } = body;
+    const { slug, email, name, freeflow = [], reservations, personId, location } = body;
     if (!slug || !email || !name) {
       return NextResponse.json({ error: "slug, email, name required" }, { status: 400 });
     }
@@ -92,6 +94,7 @@ export async function POST(req: NextRequest) {
       reservations: reservations ?? prev.reservations ?? [],
       // Preserve personId — survives cancel + rebook so waiver status persists
       personId: personId || prev.personId,
+      location: location || prev.location,
       updatedAt: new Date().toISOString(),
     };
 
@@ -102,7 +105,9 @@ export async function POST(req: NextRequest) {
     await redis.sadd(rsvpIndexKey(slug), email.toLowerCase());
     await redis.expire(rsvpIndexKey(slug), TTL);
 
-    console.log(`[group-rsvp] upserted ${name} (${email}) freeflow=[${freeflow.join(",")}]`);
+    console.log(
+      `[group-rsvp] upserted ${name} (${email}) location=${location ?? "-"} freeflow=[${freeflow.join(",")}]`,
+    );
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[group-rsvp] POST error:", err);

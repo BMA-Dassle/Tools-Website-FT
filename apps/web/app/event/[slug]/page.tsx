@@ -7,7 +7,11 @@ import {
   getReservationAttractions,
   getFreeflowAttractions,
 } from "@/lib/group-events";
-import type { GroupEventAttraction, GroupEventMealWindow } from "@/lib/group-events";
+import type {
+  GroupEventAttraction,
+  GroupEventMealWindow,
+  GroupEventLocation,
+} from "@/lib/group-events";
 import type { ClassifiedProduct, BmiProposal, BmiBlock } from "@/app/book/race/data";
 import { bookRaceHeat, bmiPost } from "@/app/book/race/data";
 import HeatPicker from "@/app/book/race/components/HeatPicker";
@@ -123,6 +127,8 @@ export default function GroupEventPage() {
   const [step, setStep] = useState<Step>("gate");
   const [guest, setGuest] = useState<GuestInfo | null>(null);
   const [gateError, setGateError] = useState("");
+  // Multi-venue events: which location the guest is RSVPing for (null = not yet chosen).
+  const [selectedLocation, setSelectedLocation] = useState<GroupEventLocation | null>(null);
 
   // Cart — items selected but not yet booked
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -165,6 +171,25 @@ export default function GroupEventPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
 
+  // ── Hero video: honor reduced-motion / Save-Data, pick source by viewport ──
+  // src starts null so SSR + first paint show the poster still; the effect then
+  // promotes to the autoplaying loop (unless the user opted out of motion).
+  const [hero, setHero] = useState<{ motion: boolean; src: string | null }>({
+    motion: true,
+    src: null,
+  });
+  useEffect(() => {
+    const hv = event?.landing?.heroVideo;
+    if (!hv) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read of browser capabilities on mount
+    setHero({
+      motion: !reduce && conn?.saveData !== true,
+      src: window.innerWidth >= 1024 ? hv.mp4_1080 : hv.mp4_720,
+    });
+  }, [event]);
+
   // ── Restore session ──────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -175,6 +200,11 @@ export default function GroupEventPage() {
       const lastName = sessionStorage.getItem(sessionKey(slug, "lastName"));
       const storedPersonId = sessionStorage.getItem(sessionKey(slug, "personId"));
       const storedBirthdate = sessionStorage.getItem(sessionKey(slug, "birthdate"));
+      const storedLocationKey = sessionStorage.getItem(sessionKey(slug, "location"));
+      const loc = storedLocationKey
+        ? event.landing?.locations?.find((l) => l.key === storedLocationKey)
+        : undefined;
+      if (loc) setSelectedLocation(loc);
       if (email && firstName && lastName) {
         setGuest({
           email,
@@ -187,7 +217,9 @@ export default function GroupEventPage() {
           setPersonId(storedPersonId);
           setWaiverValid(true); // They already signed if they have a personId in session
         }
-        setStep("dashboard");
+        // RSVP-only venues (no racing) have nothing to book — resume at the
+        // confirmation. Racing venues resume at the activity dashboard.
+        setStep(loc && !loc.racing ? "confirmation" : "dashboard");
         fetchExistingRsvp(slug, email);
       }
     } catch {
@@ -294,11 +326,17 @@ export default function GroupEventPage() {
     const bYear = form.get("birth-year") as string;
     const bMonth = form.get("birth-month") as string;
     const bDay = form.get("birth-day") as string;
-    if (!firstName || !lastName || !bYear || !bMonth || !bDay) return;
-    const birthdate = `${bYear}-${bMonth.padStart(2, "0")}-${bDay.padStart(2, "0")}`;
+    // Date of birth is only needed for the racing waiver. RSVP-only venues
+    // (Naples — no FastTrax) collect name + email alone.
+    const needDob = selectedLocation?.racing !== false;
+    if (!firstName || !lastName) return;
+    if (needDob && (!bYear || !bMonth || !bDay)) return;
+    const birthdate = needDob
+      ? `${bYear}-${bMonth.padStart(2, "0")}-${bDay.padStart(2, "0")}`
+      : undefined;
 
     // Age validation
-    if (event?.minAge) {
+    if (needDob && event?.minAge) {
       const today = new Date();
       const bd = new Date(Number(bYear), Number(bMonth) - 1, Number(bDay));
       let age = today.getFullYear() - bd.getFullYear();
@@ -315,8 +353,37 @@ export default function GroupEventPage() {
     const displayName = makeDisplayName(firstName, lastName);
     sessionStorage.setItem(sessionKey(slug, "firstName"), firstName);
     sessionStorage.setItem(sessionKey(slug, "lastName"), lastName);
-    sessionStorage.setItem(sessionKey(slug, "birthdate"), birthdate);
+    if (birthdate) sessionStorage.setItem(sessionKey(slug, "birthdate"), birthdate);
     setGuest({ email, firstName, lastName, displayName, birthdate });
+
+    // RSVP-only venues (no racing → no waiver). Record attendance and finish.
+    if (selectedLocation && !selectedLocation.racing) {
+      setWaiverLoading(true);
+      setWaiverError(null);
+      try {
+        const res = await fetch("/api/group-event/rsvp", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            slug,
+            email,
+            name: displayName,
+            freeflow: [],
+            reservations: [],
+            personId: null,
+            location: selectedLocation.key,
+          }),
+        });
+        if (!res.ok) throw new Error("Failed to save RSVP");
+        setStep("confirmation");
+      } catch (err) {
+        console.error("[group-event] RSVP failed:", err);
+        setWaiverError(err instanceof Error ? err.message : "Couldn't save your RSVP.");
+      } finally {
+        setWaiverLoading(false);
+      }
+      return;
+    }
 
     setWaiverLoading(true);
     setWaiverError(null);
@@ -325,7 +392,7 @@ export default function GroupEventPage() {
       // Shared Pandora onboard: create person → check waiver → fetch template
       const pandoraLocation = event?.pandoraLocation ?? "headpinz";
       const result = await pandoraOnboardGuest(
-        { firstName, lastName, email, birthdate, location: pandoraLocation },
+        { firstName, lastName, email, birthdate: birthdate!, location: pandoraLocation },
         pandoraLocation,
       );
       setPersonId(result.personId);
@@ -382,6 +449,7 @@ export default function GroupEventPage() {
           freeflow: selectedFreeflow,
           reservations: remaining,
           personId: data.personId || personId,
+          location: selectedLocation?.key,
         }),
       });
 
@@ -728,6 +796,7 @@ export default function GroupEventPage() {
           freeflow: selectedFreeflow,
           reservations: [...prevReservations, ...bookedItems],
           personId,
+          location: selectedLocation?.key,
         }),
       });
 
@@ -836,6 +905,7 @@ export default function GroupEventPage() {
           freeflow: selectedFreeflow,
           reservations: existingReservations,
           personId,
+          location: selectedLocation?.key,
         }),
       });
       if (!res.ok) throw new Error("Failed to save RSVP");
@@ -865,16 +935,38 @@ export default function GroupEventPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const reservationAttractions = getReservationAttractions(event);
+  // Non-racing venues (Naples) book nothing — suppress reservation activities.
+  const reservationAttractions =
+    selectedLocation && !selectedLocation.racing ? [] : getReservationAttractions(event);
   const freeflowAttractions = getFreeflowAttractions(event);
   const hasFreeflow = freeflowAttractions.length > 0;
   const isOpenAccess = (event.accessMode ?? "domain") === "open";
+  const landing = event.landing;
   const eventDateDisplay = new Date(event.eventDate + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   });
+  // "16:30" → "4:30 PM" (24h config → friendly display)
+  const fmt12 = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    const hr = ((h + 11) % 12) + 1;
+    return `${hr}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+  };
+  // Per-location date display ("Jul 23" short, or "Thursday, July 30" long).
+  const fmtLocDate = (d: string, long = false) =>
+    new Date(d + "T12:00:00").toLocaleDateString(
+      "en-US",
+      long
+        ? { weekday: "long", month: "long", day: "numeric" }
+        : { month: "short", day: "numeric" },
+    );
+  // The marketing landing replaces the compact header on the entry step.
+  const showLanding = !!landing && step === "gate";
+  // Date of birth is only needed for the racing waiver (Fort Myers). RSVP-only
+  // venues (Naples) collect name + email alone.
+  const nameNeedsDob = selectedLocation?.racing !== false;
 
   // Accent theming — honor event.accentColor (default cyan). Tailwind v4 applies
   // opacity modifiers to CSS-variable colors via color-mix, so `bg-(--accent)/8`
@@ -891,31 +983,300 @@ export default function GroupEventPage() {
 
   return (
     <div className="min-h-screen bg-[#000418] pt-[140px]" style={accentStyle}>
-      {/* Header */}
-      <div className="border-b border-white/10 bg-white/3">
-        <div className="max-w-2xl mx-auto px-4 py-6 text-center">
-          {event.heroImage && (
-            <img
-              src={event.heroImage}
-              alt={event.companyName}
-              className="h-12 md:h-16 mx-auto mb-4 object-contain"
-            />
-          )}
-          <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-1">
-            {event.eventKicker ?? "Private Event"}
-          </p>
-          <h1 className="text-2xl md:text-3xl font-display text-white uppercase tracking-widest">
-            {event.eventTitle}
-          </h1>
-          <p className="text-white/50 text-sm mt-2">
-            {eventDateDisplay} &middot; {event.startTime} &ndash; {event.endTime}
-          </p>
+      {/* Compact header — funnel steps, and any event without a landing config */}
+      {!showLanding && (
+        <div className="border-b border-white/10 bg-white/3">
+          <div className="max-w-2xl mx-auto px-4 py-6 text-center">
+            {event.heroImage && (
+              <img
+                src={event.heroImage}
+                alt={event.companyName}
+                className="h-12 md:h-16 mx-auto mb-4 object-contain"
+              />
+            )}
+            <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-1">
+              {event.eventKicker ?? "Private Event"}
+            </p>
+            <h1 className="text-2xl md:text-3xl font-display text-white uppercase tracking-widest">
+              {event.eventTitle}
+            </h1>
+            <p className="text-white/50 text-sm mt-2">
+              {selectedLocation
+                ? `${selectedLocation.label} · ${fmtLocDate(selectedLocation.date, true)} · ${landing?.eventTime ?? ""}`
+                : `${eventDateDisplay} · ${landing?.eventTime ?? `${event.startTime} – ${event.endTime}`}`}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ═══ LANDING — full marketing page on the entry step (public promos) ═══ */}
+      {showLanding && landing && (
+        <div>
+          {/* ── Hero ── */}
+          <section className="relative flex min-h-[72vh] w-full items-center overflow-hidden">
+            {hero.motion && hero.src && landing.heroVideo ? (
+              <video
+                key={hero.src}
+                className="absolute inset-0 h-full w-full object-cover"
+                poster={landing.heroVideo.poster}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                aria-hidden="true"
+              >
+                <source src={hero.src} type="video/mp4" />
+              </video>
+            ) : (
+              landing.heroVideo && (
+                <img
+                  src={landing.heroVideo.poster}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              )
+            )}
+            {/* Legibility overlay */}
+            <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/75 via-[#000418]/45 to-[#000418]" />
+            {/* Hero content */}
+            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 py-16 text-center">
+              <p className="mb-3 text-xs uppercase tracking-[0.3em] text-white/60 md:text-sm">
+                {event.companyName}
+              </p>
+              <h1 className="font-display text-4xl uppercase leading-tight tracking-widest text-white md:text-6xl">
+                {landing.headline ?? event.eventTitle}
+              </h1>
+              {landing.freeBadge && (
+                <span className="mt-4 inline-block rounded-full bg-(--accent) px-4 py-1.5 text-sm font-bold uppercase tracking-widest text-(--accent-fg)">
+                  {landing.freeBadge}
+                </span>
+              )}
+              {landing.tagline && (
+                <p className="mx-auto mt-5 max-w-xl text-base text-white/80 md:text-lg">
+                  {landing.tagline}
+                </p>
+              )}
+              <p className="mt-4 text-sm font-medium text-white/70 md:text-base">
+                {landing.locations && landing.locations.length > 0
+                  ? selectedLocation
+                    ? `${selectedLocation.label} · ${fmtLocDate(selectedLocation.date, true)} · ${landing.eventTime ?? ""}`
+                    : landing.locations
+                        .map((l) => `${l.label} ${fmtLocDate(l.date)}`)
+                        .join("  ·  ") + (landing.eventTime ? `  ·  ${landing.eventTime}` : "")
+                  : `${eventDateDisplay} · ${landing.eventTime ?? `${fmt12(event.startTime)} – ${fmt12(event.endTime)}`}`}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  document.getElementById("ge-signup")?.scrollIntoView({ behavior: "smooth" })
+                }
+                className="mt-8 rounded-xl bg-(--accent) px-8 py-4 text-base font-bold text-(--accent-fg) shadow-lg transition-colors hover:bg-(--accent-hover)"
+              >
+                {landing.ctaLabel ?? "Sign Up"}
+              </button>
+            </div>
+          </section>
+
+          {/* ── Experience + What's included ── */}
+          <div className="mx-auto max-w-4xl px-4 pt-14">
+            {landing.intro && (
+              <p className="mx-auto max-w-2xl text-center text-lg leading-relaxed text-white/70 md:text-xl">
+                {landing.intro}
+              </p>
+            )}
+            {landing.included && landing.included.length > 0 && (
+              <>
+                <h2 className="mt-12 mb-6 text-center font-display text-2xl uppercase tracking-widest text-white md:text-3xl">
+                  What&rsquo;s Included
+                </h2>
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                  {landing.included.map((inc) => (
+                    <div
+                      key={inc.item}
+                      className="rounded-2xl border border-(--accent)/20 bg-(--accent)/5 p-5 text-center"
+                    >
+                      <p className="font-display text-sm uppercase tracking-widest text-white">
+                        {inc.item}
+                      </p>
+                      {inc.note && (
+                        <p className="mt-1 text-xs leading-relaxed text-white/50">{inc.note}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* ── Feature video — real FastTrax racing (Fort Myers) ── */}
+          {landing.featureVideo && (
+            <div className="mx-auto max-w-5xl px-4 pt-14">
+              <div className="mb-6 text-center">
+                <h2 className="font-display text-2xl uppercase tracking-widest text-white md:text-3xl">
+                  {landing.featureVideo.heading ?? "The Main Event"}
+                </h2>
+                {landing.featureVideo.text && (
+                  <p className="mx-auto mt-2 max-w-xl text-sm text-white/60 md:text-base">
+                    {landing.featureVideo.text}
+                  </p>
+                )}
+              </div>
+              <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/10">
+                {hero.motion ? (
+                  <video
+                    className="absolute inset-0 h-full w-full object-cover"
+                    poster={landing.featureVideo.poster}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="none"
+                    aria-hidden="true"
+                  >
+                    <source src={landing.featureVideo.src} type="video/mp4" />
+                  </video>
+                ) : (
+                  <img
+                    src={landing.featureVideo.poster}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Gallery ── */}
+          {landing.gallery && landing.gallery.length > 0 && (
+            <div className="mx-auto max-w-6xl px-4 pt-14 pb-14">
+              <div className="grid auto-rows-[130px] grid-cols-2 gap-3 md:auto-rows-[150px] md:grid-cols-3">
+                {landing.gallery.map((g, i) => (
+                  <picture
+                    key={g.webp}
+                    className={`block overflow-hidden rounded-xl border border-white/10 ${
+                      i === 0 ? "col-span-2 row-span-2" : ""
+                    }`}
+                  >
+                    <source srcSet={g.webp} type="image/webp" />
+                    <img
+                      src={g.jpg}
+                      alt={g.alt}
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  </picture>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Sign up: choose location → RSVP ── */}
+          <div id="ge-signup" className="mx-auto max-w-2xl px-4 pb-20 pt-4">
+            <div className="rounded-2xl border border-(--accent)/30 bg-white/3 p-8">
+              {landing.locations && landing.locations.length > 0 && !selectedLocation ? (
+                <>
+                  <h2 className="mb-1 text-center font-display text-2xl uppercase tracking-widest text-white">
+                    Choose Your Location
+                  </h2>
+                  <p className="mb-6 text-center text-sm text-white/50">
+                    Two festive evenings — pick the one near you to RSVP.
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {landing.locations.map((loc) => (
+                      <button
+                        key={loc.key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedLocation(loc);
+                          setGateError("");
+                          try {
+                            sessionStorage.setItem(sessionKey(slug, "location"), loc.key);
+                          } catch {
+                            /* sessionStorage unavailable */
+                          }
+                        }}
+                        className="rounded-xl border border-white/10 bg-white/5 p-5 text-left transition-colors hover:border-(--accent)/50 hover:bg-white/10"
+                      >
+                        <p className="font-display text-lg uppercase tracking-widest text-white">
+                          {loc.label}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-(--accent)">
+                          {fmtLocDate(loc.date, true)} · {landing.eventTime}
+                        </p>
+                        <p className="mt-2 text-xs leading-relaxed text-white/50">{loc.venue}</p>
+                        <p className="text-xs leading-relaxed text-white/40">{loc.address}</p>
+                        {loc.racing && (
+                          <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-(--accent)/80">
+                            Includes go-kart racing
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="mx-auto max-w-md text-center">
+                  <h2 className="mb-2 font-display text-2xl uppercase tracking-widest text-white">
+                    {landing.ctaLabel ?? "Sign Up"}
+                  </h2>
+                  {selectedLocation && (
+                    <p className="mb-5 text-sm text-white/60">
+                      <span className="text-white">{selectedLocation.label}</span> ·{" "}
+                      {fmtLocDate(selectedLocation.date, true)} · {landing.eventTime}
+                      {landing.locations && landing.locations.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedLocation(null);
+                            setGateError("");
+                            try {
+                              sessionStorage.removeItem(sessionKey(slug, "location"));
+                            } catch {
+                              /* sessionStorage unavailable */
+                            }
+                          }}
+                          className="ml-2 text-(--accent) underline underline-offset-2 hover:text-(--accent-hover)"
+                        >
+                          change
+                        </button>
+                      )}
+                    </p>
+                  )}
+                  <p className="mb-6 text-sm text-white/50">Enter your email to RSVP.</p>
+                  <form onSubmit={handleGateSubmit} className="space-y-4">
+                    <input
+                      name="email"
+                      type="email"
+                      required
+                      placeholder="you@email.com"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
+                    />
+                    {gateError && <p className="text-xs text-red-400">{gateError}</p>}
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-(--accent) py-3 text-sm font-bold text-(--accent-fg) transition-colors hover:bg-(--accent-hover)"
+                    >
+                      {landing.ctaLabel ?? "Continue"}
+                    </button>
+                  </form>
+                </div>
+              )}
+              {landing.finePrint && (
+                <p className="mt-6 text-center text-[11px] leading-relaxed text-white/30">
+                  {landing.finePrint}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* ═══ STEP: Email Gate ═══ */}
-        {step === "gate" && (
+        {/* ═══ STEP: Email Gate (plain — events without a landing config) ═══ */}
+        {step === "gate" && !landing && (
           <div className="max-w-md mx-auto">
             <div className="rounded-2xl border border-white/10 bg-white/3 p-8 text-center">
               {event.heroImage && (
@@ -961,7 +1322,9 @@ export default function GroupEventPage() {
                 Your Details
               </h2>
               <p className="text-white/50 text-sm mb-6">
-                Used for heat rosters and your activity waiver.
+                {nameNeedsDob
+                  ? "Used for heat rosters and your activity waiver."
+                  : "So we know who's joining us."}
               </p>
               <form onSubmit={handleNameSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
@@ -980,101 +1343,103 @@ export default function GroupEventPage() {
                     className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
                   />
                 </div>
-                <div>
-                  <label
-                    htmlFor="ge-birth-year"
-                    className="block text-left text-white/40 text-xs mb-1.5 ml-1"
-                  >
-                    Date of Birth
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <select
-                      id="ge-birth-year"
-                      name="birth-year"
-                      required
-                      defaultValue=""
-                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
+                {nameNeedsDob && (
+                  <div>
+                    <label
+                      htmlFor="ge-birth-year"
+                      className="block text-left text-white/40 text-xs mb-1.5 ml-1"
                     >
-                      <option
-                        value=""
-                        disabled
-                        style={{ backgroundColor: "#000418", color: "#fff" }}
+                      Date of Birth
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <select
+                        id="ge-birth-year"
+                        name="birth-year"
+                        required
+                        defaultValue=""
+                        className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
                       >
-                        Year
-                      </option>
-                      {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(
-                        (y) => (
+                        <option
+                          value=""
+                          disabled
+                          style={{ backgroundColor: "#000418", color: "#fff" }}
+                        >
+                          Year
+                        </option>
+                        {Array.from({ length: 90 }, (_, i) => new Date().getFullYear() - i).map(
+                          (y) => (
+                            <option
+                              key={y}
+                              value={y}
+                              style={{ backgroundColor: "#000418", color: "#fff" }}
+                            >
+                              {y}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                      <select
+                        name="birth-month"
+                        required
+                        defaultValue=""
+                        className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
+                      >
+                        <option
+                          value=""
+                          disabled
+                          style={{ backgroundColor: "#000418", color: "#fff" }}
+                        >
+                          Month
+                        </option>
+                        {[
+                          "Jan",
+                          "Feb",
+                          "Mar",
+                          "Apr",
+                          "May",
+                          "Jun",
+                          "Jul",
+                          "Aug",
+                          "Sep",
+                          "Oct",
+                          "Nov",
+                          "Dec",
+                        ].map((m, i) => (
                           <option
-                            key={y}
-                            value={y}
+                            key={i + 1}
+                            value={i + 1}
                             style={{ backgroundColor: "#000418", color: "#fff" }}
                           >
-                            {y}
+                            {m}
                           </option>
-                        ),
-                      )}
-                    </select>
-                    <select
-                      name="birth-month"
-                      required
-                      defaultValue=""
-                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
-                    >
-                      <option
-                        value=""
-                        disabled
-                        style={{ backgroundColor: "#000418", color: "#fff" }}
+                        ))}
+                      </select>
+                      <select
+                        name="birth-day"
+                        required
+                        defaultValue=""
+                        className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
                       >
-                        Month
-                      </option>
-                      {[
-                        "Jan",
-                        "Feb",
-                        "Mar",
-                        "Apr",
-                        "May",
-                        "Jun",
-                        "Jul",
-                        "Aug",
-                        "Sep",
-                        "Oct",
-                        "Nov",
-                        "Dec",
-                      ].map((m, i) => (
                         <option
-                          key={i + 1}
-                          value={i + 1}
+                          value=""
+                          disabled
                           style={{ backgroundColor: "#000418", color: "#fff" }}
                         >
-                          {m}
+                          Day
                         </option>
-                      ))}
-                    </select>
-                    <select
-                      name="birth-day"
-                      required
-                      defaultValue=""
-                      className="px-3 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm [color-scheme:dark]"
-                    >
-                      <option
-                        value=""
-                        disabled
-                        style={{ backgroundColor: "#000418", color: "#fff" }}
-                      >
-                        Day
-                      </option>
-                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                        <option
-                          key={d}
-                          value={d}
-                          style={{ backgroundColor: "#000418", color: "#fff" }}
-                        >
-                          {d}
-                        </option>
-                      ))}
-                    </select>
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                          <option
+                            key={d}
+                            value={d}
+                            style={{ backgroundColor: "#000418", color: "#fff" }}
+                          >
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                </div>
+                )}
                 {waiverError && <p className="text-red-400 text-xs">{waiverError}</p>}
                 <button
                   type="submit"
@@ -1676,48 +2041,50 @@ export default function GroupEventPage() {
               </p>
             </div>
 
-            {/* Waiver status badge */}
-            <div
-              className={`rounded-xl p-4 text-center ${waiverValid ? "border border-emerald-500/30 bg-emerald-500/8" : "border-2 border-amber-500/40 bg-amber-500/8"}`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                {waiverValid ? (
-                  <>
-                    <svg
-                      className="w-5 h-5 text-emerald-400"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-                      />
-                    </svg>
-                    <span className="text-emerald-400 font-bold text-sm">Waiver Signed</span>
-                  </>
-                ) : (
-                  <>
-                    <svg
-                      className="w-5 h-5 text-amber-400"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <span className="text-amber-400 font-bold text-sm">Waiver Pending</span>
-                  </>
-                )}
+            {/* Waiver status badge — racing venues only */}
+            {selectedLocation?.racing !== false && (
+              <div
+                className={`rounded-xl p-4 text-center ${waiverValid ? "border border-emerald-500/30 bg-emerald-500/8" : "border-2 border-amber-500/40 bg-amber-500/8"}`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  {waiverValid ? (
+                    <>
+                      <svg
+                        className="w-5 h-5 text-emerald-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                        />
+                      </svg>
+                      <span className="text-emerald-400 font-bold text-sm">Waiver Signed</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-5 h-5 text-amber-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      <span className="text-amber-400 font-bold text-sm">Waiver Pending</span>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Reserved activities */}
             {existingReservations.length > 0 && (
@@ -1796,7 +2163,7 @@ export default function GroupEventPage() {
                 &middot; Please arrive <strong className="text-white/60">15 minutes early</strong>{" "}
                 for check-in.
               </p>
-              {event.includesLicense && (
+              {event.includesLicense && selectedLocation?.racing !== false && (
                 <p>
                   &middot; Racing license fee is <strong className="text-white/60">included</strong>{" "}
                   &mdash; no charge.

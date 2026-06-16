@@ -38,6 +38,58 @@ export interface GroupEventMealWindow {
   endTime: string; // "12:30" (24h)
 }
 
+/** Background hero video for the landing page. Muted/looping/autoplay; the poster
+ *  paints instantly and is also the still fallback for reduced-motion / Save-Data. */
+export interface GroupEventHeroVideo {
+  mp4_1080: string; // desktop source
+  mp4_720: string; // mobile source (lighter)
+  poster: string; // still frame — instant paint + reduced-motion fallback
+}
+
+/** A gallery photo (WebP preferred, JPEG fallback). */
+export interface GroupEventGalleryPhoto {
+  webp: string;
+  jpg: string;
+  alt: string;
+}
+
+/** One choosable location for a multi-venue event (e.g. Naples vs Fort Myers).
+ *  `racing` gates the go-kart booking — only Fort Myers has FastTrax, so Naples
+ *  is RSVP-only. `bookingSlug` is the GROUP_EVENTS key whose funnel this location
+ *  enters after sign-up (lets each venue carry its own date / BMI products). */
+export interface GroupEventLocation {
+  key: string; // "fort-myers" | "naples"
+  label: string; // "Fort Myers"
+  venue: string; // "HeadPinz & FastTrax"
+  date: string; // "2026-07-30"
+  address: string; // "14513 Global Pkwy, Fort Myers, FL 33913"
+  racing: boolean; // FM true, Naples false
+}
+
+/** Marketing landing-page content. When present, `/event/<slug>` renders a full
+ *  hero + experience + gallery above the booking funnel (on the entry step only).
+ *  Absent → the event keeps the plain compact-header funnel (e.g. corporate buyouts). */
+export interface GroupEventLanding {
+  heroVideo?: GroupEventHeroVideo;
+  headline?: string; // big hero headline (default: eventTitle)
+  tagline?: string; // hero subline
+  freeBadge?: string; // e.g. "100% FREE"
+  ctaLabel?: string; // hero CTA button (default: "Sign Up")
+  intro?: string; // experience-section lead paragraph
+  eventTime?: string; // friendly overall window, e.g. "4:00 – 7:00 PM"
+  highlights?: { title: string; text: string }[];
+  /** "What's included" perk list (e.g. drink tickets, buffet, bowling, race). */
+  included?: { item: string; note?: string }[];
+  /** Choosable venues. When present, the page shows a location picker before the
+   *  sign-up form; the chosen location drives date/address and racing availability. */
+  locations?: GroupEventLocation[];
+  /** Secondary feature video shown mid-page (e.g. real go-kart racing footage).
+   *  Single source + poster; honors the same reduced-motion / Save-Data opt-out. */
+  featureVideo?: { src: string; poster: string; heading?: string; text?: string };
+  gallery?: GroupEventGalleryPhoto[];
+  finePrint?: string; // small print under the sign-up form
+}
+
 export interface GroupEvent {
   slug: string;
   companyName: string;
@@ -73,9 +125,16 @@ export interface GroupEvent {
    *  "full-day" (default) = whole date greyed/unclickable (facility buyout).
    *  "event-window" = date stays bookable; only heats overlapping [startTime,endTime] are disabled. */
   publicBlock?: "full-day" | "event-window";
+  /** Marketing landing content. When set, the event page renders a full hero +
+   *  experience + gallery on the entry step (public promos). Omit for plain funnels. */
+  landing?: GroupEventLanding;
 }
 
 // ── Event Registry ───────────────────────────────────────────────────────────
+
+/** Vercel Blob base — keeps the xmas-in-july asset URLs readable. */
+const BLOB_BASE = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+const blob = (path: string) => `${BLOB_BASE}/events/xmas-in-july/${path}`;
 
 export const GROUP_EVENTS: Record<string, GroupEvent> = {
   "healthnet-2026": {
@@ -183,23 +242,111 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
   // adult:starter, withLicense variant).
   "xmas-in-july": {
     slug: "xmas-in-july",
-    companyName: "FastTrax", // host venue — used in "complimentary for FastTrax guests" copy
-    eventTitle: "Xmas in July",
+    companyName: "HeadPinz & FastTrax", // co-host brands
+    eventTitle: "Christmas in July",
+    // eventDate / startTime / endTime describe the FORT MYERS racing window
+    // (4:30–5:30 PM on 7/30) — used by publicBlock to reserve those heats from the
+    // public calendar. The overall 4–7 PM event + per-venue dates live in landing.
     eventDate: "2026-07-30",
-    startTime: "16:30", // 4:30 PM
-    endTime: "17:30", // 5:30 PM
+    startTime: "16:30", // racing slot start (4:30 PM)
+    endTime: "17:30", // racing slot end (5:30 PM)
     allowedDomains: [], // unused in open mode
     accessMode: "open",
-    eventKicker: "FastTrax", // small eyebrow above the title; "Xmas in July" is the brand
-    publicBlock: "event-window", // only the 16:30–17:30 heats blocked for the public
-    accentColor: "#E41C1D", // Christmas red (alt festive green: #1A7A3C)
+    eventKicker: "You're Invited", // eyebrow above the title
+    publicBlock: "event-window", // only the 16:30–17:30 FM heats blocked for the public
+    accentColor: "#E41C1D", // Christmas red
     accentTextColor: "#ffffff",
     accentHoverColor: "#ff3b30", // lighter red on hover (white label stays readable)
-    pandoraLocation: "headpinz", // same physical Fort Myers venue
-    heroImage: "", // TODO(ops): "Xmas in July" hero/logo blob URL
+    pandoraLocation: "headpinz", // Fort Myers physical venue (racing waiver)
+    heroImage: "", // logo unused — landing.heroVideo drives the page hero
     racingTier: "starter",
     includesLicense: true,
-    minAge: 18,
+    // ── Landing page (open RSVP — business-leader holiday open house) ──
+    landing: {
+      heroVideo: {
+        mp4_1080:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-1080.mp4",
+        mp4_720:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-720.mp4",
+        poster:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-poster.jpg",
+      },
+      headline: "Christmas in July",
+      tagline:
+        "At HeadPinz & FastTrax, the best celebrations start with great people — and we'd love to celebrate with you. Join us for a festive evening built for local business leaders.",
+      freeBadge: "You're Invited",
+      ctaLabel: "RSVP",
+      eventTime: "4:00 – 7:00 PM",
+      intro:
+        "Enjoy holiday bites, signature drinks, and an inside look at how HeadPinz & FastTrax can help you throw your best holiday party yet. Come see the space, meet the team, and feel the experience first-hand.",
+      included: [
+        { item: "2 Drink Tickets", note: "Per guest" },
+        { item: "Holiday Buffet", note: "Festive bites" },
+        { item: "Complimentary Bowling", note: "On the house" },
+        { item: "1 Go-Kart Race", note: "Fort Myers · 4:30–5:30 PM" },
+      ],
+      locations: [
+        {
+          key: "fort-myers",
+          label: "Fort Myers",
+          venue: "HeadPinz & FastTrax Fort Myers",
+          date: "2026-07-30",
+          address: "14513 Global Pkwy, Fort Myers, FL 33913",
+          racing: true,
+        },
+        {
+          key: "naples",
+          label: "Naples",
+          venue: "HeadPinz Naples",
+          date: "2026-07-23",
+          address: "8525 Radio Ln, Naples, FL 34104",
+          racing: false,
+        },
+      ],
+      // Real FastTrax racing footage (the actual free activity). Reuses the
+      // production FastTrax homepage hero video — already web-optimized.
+      featureVideo: {
+        src: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-video.mp4",
+        poster:
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
+        heading: "Take a Lap, On Us",
+        text: "High-speed electric karts on our pro-built indoor track — your complimentary race at the Fort Myers event (4:30–5:30 PM).",
+      },
+      gallery: [
+        {
+          webp: blob("gallery/01.webp"),
+          jpg: blob("gallery/01.jpg"),
+          alt: "High-speed electric go-kart racing at FastTrax",
+        },
+        {
+          webp: blob("gallery/04.webp"),
+          jpg: blob("gallery/04.jpg"),
+          alt: "Neon bowling lanes at HeadPinz",
+        },
+        {
+          webp: blob("gallery/02.webp"),
+          jpg: blob("gallery/02.jpg"),
+          alt: "Food and drinks for the whole group",
+        },
+        {
+          webp: blob("gallery/03.webp"),
+          jpg: blob("gallery/03.jpg"),
+          alt: "Full bar and brick-oven pizza",
+        },
+        {
+          webp: blob("gallery/06.webp"),
+          jpg: blob("gallery/06.jpg"),
+          alt: "Friends celebrating at HeadPinz",
+        },
+        {
+          webp: blob("gallery/05.webp"),
+          jpg: blob("gallery/05.jpg"),
+          alt: "Groups enjoying a night out",
+        },
+      ],
+      finePrint:
+        "Space is limited — RSVP to reserve your spot. Go-kart racing is offered at the Fort Myers event (4:30–5:30 PM); must be 18+ to race. Naples includes complimentary bowling.",
+    },
     // no mealWindow; no freeflow attractions
     attractions: [
       {
