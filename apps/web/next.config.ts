@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Hide the local dev-mode indicator badge (it overlays content during review;
+  // never appears in production).
+  devIndicators: false,
   images: {
     remotePatterns: [
       {

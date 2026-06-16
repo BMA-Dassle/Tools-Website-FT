@@ -18,6 +18,7 @@ import HeatPicker from "@/app/book/race/components/HeatPicker";
 import { pandoraOnboardGuest } from "@/lib/pandora";
 import type { PandoraWaiverTemplate } from "@/lib/pandora";
 import WaiverSigning from "@/components/pandora/WaiverSigning";
+import Snowfall from "react-snowfall";
 import {
   IconGlassCocktail,
   IconToolsKitchen2,
@@ -106,6 +107,10 @@ function makeDisplayName(first: string, last: string): string {
   return `${first} ${last.charAt(0).toUpperCase()}.`;
 }
 
+/** White snowflake asset for the react-snowfall canvas. */
+const SNOWFLAKE_URL =
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/snowflake.webp";
+
 /** Tabler icon for a "what's included" perk, matched by keyword. */
 function includedIcon(item: string): TablerIcon {
   const s = item.toLowerCase();
@@ -162,6 +167,8 @@ export default function GroupEventPage() {
   const [attendInfo, setAttendInfo] = useState<{ company: string; guests: number } | null>(null);
   // Live countdown clock (client-only — null on SSR to avoid hydration mismatch).
   const [nowMs, setNowMs] = useState<number | null>(null);
+  // Snowflake image for react-snowfall (loaded client-side).
+  const [snowImages, setSnowImages] = useState<HTMLImageElement[] | undefined>(undefined);
   // "Look up my RSVP" by email or phone.
   const [lookupOpen, setLookupOpen] = useState(false);
   const [lookupBusy, setLookupBusy] = useState(false);
@@ -231,6 +238,15 @@ export default function GroupEventPage() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  // ── Load the snowflake image for react-snowfall (client-side) ──────────────
+  useEffect(() => {
+    if (!event?.landing) return;
+    const img = new window.Image();
+    img.src = SNOWFLAKE_URL;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time decorative image load
+    setSnowImages([img]);
+  }, [event]);
 
   // ── Hero video: honor reduced-motion / Save-Data, pick source by viewport ──
   // src starts null so SSR + first paint show the poster still; the effect then
@@ -1176,7 +1192,7 @@ export default function GroupEventPage() {
     <div className="relative min-h-screen bg-[#000418] pt-[140px]" style={accentStyle}>
       {/* Festive backdrop — fills the dark space behind everything (landing only) */}
       {landing?.backgrounds?.included && (
-        <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
           <img
             src={landing.backgrounds.included}
             alt=""
@@ -1189,6 +1205,26 @@ export default function GroupEventPage() {
           <div className="absolute inset-0 bg-[radial-gradient(40%_40%_at_90%_60%,rgba(26,122,60,0.12),transparent_70%)]" />
         </div>
       )}
+
+      {/* Snowfall — react-snowfall canvas using the real snowflake image */}
+      {landing && (
+        <Snowfall
+          snowflakeCount={120}
+          images={snowImages}
+          radius={[1, 13]}
+          speed={[0.4, 1.5]}
+          wind={[-0.5, 1.2]}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            zIndex: 1,
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
       <div className="relative z-10">
         {/* Compact header — funnel steps, and any event without a landing config */}
         {!showLanding && (
@@ -1223,38 +1259,49 @@ export default function GroupEventPage() {
               <>
                 {/* ── Hero ── */}
                 <section className="relative flex min-h-[72vh] w-full items-center overflow-hidden">
-                  {hero.motion && hero.src && landing.heroVideo ? (
-                    <video
-                      key={hero.src}
-                      className="absolute inset-0 h-full w-full object-cover"
-                      poster={landing.heroVideo.poster}
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                      preload="metadata"
-                      aria-hidden="true"
-                    >
-                      <source src={hero.src} type="video/mp4" />
-                    </video>
-                  ) : (
-                    landing.heroVideo && (
-                      <img
-                        src={landing.heroVideo.poster}
-                        alt=""
-                        aria-hidden="true"
+                  {/* Masked media — the video itself fades to transparent at the top
+                      & bottom so the page backdrop shows through (no flat-navy seam
+                      against the nav or the next section). Tint rides the same mask. */}
+                  <div
+                    aria-hidden
+                    className="absolute inset-0"
+                    style={{
+                      WebkitMaskImage:
+                        "linear-gradient(to bottom, transparent 0%, #000 9%, #000 90%, transparent 100%)",
+                      maskImage:
+                        "linear-gradient(to bottom, transparent 0%, #000 9%, #000 90%, transparent 100%)",
+                    }}
+                  >
+                    {hero.motion && hero.src && landing.heroVideo ? (
+                      <video
+                        key={hero.src}
                         className="absolute inset-0 h-full w-full object-cover"
-                      />
-                    )
-                  )}
-                  {/* Legibility overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/55 via-[#000418]/25 to-[#000418]" />
+                        poster={landing.heroVideo.poster}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="metadata"
+                      >
+                        <source src={hero.src} type="video/mp4" />
+                      </video>
+                    ) : (
+                      landing.heroVideo && (
+                        <img
+                          src={landing.heroVideo.poster}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      )
+                    )}
+                    <div className="absolute inset-0 bg-[#000418]/55" />
+                  </div>
                   {/* Hero content */}
                   <div className="relative z-10 mx-auto w-full max-w-3xl px-4 py-16 text-center">
                     <p className="mb-3 text-xs uppercase tracking-[0.3em] text-white/60 md:text-sm">
                       {event.companyName}
                     </p>
-                    <h1 className="font-display text-4xl uppercase leading-tight tracking-widest text-white md:text-6xl">
+                    <h1 className="font-display text-5xl font-black uppercase leading-[0.92] tracking-tight text-white [-webkit-text-stroke:1.5px_rgba(0,0,0,0.45)] drop-shadow-[0_3px_12px_rgba(0,0,0,0.65)] sm:text-6xl md:text-8xl">
                       {landing.headline ?? event.eventTitle}
                     </h1>
                     {landing.freeBadge && (
@@ -1421,24 +1468,18 @@ export default function GroupEventPage() {
                 {/* ── Gallery ── */}
                 {landing.gallery && landing.gallery.length > 0 && (
                   <div className="mx-auto max-w-6xl px-4 pt-14 pb-14">
-                    <div className="grid auto-rows-[130px] grid-cols-2 gap-3 md:auto-rows-[150px] md:grid-cols-3">
-                      {landing.gallery.map((g, i, arr) => (
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      {landing.gallery.map((g) => (
                         <picture
                           key={g.webp}
-                          className={`block overflow-hidden rounded-xl border border-white/10 ${
-                            i === 0
-                              ? "col-span-2 row-span-2"
-                              : i === arr.length - 1 && (arr.length - 1) % 2 === 1
-                                ? "col-span-2 md:col-span-1"
-                                : ""
-                          }`}
+                          className="block aspect-[4/3] overflow-hidden rounded-xl border border-white/10"
                         >
                           <source srcSet={g.webp} type="image/webp" />
                           <img
                             src={g.jpg}
                             alt={g.alt}
                             loading="lazy"
-                            className="h-full w-full object-cover"
+                            className="h-full w-full object-cover object-center"
                           />
                         </picture>
                       ))}
