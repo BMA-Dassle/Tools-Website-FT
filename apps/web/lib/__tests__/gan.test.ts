@@ -22,6 +22,12 @@ describe("buildGanPrefix", () => {
     expect(buildGanPrefix("WEB", "PPTR5G2N0QXF7")).toBe("WEBHPN");
   });
 
+  it("builds GZ (game card) prefixes from Square location ids", () => {
+    expect(buildGanPrefix("GZ", "TXBSQN0FEKQ11")).toBe("GZHPFM");
+    expect(buildGanPrefix("GZ", "LAB52GY480CJF")).toBe("GZFT");
+    expect(buildGanPrefix("GZ", "PPTR5G2N0QXF7")).toBe("GZHPN");
+  });
+
   it("accepts centerCode aliases as well as location ids", () => {
     expect(buildGanPrefix("WEB", "fort-myers")).toBe("WEBHPFM");
     expect(buildGanPrefix("WEB", "fasttrax")).toBe("WEBFT");
@@ -59,7 +65,7 @@ describe("composeGan", () => {
 
 describe("isInternalDepositGan ↔ generator coverage (money-bug backstop)", () => {
   it("blocks every prefix buildGanPrefix can emit", () => {
-    for (const channel of ["GF", "WEB"] as const) {
+    for (const channel of ["GF", "WEB", "GZ"] as const) {
       for (const loc of ["TXBSQN0FEKQ11", "LAB52GY480CJF", "PPTR5G2N0QXF7"]) {
         const gan = composeGan(buildGanPrefix(channel, loc), "12345678").gan;
         expect(isInternalDepositGan(gan)).toBe(true);

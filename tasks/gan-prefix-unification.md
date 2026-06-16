@@ -18,6 +18,9 @@ Myers, `FT` = FastTrax, `HPN` = HeadPinz Naples.
 | Web            | HeadPinz Fort Myers  | `WEBHPFM` | `WEBHPFM12345678`  |
 | Web            | FastTrax             | `WEBFT`   | `WEBFT12345678`    |
 | Web            | HeadPinz Naples      | `WEBHPN`  | `WEBHPN12345678`   |
+| Game card      | HeadPinz Fort Myers  | `GZHPFM`  | `GZHPFM12345678`   |
+| Game card      | FastTrax             | `GZFT`    | `GZFT12345678`     |
+| Game card      | HeadPinz Naples      | `GZHPN`   | `GZHPN12345678`    |
 
 Suffix unchanged per flow: GF & web race/attr = `billId.slice(-8)`; bowling = QAMF
 reservation id. Multi-card GF chunks keep the trailing `B`, `C`, … letter.

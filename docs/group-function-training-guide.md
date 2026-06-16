@@ -110,9 +110,10 @@ Square limits gift cards to $2,000 each. For large events, the system automatica
 - All cards are redeemed automatically on event day
 
 > **GAN prefixes** identify where a deposit came from at a glance in Square:
-> contracts use `GF` + center (`GFHPFM`, `GFFT`, `GFHPN`) and web bookings use
-> `WEB` + center (`WEBHPFM`, `WEBFT`, `WEBHPN`). Center tags: HPFM = HeadPinz Fort
-> Myers, FT = FastTrax, HPN = HeadPinz Naples.
+> contracts use `GF` + center (`GFHPFM`, `GFFT`, `GFHPN`), web bookings use
+> `WEB` + center (`WEBHPFM`, `WEBFT`, `WEBHPN`), and game cards use `GZ` + center
+> (`GZHPFM`, `GZFT`, `GZHPN`). Center tags: HPFM = HeadPinz Fort Myers, FT =
+> FastTrax, HPN = HeadPinz Naples.
 
 ### Contract Updates After Signing
 

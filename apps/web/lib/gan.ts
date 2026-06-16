@@ -6,10 +6,12 @@
  * Scheme: `{CHANNEL}{CENTER_TAG}` + a per-flow suffix.
  *   Channel:  GF  = group-function contract deposit
  *             WEB = self-serve web booking deposit
+ *             GZ  = game card
  *   Center:   HPFM = HeadPinz Fort Myers · FT = FastTrax · HPN = HeadPinz Naples
  *
  *   Contracts: GFHPFM… / GFFT… / GFHPN…
  *   Web:       WEBHPFM… / WEBFT… / WEBHPN…
+ *   Game card: GZHPFM… / GZFT… / GZHPN…
  *
  * IMPORTANT — these GANs are an internal staff accounting instrument, NOT a
  * customer payment method. `isInternalDepositGan` (lib/square-gift-card.ts)
@@ -18,7 +20,7 @@
  * in {@link KNOWN_DEPOSIT_GAN_PREFIXES} forever — old cards keep their GANs.
  */
 
-export type GanChannel = "GF" | "WEB";
+export type GanChannel = "GF" | "WEB" | "GZ";
 
 /**
  * Square location id (and centerCode alias) → short center tag used in GANs.
@@ -64,6 +66,9 @@ export const CURRENT_DEPOSIT_GAN_PREFIXES = [
   "WEBHPFM",
   "WEBFT",
   "WEBHPN",
+  "GZHPFM",
+  "GZFT",
+  "GZHPN",
 ] as const;
 
 /** Every deposit-GAN prefix ever issued — the set isInternalDepositGan blocks. */
