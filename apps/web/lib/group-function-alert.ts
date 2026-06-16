@@ -24,41 +24,73 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 /** Centers that expose the HeadPinz-vs-FastTrax location selector in BMI. */
 const FM_CENTER_CODES = new Set(["fort-myers", "fasttrax"]);
 
+export interface ContractIssue {
+  message: string;
+  /**
+   * Required guest-facing info that MUST be present before a contract goes out.
+   * The dispatch cron hard-blocks the *initial* send when any blocking issue is
+   * present and leaves the BMI project in "Send Contract" until it's fixed.
+   * Non-blocking issues (e.g. planner email) are warning-only.
+   */
+  blocking: boolean;
+}
+
 /**
- * Inspect a scanned "Send Contract" item and return a list of human-readable
- * data problems that would degrade (or silently break) the contract send.
+ * Inspect a scanned "Send Contract" item and return classified data problems
+ * that would degrade (or silently break) the contract send. Each issue is
+ * tagged `blocking` (required guest info) or not (soft / internal-only).
  * Empty array = nothing to alert on. Pure — no I/O.
  */
-export function collectContractDataIssues(item: HermesQueueItem, centerCode: string): string[] {
-  const issues: string[] = [];
+export function collectContractIssues(item: HermesQueueItem, centerCode: string): ContractIssue[] {
+  const issues: ContractIssue[] = [];
 
   const email = (item.customer.email || "").trim();
   if (!email) {
-    issues.push("Guest email is missing");
+    issues.push({ message: "Guest email is missing", blocking: true });
   } else if (!EMAIL_RE.test(email)) {
-    issues.push(`Guest email looks invalid: ${email}`);
+    issues.push({ message: `Guest email looks invalid: ${email}`, blocking: true });
   }
 
   const first = (item.customer.first || "").trim();
   const last = (item.customer.last || "").trim();
   if (!first || !last) {
-    issues.push("Guest name is incomplete (first/last)");
+    issues.push({ message: "Guest name is incomplete (first/last)", blocking: true });
   }
 
   const phoneDigits = (item.customer.phone || "").replace(/\D/g, "");
   if (phoneDigits.length < 10) {
-    issues.push("Guest phone is missing or invalid (no SMS will be sent)");
+    issues.push({
+      message: "Guest phone is missing or invalid (no SMS will be sent)",
+      blocking: true,
+    });
   }
 
   if (!(item.planner.email || "").trim()) {
-    issues.push("Planner email is not set (email sends from default sender, no CC)");
+    // Internal-only: the guest still gets the contract (default sender, no CC),
+    // so this warns but does not block the send.
+    issues.push({
+      message: "Planner email is not set (email sends from default sender, no CC)",
+      blocking: false,
+    });
   }
 
   if (FM_CENTER_CODES.has(centerCode) && !(item.location || "").trim()) {
-    issues.push("Location selector not set in BMI — defaulted to HeadPinz Fort Myers");
+    issues.push({
+      message: "Location selector not set in BMI — defaulted to HeadPinz Fort Myers",
+      blocking: true,
+    });
   }
 
   return issues;
+}
+
+/**
+ * Back-compat flat list of every issue message (blocking + warning), in the
+ * same order as {@link collectContractIssues}. Used by the email-delivery-failed
+ * alert and the unit tests.
+ */
+export function collectContractDataIssues(item: HermesQueueItem, centerCode: string): string[] {
+  return collectContractIssues(item, centerCode).map((i) => i.message);
 }
 
 function shortHash(s: string): string {
@@ -171,24 +203,39 @@ export interface ContractDataIssueParams {
   /** Optional link to the internal contract page (when a short id exists). */
   contractUrl?: string;
   issues: string[];
+  /**
+   * Blocking mode: the contract was NOT sent because required info is missing,
+   * and the BMI project stays in "Send Contract" until it's fixed. Changes the
+   * card to a red "not sent" framing. Defaults to the softer "sent anyway" warning.
+   */
+  blocked?: boolean;
 }
 
 /**
- * Post a "contract sent with missing info" warning to Teams. Best-effort and
- * de-duped per (reservation, issue-set) for 6h so the every-2-min dispatch cron
- * doesn't spam the same problem. No-op when `issues` is empty.
+ * Post a contract data-issue alert to Teams. In the default (warning) mode the
+ * contract was sent anyway; in `blocked` mode it was NOT sent and is held in
+ * "Send Contract". Best-effort and de-duped per (reservation, mode, issue-set)
+ * for 6h so the every-2-min dispatch cron doesn't spam the same problem.
+ * No-op when `issues` is empty. Returns `true` only when a card was actually
+ * posted (not deduped / not failed) — callers use this to gate side effects
+ * like a BMI note so they share the same 6h throttle.
  */
-export async function notifyContractDataIssues(params: ContractDataIssueParams): Promise<void> {
-  if (!params.issues.length) return;
+export async function notifyContractDataIssues(params: ContractDataIssueParams): Promise<boolean> {
+  if (!params.issues.length) return false;
 
-  const dedupKey = `gf:alert:data:${params.reservationId}:${shortHash([...params.issues].sort().join("|"))}`;
-  if (!(await shouldAlert(dedupKey, 6 * 60 * 60))) return;
+  const ns = params.blocked ? "blocked" : "data";
+  const dedupKey = `gf:alert:${ns}:${params.reservationId}:${shortHash([...params.issues].sort().join("|"))}`;
+  if (!(await shouldAlert(dedupKey, 6 * 60 * 60))) return false;
 
   const card = buildAlertCard({
-    eyebrow: `⚠ CONTRACT SENT WITH MISSING INFO · BMI #${params.reservationId}`,
+    eyebrow: params.blocked
+      ? `⛔ CONTRACT NOT SENT — MISSING REQUIRED INFO · BMI #${params.reservationId}`
+      : `⚠ CONTRACT SENT WITH MISSING INFO · BMI #${params.reservationId}`,
     title: params.eventName || "(unnamed event)",
-    subtitle: `${params.centerName} · Planner: ${params.plannerEmail || "unassigned"}`,
-    headerStyle: "warning",
+    subtitle: params.blocked
+      ? `${params.centerName} · Planner: ${params.plannerEmail || "unassigned"} · Fix in BMI and it sends automatically`
+      : `${params.centerName} · Planner: ${params.plannerEmail || "unassigned"}`,
+    headerStyle: params.blocked ? "attention" : "warning",
     facts: [
       { title: "Guest", value: params.guestName.trim() || "—" },
       { title: "Email", value: params.guestEmail || "— (missing)" },
@@ -203,13 +250,17 @@ export async function notifyContractDataIssues(params: ContractDataIssueParams):
 
   try {
     await sendAdaptiveCardToChannel(resolveChatId(params.plannerEmail), card, {
-      summaryText: `⚠ ${params.eventName || "Event"}: contract sent with missing info`,
+      summaryText: params.blocked
+        ? `⛔ ${params.eventName || "Event"}: contract NOT sent — fix required info`
+        : `⚠ ${params.eventName || "Event"}: contract sent with missing info`,
     });
+    return true;
   } catch (err) {
     console.error(
       `[gf-alert] data-issue card failed for reservation=${params.reservationId}:`,
       err,
     );
+    return false;
   }
 }
 

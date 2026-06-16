@@ -28,7 +28,7 @@ import { verifyCron } from "@/lib/cron-auth";
 import { formatEtDateTime } from "@/lib/et-time";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 import {
-  collectContractDataIssues,
+  collectContractIssues,
   notifyContractDataIssues,
   notifyDispatchError,
 } from "@/lib/group-function-alert";
@@ -220,27 +220,80 @@ async function processQueueItem(
     return { reservationId: item.reservationId, action: "debounced" };
   }
 
-  // Data-quality alert: the event is set to "Send Contract" but the guest data
-  // is incomplete (missing email/name/phone, planner email unset, or — at
-  // HPFM/FT — the location selector left blank). We still proceed with the send
-  // ("proceed anyway"), but ping staff in Teams so they can fix the BMI data.
-  // De-duped per (reservation, issue-set) inside the helper, so the every-2-min
-  // cron won't spam. Best-effort — never blocks the dispatch.
-  const dataIssues = collectContractDataIssues(item, center.centerCode);
-  if (dataIssues.length > 0) {
+  // Data-quality gate. Required guest info — email, name, phone, and (at HPFM/FT)
+  // the location selector — MUST be present before a contract goes out. When the
+  // *initial* send is missing any of these we HARD-BLOCK: don't persist, don't
+  // send, and leave the BMI project in "Send Contract" so a later pass sends it
+  // automatically once sales fixes the data. Soft issues (planner email) only
+  // warn. An already-sent contract (existing.contract_sent_at) is NOT gated — it
+  // flows through the resend / post-sign branches below, which keep the day-of
+  // Square order reconciled and must never be blocked.
+  const issues = collectContractIssues(item, center.centerCode);
+  const blockingIssues = issues.filter((i) => i.blocking).map((i) => i.message);
+  const issueMessages = issues.map((i) => i.message);
+  const contractUrl = existing?.contract_short_id
+    ? `${center.baseUrl}/contract/${existing.contract_short_id}`
+    : undefined;
+  const guestName = `${item.customer.first || ""} ${item.customer.last || ""}`.trim();
+  const isInitialSend = !existing?.contract_sent_at;
+
+  if (isInitialSend && blockingIssues.length > 0) {
+    // Alert staff (red "NOT sent" card). Returns true only when it actually
+    // posted, so the BMI note below shares the same 6h throttle and the
+    // every-2-min cron won't spam the project notes.
+    const posted = await notifyContractDataIssues({
+      centerCode: center.centerCode,
+      centerName: item.centerName,
+      reservationId: item.reservationId,
+      eventName: item.event.name,
+      guestName,
+      guestEmail: item.customer.email,
+      guestPhone: item.customer.phone,
+      plannerEmail: item.planner.email,
+      contractUrl,
+      issues: blockingIssues,
+      blocked: true,
+    }).catch(() => false);
+
+    if (posted) {
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        await appendProjectPrivateNote({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          note:
+            `[${noteTimestamp()}] Contract NOT sent — missing required info: ` +
+            `${blockingIssues.join("; ")}. Fix in BMI and it will send automatically.`,
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    console.log(
+      `[group-quote-dispatch] BLOCKED send for reservation=${item.reservationId} — ` +
+        `missing: ${blockingIssues.join(", ")}`,
+    );
+    // Intentionally do NOT transition the BMI state or stamp processed: the
+    // project stays in "Send Contract" and re-scans until the data is fixed.
+    return { reservationId: item.reservationId, action: "blocked_missing_data" };
+  }
+
+  // Non-blocking warnings (or any issue on an already-sent contract): alert only,
+  // then proceed with the send / update as before. De-duped inside the helper.
+  if (issueMessages.length > 0) {
     await notifyContractDataIssues({
       centerCode: center.centerCode,
       centerName: item.centerName,
       reservationId: item.reservationId,
       eventName: item.event.name,
-      guestName: `${item.customer.first || ""} ${item.customer.last || ""}`.trim(),
+      guestName,
       guestEmail: item.customer.email,
       guestPhone: item.customer.phone,
       plannerEmail: item.planner.email,
-      contractUrl: existing?.contract_short_id
-        ? `${center.baseUrl}/contract/${existing.contract_short_id}`
-        : undefined,
-      issues: dataIssues,
+      contractUrl,
+      issues: issueMessages,
     }).catch(() => {});
   }
 

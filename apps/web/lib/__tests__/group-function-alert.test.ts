@@ -20,7 +20,11 @@ vi.hoisted(async () => {
   }
 });
 
-import { collectContractDataIssues, buildAlertCard } from "../group-function-alert";
+import {
+  collectContractDataIssues,
+  collectContractIssues,
+  buildAlertCard,
+} from "../group-function-alert";
 import { plannerChatIdForEmail, GUEST_SERVICES_CHAT_ID } from "../sales-lead-config";
 import type { HermesQueueItem } from "../hermes-client";
 
@@ -113,6 +117,66 @@ describe("collectContractDataIssues", () => {
 
   it("does NOT flag a blank location selector at Naples (no selector there)", () => {
     expect(collectContractDataIssues(makeItem({ location: undefined }), "naples")).toEqual([]);
+  });
+});
+
+describe("collectContractIssues (blocking classification)", () => {
+  const blockingMessages = (item: HermesQueueItem, center: string) =>
+    collectContractIssues(item, center)
+      .filter((i) => i.blocking)
+      .map((i) => i.message);
+
+  it("flags no issues for a complete item", () => {
+    expect(collectContractIssues(makeItem(), "fort-myers")).toEqual([]);
+  });
+
+  it("treats missing guest email as blocking", () => {
+    const item = makeItem({
+      customer: { email: "", first: "Sam", last: "Smith", phone: "+12395551234" },
+    });
+    expect(blockingMessages(item, "fort-myers")).toContain("Guest email is missing");
+  });
+
+  it("treats an incomplete guest name as blocking", () => {
+    const item = makeItem({
+      customer: { email: "guest@example.com", first: "Sam", last: "", phone: "+12395551234" },
+    });
+    expect(blockingMessages(item, "fort-myers")).toContain("Guest name is incomplete (first/last)");
+  });
+
+  it("treats a missing/short guest phone as blocking", () => {
+    const item = makeItem({
+      customer: { email: "guest@example.com", first: "Sam", last: "Smith", phone: "123" },
+    });
+    expect(blockingMessages(item, "fort-myers").some((m) => m.startsWith("Guest phone"))).toBe(
+      true,
+    );
+  });
+
+  it("treats a blank location selector at FM/FT as blocking", () => {
+    expect(blockingMessages(makeItem({ location: "" }), "fasttrax")).toContain(
+      "Location selector not set in BMI — defaulted to HeadPinz Fort Myers",
+    );
+  });
+
+  it("treats a missing planner email as a WARNING (not blocking)", () => {
+    const item = makeItem({ planner: { email: "", first: "", last: "", phone: "" } });
+    const all = collectContractIssues(item, "fort-myers");
+    const plannerIssue = all.find((i) => i.message.startsWith("Planner email is not set"));
+    expect(plannerIssue).toBeDefined();
+    expect(plannerIssue!.blocking).toBe(false);
+    expect(blockingMessages(item, "fort-myers")).toEqual([]);
+  });
+
+  it("stays in sync with the back-compat flat message list", () => {
+    const item = makeItem({
+      customer: { email: "", first: "Sam", last: "", phone: "123" },
+      planner: { email: "", first: "", last: "", phone: "" },
+      location: "",
+    });
+    expect(collectContractIssues(item, "fort-myers").map((i) => i.message)).toEqual(
+      collectContractDataIssues(item, "fort-myers"),
+    );
   });
 });
 
