@@ -1183,6 +1183,10 @@ export default function GroupEventPage() {
             className="h-full w-full object-cover opacity-[0.55]"
           />
           <div className="absolute inset-0 bg-[#000418]/55" />
+          {/* Warm festive glows to break the all-blue: red top, gold bottom-left, green right */}
+          <div className="absolute inset-0 bg-[radial-gradient(60%_45%_at_50%_0%,rgba(228,28,29,0.18),transparent_70%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(45%_40%_at_15%_100%,rgba(212,175,55,0.14),transparent_70%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(40%_40%_at_90%_60%,rgba(26,122,60,0.12),transparent_70%)]" />
         </div>
       )}
       <div className="relative z-10">
@@ -1304,7 +1308,7 @@ export default function GroupEventPage() {
                             <p className="font-display text-2xl font-bold leading-none text-(--accent)">
                               {countdownStr(loc.date) ?? " "}
                             </p>
-                            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-white/40">
+                            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#E8C77A]">
                               until the party
                             </p>
                           </div>
