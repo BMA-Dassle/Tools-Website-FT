@@ -1,5 +1,9 @@
 import { buildSquareLineItem } from "@/lib/plu-catalog-map";
-import type { GroupFunctionQuote } from "@/lib/group-function-db";
+import {
+  updateGfQuoteDetails,
+  appendAuditLog,
+  type GroupFunctionQuote,
+} from "@/lib/group-function-db";
 
 /**
  * Creates the OPEN day-of Square order for a group function event. Staff redeem the loaded
@@ -111,4 +115,117 @@ export async function createDayofOrder(
   }
 
   return undefined;
+}
+
+/** Cancel an OPEN day-of order (best-effort). Needs the current version for the PUT. */
+async function cancelDayofOrder(orderId: string, locationId: string): Promise<void> {
+  const cur = await (
+    await fetch(`${SQUARE_BASE}/orders/${orderId}`, { headers: sqHeaders() })
+  ).json();
+  if (cur.order?.state === "CANCELED") return;
+  await fetch(`${SQUARE_BASE}/orders/${orderId}`, {
+    method: "PUT",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      order: { location_id: locationId, version: cur.order?.version, state: "CANCELED" },
+    }),
+  });
+}
+
+const DAYOF_RECONCILE_TOLERANCE_CENTS = 50;
+
+export type DayofReconcileResult =
+  | { action: "noop" | "skipped_no_order"; reason?: string }
+  | {
+      action: "rebuilt";
+      oldOrderId: string;
+      newOrderId: string;
+      oldTotalCents: number;
+      newTotalCents: number;
+    }
+  | { action: "skipped_mismatch"; reason: string; attemptedTotalCents: number };
+
+/**
+ * Self-heal the day-of Square order so it always matches the current contract.
+ *
+ * The day-of order is created ONCE at deposit time and otherwise frozen, so any
+ * post-deposit reprice (added product, changed lanes, service-charge tier) leaves it
+ * stale — at the event the loaded gift card no longer matches the order staff redeem
+ * against (the H1174 / #80 incident, 2026-06-16). This is called on every dispatch
+ * pass that touches an existing event, so a resend reconciles the order.
+ *
+ * Behavior:
+ *   - No existing day-of order        → no-op (the deposit flow owns first creation).
+ *   - Existing order total ≈ contract → no-op (within 50c per-line rounding).
+ *   - Otherwise rebuild from current line items, BUT only repoint if the rebuilt total
+ *     matches total_cents (±50c). A divergence means the contract total itself is wrong
+ *     (e.g. a tax-exempt event whose total omits tax, #23) — we cancel the throwaway
+ *     order and leave the pointer alone rather than booking a wrong amount.
+ *
+ * Best-effort and non-fatal: callers wrap in try/catch and never block the resend on it.
+ */
+export async function reconcileDayofOrder(
+  quote: GroupFunctionQuote,
+  baseKey: string,
+): Promise<DayofReconcileResult> {
+  const existingId = quote.square_dayof_order_id;
+  if (!existingId) return { action: "skipped_no_order" };
+
+  // What does the current order total? A canceled order forces a rebuild.
+  let currentTotal = -1;
+  try {
+    const j = await (
+      await fetch(`${SQUARE_BASE}/orders/${existingId}`, { headers: sqHeaders() })
+    ).json();
+    if (j.order && j.order.state !== "CANCELED") currentTotal = j.order.total_money?.amount ?? -1;
+  } catch {
+    /* fetch failure → treat as needing rebuild */
+  }
+  if (
+    currentTotal >= 0 &&
+    Math.abs(currentTotal - quote.total_cents) <= DAYOF_RECONCILE_TOLERANCE_CENTS
+  ) {
+    return { action: "noop" };
+  }
+
+  const dayof = await createDayofOrder(quote, baseKey);
+  if (!dayof)
+    return {
+      action: "skipped_mismatch",
+      reason: "createDayofOrder failed",
+      attemptedTotalCents: 0,
+    };
+
+  // Guard: the rebuilt order must equal the contract total. If not, the contract total is
+  // the suspect value (tax-exempt mismatch etc.) — don't silently repoint to a wrong amount.
+  if (Math.abs(dayof.totalCents - quote.total_cents) > DAYOF_RECONCILE_TOLERANCE_CENTS) {
+    await cancelDayofOrder(dayof.id, quote.square_location_id).catch(() => {});
+    return {
+      action: "skipped_mismatch",
+      reason: `rebuilt total ${dayof.totalCents} != contract total_cents ${quote.total_cents}`,
+      attemptedTotalCents: dayof.totalCents,
+    };
+  }
+
+  await updateGfQuoteDetails(quote.id, { square_dayof_order_id: dayof.id });
+  await cancelDayofOrder(existingId, quote.square_location_id).catch(() => {});
+  await appendAuditLog({
+    quoteId: quote.id,
+    event: "dayof_order_reconciled",
+    metadata: {
+      oldOrderId: existingId,
+      oldTotalCents: currentTotal,
+      newOrderId: dayof.id,
+      newTotalCents: dayof.totalCents,
+      trigger: "dispatch_reconcile",
+    },
+  }).catch(() => {});
+
+  return {
+    action: "rebuilt",
+    oldOrderId: existingId,
+    newOrderId: dayof.id,
+    oldTotalCents: currentTotal,
+    newTotalCents: dayof.totalCents,
+  };
 }

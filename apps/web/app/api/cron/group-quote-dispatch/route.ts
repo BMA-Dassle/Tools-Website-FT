@@ -22,6 +22,7 @@ import {
   notifyApprovalNeeded,
 } from "@/lib/group-function-notify";
 import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
+import { reconcileDayofOrder } from "@/lib/group-function-dayof";
 import { taxCents as computeTaxCents, subtotalCents } from "@/lib/group-function-pricing";
 import { verifyCron } from "@/lib/cron-auth";
 import { formatEtDateTime } from "@/lib/et-time";
@@ -129,6 +130,27 @@ export async function GET(req: NextRequest) {
 // formatEtDateTime appends the correct EDT/EST offset before rendering — a
 // hardcoded -04:00 shifted winter events an hour early. See lib/et-time.ts.
 const formatEventDate = formatEtDateTime;
+
+// Reconcile the day-of Square order to the current contract on every dispatch pass.
+// Non-fatal: a Square error here must never block the contract resend/update.
+async function reconcileDayofOrderSafe(quote: GroupFunctionQuote): Promise<void> {
+  try {
+    const baseKey = randomBytes(8).toString("hex");
+    const res = await reconcileDayofOrder(quote, baseKey);
+    if (res.action === "rebuilt") {
+      console.log(
+        `[group-quote-dispatch] day-of order rebuilt for reservation=${quote.bmi_reservation_id} ` +
+          `${res.oldOrderId} ($${(res.oldTotalCents / 100).toFixed(2)}) → ${res.newOrderId} ($${(res.newTotalCents / 100).toFixed(2)})`,
+      );
+    } else if (res.action === "skipped_mismatch") {
+      console.warn(
+        `[group-quote-dispatch] day-of reconcile SKIPPED for reservation=${quote.bmi_reservation_id}: ${res.reason}`,
+      );
+    }
+  } catch (err) {
+    console.warn("[group-quote-dispatch] day-of reconcile error (non-fatal):", err);
+  }
+}
 
 async function processQueueItem(
   item: HermesQueueItem,
@@ -293,6 +315,7 @@ async function processQueueItem(
         notifyContractSent(refreshedQuote).catch((err) =>
           console.error("[group-quote-dispatch] resend notify error:", err),
         );
+        await reconcileDayofOrderSafe(refreshedQuote);
       }
       // Transition back to Pending Signed Contract
       try {
@@ -376,6 +399,12 @@ async function processQueueItem(
       guest_phone: item.customer.phone,
       hermes_last_processed_at: new Date().toISOString(),
     });
+
+    // Self-heal the day-of Square order against the just-updated line items so the
+    // gift card matches the order staff redeem at the event (H1174 / #80, 2026-06-16).
+    // Best-effort, runs whether or not the price changed.
+    const reconcileTarget = await getGfQuoteByShortId(existing.contract_short_id!);
+    if (reconcileTarget) await reconcileDayofOrderSafe(reconcileTarget);
 
     if (
       priceChanged &&
