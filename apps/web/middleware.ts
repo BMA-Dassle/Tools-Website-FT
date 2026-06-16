@@ -618,7 +618,13 @@ export async function middleware(request: NextRequest) {
   const suppressMobileBar =
     pathname.startsWith("/t/") ||
     pathname.startsWith("/g/") ||
-    pathname.startsWith("/book/confirmation");
+    // Any booking confirmation screen — the top-level /book/confirmation
+    // as well as the per-flow nested confirmations
+    // (/book/checkout/confirmation, /book/race/confirmation,
+    // /book/race-packs/confirmation, /book/[attraction]/confirmation).
+    // These ARE the customer's e-ticket screen, so the "Book Now" bar is
+    // just noise — match the /confirmation segment anywhere in the path.
+    /\/confirmation(?:\/|$)/.test(pathname);
   if (suppressMobileBar) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
