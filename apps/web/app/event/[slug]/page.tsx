@@ -83,6 +83,8 @@ interface GuestInfo {
   lastName: string;
   displayName: string; // "Eric O."
   birthdate?: string; // "YYYY-MM-DD" — needed for waiver template
+  phone?: string;
+  smsConsent?: boolean;
 }
 
 /** An item in the cart — selected but not yet booked in BMI */
@@ -377,14 +379,16 @@ export default function GroupEventPage() {
     const firstName = (form.get("firstName") as string).trim();
     const lastName = (form.get("lastName") as string).trim();
     const company = (form.get("company") as string).trim();
+    const phone = (form.get("phone") as string).trim();
+    const smsConsent = form.get("smsConsent") === "on";
     // Additional guests beyond the registrant (0–2).
     const guests = Math.min(2, Math.max(0, Number(form.get("guests")) || 0));
-    if (!firstName || !lastName) return;
+    if (!firstName || !lastName || !phone) return;
     const email = guest!.email;
     const displayName = makeDisplayName(firstName, lastName);
     sessionStorage.setItem(sessionKey(slug, "firstName"), firstName);
     sessionStorage.setItem(sessionKey(slug, "lastName"), lastName);
-    setGuest({ email, firstName, lastName, displayName });
+    setGuest({ email, firstName, lastName, displayName, phone, smsConsent });
     setAttendInfo({ company, guests });
     setWaiverLoading(true);
     setWaiverError(null);
@@ -402,6 +406,8 @@ export default function GroupEventPage() {
           location: selectedLocation?.key,
           company,
           guests,
+          phone,
+          smsConsent,
         }),
       });
       if (!res.ok) throw new Error("Failed to save RSVP");
@@ -422,10 +428,12 @@ export default function GroupEventPage() {
     const bYear = form.get("birth-year") as string;
     const bMonth = form.get("birth-month") as string;
     const bDay = form.get("birth-day") as string;
+    const phone = (form.get("phone") as string).trim();
+    const smsConsent = form.get("smsConsent") === "on";
     // Date of birth is only needed for the racing waiver. RSVP-only venues
     // (Naples — no FastTrax) collect name + email alone.
     const needDob = selectedLocation?.racing !== false;
-    if (!firstName || !lastName) return;
+    if (!firstName || !lastName || !phone) return;
     if (needDob && (!bYear || !bMonth || !bDay)) return;
     const birthdate = needDob
       ? `${bYear}-${bMonth.padStart(2, "0")}-${bDay.padStart(2, "0")}`
@@ -450,7 +458,7 @@ export default function GroupEventPage() {
     sessionStorage.setItem(sessionKey(slug, "firstName"), firstName);
     sessionStorage.setItem(sessionKey(slug, "lastName"), lastName);
     if (birthdate) sessionStorage.setItem(sessionKey(slug, "birthdate"), birthdate);
-    setGuest({ email, firstName, lastName, displayName, birthdate });
+    setGuest({ email, firstName, lastName, displayName, birthdate, phone, smsConsent });
 
     // RSVP-only venues (no racing → no waiver). Record attendance and finish.
     if (selectedLocation && !selectedLocation.racing) {
@@ -488,7 +496,7 @@ export default function GroupEventPage() {
       // Shared Pandora onboard: create person → check waiver → fetch template
       const pandoraLocation = event?.pandoraLocation ?? "headpinz";
       const result = await pandoraOnboardGuest(
-        { firstName, lastName, email, birthdate: birthdate!, location: pandoraLocation },
+        { firstName, lastName, email, phone, birthdate: birthdate!, location: pandoraLocation },
         pandoraLocation,
       );
       setPersonId(result.personId);
@@ -893,6 +901,8 @@ export default function GroupEventPage() {
           reservations: [...prevReservations, ...bookedItems],
           personId,
           location: selectedLocation?.key,
+          phone: guest.phone,
+          smsConsent: guest.smsConsent,
         }),
       });
 
@@ -1002,6 +1012,8 @@ export default function GroupEventPage() {
           reservations: existingReservations,
           personId,
           location: selectedLocation?.key,
+          phone: guest.phone,
+          smsConsent: guest.smsConsent,
         }),
       });
       if (!res.ok) throw new Error("Failed to save RSVP");
@@ -1161,7 +1173,7 @@ export default function GroupEventPage() {
                     )
                   )}
                   {/* Legibility overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/75 via-[#000418]/45 to-[#000418]" />
+                  <div className="absolute inset-0 bg-gradient-to-b from-[#000418]/55 via-[#000418]/25 to-[#000418]" />
                   {/* Hero content */}
                   <div className="relative z-10 mx-auto w-full max-w-3xl px-4 py-16 text-center">
                     <p className="mb-3 text-xs uppercase tracking-[0.3em] text-white/60 md:text-sm">
@@ -1632,6 +1644,13 @@ export default function GroupEventPage() {
                       placeholder="Company name"
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
                     />
+                    <input
+                      name="phone"
+                      type="tel"
+                      required
+                      placeholder="Mobile phone"
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
+                    />
                     <div className="text-left">
                       <label
                         htmlFor="ge-guests"
@@ -1656,6 +1675,17 @@ export default function GroupEventPage() {
                         </option>
                       </select>
                     </div>
+                    <label className="flex items-start gap-2 text-left text-xs text-white/55">
+                      <input
+                        type="checkbox"
+                        name="smsConsent"
+                        defaultChecked
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-(--accent)"
+                      />
+                      <span>
+                        Text me my event details &amp; e-tickets. Msg &amp; data rates may apply.
+                      </span>
+                    </label>
                     {waiverError && <p className="text-xs text-red-400">{waiverError}</p>}
                     <button
                       type="submit"
@@ -1707,6 +1737,13 @@ export default function GroupEventPage() {
                         className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
                       />
                     </div>
+                    <input
+                      name="phone"
+                      type="tel"
+                      required
+                      placeholder="Mobile phone"
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30 outline-none text-sm"
+                    />
                     {nameNeedsDob && (
                       <div>
                         <label
@@ -1804,6 +1841,17 @@ export default function GroupEventPage() {
                         </div>
                       </div>
                     )}
+                    <label className="flex items-start gap-2 text-left text-xs text-white/55">
+                      <input
+                        type="checkbox"
+                        name="smsConsent"
+                        defaultChecked
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-(--accent)"
+                      />
+                      <span>
+                        Text me my event details &amp; e-tickets. Msg &amp; data rates may apply.
+                      </span>
+                    </label>
                     {waiverError && <p className="text-red-400 text-xs">{waiverError}</p>}
                     <button
                       type="submit"
@@ -2546,6 +2594,18 @@ export default function GroupEventPage() {
                 {bookingError && (
                   <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-3 text-center">
                     <p className="text-red-400 text-sm">{bookingError}</p>
+                  </div>
+                )}
+
+                {existingReservations.some((r) => r.type === "racing") && (
+                  <div className="rounded-xl border border-(--accent)/30 bg-(--accent)/10 p-4 text-sm">
+                    <p className="font-semibold text-white">How the racing works</p>
+                    <p className="mt-1 leading-relaxed text-white/70">
+                      The evening starts at{" "}
+                      <strong className="text-white">HeadPinz Fort Myers</strong>. We&rsquo;ll walk
+                      guests over to FastTrax in groups for your race — just listen for your group
+                      to be called.
+                    </p>
                   </div>
                 )}
 

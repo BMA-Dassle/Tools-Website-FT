@@ -76,6 +76,27 @@ export interface PandoraSignWaiverResult {
 // ── Client-side API helpers ──────────────────────────────────────────────────
 
 /**
+ * GET with retry — the Pandora API runs on Azure App Service and cold-starts,
+ * so the first request after idle can 5xx/time out while a retry succeeds.
+ * Only safe for idempotent GETs (never person-create). Retries on network
+ * error or 5xx; returns the last response so callers handle 4xx normally.
+ */
+async function getWithRetry(url: string, attempts = 3, delayMs = 1200): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.ok || (res.status >= 400 && res.status < 500)) return res;
+      lastErr = new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      lastErr = err;
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Request failed");
+}
+
+/**
  * Create a person in BMI via Pandora.
  * Calls POST /api/pandora
  */
@@ -104,7 +125,7 @@ export async function pandoraCheckWaiver(
 ): Promise<PandoraWaiverStatus> {
   const params = new URLSearchParams({ personId });
   if (location) params.set("location", location);
-  const res = await fetch(`/api/pandora?${params}`);
+  const res = await getWithRetry(`/api/pandora?${params}`);
   return res.json();
 }
 
@@ -118,7 +139,7 @@ export async function pandoraFetchWaiverTemplate(
 ): Promise<PandoraWaiverTemplate> {
   const params = new URLSearchParams({ age: String(age) });
   if (location) params.set("location", location);
-  const res = await fetch(`/api/pandora/waiver?${params}`);
+  const res = await getWithRetry(`/api/pandora/waiver?${params}`);
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     throw new Error(data?.error || "Could not load waiver template");

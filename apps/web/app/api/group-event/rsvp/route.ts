@@ -25,6 +25,11 @@ function rsvpIndexKey(slug: string): string {
   return `groupevent:${slug}:rsvp-index`;
 }
 
+/** Phone → email lookup key, so a guest can find their RSVP by phone. */
+function rsvpPhoneKey(slug: string, phone: string): string {
+  return `groupevent:${slug}:phone:${phone.replace(/\D/g, "")}`;
+}
+
 export interface GroupEventReservation {
   type: string;
   track?: string;
@@ -45,6 +50,10 @@ export interface GroupEventRsvp {
   company?: string;
   /** Party size on a "just attending" RSVP (1–2). */
   guests?: number;
+  /** Phone (digits only) — collected from every guest. */
+  phone?: string;
+  /** Guest opted in to SMS (e-tickets / updates). */
+  smsConsent?: boolean;
   updatedAt: string;
 }
 
@@ -57,10 +66,20 @@ export async function GET(req: NextRequest) {
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
   const email = searchParams.get("email");
+  const phone = searchParams.get("phone");
 
-  // Single guest lookup
+  // Single guest lookup by email
   if (email) {
     const data = await redis.get(rsvpKey(slug, email));
+    if (!data) return NextResponse.json(null);
+    return NextResponse.json(JSON.parse(data) as GroupEventRsvp);
+  }
+
+  // Single guest lookup by phone (resolve to email via the phone index)
+  if (phone) {
+    const resolvedEmail = await redis.get(rsvpPhoneKey(slug, phone));
+    if (!resolvedEmail) return NextResponse.json(null);
+    const data = await redis.get(rsvpKey(slug, resolvedEmail));
     if (!data) return NextResponse.json(null);
     return NextResponse.json(JSON.parse(data) as GroupEventRsvp);
   }
@@ -79,7 +98,22 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { slug, email, name, freeflow = [], reservations, personId, location } = body;
+    const {
+      slug,
+      email,
+      name,
+      freeflow = [],
+      reservations,
+      personId,
+      location,
+      company,
+      guests,
+    } = body;
+    const phone: string | undefined = body.phone
+      ? String(body.phone).replace(/\D/g, "")
+      : undefined;
+    const smsConsent: boolean | undefined =
+      typeof body.smsConsent === "boolean" ? body.smsConsent : undefined;
     if (!slug || !email || !name) {
       return NextResponse.json({ error: "slug, email, name required" }, { status: 400 });
     }
@@ -99,6 +133,10 @@ export async function POST(req: NextRequest) {
       // Preserve personId — survives cancel + rebook so waiver status persists
       personId: personId || prev.personId,
       location: location || prev.location,
+      company: company || prev.company,
+      guests: typeof guests === "number" ? guests : prev.guests,
+      phone: phone || prev.phone,
+      smsConsent: typeof smsConsent === "boolean" ? smsConsent : prev.smsConsent,
       updatedAt: new Date().toISOString(),
     };
 
@@ -108,6 +146,11 @@ export async function POST(req: NextRequest) {
     // Add to index
     await redis.sadd(rsvpIndexKey(slug), email.toLowerCase());
     await redis.expire(rsvpIndexKey(slug), TTL);
+
+    // Phone → email index for lookup-by-phone
+    if (record.phone) {
+      await redis.set(rsvpPhoneKey(slug, record.phone), email.toLowerCase(), "EX", TTL);
+    }
 
     console.log(
       `[group-rsvp] upserted ${name} (${email}) location=${location ?? "-"} freeflow=[${freeflow.join(",")}]`,

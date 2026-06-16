@@ -269,9 +269,9 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     landing: {
       heroVideo: {
         mp4_1080:
-          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-30s-1080.mp4",
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-full-1080.mp4",
         mp4_720:
-          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-30s-720.mp4",
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-full-720.mp4",
         poster:
           "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-poster.jpg",
       },
