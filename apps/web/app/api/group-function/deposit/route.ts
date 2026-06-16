@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
+import { buildGanPrefix } from "@/lib/gan";
 import {
   getGfQuoteByShortId,
   updateGfDepositPaid,
@@ -224,7 +225,9 @@ export async function POST(req: NextRequest) {
     const depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
 
     // 4. Create + activate one DIGITAL gift card per ≤$2k chunk.
-    const prefix = quote.gan_prefix || "GRPF";
+    // Persisted prefix (set at quote insert) wins; fall back to the current
+    // channel+center scheme for legacy rows that predate the gan_prefix column.
+    const prefix = quote.gan_prefix || buildGanPrefix("GF", quote.square_location_id);
     const baseGan = `${prefix}${ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
     const paymentIds = [multiTender.gcPaymentId, multiTender.cardPaymentId].filter(
       (id): id is string => Boolean(id),

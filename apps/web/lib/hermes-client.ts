@@ -83,21 +83,23 @@ export const HERMES_CENTER_MAP: Record<string, CenterInfo> = {
     squareLocationId: "TXBSQN0FEKQ11",
     brand: "headpinz",
     baseUrl: "https://headpinz.com",
-    ganPrefix: "HPFM",
+    // Contract (group-function) deposit GAN prefix — channel "GF" + center tag.
+    // See lib/gan.ts. Legacy quotes keep their old prefix (GANs are immutable).
+    ganPrefix: "GFHPFM",
   },
   "10.48.0.14_FT": {
     centerCode: "fasttrax",
     squareLocationId: "LAB52GY480CJF",
     brand: "fasttrax",
     baseUrl: "https://fasttraxent.com",
-    ganPrefix: "GRPF",
+    ganPrefix: "GFFT",
   },
   "10.40.0.43": {
     centerCode: "naples",
     squareLocationId: "PPTR5G2N0QXF7",
     brand: "headpinz",
     baseUrl: "https://headpinz.com",
-    ganPrefix: "HPN",
+    ganPrefix: "GFHPN",
   },
 };
 

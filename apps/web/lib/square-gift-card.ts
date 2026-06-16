@@ -22,6 +22,8 @@
  * authorize call.
  */
 
+import { KNOWN_DEPOSIT_GAN_PREFIXES } from "@/lib/gan";
+
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 const SQUARE_VERSION = "2024-12-18";
@@ -44,21 +46,19 @@ export interface GiftCardInfo {
 }
 
 /**
- * Match the GAN prefixes used by /api/square/bowling-orders for
- * internal staff-facing deposit eGift cards. Centralized so changes
- * stay in one place if bowling's GAN format ever evolves.
+ * True when a GAN belongs to an internal staff-facing deposit eGift card (NOT a
+ * customer payment method) and must be blocked from redemption at checkout.
  *
- * Current prefixes (see /api/bowling/v2/reserve CENTER_GAN_PREFIX):
- *   HPFM…  HeadPinz Fort Myers (bowling)
- *   HPN…   HeadPinz Naples (bowling)
- *   RACE…  v2 race bookings
- *   ATTR…  v2 attraction bookings
- *   DEPX…  Older format, still possible in the wild
- *   GRPF…  Group function event deposits
+ * Matches every prefix in `KNOWN_DEPOSIT_GAN_PREFIXES` (lib/gan.ts) — current
+ * channel+center scheme (GFHPFM/GFFT/GFHPN, WEBHPFM/WEBFT/WEBHPN) PLUS all
+ * legacy prefixes (HPFM/HPN/RACE/ATTR/GRPF/DEPX) that live on already-minted,
+ * immutable cards. Order longest-first so a prefix that is itself a prefix of
+ * another (none today, but future-proof) can't shadow a longer match.
  */
 export function isInternalDepositGan(gan: string | null | undefined): boolean {
   if (!gan) return false;
-  return /^(HPFM|HPN|DEPX|RACE|ATTR|GRPF)/i.test(gan);
+  const upper = gan.toUpperCase();
+  return KNOWN_DEPOSIT_GAN_PREFIXES.some((p) => upper.startsWith(p.toUpperCase()));
 }
 
 /**

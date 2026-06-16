@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
+import { buildGanPrefix } from "@/lib/gan";
 import {
   createReservation,
   getReservation,
@@ -84,12 +85,6 @@ interface ConfirmRetryEntry {
 const CENTER_CODE_TO_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
   PPTR5G2N0QXF7: 3148,
-};
-
-/** Short center prefix for deposit gift card GANs (e.g. HPFMX77012). */
-const CENTER_GAN_PREFIX: Record<string, string> = {
-  TXBSQN0FEKQ11: "HPFM",
-  PPTR5G2N0QXF7: "HPN",
 };
 
 /**
@@ -1054,7 +1049,7 @@ export async function POST(req: NextRequest) {
           : actualDepositToCharge;
 
       // ── Charge deposit via shared deposit service ───────────────
-      const ganPrefix = CENTER_GAN_PREFIX[centerCode] ?? "HP";
+      const ganPrefix = buildGanPrefix("WEB", squareLocationId);
       const ganSuffix = qamfReservationId.replace(/[^A-Za-z0-9]/g, "");
       const depositNote = `Deposit – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`;
 

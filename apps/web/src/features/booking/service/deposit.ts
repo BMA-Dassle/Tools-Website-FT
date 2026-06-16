@@ -33,6 +33,7 @@ import {
   GIFT_CARD_MAX_CENTS,
   SquarePaymentError,
 } from "@/lib/square-gift-card";
+import { composeGan } from "@/lib/gan";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -308,8 +309,14 @@ export async function activateGiftCardForDeposit(params: {
   depositOrderId?: string;
   lineItemUid?: string;
 }): Promise<{ giftCardId: string; giftCardGan: string }> {
-  const customGan = `${params.ganPrefix}${params.ganSuffix}`.replace(/[^A-Za-z0-9]/g, "");
-  const useCustomGan = customGan.length >= 8 && customGan.length <= 20;
+  // composeGan guarantees the custom GAN fits Square's 8–20 window (trimming the
+  // suffix tail if needed). A GAN that overflowed would fall back to a Square
+  // auto-generated numeric gan that isInternalDepositGan can't recognize —
+  // making the deposit card redeemable as payment. See lib/gan.ts.
+  const { gan: customGan, useCustom: useCustomGan } = composeGan(
+    params.ganPrefix,
+    params.ganSuffix,
+  );
   const orderLinked = Boolean(params.depositOrderId && params.lineItemUid);
 
   const giftCardRes = await fetch(`${SQUARE_BASE}/gift-cards`, {
