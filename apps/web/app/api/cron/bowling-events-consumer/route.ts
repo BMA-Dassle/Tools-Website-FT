@@ -15,6 +15,7 @@ import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
 import { getReservation } from "@/lib/qamf-bowling";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
+import { completeReservationOrder } from "@/lib/bowling-order-complete";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -515,6 +516,21 @@ export async function GET(req: NextRequest) {
           `[bowling-events] neonId=${reservation.id} qamfId=${qamfId}` +
             ` status ${current} → ${neonAction}`,
         );
+        // Session over → close the (final, paid) day-of Square order so it
+        // imports into QuickBooks. Mirrors the webhook path; awaited here since
+        // the consumer isn't latency-sensitive. Non-fatal; the
+        // reservation-status-close cron is the backstop (idempotent).
+        if (neonAction === "completed") {
+          try {
+            const res = await completeReservationOrder(reservation);
+            console.log(`[bowling-events] order-complete neonId=${reservation.id} → ${res.kind}`);
+          } catch (err) {
+            console.warn(
+              `[bowling-events] order-complete failed neonId=${reservation.id} (non-fatal):`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
         continue;
       }
 

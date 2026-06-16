@@ -16,6 +16,7 @@ import { getReservation, listLanes } from "@/lib/qamf-bowling";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
+import { completeReservationOrder } from "@/lib/bowling-order-complete";
 import { shortenUrl } from "@/lib/short-url";
 import { enqueueBowlingSurvey } from "~/features/guest-survey";
 
@@ -684,6 +685,33 @@ async function processEvent(
           err instanceof Error ? err.message : err,
         ),
       );
+    }
+
+    // ── Complete the day-of Square order on session end ───────────────
+    // Lane-open left the order OPEN (fully paid, $0 due) with its SHIPMENT
+    // fulfillment so the KDS showed shoe sizes + food during play. The session
+    // is now over (QAMF Completed = lanes closed) and the order is final — no
+    // changes are made after lane-open — so close it in this SEPARATE call. That
+    // makes it import into QuickBooks as a completed sale. Fire-and-forget to
+    // stay under webhook SLA; the reservation-status-close cron is the backstop
+    // for any that miss this (idempotent via dayof_order_completed_at). Skips
+    // combos / non-bowling internally. See
+    // docs/postmortems/2026-06-16-bowling-day-of-orders-left-open.md.
+    if (neonAction === "completed") {
+      const completedReservation = reservation;
+      completeReservationOrder(completedReservation)
+        .then((res) =>
+          console.log(
+            `[qamf-bowling] order-complete neonId=${completedReservation.id} → ${res.kind}` +
+              ("note" in res ? ` (${res.note})` : ""),
+          ),
+        )
+        .catch((err) =>
+          console.warn(
+            `[qamf-bowling] order-complete failed neonId=${completedReservation.id} (non-fatal, cron will retry):`,
+            err instanceof Error ? err.message : err,
+          ),
+        );
     }
 
     return { kind: "updated", from: current, to: neonAction, laneOpenAction };

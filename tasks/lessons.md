@@ -1,5 +1,40 @@
 # Lessons Learned
 
+## A design that relies on a manual operational step needs an automated fallback + monitoring (2026-06-16)
+
+For 5½ weeks (since the v2 day-of order flow launched 2026-05-09), **1,498 bowling/KBF day-of
+Square orders — $133,005.63 — sat in state OPEN despite being fully paid.** They never imported
+into QuickBooks because the Square→QuickBooks sync (and item-level Sales reporting) only pull
+*completed* sales. No money was lost (payments captured on the right days; orders were visible in
+Square the whole time) — purely a reporting/import gap. Full write-up:
+`docs/postmortems/2026-06-16-bowling-day-of-orders-left-open.md`.
+
+Root cause: `lib/bowling-lane-open.ts` **intentionally** leaves the order OPEN with its SHIPMENT
+fulfillment so the kitchen/KDS keeps showing shoe sizes + food during the session — correct
+trade-off — but it relied on **staff completing the order on the POS at session end**, with no
+automated fallback. Staff didn't, and nothing else closed them. Group functions and racing were
+unaffected because both **complete-on-payment** (GF balance flow; `race-dayof-pay` — races have no
+KDS fulfillment to preserve).
+
+**Fix shipped:** close the order on the real session-end signal — the QAMF `reservation.updated →
+Completed` transition (lanes closed) — in a SEPARATE call from lane-open (the order is final after
+lane-open). `completeReservationOrder` (`lib/bowling-order-complete.ts`) is fired from the QAMF
+webhook + the `bowling-events-consumer` fallback, with `reservation-status-close` (every 30 min) as
+a cron backstop for missed events. All paths share a `dayof_order_completed_at` idempotency guard;
+no-shows stay on `bowling-no-show-close`.
+
+**Guardrails:**
+- If a flow offloads a finalizing step to humans (close on POS, bump a ticket), it is **not done**
+  without an automated fallback that runs if the human step doesn't happen — plus an alert when the
+  unfinished state piles up ("paid orders OPEN with $0 due > N hours").
+- **Reconcile order *state*, not just payments.** Payment-based reports looked correct the entire
+  time while the orders that feed item-sales/QBO were never closed.
+- **Diff against the working sibling.** When one flow works (GF/racing complete-on-payment) and a
+  parallel one doesn't (bowling), compare them first — the fix is usually "do what the sibling does."
+- The reliable "session over" signal for bowling is the **QAMF Completed event**, NOT Square
+  fulfillment state — the stuck orders' fulfillments sat in PREPARED/PROPOSED, never COMPLETED, so a
+  kitchen-bump/fulfillment-based trigger would never have fired.
+
 ## No decorative emoji in UI/design — use @tabler/icons-react (2026-06-15)
 
 Owner feedback on the Christmas in July landing page: emoji used as icons/decoration (🎄🏎️🍸⏱)

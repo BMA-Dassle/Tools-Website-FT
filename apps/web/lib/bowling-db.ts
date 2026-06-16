@@ -364,6 +364,17 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS combo_special_id TEXT`;
   await q`CREATE INDEX IF NOT EXISTS br_combo ON bowling_reservations(combo_special_id) WHERE combo_special_id IS NOT NULL`;
 
+  // ── End-of-session order completion (bowling-order-complete cron) ──
+  // Lane-open intentionally leaves the day-of order OPEN with its SHIPMENT
+  // fulfillment so the kitchen/KDS keeps showing shoe sizes + food during the
+  // session. Once the session is well over, the bowling-order-complete cron
+  // completes the fulfillment + order so it imports into QuickBooks as a closed
+  // sale. This stamps the time we did so — the idempotency guard so each run
+  // only looks at orders not yet completed by us.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS dayof_order_completed_at TIMESTAMPTZ`;
+  await q`CREATE INDEX IF NOT EXISTS br_order_complete_pending ON bowling_reservations(booked_at)
+          WHERE dayof_order_completed_at IS NULL AND checkin_method IS NOT NULL AND combo_special_id IS NULL`;
+
   schemaReady = true;
 }
 
@@ -1101,6 +1112,51 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
     LIMIT 500
   `;
   return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * Checked-in bowling/KBF reservations whose day-of Square order should now be
+ * COMPLETED. Lane-open leaves the order OPEN (fully paid, $0 due) with its
+ * SHIPMENT fulfillment so the KDS keeps showing the order during the session.
+ * Once the session is well over we complete the fulfillment + order so it
+ * imports into QuickBooks as a closed sale (see bowling-order-complete cron).
+ *
+ * Population: showed up (checkin_method IS NOT NULL → lane-open ran, gift card
+ * charged, fulfillment present), session ended (3h buffer — larger than the
+ * no-show 2h buffer so even a long session's food ticket is done before we drop
+ * it from KDS), not a combo (own settle flow), and not yet completed by us.
+ * No-shows (checkin_method IS NULL) are handled by bowling-no-show-close.
+ */
+export async function getCheckedInOrdersToComplete(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE product_kind IN ('open', 'kbf')
+      AND checkin_method IS NOT NULL
+      AND status NOT IN ('cancelled')
+      AND combo_special_id IS NULL
+      AND square_dayof_order_id IS NOT NULL
+      AND square_dayof_order_id <> ''
+      AND dayof_order_completed_at IS NULL
+      AND booked_at < NOW() - INTERVAL '3 hours'
+    ORDER BY booked_at ASC
+    LIMIT 500
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * Stamp dayof_order_completed_at = NOW() once the day-of Square order has been
+ * COMPLETED (or found already terminal). The idempotency guard for
+ * getCheckedInOrdersToComplete — once set, the row drops out of future runs.
+ */
+export async function markDayofOrderCompleted(id: number): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`UPDATE bowling_reservations SET dayof_order_completed_at = NOW() WHERE id = ${id}`;
 }
 
 /**
