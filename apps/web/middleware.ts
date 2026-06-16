@@ -541,6 +541,9 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/contract/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    if (pathname.startsWith("/event/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     // E-tickets suppress the mobile Book-Now bar on the HP host too
     // (same rationale as the FT-host block below — focused customer
     // flow, QR modals).
@@ -550,9 +553,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // Survey and contract routes on EITHER domain: suppress the mobile
+  // Survey, contract, and event routes on EITHER domain: suppress the mobile
   // Book-Now bar so it doesn't overlap focused customer-flow screens.
-  if (pathname.startsWith("/survey/") || pathname.startsWith("/contract/")) {
+  if (
+    pathname.startsWith("/survey/") ||
+    pathname.startsWith("/contract/") ||
+    pathname.startsWith("/event/")
+  ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
     return NextResponse.next({ request: { headers: requestHeaders } });

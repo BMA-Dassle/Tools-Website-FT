@@ -1097,9 +1097,9 @@ export default function GroupEventPage() {
           <img
             src={landing.backgrounds.included}
             alt=""
-            className="h-full w-full object-cover opacity-[0.14]"
+            className="h-full w-full object-cover opacity-[0.55]"
           />
-          <div className="absolute inset-0 bg-[#000418]/70" />
+          <div className="absolute inset-0 bg-[#000418]/55" />
         </div>
       )}
       <div className="relative z-10">
@@ -1244,14 +1244,14 @@ export default function GroupEventPage() {
                 {landing.included && landing.included.length > 0 && (
                   <div className="mx-auto max-w-5xl px-4 pt-14">
                     <div className="relative overflow-hidden rounded-3xl border border-(--accent)/25">
-                      {landing.backgrounds?.included && (
+                      {landing.backgrounds?.signup && (
                         <div aria-hidden className="pointer-events-none absolute inset-0">
                           <img
-                            src={landing.backgrounds.included}
+                            src={landing.backgrounds.signup}
                             alt=""
-                            className="h-full w-full object-cover opacity-30"
+                            className="h-full w-full object-cover opacity-[0.5]"
                           />
-                          <div className="absolute inset-0 bg-[#000418]/75" />
+                          <div className="absolute inset-0 bg-[#000418]/60" />
                         </div>
                       )}
                       <div className="relative p-6 md:p-10">
@@ -1335,11 +1335,15 @@ export default function GroupEventPage() {
                 {landing.gallery && landing.gallery.length > 0 && (
                   <div className="mx-auto max-w-6xl px-4 pt-14 pb-14">
                     <div className="grid auto-rows-[130px] grid-cols-2 gap-3 md:auto-rows-[150px] md:grid-cols-3">
-                      {landing.gallery.map((g, i) => (
+                      {landing.gallery.map((g, i, arr) => (
                         <picture
                           key={g.webp}
                           className={`block overflow-hidden rounded-xl border border-white/10 ${
-                            i === 0 ? "col-span-2 row-span-2" : ""
+                            i === 0
+                              ? "col-span-2 row-span-2"
+                              : i === arr.length - 1 && (arr.length - 1) % 2 === 1
+                                ? "col-span-2 md:col-span-1"
+                                : ""
                           }`}
                         >
                           <source srcSet={g.webp} type="image/webp" />
@@ -1377,9 +1381,9 @@ export default function GroupEventPage() {
                       <img
                         src={landing.backgrounds.signup}
                         alt=""
-                        className="h-full w-full object-cover opacity-25"
+                        className="h-full w-full object-cover opacity-[0.45]"
                       />
-                      <div className="absolute inset-0 bg-[#000418]/80" />
+                      <div className="absolute inset-0 bg-[#000418]/65" />
                     </div>
                   )}
                   <div className="relative">
