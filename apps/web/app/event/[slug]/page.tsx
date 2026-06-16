@@ -162,6 +162,10 @@ export default function GroupEventPage() {
   const [attendInfo, setAttendInfo] = useState<{ company: string; guests: number } | null>(null);
   // Live countdown clock (client-only — null on SSR to avoid hydration mismatch).
   const [nowMs, setNowMs] = useState<number | null>(null);
+  // "Look up my RSVP" by email or phone.
+  const [lookupOpen, setLookupOpen] = useState(false);
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupError, setLookupError] = useState("");
 
   // Cart — items selected but not yet booked
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -203,6 +207,30 @@ export default function GroupEventPage() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
+
+  // ── Browser back button returns to the event home (not off the page) ───────
+  // Push one history entry when the guest first enters the RSVP flow; a back
+  // press then pops it and drops them at the marketing page instead of leaving.
+  const inFunnelRef = useRef(false);
+  useEffect(() => {
+    const inFunnel = step !== "gate";
+    if (inFunnel && !inFunnelRef.current) {
+      inFunnelRef.current = true;
+      window.history.pushState({ eventFunnel: true }, "");
+    } else if (!inFunnel) {
+      inFunnelRef.current = false;
+    }
+  }, [step]);
+  useEffect(() => {
+    const onPop = () => {
+      if (inFunnelRef.current) {
+        inFunnelRef.current = false;
+        setStep("gate");
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // ── Hero video: honor reduced-motion / Save-Data, pick source by viewport ──
   // src starts null so SSR + first paint show the poster still; the effect then
@@ -369,6 +397,49 @@ export default function GroupEventPage() {
       setStep(selectedLocation.racing ? "mode" : "attend");
     } else {
       setStep("name");
+    }
+  }
+
+  // ── Look up an existing RSVP by email or phone ─────────────────────────────
+  async function handleLookup(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const value = (new FormData(e.currentTarget).get("lookup") as string).trim();
+    if (!value) return;
+    setLookupBusy(true);
+    setLookupError("");
+    try {
+      const qs = value.includes("@")
+        ? `email=${encodeURIComponent(value)}`
+        : `phone=${encodeURIComponent(value)}`;
+      const res = await fetch(`/api/group-event/rsvp?slug=${slug}&${qs}`);
+      const data = await res.json();
+      if (!data || !data.email) {
+        setLookupError("No RSVP found for that email or phone.");
+        return;
+      }
+      const firstName = (data.name || "").split(" ")[0] || "Guest";
+      setGuest({
+        email: data.email,
+        firstName,
+        lastName: "",
+        displayName: data.name || firstName,
+        phone: data.phone,
+        smsConsent: data.smsConsent,
+      });
+      const loc = event?.landing?.locations?.find((l) => l.key === data.location) ?? null;
+      if (loc) setSelectedLocation(loc);
+      if (typeof data.guests === "number")
+        setAttendInfo({ company: data.company ?? "", guests: data.guests });
+      if (Array.isArray(data.reservations)) setExistingReservations(data.reservations);
+      if (data.personId) {
+        setPersonId(data.personId);
+        setWaiverValid(true);
+      }
+      setStep("confirmation");
+    } catch {
+      setLookupError("Couldn't look that up. Please try again.");
+    } finally {
+      setLookupBusy(false);
     }
   }
 
@@ -1498,6 +1569,36 @@ export default function GroupEventPage() {
                         </form>
                       </div>
                     )}
+                    {/* Look up an existing RSVP */}
+                    <div className="mt-6 border-t border-white/10 pt-4 text-center">
+                      {!lookupOpen ? (
+                        <button
+                          type="button"
+                          onClick={() => setLookupOpen(true)}
+                          className="text-xs text-white/45 underline underline-offset-2 transition-colors hover:text-white/75"
+                        >
+                          Already RSVP&rsquo;d? Look it up
+                        </button>
+                      ) : (
+                        <form onSubmit={handleLookup} className="space-y-2">
+                          <input
+                            name="lookup"
+                            type="text"
+                            required
+                            placeholder="Email or mobile phone"
+                            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50 focus:ring-1 focus:ring-(--accent)/30"
+                          />
+                          {lookupError && <p className="text-xs text-red-400">{lookupError}</p>}
+                          <button
+                            type="submit"
+                            disabled={lookupBusy}
+                            className="w-full rounded-xl border border-(--accent)/40 py-2.5 text-sm font-semibold text-(--accent) transition-colors hover:bg-(--accent)/10 disabled:opacity-50"
+                          >
+                            {lookupBusy ? "Looking…" : "Find my RSVP"}
+                          </button>
+                        </form>
+                      )}
+                    </div>
                     {landing.finePrint && (
                       <p className="mt-6 text-center text-[11px] leading-relaxed text-white/30">
                         {landing.finePrint}

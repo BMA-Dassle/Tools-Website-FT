@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { getGroupEvent } from "@/lib/group-events";
+import type { GroupEvent } from "@/lib/group-events";
+
+/** HeadPinz sender DID for the RSVP confirmation SMS. */
+const HEADPINZ_DID = "+12393022155";
 
 const TTL = 60 * 60 * 24 * 30; // 30 days
 
@@ -28,6 +32,70 @@ function rsvpIndexKey(slug: string): string {
 /** Phone → email lookup key, so a guest can find their RSVP by phone. */
 function rsvpPhoneKey(slug: string, phone: string): string {
   return `groupevent:${slug}:phone:${phone.replace(/\D/g, "")}`;
+}
+
+/** Build the RSVP confirmation SMS — date/time, arrival venue, race info if booked. */
+function buildRsvpSmsBody(event: GroupEvent, record: GroupEventRsvp): string {
+  const loc = event.landing?.locations?.find((l) => l.key === record.location);
+  const racing = !!loc?.racing;
+  const brand = racing ? "HeadPinz & FastTrax" : "HeadPinz";
+  const venue = loc?.venue ?? event.companyName;
+  const addr = loc?.address ?? "";
+  const time = event.landing?.eventTime ?? `${event.startTime}–${event.endTime}`;
+  const dateStr = loc
+    ? new Date(loc.date + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })
+    : "";
+  const race = record.reservations?.find((r) => r.type === "racing");
+  let tail: string;
+  if (race) {
+    let raceTime = "";
+    const tp = race.time?.replace(/Z$/, "").split("T")[1];
+    if (tp) {
+      const [h, m] = tp.split(":").map(Number);
+      const hr = ((h + 11) % 12) + 1;
+      raceTime = ` ~${hr}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+    }
+    tail = ` Your race:${race.track ? ` ${race.track} Track` : ""}${raceTime}. The evening starts at HeadPinz Fort Myers — we'll walk you to FastTrax in groups.`;
+  } else {
+    tail = " Includes 2 drink tickets, buffet & complimentary bowling.";
+  }
+  return `${brand}: You're confirmed for ${event.eventTitle}! ${dateStr}, ${time} at ${venue}, ${addr}.${tail} Reply STOP to opt out.`;
+}
+
+/**
+ * Send the RSVP confirmation SMS once per guest (opt-in only). Deduped via a
+ * Redis flag so re-upserts (cancel, freeflow toggle, re-book) don't re-text.
+ * Never throws — SMS failure must not fail the RSVP.
+ */
+async function maybeSendRsvpSms(slug: string, event: GroupEvent, record: GroupEventRsvp) {
+  if (!record.smsConsent || !record.phone || !event.landing) return;
+  const flagKey = `groupevent:${slug}:rsvp-sms:${record.email}`;
+  if (await redis.get(flagKey)) return;
+  const to = record.phone.length === 10 ? `+1${record.phone}` : `+${record.phone}`;
+  const body = buildRsvpSmsBody(event, record);
+  try {
+    const { voxSend } = await import("@/lib/sms-retry");
+    const { logSms } = await import("@/lib/sms-log");
+    const result = await voxSend(to, body, { fromOverride: HEADPINZ_DID });
+    if (result.ok) await redis.set(flagKey, "1", "EX", TTL);
+    await logSms({
+      ts: new Date().toISOString(),
+      phone: to,
+      source: "group-event-rsvp",
+      status: result.status,
+      ok: !!result.ok,
+      body,
+      provider: result.provider,
+      failedOver: result.failedOver,
+      providerMessageId: result.voxId || result.twilioSid,
+    }).catch(() => void 0);
+  } catch (err) {
+    console.error("[group-rsvp] SMS send failed:", err);
+  }
 }
 
 export interface GroupEventReservation {
@@ -151,6 +219,9 @@ export async function POST(req: NextRequest) {
     if (record.phone) {
       await redis.set(rsvpPhoneKey(slug, record.phone), email.toLowerCase(), "EX", TTL);
     }
+
+    // Fire the confirmation SMS (opt-in only, deduped, non-blocking).
+    await maybeSendRsvpSms(slug, event, record);
 
     console.log(
       `[group-rsvp] upserted ${name} (${email}) location=${location ?? "-"} freeflow=[${freeflow.join(",")}]`,
