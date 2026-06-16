@@ -30,8 +30,8 @@ const CT = { ".mp4": "video/mp4", ".jpg": "image/jpeg", ".webp": "image/webp" };
 
 // [localFile, blobPath]
 const uploads = [
-  [`${SRC}/hero-neon-1080.mp4`, "events/xmas-in-july/hero-1080.mp4"],
-  [`${SRC}/hero-neon-720.mp4`, "events/xmas-in-july/hero-720.mp4"],
+  [`${SRC}/hero-30s-1080.mp4`, "events/xmas-in-july/hero-30s-1080.mp4"],
+  [`${SRC}/hero-30s-720.mp4`, "events/xmas-in-july/hero-30s-720.mp4"],
   [`${SRC}/poster-neon.jpg`, "events/xmas-in-july/hero-poster.jpg"],
 ];
 for (let i = 1; i <= 7; i++) {

@@ -6,6 +6,11 @@ import "./globals.css";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
 import MobileBookBar from "@/components/MobileBookBar";
+// HeadPinz chrome — for SHARED top-level routes (e.g. /event, /survey) that run
+// on the root layout instead of /hp. Without these, HeadPinz visitors get no nav.
+import HeadPinzNav from "@/components/headpinz/Nav";
+import HeadPinzFooter from "@/components/headpinz/Footer";
+import HeadPinzMobileBookBar from "@/components/headpinz/MobileBookBar";
 import ChatWidgetManager from "@/components/ChatWidgetManager";
 import { LocalBusinessJsonLd, HeadPinzOrganizationJsonLd } from "@/components/seo/JsonLd";
 import AxeInit from "@/components/seo/AxeInit";
@@ -227,7 +232,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // middleware.ts so the chrome decision stays in one place.
   const noMobileBar = hdrs.get("x-no-mobile-bar") === "1";
   const showChrome = !isHeadPinz && !isAdmin;
+  // HeadPinz shared top-level routes (e.g. /event, /survey) render on THIS layout
+  // — /hp pages get their chrome elsewhere. Mirror FastTrax so HeadPinz visitors
+  // aren't left without a nav/footer on those routes.
+  const showHpChrome = isHeadPinz && !isAdmin;
   const showMobileBar = showChrome && !noMobileBar;
+  const showHpMobileBar = showHpChrome && !noMobileBar;
   // GA4 measurement ID, brand-aware. Admin routes opt out (PII / staff
   // tools). Falsy ID short-circuits the GoogleAnalytics component.
   const gaId = isAdmin
@@ -255,11 +265,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         className={`${isHeadPinz ? "brand-headpinz bg-[#0a1628]" : "brand-fasttrax bg-[#000418]"} text-white font-body antialiased`}
       >
         {showChrome && <Nav />}
+        {showHpChrome && <HeadPinzNav />}
         {!isAdmin && <MiniCart />}
         {!isAdmin && <MiniCartV2 />}
         <main>{children}</main>
         {showChrome && <Footer />}
+        {showHpChrome && <HeadPinzFooter />}
         {showMobileBar && <MobileBookBar />}
+        {showHpMobileBar && <HeadPinzMobileBookBar />}
         {showChrome && <ChatWidgetManager />}
         <SpeedInsights />
         <Analytics />

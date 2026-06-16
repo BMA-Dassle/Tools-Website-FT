@@ -41,6 +41,10 @@ export interface GroupEventRsvp {
   personId?: string;
   /** Chosen venue for multi-location events (e.g. "fort-myers" | "naples"). */
   location?: string;
+  /** Company name — collected on the "just attending" RSVP (business-leader event). */
+  company?: string;
+  /** Party size on a "just attending" RSVP (1–2). */
+  guests?: number;
   updatedAt: string;
 }
 

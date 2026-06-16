@@ -87,6 +87,10 @@ export interface GroupEventLanding {
    *  Single source + poster; honors the same reduced-motion / Save-Data opt-out. */
   featureVideo?: { src: string; poster: string; heading?: string; text?: string };
   gallery?: GroupEventGalleryPhoto[];
+  /** Festive section background image URLs (rendered low-opacity behind a dark overlay). */
+  backgrounds?: { included?: string; signup?: string; form?: string };
+  /** Show a live countdown to each location's date on the chooser cards. */
+  countdown?: boolean;
   finePrint?: string; // small print under the sign-up form
 }
 
@@ -265,9 +269,9 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     landing: {
       heroVideo: {
         mp4_1080:
-          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-1080.mp4",
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-30s-1080.mp4",
         mp4_720:
-          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-720.mp4",
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-30s-720.mp4",
         poster:
           "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/events/xmas-in-july/hero-poster.jpg",
       },
@@ -344,6 +348,12 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
           alt: "Groups enjoying a night out",
         },
       ],
+      backgrounds: {
+        included: blob("bg/snow.webp"),
+        signup: blob("bg/gifts.webp"),
+        form: blob("bg/bokeh.webp"),
+      },
+      countdown: true,
       finePrint:
         "Space is limited — RSVP to reserve your spot. Go-kart racing is offered at the Fort Myers event (4:30–5:30 PM); must be 18+ to race. Naples includes complimentary bowling.",
     },
