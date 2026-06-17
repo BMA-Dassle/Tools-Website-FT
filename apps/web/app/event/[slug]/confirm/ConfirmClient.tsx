@@ -160,13 +160,14 @@ export default function ConfirmClient({
               </p>
             )}
 
-            <label className="block text-sm font-bold">
+            <label htmlFor="hn-phone" className="block text-sm font-bold">
               Confirm you&apos;re joining us — add your mobile number
             </label>
             <p className="mt-1 text-xs text-white/60">
               We&apos;ll text your event ticket the morning of the event.
             </p>
             <input
+              id="hn-phone"
               type="tel"
               inputMode="numeric"
               autoComplete="tel"
