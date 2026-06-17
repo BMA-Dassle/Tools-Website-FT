@@ -34,6 +34,50 @@ import type { ForwardRefExoticComponent, RefAttributes } from "react";
 
 type TablerIcon = ForwardRefExoticComponent<IconProps & RefAttributes<SVGSVGElement>>;
 
+/**
+ * POST a BMI person-register call with bounded retry.
+ *
+ * registerContactPerson / registerProjectPerson hit the SMS-Timing/BMI CLOUD
+ * (api.bmileisure.com), which lags a few seconds behind the Pandora person-create
+ * (Pandora writes BMI Firebird directly — it can't be polled for cloud state).
+ * Until that sync lands the cloud doesn't know the person, and the call also
+ * returns transient 500s under load (~3% of contact registrations in prod). A
+ * single fire-and-forget attempt silently drops the link → blank name on the
+ * bill and no contact for the day-of e-ticket. Retrying until the cloud accepts
+ * the person IS the readiness signal. Non-fatal: returns false after exhausting
+ * attempts (booking already succeeded; we never block it on registration).
+ */
+async function bmiRegisterWithRetry(
+  endpoint: string,
+  bodyJson: string,
+  label: string,
+): Promise<boolean> {
+  const delaysMs = [0, 1200, 2400, 4000]; // 4 attempts over ~7.6s worst case
+  for (let i = 0; i < delaysMs.length; i++) {
+    if (delaysMs[i]) await new Promise((r) => setTimeout(r, delaysMs[i]));
+    try {
+      const res = await fetch("/api/bmi?" + new URLSearchParams({ endpoint }), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: bodyJson,
+      });
+      if (res.ok) {
+        if (i > 0) console.log(`[group-event] ${label} succeeded on attempt ${i + 1}`);
+        return true;
+      }
+      console.warn(
+        `[group-event] ${label} attempt ${i + 1}/${delaysMs.length} → HTTP ${res.status}`,
+      );
+    } catch (err) {
+      console.warn(`[group-event] ${label} attempt ${i + 1}/${delaysMs.length} errored:`, err);
+    }
+  }
+  console.error(
+    `[group-event] ${label} FAILED after ${delaysMs.length} attempts — person may not be linked`,
+  );
+  return false;
+}
+
 // ── Track info (mirrors ProductPicker's TRACK_INFO) ──────────────────────────
 
 const TRACK_INFO: Record<
@@ -785,27 +829,22 @@ export default function GroupEventPage() {
       const { rawOrderId } = await bookRaceHeat(product, 1, proposal);
       console.log("[group-event] race held, orderId:", rawOrderId);
 
-      // Register contact person on held order so BMI links waiver to guest
+      // Register contact person on held order so BMI links waiver to guest.
+      // Retries: the just-created person needs to sync to the BMI cloud before
+      // this cloud call succeeds (and it returns transient 500s under load).
       if (personId) {
-        try {
-          const contactBody = JSON.stringify({
-            firstName: guest.firstName,
-            lastName: guest.lastName,
-            email: guest.email,
-          });
-          const contactJson =
-            `{"personId":${personId},"orderId":${rawOrderId},` + contactBody.slice(1);
-          await fetch(
-            "/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }),
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: contactJson,
-            },
-          );
-        } catch {
-          /* non-fatal */
-        }
+        const contactBody = JSON.stringify({
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          email: guest.email,
+        });
+        const contactJson =
+          `{"personId":${personId},"orderId":${rawOrderId},` + contactBody.slice(1);
+        await bmiRegisterWithRetry(
+          "person/registerContactPerson",
+          contactJson,
+          "registerContactPerson(race hold)",
+        );
       }
 
       // Record on roster immediately so other guests see the name
@@ -927,26 +966,17 @@ export default function GroupEventPage() {
       // Register contact person on the bill so BMI links the waiver + shows
       // the guest name instead of blank/online. Must happen BEFORE payment/confirm.
       if (orderId && personId) {
-        try {
-          const contactBody = JSON.stringify({
-            firstName: guest.firstName,
-            lastName: guest.lastName,
-            email: guest.email,
-          });
-          const contactJson =
-            `{"personId":${personId},"orderId":${orderId},` + contactBody.slice(1);
-          await fetch(
-            "/api/bmi?" + new URLSearchParams({ endpoint: "person/registerContactPerson" }),
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: contactJson,
-            },
-          );
-          console.log("[group-event] registered contact person", personId, "on bill", orderId);
-        } catch {
-          /* non-fatal */
-        }
+        const contactBody = JSON.stringify({
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          email: guest.email,
+        });
+        const contactJson = `{"personId":${personId},"orderId":${orderId},` + contactBody.slice(1);
+        await bmiRegisterWithRetry(
+          "person/registerContactPerson",
+          contactJson,
+          "registerContactPerson(confirm)",
+        );
       }
 
       // Server-side idempotent confirm — safe against double-fires
@@ -961,23 +991,15 @@ export default function GroupEventPage() {
         }
       }
 
-      // Register person on the reservation so they show up as a participant
+      // Register person on the reservation so they show up as a participant.
       if (orderId && personId) {
-        try {
-          const regBody = JSON.stringify({ firstName: guest.firstName, lastName: guest.lastName });
-          const rawJson = `{"personId":${personId},"orderId":${orderId},` + regBody.slice(1);
-          await fetch(
-            "/api/bmi?" + new URLSearchParams({ endpoint: "person/registerProjectPerson" }),
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: rawJson,
-            },
-          );
-          console.log("[group-event] registered person", personId, "on bill", orderId);
-        } catch {
-          /* non-fatal */
-        }
+        const regBody = JSON.stringify({ firstName: guest.firstName, lastName: guest.lastName });
+        const rawJson = `{"personId":${personId},"orderId":${orderId},` + regBody.slice(1);
+        await bmiRegisterWithRetry(
+          "person/registerProjectPerson",
+          rawJson,
+          "registerProjectPerson",
+        );
       }
 
       // Save all reservations to RSVP record
