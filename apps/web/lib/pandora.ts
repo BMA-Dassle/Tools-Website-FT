@@ -103,16 +103,33 @@ async function getWithRetry(url: string, attempts = 3, delayMs = 1200): Promise<
 export async function pandoraCreatePerson(
   input: PandoraPersonCreateInput,
 ): Promise<PandoraPersonCreateResult> {
-  const res = await fetch("/api/pandora", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const data = await res.json();
-  if (!data.personId) {
-    throw new Error(data.error || "Failed to create person");
+  // Retry on cold-start: the Pandora API (Azure App Service) 5xx's / times out on
+  // the first request after idle. Create is upsert-style (a known person resolves
+  // to the same personId), so retrying a 5xx is safe and avoids the onboard
+  // throwing — which previously left the guest stuck on the name step, unable to
+  // advance to the booking screen. 4xx (real client error) is NOT retried.
+  const attempts = 3;
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1500 * i));
+    let res: Response;
+    try {
+      res = await fetch("/api/pandora", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      });
+    } catch (err) {
+      lastErr = err; // network/timeout — retry
+      continue;
+    }
+    const data = await res.json().catch(() => ({}) as { personId?: string; error?: string });
+    if (data.personId) return { personId: data.personId };
+    // 4xx = real client error (e.g. missing fields) — fail fast, don't retry.
+    if (res.status < 500) throw new Error(data.error || "Failed to create person");
+    lastErr = new Error(data.error || `HTTP ${res.status}`); // 5xx — retry
   }
-  return { personId: data.personId };
+  throw lastErr instanceof Error ? lastErr : new Error("Failed to create person");
 }
 
 /**
