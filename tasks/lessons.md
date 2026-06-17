@@ -1313,3 +1313,37 @@ unified-reserve.ts) route through `lookupCatalogId`, so the single change fixes 
   `catalog_object_id` on the actual flagged order ids. Here the dates (this week) + the bare-name
   product registry diff proved it live. UQ/Rookie ad-hoc were the opposite — all dated 6/9, fixed
   by `2623356f` on 6/10, so already self-resolved; only historical remediation needed.
+
+## Fixed-duration open packages: never trust `slot.optionId` (2026-06-16)
+
+**Symptom:** Pizza Bowl (should be 2hr) and Fun 4 All (should be 1.5hr) lanes booked at **1 hour**.
+Staff called Fun 4 All "Have-A-Ball"; the actual Have-A-Ball *league* is a Square-subscription
+signup that books **no** QAMF lane (zero "have a ball" reservation labels in 60 days — confirmed
+before touching anything).
+
+**Root cause:** QAMF "Time" web offers expose a **60/90/120-min option triple** (e.g. FM Fri-Sun
+1258/1259/1260) and return them with `Minutes` **undefined**, listing the **60-min option first**.
+`parseAvailabilities`' "longest by Minutes" reduce degrades to `timeOpts[0]` = 60 min. `open`
+packages (Pizza Bowl, Fun 4 All) have **no duration buttons**, so `selectSlot` fell back to that
+`slot.optionId` and **ignored the known-correct offer option** stored on the experience
+(`bowling_experience_offers.qamf_option_id`). Identical to the earlier Fun 4 All incident that
+`/api/admin/bowling/fix-f4a-duration` only *remediated* — the forward cause was never fixed, so it
+re-broke (and Pizza Bowl inherited it once it was remapped onto the Fri-Sun offers 158/124).
+
+**Fix (forward):** `BowlingOfferStep.selectSlot` option precedence is now
+`durationOpt?.qamfOptionId ?? exp.qamfOptionId ?? slot.optionId`. The seeded offer option
+(Pizza Bowl 1260/988/1268/996, Fun 4 All 1227/939/1235/947) is authoritative; `slot.optionId` is a
+last resort only. Hold + reserve both build `WebOffer.Options.Time` from this id, so the lane is held
+at the right length immediately.
+
+**Fix (existing):** `/api/admin/bowling/fix-open-duration` (data-driven; supersedes fix-f4a-duration)
+reads the correct option from the DB per experience+center and reschedules any future
+non-cancelled/completed reservation whose live QAMF Time option is wrong. `?dryRun=true` first.
+
+**Guardrails:**
+- The DB `duration_minutes` / option metadata is **display + pricing** only. The lane length the guest
+  actually gets is **whichever QAMF Time option Id we send** — its `Minutes` lives in QAMF/Conqueror.
+- **Never trust the availability response's derived `optionId` for a fixed-duration package.** QAMF's
+  option ordering and absent `Minutes` make "longest" unreliable. Use the seeded offer option.
+- A renamed report ("Have-A-Ball") may not be the feature you think. Confirm with **data** (reservation
+  labels) which booking path is actually involved before remediating production.

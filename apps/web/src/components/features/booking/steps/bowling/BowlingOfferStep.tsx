@@ -263,7 +263,17 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     setError(null);
 
     try {
-      const effectiveOptionId = durationOpt?.qamfOptionId ?? slot.optionId;
+      // Option precedence:
+      //  1. durationOpt    — the duration the customer explicitly picked (hourly).
+      //  2. exp.qamfOptionId — the experience's seeded offer option. Open packages
+      //     (Pizza Bowl 2hr, Fun 4 All 1.5hr) have no duration buttons but DO carry
+      //     the correct Time option here.
+      //  3. slot.optionId  — QAMF-derived, last resort ONLY.
+      // We must NOT trust slot.optionId for fixed-duration packages: QAMF returns a
+      // 60/90/120-min option triple with Minutes often undefined and lists the 60-min
+      // option first, so parseAvailabilities' "longest" degrades to 1 hour — the
+      // Pizza Bowl / Fun 4 All short-booking bug.
+      const effectiveOptionId = durationOpt?.qamfOptionId ?? exp.qamfOptionId ?? slot.optionId;
 
       const holdRes = await fetch("/api/bowling/v2/reserve/hold", {
         method: "POST",
