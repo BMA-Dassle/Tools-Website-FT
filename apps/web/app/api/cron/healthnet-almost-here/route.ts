@@ -75,6 +75,17 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // ARM SWITCH — the batch blast is DISARMED until HEALTHNET_ALMOSTHERE_ARMED=1
+  // is set in the environment. Guarantees no mass send (even with ?force=1 or
+  // when the cron fires inside the window) until explicitly enabled. The
+  // single-recipient ?test= path above is unaffected.
+  if (process.env.HEALTHNET_ALMOSTHERE_ARMED !== "1") {
+    return NextResponse.json({
+      ok: true,
+      skipped: "disarmed — set HEALTHNET_ALMOSTHERE_ARMED=1 to enable",
+    });
+  }
+
   const now = Date.now();
   const start = windowStart();
   if (!force && (now < start || now >= start + WINDOW_MS)) {
