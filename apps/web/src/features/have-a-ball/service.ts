@@ -3,11 +3,11 @@ import redis from "@/lib/redis";
 import {
   computeJoinPlan,
   habMinusOneDay,
+  habPlanVariationForRemaining,
   habTodayYmd,
   HAB_ITEM_VARIATION_ID,
   HAB_LEE_COUNTY_TAX_ID,
   HAB_LOCATION_ID,
-  HAB_PLAN_VARIATION_ID,
   type JoinPlan,
 } from "./schedule";
 import { sendHabConfirmationEmail } from "./email";
@@ -19,9 +19,10 @@ import { sendHabConfirmationEmail } from "./email";
  *   1. Create Square customer (email-only — phone kept in our record)
  *   2. Save the card on file
  *   3. Recompute the join plan SERVER-SIDE (never trust client amounts)
- *   4. Subscription: create it starting the next Tuesday, capped via
- *      canceled_date so it stops after the final season charge. A mid-season
- *      joiner is billed only for the weeks that remain — no catch-up charge.
+ *   4. Subscription: create it starting the next Tuesday on the plan variation
+ *      whose fixed period count == the weeks remaining, so it bills exactly that
+ *      many Tuesdays and completes on its own. A mid-season joiner is billed only
+ *      for the weeks that remain — no catch-up charge.
  *   5. Persist the signup record + send the confirmation email
  *
  * Money rule (CLAUDE.md): the displayed quote and the charge derive from the
@@ -140,7 +141,7 @@ async function createSubscription(p: {
   customerId: string;
   cardId: string;
   startDate: string;
-  canceledDate: string;
+  planVariationId: string;
   orderTemplateId: string;
   idempotencyKey: string;
 }): Promise<{ subscriptionId: string; status: string; error?: string }> {
@@ -150,13 +151,15 @@ async function createSubscription(p: {
     body: JSON.stringify({
       idempotency_key: p.idempotencyKey,
       location_id: HAB_LOCATION_ID,
-      plan_variation_id: HAB_PLAN_VARIATION_ID,
+      // Variation whose fixed `periods` count == the weeks remaining, so the
+      // subscription bills exactly that many Tuesdays and completes on its own —
+      // no canceled_date needed (which also avoids Square's +1 shift on the cap).
+      plan_variation_id: p.planVariationId,
       customer_id: p.customerId,
       card_id: p.cardId,
-      // Square stores an explicit future start_date/canceled_date as +1 day, so
-      // we send (intended − 1) to land on the intended day. See habMinusOneDay.
+      // Square stores an explicit future start_date as +1 day, so we send
+      // (intended − 1) to land the first charge on the intended Tuesday.
       start_date: habMinusOneDay(p.startDate),
-      canceled_date: habMinusOneDay(p.canceledDate),
       timezone: "America/New_York",
       phases: [{ ordinal: 0, order_template_id: p.orderTemplateId }],
     }),
@@ -211,7 +214,7 @@ export async function processHabJoin(
     customerId: cust.customerId,
     cardId: card.cardId,
     startDate: plan.subStartDate,
-    canceledDate: plan.canceledDate,
+    planVariationId: habPlanVariationForRemaining(plan.remainingCharges),
     orderTemplateId: template.orderId,
     // Square caps idempotency_key at 45 chars. joinAttemptId is a 36-char UUID,
     // so the prefix must stay short: "sub-" + 36 = 40. Keyed off the attempt id

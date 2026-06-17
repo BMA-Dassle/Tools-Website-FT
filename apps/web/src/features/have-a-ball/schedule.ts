@@ -21,8 +21,43 @@
 
 /** HeadPinz Fort Myers Square location. */
 export const HAB_LOCATION_ID = "TXBSQN0FEKQ11";
-/** "Have A Ball" subscription plan variation (WEEKLY × 12, RELATIVE pricing). */
+/** "Have A Ball" full-season plan variation (WEEKLY × 12, RELATIVE pricing). */
 export const HAB_PLAN_VARIATION_ID = "VGQZDMULELNJNVLC3SUSY2R3";
+
+/**
+ * "Have A Ball" WEEKLY plan variations keyed by the number of charges remaining.
+ * Each is RELATIVE-priced (price comes from the subscription's order template)
+ * and has a fixed `periods` count equal to its key, so the subscription bills
+ * exactly that many Tuesdays and then completes on its own — no `canceled_date`
+ * needed, which also sidesteps Square's future-date +1 shift on the cap.
+ * All under plan LAKSOX2AKTJ7AAY6UTPYK7E7. Created 2026-06-16.
+ */
+export const HAB_PLAN_VARIATION_BY_REMAINING: Readonly<Record<number, string>> = {
+  12: HAB_PLAN_VARIATION_ID,
+  11: "3J7LPA4KLZ25BOOYPBJBCLJM",
+  10: "ZERDVGN2OHTR4PFV67DSD2IH",
+  9: "7LUSLN3DHFSHRRCXTLN56SWY",
+  8: "TVLPFCHCPHGVZNFEXMG5X35O",
+  7: "2ULH65AUVNG4D2EX4PAUC5GL",
+  6: "LQIT4BG2FFS5ZQEO4433545U",
+  5: "GWX46J37YAPSSKQC2W6J4YEG",
+  4: "2POXMBXRGHEVEGZMWDMCZI5D",
+  3: "NVQBYL5ATAEVB3CM6EIYBA45",
+  2: "HAQ4JRDW3N7WJROQTR77XFGA",
+  1: "664QU2SYYHXJMH2M5TOUTSWH",
+};
+
+/**
+ * The Square plan variation whose fixed period count matches `remaining` weekly
+ * charges. Throws if there's no variation for that count (only 1–12 exist).
+ */
+export function habPlanVariationForRemaining(remaining: number): string {
+  const id = HAB_PLAN_VARIATION_BY_REMAINING[remaining];
+  if (!id) {
+    throw new Error(`No Have-A-Ball plan variation for ${remaining} remaining week(s)`);
+  }
+  return id;
+}
 /** "Have A Ball" catalog item variation — $20, FIXED pricing. */
 export const HAB_ITEM_VARIATION_ID = "HO5ZCRAWE35NMYDHSP2RXMM2";
 /** Lee County Sales Tax — 6.5%. HeadPinz Fort Myers sits in Lee County. */
@@ -57,12 +92,6 @@ export const HAB_BILLING_DATES = [
 
 export const HAB_SEASON_START = HAB_BILLING_DATES[0];
 export const HAB_LAST_CHARGE_DATE = HAB_BILLING_DATES[HAB_BILLING_DATES.length - 1];
-/**
- * canceled_date for mid-season subscriptions. Square stops billing a fixed-cycle
- * plan at this date; set to the cycle boundary AFTER the final charge (Aug 11 +
- * 7d) so the Aug 11 charge runs in full and nothing bills after — no proration.
- */
-export const HAB_CANCEL_DATE = "2026-08-18";
 export const HAB_TOTAL_WEEKS = HAB_BILLING_DATES.length;
 export const HAB_SEASON_TOTAL_CENTS = HAB_TOTAL_WEEKS * HAB_WEEKLY_TOTAL_CENTS;
 
@@ -86,8 +115,6 @@ export interface JoinPlan {
   missedWeeks: number;
   /** One-time retro amount owed for missed weeks incl. tax, in cents (disclosure only). */
   retroAmountCents: number;
-  /** canceled_date to cap the subscription at the final charge. */
-  canceledDate: string;
 }
 
 /** Today's date in America/New_York as a YYYY-MM-DD string. */
@@ -117,7 +144,6 @@ export function habTodayYmd(now: Date = new Date()): string {
 export function computeJoinPlan(todayYmd: string): JoinPlan {
   const base = {
     weeklyTotalCents: HAB_WEEKLY_TOTAL_CENTS,
-    canceledDate: HAB_CANCEL_DATE,
   };
 
   // Pre-season — full season from day one, nothing missed.
@@ -172,13 +198,12 @@ export function habFormatUsd(cents: number): string {
 /**
  * Return the YYYY-MM-DD one day before `ymd`.
  *
- * Square's CreateSubscription stores an explicit future `start_date` (and the
- * `canceled_date`) as the date we send PLUS ONE DAY — verified empirically:
- * every weekday maps +1 (Mon→Tue, Tue→Wed, …). Existing members don't show
- * this because they were created with an immediate start, not a future date.
- * So to make billing land on the intended day, we send (intended − 1 day).
- * If Square ever fixes this, the dry-run (scripts/dryrun-hab-join.mjs) will
- * show start_date unshifted and this compensation must be removed.
+ * Square's CreateSubscription stores an explicit future `start_date` as the date
+ * we send PLUS ONE DAY — verified empirically: every weekday maps +1 (Mon→Tue,
+ * Tue→Wed, …). Existing members don't show this because they were created with
+ * an immediate start, not a future date. So to make the first charge land on the
+ * intended Tuesday, we send (intended − 1 day). If Square ever fixes this, the
+ * first charge will land a day early and this compensation must be removed.
  */
 export function habMinusOneDay(ymd: string): string {
   const dt = new Date(`${ymd}T00:00:00Z`);

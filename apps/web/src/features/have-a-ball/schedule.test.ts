@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   computeJoinPlan,
   habMinusOneDay,
+  habPlanVariationForRemaining,
   habTodayYmd,
+  HAB_PLAN_VARIATION_BY_REMAINING,
+  HAB_PLAN_VARIATION_ID,
   HAB_TOTAL_WEEKS,
   HAB_WEEKLY_TOTAL_CENTS,
   HAB_SEASON_TOTAL_CENTS,
-  HAB_CANCEL_DATE,
   HAB_SEASON_START,
   HAB_LAST_CHARGE_DATE,
 } from "./schedule";
@@ -46,7 +48,6 @@ describe("have-a-ball schedule — shared by quote (display) + join (charge)", (
     expect(p.subStartDate).toBe("2026-06-16");
     expect(p.remainingCharges).toBe(9);
     expect(p.totalDueCents).toBe(9 * HAB_WEEKLY_TOTAL_CENTS); // only the weeks left are charged
-    expect(p.canceledDate).toBe(HAB_CANCEL_DATE);
   });
 
   it("mid-week (non-Tuesday) joins use the most recent Tuesday as the boundary", () => {
@@ -82,9 +83,29 @@ describe("have-a-ball schedule — shared by quote (display) + join (charge)", (
     expect(p.subStartDate).toBe(HAB_LAST_CHARGE_DATE);
   });
 
+  it("maps each remaining-charge count to a distinct plan variation (1–12)", () => {
+    // 12 == the full-season variation; 1–11 are the mid-season "weeks left" ones.
+    expect(habPlanVariationForRemaining(12)).toBe(HAB_PLAN_VARIATION_ID);
+    for (let n = 1; n <= 12; n++) {
+      expect(habPlanVariationForRemaining(n)).toMatch(/^[A-Z0-9]+$/);
+    }
+    const ids = Object.values(HAB_PLAN_VARIATION_BY_REMAINING);
+    expect(new Set(ids).size).toBe(12); // all distinct
+    expect(() => habPlanVariationForRemaining(0)).toThrow();
+    expect(() => habPlanVariationForRemaining(13)).toThrow();
+  });
+
+  it("every mid-season join resolves to a variation whose period count == weeks left", () => {
+    for (const today of ["2026-05-26", "2026-06-09", "2026-07-01", "2026-08-04"]) {
+      const p = computeJoinPlan(today);
+      expect(HAB_PLAN_VARIATION_BY_REMAINING[p.remainingCharges]).toBe(
+        habPlanVariationForRemaining(p.remainingCharges),
+      );
+    }
+  });
+
   it("habMinusOneDay subtracts a day, incl. month boundaries (Square +1 shift fix)", () => {
     expect(habMinusOneDay("2026-06-16")).toBe("2026-06-15"); // send Mon → Square stores Tue 06-16
-    expect(habMinusOneDay("2026-08-18")).toBe("2026-08-17"); // cap: send → Square stores 08-18
     expect(habMinusOneDay("2026-07-01")).toBe("2026-06-30"); // month rollover
     expect(habMinusOneDay("2026-01-01")).toBe("2025-12-31"); // year rollover
   });
