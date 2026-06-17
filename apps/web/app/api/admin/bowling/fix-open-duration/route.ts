@@ -41,6 +41,23 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
   PPTR5G2N0QXF7: 3148,
 };
 
+/**
+ * Some booking paths store center_code as the HeadPinz slug ("fort-myers" /
+ * "naples") instead of the canonical Square/QAMF center code. Normalize so both
+ * the QAMF center lookup and the offer lookup resolve correctly — without it
+ * those reservations skip as "unknown_center". (The slug-storage anomaly itself
+ * is a separate bug, not fixed here.)
+ */
+const CENTER_ALIAS_TO_CODE: Record<string, string> = {
+  TXBSQN0FEKQ11: "TXBSQN0FEKQ11",
+  PPTR5G2N0QXF7: "PPTR5G2N0QXF7",
+  "fort-myers": "TXBSQN0FEKQ11",
+  naples: "PPTR5G2N0QXF7",
+};
+function canonicalCenterCode(raw: string): string | null {
+  return CENTER_ALIAS_TO_CODE[raw] ?? null;
+}
+
 interface Target {
   key: string;
   name: string;
@@ -162,7 +179,8 @@ export async function POST(req: NextRequest) {
       if (seen.has(row.id)) continue;
       seen.add(row.id);
 
-      const centerId = CENTER_CODE_TO_QAMF[row.center_code];
+      const centerCode = canonicalCenterCode(row.center_code);
+      const centerId = centerCode ? CENTER_CODE_TO_QAMF[centerCode] : undefined;
       const isVip = /vip/i.test(row.label);
       const slug = isVip ? target.vipSlug : target.regularSlug;
 
@@ -171,20 +189,20 @@ export async function POST(req: NextRequest) {
         package: `${target.name}${isVip ? " VIP" : ""}`,
         guestName: row.guest_name,
         bookedAt: row.booked_at,
-        center: row.center_code === "TXBSQN0FEKQ11" ? "FM" : "Naples",
+        center: centerCode === "TXBSQN0FEKQ11" ? "FM" : centerCode ? "Naples" : row.center_code,
         qamfId: row.qamf_reservation_id,
         correctOptionId: null,
         currentOptionId: null,
         action: "skipped",
       };
 
-      if (!centerId) {
+      if (!centerCode || !centerId) {
         entry.action = "unknown_center";
         results.push(entry);
         continue;
       }
 
-      const correct = await correctOptionFor(slug, row.center_code);
+      const correct = await correctOptionFor(slug, centerCode);
       if (!correct) {
         entry.action = "no_offer_config";
         results.push(entry);
