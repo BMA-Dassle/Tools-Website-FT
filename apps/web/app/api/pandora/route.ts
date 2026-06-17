@@ -106,3 +106,34 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+/**
+ * Update an existing person's contact info in BMI (PATCH /v2/bmi/person).
+ * Used to backfill a phone number onto an existing personId so the day-of
+ * e-ticket / check-in functions (which read the BMI person record) have it.
+ */
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { personId, phone, firstName, lastName, email, location } = body;
+    if (!personId) {
+      return NextResponse.json({ error: "personId required" }, { status: 400 });
+    }
+    const { patchBmiPersonPhone } = await import("@/lib/bmi-person-update");
+    const result = await patchBmiPersonPhone(String(personId), String(phone || ""), {
+      locationKey: location,
+      firstName,
+      lastName,
+      email,
+    });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status || 500 });
+    }
+    return NextResponse.json({ ok: true, personId: String(personId) });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Pandora API error" },
+      { status: 500 },
+    );
+  }
+}

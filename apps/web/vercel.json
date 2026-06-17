@@ -135,6 +135,10 @@
     {
       "path": "/api/cron/reservation-status-close",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/healthnet-almost-here",
+      "schedule": "*/15 12-13 * * 4"
     }
   ]
 }

@@ -1,5 +1,30 @@
 # Lessons Learned
 
+## Pandora-created person must finish syncing to the cloud before booking a race/activity (2026-06-17)
+
+Owner flag (Health Net + Christmas in July): the group-event signup flow
+(`app/event/[slug]/page.tsx`) creates a BMI person via Pandora (`POST /api/pandora` →
+`pandoraCreatePerson`/`pandoraOnboardGuest`), which writes to BMI Firebird. That person then has to
+**sync up to the SMS-Timing/BMI booking cloud** before the public booking API (`api.bmileisure.com`,
+via `/api/bmi` book/sell/confirm) can see them. **If the guest selects and books a race/attraction
+before that sync lands, the booking errors out** ("everything will error out") — the booking backend
+doesn't know the person yet.
+
+Current state (verified 2026-06-17): **UNHANDLED.** After `pandoraOnboardGuest` returns a personId,
+the flow goes straight to `setStep("dashboard")` and lets the guest pick a heat immediately — no
+wait, poll, or readiness check. The only mitigation is the user hitting the manual retry button.
+This is the same shared code path for **both** `xmas-in-july` and `healthnet-2026`, and any new
+"schedule your activities" CTA that funnels entry-only guests into booking inherits the bug.
+
+**Guardrails:**
+- After creating a person via Pandora, **gate race/activity selection on a readiness check** — poll
+  until the person is visible to the booking backend (reuse the `getWithRetry` cold-start pattern in
+  `lib/pandora.ts`), then enable booking. A blind fixed delay is a fallback, not the fix; prefer
+  polling a "is this person bookable yet" signal.
+- Show the guest a brief "getting your profile ready…" state during the wait instead of a bookable
+  UI that will fail.
+- This applies to ANY flow that creates a BMI person and immediately books against it.
+
 ## A design that relies on a manual operational step needs an automated fallback + monitoring (2026-06-16)
 
 For 5½ weeks (since the v2 day-of order flow launched 2026-05-09), **1,498 bowling/KBF day-of
