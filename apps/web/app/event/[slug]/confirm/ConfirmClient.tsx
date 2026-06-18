@@ -131,7 +131,7 @@ export default function ConfirmClient(props: Props) {
   return (
     <main
       style={{ ["--accent" as string]: accent }}
-      className="flex min-h-screen flex-col items-center bg-[#000418] px-5 py-10 text-white"
+      className="flex min-h-screen flex-col items-center bg-[#000418] px-5 pb-10 pt-28 text-white sm:pt-32"
     >
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
