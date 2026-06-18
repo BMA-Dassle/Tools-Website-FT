@@ -59,6 +59,7 @@ export default async function Page({ params, searchParams }: Props) {
         schedule={schedule}
         hasReservations={schedule.length > 0}
         existingPhone={rsvp.phone ?? ""}
+        alreadyConfirmed={!!(rsvp.phone && rsvp.confirmedAt)}
         conflict={conflictBundle(rsvp)}
       />
     );
@@ -76,6 +77,7 @@ export default async function Page({ params, searchParams }: Props) {
       schedule={[]}
       hasReservations={false}
       existingPhone=""
+      alreadyConfirmed={false}
       conflict={null}
     />
   );

@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
       schedule,
       hasReservations: schedule.length > 0,
       existingPhone: rsvp.phone || "",
+      // Already fully checked in (phone + confirm done) → confirm page can skip
+      // straight to the "You're all set" screen instead of re-asking.
+      confirmed: !!(rsvp.phone && rsvp.confirmedAt),
       conflict: conflictBundle(rsvp),
     });
   } catch {

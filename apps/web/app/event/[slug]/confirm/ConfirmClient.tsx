@@ -22,6 +22,7 @@ type Props = {
   schedule: ScheduleItem[];
   hasReservations: boolean;
   existingPhone: string;
+  alreadyConfirmed?: boolean;
   conflict: ConflictBundle | null;
 };
 
@@ -44,8 +45,9 @@ export default function ConfirmClient(props: Props) {
   const [schedule, setSchedule] = useState<ScheduleItem[]>(props.schedule);
   const [hasReservations, setHasReservations] = useState(props.hasReservations);
 
+  // Already fully checked in (signed + phone confirmed) → straight to "all set".
   const [view, setView] = useState<"email" | "phone" | "done">(
-    mode === "phone" ? "phone" : "email",
+    props.alreadyConfirmed ? "done" : mode === "phone" ? "phone" : "email",
   );
 
   // Schedule-conflict resolution — captured together with the phone on the same form.
@@ -135,7 +137,7 @@ export default function ConfirmClient(props: Props) {
       setConflict(data.conflict ?? null);
       setConflictChoice(data.conflict?.resolution || "");
       setStayWith(data.conflict?.stayWith || "");
-      setView("phone");
+      setView(data.confirmed ? "done" : "phone");
     } catch {
       setLookupError("Something went wrong. Please try again.");
     } finally {
@@ -234,6 +236,28 @@ export default function ConfirmClient(props: Props) {
               the <strong>morning of Friday, June 19</strong> — it&apos;s your fast pass to
               check-in.
             </p>
+
+            {schedule.length > 0 && (
+              <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-left">
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50">
+                  Your schedule
+                </p>
+                <ul className="mt-2 divide-y divide-white/10">
+                  {schedule.map((s, i) => (
+                    <li key={i} className="flex items-center justify-between py-2 text-sm">
+                      <span className="text-white/90">{s.label}</span>
+                      <span className="font-bold" style={{ color: "var(--accent)" }}>
+                        {s.time}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-xs leading-relaxed text-white/55">
+                  Watch your texts — your e-ticket arrives the morning of the event. Show it at
+                  check-in.
+                </p>
+              </div>
+            )}
 
             {conflict && conflictChoice && (
               <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-left">

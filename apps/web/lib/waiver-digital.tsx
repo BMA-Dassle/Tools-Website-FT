@@ -44,24 +44,41 @@ export async function getWaiverTemplate(locationId: string, age = 35): Promise<W
   const cached = templateCache.get(locationId);
   if (cached) return cached;
 
-  const res = await fetch(`${PANDORA_URL}/bmi/waiver/search?locationID=${locationId}&age=${age}`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`waiver template search ${res.status}: ${text.slice(0, 200)}`);
+  // The Pandora API (Azure App Service) cold-starts and 5xx's under concurrent
+  // load — a single un-retried failure here kills the whole sign. Retry on
+  // 5xx/network; 4xx is a real error and fails fast.
+  let lastErr = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 1000 * attempt));
+    let res: Response;
+    try {
+      res = await fetch(`${PANDORA_URL}/bmi/waiver/search?locationID=${locationId}&age=${age}`, {
+        headers: { Authorization: `Bearer ${API_KEY}` },
+        cache: "no-store",
+      });
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e); // network — retry
+      continue;
+    }
+    if (res.ok) {
+      const raw = await res.json();
+      const t = raw?.data ?? raw;
+      if (!t?.contentID) throw new Error("no waiver template contentID returned");
+      const tmpl: WaiverTemplate = {
+        contentID: String(t.contentID),
+        duration: t.duration ?? 365,
+        name: t.name || "",
+      };
+      templateCache.set(locationId, tmpl);
+      return tmpl;
+    }
+    if (res.status < 500) {
+      const text = await res.text();
+      throw new Error(`waiver template search ${res.status}: ${text.slice(0, 200)}`);
+    }
+    lastErr = `HTTP ${res.status}`; // 5xx — retry
   }
-  const raw = await res.json();
-  const t = raw?.data ?? raw;
-  if (!t?.contentID) throw new Error("no waiver template contentID returned");
-  const tmpl: WaiverTemplate = {
-    contentID: String(t.contentID),
-    duration: t.duration ?? 365,
-    name: t.name || "",
-  };
-  templateCache.set(locationId, tmpl);
-  return tmpl;
+  throw new Error(`waiver template search failed after retries: ${lastErr}`);
 }
 
 /**
