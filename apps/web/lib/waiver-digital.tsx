@@ -25,6 +25,10 @@ const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 /** Single material waiver text in effect for these events (no minors). */
 export const WAIVER_TERMS_VERSION = "v1-2026-06-18";
 
+/** Validity window for an event waiver — event-scoped (event + buffer), NOT the
+ *  template's default duration. Owner decision 2026-06-18: 5 days. */
+export const WAIVER_VALID_DAYS = 5;
+
 export interface WaiverTemplate {
   contentID: string;
   duration: number;
@@ -190,7 +194,9 @@ export async function signWaiverDigital(opts: {
   }
 
   const tmpl = await getWaiverTemplate(locationID);
-  const invalidationDate = new Date(Date.now() + (tmpl.duration || 365) * 864e5)
+  // Event-scoped validity (WAIVER_VALID_DAYS), overriding the template's own
+  // duration — we don't want a year-long waiver from a one-event acceptance.
+  const invalidationDate = new Date(Date.now() + WAIVER_VALID_DAYS * 864e5)
     .toISOString()
     .split("T")[0];
 
