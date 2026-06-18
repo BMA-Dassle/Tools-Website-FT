@@ -9,6 +9,10 @@ export type RosterRow = {
   racing: string;
   gelBlaster: string;
   laserTag: string;
+  /** Raw ISO times (naive ET) for chronological sorting; "" when not booked. */
+  racingTime: string;
+  gelTime: string;
+  laserTime: string;
   freeflow: string;
   checkedIn: boolean;
   confirmedAt: string;
@@ -39,9 +43,46 @@ function fmtPhone(p: string): string {
 const hasReservation = (r: RosterRow) => !!(r.racing || r.gelBlaster || r.laserTag);
 const inGelLaser = (r: RosterRow) => !!(r.gelBlaster || r.laserTag);
 
+type SortKey =
+  | "name"
+  | "phone"
+  | "racing"
+  | "gelBlaster"
+  | "laserTag"
+  | "freeflow"
+  | "checkedIn"
+  | "conflict";
+
+/** Sort value for a column. Activity columns use the raw ISO time so they order
+ *  chronologically; text columns use their lowercased string. */
+function sortValue(r: RosterRow, key: SortKey): string {
+  switch (key) {
+    case "name":
+      return r.name.toLowerCase();
+    case "phone":
+      return r.phone.replace(/\D/g, "");
+    case "racing":
+      return r.racingTime;
+    case "gelBlaster":
+      return r.gelTime;
+    case "laserTag":
+      return r.laserTime;
+    case "freeflow":
+      return r.freeflow.toLowerCase();
+    case "conflict":
+      return r.conflict.toLowerCase();
+    case "checkedIn":
+      return r.checkedIn ? "1" : "0";
+  }
+}
+
 export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "name",
+    dir: "asc",
+  });
 
   const counts = useMemo(
     () => ({
@@ -74,6 +115,31 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
     });
   }, [rows, query, filter]);
 
+  const sorted = useMemo(() => {
+    const { key, dir } = sort;
+    const sign = dir === "asc" ? 1 : -1;
+    // Name is never blank and checkedIn is a boolean; every other column can be
+    // empty and those blanks always sort to the bottom, regardless of direction.
+    const blankLast = key !== "name" && key !== "checkedIn";
+    return [...filtered].sort((a, b) => {
+      const av = sortValue(a, key);
+      const bv = sortValue(b, key);
+      if (blankLast) {
+        if (!av && !bv) return a.name.localeCompare(b.name);
+        if (!av) return 1;
+        if (!bv) return -1;
+      }
+      const c = av < bv ? -1 : av > bv ? 1 : 0;
+      return c !== 0 ? sign * c : a.name.localeCompare(b.name);
+    });
+  }, [filtered, sort]);
+
+  function toggleSort(key: SortKey) {
+    setSort((s) =>
+      s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
+  }
+
   // Human label for the active view — shown on the printed sheet header.
   const printLabel = query.trim()
     ? `${FILTER_LABELS[filter]} · "${query.trim()}"`
@@ -95,7 +161,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
       "Stay With",
     ];
     const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
-    const lines = filtered.map((r) =>
+    const lines = sorted.map((r) =>
       [
         r.name,
         r.email,
@@ -144,6 +210,26 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
     >
       {label}
     </button>
+  );
+
+  // Sortable column header — click to sort by that field, click again to flip
+  // direction. Activity columns sort chronologically (raw ISO time).
+  const sortTh = (key: SortKey, label: string) => (
+    <th className="px-3 py-2 font-semibold">
+      <button
+        type="button"
+        onClick={() => toggleSort(key)}
+        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-white"
+        title={`Sort by ${label}`}
+      >
+        {label}
+        <span
+          className={`text-[9px] leading-none ${sort.key === key ? "text-white" : "text-white/25"}`}
+        >
+          {sort.key === key ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
   );
 
   return (
@@ -203,12 +289,12 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
             )}
             {filterBtn("conflicts", `Conflicts (${counts.conflicts})`)}
           </div>
-          <span className="ml-auto text-sm text-white/50">{filtered.length} shown</span>
+          <span className="ml-auto text-sm text-white/50">{sorted.length} shown</span>
         </div>
 
         {/* Mobile: stacked tiles (no sideways scroll) */}
         <div className="space-y-3 md:hidden">
-          {filtered.map((r) => (
+          {sorted.map((r) => (
             <div key={r.email} className="rounded-xl border border-white/10 bg-white/5 p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -268,7 +354,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
               )}
             </div>
           ))}
-          {filtered.length === 0 && (
+          {sorted.length === 0 && (
             <p className="rounded-xl border border-white/10 bg-white/5 p-6 text-center text-white/40">
               No guests match.
             </p>
@@ -280,18 +366,18 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
           <table className="w-full min-w-[760px] border-collapse text-sm">
             <thead>
               <tr className="bg-white/5 text-left text-xs uppercase tracking-wide text-white/50">
-                <th className="px-3 py-2 font-semibold">Name</th>
-                <th className="px-3 py-2 font-semibold">Phone</th>
-                <th className="px-3 py-2 font-semibold">Racing</th>
-                <th className="px-3 py-2 font-semibold">Gel Blaster</th>
-                <th className="px-3 py-2 font-semibold">Laser Tag</th>
-                <th className="px-3 py-2 font-semibold">Free-flow</th>
-                <th className="px-3 py-2 font-semibold">Check-in</th>
-                <th className="px-3 py-2 font-semibold">Conflict / fix</th>
+                {sortTh("name", "Name")}
+                {sortTh("phone", "Phone")}
+                {sortTh("racing", "Racing")}
+                {sortTh("gelBlaster", "Gel Blaster")}
+                {sortTh("laserTag", "Laser Tag")}
+                {sortTh("freeflow", "Free-flow")}
+                {sortTh("checkedIn", "Check-in")}
+                {sortTh("conflict", "Conflict / fix")}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {sorted.map((r) => (
                 <tr key={r.email} className="border-t border-white/10 align-top">
                   <td className="px-3 py-2">
                     <div className="font-medium text-white">{r.name}</div>
@@ -338,7 +424,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {sorted.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-3 py-8 text-center text-white/40">
                     No guests match.
@@ -375,8 +461,8 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
               Healthcare Network Team Day — Check-in
             </h1>
             <div style={{ fontSize: 12 }}>
-              Friday, June 19 · {printLabel} · {filtered.length} guest
-              {filtered.length === 1 ? "" : "s"}
+              Friday, June 19 · {printLabel} · {sorted.length} guest
+              {sorted.length === 1 ? "" : "s"}
             </div>
           </div>
           <table>
@@ -393,7 +479,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {sorted.map((r) => (
                 <tr key={r.email}>
                   <td>{r.name}</td>
                   <td>{fmtPhone(r.phone) || "—"}</td>
@@ -411,7 +497,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
               ))}
             </tbody>
           </table>
-          {filtered.length === 0 && (
+          {sorted.length === 0 && (
             <p style={{ fontSize: 12, marginTop: 8 }}>No guests match this view.</p>
           )}
         </div>

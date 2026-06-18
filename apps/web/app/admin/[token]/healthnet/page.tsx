@@ -75,6 +75,11 @@ export default async function Page({ params }: Props) {
       racing: race ? `${race.track ? race.track + " " : ""}${fmtTime(race.time)}`.trim() : "",
       gelBlaster: gel ? fmtTime(gel.time) : "",
       laserTag: laser ? fmtTime(laser.time) : "",
+      // Raw ISO times (naive ET, same day) for chronological column sorting —
+      // the display strings above (12h, track-prefixed) don't sort by time as text.
+      racingTime: race?.time || "",
+      gelTime: gel?.time || "",
+      laserTime: laser?.time || "",
       freeflow: (r.freeflow || []).join(", "),
       checkedIn: !!r.confirmedAt,
       confirmedAt: r.confirmedAt || "",
