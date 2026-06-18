@@ -61,6 +61,16 @@ export async function POST(req: NextRequest) {
     record.smsConsent = smsConsent;
     record.updatedAt = new Date().toISOString();
     record.confirmedAt = record.confirmedAt || record.updatedAt; // first check-in wins
+    // Schedule-conflict preference is captured on the same form (combined step).
+    const conflictChoice = String(body.conflictChoice || "").slice(0, 40);
+    if (conflictChoice) {
+      record.conflictResolution = conflictChoice;
+      record.conflictStayWith =
+        String(body.stayWith || "")
+          .trim()
+          .slice(0, 500) || undefined;
+      record.conflictResolvedAt = new Date().toISOString();
+    }
     await redis.set(rsvpKey(slug, email), JSON.stringify(record), "EX", TTL);
     await redis.set(rsvpPhoneKey(slug, phone), email.toLowerCase(), "EX", TTL);
 

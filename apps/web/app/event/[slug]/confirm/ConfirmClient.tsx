@@ -47,14 +47,10 @@ export default function ConfirmClient(props: Props) {
     mode === "phone" ? "phone" : "email",
   );
 
-  // Schedule-conflict resolution (shown on the success screen).
+  // Schedule-conflict resolution — captured together with the phone on the same form.
   const [conflict, setConflict] = useState<ConflictBundle | null>(props.conflict);
-  const [conflictChoice, setConflictChoice] = useState("");
-  const [stayWith, setStayWith] = useState("");
-  const [conflictStatus, setConflictStatus] = useState<"idle" | "submitting" | "done" | "error">(
-    props.conflict?.resolution ? "done" : "idle",
-  );
-  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [conflictChoice, setConflictChoice] = useState(props.conflict?.resolution || "");
+  const [stayWith, setStayWith] = useState(props.conflict?.stayWith || "");
 
   // Email-entry (shortlink) state
   const [emailInput, setEmailInput] = useState("");
@@ -96,7 +92,8 @@ export default function ConfirmClient(props: Props) {
       setHasReservations(!!data.hasReservations);
       setPhone(formatPhone(data.existingPhone || ""));
       setConflict(data.conflict ?? null);
-      if (data.conflict?.resolution) setConflictStatus("done");
+      setConflictChoice(data.conflict?.resolution || "");
+      setStayWith(data.conflict?.stayWith || "");
       setView("phone");
     } catch {
       setLookupError("Something went wrong. Please try again.");
@@ -111,13 +108,24 @@ export default function ConfirmClient(props: Props) {
       setError("Please enter a valid 10-digit mobile number.");
       return;
     }
+    if (conflict && !conflictChoice) {
+      setError("Please choose how you'd like us to handle the tight timing.");
+      return;
+    }
     setStatus("submitting");
     setError(null);
     try {
       const res = await fetch("/api/group-event/confirm", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slug, token, phone: digits, smsConsent: consent }),
+        body: JSON.stringify({
+          slug,
+          token,
+          phone: digits,
+          smsConsent: consent,
+          conflictChoice: conflict ? conflictChoice : undefined,
+          stayWith: conflict ? stayWith : undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Couldn't save. Please try again.");
@@ -125,29 +133,6 @@ export default function ConfirmClient(props: Props) {
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Couldn't save. Please try again.");
-    }
-  }
-
-  async function submitConflict(e: React.FormEvent) {
-    e.preventDefault();
-    if (!conflictChoice) {
-      setConflictError("Please pick an option.");
-      return;
-    }
-    setConflictStatus("submitting");
-    setConflictError(null);
-    try {
-      const res = await fetch("/api/group-event/conflict-resolution", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slug, token, choice: conflictChoice, stayWith }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Couldn't save. Please try again.");
-      setConflictStatus("done");
-    } catch (err) {
-      setConflictStatus("error");
-      setConflictError(err instanceof Error ? err.message : "Couldn't save. Please try again.");
     }
   }
 
@@ -204,67 +189,14 @@ export default function ConfirmClient(props: Props) {
               check-in.
             </p>
 
-            {conflict &&
-              (conflictStatus === "done" || conflict.resolution ? (
-                <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-left">
-                  <p className="text-sm leading-relaxed text-white/80">
-                    Thanks — we noted your preference. We&apos;ll sort out the timing and text you
-                    if anything changes.
-                  </p>
-                </div>
-              ) : (
-                <form
-                  onSubmit={submitConflict}
-                  className="mt-5 rounded-xl border border-amber-300/30 bg-amber-400/10 p-4 text-left"
-                >
-                  <p className="text-xs font-bold uppercase tracking-wider text-amber-300">
-                    Heads up — tight timing
-                  </p>
-                  <p className="mt-2 text-sm leading-relaxed text-white/85">
-                    We noticed {conflict.summary}. We can reschedule if needed — what do you prefer?
-                  </p>
-                  <div className="mt-3 space-y-2">
-                    {conflict.options.map((o) => (
-                      <label
-                        key={o.value}
-                        className="flex items-center gap-2 text-sm text-white/85"
-                      >
-                        <input
-                          type="radio"
-                          name="conflictChoice"
-                          value={o.value}
-                          checked={conflictChoice === o.value}
-                          onChange={() => setConflictChoice(o.value)}
-                          className="h-4 w-4 shrink-0"
-                          style={{ accentColor: accent }}
-                        />
-                        <span>{o.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <label htmlFor="hn-staywith" className="mt-4 block text-xs text-white/60">
-                    If we reschedule, is there anyone you&apos;re trying to stay with? List their
-                    names.
-                  </label>
-                  <textarea
-                    id="hn-staywith"
-                    value={stayWith}
-                    onChange={(e) => setStayWith(e.target.value)}
-                    rows={2}
-                    placeholder="e.g. Jane Smith, my department…"
-                    className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[var(--accent)]"
-                  />
-                  {conflictError && <p className="mt-2 text-sm text-red-400">{conflictError}</p>}
-                  <button
-                    type="submit"
-                    disabled={conflictStatus === "submitting"}
-                    className="mt-3 w-full rounded-full px-5 py-3 text-sm font-bold uppercase tracking-wider text-[#000418] disabled:opacity-60"
-                    style={{ backgroundColor: "var(--accent)" }}
-                  >
-                    {conflictStatus === "submitting" ? "Saving…" : "Send my preference"}
-                  </button>
-                </form>
-              ))}
+            {conflict && conflictChoice && (
+              <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-left">
+                <p className="text-sm leading-relaxed text-white/80">
+                  We noted your reschedule preference — we&apos;ll sort the timing and text you the
+                  new time.
+                </p>
+              </div>
+            )}
 
             {raceDay}
             {!hasReservations && (
@@ -381,6 +313,47 @@ export default function ConfirmClient(props: Props) {
                 Reply STOP to opt out.
               </span>
             </label>
+
+            {conflict && (
+              <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-400/10 p-4 text-left">
+                <p className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                  Heads up — tight timing
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-white/85">
+                  We noticed {conflict.summary}. Go-kart racing is about a{" "}
+                  <strong>30-minute experience</strong>, so those are too close together. How would
+                  you like us to adjust?
+                </p>
+                <div className="mt-3 space-y-2">
+                  {conflict.options.map((o) => (
+                    <label key={o.value} className="flex items-center gap-2 text-sm text-white/85">
+                      <input
+                        type="radio"
+                        name="conflictChoice"
+                        value={o.value}
+                        checked={conflictChoice === o.value}
+                        onChange={() => setConflictChoice(o.value)}
+                        className="h-4 w-4 shrink-0"
+                        style={{ accentColor: accent }}
+                      />
+                      <span>{o.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <label htmlFor="hn-staywith" className="mt-4 block text-xs text-white/60">
+                  Anyone you&apos;re trying to stay with? List their names so we keep your group
+                  together.
+                </label>
+                <textarea
+                  id="hn-staywith"
+                  value={stayWith}
+                  onChange={(e) => setStayWith(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Jane Smith, John Doe"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[var(--accent)]"
+                />
+              </div>
+            )}
 
             {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 

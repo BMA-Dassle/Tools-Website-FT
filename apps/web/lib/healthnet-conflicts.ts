@@ -124,7 +124,6 @@ export function resolutionOptions(conflicts: SchedConflict[]): { value: string; 
     opts.push({ value: "adjust-race", label: "Adjust my race time" });
     opts.push({ value: "adjust-activity", label: `Adjust my ${actName}` });
   }
-  opts.push({ value: "keep", label: "My times are fine — leave them" });
   return opts;
 }
 
