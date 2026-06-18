@@ -36,6 +36,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
       checkedIn: rows.filter((r) => r.checkedIn).length,
       withPhone: rows.filter((r) => r.phone).length,
       racing: rows.filter((r) => r.racing).length,
+      gelLaser: rows.filter((r) => r.gelBlaster).length + rows.filter((r) => r.laserTag).length,
       conflicts: rows.filter((r) => r.conflict).length,
     }),
     [rows],
@@ -140,11 +141,12 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
           </button>
         </div>
 
-        <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {chip("RSVPs", counts.total, "#ffffff")}
           {chip("Checked in", counts.checkedIn, "#4ade80")}
           {chip("Have phone", counts.withPhone, "#22d3ee")}
           {chip("Racing", counts.racing, "#60a5fa")}
+          {chip("Gel + Laser", counts.gelLaser, "#c084fc")}
           {chip("Conflicts", counts.conflicts, "#f87171")}
         </div>
 
