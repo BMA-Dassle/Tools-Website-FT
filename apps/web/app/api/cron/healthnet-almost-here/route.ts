@@ -75,15 +75,12 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // ARM SWITCH — the batch blast is DISARMED until HEALTHNET_ALMOSTHERE_ARMED=1
-  // is set in the environment. Guarantees no mass send (even with ?force=1 or
-  // when the cron fires inside the window) until explicitly enabled. The
-  // single-recipient ?test= path above is unaffected.
-  if (process.env.HEALTHNET_ALMOSTHERE_ARMED !== "1") {
-    return NextResponse.json({
-      ok: true,
-      skipped: "disarmed — set HEALTHNET_ALMOSTHERE_ARMED=1 to enable",
-    });
+  // ARMED for the scheduled send (owner approved 2026-06-18). The send-window
+  // guard + per-recipient dedup + domain filter are the remaining safety, so the
+  // batch only goes once, only to healthcareswfl.org guests, only in the window.
+  // KILL SWITCH: set HEALTHNET_ALMOSTHERE_DISABLE=1 in the env to stop it.
+  if (process.env.HEALTHNET_ALMOSTHERE_DISABLE === "1") {
+    return NextResponse.json({ ok: true, skipped: "disabled — HEALTHNET_ALMOSTHERE_DISABLE=1" });
   }
 
   const now = Date.now();

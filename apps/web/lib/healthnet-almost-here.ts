@@ -183,11 +183,9 @@ export function buildAlmostHereEmail(
   const freeflowLabels = (rsvp.freeflow || []).map((f) => FREEFLOW_LABELS[f] || f).filter(Boolean);
   const hasSchedule = timed.length > 0;
 
-  const freeflowLine = freeflowLabels.length
-    ? `<p style="margin:18px 0 0;font-size:14px;color:#475569;font-family:Arial,sans-serif;line-height:1.6">
-         <strong style="color:#1a1a1a">All day long</strong>, jump into ${freeflowLabels.join(", ")} whenever you like — no reservation needed.
-       </p>`
-    : "";
+  const freeflowLine = `<p style="margin:18px 0 0;font-size:14px;color:#475569;font-family:Arial,sans-serif;line-height:1.6">
+         Bowling and your other open activities don't require a reservation — just drop in.
+       </p>`;
 
   // "It's not too late" — reserve more activities. Prominent for entry-only
   // guests (nothing timed yet); a soft nudge for guests who already have slots.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type ScheduleItem = { label: string; time: string };
 type ConflictBundle = {
@@ -63,6 +63,11 @@ export default function ConfirmClient(props: Props) {
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const digits = phone.replace(/\D/g, "");
+
+  // After confirming, jump to the top so the "You're all set" header is in view.
+  useEffect(() => {
+    if (view === "done") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [view]);
 
   async function lookupEmail(e: React.FormEvent) {
     e.preventDefault();
