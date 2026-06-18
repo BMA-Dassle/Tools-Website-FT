@@ -1,7 +1,18 @@
 import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
+import { detectConflicts, conflictAdminLabel } from "@/lib/healthnet-conflicts";
 import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
 import HealthnetRosterClient, { type RosterRow } from "./HealthnetRosterClient";
+
+const RESOLUTION_LABELS: Record<string, string> = {
+  "earlier-race": "wants earlier race",
+  "later-race": "wants later race",
+  "later-activity": "wants gel/laser later",
+  "earlier-activity": "wants gel/laser earlier",
+  "adjust-race": "adjust race",
+  "adjust-activity": "adjust gel/laser",
+  keep: "keep as-is",
+};
 
 /**
  * Admin: Health Net Team Day roster — everyone's name, scheduled times, and
@@ -56,6 +67,7 @@ export default async function Page({ params }: Props) {
       .map((x) => x.time)
       .filter(Boolean)
       .sort()[0];
+    const conflicts = detectConflicts(r);
     rows.push({
       name: r.name || "(no name)",
       email: r.email,
@@ -67,6 +79,11 @@ export default async function Page({ params }: Props) {
       checkedIn: !!r.confirmedAt,
       confirmedAt: r.confirmedAt || "",
       firstTime: firstTime || "",
+      conflict: conflicts.length ? conflictAdminLabel(conflicts) : "",
+      conflictResolution: r.conflictResolution
+        ? RESOLUTION_LABELS[r.conflictResolution] || r.conflictResolution
+        : "",
+      conflictStayWith: r.conflictStayWith || "",
     });
   }
 

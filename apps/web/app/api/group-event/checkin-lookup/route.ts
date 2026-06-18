@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { getGroupEvent } from "@/lib/group-events";
 import { signConfirmToken, reservationSummary } from "@/lib/healthnet-almost-here";
+import { conflictBundle } from "@/lib/healthnet-conflicts";
 import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
 
 /**
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
       schedule,
       hasReservations: schedule.length > 0,
       existingPhone: rsvp.phone || "",
+      conflict: conflictBundle(rsvp),
     });
   } catch {
     return NextResponse.json({ ok: false }, { status: 500 });

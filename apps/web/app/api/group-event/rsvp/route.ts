@@ -124,6 +124,12 @@ export interface GroupEventRsvp {
   smsConsent?: boolean;
   /** Set when the guest completes the "almost here" check-in/confirm flow. */
   confirmedAt?: string;
+  /** Guest's chosen fix for a detected schedule conflict (e.g. "earlier-race"). */
+  conflictResolution?: string;
+  /** Free-text: who they're trying to stay with when rescheduling. */
+  conflictStayWith?: string;
+  /** When the guest answered the conflict prompt. */
+  conflictResolvedAt?: string;
   updatedAt: string;
 }
 

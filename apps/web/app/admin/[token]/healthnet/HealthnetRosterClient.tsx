@@ -13,6 +13,9 @@ export type RosterRow = {
   checkedIn: boolean;
   confirmedAt: string;
   firstTime: string;
+  conflict: string;
+  conflictResolution: string;
+  conflictStayWith: string;
 };
 
 type Filter = "all" | "in" | "out";
@@ -33,6 +36,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
       checkedIn: rows.filter((r) => r.checkedIn).length,
       withPhone: rows.filter((r) => r.phone).length,
       racing: rows.filter((r) => r.racing).length,
+      conflicts: rows.filter((r) => r.conflict).length,
     }),
     [rows],
   );
@@ -60,6 +64,9 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
       "Free-flow",
       "Checked In",
       "Confirmed At",
+      "Conflict",
+      "Resolution",
+      "Stay With",
     ];
     const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
     const lines = filtered.map((r) =>
@@ -73,6 +80,9 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
         r.freeflow,
         r.checkedIn ? "YES" : "NO",
         r.confirmedAt,
+        r.conflict,
+        r.conflictResolution,
+        r.conflictStayWith,
       ]
         .map(esc)
         .join(","),
@@ -125,11 +135,12 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
         </button>
       </div>
 
-      <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
         {chip("RSVPs", counts.total, "#0f172a")}
         {chip("Checked in", counts.checkedIn, "#16a34a")}
         {chip("Have phone", counts.withPhone, "#0d9aa0")}
         {chip("Racing", counts.racing, "#2563eb")}
+        {chip("Conflicts", counts.conflicts, "#dc2626")}
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -160,6 +171,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
               <th className="px-3 py-2 font-semibold">Laser Tag</th>
               <th className="px-3 py-2 font-semibold">Free-flow</th>
               <th className="px-3 py-2 font-semibold">Check-in</th>
+              <th className="px-3 py-2 font-semibold">Conflict / fix</th>
             </tr>
           </thead>
           <tbody>
@@ -187,11 +199,28 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
                     </span>
                   )}
                 </td>
+                <td className="px-3 py-2 text-xs">
+                  {r.conflict ? (
+                    <>
+                      <div className="font-medium text-red-600">{r.conflict}</div>
+                      {r.conflictResolution ? (
+                        <div className="text-slate-600">→ {r.conflictResolution}</div>
+                      ) : (
+                        <div className="text-slate-400">unresolved</div>
+                      )}
+                      {r.conflictStayWith && (
+                        <div className="mt-0.5 text-slate-500">stay with: {r.conflictStayWith}</div>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
                   No guests match.
                 </td>
               </tr>

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
 import { getGroupEvent } from "@/lib/group-events";
 import { verifyConfirmToken, reservationSummary } from "@/lib/healthnet-almost-here";
+import { conflictBundle } from "@/lib/healthnet-conflicts";
 import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
 import ConfirmClient from "./ConfirmClient";
 
@@ -58,6 +59,7 @@ export default async function Page({ params, searchParams }: Props) {
         schedule={schedule}
         hasReservations={schedule.length > 0}
         existingPhone={rsvp.phone ?? ""}
+        conflict={conflictBundle(rsvp)}
       />
     );
   }
@@ -74,6 +76,7 @@ export default async function Page({ params, searchParams }: Props) {
       schedule={[]}
       hasReservations={false}
       existingPhone=""
+      conflict={null}
     />
   );
 }
