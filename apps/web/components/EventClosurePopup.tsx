@@ -27,33 +27,14 @@ const SESSION_KEY = "ft-closure-healthnet-2026-06-19";
 
 type Brand = "fasttrax" | "headpinz";
 
-interface BookLink {
-  label: string;
-  href: string;
-}
+// Always land on the v2 booking hub (pick activity → date → time), never a
+// specific activity. Brand-aware: serves FastTrax on fasttraxent.com and
+// HeadPinz on headpinz.com from the same path.
+const BOOK_HREF = "/book/v2";
 
-const PRESETS: Record<
-  Brand,
-  { venue: string; accent: string; onAccent: string; links: [BookLink, BookLink] }
-> = {
-  fasttrax: {
-    venue: "FastTrax Fort Myers",
-    accent: "#00E2E5",
-    onAccent: "#000418",
-    links: [
-      { label: "Book a Race", href: "/book/race" },
-      { label: "All Activities", href: "/book" },
-    ],
-  },
-  headpinz: {
-    venue: "HeadPinz Fort Myers",
-    accent: "#fd5b56",
-    onAccent: "#0a1628",
-    links: [
-      { label: "Book Bowling", href: "/hp/book/bowling" },
-      { label: "All Activities", href: "/hp/book" },
-    ],
-  },
+const PRESETS: Record<Brand, { venue: string; accent: string; onAccent: string }> = {
+  fasttrax: { venue: "FastTrax Fort Myers", accent: "#00E2E5", onAccent: "#000418" },
+  headpinz: { venue: "HeadPinz Fort Myers", accent: "#fd5b56", onAccent: "#0a1628" },
 };
 
 export default function EventClosurePopup({ brand }: { brand: Brand }) {
@@ -147,21 +128,14 @@ export default function EventClosurePopup({ brand }: { brand: Brand }) {
             at <span className="font-semibold text-white">2:30 PM</span> — reserve your spot below.
           </p>
 
-          <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
+          <div className="mt-5">
             <Link
-              href={preset.links[0].href}
+              href={BOOK_HREF}
               onClick={dismiss}
-              className="flex-1 rounded-xl px-4 py-3 text-center text-sm font-bold transition-transform hover:scale-[1.02]"
+              className="block rounded-xl px-4 py-3 text-center text-sm font-bold transition-transform hover:scale-[1.02]"
               style={{ backgroundColor: preset.accent, color: preset.onAccent }}
             >
-              {preset.links[0].label}
-            </Link>
-            <Link
-              href={preset.links[1].href}
-              onClick={dismiss}
-              className="flex-1 rounded-xl border border-white/15 px-4 py-3 text-center text-sm font-semibold text-white/80 transition-colors hover:border-white/30 hover:text-white"
-            >
-              {preset.links[1].label}
+              Book Now
             </Link>
           </div>
         </div>
