@@ -165,7 +165,77 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
           <span className="ml-auto text-sm text-white/50">{filtered.length} shown</span>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-white/10">
+        {/* Mobile: stacked tiles (no sideways scroll) */}
+        <div className="space-y-3 md:hidden">
+          {filtered.map((r) => (
+            <div key={r.email} className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-white">{r.name}</div>
+                  <div className="truncate text-xs text-white/40">{r.email}</div>
+                </div>
+                {r.checkedIn ? (
+                  <span className="shrink-0 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-semibold text-green-300">
+                    ✓ In
+                  </span>
+                ) : (
+                  <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-xs font-medium text-white/50">
+                    Not yet
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 space-y-1 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-white/50">Phone</span>
+                  <span className="text-right text-white/90">{fmtPhone(r.phone) || "—"}</span>
+                </div>
+                {r.racing && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-white/50">Racing</span>
+                    <span className="text-right text-white/90">{r.racing}</span>
+                  </div>
+                )}
+                {r.gelBlaster && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-white/50">Gel Blaster</span>
+                    <span className="text-right text-white/90">{r.gelBlaster}</span>
+                  </div>
+                )}
+                {r.laserTag && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-white/50">Laser Tag</span>
+                    <span className="text-right text-white/90">{r.laserTag}</span>
+                  </div>
+                )}
+                {r.freeflow && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-white/50">Free-flow</span>
+                    <span className="text-right text-white/70">{r.freeflow}</span>
+                  </div>
+                )}
+              </div>
+              {r.conflict && (
+                <div className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 p-2 text-xs">
+                  <div className="font-medium text-red-300">{r.conflict}</div>
+                  <div className="text-white/70">
+                    {r.conflictResolution ? `→ ${r.conflictResolution}` : "unresolved"}
+                  </div>
+                  {r.conflictStayWith && (
+                    <div className="mt-0.5 text-white/50">stay with: {r.conflictStayWith}</div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <p className="rounded-xl border border-white/10 bg-white/5 p-6 text-center text-white/40">
+              No guests match.
+            </p>
+          )}
+        </div>
+
+        {/* Tablet/desktop: full table */}
+        <div className="hidden overflow-x-auto rounded-lg border border-white/10 md:block">
           <table className="w-full min-w-[760px] border-collapse text-sm">
             <thead>
               <tr className="bg-white/5 text-left text-xs uppercase tracking-wide text-white/50">
