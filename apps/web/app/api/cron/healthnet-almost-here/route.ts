@@ -36,6 +36,8 @@ function windowStart(): number {
   return new Date(process.env.HEALTHNET_ALMOSTHERE_SEND_AT || "2026-06-18T12:00:00.000Z").getTime();
 }
 const WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Audit copy — every send is blind-copied here. */
+const AUDIT_BCC = "vendorcases@dassle.us";
 
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
@@ -131,7 +133,14 @@ export async function GET(req: NextRequest) {
     if (dryRun) continue;
 
     const { subject, html, text } = buildAlmostHereEmail(rsvp);
-    const r = await sendEmail({ to: rsvp.email, toName: rsvp.name, subject, html, text });
+    const r = await sendEmail({
+      to: rsvp.email,
+      toName: rsvp.name,
+      subject,
+      html,
+      text,
+      bcc: AUDIT_BCC,
+    });
     if (r.ok) {
       await redis.set(sentKey(lower), "1", "EX", SENT_TTL);
       sent++;
