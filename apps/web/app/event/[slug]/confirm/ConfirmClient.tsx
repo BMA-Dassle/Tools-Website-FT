@@ -5,9 +5,9 @@ import { useState } from "react";
 type ScheduleItem = { label: string; time: string };
 
 type Props = {
+  mode: "phone" | "email";
   slug: string;
   token: string;
-  invalid: boolean;
   accent: string;
   eventTitle: string;
   dateLabel: string;
@@ -25,27 +25,69 @@ function formatPhone(v: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
-export default function ConfirmClient({
-  slug,
-  token,
-  invalid,
-  accent,
-  eventTitle,
-  dateLabel,
-  firstName,
-  schedule,
-  hasReservations,
-  existingPhone,
-}: Props) {
-  const [phone, setPhone] = useState(formatPhone(existingPhone));
-  const [consent, setConsent] = useState(true);
-  const [status, setStatus] = useState<"idle" | "submitting" | "done" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-
-  const digits = phone.replace(/\D/g, "");
+export default function ConfirmClient(props: Props) {
+  const { mode, slug, accent, eventTitle, dateLabel } = props;
   const eventUrl = `/event/${slug}`;
 
-  async function submit(e: React.FormEvent) {
+  // Resolved guest context — known up front for a tokenized link; filled in
+  // after the email lookup for the shortlink path.
+  const [token, setToken] = useState(props.token);
+  const [firstName, setFirstName] = useState(props.firstName);
+  const [schedule, setSchedule] = useState<ScheduleItem[]>(props.schedule);
+  const [hasReservations, setHasReservations] = useState(props.hasReservations);
+
+  const [view, setView] = useState<"email" | "phone" | "done">(
+    mode === "phone" ? "phone" : "email",
+  );
+
+  // Email-entry (shortlink) state
+  const [emailInput, setEmailInput] = useState("");
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
+  // Phone-capture state
+  const [phone, setPhone] = useState(formatPhone(props.existingPhone));
+  const [consent, setConsent] = useState(true);
+  const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const digits = phone.replace(/\D/g, "");
+
+  async function lookupEmail(e: React.FormEvent) {
+    e.preventDefault();
+    const em = emailInput.trim();
+    if (!em.includes("@")) {
+      setLookupError("Please enter the email you RSVP'd with.");
+      return;
+    }
+    setLookupBusy(true);
+    setLookupError(null);
+    try {
+      const res = await fetch("/api/group-event/checkin-lookup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug, email: em }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.ok) {
+        setLookupError(
+          "We couldn't find an RSVP for that email. Check the address or ask your event coordinator.",
+        );
+        return;
+      }
+      setToken(data.token);
+      setFirstName(data.firstName || "");
+      setSchedule(data.schedule || []);
+      setHasReservations(!!data.hasReservations);
+      setPhone(formatPhone(data.existingPhone || ""));
+      setView("phone");
+    } catch {
+      setLookupError("Something went wrong. Please try again.");
+    } finally {
+      setLookupBusy(false);
+    }
+  }
+
+  async function submitPhone(e: React.FormEvent) {
     e.preventDefault();
     if (digits.length < 10) {
       setError("Please enter a valid 10-digit mobile number.");
@@ -61,12 +103,30 @@ export default function ConfirmClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Couldn't save. Please try again.");
-      setStatus("done");
+      setView("done");
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Couldn't save. Please try again.");
     }
   }
+
+  const card = "rounded-2xl border border-white/10 bg-white/5 p-6";
+
+  // Race-day safety block — shown on the success screen. No emoji (house rule).
+  const raceDay = (
+    <div className="mt-5 rounded-xl border border-amber-300/25 bg-amber-400/10 p-4 text-left">
+      <p className="text-xs font-bold uppercase tracking-wider text-amber-300">Before you arrive</p>
+      <p className="mt-2 text-sm leading-relaxed text-white/85">
+        If you&apos;re <strong>racing</strong>, the following are{" "}
+        <strong>required for your safety</strong>: closed-toe shoes (bowling shoes are perfect — and
+        available on-site), hair secured back, and no loose clothing.
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-white/85">
+        Please plan to arrive about <strong>5 minutes before</strong> each scheduled time at your
+        designated attraction. We&apos;ll text your check-ins.
+      </p>
+    </div>
+  );
 
   return (
     <main
@@ -85,23 +145,8 @@ export default function ConfirmClient({
           <p className="mt-1 text-sm text-white/60">{dateLabel}</p>
         </div>
 
-        {invalid ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-            <h2 className="text-lg font-bold">This link has expired</h2>
-            <p className="mt-2 text-sm text-white/70">
-              We couldn&apos;t verify this confirmation link. You can still look up your RSVP and
-              add your details on the event page.
-            </p>
-            <a
-              href={eventUrl}
-              className="mt-5 inline-block rounded-full px-6 py-3 text-sm font-bold uppercase tracking-wider text-[#000418]"
-              style={{ backgroundColor: "var(--accent)" }}
-            >
-              Go to event page
-            </a>
-          </div>
-        ) : status === "done" ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
+        {view === "done" ? (
+          <div className={`${card} text-center`}>
             <h2 className="text-xl font-bold">
               You&apos;re all set{firstName ? `, ${firstName}` : ""}!
             </h2>
@@ -113,6 +158,7 @@ export default function ConfirmClient({
               the <strong>morning of Friday, June 19</strong> — it&apos;s your fast pass to
               check-in.
             </p>
+            {raceDay}
             {!hasReservations && (
               <p className="mt-4 border-t border-white/10 pt-4 text-sm text-white/70">
                 Want to do more? It&apos;s not too late to add go-kart racing, laser tag, or gel
@@ -127,8 +173,37 @@ export default function ConfirmClient({
               </p>
             )}
           </div>
+        ) : view === "email" ? (
+          <form onSubmit={lookupEmail} className={card}>
+            <label htmlFor="hn-email" className="block text-sm font-bold">
+              Check in for the event
+            </label>
+            <p className="mt-1 text-xs text-white/60">
+              Enter the email you RSVP&apos;d with and we&apos;ll pull up your day.
+            </p>
+            <input
+              id="hn-email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              required
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="you@healthcareswfl.org"
+              className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none placeholder:text-white/30 focus:border-[var(--accent)]"
+            />
+            {lookupError && <p className="mt-3 text-sm text-red-400">{lookupError}</p>}
+            <button
+              type="submit"
+              disabled={lookupBusy}
+              className="mt-5 w-full rounded-full px-6 py-4 text-sm font-bold uppercase tracking-wider text-[#000418] disabled:opacity-60"
+              style={{ backgroundColor: "var(--accent)" }}
+            >
+              {lookupBusy ? "Looking you up…" : "Continue"}
+            </button>
+          </form>
         ) : (
-          <form onSubmit={submit} className="rounded-2xl border border-white/10 bg-white/5 p-6">
+          <form onSubmit={submitPhone} className={card}>
             {schedule.length > 0 ? (
               <>
                 <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50">

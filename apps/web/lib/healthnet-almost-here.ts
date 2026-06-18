@@ -162,6 +162,9 @@ export function buildAlmostHereEmail(
   // Booking page — where a guest reserves more activities. Carries their email
   // for forward-compat (gate pre-fill); harmless if the gate ignores it today.
   const scheduleUrl = `${base}/event/${HEALTHNET_SLUG}?email=${encodeURIComponent(rsvp.email)}`;
+  // Short, shareable check-in URL for coworkers who didn't get the email.
+  const checkinShortUrl = `${base}/healthnet`;
+  const checkinShortLabel = `${base.replace(/^https?:\/\//, "")}/healthnet`;
 
   // Timed reservations, sorted by start time.
   const timed = (rsvp.reservations || [])
@@ -242,6 +245,12 @@ export function buildAlmostHereEmail(
     ``,
     `We'll text your event ticket the morning of Friday, June 19 — it's your fast pass to check-in.`,
     ``,
+    `Have a coworker who's off today? Send them to ${checkinShortUrl} to check in.`,
+    ``,
+    `BEFORE YOU ARRIVE`,
+    `If you're racing, the following are required for your safety: closed-toe shoes (bowling shoes are perfect and available on-site), hair secured back, and no loose clothing.`,
+    `Please plan to arrive about 5 minutes before each scheduled time at your designated attraction. We'll text your check-ins.`,
+    ``,
     `See you Friday!`,
     `HeadPinz Fort Myers & FastTrax`,
   ].join("\n");
@@ -293,6 +302,18 @@ export function buildAlmostHereEmail(
         <p style="margin:0 0 18px;font-size:17px;color:#1a1a1a;font-weight:bold;font-family:Arial,sans-serif">Are you joining us on Friday?</p>
         <a href="${url}" style="display:inline-block;padding:18px 40px;background-color:#004aad;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:16px;letter-spacing:1px;text-transform:uppercase;font-family:Arial,sans-serif">Yes — confirm &amp; get my ticket</a>
         <p style="margin:18px 0 0;font-size:13px;color:#475569;line-height:1.6;font-family:Arial,sans-serif">Tap above and add your mobile number. We'll text your event ticket the <strong>morning of Friday, June 19</strong> — it's your fast pass to check-in.</p>
+        <p style="margin:12px 0 0;font-size:12px;color:#64748b;line-height:1.6;font-family:Arial,sans-serif">Have a coworker who's off today? Send them to <a href="${checkinShortUrl}" style="color:#004aad;font-weight:bold;text-decoration:none">${checkinShortLabel}</a> to check in.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- RACE-DAY / SAFETY -->
+  <tr><td style="padding:16px 40px 4px 40px;font-family:Arial,sans-serif">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px">
+      <tr><td style="padding:16px 18px;font-family:Arial,sans-serif">
+        <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:#b45309;font-weight:bold">Before you arrive</p>
+        <p style="margin:0 0 8px;font-size:14px;color:#475569;line-height:1.6">If you're <strong style="color:#1a1a1a">racing</strong>, the following are <strong>required for your safety</strong>: <strong>closed-toe shoes</strong> (bowling shoes are perfect — and available on-site), <strong>hair secured</strong> back, and <strong>no loose clothing</strong>.</p>
+        <p style="margin:0;font-size:14px;color:#475569;line-height:1.6">Please plan to arrive about <strong style="color:#1a1a1a">5 minutes before</strong> each scheduled time at your designated attraction. We'll <strong>text your check-ins</strong>.</p>
       </td></tr>
     </table>
   </td></tr>

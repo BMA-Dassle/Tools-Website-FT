@@ -492,6 +492,8 @@ export async function middleware(request: NextRequest) {
     pathname === "/privacy-policy" ||
     pathname.startsWith("/privacy-policy/") ||
     pathname.startsWith("/event/") ||
+    // Short check-in shortlink (redirects into /event/healthnet-2026/confirm).
+    pathname === "/healthnet" ||
     // Guest-survey landing pages (PR-GS2). Bowling surveys are HP-branded
     // and racing surveys are FT-branded, but the page lives at /survey/*
     // (not /hp/survey/* nor /ft/survey/*) — the route reads the center

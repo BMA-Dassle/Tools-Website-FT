@@ -6,11 +6,13 @@ import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
 import ConfirmClient from "./ConfirmClient";
 
 /**
- * Guest-facing "confirm you're coming + give us your mobile" page.
+ * Guest-facing "confirm you're coming + give us your mobile" / check-in page.
  *
- * Reached from the one-time "almost here" email via a signed token (?t=...).
- * Verifies the token → loads the guest's RSVP → lets them submit a phone, which
- * the confirm API saves to the RSVP AND PATCHes onto their BMI person record.
+ * Two ways in:
+ *  - Tokenized email link (?t=...) → verify → load RSVP → straight to phone step.
+ *  - No/expired token (e.g. the short /healthnet link a coworker shares) → the
+ *    client asks for an email and looks it up on the roster.
+ * Submitting saves the phone to the RSVP AND PATCHes it onto the BMI person.
  *
  * URL: /event/{slug}/confirm?t={token}
  */
@@ -33,44 +35,45 @@ export default async function Page({ params, searchParams }: Props) {
   const event = getGroupEvent(slug);
   if (!event) notFound();
 
-  const email = t ? verifyConfirmToken(t) : null;
   const accent = event.accentColor || "#00E2E5";
+  const dateLabel = `${EVENT_DATE_LONG} · ${EVENT_TIME} · ${EVENT_VENUE}`;
 
-  // Bad/missing token → friendly fallback (no enumeration).
-  if (!email) {
+  const email = t ? verifyConfirmToken(t) : null;
+  const raw = email ? await redis.get(`groupevent:${slug}:rsvp:${email.toLowerCase()}`) : null;
+  const rsvp = raw ? (JSON.parse(raw) as GroupEventRsvp) : null;
+
+  // Tokenized link with a real RSVP → go straight to the phone step.
+  // Otherwise (no/expired token, or RSVP not found) → email-entry mode.
+  if (rsvp) {
+    const schedule = reservationSummary(rsvp);
     return (
       <ConfirmClient
+        mode="phone"
         slug={slug}
         token={t ?? ""}
-        invalid
         accent={accent}
         eventTitle={event.eventTitle}
-        dateLabel={`${EVENT_DATE_LONG} · ${EVENT_TIME} · ${EVENT_VENUE}`}
-        firstName=""
-        schedule={[]}
-        hasReservations={false}
-        existingPhone=""
+        dateLabel={dateLabel}
+        firstName={(rsvp.name || "").trim().split(/\s+/)[0] || ""}
+        schedule={schedule}
+        hasReservations={schedule.length > 0}
+        existingPhone={rsvp.phone ?? ""}
       />
     );
   }
 
-  const raw = await redis.get(`groupevent:${slug}:rsvp:${email.toLowerCase()}`);
-  const rsvp = raw ? (JSON.parse(raw) as GroupEventRsvp) : null;
-  const schedule = rsvp ? reservationSummary(rsvp) : [];
-  const firstName = (rsvp?.name || "").trim().split(/\s+/)[0] || "";
-
   return (
     <ConfirmClient
+      mode="email"
       slug={slug}
-      token={t ?? ""}
-      invalid={!rsvp}
+      token=""
       accent={accent}
       eventTitle={event.eventTitle}
-      dateLabel={`${EVENT_DATE_LONG} · ${EVENT_TIME} · ${EVENT_VENUE}`}
-      firstName={firstName}
-      schedule={schedule}
-      hasReservations={schedule.length > 0}
-      existingPhone={rsvp?.phone ?? ""}
+      dateLabel={dateLabel}
+      firstName=""
+      schedule={[]}
+      hasReservations={false}
+      existingPhone=""
     />
   );
 }
