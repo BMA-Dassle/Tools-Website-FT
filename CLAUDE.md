@@ -122,6 +122,7 @@ These are non-negotiable behavioral rules. Every session in this repo inherits t
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **One PR, one purpose**: Don't bundle unrelated changes. Easier to review, easier to revert.
+- **Branch hygiene**: One branch = one PR, named descriptively (`feat/…` / `fix/…`). Do NOT push throwaway or experimental branches to `origin` unless they will become a PR. After a PR merges, delete the local branch — merged branches pile up fast (the remote side is reaped by GitHub's "Automatically delete head branches" setting). Never leave a trail of stale single-commit branches behind.
 
 ## Reference files (one-stop index)
 
