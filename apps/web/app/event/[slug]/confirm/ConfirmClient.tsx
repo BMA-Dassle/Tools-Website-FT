@@ -257,6 +257,13 @@ export default function ConfirmClient(props: Props) {
               className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none placeholder:text-white/30 focus:border-[var(--accent)]"
             />
 
+            <p className="mt-2 text-xs leading-relaxed text-white/45">
+              Can&apos;t receive texts? You&apos;ll need to check in at{" "}
+              <strong className="text-white/70">Guest Services at least 30 minutes before</strong>{" "}
+              your activity to pick up a physical ticket. Add your number above to save the trip —
+              we&apos;ll text it straight to you.
+            </p>
+
             <label className="mt-3 flex items-start gap-2 text-xs text-white/70">
               <input
                 type="checkbox"
