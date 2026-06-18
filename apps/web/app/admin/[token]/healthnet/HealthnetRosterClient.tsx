@@ -18,13 +18,28 @@ export type RosterRow = {
   conflictStayWith: string;
 };
 
-type Filter = "all" | "in" | "out";
+type Filter = "all" | "in" | "out" | "act-in" | "act-out" | "conflicts";
+
+const FILTER_LABELS: Record<Filter, string> = {
+  all: "All guests",
+  in: "Checked in",
+  out: "Not yet checked in",
+  "act-in": "Activity · checked in",
+  "act-out": "Activity · not yet",
+  conflicts: "Conflicts",
+};
 
 function fmtPhone(p: string): string {
   const d = p.replace(/\D/g, "");
   if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   return p || "";
 }
+
+/** Has a reservation that requires a check-in (racing / gel blaster / laser tag).
+ *  Free-flow activities (bowling, arcade, food) don't reserve a time, so they
+ *  don't count toward the "required to check in" tally. */
+const hasReservation = (r: RosterRow) => !!(r.racing || r.gelBlaster || r.laserTag);
+const inGelLaser = (r: RosterRow) => !!(r.gelBlaster || r.laserTag);
 
 export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   const [query, setQuery] = useState("");
@@ -34,9 +49,15 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
     () => ({
       total: rows.length,
       checkedIn: rows.filter((r) => r.checkedIn).length,
-      withPhone: rows.filter((r) => r.phone).length,
+      // People with a reservation (racing/gel/laser) = those required to check in,
+      // and how many of them have. Unique people, so anyone in both gel + laser
+      // counts once.
+      rezTotal: rows.filter(hasReservation).length,
+      rezCheckedIn: rows.filter((r) => hasReservation(r) && r.checkedIn).length,
       racing: rows.filter((r) => r.racing).length,
-      gelLaser: rows.filter((r) => r.gelBlaster).length + rows.filter((r) => r.laserTag).length,
+      racingIn: rows.filter((r) => r.racing && r.checkedIn).length,
+      gelLaser: rows.filter(inGelLaser).length,
+      gelLaserIn: rows.filter((r) => inGelLaser(r) && r.checkedIn).length,
       conflicts: rows.filter((r) => r.conflict).length,
     }),
     [rows],
@@ -47,12 +68,20 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
     return rows.filter((r) => {
       if (filter === "in" && !r.checkedIn) return false;
       if (filter === "out" && r.checkedIn) return false;
+      if (filter === "act-in" && !(hasReservation(r) && r.checkedIn)) return false;
+      if (filter === "act-out" && !(hasReservation(r) && !r.checkedIn)) return false;
+      if (filter === "conflicts" && !r.conflict) return false;
       if (!q) return true;
       return (
         r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q) || r.phone.includes(q)
       );
     });
   }, [rows, query, filter]);
+
+  // Human label for the active view — shown on the printed sheet header.
+  const printLabel = query.trim()
+    ? `${FILTER_LABELS[filter]} · "${query.trim()}"`
+    : FILTER_LABELS[filter];
 
   function exportCsv() {
     const head = [
@@ -97,10 +126,11 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
     URL.revokeObjectURL(url);
   }
 
-  const chip = (label: string, value: number, color: string) => (
+  const chip = (label: string, value: number, color: string, total?: number) => (
     <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
       <div className="text-2xl font-bold" style={{ color }}>
         {value}
+        {total != null && <span className="text-base font-medium text-white/40"> / {total}</span>}
       </div>
       <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
     </div>
@@ -121,8 +151,8 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   );
 
   return (
-    <div className="min-h-screen bg-[#0a1120] px-4 py-8 text-white">
-      <div className="mx-auto max-w-6xl">
+    <div className="min-h-screen bg-[#0a1120] px-4 py-8 text-white print:bg-white print:p-0 print:text-black">
+      <div className="mx-auto max-w-6xl print:hidden">
         <div className="mb-1 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl uppercase tracking-widest">
@@ -132,21 +162,30 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
               Friday, June 19 · 9 AM – 2 PM · HeadPinz Fort Myers
             </p>
           </div>
-          <button
-            type="button"
-            onClick={exportCsv}
-            className="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10"
-          >
-            Export CSV
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10"
+            >
+              Print / PDF
+            </button>
+            <button
+              type="button"
+              onClick={exportCsv}
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10"
+            >
+              Export CSV
+            </button>
+          </div>
         </div>
 
         <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {chip("RSVPs", counts.total, "#ffffff")}
           {chip("Checked in", counts.checkedIn, "#4ade80")}
-          {chip("Have phone", counts.withPhone, "#22d3ee")}
-          {chip("Racing", counts.racing, "#60a5fa")}
-          {chip("Gel + Laser", counts.gelLaser, "#c084fc")}
+          {chip("Activity · in", counts.rezCheckedIn, "#22d3ee", counts.rezTotal)}
+          {chip("Racing", counts.racingIn, "#60a5fa", counts.racing)}
+          {chip("Gel + Laser", counts.gelLaserIn, "#c084fc", counts.gelLaser)}
           {chip("Conflicts", counts.conflicts, "#f87171")}
         </div>
 
@@ -163,6 +202,9 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
             {filterBtn("all", `All (${counts.total})`)}
             {filterBtn("in", `Checked in (${counts.checkedIn})`)}
             {filterBtn("out", `Not yet (${counts.total - counts.checkedIn})`)}
+            {filterBtn("act-in", `Activity · in (${counts.rezCheckedIn})`)}
+            {filterBtn("act-out", `Activity · not yet (${counts.rezTotal - counts.rezCheckedIn})`)}
+            {filterBtn("conflicts", `Conflicts (${counts.conflicts})`)}
           </div>
           <span className="ml-auto text-sm text-white/50">{filtered.length} shown</span>
         </div>
@@ -313,6 +355,69 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
         <p className="mt-3 text-xs text-white/40">
           &ldquo;Checked in&rdquo; = guest completed the confirm/check-in flow. Reload to refresh.
         </p>
+      </div>
+
+      {/* Print / PDF sheet — black-on-white, shows exactly the current filter +
+          search result. "Print / PDF" → browser print dialog → Save as PDF. */}
+      <div className="hidden print:block">
+        <style>{`
+          @media print {
+            @page { margin: 0.5in; }
+            .hn-print table { width: 100%; border-collapse: collapse; }
+            .hn-print th, .hn-print td {
+              border: 1px solid #999; padding: 4px 6px; text-align: left;
+              vertical-align: top; font-size: 11px; color: #000;
+            }
+            .hn-print thead { display: table-header-group; }
+            .hn-print tr { break-inside: avoid; }
+          }
+        `}</style>
+        <div className="hn-print">
+          <div style={{ marginBottom: 10 }}>
+            <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
+              Healthcare Network Team Day — Check-in
+            </h1>
+            <div style={{ fontSize: 12 }}>
+              Friday, June 19 · {printLabel} · {filtered.length} guest
+              {filtered.length === 1 ? "" : "s"}
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Racing</th>
+                <th>Gel</th>
+                <th>Laser</th>
+                <th>Free-flow</th>
+                <th>In</th>
+                <th>Conflict / fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr key={r.email}>
+                  <td>{r.name}</td>
+                  <td>{fmtPhone(r.phone) || "—"}</td>
+                  <td>{r.racing || "—"}</td>
+                  <td>{r.gelBlaster || "—"}</td>
+                  <td>{r.laserTag || "—"}</td>
+                  <td>{r.freeflow || "—"}</td>
+                  <td>{r.checkedIn ? "✓" : ""}</td>
+                  <td>
+                    {r.conflict
+                      ? `${r.conflict}${r.conflictResolution ? ` → ${r.conflictResolution}` : ""}`
+                      : ""}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && (
+            <p style={{ fontSize: 12, marginTop: 8 }}>No guests match this view.</p>
+          )}
+        </div>
       </div>
     </div>
   );
