@@ -16,8 +16,10 @@ import {
   probeAvailability,
   parseAvailabilities,
   etHour,
+  etMinutesOfDay,
   formatHourLabel,
 } from "./availability-client";
+import { getPublicReopenMinutes } from "@/lib/group-events";
 
 const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
@@ -147,11 +149,19 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    // Morning-only buyout: hide any start time before the public reopen (ET
+    // minutes-of-day). Applied to both the fine and widened probes so the
+    // "next available" surfaced is always at-or-after the reopen time.
+    const reopenMins = item.date ? getPublicReopenMinutes(item.date) : null;
+    const dropBeforeReopen = (arr: AvailabilitySlot[]) =>
+      reopenMins == null ? arr : arr.filter((s) => etMinutesOfDay(s.bookedAt) >= reopenMins);
     void (async () => {
       try {
-        const fine = parseAvailabilities(
-          await probeAvailability(
-            `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45`,
+        const fine = dropBeforeReopen(
+          parseAvailabilities(
+            await probeAvailability(
+              `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45`,
+            ),
           ),
         );
         const tierIds = new Set(tierExperiences.map((e) => e.qamfWebOfferId));
@@ -163,9 +173,11 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         let didWiden = false;
         if (!hasTierAtHour) {
           try {
-            const wide = parseAvailabilities(
-              await probeAvailability(
-                `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&stepMinutes=30`,
+            const wide = dropBeforeReopen(
+              parseAvailabilities(
+                await probeAvailability(
+                  `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&stepMinutes=30`,
+                ),
               ),
             );
             const seen = new Set(fine.map((s) => `${s.bookedAt}::${s.webOfferId}`));

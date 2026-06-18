@@ -109,6 +109,28 @@ export function etHour(iso: string): number {
   }
 }
 
+/** ET minutes-of-day in 0-26 hour notation (e.g. 2:30 PM → 870, 1:15 AM → 1515).
+ *  Mirrors etHour's post-midnight (+24) convention so late-night starts sort after
+ *  the evening rather than before the morning. Used to gate slots against a
+ *  morning-only buyout's public reopen time (also ET minutes-of-day). */
+export function etMinutesOfDay(iso: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(iso));
+    let h = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+    const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+    if (h === 24) h = 0; // midnight edge from hour12:false
+    if (h < 6) h += 24;
+    return h * 60 + m;
+  } catch {
+    return 0;
+  }
+}
+
 /** "7 PM", "11 AM", "12 AM" from an hour in 0-26 notation. */
 export function formatHourLabel(h: number): string {
   const hr = h % 24;

@@ -129,6 +129,14 @@ export interface GroupEvent {
    *  "full-day" (default) = whole date greyed/unclickable (facility buyout).
    *  "event-window" = date stays bookable; only heats overlapping [startTime,endTime] are disabled. */
   publicBlock?: "full-day" | "event-window";
+  /** Public booking reopens at this ET wall-clock time on `eventDate` (e.g. "14:30").
+   *  Used for a morning-only buyout that hands the facility back to the public partway
+   *  through the day: every public slot/heat/hour BEFORE this time is disabled, and
+   *  everything at-or-after stays bookable. Applies uniformly across racing, attractions,
+   *  and bowling in the v2 booking flow. Independent of startTime/endTime (which describe
+   *  the private event itself), so this is the explicit turnover-buffer reopen time.
+   *  Surfaced via getPublicReopenTimeForDate / getPublicReopenMinutes. */
+  publicReopensAt?: string;
   /** Marketing landing content. When set, the event page renders a full hero +
    *  experience + gallery on the entry step (public promos). Omit for plain funnels. */
   landing?: GroupEventLanding;
@@ -148,6 +156,11 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     eventDate: "2026-06-19",
     startTime: "09:00",
     endTime: "14:00",
+    // Morning-only buyout: the facility returns to the public at 2:30 PM (2 PM
+    // event end + 30-min turnover). Public booking before 2:30 is disabled across
+    // racing/attractions/bowling; 2:30 PM onward stays bookable. (v1 still treats
+    // this date as a full-day buyout via getGroupEventForDate — only v2 reopens.)
+    publicReopensAt: "14:30",
     allowedDomains: ["healthcareswfl.org", "headpinz.com", "fasttraxent.com"],
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/group-events/healthcare-network-logo.png",
@@ -401,6 +414,26 @@ export function getGroupEventForDate(date: string): GroupEvent | null {
       (e) => e.eventDate === date && (e.publicBlock ?? "full-day") === "full-day",
     ) ?? null
   );
+}
+
+/** Public-booking reopen time for a date (morning-only buyout), or null.
+ *  When set, every public slot/heat/hour BEFORE `time` (ET wall-clock) on this date
+ *  is disabled; at-or-after stays bookable. The date itself remains clickable — this
+ *  is NOT a full-day block (so getGroupEventForDate is intentionally left alone, which
+ *  keeps the conservative full-day behavior on v1; only the v2 pickers honor reopen). */
+export function getPublicReopenTimeForDate(date: string): { time: string; label: string } | null {
+  const e = Object.values(GROUP_EVENTS).find((e) => e.eventDate === date && !!e.publicReopensAt);
+  return e ? { time: e.publicReopensAt!, label: e.eventTitle } : null;
+}
+
+/** Reopen time as ET minutes-of-day (e.g. "14:30" → 870), or null on dates with no
+ *  morning-only buyout. Pickers compare a slot's ET minutes-of-day against this:
+ *  slot is blocked when its start minutes-of-day < this value. */
+export function getPublicReopenMinutes(date: string): number | null {
+  const r = getPublicReopenTimeForDate(date);
+  if (!r) return null;
+  const [h, m] = r.time.split(":").map(Number);
+  return h * 60 + (m || 0);
 }
 
 /** A race time window reserved for an event on a given date. ISO local datetimes. */

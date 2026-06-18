@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
+import EventClosurePopup from "@/components/EventClosurePopup";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import {
   BreadcrumbJsonLd,
@@ -237,6 +238,7 @@ const weeklyEvents = [
 export default function FortMyersPage() {
   return (
     <div className="bg-[#0a1628]">
+      <EventClosurePopup brand="headpinz" />
       <BreadcrumbJsonLd
         items={[
           { name: "HeadPinz", url: "https://headpinz.com" },

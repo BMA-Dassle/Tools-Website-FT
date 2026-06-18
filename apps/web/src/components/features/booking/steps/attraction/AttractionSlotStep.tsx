@@ -10,6 +10,7 @@ import {
   bookAttractionOnAdvance,
 } from "~/features/booking/service/attractions";
 import { releaseItemBmiLines } from "~/features/booking/service/checkout";
+import { getPublicReopenMinutes } from "@/lib/group-events";
 
 interface SlotOption {
   proposal: BmiProposal;
@@ -153,6 +154,16 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
   const SAME_CENTER_BUFFER_MS = 15 * 60_000;
   const CROSS_BUILDING_BUFFER_MS = 30 * 60_000;
 
+  // Morning-only buyout: public booking reopens midday (e.g. 2:30 PM). Slots before
+  // the reopen time (ET wall-clock minutes-of-day) are reserved for the private event.
+  const reopenMins = item.date ? getPublicReopenMinutes(item.date) : null;
+  function isBeforeReopen(blockStart: string): boolean {
+    if (reopenMins == null) return false;
+    const d = new Date(blockStart.replace(/Z$/, ""));
+    if (isNaN(d.getTime())) return false;
+    return d.getHours() * 60 + d.getMinutes() < reopenMins;
+  }
+
   function isConflict(blockStart: string): boolean {
     const slotMs = new Date(blockStart.replace(/Z$/, "")).getTime();
     if (isNaN(slotMs)) return false;
@@ -257,7 +268,8 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
           {slots.map(({ proposal, block }) => {
             const isFull = block.freeSpots < (isPerPerson ? item.qty : 1);
             const hasConflict = isConflict(block.start);
-            const isDisabled = isFull || hasConflict;
+            const beforeReopen = isBeforeReopen(block.start);
+            const isDisabled = isFull || hasConflict || beforeReopen;
             const isSelected = item.slot === block.start;
             const price =
               block.prices?.find((p) => p.depositKind === 0 && p.kind === 0)?.amount ?? null;
@@ -299,13 +311,15 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
                   <span className="mt-0.5 block text-xs text-white/40">${price.toFixed(2)}</span>
                 )}
                 <span className="mt-1 block text-[10px] text-white/30">
-                  {hasConflict
-                    ? "Conflicts with booking"
-                    : isFull
-                      ? "Full"
-                      : block.freeSpots <= 3
-                        ? `${block.freeSpots} left`
-                        : "Available"}
+                  {beforeReopen
+                    ? "Reserved for event"
+                    : hasConflict
+                      ? "Conflicts with booking"
+                      : isFull
+                        ? "Full"
+                        : block.freeSpots <= 3
+                          ? `${block.freeSpots} left`
+                          : "Available"}
                 </span>
               </button>
             );

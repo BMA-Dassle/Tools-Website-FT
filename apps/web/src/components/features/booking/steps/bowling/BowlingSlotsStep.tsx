@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { BowlingItem, BookingSession, KbfItem, StepDef } from "~/features/booking";
 import { findOffering } from "~/features/booking";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
+import { getPublicReopenMinutes } from "@/lib/group-events";
 import { formatHourLabel } from "./availability-client";
 
 const CORAL = "#fd5b56";
@@ -180,6 +181,12 @@ function operatingHours(centerHpSlug: string, dateStr: string, isKbf: boolean): 
 
   // KBF Friday: cap at 5 PM (v1 parity — BowlingWizard.tsx:1430)
   if (isKbf && dow === 5) hours = hours.filter((h) => h < 17);
+
+  // Morning-only buyout: drop hours that end before the public reopen time
+  // (an hour stays if its last :45 start is at-or-after reopen). The offer step
+  // further drops the pre-reopen minute starts within the boundary hour.
+  const reopenMins = getPublicReopenMinutes(dateStr);
+  if (reopenMins != null) hours = hours.filter((h) => h * 60 + 45 >= reopenMins);
 
   // For today, drop hours already passed (15-min booking lead).
   if (dateStr === todayYmd()) {

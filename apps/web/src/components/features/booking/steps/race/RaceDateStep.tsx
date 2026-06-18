@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
-import { getGroupEventForDate } from "@/lib/group-events";
+import { getGroupEventForDate, getPublicReopenTimeForDate } from "@/lib/group-events";
 
 /**
  * Race step — pick the race day.
@@ -255,7 +255,10 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
               const isMega = megaDates.has(iso);
               const isSelected = item.date === iso;
               const isToday = iso === todayStr;
-              const groupEvent = getGroupEventForDate(iso);
+              // Morning-only buyout dates stay clickable (booking reopens midday);
+              // the heat picker disables the pre-reopen heats. Only true full-day
+              // buyouts grey the cell out.
+              const groupEvent = getPublicReopenTimeForDate(iso) ? null : getGroupEventForDate(iso);
 
               return (
                 <button

@@ -23,7 +23,11 @@ import {
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { holdPickedHeats } from "~/features/booking/service/race";
 import { RacerSelectorModal } from "./RacerSelectorModal";
-import { getGroupEventForDate, getRaceBlockWindowsForDate } from "@/lib/group-events";
+import {
+  getGroupEventForDate,
+  getRaceBlockWindowsForDate,
+  getPublicReopenMinutes,
+} from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
 import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
@@ -520,8 +524,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       );
     }
 
+    // Morning-only buyout: public booking reopens midday (e.g. 2:30 PM). The date
+    // stays bookable and the heats before the reopen time are disabled below —
+    // so skip the full-day "Private Event" guard on these dates.
+    const reopenMins = getPublicReopenMinutes(item.date);
+
     // Private event guard — v1 HeatPicker:211-237
-    const groupEventBlock = getGroupEventForDate(item.date);
+    const groupEventBlock = reopenMins == null ? getGroupEventForDate(item.date) : null;
     if (groupEventBlock) {
       const displayDate = new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
         weekday: "long",
@@ -638,20 +647,29 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   const wE = parseLocal(w.stopIso).getTime();
                   return hS < wE && hE > wS;
                 });
+              // Morning-only buyout: heats starting before the public reopen time
+              // (ET wall-clock minutes-of-day) are reserved for the private event.
+              const heatStart = parseLocal(block.start);
+              const isBeforeReopen =
+                !isSelected &&
+                reopenMins != null &&
+                heatStart.getHours() * 60 + heatStart.getMinutes() < reopenMins;
               const isLowCap = block.freeSpots < partySize;
               const isCapped = atCap && !isSelected;
-              const isFull = isLowCap || isConflict || isCapped || isEventReserved;
-              const statusLabel = isEventReserved
-                ? "Reserved for event"
-                : isConflict
-                  ? "Too close to picked heat"
-                  : isLowCap
-                    ? `Need ${partySize}, only ${block.freeSpots} left`
-                    : isCapped
-                      ? "Unselect a picked heat to change"
-                      : spotsLabel(block.freeSpots, block.capacity).label;
+              const isFull =
+                isLowCap || isConflict || isCapped || isEventReserved || isBeforeReopen;
+              const statusLabel =
+                isEventReserved || isBeforeReopen
+                  ? "Reserved for event"
+                  : isConflict
+                    ? "Too close to picked heat"
+                    : isLowCap
+                      ? `Need ${partySize}, only ${block.freeSpots} left`
+                      : isCapped
+                        ? "Unselect a picked heat to change"
+                        : spotsLabel(block.freeSpots, block.capacity).label;
               const statusClass =
-                isEventReserved || isConflict
+                isEventReserved || isBeforeReopen || isConflict
                   ? "text-amber-400"
                   : isLowCap
                     ? "text-red-400"
