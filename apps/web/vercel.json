@@ -142,7 +142,7 @@
     },
     {
       "path": "/api/cron/healthnet-reminder",
-      "schedule": "15,20,25 19 * * 4"
+      "schedule": "30,35,40 19 * * 4"
     }
   ]
 }
