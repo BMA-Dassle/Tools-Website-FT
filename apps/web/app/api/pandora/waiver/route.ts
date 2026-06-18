@@ -129,19 +129,21 @@ export async function POST(req: NextRequest) {
 
     const data = await res.json();
 
-    if (!res.ok) {
+    // Pandora wraps: { success, data: { waiverID } }. A 200 with success:false
+    // or no waiverID is a NON-write — treat it as a failure, never a success.
+    // (This is the bug that silently lost ~240 Health Net waivers on 2026-06-18.)
+    const waiverID = data?.data?.waiverID || data?.waiverID;
+    if (!res.ok || data?.success === false || !waiverID) {
       console.error(
-        `[pandora-waiver] sign failed ${res.status}:`,
+        `[pandora-waiver] sign failed status=${res.status} success=${data?.success} id=${waiverID ?? "none"}:`,
         JSON.stringify(data).substring(0, 300),
       );
       return NextResponse.json(
         { error: data?.message || data?.data?.message || "Waiver signing failed" },
-        { status: res.status },
+        { status: res.ok ? 502 : res.status },
       );
     }
 
-    // Pandora wraps: { success, data: { waiverID } }
-    const waiverID = data?.data?.waiverID || data?.waiverID;
     console.log(`[pandora-waiver] signed waiver for person ${personID}: waiverID=${waiverID}`);
     return NextResponse.json({ ok: true, waiverID });
   } catch (err) {

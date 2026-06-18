@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { pandoraFetchWaiverTemplate } from "@/lib/pandora";
 
 type ScheduleItem = { label: string; time: string };
 type ConflictBundle = {
@@ -64,10 +65,37 @@ export default function ConfirmClient(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const digits = phone.replace(/\D/g, "");
 
+  // Waiver acceptance — only for guests with a waiver-gated reservation
+  // (racing/gel/laser; these are exactly the timed reservations in `schedule`,
+  // so `hasReservations` doubles as "needs a waiver").
+  const [waiverBody, setWaiverBody] = useState("");
+  const [waiverAccepted, setWaiverAccepted] = useState(false);
+  const acceptedDateLabel = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    dateStyle: "long",
+    timeStyle: "short",
+  });
+
   // After confirming, jump to the top so the "You're all set" header is in view.
   useEffect(() => {
     if (view === "done") window.scrollTo({ top: 0, behavior: "smooth" });
   }, [view]);
+
+  // Load the waiver text once we're on the phone step and the guest has a
+  // waiver-gated reservation. Non-fatal: the accept line still renders if the
+  // body fails to load (the server holds the canonical terms version anyway).
+  useEffect(() => {
+    if (view !== "phone" || !hasReservations || waiverBody) return;
+    let cancelled = false;
+    pandoraFetchWaiverTemplate(35, "headpinz")
+      .then((t) => {
+        if (!cancelled) setWaiverBody(t.body || "");
+      })
+      .catch(() => void 0);
+    return () => {
+      cancelled = true;
+    };
+  }, [view, hasReservations, waiverBody]);
 
   async function lookupEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -117,6 +145,10 @@ export default function ConfirmClient(props: Props) {
       setError("Please choose how you'd like us to handle the tight timing.");
       return;
     }
+    if (hasReservations && !waiverAccepted) {
+      setError("Please review and accept the activity waiver to continue.");
+      return;
+    }
     setStatus("submitting");
     setError(null);
     try {
@@ -130,6 +162,7 @@ export default function ConfirmClient(props: Props) {
           smsConsent: consent,
           conflictChoice: conflict ? conflictChoice : undefined,
           stayWith: conflict ? stayWith : undefined,
+          waiverAccept: hasReservations ? waiverAccepted : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -278,6 +311,59 @@ export default function ConfirmClient(props: Props) {
                 </a>
                 .
               </p>
+            )}
+
+            {hasReservations && (
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50">
+                  Activity Waiver
+                </p>
+                <p className="mt-1 text-xs text-white/60">
+                  Go-kart racing, gel blaster, and laser tag require a signed waiver. Please review
+                  and accept below.
+                </p>
+                <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-white/5 p-3">
+                  {waiverBody ? (
+                    <div
+                      className="prose prose-invert max-w-none text-[11px] leading-relaxed text-white/60"
+                      dangerouslySetInnerHTML={{ __html: waiverBody }}
+                    />
+                  ) : (
+                    <p className="text-xs text-white/40">Loading waiver…</p>
+                  )}
+                </div>
+
+                <label className="mt-3 flex items-start gap-2 text-xs text-white/80">
+                  <input
+                    type="checkbox"
+                    checked={waiverAccepted}
+                    onChange={(e) => setWaiverAccepted(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0"
+                    style={{ accentColor: accent }}
+                  />
+                  <span>
+                    I have read and agree to the waiver above, and I accept it electronically.
+                  </span>
+                </label>
+
+                {/* Signature line — electronic acceptance, never a drawn signature. */}
+                {waiverAccepted && (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+                      Signature
+                    </p>
+                    <p className="mt-1 text-lg font-bold" style={{ color: accent }}>
+                      Digitally Accepted
+                    </p>
+                    <p className="text-xs text-white/60">
+                      {firstName ? `${firstName} · ` : ""}
+                      {acceptedDateLabel}
+                    </p>
+                  </div>
+                )}
+
+                <div className="my-5 h-px bg-white/10" />
+              </div>
             )}
 
             <label htmlFor="hn-phone" className="block text-sm font-bold">

@@ -177,7 +177,9 @@ export async function pandoraSignWaiver(
     body: JSON.stringify(input),
   });
   const data = await res.json();
-  if (!res.ok) {
+  // A missing waiverID means BMI did not record the waiver — fail loudly so the
+  // UI keeps the guest on the sign step instead of advancing on a phantom success.
+  if (!res.ok || !data.waiverID) {
     throw new Error(data.error || "Waiver signing failed");
   }
   return { ok: true, waiverID: data.waiverID };
