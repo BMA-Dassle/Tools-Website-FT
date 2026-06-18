@@ -18,14 +18,12 @@ export type RosterRow = {
   conflictStayWith: string;
 };
 
-type Filter = "all" | "in" | "out" | "act-in" | "act-out" | "conflicts";
+type Filter = "all" | "act-in" | "act-out" | "conflicts";
 
 const FILTER_LABELS: Record<Filter, string> = {
   all: "All guests",
-  in: "Checked in",
-  out: "Not yet checked in",
-  "act-in": "Activity · checked in",
-  "act-out": "Activity · not yet",
+  "act-in": "Checked in w/ attraction",
+  "act-out": "Not checked in w/ attraction",
   conflicts: "Conflicts",
 };
 
@@ -66,8 +64,6 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
-      if (filter === "in" && !r.checkedIn) return false;
-      if (filter === "out" && r.checkedIn) return false;
       if (filter === "act-in" && !(hasReservation(r) && r.checkedIn)) return false;
       if (filter === "act-out" && !(hasReservation(r) && !r.checkedIn)) return false;
       if (filter === "conflicts" && !r.conflict) return false;
@@ -183,7 +179,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
         <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {chip("RSVPs", counts.total, "#ffffff")}
           {chip("Checked in", counts.checkedIn, "#4ade80")}
-          {chip("Activity · in", counts.rezCheckedIn, "#22d3ee", counts.rezTotal)}
+          {chip("Attraction · in", counts.rezCheckedIn, "#22d3ee", counts.rezTotal)}
           {chip("Racing", counts.racingIn, "#60a5fa", counts.racing)}
           {chip("Gel + Laser", counts.gelLaserIn, "#c084fc", counts.gelLaser)}
           {chip("Conflicts", counts.conflicts, "#f87171")}
@@ -200,10 +196,11 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
           />
           <div className="flex flex-wrap gap-1.5">
             {filterBtn("all", `All (${counts.total})`)}
-            {filterBtn("in", `Checked in (${counts.checkedIn})`)}
-            {filterBtn("out", `Not yet (${counts.total - counts.checkedIn})`)}
-            {filterBtn("act-in", `Activity · in (${counts.rezCheckedIn})`)}
-            {filterBtn("act-out", `Activity · not yet (${counts.rezTotal - counts.rezCheckedIn})`)}
+            {filterBtn("act-in", `Checked in w/ attraction (${counts.rezCheckedIn})`)}
+            {filterBtn(
+              "act-out",
+              `Not checked in w/ attraction (${counts.rezTotal - counts.rezCheckedIn})`,
+            )}
             {filterBtn("conflicts", `Conflicts (${counts.conflicts})`)}
           </div>
           <span className="ml-auto text-sm text-white/50">{filtered.length} shown</span>
