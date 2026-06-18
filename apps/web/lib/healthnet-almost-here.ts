@@ -154,9 +154,10 @@ export interface AlmostHereEmail {
 
 export function buildAlmostHereEmail(
   rsvp: GroupEventRsvp,
-  opts?: { baseOverride?: string },
+  opts?: { baseOverride?: string; reminder?: boolean },
 ): AlmostHereEmail {
   const base = (opts?.baseOverride || SITE_BASE).replace(/\/$/, "");
+  const reminder = !!opts?.reminder;
   const fn = firstName(rsvp.name);
   const url = confirmUrl(rsvp.email, base);
   // Booking page — where a guest reserves more activities. Carries their email
@@ -216,14 +217,22 @@ export function buildAlmostHereEmail(
        </p>
        ${addMoreCta}`;
 
-  const heroSub = hasSchedule
-    ? `${fn}, the <strong>Healthcare Network Team Day</strong> is this Friday. Here's everything you've got lined up.`
-    : `${fn}, the <strong>Healthcare Network Team Day</strong> is this Friday — and it's not too late to add an activity.`;
+  const heroSub = reminder
+    ? `${fn}, we haven't heard from you yet — please check in for the <strong>Healthcare Network Team Day</strong> tomorrow.`
+    : hasSchedule
+      ? `${fn}, the <strong>Healthcare Network Team Day</strong> is this Friday. Here's everything you've got lined up.`
+      : `${fn}, the <strong>Healthcare Network Team Day</strong> is this Friday — and it's not too late to add an activity.`;
 
-  const subject = `${fn}, your Healthcare Network Team Day is this Friday — confirm & get your ticket`;
+  const headline = reminder ? "Please check in for tomorrow" : "Your event is almost here";
+
+  const subject = reminder
+    ? `${fn}, we haven't heard from you — please check in for tomorrow's event`
+    : `${fn}, your Healthcare Network Team Day is this Friday — confirm & get your ticket`;
 
   const text = [
-    `${fn}, your Healthcare Network Team Day is almost here!`,
+    reminder
+      ? `${fn}, we haven't heard from you — please check in for tomorrow's Healthcare Network Team Day.`
+      : `${fn}, your Healthcare Network Team Day is almost here!`,
     ``,
     `${EVENT_DATE_LONG} · ${EVENT_TIME} · ${EVENT_VENUE}`,
     ``,
@@ -270,7 +279,7 @@ export function buildAlmostHereEmail(
 
   <!-- HEADLINE -->
   <tr><td align="center" style="padding:28px 40px 12px 40px;font-family:Arial,sans-serif">
-    <h1 style="margin:0 0 8px 0;font-size:24px;color:#1a1a1a;letter-spacing:1px;text-transform:uppercase">Your event is almost here</h1>
+    <h1 style="margin:0 0 8px 0;font-size:24px;color:#1a1a1a;letter-spacing:1px;text-transform:uppercase">${headline}</h1>
     <p style="margin:0;font-size:15px;color:#666666;line-height:1.6">${heroSub}</p>
   </td></tr>
 

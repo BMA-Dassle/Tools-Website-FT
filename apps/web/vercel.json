@@ -139,6 +139,10 @@
     {
       "path": "/api/cron/healthnet-almost-here",
       "schedule": "*/15 12-13 * * 4"
+    },
+    {
+      "path": "/api/cron/healthnet-reminder",
+      "schedule": "*/15 19-20 * * 4"
     }
   ]
 }

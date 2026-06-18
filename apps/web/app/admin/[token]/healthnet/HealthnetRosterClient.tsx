@@ -97,11 +97,11 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   }
 
   const chip = (label: string, value: number, color: string) => (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-center">
+    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
       <div className="text-2xl font-bold" style={{ color }}>
         {value}
       </div>
-      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
     </div>
   );
 
@@ -110,7 +110,9 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
       type="button"
       onClick={() => setFilter(key)}
       className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-        filter === key ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+        filter === key
+          ? "bg-white text-[#0a1120]"
+          : "border border-white/20 text-white/70 hover:bg-white/10"
       }`}
     >
       {label}
@@ -118,120 +120,128 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   );
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-1 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Healthcare Network Team Day</h1>
-          <p className="text-sm text-slate-500">
-            Friday, June 19 · 9 AM – 2 PM · HeadPinz Fort Myers
-          </p>
+    <div className="min-h-screen bg-[#0a1120] px-4 py-8 text-white">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-1 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="font-display text-2xl uppercase tracking-widest">
+              Healthcare Network Team Day
+            </h1>
+            <p className="mt-1 text-sm text-white/50">
+              Friday, June 19 · 9 AM – 2 PM · HeadPinz Fort Myers
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={exportCsv}
+            className="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10"
+          >
+            Export CSV
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={exportCsv}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-        >
-          Export CSV
-        </button>
-      </div>
 
-      <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {chip("RSVPs", counts.total, "#0f172a")}
-        {chip("Checked in", counts.checkedIn, "#16a34a")}
-        {chip("Have phone", counts.withPhone, "#0d9aa0")}
-        {chip("Racing", counts.racing, "#2563eb")}
-        {chip("Conflicts", counts.conflicts, "#dc2626")}
-      </div>
-
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input
-          type="search"
-          aria-label="Search by name, email, or phone"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search name / email / phone…"
-          className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
-        />
-        <div className="flex gap-1.5">
-          {filterBtn("all", `All (${counts.total})`)}
-          {filterBtn("in", `Checked in (${counts.checkedIn})`)}
-          {filterBtn("out", `Not yet (${counts.total - counts.checkedIn})`)}
+        <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {chip("RSVPs", counts.total, "#ffffff")}
+          {chip("Checked in", counts.checkedIn, "#4ade80")}
+          {chip("Have phone", counts.withPhone, "#22d3ee")}
+          {chip("Racing", counts.racing, "#60a5fa")}
+          {chip("Conflicts", counts.conflicts, "#f87171")}
         </div>
-        <span className="ml-auto text-sm text-slate-500">{filtered.length} shown</span>
-      </div>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-3 py-2 font-semibold">Name</th>
-              <th className="px-3 py-2 font-semibold">Phone</th>
-              <th className="px-3 py-2 font-semibold">Racing</th>
-              <th className="px-3 py-2 font-semibold">Gel Blaster</th>
-              <th className="px-3 py-2 font-semibold">Laser Tag</th>
-              <th className="px-3 py-2 font-semibold">Free-flow</th>
-              <th className="px-3 py-2 font-semibold">Check-in</th>
-              <th className="px-3 py-2 font-semibold">Conflict / fix</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r) => (
-              <tr key={r.email} className="border-t border-slate-100 align-top">
-                <td className="px-3 py-2">
-                  <div className="font-medium text-slate-900">{r.name}</div>
-                  <div className="text-xs text-slate-400">{r.email}</div>
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap text-slate-700">
-                  {fmtPhone(r.phone) || "—"}
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap">{r.racing || "—"}</td>
-                <td className="px-3 py-2 whitespace-nowrap">{r.gelBlaster || "—"}</td>
-                <td className="px-3 py-2 whitespace-nowrap">{r.laserTag || "—"}</td>
-                <td className="px-3 py-2 text-xs text-slate-500">{r.freeflow || "—"}</td>
-                <td className="px-3 py-2 whitespace-nowrap">
-                  {r.checkedIn ? (
-                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                      ✓ Checked in
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
-                      Not yet
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  {r.conflict ? (
-                    <>
-                      <div className="font-medium text-red-600">{r.conflict}</div>
-                      {r.conflictResolution ? (
-                        <div className="text-slate-600">→ {r.conflictResolution}</div>
-                      ) : (
-                        <div className="text-slate-400">unresolved</div>
-                      )}
-                      {r.conflictStayWith && (
-                        <div className="mt-0.5 text-slate-500">stay with: {r.conflictStayWith}</div>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-slate-300">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
-                  No guests match.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            aria-label="Search by name, email, or phone"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name / email / phone…"
+            className="w-full max-w-xs rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/40"
+          />
+          <div className="flex flex-wrap gap-1.5">
+            {filterBtn("all", `All (${counts.total})`)}
+            {filterBtn("in", `Checked in (${counts.checkedIn})`)}
+            {filterBtn("out", `Not yet (${counts.total - counts.checkedIn})`)}
+          </div>
+          <span className="ml-auto text-sm text-white/50">{filtered.length} shown</span>
+        </div>
 
-      <p className="mt-3 text-xs text-slate-400">
-        &ldquo;Checked in&rdquo; = guest completed the confirm/check-in flow. Reload to refresh.
-      </p>
-    </main>
+        <div className="overflow-x-auto rounded-lg border border-white/10">
+          <table className="w-full min-w-[760px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-white/5 text-left text-xs uppercase tracking-wide text-white/50">
+                <th className="px-3 py-2 font-semibold">Name</th>
+                <th className="px-3 py-2 font-semibold">Phone</th>
+                <th className="px-3 py-2 font-semibold">Racing</th>
+                <th className="px-3 py-2 font-semibold">Gel Blaster</th>
+                <th className="px-3 py-2 font-semibold">Laser Tag</th>
+                <th className="px-3 py-2 font-semibold">Free-flow</th>
+                <th className="px-3 py-2 font-semibold">Check-in</th>
+                <th className="px-3 py-2 font-semibold">Conflict / fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr key={r.email} className="border-t border-white/10 align-top">
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-white">{r.name}</div>
+                    <div className="text-xs text-white/40">{r.email}</div>
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-white/80">
+                    {fmtPhone(r.phone) || "—"}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-white/80">{r.racing || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-white/80">
+                    {r.gelBlaster || "—"}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-white/80">{r.laserTag || "—"}</td>
+                  <td className="px-3 py-2 text-xs text-white/50">{r.freeflow || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r.checkedIn ? (
+                      <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-semibold text-green-300">
+                        ✓ Checked in
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs font-medium text-white/50">
+                        Not yet
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {r.conflict ? (
+                      <>
+                        <div className="font-medium text-red-300">{r.conflict}</div>
+                        {r.conflictResolution ? (
+                          <div className="text-white/80">→ {r.conflictResolution}</div>
+                        ) : (
+                          <div className="text-white/40">unresolved</div>
+                        )}
+                        {r.conflictStayWith && (
+                          <div className="mt-0.5 text-white/50">
+                            stay with: {r.conflictStayWith}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-white/30">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-8 text-center text-white/40">
+                    No guests match.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="mt-3 text-xs text-white/40">
+          &ldquo;Checked in&rdquo; = guest completed the confirm/check-in flow. Reload to refresh.
+        </p>
+      </div>
+    </div>
   );
 }
