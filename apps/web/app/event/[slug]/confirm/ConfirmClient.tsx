@@ -76,6 +76,14 @@ export default function ConfirmClient(props: Props) {
     timeStyle: "short",
   });
 
+  // The confirm button stays greyed until the form is actually submittable:
+  // a valid phone, the waiver accepted (when required), and any timing conflict
+  // resolved. Mirrors the checks in submitPhone() so the button reflects them.
+  const phoneEntered = digits.length >= 10;
+  const waiverOk = !hasReservations || waiverAccepted;
+  const conflictOk = !conflict || !!conflictChoice;
+  const canSubmit = phoneEntered && waiverOk && conflictOk && status !== "submitting";
+
   // After confirming, jump to the top so the "You're all set" header is in view.
   useEffect(() => {
     if (view === "done") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -450,8 +458,8 @@ export default function ConfirmClient(props: Props) {
 
             <button
               type="submit"
-              disabled={status === "submitting"}
-              className="mt-5 w-full rounded-full px-6 py-4 text-sm font-bold uppercase tracking-wider text-[#000418] disabled:opacity-60"
+              disabled={!canSubmit}
+              className="mt-5 w-full rounded-full px-6 py-4 text-sm font-bold uppercase tracking-wider text-[#000418] transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: "var(--accent)" }}
             >
               {status === "submitting" ? "Confirming…" : "Confirm & get my ticket"}
