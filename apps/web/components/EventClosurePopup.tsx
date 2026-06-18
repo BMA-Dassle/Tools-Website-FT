@@ -135,7 +135,7 @@ export default function EventClosurePopup({ brand }: { brand: Brand }) {
           </p>
         </div>
 
-        <div className="px-6 pb-6">
+        <div className="px-6 pb-6 pt-3">
           <h2
             id="closure-title"
             className="font-display text-2xl uppercase leading-tight tracking-wide text-white"
