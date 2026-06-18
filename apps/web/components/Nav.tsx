@@ -60,6 +60,10 @@ export default function Nav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Focused check-in page (/event/{slug}/confirm) — hide the site nav so the
+  // fixed overlay doesn't cover the check-in card.
+  if (pathname?.startsWith("/event/") && pathname.endsWith("/confirm")) return null;
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50">
       {/* Top bar */}

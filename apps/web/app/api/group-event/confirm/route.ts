@@ -56,10 +56,11 @@ export async function POST(req: NextRequest) {
     }
     const record = JSON.parse(raw) as GroupEventRsvp;
 
-    // 1. Persist phone + consent on the RSVP.
+    // 1. Persist phone + consent on the RSVP + stamp the check-in time.
     record.phone = phone;
     record.smsConsent = smsConsent;
     record.updatedAt = new Date().toISOString();
+    record.confirmedAt = record.confirmedAt || record.updatedAt; // first check-in wins
     await redis.set(rsvpKey(slug, email), JSON.stringify(record), "EX", TTL);
     await redis.set(rsvpPhoneKey(slug, phone), email.toLowerCase(), "EX", TTL);
 

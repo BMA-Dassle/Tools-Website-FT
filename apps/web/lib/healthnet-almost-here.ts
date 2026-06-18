@@ -16,8 +16,9 @@ import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
 
 export const HEALTHNET_SLUG = "healthnet-2026";
 
-/** Public site base for the confirm link. HeadPinz is the host venue. */
-export const SITE_BASE = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.headpinz.com").replace(
+/** Public site base for the confirm link. HeadPinz is the host venue.
+ *  NOTE: bare apex domain — headpinz.com has NO www host (www.headpinz.com fails). */
+export const SITE_BASE = (process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com").replace(
   /\/$/,
   "",
 );
@@ -303,7 +304,7 @@ export function buildAlmostHereEmail(
 
   <!-- FOOTER -->
   <tr><td style="padding:16px 40px;border-top:1px solid #e0e0e0;font-family:Arial,sans-serif;text-align:center">
-    <p style="margin:0;font-size:11px;color:#999">HeadPinz Fort Myers · <a href="https://www.headpinz.com" style="color:#999;text-decoration:none">headpinz.com</a></p>
+    <p style="margin:0;font-size:11px;color:#999">HeadPinz Fort Myers · <a href="https://headpinz.com" style="color:#999;text-decoration:none">headpinz.com</a></p>
   </td></tr>
 
 </table>

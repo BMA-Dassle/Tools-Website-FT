@@ -122,6 +122,8 @@ export interface GroupEventRsvp {
   phone?: string;
   /** Guest opted in to SMS (e-tickets / updates). */
   smsConsent?: boolean;
+  /** Set when the guest completes the "almost here" check-in/confirm flow. */
+  confirmedAt?: string;
   updatedAt: string;
 }
 
