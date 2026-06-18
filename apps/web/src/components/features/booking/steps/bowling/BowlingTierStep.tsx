@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import type { BowlingExperienceWithDetails } from "@/lib/bowling-db";
-import { probeAvailability, parseAvailabilities, etHour } from "./availability-client";
+import {
+  probeAvailability,
+  parseAvailabilities,
+  etHour,
+  etMinutesOfDay,
+} from "./availability-client";
+import { getPublicReopenMinutes } from "@/lib/group-events";
 
 const CORAL = "#fd5b56";
 const GOLD = "#FFD700";
@@ -38,6 +44,9 @@ interface TierAvail {
   openAtChosen: boolean;
   nextLabel: string | null; // soonest slot ≥ chosen hour (else earliest) — for "Next available"
   any: boolean;
+  /** Precise earliest start within the chosen hour (e.g. "2:30 PM" when the top-of-hour
+   *  slots are blocked by a morning-buyout reopen); null at the top of the hour. */
+  chosenLabel: string | null;
 }
 
 const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
@@ -97,12 +106,17 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         const data = await probeAvailability(
           `/api/bowling/v2/availability?centerId=${centerId}&players=${Math.max(playerCount, 1)}&startDate=${item.date}&kind=${availKind}&stepMinutes=30`,
         );
+        // Morning-only buyout: drop start times before the public reopen so a
+        // pre-reopen slot (e.g. 2:00 PM) can't read as "open at your time".
+        const reopenMins = item.date ? getPublicReopenMinutes(item.date) : null;
         if (!cancelled)
           setSlots(
-            parseAvailabilities(data).map((s) => ({
-              webOfferId: s.webOfferId,
-              bookedAt: s.bookedAt,
-            })),
+            parseAvailabilities(data)
+              .filter((s) => reopenMins == null || etMinutesOfDay(s.bookedAt) >= reopenMins)
+              .map((s) => ({
+                webOfferId: s.webOfferId,
+                bookedAt: s.bookedAt,
+              })),
           );
       } catch {
         if (!cancelled) setSlots([]);
@@ -145,13 +159,21 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       const mine = slots
         .filter((s) => ids.has(s.webOfferId))
         .sort((a, b) => a.bookedAt.localeCompare(b.bookedAt));
-      if (mine.length === 0) return { openAtChosen: false, nextLabel: null, any: false };
-      const openAtChosen =
-        chosenHour != null && mine.some((s) => etHour(s.bookedAt) === chosenHour);
+      if (mine.length === 0)
+        return { openAtChosen: false, nextLabel: null, any: false, chosenLabel: null };
+      const inChosenHour =
+        chosenHour != null ? mine.filter((s) => etHour(s.bookedAt) === chosenHour) : [];
+      const openAtChosen = inChosenHour.length > 0;
+      // `mine` is sorted ascending, so inChosenHour[0] is the earliest start in the
+      // chosen hour. Show its precise time only when it's offset from the top of the
+      // hour (the reopen case) — the common :00 start keeps the bare hour label.
+      const chosenStart = inChosenHour[0]?.bookedAt;
+      const chosenLabel =
+        chosenStart && etMinutesOfDay(chosenStart) % 60 !== 0 ? formatSlotTime(chosenStart) : null;
       const atOrAfter =
         chosenHour != null ? mine.find((s) => etHour(s.bookedAt) >= chosenHour) : undefined;
       const next = atOrAfter ?? mine[0];
-      return { openAtChosen, nextLabel: formatSlotTime(next.bookedAt), any: true };
+      return { openAtChosen, nextLabel: formatSlotTime(next.bookedAt), any: true, chosenLabel };
     };
     return { regular: compute(false), vip: compute(true) };
   }, [slots, experiences, item.date, chosenHour]);
@@ -208,7 +230,7 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     if (a.openAtChosen)
       return (
         <span className="text-[11px] font-semibold" style={{ color: "#22c55e" }}>
-          ✓ Open at {chosenHour != null ? formatHour(chosenHour) : "your time"}
+          ✓ Open at {a.chosenLabel ?? (chosenHour != null ? formatHour(chosenHour) : "your time")}
         </span>
       );
     if (a.any && a.nextLabel)

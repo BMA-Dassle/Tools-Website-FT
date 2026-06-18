@@ -131,7 +131,7 @@ export default function EventClosurePopup({ brand }: { brand: Brand }) {
             className="text-xs font-semibold uppercase tracking-[3px]"
             style={{ color: preset.accent }}
           >
-            Private Event
+            This Friday · June 19
           </p>
         </div>
 
@@ -140,13 +140,11 @@ export default function EventClosurePopup({ brand }: { brand: Brand }) {
             id="closure-title"
             className="font-display text-2xl uppercase leading-tight tracking-wide text-white"
           >
-            Closed for a Private Event
+            We Open at 2:30 PM Friday
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-white/70">
-            {preset.venue} is reserved for a private event until{" "}
-            <span className="font-semibold text-white">2 PM on Friday, June 19</span>. We reopen to
-            the public at <span className="font-semibold text-white">2:30 PM</span> — reserve your
-            spot below.
+            {preset.venue} is hosting a private event Friday morning, June 19. Public booking opens
+            at <span className="font-semibold text-white">2:30 PM</span> — reserve your spot below.
           </p>
 
           <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
