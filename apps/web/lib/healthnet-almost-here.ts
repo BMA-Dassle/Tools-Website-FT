@@ -248,7 +248,8 @@ export function buildAlmostHereEmail(
     `Have a coworker who's off today? Send them to ${checkinShortUrl} to check in.`,
     ``,
     `BEFORE YOU ARRIVE`,
-    `If you're racing, the following are required for your safety: closed-toe shoes (bowling shoes are perfect and available on-site), hair secured back, and no loose clothing.`,
+    `If you're racing, the following are required for your safety: closed-toe shoes, hair secured back, and no loose clothing.`,
+    `Forgot your closed-toe shoes? Bowling shoes are available — FastTrax provides them at the track, so please don't wear them across the parking lot.`,
     `Please plan to arrive about 5 minutes before each scheduled time at your designated attraction. We'll text your check-ins.`,
     ``,
     `See you Friday!`,
@@ -312,7 +313,8 @@ export function buildAlmostHereEmail(
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px">
       <tr><td style="padding:16px 18px;font-family:Arial,sans-serif">
         <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:#b45309;font-weight:bold">Before you arrive</p>
-        <p style="margin:0 0 8px;font-size:14px;color:#475569;line-height:1.6">If you're <strong style="color:#1a1a1a">racing</strong>, the following are <strong>required for your safety</strong>: <strong>closed-toe shoes</strong> (bowling shoes are perfect — and available on-site), <strong>hair secured</strong> back, and <strong>no loose clothing</strong>.</p>
+        <p style="margin:0 0 8px;font-size:14px;color:#475569;line-height:1.6">If you're <strong style="color:#1a1a1a">racing</strong>, the following are <strong>required for your safety</strong>: <strong>closed-toe shoes</strong>, <strong>hair secured</strong> back, and <strong>no loose clothing</strong>.</p>
+        <p style="margin:0 0 8px;font-size:14px;color:#475569;line-height:1.6">Forgot your closed-toe shoes? Bowling shoes are available — <strong style="color:#1a1a1a">FastTrax provides them at the track</strong>, so please don't wear them across the parking lot.</p>
         <p style="margin:0;font-size:14px;color:#475569;line-height:1.6">Please plan to arrive about <strong style="color:#1a1a1a">5 minutes before</strong> each scheduled time at your designated attraction. We'll <strong>text your check-ins</strong>.</p>
       </td></tr>
     </table>

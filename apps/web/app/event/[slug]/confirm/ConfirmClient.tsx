@@ -118,8 +118,12 @@ export default function ConfirmClient(props: Props) {
       <p className="text-xs font-bold uppercase tracking-wider text-amber-300">Before you arrive</p>
       <p className="mt-2 text-sm leading-relaxed text-white/85">
         If you&apos;re <strong>racing</strong>, the following are{" "}
-        <strong>required for your safety</strong>: closed-toe shoes (bowling shoes are perfect — and
-        available on-site), hair secured back, and no loose clothing.
+        <strong>required for your safety</strong>: closed-toe shoes, hair secured back, and no loose
+        clothing.
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-white/85">
+        Forgot your closed-toe shoes? Bowling shoes are available — FastTrax provides them at the
+        track, so please don&apos;t wear them across the parking lot.
       </p>
       <p className="mt-2 text-sm leading-relaxed text-white/85">
         Please plan to arrive about <strong>5 minutes before</strong> each scheduled time at your
