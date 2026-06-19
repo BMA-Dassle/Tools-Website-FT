@@ -311,6 +311,21 @@ export default function ConfirmClient(props: Props) {
             >
               {lookupBusy ? "Looking you up…" : "Continue"}
             </button>
+
+            {/* Walk-in path — never RSVP'd, so the lookup above won't find them.
+                Send them straight to the kiosk waiver they still need to sign. */}
+            <div className="mt-5 border-t border-white/10 pt-4 text-center">
+              <p className="text-sm font-bold text-white/70">Didn&apos;t RSVP?</p>
+              <a
+                href="https://kiosk.bmileisure.com/headpinzftmyers"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block w-full rounded-full border border-white/15 px-6 py-3 text-sm font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                style={{ color: "var(--accent)" }}
+              >
+                Sign the waiver →
+              </a>
+            </div>
           </form>
         ) : (
           <form onSubmit={submitPhone} className={card}>
