@@ -215,7 +215,24 @@
       "PowerShell(Set-Location apps\\\\web; npx eslint \"app/api/cron/group-quote-dispatch/route.ts\" \"app/contract/[shortId]/page.tsx\" \"app/contract/[shortId]/ContractClient.tsx\"; Write-Host \"eslint exit: $LASTEXITCODE\")",
       "PowerShell(git show \"HEAD:apps/web/app/contract/[shortId]/ContractClient.tsx\" | Set-Content -LiteralPath \"app\\\\contract\\\\[shortId]\\\\ContractClient.head.tsx\" -Encoding utf8; $head = npx eslint \"app/contract/[shortId]/ContractClient.head.tsx\" 2>$null | Select-String -Pattern \"problems\"; $curr = npx eslint \"app/contract/[shortId]/ContractClient.tsx\" 2>$null | Select-String -Pattern \"problems\"; Remove-Item -LiteralPath \"app\\\\contract\\\\[shortId]\\\\ContractClient.head.tsx\" -Force; Write-Host \"HEAD version: $head\"; Write-Host \"Current version: $curr\")",
       "PowerShell(npx prettier --check \"app/api/cron/group-quote-dispatch/route.ts\" \"app/contract/[shortId]/page.tsx\" \"app/contract/[shortId]/ContractClient.tsx\")",
-      "PowerShell(git show \"HEAD:apps/web/app/contract/[shortId]/page.tsx\" | npx prettier --stdin-filepath \"app/contract/[shortId]/page.tsx\" --check; Write-Host \"page.tsx HEAD: $LASTEXITCODE\"; git show \"HEAD:apps/web/app/api/cron/group-quote-dispatch/route.ts\" | npx prettier --stdin-filepath \"app/api/cron/group-quote-dispatch/route.ts\" --check; Write-Host \"route.ts HEAD: $LASTEXITCODE\")"
+      "PowerShell(git show \"HEAD:apps/web/app/contract/[shortId]/page.tsx\" | npx prettier --stdin-filepath \"app/contract/[shortId]/page.tsx\" --check; Write-Host \"page.tsx HEAD: $LASTEXITCODE\"; git show \"HEAD:apps/web/app/api/cron/group-quote-dispatch/route.ts\" | npx prettier --stdin-filepath \"app/api/cron/group-quote-dispatch/route.ts\" --check; Write-Host \"route.ts HEAD: $LASTEXITCODE\")",
+      "Bash(git ls-remote *)",
+      "Bash(awk '{print $2}')",
+      "Bash(git checkout *)",
+      "Bash(git -C c:/git/Tools-Website-FT status --short)",
+      "Bash(xargs -I{} echo \"account vars present: {}\")",
+      "Read(//c/c/git/Tools-Website-FT/apps/**)",
+      "Read(//c/c/git/Tools-Website-FT/apps/web/**)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('scripts',{}\\), indent=2\\)\\)\")",
+      "Bash(cd /c/git/Tools-Website-FT && head -40 tasks/lessons.md)",
+      "Read(//c/c/git/Tools-Website-FT/tasks/**)",
+      "Bash(git --no-pager diff --stat)",
+      "Bash(git --no-pager diff apps/web/app/api/group-function/resign-settle/route.ts)",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(git commit *)",
+      "Bash(git --no-pager log -1 --stat --oneline)",
+      "PowerShell($gh = Get-Command gh -ErrorAction SilentlyContinue; if \\($gh\\) { \"gh: $\\($gh.Source\\)\"; gh auth status 2>&1 | Select-Object -First 3 } else { \"gh NOT FOUND\" })"
     ],
     "additionalDirectories": [
       "\\tmp"

@@ -27,7 +27,9 @@ export default function ClarityAnalytics() {
   const entryTaggedRef = useRef(false);
 
   useEffect(() => {
-    if (!pathname || pathname.startsWith("/admin")) return;
+    // Never record /admin (staff PII views) or /account (customer subscription
+    // + card last4 are rendered text — Strict input-masking does NOT hide them).
+    if (!pathname || pathname.startsWith("/admin") || pathname.startsWith("/account")) return;
     if (typeof window === "undefined") return;
 
     const win = window as unknown as {

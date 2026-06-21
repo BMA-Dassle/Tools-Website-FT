@@ -511,7 +511,12 @@ export async function middleware(request: NextRequest) {
     // not the host. Arena SMS links point at headpinz.com/t/{id}, so
     // these must not be /hp-rewritten (404 otherwise).
     pathname.startsWith("/t/") ||
-    pathname.startsWith("/g/");
+    pathname.startsWith("/g/") ||
+    // Centralized cross-brand customer account portal (2FA login + Square
+    // subscription payment management). Same route on both hosts; brand is
+    // chrome-only. Without this the /hp rewrite turns it into a 404 on HeadPinz.
+    pathname === "/account" ||
+    pathname.startsWith("/account/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
@@ -552,6 +557,9 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/t/") || pathname.startsWith("/g/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    if (pathname.startsWith("/account")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -560,7 +568,8 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/survey/") ||
     pathname.startsWith("/contract/") ||
-    pathname.startsWith("/event/")
+    pathname.startsWith("/event/") ||
+    pathname.startsWith("/account")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
