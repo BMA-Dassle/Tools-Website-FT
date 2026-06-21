@@ -79,9 +79,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Stable per (quote, source) so a double-submit can't double-charge, while a genuine
-    // retry with a fresh captured card (new nonce) gets a fresh key.
-    const baseKey = `gf-reprice-${quote.id}-${createHash("sha256").update(sourceId).digest("hex").slice(0, 16)}`;
+    // Key on the settlement TARGET (quote.id + new total + card source). A genuine double-submit at
+    // the same total reuses the key (Square dedupes → no double charge), but a re-price to a NEW total
+    // gets a FRESH key, so its order/payment can never collide with a stale order created at the
+    // previous total. (Incident: party 3354 — an OPEN $1,030.89 reprice order created at the old total
+    // blocked every later attempt at the new total with a 402. `total_cents` works because after a
+    // successful settle `collected_cents == total_cents` and `collected_cents` only ever rises, so a
+    // given total is chargeable at most once per card — which also makes a charge-succeeded-but-DB-write-
+    // failed retry replay safely.)
+    const baseKey = `gf-reprice-${quote.id}-${quote.total_cents}-${createHash("sha256").update(sourceId).digest("hex").slice(0, 16)}`;
 
     try {
       const charge = await chargeDeltaAndLoad({
@@ -136,6 +142,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, action: "reprice_charged", chargedCents: delta });
     } catch (err) {
       if (err instanceof SquarePaymentError) {
+        // Surface the Square failure in the audit trail so the next incident is diagnosable from the
+        // DB instead of requiring a live Square query. Best-effort — never mask the original error.
+        await appendAuditLog({
+          quoteId: quote.id,
+          event: "reprice_charge_failed",
+          metadata: {
+            code: err.code,
+            detail: err.message,
+            deltaCents: delta,
+            totalCents: quote.total_cents,
+          },
+        }).catch((logErr) =>
+          console.error("[resign-settle] failed to append reprice_charge_failed audit:", logErr),
+        );
         return NextResponse.json({ error: err.message, code: err.code }, { status: 402 });
       }
       console.error("[resign-settle] charge failed:", err);

@@ -1,5 +1,64 @@
 # Lessons Learned
 
+## A stable Square idempotency key must encode EVERY input that changes the charge — not just the entity + card (2026-06-20)
+
+Incident — party **3354** (group-function reprice): `/api/group-function/resign-settle` 402'd on
+**every** re-sign click and could not be cleared. Root cause was the reprice idempotency key in
+`app/api/group-function/resign-settle/route.ts`:
+
+```js
+// BEFORE — collides after a second re-price:
+const baseKey = `gf-reprice-${quote.id}-${hash(sourceId)}`;
+```
+
+The key depended only on `quote.id` + saved-card id (both constant across re-prices) and **omitted the
+charge amount**. Sequence that broke it: BMI re-priced the (already paid-in-full) event up → first
+re-sign created a Square order at the old delta ($1,030.89), but the payment never attached (order left
+OPEN). BMI re-priced up **again** → new delta ($1,594.27). Every later `CreateOrder` re-sent the *same*
+idempotency key with a *different* body → Square collided it against the cached old-amount order →
+`SquarePaymentError` → 402, deterministically, no matter how many times the guest clicked. The card was
+valid and zero payments ever reached Square — it was purely the key collision.
+
+**Fix:** key on the settlement **target total**, not just the entity:
+```js
+const baseKey = `gf-reprice-${quote.id}-${quote.total_cents}-${hash(sourceId)}`;
+```
+`total_cents` is the right discriminator because after a successful settle `collected_cents ==
+total_cents` and `collected_cents` only ever rises — so a given total is chargeable at most once per
+card. That (a) still dedupes true double-submits, (b) safely replays a charge-succeeded-but-DB-write-
+failed retry (same total → same key → Square returns the same payment), and (c) avoids the false-dedupe
+a `delta`-based key would hit when two sequential re-prices happen to share an equal delta.
+
+**Guardrails:**
+- A "stable so a double-submit can't double-charge" idempotency key MUST include the amount (or a
+  monotonic target like the new total / collected baseline). Stable across a *re-price* turns a
+  legitimate retry into an unrecoverable Square collision.
+- This is distinct from "fresh random key per attempt" (the balance-charge cron) which relies on a CAS
+  claim to prevent double charges. Pick one model deliberately; don't half-apply either.
+- When a money endpoint can return a hard error (here 402), **write the provider error code + detail to
+  the audit log** before returning. resign-settle logged nothing on failure, forcing live Square
+  archaeology to diagnose. Added a best-effort `reprice_charge_failed` audit row.
+
+## Saving a Square card on file: CreateCard directly with the Web Payments SDK token — don't $0-auth first (2026-06-18)
+
+The customer account portal (`apps/web/src/features/account/data/cards.ts`) saves a card on file by
+calling `POST /v2/cards` **directly** with the Web Payments SDK `source_id` (single-use token) +
+`card.customer_id`, matching the proven subscription flow
+(`app/api/square/subscription/route.ts` → `saveCardToCustomer`). It deliberately does **not** run a
+$0 verification payment first.
+
+Why this differs from `app/api/group-function/update-card/route.ts` (which does $0-auth →
+cancel → CreateCard): the Web Payments SDK token is **single-use**. Consuming it on a `POST
+/payments` first risks the subsequent `CreateCard` failing on a spent token. CreateCard validates
+the card itself; `verification_token` carries 3DS/SCA when present. For a subscription payment
+method, Square's own billing/dunning handles a later decline — the up-front $0 auth is not worth the
+token-reuse fragility.
+
+**Guardrail:** when saving a card on file from a fresh tokenize(), prefer a single `CreateCard`
+call. If you genuinely need a pre-charge verification, tokenize with `intent: "CHARGE_AND_STORE"`
+or capture the *payment id* (not the nonce) and pass that as CreateCard `source_id` — never reuse
+the raw nonce across two Square calls.
+
 ## Pandora-created person must finish syncing to the cloud before booking a race/activity (2026-06-17)
 
 Owner flag (Health Net + Christmas in July): the group-event signup flow
