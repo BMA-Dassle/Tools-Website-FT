@@ -27,6 +27,70 @@ const CENTER_CODE_TO_ID: Record<string, number> = {
 /** Slugs / labels whose base price includes shoe rental. */
 const SHOES_INCLUDED_RE = /fun\s*4\s*all|pizza\s*bowl/i;
 
+/** Labels for the Pizza Bowl package (has a kitchen pizza component). */
+const PIZZA_BOWL_RE = /pizza\s*bowl/i;
+/** The cookable "Pizza Bowl Pizza" item. Its presence on the day-of Square
+ *  order means the pizza/soda fired to the kitchen KDS; absence means the
+ *  online order missed the food line and the pizza must be taken manually. */
+const PIZZA_BOWL_PIZZA_CATALOG_ID = "2IKZB4O2HQBXWMTSUQ2SEKJY";
+const SQUARE_ORDERS_BASE = "https://connect.squareup.com/v2/orders";
+
+function squareHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN ?? ""}`,
+    "Square-Version": "2024-12-18",
+    "Content-Type": "application/json",
+  };
+}
+
+/** square_dayof_order_id may be a bare id or a JSON array (combo legs). */
+function firstOrderId(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length) return String(parsed[0]);
+  } catch {
+    /* bare id — fall through */
+  }
+  return raw;
+}
+
+interface SquareLineItem {
+  catalog_object_id?: string;
+  note?: string;
+}
+
+/**
+ * Pizza-status line for a Pizza Bowl reservation, read from the day-of Square
+ * order. Returns the kitchen memo line so staff see — right under the shoe
+ * line — whether the pizza fired to the KDS (with toppings) or must be taken
+ * manually. On any fetch failure we conservatively flag MANUAL.
+ */
+async function pizzaStatusLine(rawOrderId: string | null): Promise<string> {
+  const MANUAL = "** TAKE PIZZA ORDER MANUALLY — not sent to kitchen **";
+  const orderId = firstOrderId(rawOrderId);
+  if (!orderId) return MANUAL;
+  try {
+    const res = await fetch(`${SQUARE_ORDERS_BASE}/${orderId}`, {
+      headers: squareHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) return MANUAL;
+    const order = ((await res.json()) as { order?: { line_items?: SquareLineItem[] } }).order;
+    const pizzas = (order?.line_items ?? []).filter(
+      (li) => li.catalog_object_id === PIZZA_BOWL_PIZZA_CATALOG_ID,
+    );
+    if (pizzas.length === 0) return MANUAL;
+    const toppings = pizzas
+      .map((li) => li.note)
+      .filter((n): n is string => !!n)
+      .join(" | ");
+    return `PIZZA → KITCHEN${toppings ? `: ${toppings}` : ""}`;
+  } catch {
+    return MANUAL;
+  }
+}
+
 interface ReservationRow {
   id: number;
   center_code: string;
@@ -39,6 +103,7 @@ interface ReservationRow {
   guest_name: string | null;
   notes: string | null;
   short_code: string | null;
+  square_dayof_order_id: string | null;
 }
 
 interface LineRow {
@@ -74,7 +139,8 @@ export async function POST(req: NextRequest) {
   // Fetch all upcoming non-cancelled reservations with a QAMF ID
   const reservations = (await q`
     SELECT id, center_code, qamf_reservation_id, deposit_cents, total_cents,
-           status, booked_at, player_count, guest_name, notes, short_code
+           status, booked_at, player_count, guest_name, notes, short_code,
+           square_dayof_order_id
     FROM bowling_reservations
     WHERE status != 'cancelled'
       AND booked_at >= NOW() - INTERVAL '1 day'
@@ -135,6 +201,14 @@ export async function POST(req: NextRequest) {
       shoeLine += ` | headpinz.com/s/${res.short_code}`;
     }
     parts.push(shoeLine);
+
+    // Pizza status — right under the shoe line so staff see at a glance whether
+    // the pizza fired to the kitchen KDS (with toppings) or must be taken
+    // manually. Only for Pizza Bowl packages; reads the day-of Square order.
+    const isPizzaBowl = resLines.some((l) => PIZZA_BOWL_RE.test(l.label));
+    if (isPizzaBowl) {
+      parts.push(await pizzaStatusLine(res.square_dayof_order_id));
+    }
 
     // Line items summary
     if (resLines.length > 0) {
