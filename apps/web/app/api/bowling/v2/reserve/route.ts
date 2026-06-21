@@ -446,6 +446,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Persist the $0 Pizza Bowl food selections (pizza + soda, with topping /
+  // drink notes) as reservation lines so the order is SAVED in Neon and stays
+  // recoverable / visible on the admin board — previously rawItems were
+  // transient (Square-only) and lost when they failed to reach the order.
+  // Pricing is computed from productItems (not reservationLines), so $0 food
+  // lines don't change any total; the product-backed Square map ignores lines
+  // with no squareProductId, so they are not double-added to the day-of order.
+  for (const ri of body.rawItems ?? []) {
+    reservationLines.push({
+      label: ri.note ? `${ri.name} — ${ri.note}` : ri.name,
+      quantity: ri.quantity,
+      unitPriceCents: 0,
+    });
+  }
+
   // Booking fee: $2.99, 100% deposit, catalog item 7VKAFU3HDPRSKY7ZB6CKXTRW
   const BOOKING_FEE_CENTS = 299;
   const BOOKING_FEE_CATALOG_ID = "7VKAFU3HDPRSKY7ZB6CKXTRW";
@@ -972,6 +987,71 @@ export async function POST(req: NextRequest) {
             }
           } catch {
             // Non-fatal — customer linkage is for loyalty accrual
+          }
+        }
+
+        // ── Attach Pizza Bowl food lines to the pre-created order ──────
+        // The quote step pre-creates the day-of order with the package +
+        // shoes only; the $0 Pizza Bowl pizza/soda selections (body.rawItems)
+        // are collected afterward and were never re-attached here — so they
+        // never fired to the kitchen KDS (the whole bug). Append them now.
+        // Idempotent: skip if the order already carries the food item (e.g. a
+        // retry, or a quote that already included it). $0 lines, so the
+        // total/deposit computed at quote time is unaffected.
+        if (body.rawItems?.length) {
+          try {
+            const getRes = await fetch(`${SQUARE_BASE}/orders/${squareDayofOrderId}`, {
+              headers: sqLoyaltyHeaders(),
+              cache: "no-store",
+            });
+            if (getRes.ok) {
+              const order = (await getRes.json()).order;
+              const existing = new Set<string>(
+                (order?.line_items ?? [])
+                  .map((li: { catalog_object_id?: string }) => li.catalog_object_id)
+                  .filter((id: string | undefined): id is string => !!id),
+              );
+              const missing = body.rawItems.filter((ri) => !existing.has(ri.catalogObjectId));
+              if (missing.length > 0 && order?.version != null) {
+                const foodRes = await fetch(`${SQUARE_BASE}/orders/${squareDayofOrderId}`, {
+                  method: "PUT",
+                  headers: sqLoyaltyHeaders(),
+                  body: JSON.stringify({
+                    idempotency_key: `bowl-food-${squareDayofOrderId}`,
+                    order: {
+                      location_id: squareLocationId,
+                      version: order.version,
+                      line_items: missing.map((ri) => ({
+                        catalog_object_id: ri.catalogObjectId,
+                        quantity: String(ri.quantity),
+                        ...(ri.modifiers?.length
+                          ? {
+                              applied_modifiers: ri.modifiers.map((m) => ({
+                                catalog_object_id: m.catalog_object_id,
+                              })),
+                            }
+                          : {}),
+                        ...(ri.note ? { note: ri.note } : {}),
+                      })),
+                    },
+                  }),
+                });
+                if (!foodRes.ok) {
+                  const errBody = await foodRes.text().catch(() => "");
+                  console.error(
+                    `[bowling/v2/reserve] food-line attach failed order=${squareDayofOrderId}` +
+                      ` status=${foodRes.status} ${errBody.slice(0, 200)}`,
+                  );
+                }
+              }
+            }
+          } catch (err) {
+            // Non-fatal — lane-open still settles the order; kitchen routing is
+            // best-effort here (the reservation-status memo flags any miss).
+            console.error(
+              `[bowling/v2/reserve] food-line attach threw order=${squareDayofOrderId}:`,
+              err instanceof Error ? err.message : err,
+            );
           }
         }
       } else {
