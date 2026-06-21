@@ -297,6 +297,9 @@ interface BowlingCommon {
   attractionAddons: BowlingAttractionAddon[];
   /** Pizza bowl per-lane modifier selections. Each entry = one lane. */
   pizzaModifierSelections: Array<Record<string, string[]>>;
+  /** Modifier group ids classified as the soda/drink group (set when the
+   *  pizza-bowl modifiers load). Used to require a drink pick per lane. */
+  pizzaSodaGroupIds?: string[];
   /** QAMF temporary reservation ID (set after hold creation on offer step). */
   qamfReservationId: string | null;
   /** QAMF center ID (numeric, e.g. 9172 or 3148). */

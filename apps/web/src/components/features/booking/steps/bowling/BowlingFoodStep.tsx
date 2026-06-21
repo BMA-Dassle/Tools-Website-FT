@@ -36,6 +36,11 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
         const data = await res.json();
         if (res.ok && Array.isArray(data)) {
           setGroups(data);
+          // Record which group(s) are the drink so the step can require a pick.
+          const sodaIds = (data as ModifierGroup[])
+            .filter((g) => /soda|drink|pitcher/i.test(g.name))
+            .map((g) => g.id);
+          onChange({ pizzaSodaGroupIds: sodaIds });
         }
       } catch {
         // Non-fatal — modifiers are a convenience
@@ -157,6 +162,14 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
                       ({selected.length}/{PIZZA_BOWL_FREE_TOPPINGS} free)
                     </span>
                   )}
+                  {isSoda && (
+                    <span
+                      className="ml-1"
+                      style={{ color: selected.length > 0 ? "rgba(255,255,255,0.3)" : CORAL }}
+                    >
+                      (required)
+                    </span>
+                  )}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {group.options.map((opt) => {
@@ -205,7 +218,21 @@ const BowlingFoodStep: StepDef<BowlingItem> = {
   title: "Food",
   Component: BowlingFoodStepComponent,
   isVisible: (item) => (item.experienceSlug ?? "").includes("pizza-bowl"),
-  canAdvance: () => true,
+  canAdvance: (item) => {
+    // Require a drink pick for every lane. Soda groups are recorded when the
+    // modifiers load; if none loaded (fetch failed / not configured) don't block.
+    const sodaGroups = item.pizzaSodaGroupIds ?? [];
+    if (sodaGroups.length === 0) return true;
+    const lanes = item.laneCount || 1;
+    for (let i = 0; i < lanes; i++) {
+      const sel = item.pizzaModifierSelections?.[i] ?? {};
+      const hasSoda = sodaGroups.some((gid) => (sel[gid]?.length ?? 0) > 0);
+      if (!hasSoda) {
+        return { reason: lanes > 1 ? "Choose a drink for every lane" : "Choose a drink" };
+      }
+    }
+    return true;
+  },
 };
 
 export default BowlingFoodStep;
