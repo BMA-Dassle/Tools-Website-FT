@@ -79,15 +79,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Key on the settlement TARGET (quote.id + new total + card source). A genuine double-submit at
-    // the same total reuses the key (Square dedupes → no double charge), but a re-price to a NEW total
-    // gets a FRESH key, so its order/payment can never collide with a stale order created at the
-    // previous total. (Incident: party 3354 — an OPEN $1,030.89 reprice order created at the old total
-    // blocked every later attempt at the new total with a 402. `total_cents` works because after a
-    // successful settle `collected_cents == total_cents` and `collected_cents` only ever rises, so a
-    // given total is chargeable at most once per card — which also makes a charge-succeeded-but-DB-write-
-    // failed retry replay safely.)
-    const baseKey = `gf-reprice-${quote.id}-${quote.total_cents}-${createHash("sha256").update(sourceId).digest("hex").slice(0, 16)}`;
+    // Square caps the PAYMENT and CARD idempotency_key at 45 chars. The keys derived from baseKey are
+    // `gf-reprice-pay-${baseKey}` / `gf-reprice-card-${baseKey}` (+15/16 chars), so baseKey MUST stay
+    // short — a plaintext `gf-reprice-${id}-…` key already blew past 45 once the quote id reached 3
+    // digits (incident: party 3354 → `gf-reprice-pay-gf-reprice-143-…` = 46+ chars → Square
+    // VALUE_TOO_LONG → every charge failed before a payment was ever created).
+    //
+    // Use a FIXED-length hash over the fields that make this charge unique — quote, TARGET total, and
+    // card source — so the key can never grow past the limit regardless of id/total magnitude. Keying on
+    // total_cents means a re-price to a new total ⇒ fresh key ⇒ fresh order/payment (can't collide with a
+    // stale order created at the previous total), while a true double-submit at the same total reuses the
+    // key (Square dedupes ⇒ no double charge, and a charge-succeeded-but-DB-write-failed retry replays
+    // safely, since after a successful settle collected_cents == total_cents and only ever rises).
+    const baseKey = createHash("sha256")
+      .update(`gf-reprice:${quote.id}:${quote.total_cents}:${sourceId}`)
+      .digest("hex")
+      .slice(0, 24);
 
     try {
       const charge = await chargeDeltaAndLoad({

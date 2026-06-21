@@ -1,43 +1,49 @@
 # Lessons Learned
 
-## A stable Square idempotency key must encode EVERY input that changes the charge — not just the entity + card (2026-06-20)
+## Square's payment/card idempotency_key max is 45 chars — never PREFIX an already-prefixed baseKey (2026-06-20)
 
-Incident — party **3354** (group-function reprice): `/api/group-function/resign-settle` 402'd on
-**every** re-sign click and could not be cleared. Root cause was the reprice idempotency key in
-`app/api/group-function/resign-settle/route.ts`:
+Incident — party **3354** (group-function reprice, quote id **143**): `/api/group-function/resign-settle`
+402'd on **every** re-sign click and could not be cleared. The real root cause (revealed only after we
+added failure-audit logging — see below) was Square returning **`VALUE_TOO_LONG` — "Field must not be
+greater than 45 length"** on the **payment idempotency_key**.
+
+Square's idempotency_key limits differ per endpoint: **CreatePayment = 45**, **CreateCard = 45**,
+gift-card activities = 128, **CreateOrder = 192**. The reprice path built its keys by prefixing a baseKey
+that *itself* began with `gf-reprice-`:
 
 ```js
-// BEFORE — collides after a second re-price:
-const baseKey = `gf-reprice-${quote.id}-${hash(sourceId)}`;
+const baseKey = `gf-reprice-${quote.id}-${hash16}`;            // e.g. gf-reprice-143-26ad0266ecd84a73
+// derived: `gf-reprice-pay-${baseKey}`  → "gf-reprice-pay-gf-reprice-143-…" = 46 chars  ✗ (>45)
+//          `gf-reprice-card-${baseKey}` → 47 chars  ✗
 ```
 
-The key depended only on `quote.id` + saved-card id (both constant across re-prices) and **omitted the
-charge amount**. Sequence that broke it: BMI re-priced the (already paid-in-full) event up → first
-re-sign created a Square order at the old delta ($1,030.89), but the payment never attached (order left
-OPEN). BMI re-priced up **again** → new delta ($1,594.27). Every later `CreateOrder` re-sent the *same*
-idempotency key with a *different* body → Square collided it against the cached old-amount order →
-`SquarePaymentError` → 402, deterministically, no matter how many times the guest clicked. The card was
-valid and zero payments ever reached Square — it was purely the key collision.
+The double `gf-reprice-` prefix + a **3-digit** quote id pushed the payment key to 46. It was **content-
+dependent**: it fit for 1–2-digit ids (≤45), so it passed every low-id sandbox test and shipped broken —
+quote 143 was the first 3-digit paid-in-full reprice to hit it. The CreateOrder key (limit 192) was fine,
+so an OPEN order got created but the payment **always** failed before any Payment object existed (zero
+payments, order stuck OPEN). The card was valid the whole time. (A first attempt to "encode the amount in
+the key" made it *worse* — longer — confirming the constraint is length, not collision.)
 
-**Fix:** key on the settlement **target total**, not just the entity:
+**Fix:** a FIXED-length hash, so the key can't grow with id/total magnitude, still keyed on the fields
+that make the charge unique (quote + target total + card source):
 ```js
-const baseKey = `gf-reprice-${quote.id}-${quote.total_cents}-${hash(sourceId)}`;
+const baseKey = createHash("sha256")
+  .update(`gf-reprice:${quote.id}:${quote.total_cents}:${sourceId}`)
+  .digest("hex").slice(0, 24);   // pay=39, card=40, order=41 chars — all ≤45 forever
 ```
-`total_cents` is the right discriminator because after a successful settle `collected_cents ==
-total_cents` and `collected_cents` only ever rises — so a given total is chargeable at most once per
-card. That (a) still dedupes true double-submits, (b) safely replays a charge-succeeded-but-DB-write-
-failed retry (same total → same key → Square returns the same payment), and (c) avoids the false-dedupe
-a `delta`-based key would hit when two sequential re-prices happen to share an equal delta.
+Keying on `total_cents` also keeps the re-price collision-safe (new total ⇒ fresh order/payment; a
+double-submit at the same total dedupes; after a successful settle `collected_cents == total_cents` and
+only ever rises, so a charge-succeeded-but-DB-failed retry replays the same payment, never double-charges).
 
 **Guardrails:**
-- A "stable so a double-submit can't double-charge" idempotency key MUST include the amount (or a
-  monotonic target like the new total / collected baseline). Stable across a *re-price* turns a
-  legitimate retry into an unrecoverable Square collision.
-- This is distinct from "fresh random key per attempt" (the balance-charge cron) which relies on a CAS
-  claim to prevent double charges. Pick one model deliberately; don't half-apply either.
-- When a money endpoint can return a hard error (here 402), **write the provider error code + detail to
-  the audit log** before returning. resign-settle logged nothing on failure, forcing live Square
-  archaeology to diagnose. Added a best-effort `reprice_charge_failed` audit row.
+- Square payment/card idempotency keys are capped at **45 chars**. Don't build them by prefixing a
+  baseKey that already carries a prefix — and don't let any key length depend on variable-width content
+  (ids, amounts). Prefer a **fixed-length hash**; audit each derived key against its endpoint's limit.
+- An idempotency key whose length grows with content fails silently for *large* inputs only — it will
+  pass every small-input test. Test with realistic production-scale ids/amounts.
+- When a money endpoint returns a hard error, **write the provider error code + detail to the audit log**
+  before returning. resign-settle logged nothing on failure, which forced live Square archaeology and a
+  wrong first diagnosis; the best-effort `reprice_charge_failed` row pinned the real cause in one query.
 
 ## Saving a Square card on file: CreateCard directly with the Web Payments SDK token — don't $0-auth first (2026-06-18)
 
