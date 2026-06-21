@@ -1,5 +1,29 @@
 # Lessons Learned
 
+## Persist guest input to our own DB at capture — never let an external API be the only store (2026-06-21)
+
+Incident: online **Pizza Bowl** orders reached the kitchen with no pizza/soda. Root cause was a booking
+path that pre-created the day-of Square order with package + shoes only and never re-attached the pizza/
+soda selections — but the deeper failure was that those selections (toppings, drink) were **only ever sent
+to the Square order, never persisted to Neon**. When they failed to attach, the data was **unrecoverable**:
+we couldn't even tell the kitchen which toppings each guest wanted (had to flag "take order manually").
+`bowling_reservation_lines` only held the package; `booking_metadata` had nothing; the toppings lived
+solely in a transient request body. See `memory` + `project_fm_kds_routing_gap`.
+
+**Rule (now a CLAUDE.md hard rule):** anything a guest gives us that we send to an external API (Square,
+QAMF/Conqueror, BMI/Pandora) MUST be saved to our own DB (Neon) **at capture, independent of and before
+relying on the API call**. Our DB is the source of truth; the API is a downstream sync. On API failure the
+row stays recoverable + retryable.
+
+**How to apply:**
+- Persist guest selections (food/toppings/drinks, player names, shoe sizes, waiver answers, contact info,
+  anything typed/chosen) to Neon as the first guaranteed step, then sync to the API.
+- Do NOT write persistence as "best-effort after the API call" — that's exactly how this data was lost.
+- Applies to new features AND edit flows (the pizza/soda edit endpoint persists the new selection regardless
+  of the Square outcome).
+- When auditing a flow, ask: "if every external API call here failed, could we still recover everything the
+  guest told us?" If no, persist more.
+
 ## Square's payment/card idempotency_key max is 45 chars — never PREFIX an already-prefixed baseKey (2026-06-20)
 
 Incident — party **3354** (group-function reprice, quote id **143**): `/api/group-function/resign-settle`
