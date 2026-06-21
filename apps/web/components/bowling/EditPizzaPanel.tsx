@@ -61,11 +61,19 @@ export default function EditPizzaPanel({
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch(
-          `/api/bowling/v2/catalog-modifiers?catalogObjectId=${PIZZA_BOWL_PIZZA_CATALOG_ID}`,
-        );
-        const data = await res.json();
-        if (res.ok && Array.isArray(data)) setGroups(data);
+        // Toppings are on the Pizza item; the drink list ("Soda Choice") is on
+        // the SODA item — fetch BOTH and merge so the drink picker shows.
+        const [pizzaRes, sodaRes] = await Promise.all([
+          fetch(`/api/bowling/v2/catalog-modifiers?catalogObjectId=${PIZZA_BOWL_PIZZA_CATALOG_ID}`),
+          fetch(`/api/bowling/v2/catalog-modifiers?catalogObjectId=${PIZZA_BOWL_SODA_CATALOG_ID}`),
+        ]);
+        const pizzaData = pizzaRes.ok ? await pizzaRes.json() : [];
+        const sodaData = sodaRes.ok ? await sodaRes.json() : [];
+        const merged: ModifierGroup[] = [
+          ...(Array.isArray(pizzaData) ? pizzaData : []),
+          ...(Array.isArray(sodaData) ? sodaData : []),
+        ];
+        if (merged.length) setGroups(merged);
       } catch {
         /* non-fatal */
       } finally {
@@ -99,11 +107,18 @@ export default function EditPizzaPanel({
     EXTRA_TOPPING_CENTS;
   const diffCents = Math.max(0, newExtraCents - currentExtraToppingsCents);
 
-  // Drink required for every lane before saving.
+  // A topping AND a drink are required for every lane before saving.
   const sodaGroupIds = groups.filter(isSodaGroup).map((g) => g.id);
-  const allDrinksPicked =
+  const sodaSet = new Set(sodaGroupIds);
+  const allReady =
     sodaGroupIds.length === 0 ||
-    selections.every((sel) => sodaGroupIds.some((gid) => (sel[gid]?.length ?? 0) > 0));
+    selections.every((sel) => {
+      const drink = sodaGroupIds.some((gid) => (sel[gid]?.length ?? 0) > 0);
+      const topping = Object.entries(sel).some(
+        ([gid, opts]) => !sodaSet.has(gid) && (opts?.length ?? 0) > 0,
+      );
+      return drink && topping;
+    });
 
   function buildRawItems() {
     return selections.flatMap((sel, idx) => {
@@ -139,8 +154,12 @@ export default function EditPizzaPanel({
 
   async function save() {
     setError(null);
-    if (!allDrinksPicked) {
-      setError(laneCount > 1 ? "Choose a drink for every lane." : "Choose a drink.");
+    if (!allReady) {
+      setError(
+        laneCount > 1
+          ? "Pick a topping and a drink for every lane."
+          : "Pick a topping and a drink.",
+      );
       return;
     }
     setSubmitting(true);
@@ -281,7 +300,7 @@ export default function EditPizzaPanel({
       <button
         type="button"
         onClick={save}
-        disabled={submitting || !allDrinksPicked}
+        disabled={submitting || !allReady}
         className="w-full rounded-xl py-3 text-sm font-bold uppercase tracking-widest transition-all disabled:opacity-40"
         style={{ backgroundColor: CORAL, color: "#0a1628" }}
       >

@@ -30,16 +30,22 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
     setLoading(true);
     void (async () => {
       try {
-        const res = await fetch(
-          `/api/bowling/v2/catalog-modifiers?catalogObjectId=${PIZZA_BOWL_PIZZA_CATALOG_ID}`,
-        );
-        const data = await res.json();
-        if (res.ok && Array.isArray(data)) {
-          setGroups(data);
+        // Toppings live on the Pizza item; the drink ("Soda Choice") lives on the
+        // SODA item — fetch BOTH and merge, else the drink picker never shows.
+        const [pizzaRes, sodaRes] = await Promise.all([
+          fetch(`/api/bowling/v2/catalog-modifiers?catalogObjectId=${PIZZA_BOWL_PIZZA_CATALOG_ID}`),
+          fetch(`/api/bowling/v2/catalog-modifiers?catalogObjectId=${PIZZA_BOWL_SODA_CATALOG_ID}`),
+        ]);
+        const pizzaData = pizzaRes.ok ? await pizzaRes.json() : [];
+        const sodaData = sodaRes.ok ? await sodaRes.json() : [];
+        const merged: ModifierGroup[] = [
+          ...(Array.isArray(pizzaData) ? pizzaData : []),
+          ...(Array.isArray(sodaData) ? sodaData : []),
+        ];
+        if (merged.length) {
+          setGroups(merged);
           // Record which group(s) are the drink so the step can require a pick.
-          const sodaIds = (data as ModifierGroup[])
-            .filter((g) => /soda|drink|pitcher/i.test(g.name))
-            .map((g) => g.id);
+          const sodaIds = merged.filter((g) => /soda|drink|pitcher/i.test(g.name)).map((g) => g.id);
           onChange({ pizzaSodaGroupIds: sodaIds });
         }
       } catch {
@@ -219,16 +225,24 @@ const BowlingFoodStep: StepDef<BowlingItem> = {
   Component: BowlingFoodStepComponent,
   isVisible: (item) => (item.experienceSlug ?? "").includes("pizza-bowl"),
   canAdvance: (item) => {
-    // Require a drink pick for every lane. Soda groups are recorded when the
-    // modifiers load; if none loaded (fetch failed / not configured) don't block.
+    // Require ONE topping AND ONE drink per lane before continuing. Soda groups
+    // are recorded when the modifiers load; if none loaded (fetch failed) don't
+    // block — fail open so a hiccup never traps a booking.
     const sodaGroups = item.pizzaSodaGroupIds ?? [];
     if (sodaGroups.length === 0) return true;
+    const sodaSet = new Set(sodaGroups);
     const lanes = item.laneCount || 1;
     for (let i = 0; i < lanes; i++) {
       const sel = item.pizzaModifierSelections?.[i] ?? {};
-      const hasSoda = sodaGroups.some((gid) => (sel[gid]?.length ?? 0) > 0);
-      if (!hasSoda) {
-        return { reason: lanes > 1 ? "Choose a drink for every lane" : "Choose a drink" };
+      const hasDrink = sodaGroups.some((gid) => (sel[gid]?.length ?? 0) > 0);
+      const hasTopping = Object.entries(sel).some(
+        ([gid, opts]) => !sodaSet.has(gid) && (opts?.length ?? 0) > 0,
+      );
+      if (!hasTopping || !hasDrink) {
+        return {
+          reason:
+            lanes > 1 ? "Pick a topping & a drink for every lane" : "Pick a topping & a drink",
+        };
       }
     }
     return true;
