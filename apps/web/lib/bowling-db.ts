@@ -1121,11 +1121,20 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
  * Once the session is well over we complete the fulfillment + order so it
  * imports into QuickBooks as a closed sale (see bowling-order-complete cron).
  *
- * Population: showed up (checkin_method IS NOT NULL → lane-open ran, gift card
- * charged, fulfillment present), session ended (3h buffer — larger than the
- * no-show 2h buffer so even a long session's food ticket is done before we drop
- * it from KDS), not a combo (own settle flow), and not yet completed by us.
- * No-shows (checkin_method IS NULL) are handled by bowling-no-show-close.
+ * Population: lane-open ran (gift card charged, order sent to Square, fulfillment
+ * present) — keyed off (dayof_order_sent_at IS NOT NULL OR checkin_method IS NOT
+ * NULL). dayof_order_sent_at is the primary signal: updateBowlingReservationLaneOpen
+ * stamps it on a successful lane-open via the QAMF webhook/poll path, which is how
+ * most open bowling opens — that path does NOT record checkin_method (only the
+ * explicit check-in UI does), so a checkin_method-only filter missed every
+ * webhook-opened paid order and left it OPEN (the 2026-06-16 recurrence; see
+ * postmortem). This matches the same `sent` predicate closePastReservationStatuses
+ * uses to flip these to status='completed'. Session ended (3h buffer — larger than
+ * the no-show 2h buffer so even a long session's food ticket is done before we drop
+ * it from KDS), not a combo (own settle flow), and not yet completed by us. The
+ * completeOrder() safety net still re-checks state=OPEN + $0-due before closing, so
+ * a sent-but-unpaid order is skipped (left to surface/retry), never force-closed.
+ * No-shows (never lane-opened) are handled by bowling-no-show-close.
  */
 export async function getCheckedInOrdersToComplete(): Promise<BowlingReservation[]> {
   if (!isDbConfigured()) return [];
@@ -1134,7 +1143,7 @@ export async function getCheckedInOrdersToComplete(): Promise<BowlingReservation
   const rows = await q`
     SELECT * FROM bowling_reservations
     WHERE product_kind IN ('open', 'kbf')
-      AND checkin_method IS NOT NULL
+      AND (dayof_order_sent_at IS NOT NULL OR checkin_method IS NOT NULL)
       AND status NOT IN ('cancelled')
       AND combo_special_id IS NULL
       AND square_dayof_order_id IS NOT NULL
