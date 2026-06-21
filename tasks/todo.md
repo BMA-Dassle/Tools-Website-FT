@@ -1,5 +1,57 @@
 # Open Tasks
 
+## Self-service "edit reservation up to check-in" — SPEC, awaiting approval 2026-06-21
+
+**Goal:** let a guest change their booked bowling reservation (food, players, lanes, time)
+any time before check-in; if the change increases the total, charge the difference.
+
+**Locked decisions (from owner 2026-06-21):**
+- Scope = **everything**: food add-ons, player count, lanes, time.
+- Difference charged by **re-entering a card on the edit page** (Square Web Payments; no card-on-file assumption).
+- **Add-only — no reductions/refunds.** An edit may never lower the paid total; staff handle reductions manually.
+
+**Grounding (verified):**
+- Edit surface = the existing confirmation page reached via `headpinz.com/s/{shortCode}` (short-url → confirmation).
+  Reservation lookup already exists: `GET /api/bowling/v2/reservations/by-code`.
+- Repricing must reuse the quote path (`/api/square/bowling-orders/quote` + reserve pricing) to honor the
+  **displayed-vs-charged hard-fail guard** (project rule) — recompute exactly, never trust client totals.
+- Food-line attach to the day-of order already exists (shipped c00286ac) — Phase 1 reuses it.
+- **QAMF has NO time/lane reschedule API in our client** (`patchReservation` = Title/Notes/Status only; we only
+  *sync* BookedAt FROM Conqueror). Changing time/lanes ⇒ **cancel (`deleteReservation`) + `createReservation`**
+  anew → re-check availability, re-link deposit/day-of order, risk slot loss. This is the hard part.
+
+**Editability guard (all phases):** allow only while `status ∈ {confirmed, confirm_pending}`,
+`dayof_order_sent_at IS NULL` (not checked in / lane not opened), and event time still in the future.
+Optimistic guard against the lane-open cron racing the edit.
+
+**NARROWED v1 (active, owner 2026-06-21): edit the PIZZA TOPPINGS + SODA flavor of a Pizza Bowl only.**
+No player/lane/time changes; no adding pizzas/sides. Guests re-pick toppings/drinks before check-in.
+- [ ] Edit surface on the confirmation page (`headpinz.com/s/{shortCode}`): load current pizza/soda
+      selections per lane, reuse `BowlingFoodStep` UI to re-pick toppings + drink.
+- [ ] Edit endpoint: guard (pre-check-in, future, status ok) → recompute rawItems (pizza/soda lines w/ new
+      topping/drink notes) → reconcile onto the day-of Square order (update existing food line NOTES by uid,
+      or remove+re-add) → update persisted `bowling_reservation_lines`.
+- [ ] $0 swaps (same topping count) are free. **Adding paid extra toppings (>1/lane = $1 each):** OPEN
+      QUESTION below — include the re-enter-card charge now, or restrict v1 to no-new-cost edits (paid extras
+      added at the counter).
+- [ ] If the food line isn't on the order yet (older orders pre-fix), add it during the edit.
+
+**Later phases (deferred):** Phase 2 player count (reprice + `setLanePlayers`); Phase 3 lanes/time reschedule
+(HARD — no QAMF reschedule API; cancel+rebook only, slot-loss risk). Spike Phase 3 before building.
+
+**Payment-for-difference design:** recompute authoritative total → `diff = new_total − already_paid`;
+enforce `diff ≥ 0` (add-only); if `diff > 0` require a fresh Square nonce on the edit page, charge with an
+idempotency key bound to (reservationId, new_total), apply to the day-of order; hard-fail + page on-call if
+displayed diff ≠ charged diff. Record an edit-audit row (what changed, diff, payment id, timestamp).
+
+**Open questions for owner:**
+- Phase 3: acceptable that a time/lane change briefly cancels + rebooks in QAMF (tiny window where the old
+  slot is released)? Or restrict time/lane edits to "request" (staff-confirmed) rather than self-service?
+- Any cap on how close to start time edits are allowed (e.g. block within 1h of the slot)?
+
+**Verification:** live smoke per phase — book → edit (add paid item) → confirm difference charged once, day-of
+order + Neon lines updated, QAMF reflects change, KDS gets the added food. No double-charge on retry.
+
 ## Christmas in July — landing page (B2B holiday open house, 2 locations) — IN PROGRESS 2026-06-15
 
 Branch: `feat/xmas-in-july-landing` off `origin/feat/xmas-in-july-event` (NOT yet on main).
