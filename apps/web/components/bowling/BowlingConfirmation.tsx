@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import HeadPinzNav from "@/components/headpinz/Nav";
+import EditPizzaPanel from "@/components/bowling/EditPizzaPanel";
 import type {
   BowlingReservation,
   BowlingReservationPlayer,
@@ -727,6 +728,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     durationMinutes?: number;
   };
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [pizzaEditOpen, setPizzaEditOpen] = useState(false);
   const [rescheduleInfo, setRescheduleInfo] = useState<RescheduleInfo | null>(null);
   const [rescheduleInfoLoading, setRescheduleInfoLoading] = useState(false);
   const [rescheduleInfoError, setRescheduleInfoError] = useState<string | null>(null);
@@ -1627,6 +1629,47 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               )}
 
               {/* ── Change Date & Time (hidden when cancelled / lane running / within 1hr) ── */}
+              {/* Change pizza toppings + drink (Pizza Bowl, before check-in) */}
+              {!isCancelled &&
+                hasNeonRecord &&
+                laneReadyPhase !== "running" &&
+                (reservation?.status === "confirmed" ||
+                  reservation?.status === "confirm_pending") &&
+                lines.some((l) => /pizza bowl/i.test(l.label)) &&
+                (() => {
+                  const pizzaLaneCount =
+                    lines
+                      .filter((l) => /pizza bowl - /i.test(l.label))
+                      .reduce((s, l) => s + (l.quantity ?? 1), 0) || 1;
+                  const currentExtraToppingsCents = lines
+                    .filter((l) => /extra pizza topping/i.test(l.label))
+                    .reduce((s, l) => s + (l.quantity ?? 0) * (l.unitPriceCents ?? 0), 0);
+                  return (
+                    <div className="rounded-xl border border-[#fd5b56]/25 bg-[#fd5b56]/[0.04] overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setPizzaEditOpen((v) => !v)}
+                        className="w-full text-center px-5 py-4 font-body font-semibold text-sm text-[#fd5b56] hover:bg-[#fd5b56]/[0.08] transition-colors"
+                      >
+                        {pizzaEditOpen ? "Close" : "Change pizza & drink"}
+                      </button>
+                      {pizzaEditOpen && (
+                        <div className="px-3 sm:px-4 pb-4 border-t border-[#fd5b56]/15 pt-3">
+                          <EditPizzaPanel
+                            reservationId={neonId}
+                            laneCount={pizzaLaneCount}
+                            locationId={centerCode}
+                            currentExtraToppingsCents={currentExtraToppingsCents}
+                            onUpdated={() => {
+                              setTimeout(() => setPizzaEditOpen(false), 1500);
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
               {!isCancelled &&
                 hasNeonRecord &&
                 cfg.changeLink &&
