@@ -12,6 +12,20 @@ function venueFromCenter(code: string): string {
   return code || "unknown";
 }
 
+/**
+ * Money actually collected at the deposit step — capped at `collected_cents` so it can
+ * NEVER exceed what was really paid. Do NOT report `deposit_due_cents` directly: the
+ * dispatch cron flips it to the FULL total once an event is within 96h
+ * (group-quote-dispatch: `fullPaymentRequired`), so a guest who paid a 50% deposit and
+ * then crossed the 96h line would show "deposit paid = full total" — i.e. more deposit
+ * than they have (Suffolk H3004, 2026-06-22). The deposit is collected before the
+ * balance, so the deposit portion of `collected_cents` is `min(deposit_due, collected)`.
+ */
+function depositPaidCents(q: GroupFunctionQuote): number {
+  if (!q.deposit_paid_at) return 0;
+  return Math.min(q.deposit_due_cents, q.collected_cents);
+}
+
 interface PaymentEntry {
   type: "deposit" | "balance" | "legacy";
   amountCents: number;
@@ -28,7 +42,7 @@ function buildPayments(q: GroupFunctionQuote): PaymentEntry[] {
     if (!isLegacy) {
       payments.push({
         type: "deposit",
-        amountCents: q.deposit_due_cents,
+        amountCents: depositPaidCents(q),
         method: "card",
         squarePaymentId: q.square_deposit_payment_id,
         squareOrderId: q.square_deposit_order_id,
@@ -39,7 +53,9 @@ function buildPayments(q: GroupFunctionQuote): PaymentEntry[] {
   if (q.balance_paid_at && q.square_balance_payment_id) {
     payments.push({
       type: "balance",
-      amountCents: q.total_cents - q.deposit_due_cents,
+      // The remainder collected beyond the deposit. Derived from real collected money,
+      // not `total - deposit_due` (deposit_due is the mutable 96h-flipped due amount).
+      amountCents: q.collected_cents - depositPaidCents(q),
       method: q.balance_payment_method || "card",
       squarePaymentId: q.square_balance_payment_id,
       squareOrderId: q.square_balance_order_id,
@@ -73,7 +89,7 @@ export function formatPaymentSummary(q: GroupFunctionQuote) {
     status: q.status,
     isFullyPaid: isFullyPaid(q),
     totalCents: q.total_cents,
-    depositPaidCents: q.deposit_paid_at ? q.deposit_due_cents : 0,
+    depositPaidCents: depositPaidCents(q),
     balanceRemainingCents: q.balance_cents,
     payments: buildPayments(q),
     priorPayments: buildPriorPayments(q),
@@ -172,7 +188,7 @@ export function formatDocumentDetail(q: GroupFunctionQuote) {
     priorPayments: buildPriorPayments(q),
     isFullyPaid: isFullyPaid(q),
     depositDueCents: q.deposit_due_cents,
-    depositPaidCents: q.deposit_paid_at ? q.deposit_due_cents : 0,
+    depositPaidCents: depositPaidCents(q),
     balanceRemainingCents: q.balance_cents,
     dateCompleted: q.dayof_paid_at || null,
     hasPdf: Boolean(q.signed_pdf_url),

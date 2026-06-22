@@ -1,5 +1,41 @@
 # Lessons Learned
 
+## A re-sign must re-confirm BMI, and "deposit paid" must never read `deposit_due_cents` (2026-06-22)
+
+Incident — **Suffolk** (FM, BMI project **49972983**, GAN HPFM49972983, quote #101, event 6/25). Two
+distinct symptoms reported as one: "showing more deposit than they have" + "signed but BMI didn't move to
+confirmation."
+
+**Symptom 1 — inflated deposit display (NOT a money bug).** The portal showed `Deposit $2192.30 / Deposit
+paid $2192.30` with a `$894.06` balance — internally contradictory. The money was healthy (gift card
+$1298.24, day-of order $2192.30 correctly reconciled, balance $894.06 on a saved card). Root cause: the
+event crossed the 96h line, so `group-quote-dispatch` (`fullPaymentRequired`) flipped `deposit_due_cents`
+to the **full total**, and `lib/portal-format.ts` computed **"deposit paid" = `deposit_due_cents`**. A data
+fix to `deposit_due_cents` does NOT stick — the dispatch cron rewrites it every pass (route.ts ~L441).
+- **Fix:** `depositPaidCents(q) = q.deposit_paid_at ? Math.min(q.deposit_due_cents, q.collected_cents) : 0`
+  — "deposit paid" / balance-payment amounts now derive from real collected money, capped so they can never
+  exceed what was actually paid. `deposit_due_cents` is a mutable *due* amount, never a *paid* amount.
+
+**Symptom 2 — re-sign didn't re-confirm BMI.** A price change after deposit sets the quote to
+`resign_required` and resets the BMI project to "Pending Signed Contract" (FM stateId **48952154**). The
+guest re-signed, but `app/api/group-function/resign-settle/route.ts` never called `updateProjectStatus(-3)`
+— only the *deposit* route confirmed BMI. So the project sat stuck at "Pending Signed Contract" with the
+balance correctly recorded.
+- **Fix:** `resign-settle` now calls a non-fatal `reconfirmBmi(quote)` (mirrors the deposit route's BMI
+  block) on **every** settle branch — deposit-only, reprice-charged, refund-owed, no-change.
+
+**How to apply / general rules:**
+- "Paid" displays are derived from `collected_cents` (real money in), never from `deposit_due_cents`/
+  `deposit_due` (a *due* amount the dispatch cron mutates to full total within 96h). `amount_due = total -
+  collected` is the only safe identity.
+- Any GF flow that lands a contract in a signed/settled state (deposit, re-sign, post-paid sign) MUST
+  re-confirm the BMI project (`updateProjectStatus`, stateId -3). Adding a new signed-terminal path? Wire
+  in the BMI confirm or the event stays at "Pending Signed Contract."
+- Reusable diagnostic: `apps/web/scripts/gf-confirm-and-deposit-sweep.mts` (read-only) flags money-taken
+  quotes whose BMI project isn't confirmed, and `deposit_paid` quotes whose displayed deposit > collected.
+- FM BMI states seen: `-3` Confirmation, `48952154` Pending Signed Contract (`bmi-scan.ts`
+  `pendingSignedContractStateId`). Naples Pending-Signed ≈ `8007473`.
+
 ## Persist guest input to our own DB at capture — never let an external API be the only store (2026-06-21)
 
 Incident: online **Pizza Bowl** orders reached the kitchen with no pizza/soda. Root cause was a booking

@@ -31,6 +31,33 @@ import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
 const MIN_DELTA_CENTS = 100; // skip charges/refunds under $1 (tax/rounding noise)
 
+/**
+ * Re-confirm the BMI project after a re-sign settles. A price change sets the quote to
+ * `resign_required` and resets the BMI project to "Pending Signed Contract"; the deposit
+ * route is the only place that confirmed BMI, so before this a re-signed event sat stuck
+ * at "Pending Signed Contract" forever (Suffolk 49972983, 2026-06-22 — "signed but BMI
+ * never moved to confirmation"). Mirrors the deposit route's BMI block; non-fatal.
+ */
+async function reconfirmBmi(quote: {
+  id: number;
+  center_code: string;
+  bmi_reservation_id: string;
+  line_items: unknown;
+}) {
+  try {
+    const { updateProjectStatus, hasWaiverRequiredActivities } =
+      await import("@/lib/bmi-office-actions");
+    const items = (quote.line_items || []) as Array<{ name: string }>;
+    await updateProjectStatus({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      hasWaiverActivities: hasWaiverRequiredActivities(items),
+    });
+  } catch (err) {
+    console.error(`[resign-settle] BMI re-confirm failed for quote ${quote.id}:`, err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   // saveCard is implied: any captured card (cardSourceId present + no card on file) is saved.
   const { shortId, cardSourceId } = (await req.json()) as {
@@ -62,6 +89,7 @@ export async function POST(req: NextRequest) {
       event: "resigned",
       metadata: { wasPaidInFull: false, balanceCents: quote.balance_cents },
     });
+    await reconfirmBmi(quote);
     await safePdfGenerate(shortId);
     return NextResponse.json({ ok: true, action: "resigned_deposit" });
   }
@@ -145,6 +173,7 @@ export async function POST(req: NextRequest) {
         status: "balance_charged",
       });
 
+      await reconfirmBmi(quote);
       await safePdfGenerate(shortId);
       return NextResponse.json({ ok: true, action: "reprice_charged", chargedCents: delta });
     } catch (err) {
@@ -186,12 +215,14 @@ export async function POST(req: NextRequest) {
         console.error("[resign-settle] refundOwed notify error:", err),
       );
     }
+    await reconfirmBmi(quote);
     await safePdfGenerate(shortId);
     return NextResponse.json({ ok: true, action: "refund_owed", overageCents: -delta });
   }
 
   // |delta| < $1 → no money movement.
   await updateGfResignNoCharge(quote.id, "balance_charged");
+  await reconfirmBmi(quote);
   await safePdfGenerate(shortId);
   return NextResponse.json({ ok: true, action: "no_change" });
 }
