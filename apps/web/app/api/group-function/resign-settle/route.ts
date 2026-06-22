@@ -38,14 +38,17 @@ const MIN_DELTA_CENTS = 100; // skip charges/refunds under $1 (tax/rounding nois
  * at "Pending Signed Contract" forever (Suffolk 49972983, 2026-06-22 — "signed but BMI
  * never moved to confirmation"). Mirrors the deposit route's BMI block; non-fatal.
  */
-async function reconfirmBmi(quote: {
-  id: number;
-  center_code: string;
-  bmi_reservation_id: string;
-  line_items: unknown;
-}) {
+async function reconfirmBmi(
+  quote: {
+    id: number;
+    center_code: string;
+    bmi_reservation_id: string;
+    line_items: unknown;
+  },
+  recordPaymentCents?: number,
+) {
   try {
-    const { updateProjectStatus, hasWaiverRequiredActivities } =
+    const { updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities } =
       await import("@/lib/bmi-office-actions");
     const items = (quote.line_items || []) as Array<{ name: string }>;
     await updateProjectStatus({
@@ -53,8 +56,17 @@ async function reconfirmBmi(quote: {
       projectId: quote.bmi_reservation_id,
       hasWaiverActivities: hasWaiverRequiredActivities(items),
     });
+    // Record the just-charged delta to BMI so its balance reflects what we collected
+    // (only the deposit was ever recorded before — re-sign deltas were missing).
+    if (recordPaymentCents && recordPaymentCents > 0) {
+      await recordProjectPayment({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        amountDollars: recordPaymentCents / 100,
+      });
+    }
   } catch (err) {
-    console.error(`[resign-settle] BMI re-confirm failed for quote ${quote.id}:`, err);
+    console.error(`[resign-settle] BMI re-confirm/record failed for quote ${quote.id}:`, err);
   }
 }
 
@@ -173,7 +185,7 @@ export async function POST(req: NextRequest) {
         status: "balance_charged",
       });
 
-      await reconfirmBmi(quote);
+      await reconfirmBmi(quote, delta);
       await safePdfGenerate(shortId);
       return NextResponse.json({ ok: true, action: "reprice_charged", chargedCents: delta });
     } catch (err) {
