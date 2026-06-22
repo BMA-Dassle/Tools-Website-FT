@@ -7,6 +7,7 @@ import {
   IconCreditCard,
   IconReceipt,
   IconAlertTriangle,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
@@ -158,10 +159,18 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
           {quote.centerName}
         </p>
         <h1 className="mb-1 text-2xl font-bold">{quote.eventName || "Your Event"}</h1>
-        <p className="mb-6 text-sm text-gray-400">
+        <p className="mb-3 text-sm text-gray-400">
           {quote.eventDateDisplay}
           {quote.eventNumber ? ` · #${quote.eventNumber}` : ""}
         </p>
+        <a
+          href={`/contract/${quote.contractShortId}`}
+          target="_blank"
+          rel="noopener"
+          className="mb-6 inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-gray-300 hover:bg-white/5"
+        >
+          <IconExternalLink className="h-3.5 w-3.5 text-cyan-400" /> View event details
+        </a>
 
         {quote.state === "contract" ? (
           <>
