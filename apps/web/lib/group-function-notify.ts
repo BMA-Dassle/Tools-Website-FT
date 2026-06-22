@@ -838,6 +838,103 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
   memoLog(quote, `Balance payment link sent to ${quote.guest_email}`);
 }
 
+// ── Card Declined (balance auto-charge failed) ──────────────────────
+//
+// The saved card was declined by the issuer when the 72h balance auto-charge ran.
+// Unlike the generic balance-due link, this tells the guest EXACTLY what happened and
+// sends them to the /pay page, where they can retry the same card or use a new one.
+// Guest + audit archive only (no planner cc — same dunning convention as balance-due).
+
+export async function buildCardDeclinedContent(
+  quote: GroupFunctionQuote,
+  declineMessage: string,
+): Promise<{ subject: string; html: string; text: string; sms: string }> {
+  const payUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}/pay`;
+  const smsUrl = `${payUrl}?src=sms_declined`;
+  const emailUrl = `${payUrl}?src=email_declined`;
+  const pName = plannerName(quote);
+  const event = quote.event_name || "your event";
+  const cardLabel = quote.saved_card_last4
+    ? `your ${quote.saved_card_brand || "card"} ending in ${quote.saved_card_last4}`
+    : "the card on file";
+
+  const subject = `Payment issue — your card for ${event} was declined`;
+
+  const sms = [
+    `${quote.guest_first_name}, we tried to charge ${cardLabel} for the ${dollars(quote.balance_cents)} balance on ${event} and it was declined.`,
+    `${declineMessage}`,
+    `Retry or use a different card: ${smsUrl}`,
+    `Questions? Contact ${pName}.`,
+  ].join("\n");
+
+  const html = await emailShell(
+    quote,
+    "There was a problem with your payment",
+    `We couldn't charge ${cardLabel} for your remaining balance`,
+    `<p style="margin:0 0 16px;font-size:15px;color:#475569">When we ran the remaining balance of <strong style="color:#004aad">${dollars(quote.balance_cents)}</strong> for <strong style="color:#0f172a">${event}</strong> at ${quote.center_name}, ${cardLabel} was declined.</p>
+
+      <div style="background:#fde8e8;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #d71c1c">
+        <p style="margin:0 0 6px;font-size:13px;font-weight:bold;color:#991b1b">Reason</p>
+        <p style="margin:0;font-size:14px;color:#7f1d1d">${declineMessage}</p>
+      </div>
+
+      <p style="margin:0 0 16px;font-size:14px;color:#475569">No problem — you can securely retry the same card or use a different one. Your event is still reserved; we just need to settle the balance.</p>
+
+      <div style="text-align:center;margin:24px 0">
+        <a href="${emailUrl}" class="cta-btn red" style="display:inline-block;padding:14px 28px;background-color:#d71c1c;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase">Update Card / Pay Balance</a>
+      </div>
+
+      <table style="width:100%;margin:16px 0;border-collapse:collapse">
+        ${pricingRow("Event", event)}
+        ${pricingRow("Date", quote.event_date_display || "")}
+        ${pricingRow("Balance Due", dollars(quote.balance_cents), true)}
+        ${pricingRow("Total", dollars(quote.total_cents))}
+      </table>
+
+      <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Questions? Reply to this email or contact ${pName}.</p>`,
+  );
+
+  const text = `Hi ${quote.guest_first_name},\n\nWe tried to charge ${cardLabel} for the remaining balance of ${dollars(quote.balance_cents)} on ${event}, and it was declined.\n\nReason: ${declineMessage}\n\nYour event is still reserved — please retry the same card or use a different one here:\n${emailUrl}\n\nQuestions? Reply to this email or contact ${pName}.\n\n${pName}\n${quote.center_name}`;
+
+  return { subject, html, text, sms };
+}
+
+export async function notifyCardDeclined(
+  quote: GroupFunctionQuote,
+  declineMessage: string,
+): Promise<void> {
+  const { subject, html, text, sms } = await buildCardDeclinedContent(quote, declineMessage);
+
+  const results = await Promise.allSettled([
+    quote.guest_phone ? voxSend(quote.guest_phone, sms) : Promise.resolve(),
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      bcc: AUDIT_ONLY_BCC,
+      subject,
+      html,
+      text,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error("[gf-notify] cardDeclined notification failed:", r.reason);
+    }
+  }
+
+  const sentOk = emailOk(results[1]);
+  memoLog(
+    quote,
+    sentOk
+      ? `Card-declined notice sent to ${quote.guest_email}: ${declineMessage}`
+      : `Card-declined notice email FAILED to ${quote.guest_email}`,
+  );
+  if (!sentOk) alertContractEmailFailed(quote);
+}
+
 // ── Notification-engine builders (return a result for the ledger) ───
 
 /** Result shape consumed by the reminder dispatcher's ledger. */

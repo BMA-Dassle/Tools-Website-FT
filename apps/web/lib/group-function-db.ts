@@ -149,6 +149,13 @@ export async function ensureGfSchema(): Promise<void> {
   // reconcile poller can detect when the customer pays it.
   await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS square_balance_link_id TEXT`;
 
+  // Card-decline tracking: when the 72h auto-charge (or a manual balance-pay) is declined
+  // by the issuer, persist the Square decline code + a guest-friendly message so the
+  // event page can show WHY and offer retry/update-card. Cleared on a successful charge.
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS balance_decline_code TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS balance_decline_message TEXT`;
+  await q`ALTER TABLE group_function_quotes ADD COLUMN IF NOT EXISTS balance_declined_at TIMESTAMPTZ`;
+
   // Square-settled-outside-our-flow: a paid-out Square order (its NAME starts with
   // "BMI…") that collected an event's money directly in Square, never through our
   // contract/deposit/balance rail. Recorded when group-square-settled-close jumps a
@@ -345,6 +352,9 @@ export interface GroupFunctionQuote {
   teams_card_conversation_id: string | null;
   balance_charge_attempts: number;
   balance_last_error: string | null;
+  balance_decline_code: string | null;
+  balance_decline_message: string | null;
+  balance_declined_at: string | null;
   deposit_attempts: number;
   deposit_last_error: string | null;
   hermes_last_processed_at: string | null;
@@ -707,6 +717,30 @@ export async function updateGfBalanceCharged(
       balance_cents = 0,
       collected_cents = total_cents,
       status = 'balance_charged',
+      balance_decline_code = NULL,
+      balance_decline_message = NULL,
+      balance_declined_at = NULL,
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+}
+
+/**
+ * Record a card decline on the balance auto-charge / manual pay so the /pay page can
+ * show the reason and the guest can retry. `code` is the Square error code; `message`
+ * is the guest-friendly text. Cleared automatically by updateGfBalanceCharged on success.
+ */
+export async function recordGfBalanceDecline(
+  id: number,
+  fields: { code: string; message: string },
+): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    UPDATE group_function_quotes SET
+      balance_decline_code = ${fields.code.slice(0, 120)},
+      balance_decline_message = ${fields.message.slice(0, 300)},
+      balance_declined_at = NOW(),
       updated_at = NOW()
     WHERE id = ${id}
   `;

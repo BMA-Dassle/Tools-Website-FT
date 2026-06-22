@@ -142,6 +142,11 @@ async function processBalanceCharge(
     serviceChargeCents - Math.min(serviceChargeCents, quote.deposit_due_cents),
   );
 
+  // Captured from a Square payment decline in Path A so Path B can persist the reason
+  // + send the card-declined notification (vs the generic "no card on file" link).
+  let declineCode: string | null = null;
+  let declineDetail: string | null = null;
+
   // Path A: auto-charge saved card
   if (quote.saved_card_id && quote.square_customer_id) {
     try {
@@ -185,8 +190,10 @@ async function processBalanceCharge(
       });
       const payData = await payRes.json();
       if (!payRes.ok || payData.errors) {
-        const errCode = payData.errors?.[0]?.code || "CHARGE_FAILED";
-        throw new Error(`Balance charge failed: ${errCode}`);
+        const sqErr = payData.errors?.[0];
+        declineCode = sqErr?.code || "CHARGE_FAILED";
+        declineDetail = sqErr?.detail || null;
+        throw new Error(`Balance charge failed: ${declineCode}`);
       }
       const balancePaymentId = payData.payment?.id as string;
 
@@ -316,22 +323,53 @@ async function processBalanceCharge(
       return "skipped";
     }
 
+    // A saved card that the issuer DECLINED → persist the reason + send the
+    // card-declined notification (clear "your card ending in X was declined, here's
+    // why, retry or use another card"). A missing-card / non-decline failure keeps the
+    // generic balance-due link.
+    const wasCardDecline = Boolean(quote.saved_card_id) && declineCode !== null;
+    let declineMessage: string | null = null;
+    if (wasCardDecline) {
+      const { friendlyDeclineMessage } = await import("@/lib/square-decline");
+      declineMessage = friendlyDeclineMessage(declineCode, declineDetail);
+      const { recordGfBalanceDecline } = await import("@/lib/group-function-db");
+      await recordGfBalanceDecline(quote.id, {
+        code: declineCode!,
+        message: declineMessage,
+      }).catch((err) => console.error("[group-balance-charge] recordDecline error:", err));
+    }
+
     console.log(
-      `[group-balance-charge] payment link sent for quote=${quote.id} ` + `url=${paymentLinkUrl}`,
+      `[group-balance-charge] payment link sent for quote=${quote.id} url=${paymentLinkUrl}` +
+        (wasCardDecline ? ` (card declined: ${declineCode})` : ""),
     );
 
-    notifyBalanceLinkSent({
+    const notifyQuote = {
       ...quote,
       balance_payment_link_url: paymentLinkUrl,
       balance_link_sent_at: new Date().toISOString(),
-    }).catch((err) => console.error("[group-balance-charge] notify error:", err));
+      balance_decline_code: declineCode,
+      balance_decline_message: declineMessage,
+    };
+    if (wasCardDecline) {
+      const { notifyCardDeclined } = await import("@/lib/group-function-notify");
+      notifyCardDeclined(notifyQuote, declineMessage!).catch((err) =>
+        console.error("[group-balance-charge] card-declined notify error:", err),
+      );
+    } else {
+      notifyBalanceLinkSent(notifyQuote).catch((err) =>
+        console.error("[group-balance-charge] notify error:", err),
+      );
+    }
 
     try {
       const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
       await appendProjectPrivateNote({
         centerCode: quote.center_code,
         projectId: quote.bmi_reservation_id,
-        note: `[${noteTimestamp()}] Balance link sent: $${(quote.balance_cents / 100).toFixed(2)} (auto-charge failed)`,
+        note: wasCardDecline
+          ? `[${noteTimestamp()}] Card DECLINED ($${(quote.balance_cents / 100).toFixed(2)}): ${declineCode} — ${declineMessage}. Pay link sent.`
+          : `[${noteTimestamp()}] Balance link sent: $${(quote.balance_cents / 100).toFixed(2)} (auto-charge failed)`,
       });
     } catch {
       /* non-fatal */

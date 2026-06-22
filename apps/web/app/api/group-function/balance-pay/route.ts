@@ -38,14 +38,15 @@ function sqHeaders() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { contractShortId, cardSourceId } = body as {
+  const { contractShortId, cardSourceId, useSavedCard } = body as {
     contractShortId?: string;
     cardSourceId?: string;
+    useSavedCard?: boolean;
   };
 
-  if (!contractShortId || !cardSourceId) {
+  if (!contractShortId || (!cardSourceId && !useSavedCard)) {
     return NextResponse.json(
-      { error: "contractShortId and cardSourceId required" },
+      { error: "contractShortId and a card source are required" },
       { status: 400 },
     );
   }
@@ -53,6 +54,16 @@ export async function POST(req: NextRequest) {
   const quote = await getGfQuoteByShortId(contractShortId);
   if (!quote) {
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  }
+
+  // "Re-charge" retries the card already on file (the one that just declined / a freshly
+  // updated one); "Use a different card" passes a one-time token from the Square form.
+  const sourceId = useSavedCard ? quote.saved_card_id : cardSourceId;
+  if (!sourceId) {
+    return NextResponse.json(
+      { error: "No card on file to charge. Please enter a card.", code: "NO_SAVED_CARD" },
+      { status: 400 },
+    );
   }
 
   if (quote.balance_paid_at || quote.balance_cents <= 0) {
@@ -107,7 +118,7 @@ export async function POST(req: NextRequest) {
       headers: sqHeaders(),
       body: JSON.stringify({
         idempotency_key: `${baseKey}-pay`,
-        source_id: cardSourceId,
+        source_id: sourceId,
         amount_money: { amount: quote.balance_cents, currency: "USD" },
         order_id: balanceOrderId,
         location_id: quote.square_location_id,
@@ -231,6 +242,17 @@ export async function POST(req: NextRequest) {
     console.error(`[gf-balance-pay] quote=${quote.id} failed:`, errCode, errMsg);
 
     if (err instanceof SquarePaymentError) {
+      // Persist the decline so the /pay page keeps showing the reason after reload.
+      const { friendlyDeclineMessage, isCardDeclineCode } = await import("@/lib/square-decline");
+      if (isCardDeclineCode(err.code)) {
+        const { recordGfBalanceDecline } = await import("@/lib/group-function-db");
+        const message = friendlyDeclineMessage(err.code, err.message);
+        await recordGfBalanceDecline(quote.id, { code: err.code, message }).catch(() => {});
+        return NextResponse.json(
+          { error: message, code: err.code, declined: true },
+          { status: 402 },
+        );
+      }
       return NextResponse.json({ error: err.message, code: err.code }, { status: 402 });
     }
     return NextResponse.json(

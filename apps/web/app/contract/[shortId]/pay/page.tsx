@@ -65,6 +65,11 @@ export default async function BalancePayPage(props: {
         balancePaidAt: quote.balance_paid_at,
         plannerFirst: quote.planner_first,
         plannerEmail: quote.planner_email,
+        savedCardLast4: quote.saved_card_last4,
+        savedCardBrand: quote.saved_card_brand,
+        hasSavedCard: Boolean(quote.saved_card_id),
+        declineMessage: quote.balance_decline_message,
+        declinedAt: quote.balance_declined_at,
         state,
       }}
     />

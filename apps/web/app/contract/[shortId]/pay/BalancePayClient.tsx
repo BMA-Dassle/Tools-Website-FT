@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { IconCircleCheck, IconCreditCard, IconReceipt } from "@tabler/icons-react";
+import {
+  IconCircleCheck,
+  IconCreditCard,
+  IconReceipt,
+  IconAlertTriangle,
+} from "@tabler/icons-react";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -23,6 +28,11 @@ interface BalancePayQuote {
   balancePaidAt: string | null;
   plannerFirst: string | null;
   plannerEmail: string | null;
+  savedCardLast4: string | null;
+  savedCardBrand: string | null;
+  hasSavedCard: boolean;
+  declineMessage: string | null;
+  declinedAt: string | null;
   state: "pay" | "paid" | "contract" | "closed";
 }
 
@@ -31,7 +41,10 @@ const fmtDollars = (cents: number) =>
 
 export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) {
   const [processing, setProcessing] = useState(false);
+  const [recharging, setRecharging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Decline reason persisted from the failed auto-charge (or a prior retry here).
+  const [declineMessage, setDeclineMessage] = useState<string | null>(quote.declineMessage);
   const [paid, setPaid] = useState(quote.state === "paid");
   const [paidLast4, setPaidLast4] = useState<string | null>(null);
   const squareLoaded = useRef(false);
@@ -81,6 +94,30 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
     };
   }, [quote.state, paid, quote.squareLocationId]);
 
+  // Shared POST → balance-pay. body carries either a new card token or useSavedCard.
+  const submitPayment = useCallback(
+    async (body: { cardSourceId?: string; useSavedCard?: boolean }): Promise<boolean> => {
+      const res = await fetch("/api/group-function/balance-pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contractShortId: quote.contractShortId, ...body }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        // A fresh decline updates the reason banner; other errors show inline.
+        if (data.declined && data.error) setDeclineMessage(data.error);
+        setError(data.error || "Payment failed.");
+        return false;
+      }
+      setDeclineMessage(null);
+      setPaidLast4(data.cardLast4 ?? null);
+      setPaid(true);
+      clarityEvent("balance_pay:paid");
+      return true;
+    },
+    [quote.contractShortId],
+  );
+
   const handlePay = useCallback(async () => {
     if (!cardRef.current) {
       setError("Payment form not ready.");
@@ -92,32 +129,27 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
       const result = await cardRef.current.tokenize();
       if (result.status !== "OK" || !result.token) {
         setError(result.errors?.[0]?.message || "Card validation failed.");
-        setProcessing(false);
         return;
       }
-      const res = await fetch("/api/group-function/balance-pay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contractShortId: quote.contractShortId,
-          cardSourceId: result.token,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setError(data.error || "Payment failed.");
-        setProcessing(false);
-        return;
-      }
-      setPaidLast4(data.cardLast4 ?? null);
-      setPaid(true);
-      clarityEvent("balance_pay:paid");
+      await submitPayment({ cardSourceId: result.token });
     } catch {
       setError("Payment processing failed. Please try again.");
     } finally {
       setProcessing(false);
     }
-  }, [quote.contractShortId]);
+  }, [submitPayment]);
+
+  const handleRecharge = useCallback(async () => {
+    setError(null);
+    setRecharging(true);
+    try {
+      await submitPayment({ useSavedCard: true });
+    } catch {
+      setError("Payment processing failed. Please try again.");
+    } finally {
+      setRecharging(false);
+    }
+  }, [submitPayment]);
 
   return (
     <main className="mx-auto max-w-lg px-4 pt-28 pb-16">
@@ -209,6 +241,41 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
               </div>
             </div>
 
+            {/* Decline reason (from the failed auto-charge or a prior retry here) */}
+            {declineMessage && (
+              <div className="mb-5 flex items-start gap-3 rounded-xl bg-red-900/30 p-4 ring-1 ring-red-500/30">
+                <IconAlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-400" />
+                <div>
+                  <p className="text-sm font-bold text-red-200">
+                    {quote.savedCardLast4
+                      ? `Your ${quote.savedCardBrand || "card"} ending in ${quote.savedCardLast4} was declined`
+                      : "Your card was declined"}
+                  </p>
+                  <p className="mt-0.5 text-sm text-red-200/80">{declineMessage}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Re-charge the saved card (useful if the decline was temporary). */}
+            {quote.hasSavedCard && (
+              <>
+                <button
+                  onClick={handleRecharge}
+                  disabled={recharging || processing}
+                  className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-4 text-lg font-bold text-white shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+                >
+                  {recharging
+                    ? "Processing..."
+                    : `Retry ${quote.savedCardBrand || "card"}${quote.savedCardLast4 ? ` ending ${quote.savedCardLast4}` : " on file"}`}
+                </button>
+                <div className="my-5 flex items-center gap-3 text-xs text-gray-500">
+                  <span className="h-px flex-1 bg-white/10" />
+                  OR USE A DIFFERENT CARD
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
+              </>
+            )}
+
             <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-gray-200">
               <IconCreditCard className="h-4 w-4 text-cyan-400" /> Card details
             </p>
@@ -225,10 +292,16 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
 
             <button
               onClick={handlePay}
-              disabled={processing}
-              className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-4 text-lg font-bold text-white shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+              disabled={processing || recharging}
+              className={`w-full rounded-xl px-6 py-4 text-lg font-bold text-white disabled:opacity-50 ${
+                quote.hasSavedCard
+                  ? "border border-white/15 bg-white/5 hover:bg-white/10"
+                  : "bg-gradient-to-r from-cyan-500 to-blue-600 shadow-lg shadow-cyan-500/20"
+              }`}
             >
-              {processing ? "Processing..." : `Pay ${fmtDollars(quote.balanceCents)}`}
+              {processing
+                ? "Processing..."
+                : `Pay ${fmtDollars(quote.balanceCents)}${quote.hasSavedCard ? " with this card" : ""}`}
             </button>
             <p className="mt-3 text-center text-xs text-gray-500">
               Secure payment processed by Square. Questions?{" "}
