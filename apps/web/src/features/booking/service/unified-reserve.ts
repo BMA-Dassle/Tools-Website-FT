@@ -8,6 +8,7 @@
  * Per restructuring rules: business logic lives here, API route is a thin shell.
  */
 import { randomBytes } from "crypto";
+import { buildGanPrefix } from "@/lib/gan";
 import { createDepositAndCharge } from "./deposit";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
@@ -616,7 +617,7 @@ async function unifiedReserveInner(
       throw new Error("Card or gift card required for paid orders");
     }
 
-    const ganPrefix = bowlingItems.length > 0 ? "HPFM" : raceItems.length > 0 ? "RACE" : "ATTR";
+    const ganPrefix = buildGanPrefix("WEB", locationId);
     // Stable GAN suffix from the session anchor (matches reserve's bill.slice(-8))
     // so a retry replays gc-${baseKey} with the SAME requested GAN — one card,
     // never a second.

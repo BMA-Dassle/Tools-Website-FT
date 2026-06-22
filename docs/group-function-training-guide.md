@@ -106,8 +106,14 @@ Post-paid events do not go through the automatic payment cycle.
 Square limits gift cards to $2,000 each. For large events, the system automatically creates multiple gift cards:
 
 - $5,000 deposit → 3 gift cards ($2,000 + $2,000 + $1,000)
-- Each card has a unique GAN (e.g., GRPF12345678, GRPF12345678B, GRPF12345678C)
+- Each card has a unique GAN (e.g., GFHPFM12345678, GFHPFM12345678B, GFHPFM12345678C)
 - All cards are redeemed automatically on event day
+
+> **GAN prefixes** identify where a deposit came from at a glance in Square:
+> contracts use `GF` + center (`GFHPFM`, `GFFT`, `GFHPN`), web bookings use
+> `WEB` + center (`WEBHPFM`, `WEBFT`, `WEBHPN`), and game cards use `GZ` + center
+> (`GZHPFM`, `GZFT`, `GZHPN`). Center tags: HPFM = HeadPinz Fort Myers, FT =
+> FastTrax, HPN = HeadPinz Naples.
 
 ### Contract Updates After Signing
 

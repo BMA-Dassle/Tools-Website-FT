@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildGanPrefix } from "@/lib/gan";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
 import { bmiBillIsLive } from "~/features/booking/service/bmi-confirm";
 import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
@@ -459,7 +460,7 @@ export async function POST(req: NextRequest) {
       }
 
       const ganSuffix = body.bmiBillId.slice(-8);
-      const ganPrefix = body.bookingKind === "race" ? "RACE" : "ATTR";
+      const ganPrefix = buildGanPrefix("WEB", locationId);
 
       try {
         const dr = await createDepositAndCharge({

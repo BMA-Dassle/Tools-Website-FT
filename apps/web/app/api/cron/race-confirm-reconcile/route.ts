@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import { buildGanPrefix } from "@/lib/gan";
 import {
   getPendingBmiConfirms,
   getBowlingReservationByBillId,
@@ -135,7 +136,7 @@ async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<Rec
         baseKey: reserveBaseKey(bmiBillId),
         locationId: depositLocationId(r),
         amountCents: r.depositCents,
-        ganPrefix: r.productKind === "race" ? "RACE" : "ATTR",
+        ganPrefix: buildGanPrefix("WEB", depositLocationId(r)),
         ganSuffix: bmiBillId.slice(-8),
         paymentIds: [r.squareDepositPaymentId],
         ...(orderLink ?? {}),
