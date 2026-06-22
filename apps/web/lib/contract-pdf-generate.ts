@@ -1,5 +1,10 @@
 import { put } from "@vercel/blob";
-import { getGfQuoteByShortId, getAuditLog, appendAuditLog } from "@/lib/group-function-db";
+import {
+  getGfQuoteByShortId,
+  getAuditLog,
+  appendAuditLog,
+  getContractVersions,
+} from "@/lib/group-function-db";
 import { generateContractPdf } from "@/lib/contract-pdf";
 import { sendEmail } from "@/lib/sendgrid";
 import { sql } from "@/lib/db";
@@ -27,19 +32,23 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
     throw err;
   }
 
-  // 2. Upload to Vercel Blob
+  // 2. Upload to Vercel Blob.
+  //    A re-sign (after a reprice) must NOT clobber the prior signed PDF — we keep every
+  //    version (the contract page lists "Previous Contracts"). So write each version to a
+  //    UNIQUE path (addRandomSuffix) and archive the prior into signed_pdf_history below.
+  //    The blob URL changes per version, which is fine: signed_pdf_url + the /pdf route
+  //    always resolve the latest from the DB. (Before this, the upload used a fixed path
+  //    with no overwrite, so a re-sign threw "blob already exists" and left the stale
+  //    original-amount PDF — Suffolk e516f36e kept showing $2,596.47 vs the repriced
+  //    $2,192.30.)
+  const priorUrl = quote.signed_pdf_url;
   let blobUrl: string;
   try {
     const filename = `contracts/${shortId}-signed.pdf`;
-    // allowOverwrite: a re-sign (after a reprice) regenerates the SAME path — without
-    // this, Vercel Blob rejects with "blob already exists" and the stale original-amount
-    // PDF is left in place (Suffolk e516f36e: signed PDF kept showing $2,596.47 after the
-    // event repriced to $2,192.30). addRandomSuffix is wrong here — the path must stay
-    // stable so signed_pdf_url / the /pdf route resolve.
     const blob = await put(filename, Buffer.from(pdfBytes), {
       access: "public",
       contentType: "application/pdf",
-      allowOverwrite: true,
+      addRandomSuffix: true,
     });
     blobUrl = blob.url;
   } catch (err) {
@@ -51,10 +60,33 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
     throw err;
   }
 
-  // 3. Store URL in DB
+  // 3. Store URL in DB, archiving the prior signed PDF into history (latest stays in
+  //    signed_pdf_url; older versions are listed on the contract page, newest-first).
   try {
     const q = sql();
-    await q`UPDATE group_function_quotes SET signed_pdf_url = ${blobUrl}, updated_at = NOW() WHERE id = ${quote.id}`;
+    if (priorUrl && priorUrl !== blobUrl) {
+      let reason = "Contract updated & re-signed";
+      try {
+        const versions = await getContractVersions(quote.id);
+        const latest = versions[versions.length - 1];
+        if (latest?.changes?.length) reason = latest.changes.join("; ");
+      } catch {
+        /* reason is best-effort */
+      }
+      const entry = {
+        url: priorUrl,
+        signedAt: quote.contract_signed_at,
+        archivedAt: new Date().toISOString(),
+        reason,
+      };
+      await q`UPDATE group_function_quotes
+        SET signed_pdf_history = COALESCE(signed_pdf_history, '[]'::jsonb) || ${JSON.stringify([entry])}::jsonb,
+            signed_pdf_url = ${blobUrl},
+            updated_at = NOW()
+        WHERE id = ${quote.id}`;
+    } else {
+      await q`UPDATE group_function_quotes SET signed_pdf_url = ${blobUrl}, updated_at = NOW() WHERE id = ${quote.id}`;
+    }
   } catch (err) {
     console.error("[generate-pdf] DB update failed:", err);
     await safeAuditLog(quote.id, "pdf_generation_failed", {
@@ -67,6 +99,9 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
 
   // 4. Audit log — success
   await safeAuditLog(quote.id, "pdf_generated", { url: blobUrl });
+
+  // Always expose the PDF via our branded URL, never the raw Vercel Blob link.
+  const brandedPdfUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}/pdf`;
 
   // 5. Email the PDF to guest (non-fatal). Win-backs are intentionally skipped:
   // they get the win-back offer + "$20 e-gift card" receipt emails, so this generic
@@ -87,8 +122,8 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
         replyTo: quote.planner_email || undefined,
         cc: quote.planner_email || undefined,
         subject: `Signed Contract — ${quote.event_name || quote.center_name}`,
-        html: buildPdfEmailHtml(quote, blobUrl, plannerName, brandDomain),
-        text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${blobUrl}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(Math.min(quote.deposit_due_cents, quote.collected_cents) / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
+        html: buildPdfEmailHtml(quote, brandedPdfUrl, plannerName, brandDomain),
+        text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${brandedPdfUrl}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(Math.min(quote.deposit_due_cents, quote.collected_cents) / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
       });
     } catch (err) {
       console.error("[generate-pdf] Email send failed:", err);

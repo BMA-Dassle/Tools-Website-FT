@@ -2178,7 +2178,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
             <div className="flex flex-wrap justify-center gap-3">
               {signedPdfUrl && (
                 <a
-                  href={signedPdfUrl}
+                  href={`/contract/${quote.contractShortId}/pdf`}
                   target="_blank"
                   rel="noopener"
                   className="flex items-center gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-cyan-500/20"
@@ -2202,38 +2202,43 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                   Previous Contracts
                 </h3>
                 <div className="space-y-2">
-                  {quote.signedPdfHistory.map((h, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-sm"
-                    >
-                      <div>
-                        <span className="text-gray-300">
-                          Version {i + 1}
-                          {h.signedAt && (
-                            <span className="ml-1 text-gray-500">
-                              — signed{" "}
-                              {new Date(h.signedAt).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                              })}
-                            </span>
-                          )}
-                        </span>
-                        {h.reason && (
-                          <p className="mt-0.5 text-xs text-gray-600">Updated: {h.reason}</p>
-                        )}
-                      </div>
-                      <a
-                        href={h.url}
-                        target="_blank"
-                        rel="noopener"
-                        className="flex-shrink-0 rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/20"
+                  {/* Newest superseded version first; v={original chronological index} so
+                      the branded /pdf route resolves the right archived blob. */}
+                  {quote.signedPdfHistory
+                    .map((h, i) => ({ h, i }))
+                    .reverse()
+                    .map(({ h, i }) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-sm"
                       >
-                        View PDF
-                      </a>
-                    </div>
-                  ))}
+                        <div>
+                          <span className="text-gray-300">
+                            Version {i + 1}
+                            {h.signedAt && (
+                              <span className="ml-1 text-gray-500">
+                                — signed{" "}
+                                {new Date(h.signedAt).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </span>
+                            )}
+                          </span>
+                          {h.reason && (
+                            <p className="mt-0.5 text-xs text-gray-600">Updated: {h.reason}</p>
+                          )}
+                        </div>
+                        <a
+                          href={`/contract/${quote.contractShortId}/pdf?v=${i}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="flex-shrink-0 rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/20"
+                        >
+                          View PDF
+                        </a>
+                      </div>
+                    ))}
                 </div>
               </div>
             )}
