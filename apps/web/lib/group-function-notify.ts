@@ -843,7 +843,8 @@ export async function notifyBalanceLinkSent(quote: GroupFunctionQuote): Promise<
 // The saved card was declined by the issuer when the 72h balance auto-charge ran.
 // Unlike the generic balance-due link, this tells the guest EXACTLY what happened and
 // sends them to the /pay page, where they can retry the same card or use a new one.
-// Guest + audit archive only (no planner cc — same dunning convention as balance-due).
+// BCC the standard GF oversight pair (vendorcases + jacob) so a decline is visible to
+// staff — a decline is operational, not routine dunning (owner 2026-06-22).
 
 export async function buildCardDeclinedContent(
   quote: GroupFunctionQuote,
@@ -912,7 +913,7 @@ export async function notifyCardDeclined(
       toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
-      bcc: AUDIT_ONLY_BCC,
+      bcc: GF_BCC,
       subject,
       html,
       text,
