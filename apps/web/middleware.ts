@@ -665,12 +665,13 @@ export async function middleware(request: NextRequest) {
 function bookingV2Target(pathname: string): string | null {
   if (/\/v2(?:\/|$)/.test(pathname)) return null;
   const p = (pathname.replace(/^\/hp/, "").replace(/\/+$/, "") || "/").toLowerCase();
-  // Post-payment confirmation screens are NOT booking entries — never redirect
-  // them into the v2 flow. Without this, the bowling/KBF prefix rules below
-  // (`startsWith("/book/bowling/")` etc.) caught `/hp/book/bowling/confirmation`
-  // and bounced paid customers — and the texted confirmation link — back to the
+  // Post-payment confirmation + self check-in screens are NOT booking entries —
+  // never redirect them into the v2 flow. Without this, the bowling/KBF prefix
+  // rules below (`startsWith("/book/bowling/")` etc.) caught
+  // `/hp/book/bowling/confirmation` and `/hp/book/bowling/checkin` and bounced
+  // paid customers — and the texted confirmation/lane-ready links — back to the
   // booking form's "Your Info" step.
-  if (p.includes("/confirmation")) return null;
+  if (p.includes("/confirmation") || p.includes("/checkin")) return null;
   if (p === "/book") return "/book/v2";
   if (p === "/book/race") return "/book/race/v2"; // exact — NOT /book/race-packs or /book/race/confirmation
   if (p === "/book/race-packs") return "/book/race-pack/v2"; // exact — NOT /book/race-packs/confirmation
