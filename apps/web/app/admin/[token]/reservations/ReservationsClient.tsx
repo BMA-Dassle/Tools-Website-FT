@@ -31,6 +31,10 @@ interface Reservation {
   squareDayofOrderId?: string;
   squareGiftCardGan?: string;
   shortCode?: string;
+  /** Canonical short confirmation link (/s/{code}) for this leg's BMI bill —
+   *  attached server-side for combo race legs so the combo View opens the same
+   *  short link the guest gets by email/SMS instead of a raw billId URL. */
+  confirmationShortUrl?: string;
   depositCents: number;
   totalCents: number;
   status: string;
@@ -119,6 +123,9 @@ interface ComboMergeInfo {
   legCount: number;
   /** Race leg's BMI bill — drives the multi-attraction (v2) confirmation view. */
   raceBillId?: string;
+  /** Canonical short link (/s/{code}) for the race leg's v2 confirmation —
+   *  preferred over a raw billId URL for the combo "View" link. */
+  raceShortUrl?: string;
 }
 
 interface GroupEvent {
@@ -473,6 +480,16 @@ function dollars(cents: number): string {
 
 function confirmPath(r: Reservation): string | null {
   return r.shortCode ? `/s/${r.shortCode}` : null;
+}
+
+/** Confirmation link for a (possibly combo) row. A combo's "View" opens the
+ *  multi-attraction (v2) confirmation via the race leg's BMI bill — prefer the
+ *  canonical short link (/s/{code}, matches the guest's email/SMS), falling
+ *  back to the raw billId URL, then to the normal per-row short code. */
+function comboConfirmPath(r: Reservation & { comboMerge?: ComboMergeInfo }): string | null {
+  if (r.comboMerge?.raceShortUrl) return r.comboMerge.raceShortUrl;
+  if (r.comboMerge?.raceBillId) return `/book/confirmation/v2?billId=${r.comboMerge.raceBillId}`;
+  return confirmPath(r);
 }
 
 /**
@@ -2176,10 +2193,12 @@ export default function ReservationsClient({ token }: { token: string }) {
       }));
       const totalCents =
         orders.reduce((s, o) => s + (o.leg.totalCents ?? 0), 0) || anchor.totalCents;
-      const raceBillId = legs.find((l) => l.productKind === "race")?.bmiBillId;
+      const raceLeg = legs.find((l) => l.productKind === "race");
+      const raceBillId = raceLeg?.bmiBillId;
+      const raceShortUrl = raceLeg?.confirmationShortUrl;
       out.push({
         ...anchor,
-        comboMerge: { totalCents, orders, legCount: legs.length, raceBillId },
+        comboMerge: { totalCents, orders, legCount: legs.length, raceBillId, raceShortUrl },
       });
     }
     return out.sort((a, b) => (a.eventAt ?? a.bookedAt).localeCompare(b.eventAt ?? b.bookedAt));
@@ -3419,10 +3438,9 @@ export default function ReservationsClient({ token }: { token: string }) {
                 const centerShort = centerShortOf(r.centerCode);
                 const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
                 // A combo's View opens the multi-attraction (v2) confirmation via
-                // the race leg's BMI bill, not the bowling-only page.
-                const cPath = r.comboMerge?.raceBillId
-                  ? `/book/confirmation/v2?billId=${r.comboMerge.raceBillId}`
-                  : confirmPath(r);
+                // the race leg's BMI bill (short link preferred), not the
+                // bowling-only page.
+                const cPath = comboConfirmPath(r);
                 return (
                   <div
                     key={r.id}
@@ -4609,15 +4627,9 @@ export default function ReservationsClient({ token }: { token: string }) {
                               })()}
                             {/* View — combo opens the multi-attraction (v2) view via
                                 the race leg's BMI bill; else the normal confirmation. */}
-                            {(r.comboMerge?.raceBillId
-                              ? `/book/confirmation/v2?billId=${r.comboMerge.raceBillId}`
-                              : confirmPath(r)) && (
+                            {comboConfirmPath(r) && (
                               <a
-                                href={
-                                  r.comboMerge?.raceBillId
-                                    ? `/book/confirmation/v2?billId=${r.comboMerge.raceBillId}`
-                                    : confirmPath(r)!
-                                }
+                                href={comboConfirmPath(r)!}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{

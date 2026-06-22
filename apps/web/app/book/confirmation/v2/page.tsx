@@ -1099,6 +1099,26 @@ export default function ConfirmationPage() {
               : parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
           const isThreePack = memoLines.some((l) => /3[\s-]?(race[\s-]?)?pack/i.test(l.name));
           const origin = typeof window !== "undefined" ? window.location.origin : "";
+          // Resolve the canonical short link (/s/{code}) per bill so the memo's
+          // Booking: line matches the link the customer gets by email/SMS and
+          // the one the admin board opens. Minted server-side (needs the HMAC
+          // secret); falls back to the raw billId URL so a memo is never linkless.
+          const shortLinks = new Map<string, string>();
+          await Promise.all(
+            allConfirmations.map(async (c) => {
+              try {
+                const linkRes = await fetch(
+                  `/api/booking/confirmation-link?billId=${c.billId}&v2=1`,
+                );
+                if (linkRes.ok) {
+                  const { shortUrl } = await linkRes.json();
+                  if (shortUrl) shortLinks.set(c.billId, shortUrl);
+                }
+              } catch {
+                /* fall back to the raw billId URL below */
+              }
+            }),
+          );
           for (const conf of allConfirmations) {
             const related = allConfirmations
               .filter((c) => c.billId !== conf.billId && c.resNumber)
@@ -1107,7 +1127,9 @@ export default function ConfirmationPage() {
             const memo = buildReservationMemo({
               comboNote: conf.billId === id ? comboNote : null,
               expressLaneResNumber: allWaiversValid ? conf.resNumber : null,
-              bookingUrl: origin ? `${origin}/book/confirmation/v2?billId=${conf.billId}` : null,
+              bookingUrl:
+                shortLinks.get(conf.billId) ??
+                (origin ? `${origin}/book/confirmation/v2?billId=${conf.billId}` : null),
               ultimateQualifierNote: uqNote,
               isThreeRacePack: isThreePack,
               povCodes: conf.billId === id ? claimedPovCodes : [],

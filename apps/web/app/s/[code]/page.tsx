@@ -27,6 +27,7 @@ export const dynamic = "force-dynamic";
  */
 
 const CLICK_TTL = 60 * 60 * 24 * 90; // 90 days
+const SHORT_TTL = 60 * 60 * 24 * 90; // 90 days — must match lib/short-url.ts
 const BOT_UA_RE =
   /bot\b|crawler|spider|preview|facebookexternalhit|whatsapp|telegrambot|slackbot|linkedinbot|discordbot|googlebot|bingbot|applebot|pinterestbot|curl\/|wget\/|python-requests|httpx/i;
 
@@ -57,6 +58,15 @@ export default async function ShortUrlRedirect({ params }: { params: Promise<{ c
 
   if (!url) {
     redirect("/");
+  }
+
+  // Refresh the short link's TTL on every real resolution so a link that's
+  // actually opened doesn't expire out from under the (permanent) BMI memo
+  // that now carries it. Best-effort — never block the redirect.
+  try {
+    await redis.expire(`short:${code}`, SHORT_TTL);
+  } catch {
+    /* non-fatal */
   }
 
   await trackClick(code);

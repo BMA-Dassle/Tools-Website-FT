@@ -7,6 +7,7 @@ import {
 } from "@/lib/bowling-db";
 import { getSurveysForReservations } from "@/lib/guest-survey-db";
 import { shortenUrl } from "@/lib/short-url";
+import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { getReservation } from "@/lib/qamf-bowling";
@@ -182,6 +183,23 @@ export async function GET(req: NextRequest) {
           if (lanes.length) r.dayofOrderLane = lanes.join(", ");
         } catch {
           /* non-fatal — lane just stays blank */
+        }
+      }),
+    );
+
+    // Attach the canonical short confirmation link to each combo RACE leg. A
+    // combo's "View" opens the multi-activity (v2) confirmation via the race
+    // leg's BMI bill; this gives staff the same /s/{code} short link the guest
+    // gets by email/SMS instead of a raw 17-digit billId URL. Deterministic +
+    // idempotent. Best-effort — never fails the response.
+    await Promise.all(
+      vipReservations.map(async (r) => {
+        if (r.productKind !== "race" || !r.bmiBillId) return;
+        try {
+          (r as { confirmationShortUrl?: string }).confirmationShortUrl =
+            await confirmationShortUrl(r.bmiBillId, true);
+        } catch {
+          /* non-fatal — client falls back to the raw billId URL */
         }
       }),
     );

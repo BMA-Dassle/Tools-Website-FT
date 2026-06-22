@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { createHmac, randomBytes } from "crypto";
 import QRCode from "qrcode";
 import redis from "@/lib/redis";
+import {
+  confirmationShortUrl,
+  signedConfirmationUrl,
+  verifyBillSignature as verifyBillSignatureShared,
+} from "@/lib/booking-confirmation-link";
+
+// Re-export so any existing importer of this route's signature verifier keeps
+// working after the helpers moved to lib/booking-confirmation-link.
+export const verifyBillSignature = verifyBillSignatureShared;
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -32,37 +40,6 @@ function getEmailTemplate(): string {
 
 function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "").replace(/^1/, "");
-}
-
-const HMAC_SECRET =
-  process.env.BOOKING_HMAC_SECRET || process.env.SENDGRID_API_KEY || "fasttrax-booking-secret";
-
-/** Create a signed confirmation URL so billId can't be guessed/tampered.
- *  v1 bookings point at /book/confirmation; v2 (multi-activity) bookings point
- *  at /book/confirmation/v2 so the receipt link opens the page that actually
- *  renders the booking. (Older /book/race/confirmation still redirects for
- *  legacy links — see app/book/race/confirmation/page.tsx.) */
-function signedConfirmationUrl(billId: string, v2 = false): string {
-  const sig = createHmac("sha256", HMAC_SECRET).update(billId).digest("hex").slice(0, 16);
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-  const path = v2 ? "/book/confirmation/v2" : "/book/confirmation";
-  return `${base}${path}?billId=${encodeURIComponent(billId)}&sig=${sig}&referrer=receipt`;
-}
-
-/** Verify a signed billId (for the confirmation page to validate) */
-export function verifyBillSignature(billId: string, sig: string): boolean {
-  const expected = createHmac("sha256", HMAC_SECRET).update(billId).digest("hex").slice(0, 16);
-  return sig === expected;
-}
-
-const SHORT_TTL = 90 * 24 * 60 * 60; // 90 days
-
-/** Create a short URL via Redis and return the short link */
-async function shortenUrl(url: string): Promise<string> {
-  const code = randomBytes(4).toString("base64url").slice(0, 6);
-  await redis.set(`short:${code}`, url, "EX", SHORT_TTL);
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-  return `${base}/s/${code}`;
 }
 
 async function sendEmail(
@@ -450,12 +427,13 @@ export async function POST(req: NextRequest) {
       let checkInHtml = `<tr><td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
         <p class="section-label" style="margin: 0 0 14px 0; text-align: center;">Where to Check In</p>`;
 
-      // Build short confirmation URL for email button
+      // Canonical short confirmation URL for the email button. Deterministic
+      // per billId, so email, SMS, the BMI memo, and the admin board all
+      // resolve to the SAME /s/{code} (one Redis key, one click bucket).
       let emailConfirmUrl = "";
       if (billId) {
         try {
-          const rawUrl = signedConfirmationUrl(billId, confirmationV2 === true);
-          emailConfirmUrl = await shortenUrl(rawUrl);
+          emailConfirmUrl = await confirmationShortUrl(billId, confirmationV2 === true);
         } catch {
           /* fall back */
         }
@@ -679,14 +657,14 @@ export async function POST(req: NextRequest) {
       try {
         const normalized = normalizePhone(phone);
         if (normalized.length >= 10) {
-          const rawConfirmLink = billId
-            ? signedConfirmationUrl(billId, confirmationV2 === true)
-            : "";
-          let shortConfirm = rawConfirmLink;
-          try {
-            if (rawConfirmLink) shortConfirm = await shortenUrl(rawConfirmLink);
-          } catch {
-            /* fall back to the full URL */
+          let shortConfirm = "";
+          if (billId) {
+            try {
+              shortConfirm = await confirmationShortUrl(billId, confirmationV2 === true);
+            } catch {
+              // Fall back to the full signed URL if the short-link mint fails.
+              shortConfirm = signedConfirmationUrl(billId, confirmationV2 === true);
+            }
           }
 
           // Compose date/time as a short ASCII string. `reservationDate`
