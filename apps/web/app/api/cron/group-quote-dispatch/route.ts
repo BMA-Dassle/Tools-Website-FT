@@ -317,8 +317,13 @@ async function processQueueItem(
       ? totalCents
       : Math.round(totalCents / 2);
 
-  // No-changes check: if pricing/products match, update contact info and re-send
-  if (existing && existing.contract_sent_at) {
+  // No-changes check: if pricing/products match, update contact info and re-send.
+  // ONLY for events still awaiting their first deposit — a paid event must NOT be
+  // re-sent or reset to "Pending Signed Contract" here. Doing so un-confirmed events
+  // that were already signed + paid (JW Marriott 8151885: confirmed at re-sign 6/22,
+  // then a dispatch pass yanked it back to Pending Signed Contract). Paid events fall
+  // through to the post-sign branch below, which syncs data without touching BMI state.
+  if (existing && existing.contract_sent_at && !existing.deposit_paid_at) {
     const existingProducts = (existing.line_items as unknown[]) || [];
     const pricingUnchanged =
       existing.total_cents === totalCents &&

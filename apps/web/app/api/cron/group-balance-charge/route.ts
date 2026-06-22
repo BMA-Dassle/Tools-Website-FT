@@ -222,6 +222,22 @@ async function processBalanceCharge(
         balance_payment_method: "auto_card",
       });
 
+      // Confirm the BMI event the moment money is fully collected — never leave it on
+      // "Pending Signed Contract" waiting on another process (non-fatal).
+      try {
+        const { updateProjectStatus, hasWaiverRequiredActivities } =
+          await import("@/lib/bmi-office-actions");
+        await updateProjectStatus({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          hasWaiverActivities: hasWaiverRequiredActivities(
+            (quote.line_items || []) as Array<{ name: string }>,
+          ),
+        });
+      } catch (err) {
+        console.error(`[group-balance-charge] BMI confirm failed quote=${quote.id}:`, err);
+      }
+
       console.log(
         `[group-balance-charge] auto-charged quote=${quote.id} ` +
           `amount=${quote.balance_cents} payment=${balancePaymentId}`,
