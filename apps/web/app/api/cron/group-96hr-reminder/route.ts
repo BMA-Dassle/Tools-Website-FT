@@ -10,10 +10,17 @@ import { verifyCron } from "@/lib/cron-auth";
  *
  * Runs every 15 minutes. Finds group function quotes where:
  *   - status = 'deposit_paid'
+ *   - a balance still remains (balance_cents > 0)
  *   - event is within 96 hours but more than 72 hours away
  *   - reminder hasn't been sent yet (no 96hr_reminder audit log)
  *
  * Sends a reminder email: verify details, update card, complete waivers.
+ *
+ * The balance_cents > 0 guard skips full-prepay bookings (anything booked within 96h
+ * is collected in full at deposit, so balance_cents = 0). Those have nothing to charge
+ * and their headcount is already locked in — without this guard they'd get a reminder
+ * promising "$0.00 will be charged tomorrow," which is both wrong and redundant on top
+ * of the deposit-paid confirmation they already received.
  */
 
 const CLIENT_KEYS: Record<string, string> = {
@@ -37,6 +44,7 @@ export async function GET(req: NextRequest) {
   const quotes = (await q`
     SELECT gfq.* FROM group_function_quotes gfq
     WHERE gfq.status = 'deposit_paid'
+      AND gfq.balance_cents > 0
       AND gfq.event_date > NOW() + INTERVAL '72 hours'
       AND gfq.event_date <= NOW() + INTERVAL '96 hours'
       AND NOT EXISTS (
