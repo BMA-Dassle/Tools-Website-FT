@@ -153,7 +153,7 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
   }, [submitPayment]);
 
   return (
-    <main className="mx-auto max-w-lg px-4 pt-28 pb-16">
+    <main className="mx-auto max-w-lg px-4 pt-36 pb-16">
       <div className="rounded-2xl bg-white/5 p-6 ring-1 ring-white/10 sm:p-8">
         <p className="mb-1 text-xs font-bold tracking-widest text-cyan-400 uppercase">
           {quote.centerName}
