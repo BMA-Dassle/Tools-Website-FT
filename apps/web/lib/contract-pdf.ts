@@ -609,8 +609,15 @@ export async function generateContractPdf(
   });
   ctx.y -= 6;
 
-  t(ctx, "50% Deposit — Due at Signing", M + 8, ctx.y - 12, { sz: 9, color: C.textSecondary });
-  const depStr = dollars(quote.deposit_due_cents);
+  // Once a deposit is collected, show what was actually PAID, not deposit_due_cents —
+  // the 96h dispatch flip inflates deposit_due_cents to the full total, which would
+  // misstate the deposit on a signed contract (Suffolk: $2,192.30 vs the real $1,298.24).
+  const depositShownCents =
+    quote.collected_cents > 0
+      ? Math.min(quote.deposit_due_cents, quote.collected_cents)
+      : quote.deposit_due_cents;
+  t(ctx, "Deposit — Due at Signing", M + 8, ctx.y - 12, { sz: 9, color: C.textSecondary });
+  const depStr = dollars(depositShownCents);
   const depW = fb.widthOfTextAtSize(depStr, 11);
   t(ctx, depStr, summaryValX - depW, ctx.y - 12, { font: fb, sz: 11, color: C.emerald });
   ctx.y -= 20;
@@ -637,7 +644,7 @@ export async function generateContractPdf(
   infoBox(ctx, "LOCATION & TIME", `${quote.center_name}  |  ${quote.event_date_display || ""}`);
 
   // Deposit Due
-  infoBox(ctx, "DEPOSIT DUE", `${dollars(quote.deposit_due_cents)} — Due at contract signing`);
+  infoBox(ctx, "DEPOSIT DUE", `${dollars(depositShownCents)} — Due at contract signing`);
 
   // Planner Notes
   if (quote.notes) {

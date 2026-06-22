@@ -31,9 +31,15 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
   let blobUrl: string;
   try {
     const filename = `contracts/${shortId}-signed.pdf`;
+    // allowOverwrite: a re-sign (after a reprice) regenerates the SAME path — without
+    // this, Vercel Blob rejects with "blob already exists" and the stale original-amount
+    // PDF is left in place (Suffolk e516f36e: signed PDF kept showing $2,596.47 after the
+    // event repriced to $2,192.30). addRandomSuffix is wrong here — the path must stay
+    // stable so signed_pdf_url / the /pdf route resolve.
     const blob = await put(filename, Buffer.from(pdfBytes), {
       access: "public",
       contentType: "application/pdf",
+      allowOverwrite: true,
     });
     blobUrl = blob.url;
   } catch (err) {
@@ -82,7 +88,7 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
         cc: quote.planner_email || undefined,
         subject: `Signed Contract — ${quote.event_name || quote.center_name}`,
         html: buildPdfEmailHtml(quote, blobUrl, plannerName, brandDomain),
-        text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${blobUrl}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(quote.deposit_due_cents / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
+        text: `Hi ${quote.guest_first_name},\n\nYour signed event contract is ready.\n\nDownload: ${blobUrl}\n\nEvent: ${quote.event_name}\nDate: ${quote.event_date_display}\nDeposit: $${(Math.min(quote.deposit_due_cents, quote.collected_cents) / 100).toFixed(2)}\n\nThank you!\n${plannerName}\n${quote.center_name}`,
       });
     } catch (err) {
       console.error("[generate-pdf] Email send failed:", err);
@@ -125,6 +131,7 @@ function buildPdfEmailHtml(
     center_name: string;
     event_date_display: string | null;
     deposit_due_cents: number;
+    collected_cents: number;
     balance_cents: number;
     planner_phone: string | null;
   },
@@ -146,7 +153,7 @@ function buildPdfEmailHtml(
       <table style="width:100%;font-size:13px;color:#94a3b8">
         <tr><td>Event</td><td style="text-align:right;color:white;font-weight:600">${quote.event_name || ""}</td></tr>
         <tr><td>Date</td><td style="text-align:right;color:white">${quote.event_date_display || ""}</td></tr>
-        <tr><td>Deposit Paid</td><td style="text-align:right;color:#22d3ee;font-weight:600">$${(quote.deposit_due_cents / 100).toFixed(2)}</td></tr>
+        <tr><td>Deposit Paid</td><td style="text-align:right;color:#22d3ee;font-weight:600">$${(Math.min(quote.deposit_due_cents, quote.collected_cents) / 100).toFixed(2)}</td></tr>
         <tr><td>Balance (72hrs before)</td><td style="text-align:right;color:white">$${(quote.balance_cents / 100).toFixed(2)}</td></tr>
       </table>
     </div>
