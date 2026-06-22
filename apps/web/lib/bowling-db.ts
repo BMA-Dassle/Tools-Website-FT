@@ -1176,12 +1176,20 @@ export async function markDayofOrderCompleted(id: number): Promise<void> {
  * race-dayof-pay); this runs AFTER them.
  *
  * Per past-event reservation (event time from booking_metadata heat/slot, else
- * booked_at; combos excluded — held):
- *   - showed/settled (arrived | checkin_method | dayof_order_sent_at) → completed
+ * booked_at):
+ *   - showed/settled → completed. Settled = arrived | checkin_method |
+ *     dayof_order_sent_at | a SIBLING sharing the same day-of order is settled.
+ *     The sibling case closes the attraction / 2nd leg of a combined checkout,
+ *     whose own row never gets sent/checkin (the bowling leg's lane-open settled
+ *     the shared order). COMBOS are included in this completed-flip (their orders
+ *     settle at deposit, so post-event this is a visibility-only flip) — without
+ *     it, combo racing/bowling legs lingered on the board indefinitely.
  *   - never-shown + unsettled + nothing to collect (no gift card OR $0) → no_show
  *   - never-shown + unsettled + funded (gift card + money) → LEFT untouched so
  *     the settle crons charge it first; the next run then flips it (completed).
- * confirm_failed / confirm_pending are LEFT (real issues that should surface).
+ * no_show / pendingSettle stay money-sensitive: combos and rows with a settled
+ * sibling are NEVER flipped to no_show. confirm_failed / confirm_pending are LEFT
+ * (real issues that should surface).
  */
 export async function closePastReservationStatuses(
   opts: { dryRun?: boolean } = {},
@@ -1198,19 +1206,33 @@ export async function closePastReservationStatuses(
     .toLocaleString("sv-SE", { timeZone: "America/New_York" })
     .replace(" ", "T");
   const rows = (await q`
-    SELECT id, product_kind pk, status, checkin_method ci, (dayof_order_sent_at IS NOT NULL) sent,
+    SELECT b.id, b.product_kind pk, b.status, b.checkin_method ci,
+           (b.dayof_order_sent_at IS NOT NULL) sent,
+           (b.combo_special_id IS NOT NULL) is_combo,
+           EXISTS (
+             SELECT 1 FROM bowling_reservations s
+             WHERE s.square_dayof_order_id = b.square_dayof_order_id
+               AND s.square_dayof_order_id IS NOT NULL AND s.square_dayof_order_id <> ''
+               AND s.id <> b.id
+               AND (s.checkin_method IS NOT NULL OR s.dayof_order_sent_at IS NOT NULL
+                    OR s.status IN ('arrived', 'completed'))
+           ) AS sibling_settled,
            COALESCE(
-             (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
-             (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
-             to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
+             (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'heats')='array' THEN b.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
+             (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'attractions')='array' THEN b.booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+             to_char(b.booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
            ) AS event_at
-    FROM bowling_reservations
-    WHERE combo_special_id IS NULL AND status IN ('confirmed', 'arrived')
+    FROM bowling_reservations b
+    WHERE b.status IN ('confirmed', 'arrived')
   `) as Array<Record<string, unknown>>;
   const past = rows.filter((r) => String(r.event_at) < cutoff);
-  // Showed up or already settled → completed.
+  // Showed up or already settled → completed (see doc comment). sibling_settled
+  // closes the attraction/2nd leg of a combined checkout; combos are included.
   const toCompleted = past
-    .filter((r) => r.status === "arrived" || r.ci != null || r.sent === true)
+    .filter(
+      (r) =>
+        r.status === "arrived" || r.ci != null || r.sent === true || r.sibling_settled === true,
+    )
     .map((r) => r.id as number);
   // Bowling/KBF that was never checked in and not settled → no_show NOW
   // (visibility), regardless of whether it's funded. The money is decoupled:
@@ -1223,15 +1245,20 @@ export async function closePastReservationStatuses(
         r.status === "confirmed" &&
         r.ci == null &&
         r.sent !== true &&
+        r.sibling_settled !== true &&
+        r.is_combo !== true &&
         (r.pk === "open" || r.pk === "kbf"),
     )
     .map((r) => r.id as number);
-  // Past, unsettled race/attraction awaiting their (fast) settle cron.
+  // Past, unsettled race/attraction awaiting their (fast) settle cron. Combos and
+  // sibling-settled rows are excluded — they're handled by toCompleted above.
   const pendingSettle = past.filter(
     (r) =>
       r.status === "confirmed" &&
       r.ci == null &&
       r.sent !== true &&
+      r.sibling_settled !== true &&
+      r.is_combo !== true &&
       r.pk !== "open" &&
       r.pk !== "kbf",
   ).length;
