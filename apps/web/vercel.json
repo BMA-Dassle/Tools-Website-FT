@@ -101,6 +101,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/group-resign-reminder",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/group-7day-waiver",
       "schedule": "0 */4 * * *"
     },

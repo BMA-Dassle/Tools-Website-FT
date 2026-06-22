@@ -214,6 +214,139 @@ export async function notifyContractUpdated(quote: GroupFunctionQuote): Promise<
   if (!updatedOk) alertContractEmailFailed(quote);
 }
 
+// ── Re-sign Urgency Reminder (updated contract still unsigned) ──────
+//
+// Fired by the group-resign-reminder cron for quotes stuck in `resign_required`
+// (price changed after deposit → guest must re-sign before we can re-confirm the
+// event and settle the balance). Two escalating tiers keyed off time-to-event:
+//   - "48h": friendly nudge ~2 days out (blue CTA).
+//   - "24h": FINAL NOTICE ~1 day out (red CTA, stronger copy).
+// Sends email (from/cc planner, GF_BCC) + SMS (if a phone is on file). The amounts
+// shown are derived from real money collected (`collected_cents`), never
+// `deposit_due_cents` (which the 96h dispatch flip inflates to the full total).
+
+/**
+ * Build the re-sign reminder copy (subject, HTML, plaintext, SMS) WITHOUT sending —
+ * exported so it can be previewed/tested. `notifyResignReminder` wraps this and sends.
+ */
+export async function buildResignReminderContent(
+  quote: GroupFunctionQuote,
+  tier: "48h" | "24h",
+): Promise<{ subject: string; html: string; text: string; sms: string }> {
+  const isFinal = tier === "24h";
+  const src = isFinal ? "24hr_resign" : "48hr_resign";
+  const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_${src}`;
+  const smsUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_${src}`;
+  const pName = plannerName(quote);
+  const event = quote.event_name || "your event";
+  const paidCents = Math.min(quote.deposit_due_cents, quote.collected_cents);
+
+  const subject = isFinal
+    ? `FINAL NOTICE: signature required — ${event} is tomorrow`
+    : `Action needed: your updated contract for ${event} needs your signature`;
+
+  const heroTitle = isFinal ? "Final notice — signature required" : "One signature still needed";
+  const heroSubtitle = isFinal
+    ? `${event} is tomorrow and your updated contract is still unsigned`
+    : `Your updated contract for ${event} is waiting — please re-sign to lock it in`;
+
+  const ctaLabel = isFinal ? "SIGN NOW TO CONFIRM" : "REVIEW & SIGN";
+  const ctaClass = isFinal ? "cta-btn red" : "cta-btn";
+
+  const lead = isFinal
+    ? `<p style="margin:0 0 16px;font-size:15px;color:#475569"><strong style="color:#d71c1c">Your event is tomorrow</strong> and your updated contract for <strong style="color:#0f172a">${event}</strong> at ${quote.center_name} still hasn't been signed. <strong style="color:#0f172a">We can't confirm your reservation until you re-sign.</strong> Please take 30 seconds to review and sign now.</p>`
+    : `<p style="margin:0 0 16px;font-size:15px;color:#475569">Your contract for <strong style="color:#0f172a">${event}</strong> at ${quote.center_name} was recently updated, and it still needs your signature. <strong style="color:#0f172a">Your event isn't confirmed until you re-sign.</strong> It only takes a moment.</p>`;
+
+  const urgencyBox = isFinal
+    ? `<div style="background:#fde8e8;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #d71c1c">
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#991b1b">⏰ Last chance — event is tomorrow</p>
+        <p style="margin:0;font-size:13px;color:#7f1d1d">Without your signature we can't guarantee your lanes/activities or settle your balance. If anything has changed or you have questions, call ${pName}${quote.planner_phone ? ` at ${quote.planner_phone}` : ""} right away.</p>
+      </div>`
+    : `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Why am I getting this?</p>
+        <p style="margin:0;font-size:13px;color:#78350f">Your event details or pricing changed, so the contract was reissued. Re-signing confirms the new details and keeps your reservation locked in.</p>
+      </div>`;
+
+  const sms = isFinal
+    ? [
+        `${quote.guest_first_name}, FINAL NOTICE: ${event} is tomorrow (${quote.event_date_display || ""}) and your updated contract is still unsigned.`,
+        `We can't confirm your reservation until you re-sign: ${smsUrl}`,
+        `Questions? Call ${pName}${quote.planner_phone ? ` at ${quote.planner_phone}` : ""}.`,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : [
+        `${quote.guest_first_name}, your updated contract for ${event} on ${quote.event_date_display || "your event date"} still needs your signature to confirm your reservation.`,
+        `Please re-sign here: ${smsUrl}`,
+      ].join("\n");
+
+  const html = await emailShell(
+    quote,
+    heroTitle,
+    heroSubtitle,
+    `${lead}
+        ${urgencyBox}
+        <div style="text-align:center;margin:24px 0">
+          <a href="${contractUrl}" class="${ctaClass}" style="display:inline-block;padding:14px 28px;background-color:${isFinal ? "#d71c1c" : "#004aad"};color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase">${ctaLabel}</a>
+        </div>
+
+        <table style="width:100%;margin:16px 0;border-collapse:collapse">
+          ${pricingRow("Event", event)}
+          ${pricingRow("Date", quote.event_date_display || "")}
+          ${paidCents > 0 ? pricingRow("Paid so far", dollars(paidCents)) : ""}
+          ${pricingRow("Balance Remaining", dollars(quote.balance_cents), true)}
+          ${pricingRow("Total", dollars(quote.total_cents))}
+        </table>
+
+        <p style="margin:0;font-size:13px;color:#64748b;text-align:center">Questions? Reply to this email or contact ${pName}.</p>`,
+  );
+
+  const text = `Hi ${quote.guest_first_name},\n\n${
+    isFinal
+      ? `FINAL NOTICE: ${event} is tomorrow (${quote.event_date_display || ""}) and your updated contract is still unsigned. We can't confirm your reservation until you re-sign.`
+      : `Your updated contract for ${event} still needs your signature. Your event isn't confirmed until you re-sign.`
+  }\n\nReview & sign: ${contractUrl}\n\nBalance remaining: ${dollars(quote.balance_cents)}\n\nQuestions? Reply to this email or contact ${pName}.\n\n${pName}\n${quote.center_name}`;
+
+  return { subject, html, text, sms };
+}
+
+export async function notifyResignReminder(
+  quote: GroupFunctionQuote,
+  tier: "48h" | "24h",
+): Promise<void> {
+  const { subject, html, text, sms } = await buildResignReminderContent(quote, tier);
+
+  const results = await Promise.allSettled([
+    quote.guest_phone ? voxSend(quote.guest_phone, sms) : Promise.resolve(),
+    sendEmail({
+      to: quote.guest_email,
+      toName: `${quote.guest_first_name} ${quote.guest_last_name}`,
+      from: plannerFrom(quote),
+      replyTo: quote.planner_email || undefined,
+      cc: plannerCc(quote),
+      bcc: GF_BCC,
+      subject,
+      html,
+      text,
+    }),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      console.error(`[gf-notify] resign reminder (${tier}) failed:`, r.reason);
+    }
+  }
+
+  const sentOk = emailOk(results[1]);
+  memoLog(
+    quote,
+    sentOk
+      ? `Re-sign ${tier} urgency reminder sent to ${quote.guest_email}`
+      : `Re-sign ${tier} urgency reminder email FAILED to ${quote.guest_email}`,
+  );
+  if (!sentOk) alertContractEmailFailed(quote);
+}
+
 // ── Deposit Paid ────────────────────────────────────────────────────
 
 export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void> {
