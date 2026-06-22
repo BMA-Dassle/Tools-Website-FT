@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type PackageDefinition,
   packageBundleTotal,
@@ -9,6 +9,12 @@ import {
   primaryTrack,
 } from "~/features/booking/service/packages";
 import { bmiAdapter } from "~/features/booking/data/bmi";
+import { violatesMinGapAfter } from "~/features/booking/service/conflict";
+
+// Loosest gap we'll ever allow between the two races of a multi-race package
+// (the late-night fallback applied in PackageHeatPicker). If not even this fits
+// for the selected day, the package is a guaranteed dead-end → disable it.
+const MIN_PACKAGE_GAP_MINUTES = 30;
 
 interface PackageCardProps {
   pkg: PackageDefinition;
@@ -20,7 +26,28 @@ interface PackageCardProps {
 
 export function PackageCard({ pkg, racerCount, date, isSelected, onSelect }: PackageCardProps) {
   const racers = Math.max(1, racerCount);
-  const { livePrices, loading: pricesLoading } = usePackageLivePrices(pkg, date);
+  const {
+    livePrices,
+    heatsByRef,
+    loading: pricesLoading,
+  } = usePackageAvailability(pkg, date, racers);
+
+  // Multi-race gate: a package with a min-gap rule (e.g. the Ultimate Qualifier:
+  // Intermediate ≥ 60 min after the Starter ends) is a dead-end late at night
+  // when no Starter→Intermediate pair fits even at the 30-min floor. Disable the
+  // card with a reason instead of letting the customer pick a Starter that can't
+  // be paired. (The heat picker drops 60→30 itself when 60 can't be satisfied.)
+  const blocked = useMemo(() => {
+    const gateRace = pkg.races.find((r) => r.minMinutesAfterEndOf);
+    if (!gateRace?.minMinutesAfterEndOf || !heatsByRef) return false;
+    const prev = heatsByRef[gateRace.minMinutesAfterEndOf.ref] ?? [];
+    const next = heatsByRef[gateRace.ref] ?? [];
+    if (prev.length === 0 || next.length === 0) return true;
+    const fits = prev.some((p) =>
+      next.some((n) => !violatesMinGapAfter(p.stop, n.start, MIN_PACKAGE_GAP_MINUTES)),
+    );
+    return !fits;
+  }, [pkg.races, heatsByRef]);
 
   const perRacer = livePrices
     ? pkg.races.reduce((sum, r) => sum + (livePrices[r.ref] ?? primaryTrack(r).price), 0) +
@@ -34,11 +61,15 @@ export function PackageCard({ pkg, racerCount, date, isSelected, onSelect }: Pac
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={blocked ? undefined : onSelect}
+      disabled={blocked}
+      aria-disabled={blocked}
       className={`w-full rounded-xl border p-4 text-left transition-all duration-200 ${
-        isSelected
-          ? "border-2 border-amber-500/40 bg-linear-to-br from-amber-500/10 to-amber-500/5 ring-2 ring-amber-500/30 ring-offset-2 ring-offset-[#010A20]"
-          : "border-amber-500/20 bg-linear-to-br from-amber-500/10 to-amber-500/5 hover:border-amber-500/40"
+        blocked
+          ? "cursor-not-allowed border-white/10 bg-white/[0.02] opacity-50"
+          : isSelected
+            ? "border-2 border-amber-500/40 bg-linear-to-br from-amber-500/10 to-amber-500/5 ring-2 ring-amber-500/30 ring-offset-2 ring-offset-[#010A20]"
+            : "border-amber-500/20 bg-linear-to-br from-amber-500/10 to-amber-500/5 hover:border-amber-500/40"
       }`}
     >
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
@@ -122,21 +153,39 @@ export function PackageCard({ pkg, racerCount, date, isSelected, onSelect }: Pac
         )}
       </ul>
 
-      {savings > 0 && (
+      {savings > 0 && !blocked && (
         <div className="mt-2 flex items-baseline justify-between text-xs">
           <span className="font-bold text-amber-400">You save ${savings.toFixed(2)}</span>
           <span className="text-white/40 line-through">${retail.toFixed(2)}</span>
+        </div>
+      )}
+
+      {blocked && (
+        <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-white/55">
+          Not enough time left today to fit both races. Book the {pkg.name} earlier in the day, or
+          choose a single race.
         </div>
       )}
     </button>
   );
 }
 
-function usePackageLivePrices(
+interface HeatTime {
+  start: string;
+  stop: string;
+}
+
+function usePackageAvailability(
   pkg: PackageDefinition,
   date: string | null,
-): { livePrices: Record<string, number> | null; loading: boolean } {
+  racers: number,
+): {
+  livePrices: Record<string, number> | null;
+  heatsByRef: Record<string, HeatTime[]> | null;
+  loading: boolean;
+} {
   const [livePrices, setLivePrices] = useState<Record<string, number> | null>(null);
+  const [heatsByRef, setHeatsByRef] = useState<Record<string, HeatTime[]> | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -146,6 +195,7 @@ function usePackageLivePrices(
 
     (async () => {
       const prices: Record<string, number> = {};
+      const heats: Record<string, HeatTime[]> = {};
       for (const race of pkg.races) {
         const track = primaryTrack(race);
         try {
@@ -153,19 +203,23 @@ function usePackageLivePrices(
             date,
             productId: track.productId,
             pageId: track.pageId,
-            quantity: 1,
+            quantity: Math.max(1, racers),
           });
-          const firstBlock = avail.proposals?.[0]?.blocks?.[0]?.block;
-          const cashPrice = firstBlock?.prices?.find((p) => p.depositKind === 0);
+          const blocks = (avail.proposals ?? [])
+            .map((p) => p.blocks?.[0]?.block)
+            .filter((b): b is NonNullable<typeof b> => Boolean(b));
+          heats[race.ref] = blocks.map((b) => ({ start: b.start, stop: b.stop }));
+          const cashPrice = blocks[0]?.prices?.find((p) => p.depositKind === 0);
           if (cashPrice) {
             prices[race.ref] = cashPrice.amount;
           }
         } catch {
-          /* fallback to registry price */
+          heats[race.ref] = heats[race.ref] ?? [];
         }
       }
       if (!cancelled) {
         setLivePrices(Object.keys(prices).length > 0 ? prices : null);
+        setHeatsByRef(heats);
         setLoading(false);
       }
     })();
@@ -173,7 +227,7 @@ function usePackageLivePrices(
     return () => {
       cancelled = true;
     };
-  }, [date, pkg.id, pkg.races]);
+  }, [date, pkg.id, pkg.races, racers]);
 
-  return { livePrices, loading };
+  return { livePrices, heatsByRef, loading };
 }

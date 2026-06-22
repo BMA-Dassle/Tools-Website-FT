@@ -219,6 +219,30 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
     return list;
   }, [queries, fetchItems]);
 
+  // Effective min-gap per component. Defaults to the configured value (e.g. the
+  // Ultimate Qualifier's 60 min after the Starter), but when NO heat for this
+  // component can satisfy that gap after the referenced pick, fall back to 30 min
+  // so a late-night booking isn't dead-ended. The card-level gate already hid the
+  // package if not even 30 min fits, so this only ever loosens 60 → 30.
+  const effectiveGapByRef = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const comp of sortedComponents) {
+      const gap = packageHeatGapMinutes(comp);
+      if (!gap) continue;
+      const prev = picks.get(gap.ref);
+      if (!prev) {
+        m.set(comp.ref, gap.minutes);
+        continue;
+      }
+      const compProposals = allProposals.filter((tp) => tp.component.ref === comp.ref);
+      const anyFitsConfigured = compProposals.some(
+        (tp) => !violatesMinGapAfter(prev.block.stop, tp.block.start, gap.minutes),
+      );
+      m.set(comp.ref, anyFitsConfigured ? gap.minutes : Math.min(gap.minutes, 30));
+    }
+    return m;
+  }, [sortedComponents, picks, allProposals]);
+
   // Auto-scroll CTA when last pick is made
   useEffect(() => {
     if (allPicked) {
@@ -376,16 +400,17 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
               const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
               const blockStart = parseLocal(tp.block.start).getTime();
 
-              // Gap rule
+              // Gap rule (with the late-night 60→30 fallback from effectiveGapByRef)
               const gap = packageHeatGapMinutes(component);
+              const gapMinutes = gap ? (effectiveGapByRef.get(component.ref) ?? gap.minutes) : 0;
               const prevPick = gap ? picks.get(gap.ref) : null;
               const isGapViolation =
                 prevPick && gap
-                  ? violatesMinGapAfter(prevPick.block.stop, tp.block.start, gap.minutes)
+                  ? violatesMinGapAfter(prevPick.block.stop, tp.block.start, gapMinutes)
                   : false;
               const gapAnchor =
                 prevPick && gap
-                  ? { stop: prevPick.block.stop, minutes: gap.minutes, refLabel: gap.ref }
+                  ? { stop: prevPick.block.stop, minutes: gapMinutes, refLabel: gap.ref }
                   : null;
 
               // Standard heat conflict with all existing picks
