@@ -724,3 +724,51 @@ export function hasWaiverRequiredActivities(lineItems: Array<{ name: string }>):
     WAIVER_ACTIVITIES.some((w) => item.name.toLowerCase().includes(w)),
   );
 }
+
+// ── Single point: BMI side-effects when a group-function payment is collected ──
+//
+// EVERY path that collects money for a group function (deposit, 72h balance auto-charge,
+// web /pay, re-sign reprice delta) must call this so BMI stays in sync. Historically only
+// the deposit route confirmed + recorded the payment, so balance/delta collections left
+// the event on "Pending Signed Contract" and showing a balance still owed in BMI
+// (JW Marriott, 2026-06-22). Keep this the ONE place that does it — new payment paths call
+// this instead of re-implementing updateProjectStatus + recordProjectPayment and dropping
+// a step. Fully non-fatal: a BMI hiccup never fails the (already-captured) Square payment.
+export async function confirmAndRecordBmiPayment(params: {
+  centerCode: string;
+  projectId: string;
+  lineItems: Array<{ name: string }>;
+  /** Dollars collected on THIS payment (deposit, balance, or reprice delta). <=0 skips. */
+  amountDollars: number;
+  /** Optional private-note line (path-specific context: GAN, "balance", "delta", etc.). */
+  note?: string;
+  contractUrl?: string;
+}): Promise<void> {
+  try {
+    await updateProjectStatus({
+      centerCode: params.centerCode,
+      projectId: params.projectId,
+      hasWaiverActivities: hasWaiverRequiredActivities(params.lineItems),
+    });
+    if (params.amountDollars > 0) {
+      await recordProjectPayment({
+        centerCode: params.centerCode,
+        projectId: params.projectId,
+        amountDollars: params.amountDollars,
+      });
+    }
+    if (params.note) {
+      await appendProjectPrivateNote({
+        centerCode: params.centerCode,
+        projectId: params.projectId,
+        note: `[${noteTimestamp()}] ${params.note}`,
+        contractUrl: params.contractUrl,
+      });
+    }
+  } catch (err) {
+    console.error(
+      `[bmi-office] confirmAndRecordBmiPayment failed for project ${params.projectId}:`,
+      err,
+    );
+  }
+}

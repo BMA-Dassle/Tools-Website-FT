@@ -366,38 +366,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update BMI Office: status + record payment + private note
-    try {
-      const {
-        updateProjectStatus,
-        recordProjectPayment,
-        hasWaiverRequiredActivities,
-        appendProjectPrivateNote,
-      } = await import("@/lib/bmi-office-actions");
-      const items = (quote.line_items || []) as Array<{ name: string }>;
-      await updateProjectStatus({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        hasWaiverActivities: hasWaiverRequiredActivities(items),
-      });
-      await recordProjectPayment({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        amountDollars: depositCents / 100,
-      });
-
-      const { noteTimestamp } = await import("@/lib/bmi-office-actions");
-      const contractUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`;
-      const ts = noteTimestamp();
-      await appendProjectPrivateNote({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        note: `[${ts}] Deposit paid: $${(depositCents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((effectiveTotalCents - depositCents) / 100).toFixed(2)}`,
-        contractUrl,
-      });
-    } catch (err) {
-      console.error("[gf-deposit] BMI Office update error:", err);
-    }
+    // Single point: confirm BMI + record the deposit payment + note.
+    const { confirmAndRecordBmiPayment } = await import("@/lib/bmi-office-actions");
+    await confirmAndRecordBmiPayment({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      lineItems: (quote.line_items || []) as Array<{ name: string }>,
+      amountDollars: depositCents / 100,
+      note: `Deposit paid: $${(depositCents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${((effectiveTotalCents - depositCents) / 100).toFixed(2)}`,
+      contractUrl: `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`,
+    });
 
     firePortalWebhookAsync("payment.deposit_paid", {
       documentId: quote.contract_short_id,
@@ -654,46 +632,20 @@ async function handleLegacyDeposit(
       }
     }
 
-    try {
-      const {
-        updateProjectStatus,
-        recordProjectPayment,
-        hasWaiverRequiredActivities,
-        appendProjectPrivateNote,
-        noteTimestamp,
-      } = await import("@/lib/bmi-office-actions");
-      const items = (quote.line_items || []) as Array<{ name: string }>;
-      await updateProjectStatus({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        hasWaiverActivities: hasWaiverRequiredActivities(items),
-      });
-      if (chargeCents > 0) {
-        await recordProjectPayment({
-          centerCode: quote.center_code,
-          projectId: quote.bmi_reservation_id,
-          amountDollars: chargeCents / 100,
-        });
-      }
-
-      const contractUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`;
-      const ts = noteTimestamp();
-      const parts = [
-        `[${ts}] Legacy deposit: $${(priorDepositCents / 100).toFixed(2)} → GC ${compGc.gan}`,
-      ];
-      if (chargeCents > 0) {
-        parts.push(`+ charged $${(chargeCents / 100).toFixed(2)}`);
-      }
-      parts.push(`| Balance: $${(balanceCents / 100).toFixed(2)}`);
-      await appendProjectPrivateNote({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        note: parts.join(" "),
-        contractUrl,
-      });
-    } catch (err) {
-      console.error("[gf-deposit-legacy] BMI Office update error:", err);
-    }
+    // Single point: confirm BMI + record the charged amount (if any) + note.
+    const { confirmAndRecordBmiPayment } = await import("@/lib/bmi-office-actions");
+    const legacyNote =
+      `Legacy deposit: $${(priorDepositCents / 100).toFixed(2)} → GC ${compGc.gan}` +
+      (chargeCents > 0 ? ` + charged $${(chargeCents / 100).toFixed(2)}` : "") +
+      ` | Balance: $${(balanceCents / 100).toFixed(2)}`;
+    await confirmAndRecordBmiPayment({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      lineItems: (quote.line_items || []) as Array<{ name: string }>,
+      amountDollars: chargeCents / 100,
+      note: legacyNote,
+      contractUrl: `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`,
+    });
 
     firePortalWebhookAsync("payment.deposit_paid", {
       documentId: quote.contract_short_id,

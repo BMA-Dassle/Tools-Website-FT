@@ -165,26 +165,15 @@ export async function POST(req: NextRequest) {
       balance_payment_method: "web",
     });
 
-    // Confirm the BMI event + record the balance payment immediately on full payment
-    // (non-fatal).
-    try {
-      const { updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities } =
-        await import("@/lib/bmi-office-actions");
-      await updateProjectStatus({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        hasWaiverActivities: hasWaiverRequiredActivities(
-          (quote.line_items || []) as Array<{ name: string }>,
-        ),
-      });
-      await recordProjectPayment({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        amountDollars: quote.balance_cents / 100,
-      });
-    } catch (err) {
-      console.error(`[gf-balance-pay] BMI confirm/record failed quote=${quote.id}:`, err);
-    }
+    // Single point: confirm BMI + record the balance payment (non-fatal). The
+    // "Balance paid online" private note is appended below.
+    const { confirmAndRecordBmiPayment } = await import("@/lib/bmi-office-actions");
+    await confirmAndRecordBmiPayment({
+      centerCode: quote.center_code,
+      projectId: quote.bmi_reservation_id,
+      lineItems: (quote.line_items || []) as Array<{ name: string }>,
+      amountDollars: quote.balance_cents / 100,
+    });
 
     console.log(
       `[gf-balance-pay] quote=${quote.id} charged $${(quote.balance_cents / 100).toFixed(2)} ` +

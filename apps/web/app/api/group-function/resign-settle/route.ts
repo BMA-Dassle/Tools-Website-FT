@@ -47,27 +47,14 @@ async function reconfirmBmi(
   },
   recordPaymentCents?: number,
 ) {
-  try {
-    const { updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities } =
-      await import("@/lib/bmi-office-actions");
-    const items = (quote.line_items || []) as Array<{ name: string }>;
-    await updateProjectStatus({
-      centerCode: quote.center_code,
-      projectId: quote.bmi_reservation_id,
-      hasWaiverActivities: hasWaiverRequiredActivities(items),
-    });
-    // Record the just-charged delta to BMI so its balance reflects what we collected
-    // (only the deposit was ever recorded before — re-sign deltas were missing).
-    if (recordPaymentCents && recordPaymentCents > 0) {
-      await recordProjectPayment({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        amountDollars: recordPaymentCents / 100,
-      });
-    }
-  } catch (err) {
-    console.error(`[resign-settle] BMI re-confirm/record failed for quote ${quote.id}:`, err);
-  }
+  // Single point: confirm BMI + (optionally) record the just-charged reprice delta.
+  const { confirmAndRecordBmiPayment } = await import("@/lib/bmi-office-actions");
+  await confirmAndRecordBmiPayment({
+    centerCode: quote.center_code,
+    projectId: quote.bmi_reservation_id,
+    lineItems: (quote.line_items || []) as Array<{ name: string }>,
+    amountDollars: (recordPaymentCents ?? 0) / 100,
+  });
 }
 
 export async function POST(req: NextRequest) {

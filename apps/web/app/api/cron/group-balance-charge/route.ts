@@ -222,27 +222,15 @@ async function processBalanceCharge(
         balance_payment_method: "auto_card",
       });
 
-      // Confirm the BMI event + record the balance payment the moment money is fully
-      // collected — never leave it on "Pending Signed Contract" or showing the balance
-      // still owed in BMI (non-fatal).
-      try {
-        const { updateProjectStatus, recordProjectPayment, hasWaiverRequiredActivities } =
-          await import("@/lib/bmi-office-actions");
-        await updateProjectStatus({
-          centerCode: quote.center_code,
-          projectId: quote.bmi_reservation_id,
-          hasWaiverActivities: hasWaiverRequiredActivities(
-            (quote.line_items || []) as Array<{ name: string }>,
-          ),
-        });
-        await recordProjectPayment({
-          centerCode: quote.center_code,
-          projectId: quote.bmi_reservation_id,
-          amountDollars: quote.balance_cents / 100,
-        });
-      } catch (err) {
-        console.error(`[group-balance-charge] BMI confirm/record failed quote=${quote.id}:`, err);
-      }
+      // Single point: confirm BMI + record the balance payment (non-fatal). The
+      // "Balance charged via saved card" private note is appended below.
+      const { confirmAndRecordBmiPayment } = await import("@/lib/bmi-office-actions");
+      await confirmAndRecordBmiPayment({
+        centerCode: quote.center_code,
+        projectId: quote.bmi_reservation_id,
+        lineItems: (quote.line_items || []) as Array<{ name: string }>,
+        amountDollars: quote.balance_cents / 100,
+      });
 
       console.log(
         `[group-balance-charge] auto-charged quote=${quote.id} ` +
