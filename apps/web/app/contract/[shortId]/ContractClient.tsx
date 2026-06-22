@@ -1925,7 +1925,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                     <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
                       {isFullPayment ? "Paid in Full" : "Deposit Applied"}
                     </p>
-                    <p className="text-2xl font-extrabold">{fmtDollars(quote.depositDueCents)}</p>
+                    {/* Real money collected — NOT depositDueCents, which the 96h dispatch
+                        flip inflates to the full total (Suffolk H3004: showed $2,192.30
+                        "deposit applied" when only $1,298.24 was paid). */}
+                    <p className="text-2xl font-extrabold">{fmtDollars(quote.collectedCents)}</p>
                   </div>
                 </div>
               </div>
