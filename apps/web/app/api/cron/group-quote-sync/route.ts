@@ -85,6 +85,12 @@ export async function GET(req: NextRequest) {
   let waiversSent = 0;
   if (!dryRun) {
     try {
+      // Skip the deposit-time waiver reminder for events 36-96h out: the dedicated
+      // 2-day final warning (36-60h window, group-7day-waiver cron) reliably catches
+      // anything booked >36h out, so sending this one too would stack a second waiver
+      // email on a short-notice booking. We still send it for far-out events (>96h, an
+      // early heads-up) and for sub-36h events (≤36h — too close for the 2-day window
+      // to fire, so this is their only waiver nudge). The excluded band is (36h, 96h].
       const waiverDue = (await q`
         SELECT * FROM group_function_quotes
         WHERE deposit_paid_at IS NOT NULL
@@ -92,6 +98,10 @@ export async function GET(req: NextRequest) {
           AND deposit_paid_at < NOW() - INTERVAL '5 minutes'
           AND status NOT IN ('cancelled', 'denied', 'expired')
           AND event_date > NOW()
+          AND (
+            event_date > NOW() + INTERVAL '96 hours'
+            OR event_date <= NOW() + INTERVAL '36 hours'
+          )
         LIMIT 5
       `) as GroupFunctionQuote[];
 

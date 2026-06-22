@@ -259,11 +259,11 @@ export async function buildResignReminderContent(
 
   const urgencyBox = isFinal
     ? `<div style="background:#fde8e8;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #d71c1c">
-        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#991b1b">⏰ Last chance — event is tomorrow</p>
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#991b1b">Last chance — event is tomorrow</p>
         <p style="margin:0;font-size:13px;color:#7f1d1d">Without your signature we can't guarantee your lanes/activities or settle your balance. If anything has changed or you have questions, call ${pName}${quote.planner_phone ? ` at ${quote.planner_phone}` : ""} right away.</p>
       </div>`
     : `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
-        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Why am I getting this?</p>
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">Why am I getting this?</p>
         <p style="margin:0;font-size:13px;color:#78350f">Your event details or pricing changed, so the contract was reissued. Re-signing confirms the new details and keeps your reservation locked in.</p>
       </div>`;
 
@@ -1036,7 +1036,7 @@ export async function notifyBalanceDueFinal(
       ? voxSend(
           quote.guest_phone,
           [
-            `${quote.guest_first_name}, your event at ${quote.center_name} is ${dayWord}! 🎉`,
+            `${quote.guest_first_name}, your event at ${quote.center_name} is ${dayWord}!`,
             `Get the final balance on your contract (${dollars(amountDue)}) out of the way now — then it's all fun from there: ${payUrl}`,
             `Extras? Your server can add items on-site. Questions? Contact ${pName}.`,
           ].join("\n"),
@@ -1049,10 +1049,10 @@ export async function notifyBalanceDueFinal(
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
       bcc: AUDIT_ONLY_BCC,
-      subject: `Your Event is ${dayWord} 🎉 — Settle Up & Let the Fun Begin! (${quote.event_name || quote.center_name})`,
+      subject: `Your Event is ${dayWord} — Settle Up & Let the Fun Begin! (${quote.event_name || quote.center_name})`,
       html: await emailShell(
         quote,
-        `${quote.guest_first_name}, your event is almost HERE! 🎉`,
+        `${quote.guest_first_name}, your event is almost HERE!`,
         "Get the final balance out of the way — then it's all fun",
         `<p style="margin:0 0 16px;font-size:15px;color:#475569">The big day is almost here! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} kicks off ${dayPhrase}. Take one minute to settle the final balance on your contract now, and the only thing left to do when you walk in is have fun — no paperwork, no waiting, straight to the good part.</p>
         <table style="width:100%;margin:16px 0;border-collapse:collapse">
@@ -1141,7 +1141,7 @@ export async function notifyHeadcountFinal(
         "Last chance to update your event before we finalize your total",
         `<p style="margin:0 0 16px;font-size:15px;color:#475569">Your event <strong style="color:#0f172a">${eventLabel}</strong> at ${quote.center_name} is coming up! If anything has changed — guests, lanes, food, add-ons, or timing — now's the time to let us know.</p>
         <div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
-          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Last chance to make changes</p>
+          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">Last chance to make changes</p>
           <p style="margin:0;font-size:13px;color:#78350f">If your order has changed, now's the time. Reply to this email or contact ${pName} and we'll update your total — once your balance is finalized, your order is locked in.</p>
         </div>
         ${ctaButton("View Event Details", url)}
@@ -1317,7 +1317,7 @@ export async function notifyWinbackBalanceDueFinal(
       ? voxSend(
           quote.guest_phone,
           [
-            `${quote.guest_first_name}, your event at ${quote.center_name} is ${dayWord}! 🎉`,
+            `${quote.guest_first_name}, your event at ${quote.center_name} is ${dayWord}!`,
             `Get the final balance out of the way now — add your card to settle the ${dollars(amountDue)} contracted balance, and your ${bonus} e-gift card still applies: ${url}`,
             `Extras? Your server can add items on-site. Questions? Contact ${pName}.`,
           ].join("\n"),
@@ -1330,10 +1330,10 @@ export async function notifyWinbackBalanceDueFinal(
       from: plannerFrom(quote),
       replyTo: quote.planner_email || undefined,
       bcc: AUDIT_ONLY_BCC,
-      subject: `Your Event is ${dayWord} 🎉 — Settle Up, Get ${bonus}, Let the Fun Begin`,
+      subject: `Your Event is ${dayWord} — Settle Up, Get ${bonus}, Let the Fun Begin`,
       html: await emailShell(
         quote,
-        `${quote.guest_first_name}, your event is almost HERE! 🎉`,
+        `${quote.guest_first_name}, your event is almost HERE!`,
         `Settle your balance now — your ${bonus} e-gift card still applies`,
         `<p style="margin:0 0 16px;font-size:15px;color:#475569">The big day is almost here! <strong style="color:#0f172a">${quote.event_name || "Your event"}</strong> at ${quote.center_name} kicks off ${dayPhrase}. Get the final balance out of the way now: add a card on file and we'll settle your contracted balance of <strong style="color:#004aad">${dollars(amountDue)}</strong> right away — your <strong style="color:#004aad">${bonus} e-gift card</strong> is issued the moment your card is on file, and the rest is pure fun.</p>
         <table style="width:100%;margin:16px 0;border-collapse:collapse">
@@ -1374,7 +1374,7 @@ export async function notify96HourReminder(
   const waiverBlock =
     hasWaivers && waiverUrl
       ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
-        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">⚠ Waivers Required</p>
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">Waivers Required</p>
         <p style="margin:0 0 12px;font-size:13px;color:#78350f">Some of your activities require signed waivers for all participants. Please make sure your group completes their waivers before the event.</p>
         <a href="${waiverUrl}" style="display:inline-block;padding:10px 24px;background-color:#f59e0b;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px">Complete Waivers</a>
       </div>`
@@ -1410,7 +1410,7 @@ export async function notify96HourReminder(
         `<p style="margin:0 0 16px;font-size:15px;color:#475569">We're getting excited for <strong style="color:#0f172a">${quote.event_name || "your event"}</strong> at ${quote.center_name}! Your remaining balance of <strong style="color:#004aad">${dollars(quote.balance_cents)}</strong> will be automatically charged to your card on file tomorrow.</p>
 
         <div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
-          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">📋 Final chance to change your headcount</p>
+          <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">Final chance to change your headcount</p>
           <p style="margin:0;font-size:13px;color:#78350f">We'll charge for ${quote.guest_count ? `<strong>${quote.guest_count} guests</strong>` : "your current guest count"} when your balance runs tomorrow. Need to adjust? Reply to this email or contact ${pName} today — after the charge, your total is locked in.</p>
         </div>
 
@@ -1472,7 +1472,7 @@ export async function notifyBalanceReceipt(
   const waiverBlock =
     hasWaivers && waiverUrl
       ? `<div style="background:#fff3cd;border-radius:12px;padding:16px;margin:16px 0;border-left:4px solid #f59e0b">
-        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">⚠ Reminder: Complete Your Waivers</p>
+        <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#92400e">Reminder: Complete Your Waivers</p>
         <p style="margin:0 0 12px;font-size:13px;color:#78350f">All participants must have signed waivers before the event.</p>
         <a href="${waiverUrl}" style="display:inline-block;padding:10px 24px;background-color:#f59e0b;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:13px">Complete Waivers</a>
       </div>`
@@ -1849,7 +1849,7 @@ function waiverNoticeRow(waiverUrl: string | null): string {
   <!-- WAIVER NOTICE -->
   <tr><td style="padding:0 40px 24px 40px;font-family:Arial,sans-serif">
     <div style="background:#fef2f2;border:2px solid #dc2626;border-radius:12px;padding:18px;text-align:center">
-      <p style="margin:0 0 6px;font-size:15px;font-weight:bold;color:#dc2626;text-transform:uppercase;letter-spacing:1px">⚠️ Waivers Required</p>
+      <p style="margin:0 0 6px;font-size:15px;font-weight:bold;color:#dc2626;text-transform:uppercase;letter-spacing:1px">Waivers Required</p>
       <p style="margin:0 0 12px;font-size:14px;color:#7f1d1d;line-height:1.6">If your event includes <strong>laser tag, gel blasters, or go-kart racing</strong>, ALL participants must sign a waiver before the event. Share the link with everyone attending — signed waivers mean no waiting at check-in!</p>
       ${
         waiverUrl
