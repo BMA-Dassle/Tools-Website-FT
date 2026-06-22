@@ -20,6 +20,7 @@ import {
   HEAT_CONFLICT_TOOLTIP,
   heatsConflict,
 } from "~/features/booking/service/conflict";
+import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { holdPickedHeats } from "~/features/booking/service/race";
 import { RacerSelectorModal } from "./RacerSelectorModal";
@@ -59,7 +60,7 @@ import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track
  * date is a buyout (v1 HeatPicker:211-237).
  */
 
-const NEW_RACER_LEAD_MINUTES = 75;
+const NEW_RACER_LEAD_MINUTES = 45;
 
 // Single-race products have no fixed raceCount. Allow a racer to book MORE than
 // one heat (up to this many per racer) so they can race multiple times in a
@@ -81,6 +82,9 @@ interface TrackedProposal {
   block: BmiBlock;
   productId: string;
   track: TrackOrNull;
+  /** Set when a restriction rule disables (but doesn't hide) this slot — e.g.
+   *  the Mega opening-heats express-lane rule. Drives the disabled card label. */
+  restriction?: { cardLabel?: string; reason?: string };
 }
 
 /** Pick identity = product + start time, so heats stay uniquely keyed even as a
@@ -363,21 +367,55 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     const allProposals = useMemo<TrackedProposal[]>(() => {
       const list: TrackedProposal[] = [];
+      const nowMs = Date.now();
       queries.forEach((q, qi) => {
         const fp = fetchPlan[qi];
         if (!fp || !q.data?.proposals) return;
+        // Restriction config keys off tier + track (e.g. Mega Pro). The blocks
+        // for THIS query share the product, so they're the occupancy signal the
+        // back-to-back rule reads (a neighbor with freeSpots < capacity = an
+        // active same-tier session — see race-restriction-rules.ts).
+        const tier = getRaceProductById(fp.productId)?.tier;
+        const restrictionBlocks = q.data.proposals
+          .map((p) => p.blocks?.[0]?.block)
+          .filter((b): b is BmiBlock => !!b)
+          .map((b) => ({
+            startMs: parseLocal(b.start).getTime(),
+            freeSpots: b.freeSpots,
+            capacity: b.capacity,
+          }));
         for (const p of q.data.proposals) {
           const block = p.blocks?.[0]?.block;
           if (!block) continue;
           if (leadCutoffMs > 0 && parseLocal(block.start).getTime() < leadCutoffMs) continue;
-          list.push({ proposal: p, block, productId: fp.productId, track: fp.track });
+          // Apply restriction rules: "hide" drops the slot (back-to-back Mega
+          // Pro); "disable" keeps it but greys it out with a label (Mega
+          // opening-heats express-lane only).
+          const verdict = evaluateRaceRestrictions({
+            tier,
+            track: fp.track,
+            candidateStartMs: parseLocal(block.start).getTime(),
+            nowMs,
+            productBlocks: restrictionBlocks,
+            expressEligible: allReturningHaveWaivers,
+          });
+          if (verdict.blocked && verdict.action === "hide") continue;
+          list.push({
+            proposal: p,
+            block,
+            productId: fp.productId,
+            track: fp.track,
+            restriction: verdict.blocked
+              ? { cardLabel: verdict.cardLabel, reason: verdict.reason }
+              : undefined,
+          });
         }
       });
       list.sort(
         (a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime(),
       );
       return list;
-    }, [queries, fetchPlan, leadCutoffMs]);
+    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers]);
 
     // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
     // immediately; on failure releases anything that succeeded and reverts the
@@ -656,10 +694,19 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 heatStart.getHours() * 60 + heatStart.getMinutes() < reopenMins;
               const isLowCap = block.freeSpots < partySize;
               const isCapped = atCap && !isSelected;
+              // Restriction rule that disables (not hides) this slot — e.g. the
+              // Mega opening-heats express-lane rule (race-restriction-rules.ts).
+              const isRestricted = !isSelected && !!tp.restriction;
               const isFull =
-                isLowCap || isConflict || isCapped || isEventReserved || isBeforeReopen;
-              const statusLabel =
-                isEventReserved || isBeforeReopen
+                isLowCap ||
+                isConflict ||
+                isCapped ||
+                isEventReserved ||
+                isBeforeReopen ||
+                isRestricted;
+              const statusLabel = isRestricted
+                ? (tp.restriction!.cardLabel ?? "Not available")
+                : isEventReserved || isBeforeReopen
                   ? "Reserved for event"
                   : isConflict
                     ? "Too close to picked heat"
@@ -669,7 +716,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                         ? "Unselect a picked heat to change"
                         : spotsLabel(block.freeSpots, block.capacity).label;
               const statusClass =
-                isEventReserved || isBeforeReopen || isConflict
+                isRestricted || isEventReserved || isBeforeReopen || isConflict
                   ? "text-amber-400"
                   : isLowCap
                     ? "text-red-400"
@@ -701,7 +748,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   type="button"
                   onClick={() => !isFull && !holding && handleClickBlock(tp)}
                   disabled={isFull || holding}
-                  title={isConflict ? HEAT_CONFLICT_TOOLTIP : undefined}
+                  title={
+                    isRestricted
+                      ? tp.restriction!.reason
+                      : isConflict
+                        ? HEAT_CONFLICT_TOOLTIP
+                        : undefined
+                  }
                   className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
                 >
                   {isThisHolding && (

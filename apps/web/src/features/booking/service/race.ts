@@ -14,10 +14,16 @@
  */
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
-import type { BookingSession, PartyMember, RaceItem } from "../state/types";
-import { bmiAdapter, type BmiProposal } from "../data/bmi";
+import type { BookingSession, PartyMember, RaceItem, RaceHeatAssignment } from "../state/types";
+import {
+  bmiAdapter,
+  type BmiProposal,
+  type BmiAvailabilityResponse,
+  type BmiBlock,
+} from "../data/bmi";
 import { registerContact } from "./bmi-register";
 import { getPackage } from "./packages";
+import { evaluateRaceRestrictions } from "./race-restriction-rules";
 
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
@@ -128,6 +134,7 @@ export async function bookHeatsOnAdvance(
     if (!matchingProposal) {
       throw new Error(`Heat at ${heat.heatId} is no longer available`);
     }
+    assertHeatBookable(session, heat, availability);
 
     const result = await bmiAdapter.bookHeat({
       productId: target.productId,
@@ -248,6 +255,7 @@ export async function holdPickedHeats(
       });
       const matchingProposal = findProposalForHeat(availability.proposals, heat.heatId);
       if (!matchingProposal) throw new Error("that time just filled up");
+      assertHeatBookable(session, heat, availability);
 
       const result = await bmiAdapter.bookHeat({
         productId: target.productId,
@@ -343,6 +351,7 @@ export async function holdRaceItem(
     if (!matchingProposal) {
       throw new Error(`Heat at ${heat.heatId} no longer available for product ${heat.productId}`);
     }
+    assertHeatBookable(session, heat, availability);
 
     const result = await bmiAdapter.bookHeat({
       productId: target.productId,
@@ -598,12 +607,88 @@ async function ensurePersonId(
 
 // ── internal: race-products lookups (imports hoisted; used above) ───────
 
-import { bmiBookingTarget, resolveBuildPair } from "./race-products";
+import { bmiBookingTarget, getRaceProductById, resolveBuildPair } from "./race-products";
 
 // ── internal: find a proposal matching a heat's start time ──────────────
 
 function normalizeIso(s: string): string {
   return s.replace(/Z$/, "").replace(/\.\d{3}$/, "");
+}
+
+/**
+ * Convert a naive center-local (America/New_York) wall-clock timestamp like
+ * "2026-06-23T17:24:00" to true epoch ms. BMI returns heat times WITHOUT a
+ * timezone, and this code runs server-side in UTC, so a naive `Date.parse`
+ * would be off by the ET offset — fine for relative gap math, wrong for the
+ * "within 60 min of now" override. Intl-based, no dependency, DST-correct.
+ */
+function centerWallClockToEpochMs(naiveIso: string): number {
+  const guessUtc = Date.parse(naiveIso.replace(/Z$/, "") + "Z");
+  if (!Number.isFinite(guessUtc)) return NaN;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(guessUtc));
+  const m: Record<string, number> = {};
+  for (const p of parts) if (p.type !== "literal") m[p.type] = Number(p.value);
+  const renderedAsUtc = Date.UTC(m.year, m.month - 1, m.day, m.hour, m.minute, m.second);
+  return guessUtc - (renderedAsUtc - guessUtc);
+}
+
+/**
+ * Authoritative server-side guard for config restriction rules
+ * (race-restriction-rules.ts). Mirrors the client-side filter in
+ * RaceHeatPickerStep so a stale client or a direct API call can't slip a
+ * restricted heat (e.g. back-to-back Mega Pro) onto the bill. Throws when the
+ * heat is blocked; no-op otherwise. `availability` is the SAME response the
+ * caller just fetched for this heat's product, so its freeSpots is the live
+ * global occupancy signal.
+ */
+function assertHeatBookable(
+  session: BookingSession,
+  heat: RaceHeatAssignment,
+  availability: BmiAvailabilityResponse,
+): void {
+  if (!heat.heatId) return;
+  const product = heat.productId ? getRaceProductById(heat.productId) : null;
+  const tier = heat.tier ?? product?.tier;
+  const track = heat.track ?? product?.track ?? null;
+  if (!tier || !track) return;
+
+  const productBlocks = availability.proposals
+    .map((p) => p.blocks?.[0]?.block)
+    .filter((b): b is BmiBlock => !!b)
+    .map((b) => ({
+      startMs: centerWallClockToEpochMs(b.start),
+      freeSpots: b.freeSpots,
+      capacity: b.capacity,
+    }));
+
+  // Express-lane eligibility — mirrors RaceHeatPickerStep's allReturningHaveWaivers:
+  // no new racer in the heat's category AND every returning racer has a valid waiver.
+  const category = heat.category ?? product?.category ?? "adult";
+  const anyNewInCategory = session.party.some(
+    (m) => (m.category ?? "adult") === category && m.isNewRacer,
+  );
+  const expressEligible =
+    !anyNewInCategory &&
+    session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
+
+  const verdict = evaluateRaceRestrictions({
+    tier,
+    track,
+    candidateStartMs: centerWallClockToEpochMs(heat.heatId),
+    nowMs: Date.now(),
+    productBlocks,
+    expressEligible,
+  });
+  if (verdict.blocked) throw new Error(verdict.reason ?? "That heat can't be booked.");
 }
 
 function findProposalForHeat(
