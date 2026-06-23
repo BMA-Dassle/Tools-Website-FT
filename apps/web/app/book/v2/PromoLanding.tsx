@@ -342,6 +342,18 @@ export function PromoLanding({
   );
 }
 
+/** Gold checkmark bullet for the combo "What's included" lists. */
+function ComboCheck({ gold }: { gold: string }) {
+  return (
+    <span
+      className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+      style={{ backgroundColor: `${gold}25`, color: gold }}
+    >
+      ✓
+    </span>
+  );
+}
+
 /** Combo-special landing card — same visual language as AttractionCard, with a
  *  gold "Best Value"/"Ultimate VIP" badge, the per-person day-tier pricing, and
  *  both venue logos (a combo spans FastTrax racing + HeadPinz bowling).
@@ -412,9 +424,6 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
             <h3 className="font-display text-2xl font-black uppercase tracking-wider text-white sm:text-3xl">
               {combo.name}
             </h3>
-            {(combo.perks?.length ?? 0) > 0 && (
-              <p className="mt-1 text-xs text-white/70 sm:text-sm">{combo.perks!.join(" · ")}</p>
-            )}
           </div>
         )}
       </div>
@@ -426,9 +435,53 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
             {combo.name}
           </h3>
         )}
-        <p className="font-body mb-2 text-sm leading-relaxed text-white/50">
-          {combo.includes.join(" + ")}
-        </p>
+
+        {/* What's included — one labeled, grouped checklist (the activities
+            you do + the VIP perks) so the package reads as a single offering,
+            not two competing lists scattered around the card */}
+        <div className={`mb-4 grid grid-cols-1 gap-x-6 gap-y-3 ${premium ? "sm:grid-cols-2" : ""}`}>
+          <div>
+            <p
+              className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
+              style={{ color: gold }}
+            >
+              Your experience
+            </p>
+            <ul className="space-y-1">
+              {combo.includes.map((item) => (
+                <li
+                  key={item}
+                  className="flex items-start gap-2 text-sm leading-snug text-white/80"
+                >
+                  <ComboCheck gold={gold} />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+          {(combo.perks?.length ?? 0) > 0 && (
+            <div>
+              <p
+                className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
+                style={{ color: gold }}
+              >
+                VIP perks included
+              </p>
+              <ul className="space-y-1">
+                {combo.perks!.map((item) => (
+                  <li
+                    key={item}
+                    className="flex items-start gap-2 text-sm leading-snug text-white/80"
+                  >
+                    <ComboCheck gold={gold} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
         <p className="font-body mb-3 flex-1 text-sm leading-relaxed">
           <span className="font-bold text-white">
             {fmtPrice(combo.price.weekday)}/person Mon–Thu
