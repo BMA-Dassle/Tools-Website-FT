@@ -46,6 +46,13 @@ const SQ = {
   VIP_BOWLING: "R66TY2VTICYUH4NM3F4UQVLF",
   // Shoe rental ($5 variation) — combo's split-out shoe line.
   SHOE_RENTAL: "BVJ2ZSW6N4FPSPSPSB4IN7LA",
+  // Ultimate VIP Experience — single collapsed line per center (owner 2026-06-23).
+  // Dedicated items so combo revenue stops sharing the Ultimate Qualifier / VIP
+  // Bowling buckets: the racing share books at FastTrax FM, the bowling share at
+  // HeadPinz FM. License / POV / shoes are folded into these amounts (no separate
+  // Square lines; the $0 BMI records still book).
+  VIP_EXPERIENCE_RACING: "XH7LTCURLERNTQ34A6GCOOJB",
+  VIP_EXPERIENCE_BOWLING: "LS7F7HYTFMQTWIHZHHOHKSPO",
   DUCKPIN: "EXW7E74IRPYJAQFA4YIIEW3G",
   SHUFFLY_30: "J2FGLI7X4FSO4X35W4ZXI52L",
   SHUFFLY_1HR: "47RPZJOQU3VSIDFRFBPNZPED",

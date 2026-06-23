@@ -5,6 +5,18 @@ import { comboStartHoursLabel, type ComboSpecial } from "~/features/combos";
 
 const GOLD = "#FFD700";
 
+/** Gold checkmark bullet for the combo "What's included" lists. */
+function ComboCheck() {
+  return (
+    <span
+      className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+      style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
+    >
+      ✓
+    </span>
+  );
+}
+
 /** Cents → "$65" (whole dollars) or "$65.50" when not whole. */
 export function formatComboPrice(cents: number): string {
   const dollars = cents / 100;
@@ -106,38 +118,51 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
           {combo.shortDescription}
         </p>
 
-        <div className={premium ? "mb-4 grid grid-cols-1 gap-x-8 sm:grid-cols-2" : "mb-4"}>
-          <ul
-            className="font-heading uppercase"
-            style={{
-              color: "rgba(245,236,238,0.8)",
-              fontSize: "16px",
-              lineHeight: "2",
-              letterSpacing: "0.8px",
-            }}
-          >
-            {combo.includes.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          {premium && (combo.perks?.length ?? 0) > 0 && (
-            <ul className="font-body mt-3 space-y-1.5 sm:mt-0">
-              {combo.perks!.map((perk) => (
+        {/* What's included — one labeled, grouped checklist (the activities
+            you do + the VIP perks) so the package reads as a single offering,
+            not two competing lists in two different styles */}
+        <div className={premium ? "mb-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2" : "mb-4"}>
+          <div>
+            <p
+              className="font-heading uppercase mb-2"
+              style={{ color: combo.accentColor, fontSize: "12px", letterSpacing: "2px" }}
+            >
+              Your experience
+            </p>
+            <ul className="font-body space-y-1.5">
+              {combo.includes.map((line) => (
                 <li
-                  key={perk}
-                  className="flex items-center gap-2"
-                  style={{ color: "rgba(245,236,238,0.75)", fontSize: "14px" }}
+                  key={line}
+                  className="flex items-start gap-2"
+                  style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.4" }}
                 >
-                  <span
-                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-                    style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
-                  >
-                    ✓
-                  </span>
-                  {perk}
+                  <ComboCheck />
+                  {line}
                 </li>
               ))}
             </ul>
+          </div>
+          {premium && (combo.perks?.length ?? 0) > 0 && (
+            <div className="mt-3 sm:mt-0">
+              <p
+                className="font-heading uppercase mb-2"
+                style={{ color: combo.accentColor, fontSize: "12px", letterSpacing: "2px" }}
+              >
+                VIP perks included
+              </p>
+              <ul className="font-body space-y-1.5">
+                {combo.perks!.map((perk) => (
+                  <li
+                    key={perk}
+                    className="flex items-start gap-2"
+                    style={{ color: "rgba(245,236,238,0.75)", fontSize: "14px", lineHeight: "1.4" }}
+                  >
+                    <ComboCheck />
+                    {perk}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
 

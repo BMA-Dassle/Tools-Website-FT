@@ -244,64 +244,35 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     includedPovPerRacer: 1,
     startHours: [14, 16, 18, 20, 22],
     premium: true,
-    // Model A (owner-approved 2026-06-13): itemized split → two day-of orders.
-    // FastTrax racing (flat both tiers) + HeadPinz VIP bowling (weekend uplift
-    // on the bowling line). Sums to 6500 wd / 7500 we per person; returning
-    // racers' skipped $4.99 license rolls onto the Starter Race line.
+    // Collapsed split (owner 2026-06-23): ONE line per center, not an itemized
+    // parts list. The flat per-person price routes as a single FastTrax racing
+    // line + a single HeadPinz bowling line, each to its center's own day-of
+    // order + dedicated catalog item — so combo revenue stops sharing the
+    // Ultimate Qualifier / VIP Bowling reporting buckets. License, POV, and shoes
+    // are FOLDED INTO these amounts (the $0 BMI records still book; no separate
+    // Square lines). Weekend uplift is SHARED: FastTrax $44→$49, HeadPinz $21→$26.
+    // Sums to 6500 wd / 7500 we per person. Because each entity has exactly one
+    // line, comboItemizedLines aggregates to a single line per order. Portal
+    // breakdown (internal, owner 2026-06-23): FastTrax $44/$49 = Starter $17/$19.50
+    // + Intermediate $17/$19.50 + POV $5 + License $5; HeadPinz $21/$26 =
+    // VIP lane $16/$21 + Shoes $5.
     revenueSplit: [
       {
-        key: "starter-race",
-        label: "Starter Race",
+        key: "vip-racing",
+        label: "Ultimate VIP Experience",
         entity: "fasttrax-fm",
-        catalogObjectId: SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER,
-        weekdayCents: 1700,
-        weekendCents: 1700,
+        catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_RACING,
+        weekdayCents: 4400,
+        weekendCents: 4900,
         appliesTo: "allRacers",
-      },
-      {
-        key: "intermediate-race",
-        label: "Intermediate Race",
-        entity: "fasttrax-fm",
-        catalogObjectId: SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER,
-        weekdayCents: 1700,
-        weekendCents: 1700,
-        appliesTo: "allRacers",
-      },
-      {
-        key: "pov",
-        label: "POV Video",
-        entity: "fasttrax-fm",
-        catalogObjectId: SQUARE_CATALOG_IDS.POV,
-        weekdayCents: 500,
-        weekendCents: 500,
-        appliesTo: "allRacers",
-      },
-      {
-        key: "license",
-        label: "FastTrax License",
-        entity: "fasttrax-fm",
-        catalogObjectId: SQUARE_CATALOG_IDS.LICENSE,
-        weekdayCents: 499,
-        weekendCents: 499,
-        appliesTo: "newRacersOnly",
-        reallocateTo: "starter-race",
       },
       {
         key: "vip-bowling",
-        label: "VIP Bowling",
+        label: "Ultimate VIP Experience",
         entity: "headpinz-fm",
-        catalogObjectId: SQUARE_CATALOG_IDS.VIP_BOWLING,
-        weekdayCents: 1601,
-        weekendCents: 2601,
-        appliesTo: "allRacers",
-      },
-      {
-        key: "shoes",
-        label: "Shoes",
-        entity: "headpinz-fm",
-        catalogObjectId: SQUARE_CATALOG_IDS.SHOE_RENTAL,
-        weekdayCents: 500,
-        weekendCents: 500,
+        catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_BOWLING,
+        weekdayCents: 2100,
+        weekendCents: 2600,
         appliesTo: "allRacers",
       },
     ],
