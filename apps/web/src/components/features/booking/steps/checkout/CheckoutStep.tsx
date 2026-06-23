@@ -269,16 +269,16 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
         }
       }
 
-      // Combo with `flatCartDisplay`: collapse its itemized revenue-split lines
-      // ("VIP Exp - …") into ONE all-inclusive package line so the customer sees
-      // one price, not a parts list. Display only — the charge stays itemized
-      // (two day-of orders); the collapsed amount is the exact itemized sum, so
-      // the displayed total still equals the charge. Non-combo lines (e.g. an
-      // add-on attraction) stay itemized.
+      // Combo with `flatCartDisplay`: collapse its per-center revenue lines into
+      // ONE all-inclusive package line so the customer sees one price, not a
+      // parts list. Display only — the charge stays split across the two day-of
+      // orders; the collapsed amount is the exact sum, so the displayed total
+      // still equals the charge. Non-combo lines (e.g. an add-on attraction) stay
+      // itemized. Both center lines are named for the combo itself
+      // ("Ultimate VIP Experience"), so name === combo.name catches them.
       const flatCombo = activeComboSpecial(session);
       if (flatCombo?.combo.flatCartDisplay) {
-        const isComboLine = (l: BillOverview["lines"][number]) =>
-          l.name.startsWith("VIP Exp - ") || l.name === flatCombo.combo.name;
+        const isComboLine = (l: BillOverview["lines"][number]) => l.name === flatCombo.combo.name;
         const comboLines = reviewLines.filter(isComboLine);
         if (comboLines.length > 0) {
           const amount = Math.round(comboLines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
