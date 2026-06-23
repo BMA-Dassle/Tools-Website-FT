@@ -32,6 +32,7 @@ import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
+import { wallClockMs } from "~/features/combos/combo-itinerary";
 import { notifyComboBooked } from "~/features/combos/combo-notify";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
@@ -956,6 +957,21 @@ async function unifiedReserveInner(
           .map((l) => l.LaneNumber)
           .filter((n) => n != null)
           .join(", ");
+        // Reorder fallback: the combo ran race → race → bowl (lane AFTER both
+        // races) when the lane starts later than every race heat. Stamp it so
+        // the confirmation page's reservation memo lists the visit plan in the
+        // order it will actually run, not the registry's primary order.
+        const comboRaceStartsMs = session.items
+          .filter((i): i is RaceItem => i.kind === "race")
+          .flatMap((ri) => ri.heats)
+          .map((h) => h.heatId)
+          .filter((s): s is string => !!s)
+          .map((s) => wallClockMs(s));
+        const comboBowlMs = item.bookedAt ? wallClockMs(item.bookedAt) : null;
+        const comboReorder =
+          comboBowlMs != null &&
+          comboRaceStartsMs.length > 0 &&
+          comboRaceStartsMs.every((m) => m < comboBowlMs);
         if (lane) {
           try {
             const key = `bookingrecord:${session.bmiBillId}`;
@@ -964,7 +980,7 @@ async function unifiedReserveInner(
               const rec = typeof existing === "string" ? JSON.parse(existing) : existing;
               await redis.set(
                 key,
-                JSON.stringify({ ...rec, bowlingLane: lane }),
+                JSON.stringify({ ...rec, bowlingLane: lane, comboReorder }),
                 "EX",
                 60 * 60 * 24 * 90,
               );

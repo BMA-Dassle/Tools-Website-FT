@@ -13,7 +13,7 @@ import { sendEmail } from "@/lib/sendgrid";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 
-import { wallClockLabel } from "./combo-itinerary";
+import { wallClockLabel, wallClockMs } from "./combo-itinerary";
 import { getComboSpecial } from "./combo-specials";
 
 const COMBO_BOOKED_RECIPIENTS = [
@@ -52,40 +52,67 @@ export async function notifyComboBooked(args: {
         })
       : "—";
 
-    // Itinerary rows: distinct race blocks (time · tier · track) + the lane.
+    // Itinerary rows: distinct race blocks (time · tier · track) + the lane,
+    // each carrying its wall-clock ms so we render in ACTUAL chronological
+    // order — correct whether bowling runs in the middle (normal) or last
+    // (reorder fallback). Also detect the reorder so managers get a scheduling
+    // heads-up.
     const raceRows = [
       ...new Map(
         (raceItem?.heats ?? [])
           .filter((h) => h.heatId)
           .map((h) => [
             `${h.heatId}|${h.track ?? ""}`,
-            `${wallClockLabel(h.heatId!)} — ${cap(h.tier ?? "race")} Race${h.track ? ` (${h.track} Track)` : ""}`,
+            {
+              ms: wallClockMs(h.heatId!),
+              label: `${wallClockLabel(h.heatId!)} — ${cap(h.tier ?? "race")} Race${h.track ? ` (${h.track} Track)` : ""}`,
+            },
           ]),
       ).values(),
     ];
-    const bowlingRow = bowlingItem?.bookedAt
-      ? `${wallClockLabel(bowlingItem.bookedAt)} — ${(bowlingItem.durationMinutes ?? 90) / 60} hr ${
-          bowlingItem.tier === "vip" ? "VIP " : ""
-        }Bowling (${bowlingItem.laneCount} lane${bowlingItem.laneCount === 1 ? "" : "s"})`
-      : null;
-    const itinerary = [raceRows[0], bowlingRow, ...raceRows.slice(1)].filter(Boolean) as string[];
+    const bowlMs = bowlingItem?.bookedAt ? wallClockMs(bowlingItem.bookedAt) : null;
+    const bowlingRow =
+      bowlingItem?.bookedAt && bowlMs != null
+        ? {
+            ms: bowlMs,
+            label: `${wallClockLabel(bowlingItem.bookedAt)} — ${(bowlingItem.durationMinutes ?? 90) / 60} hr ${
+              bowlingItem.tier === "vip" ? "VIP " : ""
+            }Bowling (${bowlingItem.laneCount} lane${bowlingItem.laneCount === 1 ? "" : "s"})`,
+          }
+        : null;
+    const itinerary = [...raceRows, ...(bowlingRow ? [bowlingRow] : [])]
+      .sort((a, b) => a.ms - b.ms)
+      .map((r) => r.label);
+
+    // Reorder fallback: the lane runs AFTER both races (it wasn't free between
+    // them). Managers need to know — the visit order differs from the standard
+    // race → bowl → race, which changes lane/track scheduling.
+    const reordered = bowlMs != null && raceRows.length > 0 && raceRows.every((r) => r.ms < bowlMs);
 
     const guest = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown guest";
     const partySize = session.party.length || 1;
     const total = `$${(args.totalCents / 100).toFixed(2)}`;
     const startLabel = raceItem?.heats?.[0]?.heatId ? wallClockLabel(raceItem.heats[0].heatId) : "";
 
-    const subject = `🏁 ${combo.name} booked — ${guest} · ${dateLabel}${startLabel ? ` ${startLabel}` : ""}`;
+    const reorderNotice =
+      "NON-STANDARD ORDER — both races run FIRST, then the VIP lane. The lane " +
+      "wasn't available between the races (e.g. a league had the VIP lanes), so " +
+      "the system scheduled bowling last. Plan lane/track scheduling accordingly.";
+
+    const subject = `🏁 ${combo.name} booked — ${guest} · ${dateLabel}${startLabel ? ` ${startLabel}` : ""}${reordered ? " · ⚠️ RACES-FIRST ORDER" : ""}`;
     const lines = [
       `<h2 style="margin:0 0 4px">${combo.name} booked</h2>`,
       `<p style="margin:0 0 12px;color:#555">${dateLabel} · ${partySize} ${partySize === 1 ? "person" : "people"} · ${total} paid online</p>`,
+      reordered
+        ? `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01;font-weight:600">⚠️ ${reorderNotice}</p>`
+        : "",
       `<p style="margin:0 0 12px"><strong>${guest}</strong><br/>${contact.email ?? ""}<br/>${contact.phone ?? ""}</p>`,
       `<p style="margin:0 0 4px"><strong>Itinerary</strong></p>`,
       `<ol style="margin:0 0 12px;padding-left:20px">${itinerary.map((r) => `<li>${r}</li>`).join("")}</ol>`,
       `<p style="margin:0;color:#555;font-size:13px">BMI bill ${args.bmiBillId ?? "—"}${
         args.bmiReservationNumber ? ` · Res ${args.bmiReservationNumber}` : ""
       } · Square order ${args.squareDayofOrderId}</p>`,
-    ];
+    ].filter(Boolean);
 
     const result = await sendEmail({
       to: COMBO_BOOKED_RECIPIENTS[0],
@@ -94,6 +121,7 @@ export async function notifyComboBooked(args: {
       html: lines.join("\n"),
       text:
         `${combo.name} booked — ${guest}, ${dateLabel}, ${partySize} ppl, ${total} paid.\n` +
+        (reordered ? `\n** ${reorderNotice} **\n\n` : "") +
         itinerary.map((r, i) => `${i + 1}. ${r}`).join("\n") +
         `\nBMI bill ${args.bmiBillId ?? "—"} · Square order ${args.squareDayofOrderId}`,
     });

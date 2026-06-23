@@ -4,6 +4,7 @@ import {
   COMBO_SPECIALS,
   comboAvailableOn,
   comboBowlingComponent,
+  comboReorderFallbackEnabled,
   comboReservationNote,
   comboHeatsPerRacer,
   comboPriceCentsForDate,
@@ -12,6 +13,7 @@ import {
   comboTotalCents,
   enabledCombos,
   getComboSpecial,
+  legKey,
   type ComboSpecial,
 } from "./combo-specials";
 
@@ -92,6 +94,40 @@ describe("combo-specials registry", () => {
     const memo = comboReservationNote(raceBowl, null);
     expect(memo).not.toContain("Lane");
     expect(memo).toContain("ULTIMATE VIP EXPERIENCE (VIP COMBO)");
+  });
+
+  it("comboReservationNote renders the reorder order when given fallbackComponents", () => {
+    const memo = comboReservationNote(raceBowl, "28", raceBowl.fallbackComponents);
+    // race → race → bowl (lane last), not the default race → bowl → race.
+    expect(memo).toContain("1) Starter Race");
+    expect(memo).toContain("2) Intermediate Race (ONLY IF QUALIFIED)");
+    expect(memo).toContain("3) 1.5hr VIP Bowling at HeadPinz — Lane 28");
+  });
+});
+
+describe("reorder fallback registry", () => {
+  it("race-bowl carries a race → race → bowl fallback with bounded gaps", () => {
+    expect(raceBowl.fallbackComponents).toEqual([
+      { kind: "race", tier: "starter" },
+      { kind: "race", tier: "intermediate", minWaitMinutes: 20, maxWaitMinutes: 45 },
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 45 },
+    ]);
+    expect(raceBowl.fallbackNote).toBeTruthy();
+  });
+
+  it("the fallback shares leg 0 (Starter) with the primary order — same start time", () => {
+    expect(legKey(raceBowl.components[0])).toBe(legKey(raceBowl.fallbackComponents![0]));
+  });
+
+  it("legKey is a stable per-leg identity", () => {
+    expect(legKey({ kind: "race", tier: "starter" })).toBe("race:starter");
+    expect(legKey({ kind: "race", tier: "intermediate" })).toBe("race:intermediate");
+    expect(legKey({ kind: "bowling", durationMinutes: 90, vip: true })).toBe("bowl:90:vip");
+    expect(legKey({ kind: "bowling", durationMinutes: 60 })).toBe("bowl:60:reg");
+  });
+
+  it("ships dark — reorder fallback is OFF unless the flag is 'true'", () => {
+    expect(comboReorderFallbackEnabled()).toBe(false);
   });
 });
 

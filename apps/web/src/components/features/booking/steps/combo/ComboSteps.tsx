@@ -8,6 +8,7 @@ import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import type { RaceHeatAssignment } from "~/features/booking/state/types";
 import { bookHeatsOnAdvance } from "~/features/booking/service/race";
 import {
+  candidatesForOrdering,
   comboBowlingPatch,
   fetchComboLegCandidates,
   holdComboBowling,
@@ -18,6 +19,7 @@ import {
   buildChainFrom,
   buildChains,
   wallClockLabel,
+  wallClockMs,
   type ChainResult,
   type LegCandidate,
   type LegFilter,
@@ -25,6 +27,7 @@ import {
 import {
   comboHeatsPerRacer,
   comboPriceCentsForDate,
+  comboReorderFallbackEnabled,
   comboStartHoursLabel,
   getComboSpecial,
   type ComboLeg,
@@ -249,6 +252,7 @@ function trackOf(c: LegCandidate<ComboLegPayload>): string | null {
 
 function ScheduleConfirmModal({
   combo,
+  components,
   legCandidates,
   anchor,
   headcount,
@@ -258,6 +262,10 @@ function ScheduleConfirmModal({
   onCancel,
 }: {
   combo: ComboSpecial;
+  /** Active leg ordering — `combo.components` normally, or `fallbackComponents`
+   *  when the tile resolved via the reorder fallback. `legCandidates` is
+   *  index-aligned to THIS list. */
+  components: ComboLeg[];
   legCandidates: Array<Array<LegCandidate<ComboLegPayload>>>;
   anchor: LegCandidate<ComboLegPayload>;
   headcount: number;
@@ -269,11 +277,13 @@ function ScheduleConfirmModal({
   // Per-leg track override (race legs after the anchor). null/absent = earliest.
   const [trackChoice, setTrackChoice] = useState<Record<number, string>>({});
 
-  // Per-leg gap caps (e.g. the lane must start within 60 min of race 1).
-  const maxWaits = combo.components.map((l) => l.maxWaitMinutes ?? null);
+  // Per-leg gap caps + floors (e.g. lane within 60 min of race 1; reorder's
+  // second race ≥20 / ≤45 min after the first).
+  const maxWaits = components.map((l) => l.maxWaitMinutes ?? null);
+  const minWaits = components.map((l) => l.minWaitMinutes ?? null);
 
   const filtersFor = (choices: Record<number, string>): Array<LegFilter<ComboLegPayload>> =>
-    combo.components.map((leg, i) => {
+    components.map((leg, i) => {
       const chosen = choices[i];
       if (!chosen || leg.kind !== "race" || i === 0) return null;
       return (c: LegCandidate<ComboLegPayload>) => trackOf(c) === chosen;
@@ -287,6 +297,7 @@ function ScheduleConfirmModal({
         anchor,
         filtersFor(trackChoice),
         maxWaits,
+        minWaits,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [legCandidates, combo, anchor, trackChoice],
@@ -296,7 +307,7 @@ function ScheduleConfirmModal({
   // the OTHER legs' current choices)? >1 option → show the Red/Blue picker.
   const trackOptionsByLeg = useMemo(() => {
     const out = new Map<number, string[]>();
-    combo.components.forEach((leg, i) => {
+    components.forEach((leg, i) => {
       if (leg.kind !== "race" || i === 0) return;
       const tracks = [
         ...new Set(legCandidates[i]?.map(trackOf).filter((t): t is string => !!t)),
@@ -309,6 +320,7 @@ function ScheduleConfirmModal({
             anchor,
             filtersFor({ ...trackChoice, [i]: t }),
             maxWaits,
+            minWaits,
           ) != null,
       );
       if (viable.length > 0) out.set(i, viable);
@@ -354,7 +366,7 @@ function ScheduleConfirmModal({
 
         {chain ? (
           <ol className="mt-4 space-y-2">
-            {combo.components.map((leg, i) => {
+            {components.map((leg, i) => {
               const entry = chain[i];
               const track = entry ? trackOf(entry) : null;
               const badge = track ? TRACK_BADGE[track] : null;
@@ -507,7 +519,12 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
     error: string | null;
   } | null>(null);
   const [switching, setSwitching] = useState(false);
-  const [pendingAnchor, setPendingAnchor] = useState<LegCandidate<ComboLegPayload> | null>(null);
+  // The tapped start-time tile: its anchor + which ordering (normal vs reorder
+  // fallback) the schedule modal should assemble/show.
+  const [pending, setPending] = useState<{
+    anchor: LegCandidate<ComboLegPayload>;
+    ordering: "normal" | "fallback";
+  } | null>(null);
   // Live per-leg load status (keyed on fetchKey so a date change resets it):
   // each leg ticks ✓ as its availability lands — a checklist, not a blind
   // spinner. All setState calls happen inside async callbacks (lint-safe).
@@ -665,7 +682,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
         });
       }
 
-      setPendingAnchor(null);
+      setPending(null);
       dispatch({ type: "next" });
     } catch (err) {
       alert(
@@ -688,12 +705,43 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
   // Unavailable placeholder so the four slots always show. No startHours →
   // every candidate (generic combos keep the full grid).
   type GridCell =
-    | { kind: "chain"; hour: number | null; result: ChainResult<ComboLegPayload> }
+    | {
+        kind: "chain";
+        hour: number | null;
+        result: ChainResult<ComboLegPayload>;
+        ordering: "normal" | "fallback";
+      }
     | { kind: "empty"; hour: number };
+
+  // Reorder fallback (flag-gated): a second set of chains assembled in the
+  // combo's `fallbackComponents` order (race → race → bowl) from the SAME
+  // fetched candidates — used only to rescue a start-hour the normal order
+  // can't fill. Both orderings anchor on the same Starter heats (leg 0), so a
+  // normal anchor maps to its fallback chain by (start, track).
+  const anchorKey = (a: LegCandidate<ComboLegPayload>) => `${a.startIso}|${trackOf(a) ?? ""}`;
+  const fallbackChains: Array<ChainResult<ComboLegPayload>> | null =
+    comboReorderFallbackEnabled() && combo.fallbackComponents && current
+      ? buildChains(
+          candidatesForOrdering(combo.components, current.legCandidates, combo.fallbackComponents),
+          combo.transitionMinutes,
+          combo.fallbackComponents.map((l) => l.maxWaitMinutes ?? null),
+          combo.fallbackComponents.map((l) => l.minWaitMinutes ?? null),
+        )
+      : null;
+  const fbFeasibleByAnchor = new Map<string, ChainResult<ComboLegPayload>>();
+  if (fallbackChains) {
+    for (const r of fallbackChains) if (r.chain) fbFeasibleByAnchor.set(anchorKey(r.anchor), r);
+  }
+
   const gridCells: GridCell[] = (() => {
     if (!chains) return [];
     if (!combo.startHours?.length) {
-      return chains.map((result) => ({ kind: "chain" as const, hour: null, result }));
+      return chains.map((result) => ({
+        kind: "chain" as const,
+        hour: null,
+        result,
+        ordering: "normal" as const,
+      }));
     }
     const cells: GridCell[] = [];
     for (const hour of combo.startHours) {
@@ -707,8 +755,22 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
       const tracks = [...new Set(inHour.map((c) => trackOf(c.anchor) ?? ""))].sort();
       for (const t of tracks) {
         const ofTrack = inHour.filter((c) => (trackOf(c.anchor) ?? "") === t);
-        const pick = ofTrack.find((c) => c.chain) ?? ofTrack[0];
-        cells.push({ kind: "chain", hour, result: pick });
+        // 1) prefer a feasible NORMAL chain (in-the-middle bowling).
+        const normalPick = ofTrack.find((c) => c.chain);
+        if (normalPick) {
+          cells.push({ kind: "chain", hour, result: normalPick, ordering: "normal" });
+          continue;
+        }
+        // 2) else a feasible FALLBACK chain for an anchor in this hour+track.
+        const fbPick = ofTrack
+          .map((c) => fbFeasibleByAnchor.get(anchorKey(c.anchor)))
+          .find((r): r is ChainResult<ComboLegPayload> => !!r);
+        if (fbPick) {
+          cells.push({ kind: "chain", hour, result: fbPick, ordering: "fallback" });
+          continue;
+        }
+        // 3) else greyed — show the first anchor's (infeasible) normal result.
+        cells.push({ kind: "chain", hour, result: ofTrack[0], ordering: "normal" });
       }
     }
     return cells;
@@ -820,6 +882,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                 }
                 const c = cell.result;
                 const isFeasible = !!c.chain;
+                const isReorder = cell.ordering === "fallback";
                 const track = trackOf(c.anchor);
                 const theme = track ? TRACK_CARD[track] : undefined;
                 const badge = track ? TRACK_BADGE[track] : undefined;
@@ -832,9 +895,13 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                     key={`${c.anchor.startIso}|${track ?? ""}`}
                     type="button"
                     disabled={!isFeasible || switching}
-                    onClick={() => setPendingAnchor(c.anchor)}
+                    onClick={() => setPending({ anchor: c.anchor, ordering: cell.ordering })}
                     title={
-                      isFeasible ? undefined : "No full combo schedule fits from this start time"
+                      isFeasible
+                        ? isReorder
+                          ? (combo.fallbackNote ?? "Both races run first, then your VIP lane")
+                          : undefined
+                        : "No full combo schedule fits from this start time"
                     }
                     className={`rounded-xl border p-3 text-left transition-colors ${
                       isFeasible
@@ -844,9 +911,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-sm font-bold text-white">
-                        {cell.hour != null
-                          ? formatHourLabel(cell.hour)
-                          : wallClockLabel(c.anchor.startIso)}
+                        {wallClockLabel(c.anchor.startIso)}
                       </span>
                       {badge && (
                         <span
@@ -856,11 +921,6 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                         </span>
                       )}
                     </div>
-                    {cell.hour != null && (
-                      <div className="mt-0.5 text-[11px] text-white/50">
-                        Race starts {wallClockLabel(c.anchor.startIso)}
-                      </div>
-                    )}
                     <div className="mt-1 text-xs">
                       {isFeasible ? (
                         <span className="text-emerald-400">
@@ -870,6 +930,14 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                         <span className="text-white/30">Won&apos;t fit</span>
                       )}
                     </div>
+                    {isFeasible && isReorder && (
+                      <div
+                        className="mt-1 text-[10px] font-bold uppercase tracking-wider"
+                        style={{ color: GOLD }}
+                      >
+                        Races first · lane after
+                      </div>
+                    )}
                     {isSelected && (
                       <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-white/70">
                         ✓ Selected
@@ -886,16 +954,29 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
       {/* Preview of the assembled schedule for the current selection */}
       {selected && <ItineraryList item={item} session={session} compact />}
 
-      {pendingAnchor && current && date && (
+      {pending && current && date && (
         <ScheduleConfirmModal
           combo={combo}
-          legCandidates={current.legCandidates}
-          anchor={pendingAnchor}
+          components={
+            pending.ordering === "fallback" && combo.fallbackComponents
+              ? combo.fallbackComponents
+              : combo.components
+          }
+          legCandidates={
+            pending.ordering === "fallback" && combo.fallbackComponents
+              ? candidatesForOrdering(
+                  combo.components,
+                  current.legCandidates,
+                  combo.fallbackComponents,
+                )
+              : current.legCandidates
+          }
+          anchor={pending.anchor}
           headcount={party.length}
           dateYmd={date}
           busy={switching}
           onConfirm={(chain) => void confirmChain(chain)}
-          onCancel={() => setPendingAnchor(null)}
+          onCancel={() => setPending(null)}
         />
       )}
     </div>
@@ -926,27 +1007,28 @@ function ItineraryList({
     ).entries(),
   ].sort((a, b) => a[0].localeCompare(b[0]));
 
+  // Build one row per leg (race legs paired to heats in tier order: starter is
+  // always the earlier heat), then render in ACTUAL chronological order so the
+  // reorder fallback (race → race → bowl) shows correctly, not the registry's
+  // primary order. Legs with no booked time yet sort last.
   let raceIdx = 0;
-  const rows = combo.components.map((leg, i) => {
-    if (leg.kind === "race") {
-      const entry = raceLegs[raceIdx++];
-      return {
-        key: `leg-${i}`,
-        leg,
-        track: entry?.[1] ?? null,
-        time: entry ? wallClockLabel(entry[0]) : "—",
-      };
-    }
-    if (leg.kind === "bowling") {
-      return {
-        key: `leg-${i}`,
-        leg,
-        track: null,
-        time: bowling?.bookedAt ? wallClockLabel(bowling.bookedAt) : "—",
-      };
-    }
-    return { key: `leg-${i}`, leg, track: null, time: "—" };
-  });
+  const rows = combo.components
+    .map((leg, i) => {
+      if (leg.kind === "race") {
+        const entry = raceLegs[raceIdx++];
+        return { key: `leg-${i}`, leg, track: entry?.[1] ?? null, iso: entry?.[0] ?? null };
+      }
+      if (leg.kind === "bowling") {
+        return { key: `leg-${i}`, leg, track: null, iso: bowling?.bookedAt ?? null };
+      }
+      return { key: `leg-${i}`, leg, track: null, iso: null as string | null };
+    })
+    .sort(
+      (a, b) =>
+        (a.iso ? wallClockMs(a.iso) : Number.POSITIVE_INFINITY) -
+        (b.iso ? wallClockMs(b.iso) : Number.POSITIVE_INFINITY),
+    )
+    .map((r) => ({ ...r, time: r.iso ? wallClockLabel(r.iso) : "—" }));
 
   return (
     <div

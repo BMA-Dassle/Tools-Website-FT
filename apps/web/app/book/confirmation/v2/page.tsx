@@ -1092,7 +1092,16 @@ export default function ConfirmationPage() {
           const comboId = bookingRecord?.comboSpecial as string | null | undefined;
           const combo = comboId ? getComboSpecial(comboId) : null;
           const comboLane = (bookingRecord?.bowlingLane as string | null | undefined) ?? null;
-          const comboNote = combo ? comboReservationNote(combo, comboLane) : null;
+          // Reorder fallback (stamped by unified-reserve when the lane ran after
+          // both races): describe the visit plan in the order it actually runs.
+          const comboReordered = (bookingRecord?.comboReorder as boolean | undefined) ?? false;
+          const comboNote = combo
+            ? comboReservationNote(
+                combo,
+                comboLane,
+                comboReordered ? combo.fallbackComponents : undefined,
+              )
+            : null;
           const memoLines: OrderLine[] =
             overview?.lines && overview.lines.length > 0
               ? overview.lines

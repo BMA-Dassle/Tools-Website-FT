@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { buildChainFrom, buildChains, wallClockMs, type LegCandidate } from "./combo-itinerary";
+import { candidatesForOrdering } from "./combo-booking";
+import { getComboSpecial } from "./combo-specials";
 
 /** Candidate from naive ET wall-clock times on 2026-06-01. */
 function cand(start: string, minutes: number, payload = ""): LegCandidate<string> {
@@ -129,5 +131,94 @@ describe("buildChainFrom — per-leg filters (track choice in the confirm modal)
   it("returns null when the filtered leg has nothing that fits", () => {
     const chain = buildChainFrom([[anchor], lanes, ints], 15, anchor, [null, null, () => false]);
     expect(chain).toBeNull();
+  });
+});
+
+describe("buildChainFrom — per-leg min waits (reorder: ≥1 session between races)", () => {
+  const anchor = cand("20:48", 7, "s8"); // 8:48 Starter, ends 8:55
+  const ints = [cand("21:12", 7, "i912"), cand("21:24", 7, "i924")];
+
+  it("minWait skips the too-close heat (≥20 min → 9:12 out, 9:24 in)", () => {
+    // floor = 8:55 + max(15, 20) = 9:15; max 45 → latest 9:40.
+    const chain = buildChainFrom([[anchor], ints], 15, anchor, undefined, [null, 45], [null, 20]);
+    expect(chain?.map((c) => c.payload)).toEqual(["s8", "i924"]);
+  });
+
+  it("min + max together can leave nothing (≥20 but ≤25 → 9:24 too late)", () => {
+    // floor 9:15, latest = 8:55 + 25 = 9:20 → 9:24 excluded.
+    const chain = buildChainFrom([[anchor], ints], 15, anchor, undefined, [null, 25], [null, 20]);
+    expect(chain).toBeNull();
+  });
+});
+
+describe("candidatesForOrdering — reindex onto the fallback order", () => {
+  const combo = getComboSpecial("race-bowl")!;
+
+  it("maps primary [starter, bowl, inter] arrays onto fallback [starter, inter, bowl]", () => {
+    const primary = combo.components.map((_, i) => [cand("12:00", 1, `leg${i}`)]);
+    const reindexed = candidatesForOrdering(combo.components, primary, combo.fallbackComponents!);
+    expect(reindexed[0]).toBe(primary[0]); // starter
+    expect(reindexed[1]).toBe(primary[2]); // intermediate
+    expect(reindexed[2]).toBe(primary[1]); // bowling — reused, never refetched
+  });
+});
+
+describe("reorder fallback — 6/23 Mega scenario (real registry config)", () => {
+  const combo = getComboSpecial("race-bowl")!;
+  // Live 6/23 shape: races all day; VIP lanes free 1:00–3:30 PM and 9:00–10:30 PM
+  // (Have-A-Ball owns 4–8:30 PM); Mega Intermediate heats sparse 6–8 PM.
+  const starters = [cand("14:00", 7, "S2pm"), cand("18:00", 7, "S6pm"), cand("20:48", 7, "S8pm")];
+  const vip = [
+    "13:00",
+    "13:30",
+    "14:00",
+    "14:30",
+    "15:00",
+    "15:30",
+    "21:00",
+    "21:30",
+    "22:00",
+    "22:30",
+  ].map((t) => cand(t, 90, `V${t}`));
+  const inter = [
+    cand("16:36", 7, "I436"),
+    cand("20:12", 7, "I812"),
+    cand("21:24", 7, "I924"),
+    cand("22:00", 7, "I10"),
+  ];
+
+  const normalLegs = [starters, vip, inter];
+  const fallbackLegs = candidatesForOrdering(
+    combo.components,
+    normalLegs,
+    combo.fallbackComponents!,
+  );
+  const normalChains = buildChains(
+    normalLegs,
+    combo.transitionMinutes,
+    combo.components.map((l) => l.maxWaitMinutes ?? null),
+    combo.components.map((l) => l.minWaitMinutes ?? null),
+  );
+  const fbChains = buildChains(
+    fallbackLegs,
+    combo.transitionMinutes,
+    combo.fallbackComponents!.map((l) => l.maxWaitMinutes ?? null),
+    combo.fallbackComponents!.map((l) => l.minWaitMinutes ?? null),
+  );
+  const by = (chains: typeof normalChains, tag: string) =>
+    chains.find((c) => c.anchor.payload === tag)?.chain ?? null;
+
+  it("2 PM works in the NORMAL order (afternoon VIP window)", () => {
+    expect(by(normalChains, "S2pm")).not.toBeNull();
+  });
+
+  it("8 PM fails NORMAL but the reorder rescues it: race → race → lane 10 PM", () => {
+    expect(by(normalChains, "S8pm")).toBeNull();
+    expect(by(fbChains, "S8pm")?.map((c) => c.payload)).toEqual(["S8pm", "I924", "V22:00"]);
+  });
+
+  it("6 PM stays dead even with the reorder (no Intermediate within the 45-min cap)", () => {
+    expect(by(normalChains, "S6pm")).toBeNull();
+    expect(by(fbChains, "S6pm")).toBeNull();
   });
 });

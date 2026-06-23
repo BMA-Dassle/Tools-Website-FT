@@ -31,7 +31,7 @@ import type {
 } from "@/lib/bowling-db";
 
 import { wallClockMs, type LegCandidate } from "./combo-itinerary";
-import type { ComboLeg, ComboSpecial } from "./combo-specials";
+import { legKey, type ComboLeg, type ComboSpecial } from "./combo-specials";
 
 const QAMF_CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
@@ -317,6 +317,23 @@ export async function fetchComboLegCandidates(args: {
       return candidates;
     }),
   );
+}
+
+/**
+ * Reindex the candidate arrays fetched for one ordering (`primaryComponents`)
+ * onto another ordering of the SAME legs (e.g. a combo's `fallbackComponents`).
+ * Matched by `legKey`, so the reorder fallback reuses the single
+ * `fetchComboLegCandidates` result — NO extra BMI/QAMF calls. Legs with no
+ * match (shouldn't happen for a same-legs reordering) map to an empty array.
+ */
+export function candidatesForOrdering<T>(
+  primaryComponents: ComboLeg[],
+  primaryCandidates: Array<Array<LegCandidate<T>>>,
+  ordering: ComboLeg[],
+): Array<Array<LegCandidate<T>>> {
+  const byKey = new Map<string, Array<LegCandidate<T>>>();
+  primaryComponents.forEach((leg, i) => byKey.set(legKey(leg), primaryCandidates[i] ?? []));
+  return ordering.map((leg) => byKey.get(legKey(leg)) ?? []);
 }
 
 async function legCandidates(
