@@ -63,15 +63,23 @@ export interface ComboRevenueLine {
  * racer at the given tier (a future "2 starter races" combo = two race legs).
  */
 export type ComboLeg =
-  | { kind: "race"; tier: RaceTier; maxWaitMinutes?: number }
+  | { kind: "race"; tier: RaceTier; maxWaitMinutes?: number; minWaitMinutes?: number }
   /** `vip: true` books a VIP lane experience (semi-private suite, NeoVerse
-   *  wall, chips & salsa) instead of a regular lane. `maxWaitMinutes` caps
-   *  the idle gap BEFORE this leg (from the previous leg's end): a chain
-   *  only counts as feasible when this leg starts within
-   *  [prevEnd + transitionMinutes, prevEnd + maxWaitMinutes]. */
-  | { kind: "bowling"; durationMinutes: number; vip?: boolean; maxWaitMinutes?: number }
+   *  wall, chips & salsa) instead of a regular lane. `maxWaitMinutes` caps,
+   *  and `minWaitMinutes` floors, the idle gap BEFORE this leg (from the
+   *  previous leg's end): a chain only counts as feasible when this leg starts
+   *  within [prevEnd + max(transitionMinutes, minWaitMinutes), prevEnd +
+   *  maxWaitMinutes]. minWaitMinutes backs the reorder fallback's "at least one
+   *  session between the two races" rule. */
+  | {
+      kind: "bowling";
+      durationMinutes: number;
+      vip?: boolean;
+      maxWaitMinutes?: number;
+      minWaitMinutes?: number;
+    }
   /** Forward-compat — typed, but the wizard/gate reject it until built. */
-  | { kind: "attraction"; slug: string; maxWaitMinutes?: number };
+  | { kind: "attraction"; slug: string; maxWaitMinutes?: number; minWaitMinutes?: number };
 
 export interface ComboSpecial {
   /** Kebab slug — route param + session.comboSpecialId. */
@@ -89,6 +97,28 @@ export interface ComboSpecial {
   price: { weekday: number; weekend: number };
   /** ORDERED visit itinerary. */
   components: ComboLeg[];
+  /**
+   * Alternate leg ordering, tried ONLY when the primary `components` ordering
+   * yields no feasible chain for a given start-hour (flag-gated — see
+   * `comboReorderFallbackEnabled`). MUST share the same leg 0 as `components`
+   * (the customer still picks that start time); only the later legs reorder.
+   * Each leg carries its own min/max wait so the reorder stays bounded (e.g.
+   * the Ultimate VIP fallback runs race → race → lane with a 20–45 min gap
+   * between the races and a ≤45 min gap before the lane). Absent = no fallback.
+   */
+  fallbackComponents?: ComboLeg[];
+  /** Short note shown on a start-time tile that resolved via `fallbackComponents`. */
+  fallbackNote?: string;
+  /**
+   * When true, the customer-facing checkout review collapses the combo's
+   * itemized revenue-split lines (races / POV / license / lane / shoes) into a
+   * SINGLE "{name} × {racers}" line at the summed price — so the package reads
+   * as one all-inclusive price, not a parts list. DISPLAY ONLY: the charge
+   * stays itemized across the two day-of orders, and the collapsed total equals
+   * the itemized sum, so displayed total === charged total. Other (non-combo)
+   * cart items still show individually.
+   */
+  flatCartDisplay?: boolean;
   /** Walk buffer between legs (minutes) — owner default 15. */
   transitionMinutes: number;
   /**
@@ -143,6 +173,16 @@ export interface ComboSpecial {
  */
 const COMBO_RACE_BOWL_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED !== "false";
 
+/**
+ * Reorder-fallback flag: default OFF (ships dark per the v2 cutover rule).
+ * When on, a combo's `fallbackComponents` ordering is tried for any start-hour
+ * the normal ordering can't fill. Flip `NEXT_PUBLIC_COMBO_REORDER_FALLBACK=true`
+ * in Vercel after ops signs off.
+ */
+export function comboReorderFallbackEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK === "true";
+}
+
 export const COMBO_SPECIALS: ComboSpecial[] = [
   {
     id: "race-bowl",
@@ -184,6 +224,21 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 60 },
       { kind: "race", tier: "intermediate" },
     ],
+    // Fallback (flag-gated): when no lane fits within 60 min of the first race
+    // (e.g. a league owns the VIP lanes mid-evening), run both races up front
+    // and bowl last on a later lane. Races ≥20 min apart (one session between),
+    // ≤45 min apart (no stranding when Mega heats are sparse), lane ≤45 min
+    // after race 2. Recovers slots the in-the-middle order can't reach.
+    fallbackComponents: [
+      { kind: "race", tier: "starter" },
+      { kind: "race", tier: "intermediate", minWaitMinutes: 20, maxWaitMinutes: 45 },
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 45 },
+    ],
+    fallbackNote:
+      "Both races run first, then your VIP lane — your lane time opens later in the evening.",
+    // Show the cart as one all-inclusive "Ultimate VIP Experience" line, not the
+    // itemized license/POV/lane parts (charge stays itemized under the hood).
+    flatCartDisplay: true,
     transitionMinutes: 15,
     includesLicense: true,
     includedPovPerRacer: 1,
@@ -324,6 +379,19 @@ export function comboHeatsPerRacer(combo: ComboSpecial): number {
 }
 
 /**
+ * Stable identity for a leg, independent of its position in an ordering. Lets
+ * the reorder fallback map its reordered leg list back to the candidate arrays
+ * already fetched for the primary `components` order — so the reorder needs NO
+ * extra BMI/QAMF calls. (starter & intermediate races have distinct tiers; the
+ * lane is distinguished by duration + vip — so keys are unique within a combo.)
+ */
+export function legKey(leg: ComboLeg): string {
+  if (leg.kind === "race") return `race:${leg.tier}`;
+  if (leg.kind === "bowling") return `bowl:${leg.durationMinutes}:${leg.vip ? "vip" : "reg"}`;
+  return `attr:${leg.slug}`;
+}
+
+/**
  * Human label for the combo's fixed start times, e.g. "2 · 4 · 6 · 8 · 10 PM"
  * — derived from `startHours` (0–26 chip notation) so adding/removing a slot
  * is a one-line registry change. Returns "" when the combo has no fixed grid.
@@ -351,10 +419,18 @@ export function comboStartHoursLabel(combo: ComboSpecial): string {
  * OVERWRITING booking/memo field), NOT a separate write — a separate write
  * gets clobbered by that combined memo.
  */
-export function comboReservationNote(combo: ComboSpecial, lane?: string | null): string {
+export function comboReservationNote(
+  combo: ComboSpecial,
+  lane?: string | null,
+  orderedComponents?: ComboLeg[],
+): string {
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  // The actual booked order — the reorder fallback passes its ordering so the
+  // memo's numbered visit plan matches what staff will run. Defaults to the
+  // primary (in-the-middle) ordering.
+  const legs = orderedComponents ?? combo.components;
   let sawStarter = false;
-  const steps = combo.components.map((leg, i) => {
+  const steps = legs.map((leg, i) => {
     if (leg.kind === "race") {
       const qualified = sawStarter && leg.tier !== "starter" ? " (ONLY IF QUALIFIED)" : "";
       if (leg.tier === "starter") sawStarter = true;

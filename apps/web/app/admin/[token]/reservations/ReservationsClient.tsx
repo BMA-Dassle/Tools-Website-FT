@@ -2015,8 +2015,10 @@ export default function ReservationsClient({ token }: { token: string }) {
 
       // Real schedule times. heatId IS the heat's block-start ISO (booking state
       // types), persisted in the race leg's booking_metadata.heats — so race
-      // times need no extra lookup. Heats scheduled BEFORE the bowling slot are
-      // the Starter leg, AFTER it the Intermediate.
+      // times need no extra lookup. The racer always runs Starter first (to
+      // qualify) then Intermediate, so the EARLIEST heat is the Starter and the
+      // next is the Intermediate — true whether bowling runs in the middle
+      // (normal) or last (reorder fallback: both races before the lane).
       const bowlingMs = bowling ? etWallMs(bowling.bookedAt) : NaN;
       const heatTimes = Array.from(
         new Set(
@@ -2028,18 +2030,23 @@ export default function ReservationsClient({ token }: { token: string }) {
         .map((iso) => ({ iso, ms: etWallMs(iso) }))
         .filter((h) => !Number.isNaN(h.ms))
         .sort((a, b) => a.ms - b.ms);
-      const starterIso =
-        heatTimes.find((h) => Number.isNaN(bowlingMs) || h.ms < bowlingMs)?.iso ?? null;
-      const intermediateIso = Number.isNaN(bowlingMs)
-        ? null
-        : ([...heatTimes].reverse().find((h) => h.ms > bowlingMs)?.iso ?? null);
+      const starterIso = heatTimes[0]?.iso ?? null;
+      const intermediateIso = heatTimes[1]?.iso ?? null;
       const expectsIntermediate = (meta?.includes ?? []).some((s) => /intermediate/i.test(s));
+      // Reorder: the lane runs AFTER both booked races (it wasn't free between
+      // them). Flagged on the card so staff plan scheduling for the swapped order.
+      const reordered =
+        !Number.isNaN(bowlingMs) &&
+        heatTimes.length > 0 &&
+        heatTimes.every((h) => h.ms < bowlingMs);
 
-      const schedule: ComboScheduleStep[] = [
+      // Assemble the steps, then render in ACTUAL chronological order (a
+      // pending/un-booked intermediate sorts last).
+      const steps: ComboScheduleStep[] = [
         { icon: "🏁", label: "Starter Race", iso: starterIso, loc: "FastTrax" },
       ];
       if (bowling) {
-        schedule.push({
+        steps.push({
           icon: "🎳",
           label: "VIP Bowling",
           iso: bowling.bookedAt,
@@ -2048,7 +2055,7 @@ export default function ReservationsClient({ token }: { token: string }) {
         });
       }
       if (intermediateIso) {
-        schedule.push({
+        steps.push({
           icon: "🏁",
           label: "Intermediate Race",
           iso: intermediateIso,
@@ -2056,7 +2063,7 @@ export default function ReservationsClient({ token }: { token: string }) {
         });
       } else if (expectsIntermediate) {
         // Intermediate is qualify-gated — booked later if the racer qualifies.
-        schedule.push({
+        steps.push({
           icon: "🏁",
           label: "Intermediate Race",
           iso: null,
@@ -2064,6 +2071,11 @@ export default function ReservationsClient({ token }: { token: string }) {
           pending: true,
         });
       }
+      const schedule: ComboScheduleStep[] = steps.sort(
+        (a, b) =>
+          (a.iso ? etWallMs(a.iso) : Number.POSITIVE_INFINITY) -
+          (b.iso ? etWallMs(b.iso) : Number.POSITIVE_INFINITY),
+      );
 
       // Distinct day-of Square orders in this combo: after the split a combo
       // has TWO (racing → FastTrax, bowling → HeadPinz); pre-split combos share

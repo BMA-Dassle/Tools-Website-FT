@@ -132,13 +132,18 @@ describe("activeComboSpecial — strict itinerary gate", () => {
     expect(activeComboSpecial(s)).toBeNull();
   });
 
-  it("falls back when bowling is not BETWEEN the races", () => {
+  it("falls back when bowling is before the FIRST race (no valid ordering)", () => {
     const s = comboSession();
     (s.items[1] as BowlingItem).bookedAt = `${MON}T11:00:00-04:00`; // before the starter
     expect(activeComboSpecial(s)).toBeNull();
-    const s2 = comboSession();
-    (s2.items[1] as BowlingItem).bookedAt = `${MON}T17:00:00-04:00`; // after the intermediate
-    expect(activeComboSpecial(s2)).toBeNull();
+  });
+
+  it("accepts bowling AFTER both races (reorder fallback: race → race → bowl)", () => {
+    const s = comboSession();
+    (s.items[1] as BowlingItem).bookedAt = `${MON}T17:00:00-04:00`; // after the intermediate
+    const active = activeComboSpecial(s);
+    expect(active).not.toBeNull();
+    expect(active!.racerIds.sort()).toEqual(["a", "b"]);
   });
 
   it("falls back when a racer has an extra heat", () => {
