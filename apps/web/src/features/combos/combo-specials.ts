@@ -109,6 +109,16 @@ export interface ComboSpecial {
   fallbackComponents?: ComboLeg[];
   /** Short note shown on a start-time tile that resolved via `fallbackComponents`. */
   fallbackNote?: string;
+  /**
+   * When true, the customer-facing checkout review collapses the combo's
+   * itemized revenue-split lines (races / POV / license / lane / shoes) into a
+   * SINGLE "{name} × {racers}" line at the summed price — so the package reads
+   * as one all-inclusive price, not a parts list. DISPLAY ONLY: the charge
+   * stays itemized across the two day-of orders, and the collapsed total equals
+   * the itemized sum, so displayed total === charged total. Other (non-combo)
+   * cart items still show individually.
+   */
+  flatCartDisplay?: boolean;
   /** Walk buffer between legs (minutes) — owner default 15. */
   transitionMinutes: number;
   /**
@@ -226,6 +236,9 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     ],
     fallbackNote:
       "Both races run first, then your VIP lane — your lane time opens later in the evening.",
+    // Show the cart as one all-inclusive "Ultimate VIP Experience" line, not the
+    // itemized license/POV/lane parts (charge stays itemized under the hood).
+    flatCartDisplay: true,
     transitionMinutes: 15,
     includesLicense: true,
     includedPovPerRacer: 1,

@@ -32,6 +32,7 @@ import {
   comboRaceLegs,
   getComboSpecial,
   type ComboEntity,
+  type ComboLeg,
   type ComboRevenueLine,
   type ComboSpecial,
 } from "./combo-specials";
@@ -92,8 +93,7 @@ export function activeComboSpecial(session: BookingSession): ActiveCombo | null 
   if (bowlComp.vip && bowlingItem.tier !== "vip") return null;
   const bowlingMs = wallClockMs(bowlingItem.bookedAt);
 
-  // Race side: every heat picked + assigned; per racer exactly one heat per
-  // race leg, tiers in itinerary order, positioned around the bowling slot.
+  // Race side: every heat picked + assigned; per racer one heat per race leg.
   const byRacer = new Map<string, Array<{ ms: number; tier: string | undefined }>>();
   for (const h of raceItem.heats) {
     if (!h.heatId || !h.assignedTo) return null;
@@ -103,27 +103,40 @@ export function activeComboSpecial(session: BookingSession): ActiveCombo | null 
   }
   if (byRacer.size === 0) return null;
 
-  // Race-leg positions relative to the bowling leg, in itinerary order.
-  const bowlingLegIndex = legs.findIndex((l) => l.kind === "bowling");
-  const raceLegOrder = legs
-    .map((l, i) => ({ leg: l, i }))
-    .filter((e) => e.leg.kind === "race") as Array<{
-    leg: Extract<(typeof legs)[number], { kind: "race" }>;
-    i: number;
-  }>;
-
-  for (const heats of byRacer.values()) {
-    if (heats.length !== raceLegs.length) return null;
-    heats.sort((a, b) => a.ms - b.ms);
-    for (let k = 0; k < raceLegOrder.length; k++) {
-      const { leg, i } = raceLegOrder[k];
-      const heat = heats[k];
-      if (heat.tier !== leg.tier) return null;
-      // Positioned on the correct side of the bowling slot.
-      if (i < bowlingLegIndex && heat.ms >= bowlingMs) return null;
-      if (i > bowlingLegIndex && heat.ms <= bowlingMs) return null;
+  // A booking is a valid combo if it matches the primary ordering OR (when the
+  // combo defines one) the reorder fallback ordering. Each ordering check: per
+  // racer, heats sorted by time have the ordering's race-leg tiers in sequence,
+  // each positioned on the correct side of the lane. The normal order brackets
+  // the lane (race → bowl → race); the fallback runs both races first
+  // (race → race → bowl). Without trying the fallback, a reordered booking
+  // would miss the gate and (wrongly) price à la carte.
+  const matchesOrdering = (legs: ComboLeg[]): boolean => {
+    const bowlingLegIndex = legs.findIndex((l) => l.kind === "bowling");
+    if (bowlingLegIndex < 0) return false;
+    const raceLegOrder = legs
+      .map((leg, i) => ({ leg, i }))
+      .filter(
+        (e): e is { leg: Extract<ComboLeg, { kind: "race" }>; i: number } => e.leg.kind === "race",
+      );
+    if (raceLegOrder.length !== raceLegs.length) return false;
+    for (const heats of byRacer.values()) {
+      if (heats.length !== raceLegs.length) return false;
+      const sorted = [...heats].sort((a, b) => a.ms - b.ms);
+      for (let k = 0; k < raceLegOrder.length; k++) {
+        const { leg, i } = raceLegOrder[k];
+        const h = sorted[k];
+        if (h.tier !== leg.tier) return false;
+        if (i < bowlingLegIndex && h.ms >= bowlingMs) return false;
+        if (i > bowlingLegIndex && h.ms <= bowlingMs) return false;
+      }
     }
-  }
+    return true;
+  };
+  const orderings = [
+    combo.components,
+    ...(combo.fallbackComponents ? [combo.fallbackComponents] : []),
+  ];
+  if (!orderings.some(matchesOrdering)) return null;
 
   return { combo, raceItem, bowlingItem, racerIds: [...byRacer.keys()] };
 }

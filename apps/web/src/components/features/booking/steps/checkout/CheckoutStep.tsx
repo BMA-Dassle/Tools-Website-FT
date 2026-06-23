@@ -269,6 +269,33 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
         }
       }
 
+      // Combo with `flatCartDisplay`: collapse its itemized revenue-split lines
+      // ("VIP Exp - …") into ONE all-inclusive package line so the customer sees
+      // one price, not a parts list. Display only — the charge stays itemized
+      // (two day-of orders); the collapsed amount is the exact itemized sum, so
+      // the displayed total still equals the charge. Non-combo lines (e.g. an
+      // add-on attraction) stay itemized.
+      const flatCombo = activeComboSpecial(session);
+      if (flatCombo?.combo.flatCartDisplay) {
+        const isComboLine = (l: BillOverview["lines"][number]) =>
+          l.name.startsWith("VIP Exp - ") || l.name === flatCombo.combo.name;
+        const comboLines = reviewLines.filter(isComboLine);
+        if (comboLines.length > 0) {
+          const amount = Math.round(comboLines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+          const others = reviewLines.filter((l) => !isComboLine(l));
+          reviewLines.length = 0;
+          reviewLines.push(
+            {
+              name: flatCombo.combo.name,
+              quantity: flatCombo.racerIds.length,
+              amount,
+              time: comboLines[0].time,
+            },
+            ...others,
+          );
+        }
+      }
+
       const preTaxSubtotal = reviewLines.reduce((s, l) => s + l.amount, 0);
       const rewardDiscountCents = session.loyalty?.selectedRewardTier?.discountCents ?? 0;
 
