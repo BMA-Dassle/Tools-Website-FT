@@ -55,12 +55,14 @@ import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track
  *     right `bmiPersonId`.
  *
  * Lead time: when any racer in the category is new, heats starting within
- * 75 min of "now" are filtered out (v1 HeatPicker:159-166 + page.tsx:2280-
- * 2288). Private event guard: full-screen "Private Event" block when the
- * date is a buyout (v1 HeatPicker:211-237).
+ * NEW_RACER_LEAD_MINUTES of "now" are filtered out so the racer has time to
+ * check in before their heat (v1 HeatPicker:159-166 + page.tsx:2280-2288).
+ * Private event guard: full-screen "Private Event" block when the date is a
+ * buyout (v1 HeatPicker:211-237).
  */
 
-const NEW_RACER_LEAD_MINUTES = 45;
+// Minimum minutes between "now" and a new racer's heat start (check-in buffer).
+const NEW_RACER_LEAD_MINUTES = 40;
 
 // Single-race products have no fixed raceCount. Allow a racer to book MORE than
 // one heat (up to this many per racer) so they can race multiple times in a
