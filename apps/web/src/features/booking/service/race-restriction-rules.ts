@@ -11,10 +11,16 @@
  *  1. mega-no-back-to-back-pro — don't book a Pro Mega session adjacent to an
  *     already-occupied Pro Mega session (kart/staff reconfiguration spacing),
  *     unless the slot starts within 1 hour (last-minute fill). HIDDEN.
- *  2. mega-opening-heats-express-only — the first N heats of the Mega day are
- *     bookable only by express-lane-eligible parties (all returning racers with
- *     valid waivers); new racers need time to check in. DISABLED + labelled
- *     (replaces a BMI dayplanner restriction we're moving in-house).
+ *  2. mega-opening-heats-express-only — heats that start inside the day's
+ *     opening window (the first ~30 min after the track opens) are bookable
+ *     only by express-lane-eligible parties (all returning racers with valid
+ *     waivers); new racers need time to check in when the track first opens.
+ *     HIDDEN from a non-express party's grid (replaces a BMI dayplanner
+ *     restriction we're moving in-house). The window is keyed by
+ *     center-local day-of-week and matched
+ *     against the heat's wall-clock start time — NOT its rank in the
+ *     availability response, which slides forward as the day's earliest heats
+ *     pass or sell out and drop off the list.
  *
  * ── How a "Pro session" is detected (no Pandora / no check-in needed) ──
  * BMI's per-tier dayplanner pages mean an OCCUPIED heat belongs to exactly one
@@ -68,13 +74,43 @@ export interface RaceRestrictionRule {
    */
   lastMinuteOverrideMinutes?: number;
   /**
-   * Constraint: the first `count` heats of the day (earliest by start time in
-   * the product's availability) require express-lane eligibility. Blocks the
-   * pick when the party is NOT express-eligible (has a new racer, or a returning
-   * racer without a valid waiver).
+   * Constraint: heats that start inside the day's *opening window* require
+   * express-lane eligibility. Blocks the pick when the party is NOT
+   * express-eligible (has a new racer, or a returning racer without a valid
+   * waiver) AND the heat's wall-clock start falls in the window for its weekday.
+   *
+   * Anchored to the clock — not to the heat's rank in the availability response
+   * — so the block stays on the genuine opening heats all day instead of
+   * sliding forward as earlier heats pass or sell out.
    */
-  openingHeatsExpressOnly?: { count: number };
+  openingWindowExpressOnly?: {
+    /**
+     * Per center-local-weekday opening window, in minutes since local midnight.
+     * Key: 0=Sun … 6=Sat. A heat whose local start time is in
+     * `[openMinutes, untilMinutes)` on that weekday is express-only. Weekdays
+     * absent from the map carry no opening-window restriction.
+     */
+    windows: Record<number, { openMinutes: number; untilMinutes: number }>;
+  };
 }
+
+/** Minutes since local midnight for an `HH:MM` clock time. */
+const at = (hour: number, minute = 0): number => hour * 60 + minute;
+
+// FastTrax (Fort Myers) track opening windows. The first ~30 min after the
+// track opens (≈ the first 3 heats at the 12-min Mega cadence) is reserved for
+// express-lane parties. Mon–Fri the track opens at 1:00 PM; Sat/Sun at 11:00 AM.
+const WEEKDAY_OPENING = { openMinutes: at(13), untilMinutes: at(13, 30) }; // 1:00–1:30 PM
+const WEEKEND_OPENING = { openMinutes: at(11), untilMinutes: at(11, 30) }; // 11:00–11:30 AM
+const FASTTRAX_OPENING_WINDOWS: Record<number, { openMinutes: number; untilMinutes: number }> = {
+  0: WEEKEND_OPENING, // Sun
+  1: WEEKDAY_OPENING, // Mon
+  2: WEEKDAY_OPENING, // Tue
+  3: WEEKDAY_OPENING, // Wed
+  4: WEEKDAY_OPENING, // Thu
+  5: WEEKDAY_OPENING, // Fri
+  6: WEEKEND_OPENING, // Sat
+};
 
 /**
  * Active restriction rules. Plain const config — edit here to expand.
@@ -94,16 +130,19 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
   },
   {
     id: "mega-opening-heats-express-only",
-    label: "Mega: first 3 heats are express-lane only",
+    label: "Mega: opening heats are express-lane only",
     enabled: true,
     appliesTo: { tracks: ["Mega"] }, // all tiers
     presentation: {
-      action: "disable",
-      cardLabel: "Express Lane Only",
+      // HIDDEN for non-express parties — the opening heats simply don't appear
+      // in their grid (rather than showing greyed-out "Express Lane Only"
+      // cards). Express-eligible parties still see them. The tooltip is reused
+      // as the server-side hold-error reason if a stale client posts one anyway.
+      action: "hide",
       tooltip:
         "Returning racers with a valid waiver only — new racers need time to check in for the first heats of the day.",
     },
-    openingHeatsExpressOnly: { count: 3 },
+    openingWindowExpressOnly: { windows: FASTTRAX_OPENING_WINDOWS },
   },
 ];
 
@@ -121,17 +160,25 @@ export interface RestrictionContext {
   track: string | null | undefined;
   /** Start time (epoch ms) of the slot being booked. */
   candidateStartMs: number;
+  /**
+   * The candidate heat's center-local wall-clock start as the naive ISO string
+   * BMI returns (e.g. "2026-06-23T13:24:00", no timezone). Read directly for the
+   * opening-window rule's clock + weekday so the check is independent of where
+   * the code runs (browser TZ / UTC server). Optional — the epoch-only
+   * back-to-back rule works without it.
+   */
+  candidateStartLocal?: string;
   /** Now, epoch ms (passed in so the function stays pure / testable). */
   nowMs: number;
   /**
    * All heats from the SAME product's availability response (the same tier +
    * track the candidate is being booked against). `freeSpots`/`capacity` is the
-   * global occupancy signal; the set + ordering give each heat's rank in the day.
+   * global occupancy signal the back-to-back rule reads for neighboring slots.
    */
   productBlocks: RestrictionBlock[];
   /**
    * Whether the booking party is express-lane eligible (all returning racers,
-   * every one with a valid waiver). Required by `openingHeatsExpressOnly`.
+   * every one with a valid waiver). Required by `openingWindowExpressOnly`.
    */
   expressEligible?: boolean;
 }
@@ -178,9 +225,19 @@ function hasOccupiedNeighbor(ctx: RestrictionContext, gapMinutes: number): boole
   });
 }
 
-/** Zero-based rank of the candidate among the day's heats (earliest = 0). */
-function dayRank(ctx: RestrictionContext): number {
-  return ctx.productBlocks.filter((b) => b.startMs < ctx.candidateStartMs).length;
+/**
+ * Read the center-local weekday + minutes-since-midnight straight from a naive
+ * wall-clock ISO string ("2026-06-23T13:24:00"). TZ-independent: the weekday is
+ * built from the explicit Y/M/D in UTC (so it's the calendar weekday of the
+ * wall-clock date regardless of runtime TZ), and the clock minutes come from the
+ * literal HH:MM, so DST never shifts them. Returns null if unparseable.
+ */
+function localClockParts(naiveIso: string): { weekday: number; minutes: number } | null {
+  const m = naiveIso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [, y, mo, d, hh, mm] = m;
+  const weekday = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d))).getUTCDay();
+  return { weekday, minutes: Number(hh) * 60 + Number(mm) };
 }
 
 /**
@@ -203,10 +260,15 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
       }
     }
 
-    // Constraint: opening heats reserved for express-lane parties.
-    if (rule.openingHeatsExpressOnly) {
-      const isOpeningHeat = dayRank(ctx) < rule.openingHeatsExpressOnly.count;
-      if (isOpeningHeat && !ctx.expressEligible) return block(rule);
+    // Constraint: heats inside the day's opening window are express-lane only.
+    if (rule.openingWindowExpressOnly && !ctx.expressEligible && ctx.candidateStartLocal) {
+      const parts = localClockParts(ctx.candidateStartLocal);
+      if (parts) {
+        const win = rule.openingWindowExpressOnly.windows[parts.weekday];
+        if (win && parts.minutes >= win.openMinutes && parts.minutes < win.untilMinutes) {
+          return block(rule);
+        }
+      }
     }
   }
   return ALLOWED;

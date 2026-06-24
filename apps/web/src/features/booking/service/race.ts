@@ -684,6 +684,7 @@ function assertHeatBookable(
     tier,
     track,
     candidateStartMs: centerWallClockToEpochMs(heat.heatId),
+    candidateStartLocal: heat.heatId, // heatId IS the naive wall-clock start string
     nowMs: Date.now(),
     productBlocks,
     expressEligible,

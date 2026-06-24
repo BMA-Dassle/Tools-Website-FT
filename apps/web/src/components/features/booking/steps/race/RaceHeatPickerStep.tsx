@@ -395,6 +395,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             tier,
             track: fp.track,
             candidateStartMs: parseLocal(block.start).getTime(),
+            candidateStartLocal: block.start,
             nowMs,
             productBlocks: restrictionBlocks,
             expressEligible: allReturningHaveWaivers,
