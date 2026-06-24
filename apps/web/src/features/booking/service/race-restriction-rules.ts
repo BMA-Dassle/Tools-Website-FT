@@ -11,16 +11,16 @@
  *  1. mega-no-back-to-back-pro — don't book a Pro Mega session adjacent to an
  *     already-occupied Pro Mega session (kart/staff reconfiguration spacing),
  *     unless the slot starts within 1 hour (last-minute fill). HIDDEN.
- *  2. mega-opening-heats-express-only — heats that start inside the day's
- *     opening window (the first ~30 min after the track opens) are bookable
- *     only by express-lane-eligible parties (all returning racers with valid
- *     waivers); new racers need time to check in when the track first opens.
- *     HIDDEN from a non-express party's grid (replaces a BMI dayplanner
- *     restriction we're moving in-house). The window is keyed by
- *     center-local day-of-week and matched
- *     against the heat's wall-clock start time — NOT its rank in the
- *     availability response, which slides forward as the day's earliest heats
- *     pass or sell out and drop off the list.
+ *  2. opening-heats-express-only — on every race track (Red / Blue / Mega),
+ *     heats that start inside the day's opening window (the first ~30 min after
+ *     the track opens) are bookable only by express-lane-eligible parties (all
+ *     returning racers with valid waivers); new racers need time to check in
+ *     when the track first opens. DISABLED + labelled "Walk-In or Express Only"
+ *     (replaces a BMI dayplanner restriction we're moving in-house). The window
+ *     is keyed by center-local day-of-week and matched against the heat's
+ *     wall-clock start time — NOT its rank in the availability response, which
+ *     slides forward as the day's earliest heats pass or sell out and drop off
+ *     the list.
  *
  * ── How a "Pro session" is detected (no Pandora / no check-in needed) ──
  * BMI's per-tier dayplanner pages mean an OCCUPIED heat belongs to exactly one
@@ -129,18 +129,20 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
     lastMinuteOverrideMinutes: 60,
   },
   {
-    id: "mega-opening-heats-express-only",
-    label: "Mega: opening heats are express-lane only",
+    id: "opening-heats-express-only",
+    label: "Opening heats are walk-in / express-lane only",
     enabled: true,
-    appliesTo: { tracks: ["Mega"] }, // all tiers
+    appliesTo: { tracks: ["Red", "Blue", "Mega"] }, // every race track, all tiers
     presentation: {
-      // HIDDEN for non-express parties — the opening heats simply don't appear
-      // in their grid (rather than showing greyed-out "Express Lane Only"
-      // cards). Express-eligible parties still see them. The tooltip is reused
-      // as the server-side hold-error reason if a stale client posts one anyway.
-      action: "hide",
+      // DISABLED (not hidden) for non-express parties — the opening heats stay
+      // visible but greyed with a "Walk-In or Express Only" label, so guests
+      // know those slots are still available as a walk-in or via the express
+      // lane; they just can't be booked online by a party that needs check-in
+      // time. The tooltip doubles as the server-side hold-error reason.
+      action: "disable",
+      cardLabel: "Walk-In or Express Only",
       tooltip:
-        "Returning racers with a valid waiver only — new racers need time to check in for the first heats of the day.",
+        "These opening heats are reserved for walk-in guests and express-lane racers (returning racers with a valid waiver). New racers, please pick a later heat or check in at Guest Services.",
     },
     openingWindowExpressOnly: { windows: FASTTRAX_OPENING_WINDOWS },
   },
