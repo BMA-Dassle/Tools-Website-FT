@@ -11,16 +11,17 @@
  *  1. mega-no-back-to-back-pro — don't book a Pro Mega session adjacent to an
  *     already-occupied Pro Mega session (kart/staff reconfiguration spacing),
  *     unless the slot starts within 1 hour (last-minute fill). HIDDEN.
- *  2. opening-heats-express-only — on every race track (Red / Blue / Mega),
- *     heats that start inside the day's opening window (the first ~30 min after
- *     the track opens) are bookable only by express-lane-eligible parties (all
- *     returning racers with valid waivers); new racers need time to check in
- *     when the track first opens. DISABLED + labelled "Walk-In or Express Only"
- *     (replaces a BMI dayplanner restriction we're moving in-house). The window
- *     is keyed by center-local day-of-week and matched against the heat's
- *     wall-clock start time — NOT its rank in the availability response, which
- *     slides forward as the day's earliest heats pass or sell out and drop off
- *     the list.
+ *  2. opening-heats-express-only-12min / -15min — on every race track, the
+ *     first TWO heats of the day are reserved for walk-in / express-lane parties
+ *     (all returning racers with valid waivers); new racers need time to check
+ *     in when the track first opens, so the third heat is the first one they can
+ *     book online. DISABLED + labelled "Walk-In or Express Only" (replaces a BMI
+ *     dayplanner restriction we're moving in-house). Implemented as a
+ *     center-local clock window = open .. open + 2×cadence, matched against the
+ *     heat's wall-clock start — NOT its rank in the availability response (which
+ *     slides as the day's earliest heats pass or sell out and drop off the
+ *     list). Two rules because Red/Mega run a 12-min cadence (opens at :24) and
+ *     Blue a 15-min cadence (opens at :30).
  *
  * ── How a "Pro session" is detected (no Pandora / no check-in needed) ──
  * BMI's per-tier dayplanner pages mean an OCCUPIED heat belongs to exactly one
@@ -97,19 +98,49 @@ export interface RaceRestrictionRule {
 /** Minutes since local midnight for an `HH:MM` clock time. */
 const at = (hour: number, minute = 0): number => hour * 60 + minute;
 
-// FastTrax (Fort Myers) track opening windows. The first ~30 min after the
-// track opens (≈ the first 3 heats at the 12-min Mega cadence) is reserved for
-// express-lane parties. Mon–Fri the track opens at 1:00 PM; Sat/Sun at 11:00 AM.
-const WEEKDAY_OPENING = { openMinutes: at(13), untilMinutes: at(13, 30) }; // 1:00–1:30 PM
-const WEEKEND_OPENING = { openMinutes: at(11), untilMinutes: at(11, 30) }; // 11:00–11:30 AM
-const FASTTRAX_OPENING_WINDOWS: Record<number, { openMinutes: number; untilMinutes: number }> = {
-  0: WEEKEND_OPENING, // Sun
-  1: WEEKDAY_OPENING, // Mon
-  2: WEEKDAY_OPENING, // Tue
-  3: WEEKDAY_OPENING, // Wed
-  4: WEEKDAY_OPENING, // Thu
-  5: WEEKDAY_OPENING, // Fri
-  6: WEEKEND_OPENING, // Sat
+type OpeningWindow = { openMinutes: number; untilMinutes: number };
+
+/**
+ * Build a per-weekday opening-window map (0=Sun … 6=Sat) from one weekday
+ * window (Mon–Fri) and one weekend window (Sat/Sun). FastTrax (Fort Myers)
+ * opens at 1:00 PM Mon–Fri and 11:00 AM Sat/Sun.
+ */
+function openingWindows(
+  weekday: OpeningWindow,
+  weekend: OpeningWindow,
+): Record<number, OpeningWindow> {
+  return { 0: weekend, 1: weekday, 2: weekday, 3: weekday, 4: weekday, 5: weekday, 6: weekend };
+}
+
+// The opening window reserves the first TWO heats of the day for walk-in /
+// express-lane parties (new racers need check-in time when the track opens), so
+// the window length is 2 × the track's heat cadence — the THIRD heat is the
+// first one a non-express party can book online. The cadence differs by track,
+// hence two windows / two rules:
+//   • 12-min cadence (Red, Mega): blocks :00 + :12, opens at :24
+//     (1:24 PM weekday / 11:24 AM weekend).
+//   • 15-min cadence (Blue):      blocks :00 + :15, opens at :30
+//     (1:30 PM weekday / 11:30 AM weekend).
+const OPENING_WINDOWS_12MIN = openingWindows(
+  { openMinutes: at(13), untilMinutes: at(13, 24) }, // weekday 1:00–1:24 PM
+  { openMinutes: at(11), untilMinutes: at(11, 24) }, // weekend 11:00–11:24 AM
+);
+const OPENING_WINDOWS_15MIN = openingWindows(
+  { openMinutes: at(13), untilMinutes: at(13, 30) }, // weekday 1:00–1:30 PM
+  { openMinutes: at(11), untilMinutes: at(11, 30) }, // weekend 11:00–11:30 AM
+);
+
+/** Shared presentation for the opening-heats rules (both cadences). */
+const WALK_IN_OR_EXPRESS_PRESENTATION: RestrictionPresentation = {
+  // DISABLED (not hidden) for non-express parties — the opening heats stay
+  // visible but greyed with a "Walk-In or Express Only" label, so guests know
+  // those slots are still available as a walk-in or via the express lane; they
+  // just can't be booked online by a party that needs check-in time. The
+  // tooltip doubles as the server-side hold-error reason.
+  action: "disable",
+  cardLabel: "Walk-In or Express Only",
+  tooltip:
+    "These opening heats are reserved for walk-in guests and express-lane racers (returning racers with a valid waiver). New racers, please pick a later heat or check in at Guest Services.",
 };
 
 /**
@@ -129,22 +160,20 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
     lastMinuteOverrideMinutes: 60,
   },
   {
-    id: "opening-heats-express-only",
-    label: "Opening heats are walk-in / express-lane only",
+    id: "opening-heats-express-only-12min",
+    label: "Opening heats walk-in / express only — 12-min tracks (Red, Mega)",
     enabled: true,
-    appliesTo: { tracks: ["Red", "Blue", "Mega"] }, // every race track, all tiers
-    presentation: {
-      // DISABLED (not hidden) for non-express parties — the opening heats stay
-      // visible but greyed with a "Walk-In or Express Only" label, so guests
-      // know those slots are still available as a walk-in or via the express
-      // lane; they just can't be booked online by a party that needs check-in
-      // time. The tooltip doubles as the server-side hold-error reason.
-      action: "disable",
-      cardLabel: "Walk-In or Express Only",
-      tooltip:
-        "These opening heats are reserved for walk-in guests and express-lane racers (returning racers with a valid waiver). New racers, please pick a later heat or check in at Guest Services.",
-    },
-    openingWindowExpressOnly: { windows: FASTTRAX_OPENING_WINDOWS },
+    appliesTo: { tracks: ["Red", "Mega"] }, // 12-min cadence, all tiers
+    presentation: WALK_IN_OR_EXPRESS_PRESENTATION,
+    openingWindowExpressOnly: { windows: OPENING_WINDOWS_12MIN },
+  },
+  {
+    id: "opening-heats-express-only-15min",
+    label: "Opening heats walk-in / express only — 15-min track (Blue)",
+    enabled: true,
+    appliesTo: { tracks: ["Blue"] }, // 15-min cadence, all tiers
+    presentation: WALK_IN_OR_EXPRESS_PRESENTATION,
+    openingWindowExpressOnly: { windows: OPENING_WINDOWS_15MIN },
   },
 ];
 

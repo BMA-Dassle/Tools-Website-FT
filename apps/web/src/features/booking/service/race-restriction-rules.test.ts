@@ -117,10 +117,10 @@ describe("evaluateRaceRestrictions — Mega no back-to-back Pro", () => {
   });
 });
 
-describe("evaluateRaceRestrictions — Mega opening heats express-only", () => {
-  // Naive wall-clock start strings (no TZ) on known weekdays:
-  //   2026-06-23 = Tuesday (weekday, 1:00 PM open)
-  //   2026-06-27 = Saturday, 2026-06-28 = Sunday (weekend, 11:00 AM open)
+describe("evaluateRaceRestrictions — opening heats walk-in / express only", () => {
+  // Naive wall-clock start strings (no TZ) on known days:
+  //   2026-06-23 = Tue, 2026-06-24 = Wed (weekday, 1:00 PM open)
+  //   2026-06-27 = Sat, 2026-06-28 = Sun (weekend, 11:00 AM open)
   const wd = (h: number, m: number) =>
     `2026-06-23T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`; // Tue
   const wed = (h: number, m: number) =>
@@ -134,115 +134,114 @@ describe("evaluateRaceRestrictions — Mega opening heats express-only", () => {
     return {
       tier: "starter",
       track: "Mega",
-      candidateStartMs: ms(13, 24),
-      candidateStartLocal: wd(13, 24), // 3rd weekday heat (1:24 PM) → in the 1:00–1:30 window
+      candidateStartMs: ms(13, 12),
+      candidateStartLocal: wd(13, 12), // 2nd weekday heat (1:12 PM) → blocked on a 12-min track
       nowMs: FAR_BEFORE,
       expressEligible: false,
       productBlocks: [],
       ...over,
     };
   }
+  const at = (over: Partial<RestrictionContext>) => evaluateRaceRestrictions(openingCtx(over));
 
-  it("disables a weekday opening-window heat for a non-express party, action=disable + label", () => {
+  it("disables an opening heat for a non-express party, action=disable + 'Walk-In or Express Only'", () => {
     const r = evaluateRaceRestrictions(openingCtx());
     expect(r.blocked).toBe(true);
-    expect(r.ruleId).toBe("opening-heats-express-only");
     expect(r.action).toBe("disable");
     expect(r.cardLabel).toBe("Walk-In or Express Only");
+    expect(r.ruleId).toBe("opening-heats-express-only-12min");
   });
 
-  it("allows an opening-window heat for an express-eligible party", () => {
-    const r = evaluateRaceRestrictions(openingCtx({ expressEligible: true }));
-    expect(r.blocked).toBe(false);
+  it("allows an opening heat for an express-eligible party", () => {
+    expect(at({ expressEligible: true }).blocked).toBe(false);
   });
 
-  it("blocks the very first weekday heat (1:00 PM) for a non-express party", () => {
-    const r = evaluateRaceRestrictions(openingCtx({ candidateStartLocal: wd(13, 0) }));
-    expect(r.blocked).toBe(true);
+  it("does not block when candidateStartLocal is absent (epoch-only callers)", () => {
+    expect(at({ candidateStartLocal: undefined }).blocked).toBe(false);
   });
 
-  it("allows the 1:36 PM heat (just past the 1:30 weekday window)", () => {
-    const r = evaluateRaceRestrictions(openingCtx({ candidateStartLocal: wd(13, 36) }));
-    expect(r.blocked).toBe(false);
+  it("ignores tracks that are not race tracks", () => {
+    expect(at({ track: "Putt" }).blocked).toBe(false);
   });
 
-  it("allows a heat before the 1:00 PM weekday open", () => {
-    const r = evaluateRaceRestrictions(openingCtx({ candidateStartLocal: wd(12, 48) }));
-    expect(r.blocked).toBe(false);
+  it("matches track names case-insensitively", () => {
+    expect(at({ track: "mega", candidateStartLocal: wd(13, 0) }).blocked).toBe(true);
+    expect(at({ track: "blue", candidateStartLocal: wd(13, 0) }).blocked).toBe(true);
+  });
+
+  it("applies to every tier (not just one)", () => {
+    expect(at({ tier: "pro" }).blocked).toBe(true);
+    expect(at({ tier: "intermediate" }).blocked).toBe(true);
   });
 
   it("does NOT slide: a mid-afternoon heat is allowed even when it is the earliest in availability", () => {
     // The day's opening heats have passed/sold out; availability now starts at
-    // 3:00 PM. Rank-based logic would have flagged these as the 'first 3'; the
-    // clock window must not.
-    const r = evaluateRaceRestrictions(
-      openingCtx({
+    // 3:00 PM. Rank-based logic would have flagged these as the opening heats;
+    // the clock window must not.
+    expect(
+      at({
         candidateStartLocal: wd(15, 0),
         candidateStartMs: ms(15, 0),
         productBlocks: [blk(15, 0, 10), blk(15, 12, 10), blk(15, 24, 10)],
-      }),
-    );
-    expect(r.blocked).toBe(false);
+      }).blocked,
+    ).toBe(false);
   });
 
-  it("uses the 11:00–11:30 AM window on Saturday", () => {
-    expect(evaluateRaceRestrictions(openingCtx({ candidateStartLocal: sat(11, 0) })).blocked).toBe(
-      true,
-    );
-    expect(evaluateRaceRestrictions(openingCtx({ candidateStartLocal: sat(11, 24) })).blocked).toBe(
-      true,
-    );
-    // 1:00 PM Saturday is well outside the weekend opening window → allowed.
-    expect(evaluateRaceRestrictions(openingCtx({ candidateStartLocal: sat(13, 0) })).blocked).toBe(
-      false,
-    );
+  describe("12-min tracks (Red, Mega) — block first 2, third heat (:24) bookable", () => {
+    const mega = (local: string) => at({ track: "Mega", candidateStartLocal: local });
+    const red = (local: string) => at({ track: "Red", candidateStartLocal: local });
+
+    it("Mega weekday: blocks 1:00 + 1:12, ALLOWS 1:24", () => {
+      expect(mega(wd(13, 0)).blocked).toBe(true);
+      expect(mega(wd(13, 12)).blocked).toBe(true);
+      expect(mega(wd(13, 24)).blocked).toBe(false);
+      expect(mega(wd(13, 24)).ruleId).toBeUndefined();
+    });
+
+    it("Red weekday: blocks 1:00 + 1:12, ALLOWS 1:24", () => {
+      expect(red(wed(13, 0)).blocked).toBe(true);
+      expect(red(wed(13, 12)).blocked).toBe(true);
+      expect(red(wed(13, 24)).blocked).toBe(false);
+    });
+
+    it("Red weekend: blocks 11:00 + 11:12, ALLOWS 11:24 (Sat & Sun)", () => {
+      expect(red(sat(11, 0)).blocked).toBe(true);
+      expect(red(sat(11, 12)).blocked).toBe(true);
+      expect(red(sat(11, 24)).blocked).toBe(false);
+      expect(red(sun(11, 12)).blocked).toBe(true);
+      expect(red(sun(11, 24)).blocked).toBe(false);
+    });
+
+    it("allows heats before open and after the window", () => {
+      expect(mega(wd(12, 48)).blocked).toBe(false); // before 1:00 open
+      expect(mega(wd(13, 36)).blocked).toBe(false); // well past the window
+    });
+
+    it("uses ruleId opening-heats-express-only-12min", () => {
+      expect(mega(wd(13, 0)).ruleId).toBe("opening-heats-express-only-12min");
+      expect(red(wed(13, 0)).ruleId).toBe("opening-heats-express-only-12min");
+    });
   });
 
-  it("uses the 11:00–11:30 AM window on Sunday", () => {
-    expect(evaluateRaceRestrictions(openingCtx({ candidateStartLocal: sun(11, 12) })).blocked).toBe(
-      true,
-    );
-    expect(evaluateRaceRestrictions(openingCtx({ candidateStartLocal: sun(11, 36) })).blocked).toBe(
-      false,
-    );
-  });
+  describe("15-min track (Blue) — block first 2, third heat (:30) bookable", () => {
+    const blue = (local: string) => at({ track: "Blue", candidateStartLocal: local });
 
-  it("applies to every tier on Mega (not just one)", () => {
-    expect(evaluateRaceRestrictions(openingCtx({ tier: "pro" })).blocked).toBe(true);
-    expect(evaluateRaceRestrictions(openingCtx({ tier: "intermediate" })).blocked).toBe(true);
-  });
+    it("weekday: blocks 1:00 + 1:15, ALLOWS 1:30", () => {
+      expect(blue(wd(13, 0)).blocked).toBe(true);
+      expect(blue(wd(13, 15)).blocked).toBe(true);
+      expect(blue(wd(13, 30)).blocked).toBe(false);
+    });
 
-  it("applies to Red and Blue tracks too (not just Mega)", () => {
-    expect(
-      evaluateRaceRestrictions(openingCtx({ track: "Red", candidateStartLocal: wed(13, 0) }))
-        .blocked,
-    ).toBe(true);
-    expect(
-      evaluateRaceRestrictions(openingCtx({ track: "Blue", candidateStartLocal: wed(13, 0) }))
-        .blocked,
-    ).toBe(true);
-  });
+    it("weekend: blocks 11:00 + 11:15, ALLOWS 11:30 (Sat & Sun)", () => {
+      expect(blue(sat(11, 0)).blocked).toBe(true);
+      expect(blue(sat(11, 15)).blocked).toBe(true);
+      expect(blue(sat(11, 30)).blocked).toBe(false);
+      expect(blue(sun(11, 15)).blocked).toBe(true);
+      expect(blue(sun(11, 30)).blocked).toBe(false);
+    });
 
-  it("on 15-min Blue, blocks 1:00/1:15 but ALLOWS 1:30 (window ends exclusive at 1:30)", () => {
-    const blue = (local: string) =>
-      evaluateRaceRestrictions(openingCtx({ track: "Blue", candidateStartLocal: local }));
-    expect(blue(wed(13, 0)).blocked).toBe(true); // 1:00 PM — in window
-    expect(blue(wed(13, 15)).blocked).toBe(true); // 1:15 PM — in window
-    expect(blue(wed(13, 30)).blocked).toBe(false); // 1:30 PM — at the exclusive cutoff → bookable
-  });
-
-  it("ignores tracks that are not race tracks", () => {
-    const r = evaluateRaceRestrictions(openingCtx({ track: "Putt" }));
-    expect(r.blocked).toBe(false);
-  });
-
-  it("matches the track case-insensitively", () => {
-    const r = evaluateRaceRestrictions(openingCtx({ track: "mega" }));
-    expect(r.blocked).toBe(true);
-  });
-
-  it("does not block when candidateStartLocal is absent (epoch-only callers)", () => {
-    const r = evaluateRaceRestrictions(openingCtx({ candidateStartLocal: undefined }));
-    expect(r.blocked).toBe(false);
+    it("uses ruleId opening-heats-express-only-15min", () => {
+      expect(blue(wd(13, 0)).ruleId).toBe("opening-heats-express-only-15min");
+    });
   });
 });
