@@ -507,6 +507,10 @@ async function unifiedReserveInner(
   // Both equal dayofTotalCents for a single order.
   let bowlingOrderTotalCents: number;
   let raceOrderTotalCents: number;
+  // Pre-reward total of the ONE order the loyalty reward attaches to
+  // (squareDayofOrderId). The reward block below subtracts this order's
+  // reduction from the COMBINED total — see the reward fix there.
+  let primaryDayofPreRewardCents: number;
   if (orderGroups) {
     const byEntity: Record<string, { orderId: string; totalCents: number }> = {};
     for (const g of orderGroups) {
@@ -529,6 +533,8 @@ async function unifiedReserveInner(
     bowlingOrderTotalCents = hp?.totalCents ?? 0;
     raceOrderTotalCents = ft?.totalCents ?? 0;
     dayofTotalCents = (ft?.totalCents ?? 0) + (hp?.totalCents ?? 0);
+    // The reward applies to squareDayofOrderId (ft when present, else hp).
+    primaryDayofPreRewardCents = ft?.totalCents ?? hp?.totalCents ?? 0;
   } else {
     const single = await createDayofOrder(locationId, sqLineItems, "single");
     squareDayofOrderId = single.orderId;
@@ -536,6 +542,7 @@ async function unifiedReserveInner(
     bowlingOrderTotalCents = single.totalCents;
     raceOrderTotalCents = single.totalCents;
     dayofTotalCents = single.totalCents;
+    primaryDayofPreRewardCents = single.totalCents;
   }
 
   // ── 4. Loyalty reward ─────────────────────────────────────────────
@@ -568,7 +575,18 @@ async function unifiedReserveInner(
           if (orderRes.ok) {
             const orderData = await orderRes.json();
             const adjusted = orderData.order?.total_money?.amount;
-            if (typeof adjusted === "number") dayofTotalCents = adjusted;
+            if (typeof adjusted === "number") {
+              // The reward discounts ONLY the order it's attached to
+              // (squareDayofOrderId), whose pre-reward total is
+              // primaryDayofPreRewardCents. Subtract THAT order's reduction from
+              // the COMBINED total. The old code overwrote dayofTotalCents with
+              // this one order's post-reward total — which, for a combo split
+              // (two day-of orders), dropped the OTHER order entirely and
+              // undercharged the deposit by the bowling leg's full amount.
+              // (Marudas incident, 2026-06-23.)
+              const rewardReduction = primaryDayofPreRewardCents - adjusted;
+              if (rewardReduction > 0) dayofTotalCents -= rewardReduction;
+            }
           }
         } catch {
           // Non-fatal
