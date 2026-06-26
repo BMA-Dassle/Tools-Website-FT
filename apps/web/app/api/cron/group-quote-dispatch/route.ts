@@ -411,7 +411,17 @@ async function processQueueItem(
     }
   }
 
-  // Post-signing update: data only, preserve gift card
+  // Post-signing update: data only, preserve gift card.
+  //
+  // CHANGE-GATED. This branch fires on EVERY dispatch pass for any post-deposit
+  // event still in the BMI scan window — and the cron runs every minute. Writing a
+  // contract version + BMI private note + day-of reconcile unconditionally meant a
+  // paid, unchanged event logged a fresh "Contract updated" note every ~60s forever
+  // (Marriott/Pascual 5dc45f97, 2026-06-23: 60+ no-op notes in one hour). We now
+  // diff what BMI sends against what we've stored and only version / sync / note /
+  // reconcile / re-sign when something actually changed. The 60s debounce above
+  // can't catch this alone — it equals the cron period, so scheduler jitter leaks a
+  // run through most minutes.
   if (
     existing &&
     (existing.status === "deposit_paid" ||
@@ -424,27 +434,85 @@ async function processQueueItem(
     // Universal rule: amount due = total - collected (see collected_cents schema comment).
     // Deriving from deposit_due_cents erases payments beyond the deposit — a paid-in-full
     // guest repriced 2→4 lanes showed deposit-only paid (H2925, 2026-06-12).
-    const balanceCents = totalCents - existing.collected_cents;
-    const postSignChanges: string[] = [];
-    if (priceChanged) postSignChanges.push(`total: ${existing.total_cents} → ${totalCents}`);
+    const balanceCents = Math.max(0, totalCents - existing.collected_cents);
+    const newEventDisplay = formatEventDate(item.event.dateRaw);
+
+    // Key-order-safe signatures. line_items / prior_payments come back from JSONB
+    // with keys re-sorted by Postgres, so a raw JSON.stringify compare against the
+    // freshly scanned BMI objects always reports a (false) change and would defeat
+    // the gate. Project the fields that matter into a fixed-order string instead.
+    const norm = (v: unknown) => (v ?? "").toString().trim();
+    const lineSig = (items: unknown): string =>
+      (Array.isArray(items) ? items : [])
+        .map((li) => {
+          const p = li as Record<string, unknown>;
+          return `${norm(p.name)}|${norm(p.overrideName)}|${norm(p.price)}|${norm(p.qty)}|${norm(p.total)}|${norm(p.plu)}`;
+        })
+        .join("~");
+    const paymentSig = (items: unknown): string =>
+      (Array.isArray(items) ? items : [])
+        .map((pp) => {
+          const p = pp as Record<string, unknown>;
+          return `${norm(p.paid)}|${norm(p.amount)}`;
+        })
+        .join("~");
+
+    // Comprehensive change set. MUST cover every field updateGfQuoteDetails writes
+    // below — a field that can change but isn't checked here would silently stop
+    // syncing. event_date is compared via its display string (the raw timestamptz
+    // round-trips through the DB in a different format and would always differ).
+    const changes: string[] = [];
+    if (priceChanged) changes.push(`total: ${existing.total_cents} → ${totalCents}`);
+    if (existing.tax_cents !== taxCents) changes.push(`tax: ${existing.tax_cents} → ${taxCents}`);
+    if (existing.deposit_due_cents !== depositDueCents)
+      changes.push(`deposit: ${existing.deposit_due_cents} → ${depositDueCents}`);
+    if (existing.balance_cents !== balanceCents)
+      changes.push(`balance: ${existing.balance_cents} → ${balanceCents}`);
     if (existing.event_name !== item.event.name)
-      postSignChanges.push(`event_name: ${existing.event_name} → ${item.event.name}`);
+      changes.push(`event_name: ${existing.event_name} → ${item.event.name}`);
+    if (norm(existing.event_number) !== norm(item.event.number)) changes.push("event_number");
+    if (existing.event_date_display !== newEventDisplay)
+      changes.push(`date: ${existing.event_date_display} → ${newEventDisplay}`);
+    if (norm(existing.notes) !== norm(item.event.notes)) changes.push("notes");
+    if (norm(existing.guest_first_name) !== norm(item.customer.first)) changes.push("guest_first");
+    if (norm(existing.guest_last_name) !== norm(item.customer.last)) changes.push("guest_last");
+    if (norm(existing.guest_email) !== norm(item.customer.email)) changes.push("guest_email");
+    if (norm(existing.guest_phone) !== norm(item.customer.phone)) changes.push("guest_phone");
+    if (norm(existing.planner_first) !== norm(item.planner.first)) changes.push("planner_first");
+    if (norm(existing.planner_last) !== norm(item.planner.last)) changes.push("planner_last");
+    if (norm(existing.planner_email) !== norm(item.planner.email)) changes.push("planner_email");
+    if (norm(existing.planner_phone) !== norm(item.planner.phone)) changes.push("planner_phone");
+    if (lineSig(existing.line_items) !== lineSig(item.products)) changes.push("line_items");
+    if (paymentSig(existing.prior_payments) !== paymentSig(item.payments))
+      changes.push("prior_payments");
+
+    // Nothing actually changed → this is the runaway no-op pass. Bump only the
+    // debounce timestamp (a targeted UPDATE that does NOT touch updated_at — calling
+    // updateGfQuoteDetails would bump updated_at and make the portal show the event
+    // as freshly edited every minute), then return without versioning, syncing,
+    // noting, reconciling, or re-signing.
+    if (changes.length === 0) {
+      const q = (await import("@/lib/db")).sql();
+      await q`UPDATE group_function_quotes SET hermes_last_processed_at = NOW() WHERE id = ${existing.id}`;
+      return { reservationId: item.reservationId, action: "post_sign_nochange" };
+    }
+
     await createContractVersion({
       quoteId: existing.id,
       snapshot: extractContractSnapshot(existing),
-      changes: postSignChanges.length > 0 ? postSignChanges : ["post-sign data update"],
+      changes,
       trigger: "dispatch_cron",
     }).catch((err) => console.warn("[group-quote-dispatch] snapshot error:", err));
     await updateGfQuoteDetails(existing.id, {
       event_name: item.event.name,
       event_number: item.event.number,
       event_date: item.event.dateRaw,
-      event_date_display: formatEventDate(item.event.dateRaw),
+      event_date_display: newEventDisplay,
       notes: item.event.notes,
       total_cents: totalCents,
       tax_cents: taxCents,
       deposit_due_cents: depositDueCents,
-      balance_cents: Math.max(0, balanceCents),
+      balance_cents: balanceCents,
       line_items: item.products,
       prior_payments: item.payments,
       planner_first: item.planner.first,
@@ -460,7 +528,7 @@ async function processQueueItem(
 
     // Self-heal the day-of Square order against the just-updated line items so the
     // gift card matches the order staff redeem at the event (H1174 / #80, 2026-06-16).
-    // Best-effort, runs whether or not the price changed.
+    // Now gated behind a real change — previously fired every minute.
     const reconcileTarget = await getGfQuoteByShortId(existing.contract_short_id!);
     if (reconcileTarget) await reconcileDayofOrderSafe(reconcileTarget);
 
@@ -509,7 +577,8 @@ async function processQueueItem(
     }
 
     console.log(
-      `[group-quote-dispatch] post-sign data update for reservation=${item.reservationId}${priceChanged ? " (PRICE CHANGED)" : ""}`,
+      `[group-quote-dispatch] post-sign update for reservation=${item.reservationId}` +
+        `${priceChanged ? " (PRICE CHANGED)" : ""}: ${changes.join("; ")}`,
     );
     return {
       reservationId: item.reservationId,
