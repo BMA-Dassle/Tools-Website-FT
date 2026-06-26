@@ -152,7 +152,7 @@ function buildCombinedLineItems(session: BookingSession): {
   const sqLineItems: SquareLineItem[] = [];
   let totalPriceCents = 0;
   let totalDepositCents = 0;
-  let promoSavingsCents = 0; // FREEDOM250 cents removed across all lines (for the ledger)
+  let promoSavingsCents = 0; // USA250 cents removed across all lines (for the ledger)
 
   // Combo special: the flat combo line (emitted inside buildRaceChargeLines
   // below) IS the whole race+bowl charge, so the bowling item's own line items
@@ -166,7 +166,7 @@ function buildCombinedLineItems(session: BookingSession): {
   for (const item of session.items) {
     if (!isBowlingLike(item)) continue;
 
-    // FREEDOM250: reduce the price key on priced bowling lines. Catalog-only
+    // USA250: reduce the price key on priced bowling lines. Catalog-only
     // lines with no local price (fees) carry priceCents 0 → factor 1 → untouched.
     const bowlVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
     for (const li of comboActive ? [] : item.lineItems) {
@@ -262,7 +262,7 @@ function buildCombinedLineItems(session: BookingSession): {
     if (!attr.productId) continue;
 
     const catalogId = lookupCatalogId(attr.productId);
-    // FREEDOM250: reduce the price key on the attraction line when eligible.
+    // USA250: reduce the price key on the attraction line when eligible.
     const fullUnitCents = Math.round(attr.price * 100);
     const factor = promoFactor(
       { domain: "attractions", visitDate: attr.date, productSlug: attr.slug },
@@ -648,7 +648,7 @@ async function unifiedReserveInner(
     throw new RewardFailedError();
   }
 
-  // Note: no separate displayed==charged guard here. The FREEDOM250 reduction is
+  // Note: no separate displayed==charged guard here. The USA250 reduction is
   // computed by the SAME deterministic helper (promo-pricing) on both the display
   // and charge sides, so the discounted price matches by construction — exactly
   // like the per-racer membership discount. A naive total-compare guard is unsafe
@@ -716,7 +716,7 @@ async function unifiedReserveInner(
     }
   }
 
-  // ── Record the FREEDOM250 redemption (idempotent, soft-fail) ──────────
+  // ── Record the USA250 redemption (idempotent, soft-fail) ──────────
   // The deposit is captured + squareDayofOrderId exists, so log the use now —
   // keyed on the order id so a retry never double-counts. A combo's two orders
   // share ONE redemption (the anchor). NEVER fail a captured booking on this.

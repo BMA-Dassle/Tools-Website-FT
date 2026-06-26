@@ -292,7 +292,7 @@ function CartItemCard({
   const bowlingEstimate =
     item.kind === "bowling" || item.kind === "kbf"
       ? item.lineItems.reduce((s, li) => {
-          // FREEDOM250: reduce priced bowling lines so the cart matches checkout.
+          // USA250: reduce priced bowling lines so the cart matches checkout.
           const full = (li.priceCents ?? 0) * li.quantity;
           const f =
             (li.priceCents ?? 0) > 0
@@ -409,7 +409,7 @@ function RaceCartCard({
   const povTotal = POV_PRICE * item.povQuantity;
   const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
 
-  // FREEDOM250: reduce race lines (they carry domain/visitDate) so the cart
+  // USA250: reduce race lines (they carry domain/visitDate) so the cart
   // estimate matches what checkout charges. License/POV/add-ons stay full price.
   const raceLinesTotal = applyPromoToBillLines(
     raceItemChargeLines(item),

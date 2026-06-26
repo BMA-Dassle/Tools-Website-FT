@@ -59,7 +59,7 @@ export interface BillLine {
    *  ("fasttrax-fm" | "headpinz-fm"). Drives the two-order split in
    *  unified-reserve; undefined = the session's default single order. */
   comboEntity?: string;
-  // ── FREEDOM250-style promo (price-key reduction) ──────────────────────
+  // ── USA250-style promo (price-key reduction) ──────────────────────
   /** Discount-codes domain this line belongs to — gates promo eligibility.
    *  Unset = not promo-scoped (license, POV, fees) → never discounted. */
   domain?: DiscountDomain;
@@ -82,7 +82,7 @@ export interface BillOverview {
   tax: number;
   total: number;
   lines: BillLine[];
-  /** Promo applied to this overview (FREEDOM250), if any — for the UI savings line. */
+  /** Promo applied to this overview (USA250), if any — for the UI savings line. */
   promoCode?: string | null;
   /** Total dollars saved by the promo across all lines (sum of original − amount). */
   promoSavings?: number;
@@ -785,7 +785,7 @@ export function raceItemChargeLines(
           bmiProductId,
           time: earliestHeatStart(g.heats),
           // Promo eligibility: race heats are the "racing" domain; the visit date
-          // is the race item's date (gates the FREEDOM250 booking-date window).
+          // is the race item's date (gates the USA250 booking-date window).
           domain: "racing" as const,
           visitDate: item.date ?? undefined,
           ...(percent > 0 ? { membershipDiscountPct: percent } : {}),
@@ -931,7 +931,7 @@ export function buildRaceChargeLines(
     });
   }
 
-  // FREEDOM250-style promo: reduce the price key on eligible race-heat lines.
+  // USA250-style promo: reduce the price key on eligible race-heat lines.
   // This is the SHARED race seam — both the display overview and the cash
   // reserve path call buildRaceChargeLines, so displayed == charged. Idempotent:
   // combo lines arrive pre-discounted (stamped) and are skipped; license/POV
@@ -942,10 +942,10 @@ export function buildRaceChargeLines(
 
 /**
  * Stamp a priced BMI overview line with the `attractions` domain + its visit
- * date so the FREEDOM250 promo can reach it. In the v2 $0 model the only
+ * date so the USA250 promo can reach it. In the v2 $0 model the only
  * priced (amount>0) BMI lines are attractions — race heats are $0 build
  * products and bowling rides QAMF, not BMI — so treating these as attraction
- * lines is safe (and FREEDOM250 covers all domains anyway). Visit date is the
+ * lines is safe (and USA250 covers all domains anyway). Visit date is the
  * line's own scheduled start (handles multiple attractions on different dates),
  * falling back to the session's attraction item date. No date → not discounted
  * (the promo helper fails closed).
@@ -972,7 +972,7 @@ function buildZeroModelOverview(session: BookingSession, bmiOverview: BillOvervi
   const otherLines = bmiOverview.lines
     .filter((l) => l.amount > 0)
     .map((l) => stampAttractionPromo(l, session));
-  // FREEDOM250-style promo over the merged set. Race lines are already reduced
+  // USA250-style promo over the merged set. Race lines are already reduced
   // inside buildRaceChargeLines (idempotent skip here); attraction lines carry a
   // domain + visitDate from stampAttractionPromo and get reduced now. Tax is
   // computed on the REDUCED subtotal, matching MODIFY_TAX_BASIS expectations.

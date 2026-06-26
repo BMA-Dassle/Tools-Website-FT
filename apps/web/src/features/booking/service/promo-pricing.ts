@@ -1,5 +1,5 @@
 /**
- * FREEDOM250-style promo price reduction — the single place the discount math
+ * USA250-style promo price reduction — the single place the discount math
  * lives, shared by every display + charge seam so "displayed == charged".
  *
  * Mechanism (per owner): we OVERRIDE THE PRICE KEY — i.e. lower each eligible
@@ -118,7 +118,7 @@ export function isPromoEligibleLine(
  *
  * Fixed-amount codes return 1 here — a per-line price-key reduction can't
  * meaningfully spread a flat $-amount across a multi-line cart, and the live
- * FREEDOM250 code is percent. Fixed codes keep their existing behavior.
+ * USA250 code is percent. Fixed codes keep their existing behavior.
  */
 export function promoFactor(
   ctx: PromoLineCtx,

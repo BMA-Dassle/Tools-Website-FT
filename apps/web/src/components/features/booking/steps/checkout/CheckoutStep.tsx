@@ -217,7 +217,7 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
         const bowlVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
         for (const li of comboActive ? [] : item.lineItems) {
           const fullAmount = ((li.priceCents ?? 0) * li.quantity) / 100;
-          // FREEDOM250: reduce the displayed bowling line so it matches the charge
+          // USA250: reduce the displayed bowling line so it matches the charge
           // (buildCombinedLineItems / the reused quote both reduce the same way).
           const promo = applyPromoToAmount(
             fullAmount,
@@ -299,7 +299,7 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
         const comboLines = reviewLines.filter(isComboLine);
         if (comboLines.length > 0) {
           const amount = Math.round(comboLines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
-          // Preserve the FREEDOM250 savings on the collapsed line so the combo
+          // Preserve the USA250 savings on the collapsed line so the combo
           // still shows a strikethrough (its split lines arrive pre-discounted).
           const hasPromo = comboLines.some((l) => l.originalAmount != null);
           const originalAmount = hasPromo
@@ -396,7 +396,7 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       const total = Math.max(0, grossTotal - rewardDiscount);
       const tax = quotedTotal != null ? Math.max(0, quotedTotal - preTaxSubtotal) : estTax;
 
-      // FREEDOM250: total saved across all reviewed lines (race/attraction lines
+      // USA250: total saved across all reviewed lines (race/attraction lines
       // arrive pre-discounted from bmiOverview; bowling + combo stamped above).
       const promoSavings =
         Math.round(
@@ -700,7 +700,7 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
             redeem regardless of brand. LoyaltySection labels itself per session brand. */}
         <LoyaltySection session={session} dispatch={dispatch} phone={phone} />
 
-        {/* FREEDOM250-style promo entry. The ?promo= URL seed sets this too; this
+        {/* USA250-style promo entry. The ?promo= URL seed sets this too; this
             field lets a guest who hears the code apply it at checkout. The savings
             render on the review (strikethrough + "You saved" line). */}
         <PromoCodeInput

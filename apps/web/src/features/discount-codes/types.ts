@@ -52,7 +52,7 @@ export interface DiscountCodeRow {
    * Booking-DATE window (the VISIT date the code is valid for), `YYYY-MM-DD`.
    * Distinct from the purchase-time window (`startsAt`/`expiresAt`) and from
    * `allowedWeekdays`. `null` = no booking-date restriction. A single-day
-   * holiday code sets both equal (e.g. FREEDOM250 → `2026-07-04`).
+   * holiday code sets both equal (e.g. USA250 → `2026-07-04`).
    */
   bookingDateStart: string | null;
   bookingDateEnd: string | null;

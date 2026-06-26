@@ -329,12 +329,12 @@ describe("buildRaceChargeLines — combo integration (display == charge seam)", 
   });
 });
 
-// FREEDOM250 — 25% off, valid only for a specific visit date. `bookingDate*` is
+// USA250 — 25% off, valid only for a specific visit date. `bookingDate*` is
 // pinned to the session's date so the test is independent of the wall-clock
 // `now` used inside the seam (wide purchase window covers any run date).
 function promoFor(ymd: string): AppliedPromo {
   return {
-    code: "FREEDOM250TEST",
+    code: "USA250TEST",
     domains: ["racing", "bowling", "attractions"],
     scopes: {
       racing: { productSlugs: null },
@@ -353,7 +353,7 @@ function promoFor(ymd: string): AppliedPromo {
   };
 }
 
-describe("FREEDOM250 — combo reduction (owner: combos DO get the discount)", () => {
+describe("USA250 — combo reduction (owner: combos DO get the discount)", () => {
   it("reduces BOTH split-order entities 25% on an eligible visit date", () => {
     const s = newComboSession(SAT); // weekend: racing 4900 + bowling 2600 = $75pp
     s.appliedPromo = promoFor(SAT);
@@ -395,7 +395,7 @@ describe("FREEDOM250 — combo reduction (owner: combos DO get the discount)", (
   });
 });
 
-describe("FREEDOM250 — non-combo race reduction via buildRaceChargeLines", () => {
+describe("USA250 — non-combo race reduction via buildRaceChargeLines", () => {
   function raceOnlySession(date: string, promo: AppliedPromo | null): BookingSession {
     return {
       ...emptySession({ entryBrand: "fasttrax" }),

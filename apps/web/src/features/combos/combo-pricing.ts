@@ -41,7 +41,7 @@ import {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Combo line → discount-codes domain for promo eligibility (FREEDOM250 covers both). */
+/** Combo line → discount-codes domain for promo eligibility (USA250 covers both). */
 function entityToDomain(entity: ComboEntity): DiscountDomain {
   return entity === "headpinz-fm" ? "bowling" : "racing";
 }
@@ -157,7 +157,7 @@ export interface ComboItemLine {
   entity: ComboEntity;
   catalogObjectId: string;
   quantity: number;
-  /** Per-unit cents (after license reallocation AND any FREEDOM250 reduction). */
+  /** Per-unit cents (after license reallocation AND any USA250 reduction). */
   unitCents: number;
   /** Pre-promo per-unit cents, set only when a promo reduced this line — lets
    *  comboChargeLines stamp the BillLine's `originalAmount` for the strikethrough. */
@@ -175,7 +175,7 @@ export interface ComboItemLine {
  * stacking an employee/league discount on top is intentionally not supported
  * (book à la carte for that). Sums to exactly the flat per-person price.
  *
- * EXCEPTION — the FREEDOM250 holiday promo (owner decision: combos DO get it).
+ * EXCEPTION — the USA250 holiday promo (owner decision: combos DO get it).
  * It is a separate, code-driven price-key reduction (not a membership discount),
  * applied here on the SHARED itemized seam so it flows to BOTH comboChargeLines
  * (display) AND comboOrderGroups (the two split day-of orders) consistently.
@@ -224,7 +224,7 @@ export function comboItemizedLines(session: BookingSession): ComboItemLine[] | n
         (order.get(a.line.key) ?? 0) - (order.get(b.line.key) ?? 0) || a.unitCents - b.unitCents,
     )
     .map((e) => {
-      // FREEDOM250: reduce the price key per line (entity → domain; the combo's
+      // USA250: reduce the price key per line (entity → domain; the combo's
       // date gates the booking-date window). factor is 1 when ineligible.
       const factor = promoFactor(
         { domain: entityToDomain(e.line.entity), visitDate: raceItem.date },
@@ -266,7 +266,7 @@ export function comboChargeLines(session: BookingSession): BillLine[] | null {
     .filter((s): s is string => !!s)
     .sort()[0];
 
-  // FREEDOM250 % (for the strikethrough label); the actual reduction already
+  // USA250 % (for the strikethrough label); the actual reduction already
   // happened in comboItemizedLines (so the split orders inherit it).
   const promoPct = session.appliedPromo?.amountPct ?? undefined;
 

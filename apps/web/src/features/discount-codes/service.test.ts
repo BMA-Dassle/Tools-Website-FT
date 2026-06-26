@@ -164,7 +164,7 @@ describe("evaluateCode", () => {
   });
 
   // Booking-DATE window (the VISIT date), distinct from the purchase window + weekday.
-  // FREEDOM250 is a single July-4 code: bookingDateStart === bookingDateEnd === 2026-07-04.
+  // USA250 is a single July-4 code: bookingDateStart === bookingDateEnd === 2026-07-04.
   const julyRow = () =>
     makeRow({
       startsAt: "2026-06-01T00:00:00Z",

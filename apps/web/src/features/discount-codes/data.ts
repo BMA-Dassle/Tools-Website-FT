@@ -64,7 +64,7 @@ export async function ensureDiscountCodesSchema(): Promise<void> {
   await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS marketing_account TEXT`;
   // Booking-DATE window (the VISIT date the code is valid for) — distinct from
   // the purchase-time window (starts_at/expires_at) and from allowed_weekdays.
-  // A single-day holiday code (e.g. FREEDOM250 → 2026-07-04) sets both equal.
+  // A single-day holiday code (e.g. USA250 → 2026-07-04) sets both equal.
   await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS booking_date_start DATE`;
   await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS booking_date_end DATE`;
   await q`CREATE INDEX IF NOT EXISTS dc_active_window ON discount_codes(starts_at, expires_at) WHERE active = TRUE`;

@@ -36,7 +36,7 @@ export function buildBowlingQuoteLineItems(
   item: BowlingLikeItem,
   session: BookingSession,
 ): QuoteLineItem[] {
-  // FREEDOM250: reduce the price key on priced bowling lines. The bowling-only
+  // USA250: reduce the price key on priced bowling lines. The bowling-only
   // reserve reuses THIS quoted order, so discounting here covers display AND
   // charge. Catalog-only lines (fees) carry no local price → factor 1 → untouched.
   const visitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;

@@ -1,5 +1,5 @@
 /**
- * Seed the FREEDOM250 July-4th coupon (25% off online bookings whose VISIT date
+ * Seed the USA250 July-4th coupon (25% off online bookings whose VISIT date
  * is 2026-07-04 — racing, bowling, attractions, combos). Price-key reduction, NO
  * Square DISCOUNT object, so we seed DIRECTLY (bypassing the admin create route,
  * which would auto-provision a Square discount because bowling is in scope).
@@ -7,9 +7,9 @@
  * Idempotent: ON CONFLICT (code) updates the promo fields. Seeds with
  * active=FALSE — flip to TRUE only after the preview/prod smoke passes.
  *
- *   DRY:     node --env-file=apps/web/.env.local apps/web/scripts/_seed-freedom250.mts
- *   EXECUTE: node --env-file=apps/web/.env.local apps/web/scripts/_seed-freedom250.mts --execute
- *   TEST:    add --test to ALSO seed FREEDOM250TEST (active, visit window = today→+14d)
+ *   DRY:     node --env-file=apps/web/.env.local apps/web/scripts/_seed-usa250.mts
+ *   EXECUTE: node --env-file=apps/web/.env.local apps/web/scripts/_seed-usa250.mts --execute
+ *   TEST:    add --test to ALSO seed USA250TEST (active, visit window = today→+14d)
  *            so the Vercel preview smoke can book a near-term slot.
  */
 import { readFileSync } from "node:fs";
@@ -85,7 +85,7 @@ async function upsert(row: {
 }
 
 const REAL = {
-  code: "FREEDOM250",
+  code: "USA250",
   description: "July 4th — 25% off online bookings",
   // Purchase window: open now → end of July 4 ET (00:00 EDT Jul 5 = 04:00Z).
   startsAt: "2026-06-26T00:00:00-04:00",
@@ -95,7 +95,7 @@ const REAL = {
   active: false, // flip to true only after smoke
 };
 
-e(`FREEDOM250 seed — ${EXECUTE ? "EXECUTE" : "DRY RUN"}${SEED_TEST ? " (+TEST code)" : ""}`);
+e(`USA250 seed — ${EXECUTE ? "EXECUTE" : "DRY RUN"}${SEED_TEST ? " (+TEST code)" : ""}`);
 e(`  ${REAL.code}: 25% off, visit ${REAL.bookingStart}, purchase ${REAL.startsAt}→${REAL.expiresAt}, active=${REAL.active}`);
 
 let testRow: typeof REAL | null = null;
@@ -103,8 +103,8 @@ if (SEED_TEST) {
   const now = new Date();
   const plus14 = new Date(now.getTime() + 14 * 24 * 3600 * 1000);
   testRow = {
-    code: "FREEDOM250TEST",
-    description: "FREEDOM250 preview smoke (delete after testing)",
+    code: "USA250TEST",
+    description: "USA250 preview smoke (delete after testing)",
     startsAt: "2024-01-01T00:00:00Z",
     expiresAt: "2030-01-01T00:00:00Z",
     bookingStart: etYmd(now),
@@ -122,9 +122,9 @@ if (!EXECUTE) {
   if (testRow) await upsert(testRow);
   const rows = (await sql`
     SELECT code, amount_pct, booking_date_start, booking_date_end, active, square_catalog_id
-    FROM discount_codes WHERE code IN ('FREEDOM250', 'FREEDOM250TEST') ORDER BY code
+    FROM discount_codes WHERE code IN ('USA250', 'USA250TEST') ORDER BY code
   `) as Array<Record<string, unknown>>;
   e("\nSeeded:");
   for (const r of rows) e(`  ${JSON.stringify(r)}`);
-  e("\nDone. Remember: keep FREEDOM250 active=false until smoke passes; delete FREEDOM250TEST after.");
+  e("\nDone. Remember: keep USA250 active=false until smoke passes; delete USA250TEST after.");
 }
