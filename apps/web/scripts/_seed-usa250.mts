@@ -26,6 +26,7 @@ const { neon } = await import("@neondatabase/serverless");
 const sql = neon(process.env.DATABASE_URL!);
 const EXECUTE = process.argv.includes("--execute");
 const SEED_TEST = process.argv.includes("--test");
+const ACTIVATE = process.argv.includes("--live"); // seed the real USA250 active (go-live)
 const e = (s = "") => process.stdout.write(s + "\n");
 
 const SCOPES = JSON.stringify({
@@ -92,7 +93,7 @@ const REAL = {
   expiresAt: "2026-07-05T04:00:00Z",
   bookingStart: "2026-07-04",
   bookingEnd: "2026-07-04",
-  active: false, // flip to true only after smoke
+  active: ACTIVATE, // default false (safe); --live turns the real code on
 };
 
 e(`USA250 seed — ${EXECUTE ? "EXECUTE" : "DRY RUN"}${SEED_TEST ? " (+TEST code)" : ""}`);

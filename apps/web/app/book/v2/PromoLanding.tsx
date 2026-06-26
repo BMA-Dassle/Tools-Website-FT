@@ -15,6 +15,20 @@ import { abandonBooking } from "~/features/booking/service/checkout";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { ComboSpecial } from "~/features/combos";
 
+/** Customer-facing "valid on" label for a promo's booking-date window (null = any day). */
+function promoValidLabel(start: string | null, end: string | null): string | null {
+  if (!start && !end) return null;
+  // Noon-anchored so the YYYY-MM-DD never rolls a day when formatted.
+  const fmt = (ymd: string) =>
+    new Date(`${ymd}T12:00:00`).toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  if (start && end) return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`;
+  return fmt((start ?? end)!);
+}
+
 /**
  * v2 booking landing — promo-aware activity picker.
  *
@@ -296,7 +310,13 @@ export function PromoLanding({
                     ? `${applied.amountPct}% off`
                     : applied.mechanic === "fixed" && applied.amountCents != null
                       ? `$${(applied.amountCents / 100).toFixed(2)} off`
-                      : ""}{" "}
+                      : ""}
+                  {promoValidLabel(applied.bookingDateStart, applied.bookingDateEnd) && (
+                    <span className="font-semibold">
+                      {" "}
+                      · valid {promoValidLabel(applied.bookingDateStart, applied.bookingDateEnd)}
+                    </span>
+                  )}{" "}
                   <span className="text-white/50">— eligible experiences marked below.</span>
                 </div>
                 <button
