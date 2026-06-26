@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { IconStarFilled, IconX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /**
@@ -15,15 +15,13 @@ import { modalBackdropProps } from "@/lib/a11y";
  *   - Dismissal remembered per browser session (sessionStorage), so it informs a
  *     returning visitor without nagging within one session.
  *
- * Patriotic coupon art recreated in CSS (no image asset): "1776 Prices · 2026
- * Quality", a star row, the "25% OFF ALL RESERVATIONS" band, and the USA250 code.
+ * The coupon art is the supplied PNG at `public/promo/usa250-july4.png` (served
+ * at /promo/usa250-july4.png). Clicking the coupon (or the button) books with
+ * the code pre-applied.
  */
 const EXPIRES_AT_MS = Date.parse("2026-07-05T00:00:00-04:00"); // end of July 4 ET (00:00 EDT Jul 5)
 const SESSION_KEY = "usa250-july4-2026";
-
-const NAVY = "#1c3a6e";
-const RED = "#e23b3f";
-const CREAM = "#ece3d0";
+const COUPON_SRC = "/promo/usa250-july4.png";
 
 export default function Usa250PromoPopup({
   bookHref = "/book/v2?code=USA250",
@@ -68,8 +66,6 @@ export default function Usa250PromoPopup({
     }
   }
 
-  const stars: string[] = [NAVY, NAVY, NAVY, NAVY, NAVY, RED, RED, RED, RED, RED];
-
   return (
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -78,73 +74,36 @@ export default function Usa250PromoPopup({
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="usa250-title"
-        className="relative w-full max-w-lg overflow-hidden rounded-2xl shadow-2xl"
-        style={{ backgroundColor: CREAM, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+        aria-label="July 4th — 25% off all reservations with code USA250"
+        className="relative w-full max-w-xl"
       >
         <button
           ref={closeRef}
           type="button"
           onClick={dismiss}
           aria-label="Dismiss offer"
-          className="absolute right-3 top-3 rounded-full p-1.5 transition-colors hover:bg-black/10"
-          style={{ color: NAVY }}
+          className="absolute -right-2 -top-2 z-10 rounded-full bg-[#0a1628] p-1.5 text-white/80 shadow-lg ring-1 ring-white/15 transition-colors hover:text-white"
         >
           <IconX size={20} stroke={2} />
         </button>
 
-        <div className="px-6 py-8 text-center sm:px-10">
-          <h2
-            id="usa250-title"
-            className="font-display text-3xl font-black uppercase italic leading-none sm:text-4xl"
-          >
-            <span style={{ color: NAVY }}>1776 Prices</span>{" "}
-            <span style={{ color: RED }}>2026 Quality</span>
-          </h2>
+        {/* The supplied coupon graphic — clicking it books with USA250 applied. */}
+        <Link href={bookHref} onClick={dismiss} aria-label="Book July 4th with 25% off">
+          {/* eslint-disable-next-line @next/next/no-img-element -- single decorative promo asset; intrinsic ratio kept */}
+          <img
+            src={COUPON_SRC}
+            alt="1776 Prices, 2026 Quality — 25% off all reservations July 4th. Use code USA250."
+            className="block h-auto w-full rounded-2xl shadow-2xl"
+          />
+        </Link>
 
-          <div className="mt-3 flex items-center justify-center gap-1.5">
-            {stars.map((c, i) => (
-              <IconStarFilled key={i} size={15} style={{ color: c }} />
-            ))}
-          </div>
-
-          <div className="mt-6 -rotate-1 py-2.5" style={{ backgroundColor: RED }}>
-            <p
-              className="font-display text-2xl font-black uppercase italic tracking-wide sm:text-3xl"
-              style={{ color: CREAM }}
-            >
-              25% Off All Reservations
-            </p>
-          </div>
-
-          <div
-            className="mx-auto mt-6 inline-block border-2 px-7 py-3"
-            style={{ borderColor: RED }}
-          >
-            <p className="text-[11px] font-bold uppercase tracking-[3px]" style={{ color: NAVY }}>
-              Use Code
-            </p>
-            <p
-              className="font-display text-3xl font-black uppercase tracking-wider"
-              style={{ color: NAVY }}
-            >
-              USA250
-            </p>
-          </div>
-
-          <p className="mt-4 text-sm font-semibold" style={{ color: NAVY }}>
-            Valid July 4, 2026 only · book online
-          </p>
-
-          <Link
-            href={bookHref}
-            onClick={dismiss}
-            className="mt-6 block rounded-full px-6 py-3.5 text-center text-base font-bold uppercase tracking-wider transition-transform hover:scale-[1.02]"
-            style={{ backgroundColor: NAVY, color: CREAM }}
-          >
-            Book July 4th →
-          </Link>
-        </div>
+        <Link
+          href={bookHref}
+          onClick={dismiss}
+          className="mx-auto mt-4 block w-max rounded-full bg-[#e23b3f] px-8 py-3 text-center text-base font-bold uppercase tracking-wider text-white transition-transform hover:scale-[1.02]"
+        >
+          Book July 4th →
+        </Link>
       </div>
     </div>
   );
