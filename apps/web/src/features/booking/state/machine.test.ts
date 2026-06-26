@@ -239,6 +239,8 @@ describe("reducer — session-wide", () => {
       startsAt: "2026-05-01T00:00:00Z",
       expiresAt: "2026-06-01T00:00:00Z",
       allowedWeekdays: null,
+      bookingDateStart: null,
+      bookingDateEnd: null,
       mechanic: "percent" as const,
       amountPct: 20,
       amountCents: null,

@@ -30,6 +30,8 @@ import {
 import { getRaceProductById } from "./race-products";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
+import { promoFactor } from "./promo-pricing";
+import { recordRedemption, getDiscountCodeByCode } from "~/features/discount-codes";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { wallClockMs } from "~/features/combos/combo-itinerary";
@@ -145,10 +147,12 @@ interface SquareLineItem {
 function buildCombinedLineItems(session: BookingSession): {
   sqLineItems: SquareLineItem[];
   depositPct: number;
+  promoSavingsCents: number;
 } {
   const sqLineItems: SquareLineItem[] = [];
   let totalPriceCents = 0;
   let totalDepositCents = 0;
+  let promoSavingsCents = 0; // FREEDOM250 cents removed across all lines (for the ledger)
 
   // Combo special: the flat combo line (emitted inside buildRaceChargeLines
   // below) IS the whole race+bowl charge, so the bowling item's own line items
@@ -162,18 +166,36 @@ function buildCombinedLineItems(session: BookingSession): {
   for (const item of session.items) {
     if (!isBowlingLike(item)) continue;
 
+    // FREEDOM250: reduce the price key on priced bowling lines. Catalog-only
+    // lines with no local price (fees) carry priceCents 0 → factor 1 → untouched.
+    const bowlVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
     for (const li of comboActive ? [] : item.lineItems) {
-      const priceCents = li.priceCents ?? 0;
+      const fullCents = li.priceCents ?? 0;
+      const factor =
+        fullCents > 0
+          ? promoFactor({ domain: "bowling", visitDate: bowlVisitDate }, session.appliedPromo)
+          : 1;
+      const priceCents = factor === 1 ? fullCents : Math.round(fullCents * factor);
       const depPct = li.depositPct ?? 100;
       const lineTotal = priceCents * li.quantity;
       totalPriceCents += lineTotal;
       totalDepositCents += Math.round(lineTotal * (depPct / 100));
+      promoSavingsCents += (fullCents - priceCents) * li.quantity;
 
-      if (li.squareCatalogObjectId) {
+      if (li.squareCatalogObjectId && factor === 1) {
         sqLineItems.push({
           name: li.label ?? "Bowling",
           quantity: String(li.quantity),
           catalogObjectId: li.squareCatalogObjectId,
+        });
+      } else if (li.squareCatalogObjectId) {
+        // Discounted catalog line: keep the catalog link for categorization but
+        // override the price key with the reduced amount.
+        sqLineItems.push({
+          name: li.label ?? "Bowling",
+          quantity: String(li.quantity),
+          catalogObjectId: li.squareCatalogObjectId,
+          basePriceMoney: { amount: priceCents, currency: "USD" },
         });
       } else {
         sqLineItems.push({
@@ -220,6 +242,9 @@ function buildCombinedLineItems(session: BookingSession): {
       (bl.bmiProductId ? lookupCatalogId(bl.bmiProductId) : null) ?? lookupCatalogIdByName(bl.name);
     totalPriceCents += totalCents;
     totalDepositCents += totalCents; // 100% deposit for race
+    // Race + combo savings (combo lines flow through here too, pre-stamped).
+    promoSavingsCents +=
+      bl.originalAmount != null ? Math.round((bl.originalAmount - bl.amount) * 100) : 0;
 
     sqLineItems.push({
       name: bl.name,
@@ -237,10 +262,17 @@ function buildCombinedLineItems(session: BookingSession): {
     if (!attr.productId) continue;
 
     const catalogId = lookupCatalogId(attr.productId);
-    const unitCents = Math.round(attr.price * 100);
+    // FREEDOM250: reduce the price key on the attraction line when eligible.
+    const fullUnitCents = Math.round(attr.price * 100);
+    const factor = promoFactor(
+      { domain: "attractions", visitDate: attr.date, productSlug: attr.slug },
+      session.appliedPromo,
+    );
+    const unitCents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
     const lineTotal = unitCents * attr.qty;
     totalPriceCents += lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
+    promoSavingsCents += (fullUnitCents - unitCents) * attr.qty;
 
     sqLineItems.push({
       name: attr.slug ?? "Attraction",
@@ -254,7 +286,7 @@ function buildCombinedLineItems(session: BookingSession): {
   const depositPct =
     totalPriceCents > 0 ? Math.round((totalDepositCents / totalPriceCents) * 100) : 100;
 
-  return { sqLineItems, depositPct };
+  return { sqLineItems, depositPct, promoSavingsCents };
 }
 
 // ── Route-entry idempotency guard + lock ──────────────────────────────
@@ -421,7 +453,7 @@ async function unifiedReserveInner(
   }
 
   // ── 2. Build combined Square line items ────────────────────────────
-  const { sqLineItems, depositPct } = buildCombinedLineItems(session);
+  const { sqLineItems, depositPct, promoSavingsCents } = buildCombinedLineItems(session);
 
   if (sqLineItems.length === 0) {
     throw new Error("No line items to charge");
@@ -616,6 +648,13 @@ async function unifiedReserveInner(
     throw new RewardFailedError();
   }
 
+  // Note: no separate displayed==charged guard here. The FREEDOM250 reduction is
+  // computed by the SAME deterministic helper (promo-pricing) on both the display
+  // and charge sides, so the discounted price matches by construction — exactly
+  // like the per-racer membership discount. A naive total-compare guard is unsafe
+  // in this flow: the client "due now" (credits/partial deposit) and the server's
+  // full post-reward order total are different quantities and would false-positive.
+
   // ── 5. Charge ONE deposit ─────────────────────────────────────────
   // CRITICAL (combo split): dayofTotalCents is the SUM of BOTH day-of orders
   // (FastTrax racing + HeadPinz bowling, tax-inclusive). The single deposit is
@@ -674,6 +713,27 @@ async function unifiedReserveInner(
         }).catch(() => {});
       }
       throw err;
+    }
+  }
+
+  // ── Record the FREEDOM250 redemption (idempotent, soft-fail) ──────────
+  // The deposit is captured + squareDayofOrderId exists, so log the use now —
+  // keyed on the order id so a retry never double-counts. A combo's two orders
+  // share ONE redemption (the anchor). NEVER fail a captured booking on this.
+  if (session.appliedPromo && promoSavingsCents > 0) {
+    try {
+      const codeRow = await getDiscountCodeByCode(session.appliedPromo.code);
+      if (codeRow) {
+        await recordRedemption({
+          codeId: codeRow.id,
+          domain: session.appliedPromo.domains[0] ?? "racing",
+          externalRef: squareDayofOrderId,
+          amountOffCents: promoSavingsCents,
+          squareCustomerId: input.squareCustomerId,
+        });
+      }
+    } catch (err) {
+      console.error("[unified-reserve] discount redemption record failed (non-fatal):", err);
     }
   }
 

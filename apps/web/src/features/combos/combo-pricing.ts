@@ -21,8 +21,10 @@
  */
 
 import type { BillLine } from "~/features/booking/service/checkout";
+import { promoFactor } from "~/features/booking/service/promo-pricing";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
+import type { DiscountDomain } from "~/features/discount-codes";
 
 import { wallClockMs } from "./combo-itinerary";
 import {
@@ -38,6 +40,11 @@ import {
 } from "./combo-specials";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Combo line → discount-codes domain for promo eligibility (FREEDOM250 covers both). */
+function entityToDomain(entity: ComboEntity): DiscountDomain {
+  return entity === "headpinz-fm" ? "bowling" : "racing";
+}
 
 export interface ActiveCombo {
   combo: ComboSpecial;
@@ -150,8 +157,11 @@ export interface ComboItemLine {
   entity: ComboEntity;
   catalogObjectId: string;
   quantity: number;
-  /** Per-unit cents (after license reallocation). */
+  /** Per-unit cents (after license reallocation AND any FREEDOM250 reduction). */
   unitCents: number;
+  /** Pre-promo per-unit cents, set only when a promo reduced this line — lets
+   *  comboChargeLines stamp the BillLine's `originalAmount` for the strikethrough. */
+  originalUnitCents?: number;
 }
 
 /**
@@ -164,6 +174,11 @@ export interface ComboItemLine {
  * NO membership discount is applied — the combo IS a fixed promotional bundle;
  * stacking an employee/league discount on top is intentionally not supported
  * (book à la carte for that). Sums to exactly the flat per-person price.
+ *
+ * EXCEPTION — the FREEDOM250 holiday promo (owner decision: combos DO get it).
+ * It is a separate, code-driven price-key reduction (not a membership discount),
+ * applied here on the SHARED itemized seam so it flows to BOTH comboChargeLines
+ * (display) AND comboOrderGroups (the two split day-of orders) consistently.
  */
 export function comboItemizedLines(session: BookingSession): ComboItemLine[] | null {
   const active = activeComboSpecial(session);
@@ -208,17 +223,27 @@ export function comboItemizedLines(session: BookingSession): ComboItemLine[] | n
       (a, b) =>
         (order.get(a.line.key) ?? 0) - (order.get(b.line.key) ?? 0) || a.unitCents - b.unitCents,
     )
-    .map((e) => ({
-      key: e.line.key,
-      // The label IS the experience name now — each center's day-of order carries
-      // ONE "Ultimate VIP Experience" line (license/POV/shoes folded in), not an
-      // itemized parts list. (Pre-2026-06-23 this prefixed "VIP Exp - ".)
-      name: e.line.label,
-      entity: e.line.entity,
-      catalogObjectId: e.line.catalogObjectId,
-      quantity: e.qty,
-      unitCents: e.unitCents,
-    }));
+    .map((e) => {
+      // FREEDOM250: reduce the price key per line (entity → domain; the combo's
+      // date gates the booking-date window). factor is 1 when ineligible.
+      const factor = promoFactor(
+        { domain: entityToDomain(e.line.entity), visitDate: raceItem.date },
+        session.appliedPromo,
+      );
+      const unitCents = factor === 1 ? e.unitCents : Math.round(e.unitCents * factor);
+      return {
+        key: e.line.key,
+        // The label IS the experience name now — each center's day-of order carries
+        // ONE "Ultimate VIP Experience" line (license/POV/shoes folded in), not an
+        // itemized parts list. (Pre-2026-06-23 this prefixed "VIP Exp - ".)
+        name: e.line.label,
+        entity: e.line.entity,
+        catalogObjectId: e.line.catalogObjectId,
+        quantity: e.qty,
+        unitCents,
+        ...(factor === 1 ? {} : { originalUnitCents: e.unitCents }),
+      };
+    });
 }
 
 /**
@@ -241,6 +266,10 @@ export function comboChargeLines(session: BookingSession): BillLine[] | null {
     .filter((s): s is string => !!s)
     .sort()[0];
 
+  // FREEDOM250 % (for the strikethrough label); the actual reduction already
+  // happened in comboItemizedLines (so the split orders inherit it).
+  const promoPct = session.appliedPromo?.amountPct ?? undefined;
+
   const itemized = comboItemizedLines(session);
   if (itemized) {
     return itemized.map((l) => ({
@@ -250,17 +279,27 @@ export function comboChargeLines(session: BookingSession): BillLine[] | null {
       time: earliestHeat,
       squareCatalogObjectId: l.catalogObjectId,
       comboEntity: l.entity,
+      // Stamp the pre-promo total + % so the cart/review render the savings.
+      // No `domain` is set: the reduction is fully owned by the combo seam, so
+      // the generic applyPromoToBillLines in buildRaceChargeLines leaves these
+      // alone (and the originalAmount guard double-protects reduced lines).
+      ...(l.originalUnitCents != null
+        ? { originalAmount: round2((l.originalUnitCents * l.quantity) / 100), promoPct }
+        : {}),
     }));
   }
 
   // Legacy fallback: one flat combo line (combo without a revenueSplit).
-  const unit = comboPriceCentsForDate(combo, raceItem.date!) / 100;
+  const unitFull = comboPriceCentsForDate(combo, raceItem.date!) / 100;
+  const factor = promoFactor({ domain: "racing", visitDate: raceItem.date }, session.appliedPromo);
+  const unit = factor === 1 ? unitFull : round2(unitFull * factor);
   return [
     {
       name: combo.name,
       quantity: racerIds.length,
       amount: round2(unit * racerIds.length),
       time: earliestHeat,
+      ...(factor === 1 ? {} : { originalAmount: round2(unitFull * racerIds.length), promoPct }),
     },
   ];
 }

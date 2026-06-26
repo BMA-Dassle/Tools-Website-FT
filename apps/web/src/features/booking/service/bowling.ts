@@ -12,6 +12,7 @@ import type { ContactInfo } from "../types";
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import { buildKbfExtraSquareLineItems, isFridayYmd } from "./kbf-pricing";
+import { promoFactor } from "./promo-pricing";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
@@ -35,13 +36,30 @@ export function buildBowlingQuoteLineItems(
   item: BowlingLikeItem,
   session: BookingSession,
 ): QuoteLineItem[] {
-  const lines: QuoteLineItem[] = item.lineItems.map((li) => ({
-    name: li.label ?? `Item ${li.squareProductId}`,
-    quantity: String(li.quantity),
-    ...(li.squareCatalogObjectId
-      ? { catalogObjectId: li.squareCatalogObjectId }
-      : { basePriceMoney: { amount: li.priceCents ?? 0, currency: "USD" as const } }),
-  }));
+  // FREEDOM250: reduce the price key on priced bowling lines. The bowling-only
+  // reserve reuses THIS quoted order, so discounting here covers display AND
+  // charge. Catalog-only lines (fees) carry no local price → factor 1 → untouched.
+  const visitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
+  const lines: QuoteLineItem[] = item.lineItems.map((li) => {
+    const fullCents = li.priceCents ?? 0;
+    const factor =
+      fullCents > 0 ? promoFactor({ domain: "bowling", visitDate }, session.appliedPromo) : 1;
+    const priceCents = factor === 1 ? fullCents : Math.round(fullCents * factor);
+    const out: QuoteLineItem = {
+      name: li.label ?? `Item ${li.squareProductId}`,
+      quantity: String(li.quantity),
+    };
+    if (li.squareCatalogObjectId && factor === 1) {
+      out.catalogObjectId = li.squareCatalogObjectId;
+    } else if (li.squareCatalogObjectId) {
+      // Discounted catalog line: keep the catalog link, override the price key.
+      out.catalogObjectId = li.squareCatalogObjectId;
+      out.basePriceMoney = { amount: priceCents, currency: "USD" };
+    } else {
+      out.basePriceMoney = { amount: priceCents, currency: "USD" };
+    }
+    return out;
+  });
 
   if (item.kind === "kbf") {
     const roster = session.kbfIdentity?.members ?? [];

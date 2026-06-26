@@ -48,6 +48,14 @@ export interface DiscountCodeRow {
   expiresAt: string;
   allowedWeekdays: number[] | null;
   allowedLocations: string[] | null;
+  /**
+   * Booking-DATE window (the VISIT date the code is valid for), `YYYY-MM-DD`.
+   * Distinct from the purchase-time window (`startsAt`/`expiresAt`) and from
+   * `allowedWeekdays`. `null` = no booking-date restriction. A single-day
+   * holiday code sets both equal (e.g. FREEDOM250 → `2026-07-04`).
+   */
+  bookingDateStart: string | null;
+  bookingDateEnd: string | null;
   scopes: DiscountScopes;
   squareCatalogId: string | null;
   squareCatalogType: SquareCatalogType | null;
@@ -83,6 +91,9 @@ export interface DiscountCodeInput {
   expiresAt: string;
   allowedWeekdays?: number[] | null;
   allowedLocations?: string[] | null;
+  /** Booking-date window (visit date), `YYYY-MM-DD`; `null`/omitted = no restriction. */
+  bookingDateStart?: string | null;
+  bookingDateEnd?: string | null;
   scopes: DiscountScopes;
   squareDisplayName?: string | null;
   marketingAccount?: string | null;
@@ -102,6 +113,7 @@ export type ValidateReason =
   | "wrong_domain"
   | "wrong_product"
   | "wrong_weekday"
+  | "wrong_date"
   | "unsupported_mechanic"
   | "rate_limited";
 
@@ -184,6 +196,9 @@ export interface AppliedPromo {
   expiresAt: string;
   /** Weekday allowlist (0–6, Sun=0); null = any weekday. */
   allowedWeekdays: number[] | null;
+  /** Booking-date window (visit date), `YYYY-MM-DD`; null = any date. */
+  bookingDateStart: string | null;
+  bookingDateEnd: string | null;
   /** Pricing — only `percent` and `fixed` are accepted today. */
   mechanic: "percent" | "fixed";
   amountPct: number | null;
