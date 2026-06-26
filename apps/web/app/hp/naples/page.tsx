@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
+import Usa250PromoPopup from "@/components/Usa250PromoPopup";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import {
   BreadcrumbJsonLd,
@@ -218,6 +219,7 @@ const weeklyEvents = [
 export default function NaplesPage() {
   return (
     <div className="bg-[#0a1628]">
+      <Usa250PromoPopup bookHref="/book/v2?code=USA250&location=naples" />
       <BreadcrumbJsonLd
         items={[
           { name: "HeadPinz", url: "https://headpinz.com" },
