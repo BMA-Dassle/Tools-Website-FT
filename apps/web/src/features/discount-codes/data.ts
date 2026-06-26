@@ -62,6 +62,11 @@ export async function ensureDiscountCodesSchema(): Promise<void> {
   // Idempotent ALTERs for rows created before the columns existed.
   await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS square_display_name TEXT`;
   await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS marketing_account TEXT`;
+  // Booking-DATE window (the VISIT date the code is valid for) — distinct from
+  // the purchase-time window (starts_at/expires_at) and from allowed_weekdays.
+  // A single-day holiday code (e.g. USA250 → 2026-07-04) sets both equal.
+  await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS booking_date_start DATE`;
+  await q`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS booking_date_end DATE`;
   await q`CREATE INDEX IF NOT EXISTS dc_active_window ON discount_codes(starts_at, expires_at) WHERE active = TRUE`;
   // Case-insensitive uniqueness — codes are uppercased on write but defend anyway.
   await q`CREATE UNIQUE INDEX IF NOT EXISTS dc_code_upper ON discount_codes(UPPER(code))`;
@@ -102,6 +107,8 @@ type RawDiscountRow = {
   expires_at: string | Date;
   allowed_weekdays: number[] | null;
   allowed_locations: string[] | null;
+  booking_date_start: string | Date | null;
+  booking_date_end: string | Date | null;
   scopes: DiscountScopes | null;
   square_catalog_id: string | null;
   square_catalog_type: string | null;
@@ -120,6 +127,11 @@ function isoOrPassthrough(v: string | Date): string {
   return v instanceof Date ? v.toISOString() : v;
 }
 
+/** A DATE column → bare `YYYY-MM-DD` (drops any time/zone the driver attaches). */
+function ymdOnly(v: string | Date): string {
+  return (v instanceof Date ? v.toISOString() : v).slice(0, 10);
+}
+
 function decodeRow(r: RawDiscountRow): DiscountCodeRow {
   return {
     id: r.id,
@@ -133,6 +145,8 @@ function decodeRow(r: RawDiscountRow): DiscountCodeRow {
     expiresAt: isoOrPassthrough(r.expires_at),
     allowedWeekdays: r.allowed_weekdays,
     allowedLocations: r.allowed_locations,
+    bookingDateStart: r.booking_date_start ? ymdOnly(r.booking_date_start) : null,
+    bookingDateEnd: r.booking_date_end ? ymdOnly(r.booking_date_end) : null,
     scopes: r.scopes ?? {},
     squareCatalogId: r.square_catalog_id,
     squareCatalogType: r.square_catalog_type as SquareCatalogType | null,
@@ -188,7 +202,8 @@ export async function insertDiscountCode(
   const rows = (await q`
     INSERT INTO discount_codes (
       code, description, mechanic, amount_pct, amount_cents, mechanic_config,
-      starts_at, expires_at, allowed_weekdays, allowed_locations, scopes,
+      starts_at, expires_at, allowed_weekdays, allowed_locations,
+      booking_date_start, booking_date_end, scopes,
       square_display_name, marketing_account,
       max_uses, max_uses_per_customer, active, created_by
     ) VALUES (
@@ -202,6 +217,8 @@ export async function insertDiscountCode(
       ${input.expiresAt},
       ${input.allowedWeekdays ?? null},
       ${input.allowedLocations ?? null},
+      ${input.bookingDateStart ?? null},
+      ${input.bookingDateEnd ?? null},
       ${scopesJson}::jsonb,
       ${input.squareDisplayName ?? null},
       ${input.marketingAccount ?? null},
@@ -235,6 +252,8 @@ export async function updateDiscountCode(
       expires_at = ${input.expiresAt},
       allowed_weekdays = ${input.allowedWeekdays ?? null},
       allowed_locations = ${input.allowedLocations ?? null},
+      booking_date_start = ${input.bookingDateStart ?? null},
+      booking_date_end = ${input.bookingDateEnd ?? null},
       scopes = ${scopesJson}::jsonb,
       square_display_name = ${input.squareDisplayName ?? null},
       marketing_account = ${input.marketingAccount ?? null},

@@ -19,6 +19,7 @@ import {
   comboItemizedLines,
   comboOrderGroups,
 } from "./combo-pricing";
+import type { AppliedPromo } from "~/features/discount-codes";
 
 // June 2026: the 1st is a Monday; the 2nd is Mega Tuesday; the 6th a Saturday.
 const MON = "2026-06-01";
@@ -325,5 +326,99 @@ describe("buildRaceChargeLines — combo integration (display == charge seam)", 
   it("is deterministic — two calls byte-identical (display === charge)", () => {
     const s = newComboSession();
     expect(JSON.stringify(buildRaceChargeLines(s))).toBe(JSON.stringify(buildRaceChargeLines(s)));
+  });
+});
+
+// USA250 — 25% off, valid only for a specific visit date. `bookingDate*` is
+// pinned to the session's date so the test is independent of the wall-clock
+// `now` used inside the seam (wide purchase window covers any run date).
+function promoFor(ymd: string): AppliedPromo {
+  return {
+    code: "USA250TEST",
+    domains: ["racing", "bowling", "attractions"],
+    scopes: {
+      racing: { productSlugs: null },
+      bowling: { experienceSlugs: null },
+      attractions: { slugs: null },
+    },
+    startsAt: "2024-01-01T00:00:00Z",
+    expiresAt: "2030-01-01T00:00:00Z",
+    allowedWeekdays: null,
+    bookingDateStart: ymd,
+    bookingDateEnd: ymd,
+    mechanic: "percent",
+    amountPct: 25,
+    amountCents: null,
+    squareCatalogId: null,
+  };
+}
+
+describe("USA250 — combo reduction (owner: combos DO get the discount)", () => {
+  it("reduces BOTH split-order entities 25% on an eligible visit date", () => {
+    const s = newComboSession(SAT); // weekend: racing 4900 + bowling 2600 = $75pp
+    s.appliedPromo = promoFor(SAT);
+    const lines = comboItemizedLines(s)!;
+    const racing = lines.find((l) => l.key === "vip-racing")!;
+    const bowling = lines.find((l) => l.key === "vip-bowling")!;
+    expect(racing.unitCents).toBe(3675); // round(4900 * 0.75)
+    expect(racing.originalUnitCents).toBe(4900);
+    expect(bowling.unitCents).toBe(1950); // round(2600 * 0.75)
+    expect(bowling.originalUnitCents).toBe(2600);
+
+    // The split orders inherit the reduction (one shared seam → both agree).
+    const groups = comboOrderGroups(s)!;
+    const ft = groups.find((g) => g.entity === "fasttrax-fm")!;
+    const hp = groups.find((g) => g.entity === "headpinz-fm")!;
+    expect(ft.subtotalCents).toBe(7350); // 2 × 3675
+    expect(hp.subtotalCents).toBe(3900); // 2 × 1950
+    expect(ft.subtotalCents + hp.subtotalCents).toBe(11250); // 0.75 × $150
+  });
+
+  it("buildRaceChargeLines stamps originalAmount + promoPct for the strikethrough", () => {
+    const s = newComboSession(SAT);
+    s.appliedPromo = promoFor(SAT);
+    const racing = buildRaceChargeLines(s).find(
+      (l) => l.name === "Ultimate VIP Experience" && l.comboEntity === "fasttrax-fm",
+    )!;
+    expect(racing.amount).toBeCloseTo(73.5, 2); // 2 × $36.75
+    expect(racing.originalAmount).toBeCloseTo(98.0, 2); // 2 × $49.00
+    expect(racing.promoPct).toBe(25);
+    expect(sumCents(buildRaceChargeLines(s))).toBe(11250);
+  });
+
+  it("does NOT reduce a combo whose date is outside the promo window", () => {
+    const s = newComboSession(SAT);
+    s.appliedPromo = promoFor("2026-07-04"); // promo is for a different day
+    const racing = comboItemizedLines(s)!.find((l) => l.key === "vip-racing")!;
+    expect(racing.unitCents).toBe(4900); // unchanged
+    expect(racing.originalUnitCents).toBeUndefined();
+  });
+});
+
+describe("USA250 — non-combo race reduction via buildRaceChargeLines", () => {
+  function raceOnlySession(date: string, promo: AppliedPromo | null): BookingSession {
+    return {
+      ...emptySession({ entryBrand: "fasttrax" }),
+      center: "fort-myers",
+      party: [member("a")], // returning racer → no license line
+      items: [raceItem({ date, heats: [heat(date, "13:00", "a", "starter")] })],
+      appliedPromo: promo,
+    };
+  }
+
+  it("reduces an eligible race line 25% and stamps the original", () => {
+    const race = buildRaceChargeLines(raceOnlySession(SAT, promoFor(SAT))).find(
+      (l) => l.domain === "racing",
+    )!;
+    expect(race.originalAmount).toBeGreaterThan(0);
+    expect(race.amount).toBeCloseTo(Math.round(race.originalAmount! * 0.75 * 100) / 100, 2);
+    expect(race.promoPct).toBe(25);
+  });
+
+  it("leaves race lines full price when the visit date is outside the window", () => {
+    const race = buildRaceChargeLines(raceOnlySession(SAT, promoFor("2026-07-04"))).find(
+      (l) => l.domain === "racing",
+    )!;
+    expect(race.originalAmount).toBeUndefined();
   });
 });

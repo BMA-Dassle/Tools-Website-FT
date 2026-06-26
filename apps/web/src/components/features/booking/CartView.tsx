@@ -16,6 +16,7 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
+import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { modalBackdropProps } from "@/lib/a11y";
 import { AdditionalActivities } from "./AdditionalActivities";
@@ -290,7 +291,19 @@ function CartItemCard({
   // Estimated total for bowling/kbf from enriched lineItems
   const bowlingEstimate =
     item.kind === "bowling" || item.kind === "kbf"
-      ? item.lineItems.reduce((s, li) => s + (li.priceCents ?? 0) * li.quantity, 0) / 100 +
+      ? item.lineItems.reduce((s, li) => {
+          // USA250: reduce priced bowling lines so the cart matches checkout.
+          const full = (li.priceCents ?? 0) * li.quantity;
+          const f =
+            (li.priceCents ?? 0) > 0
+              ? promoFactor(
+                  { domain: "bowling", visitDate: item.date ?? item.bookedAt?.slice(0, 10) },
+                  session.appliedPromo,
+                )
+              : 1;
+          return s + (f === 1 ? full : Math.round(full * f));
+        }, 0) /
+          100 +
         (item.hasBookingFee ? 2.99 : 0)
       : 0;
 
@@ -396,7 +409,12 @@ function RaceCartCard({
   const povTotal = POV_PRICE * item.povQuantity;
   const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
 
-  const raceLinesTotal = raceItemChargeLines(item).reduce((s, l) => s + l.amount, 0);
+  // USA250: reduce race lines (they carry domain/visitDate) so the cart
+  // estimate matches what checkout charges. License/POV/add-ons stay full price.
+  const raceLinesTotal = applyPromoToBillLines(
+    raceItemChargeLines(item),
+    session.appliedPromo,
+  ).reduce((s, l) => s + l.amount, 0);
   const estimated = combo
     ? 0
     : pkg

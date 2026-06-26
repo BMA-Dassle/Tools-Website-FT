@@ -15,6 +15,8 @@ function makeRow(over: Partial<DiscountCodeRow> = {}): DiscountCodeRow {
     expiresAt: "2026-06-01T00:00:00Z",
     allowedWeekdays: null,
     allowedLocations: null,
+    bookingDateStart: null,
+    bookingDateEnd: null,
     scopes: { bowling: { experienceSlugs: null } },
     squareCatalogId: "SQ-CAT-123",
     squareCatalogType: "discount",
@@ -159,6 +161,49 @@ describe("evaluateCode", () => {
   it("returns the Square catalog id for valid bowling codes", () => {
     const r = evaluateCode(makeRow(), { code: "TEST20", domain: "bowling" }, inWindow);
     expect(r).toMatchObject({ valid: true, squareCatalogId: "SQ-CAT-123", amountPct: 20 });
+  });
+
+  // Booking-DATE window (the VISIT date), distinct from the purchase window + weekday.
+  // USA250 is a single July-4 code: bookingDateStart === bookingDateEnd === 2026-07-04.
+  const julyRow = () =>
+    makeRow({
+      startsAt: "2026-06-01T00:00:00Z",
+      expiresAt: "2026-07-05T04:00:00Z",
+      bookingDateStart: "2026-07-04",
+      bookingDateEnd: "2026-07-04",
+    });
+  const julyPurchase = new Date("2026-06-26T12:00:00Z");
+
+  it("accepts a booking whose visit date is inside the booking-date window", () => {
+    const r = evaluateCode(
+      julyRow(),
+      { code: "TEST20", domain: "bowling", bookingDate: "2026-07-04" },
+      julyPurchase,
+    );
+    expect(r.valid).toBe(true);
+  });
+
+  it("rejects a booking before the booking-date window", () => {
+    const r = evaluateCode(
+      julyRow(),
+      { code: "TEST20", domain: "bowling", bookingDate: "2026-07-03" },
+      julyPurchase,
+    );
+    expect(r).toEqual({ valid: false, reason: "wrong_date" });
+  });
+
+  it("rejects a booking after the booking-date window (e.g. July 5)", () => {
+    const r = evaluateCode(
+      julyRow(),
+      { code: "TEST20", domain: "bowling", bookingDate: "2026-07-05" },
+      julyPurchase,
+    );
+    expect(r).toEqual({ valid: false, reason: "wrong_date" });
+  });
+
+  it("skips the booking-date check when no booking date is provided (loose/landing validation)", () => {
+    const r = evaluateCode(julyRow(), { code: "TEST20", domain: "bowling" }, julyPurchase);
+    expect(r.valid).toBe(true);
   });
 });
 

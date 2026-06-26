@@ -1,31 +1,24 @@
 /**
- * Discount-code validation + Square catalog provisioning.
+ * Discount-code server surface: the AppliedPromo resolver + Square provisioning.
  *
- * Two responsibilities:
- *   1. `validateCode(ctx)` — the single source of truth used by the public
- *      `/api/discount-codes/validate` endpoint AND server-side enforcement
- *      paths (quote, reserve). Pure: given a row + context, returns
- *      valid/reason. No DB writes.
- *   2. `provisionSquareDiscount(row)` — POSTs to Square Catalog to create
- *      the corresponding DISCOUNT object. Only called from the admin
- *      create/update path and the retry-provision route.
+ * Pure validation now lives in `./evaluate` (no DB / no network) so it can be
+ * imported by client components and the booking-flow pricing helpers without
+ * dragging the Neon data layer into the bundle. This file keeps the bits that
+ * touch the outside world:
+ *   1. `resolveAppliedPromo(code)` — fetch a row + project to the booking
+ *      flow's `AppliedPromo` shape (DB read).
+ *   2. `provisionSquareDiscount(row)` — POST to Square Catalog to create the
+ *      corresponding DISCOUNT object (admin create/update + retry-provision).
  *
- * Pure validation is tested independently in service.test.ts so changes to
- * the rule set can be vetted without a live DB or Square account.
+ * `evaluateCode` / `etWeekday` / `domainsFromScopes` are re-exported here for
+ * back-compat; new code should import them from `./evaluate`.
  */
 
-import type {
-  AppliedPromo,
-  DiscountCodeRow,
-  ValidateContext,
-  ValidateResponse,
-  ValidateResult,
-  DiscountScopes,
-  DiscountDomain,
-} from "./types";
+import type { AppliedPromo, DiscountCodeRow } from "./types";
 import { getDiscountCodeByCode } from "./data";
+import { SUPPORTED_MECHANICS, domainsFromScopes } from "./evaluate";
 
-const SUPPORTED_MECHANICS = new Set(["percent", "fixed"]);
+export { evaluateCode, etWeekday, domainsFromScopes } from "./evaluate";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2024-12-18";
@@ -36,118 +29,6 @@ function sqHeaders() {
     "Content-Type": "application/json",
     "Square-Version": SQUARE_VERSION,
   };
-}
-
-/**
- * Weekday in America/New_York for a YYYY-MM-DD date string.
- *
- * Bowling centers operate in ET, so "Mon–Thu" must be evaluated in the
- * customer's local zone — `new Date('2026-05-25').getDay()` would resolve
- * the date in UTC and silently lose a day at midnight ET.
- */
-export function etWeekday(ymd: string): number {
-  // Parse the YYYY-MM-DD as a date in ET by anchoring it to noon, which
-  // avoids any DST cross-over ambiguity (noon ET is never near midnight UTC).
-  const dt = new Date(`${ymd}T12:00:00-05:00`);
-  const wd = dt.toLocaleDateString("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-  });
-  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return map[wd] ?? new Date(`${ymd}T12:00:00`).getDay();
-}
-
-/**
- * Pure validation. Returns `{ valid: true, ... }` or `{ valid: false, reason }`.
- *
- * Caller is responsible for fetching the row (or producing `null` for unknown
- * codes). Pure + sync = easy to test.
- */
-export function evaluateCode(
-  row: DiscountCodeRow | null,
-  ctx: ValidateContext,
-  now: Date = new Date(),
-): ValidateResponse {
-  if (!row) return { valid: false, reason: "unknown" };
-  if (!row.active) return { valid: false, reason: "inactive" };
-
-  // Date window
-  const start = new Date(row.startsAt).getTime();
-  const expires = new Date(row.expiresAt).getTime();
-  const nowMs = now.getTime();
-  if (nowMs < start) return { valid: false, reason: "not_yet_active" };
-  if (nowMs >= expires) return { valid: false, reason: "expired" };
-
-  // Mechanic supported?
-  if (!SUPPORTED_MECHANICS.has(row.mechanic)) {
-    return { valid: false, reason: "unsupported_mechanic" };
-  }
-
-  // Cap
-  if (row.maxUses != null && row.usesCount >= row.maxUses) {
-    return { valid: false, reason: "exhausted" };
-  }
-
-  // Location
-  if (
-    row.allowedLocations &&
-    row.allowedLocations.length > 0 &&
-    ctx.locationId &&
-    !row.allowedLocations.includes(ctx.locationId)
-  ) {
-    return { valid: false, reason: "wrong_location" };
-  }
-
-  // Domain
-  if (!scopeIncludesDomain(row.scopes, ctx.domain)) {
-    return { valid: false, reason: "wrong_domain" };
-  }
-
-  // Product slug within domain
-  if (ctx.productSlug) {
-    const domainSlugs = slugsForDomain(row.scopes, ctx.domain);
-    if (domainSlugs && !domainSlugs.includes(ctx.productSlug)) {
-      return { valid: false, reason: "wrong_product" };
-    }
-  }
-
-  // Weekday (only checked when a booking date was provided)
-  if (
-    ctx.bookingDate &&
-    row.allowedWeekdays &&
-    row.allowedWeekdays.length > 0 &&
-    !row.allowedWeekdays.includes(etWeekday(ctx.bookingDate))
-  ) {
-    return { valid: false, reason: "wrong_weekday" };
-  }
-
-  const ok: ValidateResult = {
-    valid: true,
-    code: row.code,
-    description: row.description,
-    domain: ctx.domain,
-    mechanic: row.mechanic,
-    amountPct: row.amountPct,
-    amountCents: row.amountCents,
-    startsAt: row.startsAt,
-    expiresAt: row.expiresAt,
-    allowedWeekdays: row.allowedWeekdays,
-    squareCatalogId: row.squareCatalogId,
-  };
-  return ok;
-}
-
-function scopeIncludesDomain(scopes: DiscountScopes, domain: DiscountDomain): boolean {
-  return Boolean((scopes as Record<string, unknown>)[domain]);
-}
-
-/** Every domain the row's `scopes` object touches — non-empty domain key = included. */
-export function domainsFromScopes(scopes: DiscountScopes): DiscountDomain[] {
-  const out: DiscountDomain[] = [];
-  if (scopes.bowling) out.push("bowling");
-  if (scopes.racing) out.push("racing");
-  if (scopes.attractions) out.push("attractions");
-  return out;
 }
 
 /**
@@ -187,19 +68,14 @@ export async function resolveAppliedPromo(
     startsAt: row.startsAt,
     expiresAt: row.expiresAt,
     allowedWeekdays: row.allowedWeekdays,
+    bookingDateStart: row.bookingDateStart,
+    bookingDateEnd: row.bookingDateEnd,
     // We rejected unsupported mechanics above so this narrowing is safe.
     mechanic: row.mechanic as "percent" | "fixed",
     amountPct: row.amountPct,
     amountCents: row.amountCents,
     squareCatalogId: row.squareCatalogId,
   };
-}
-
-function slugsForDomain(scopes: DiscountScopes, domain: DiscountDomain): string[] | null {
-  if (domain === "bowling") return scopes.bowling?.experienceSlugs ?? null;
-  if (domain === "racing") return scopes.racing?.productSlugs ?? null;
-  if (domain === "attractions") return scopes.attractions?.slugs ?? null;
-  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────

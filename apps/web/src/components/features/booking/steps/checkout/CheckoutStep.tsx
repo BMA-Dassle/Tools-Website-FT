@@ -23,6 +23,7 @@ import {
   memberEligibleBreakdown,
 } from "~/features/booking/data/race-credits";
 import { bowlingReserve, buildBowlingQuoteLineItems } from "~/features/booking/service/bowling";
+import { applyPromoToAmount } from "~/features/booking/service/promo-pricing";
 import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import {
@@ -36,6 +37,7 @@ import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm
 import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
+import { PromoCodeInput } from "./PromoCodeInput";
 import { contactIsComplete } from "../ContactStep";
 
 interface CheckoutStepProps {
@@ -212,12 +214,27 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       // identical suppression to buildCombinedLineItems (booking fee stays).
       for (const item of session.items) {
         if (item.kind !== "bowling" && item.kind !== "kbf") continue;
+        const bowlVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
         for (const li of comboActive ? [] : item.lineItems) {
+          const fullAmount = ((li.priceCents ?? 0) * li.quantity) / 100;
+          // USA250: reduce the displayed bowling line so it matches the charge
+          // (buildCombinedLineItems / the reused quote both reduce the same way).
+          const promo = applyPromoToAmount(
+            fullAmount,
+            { domain: "bowling", visitDate: bowlVisitDate },
+            session.appliedPromo,
+          );
           reviewLines.push({
             name: li.label ?? `Item #${li.squareProductId}`,
             quantity: li.quantity,
-            amount: ((li.priceCents ?? 0) * li.quantity) / 100,
+            amount: promo.amount,
             time: item.bookedAt ?? undefined,
+            ...(promo.applied
+              ? {
+                  originalAmount: promo.originalAmount,
+                  promoPct: session.appliedPromo?.amountPct ?? undefined,
+                }
+              : {}),
           });
         }
         // Combo special is all-inclusive at the flat per-person price (no
@@ -282,6 +299,13 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
         const comboLines = reviewLines.filter(isComboLine);
         if (comboLines.length > 0) {
           const amount = Math.round(comboLines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+          // Preserve the USA250 savings on the collapsed line so the combo
+          // still shows a strikethrough (its split lines arrive pre-discounted).
+          const hasPromo = comboLines.some((l) => l.originalAmount != null);
+          const originalAmount = hasPromo
+            ? Math.round(comboLines.reduce((s, l) => s + (l.originalAmount ?? l.amount), 0) * 100) /
+              100
+            : undefined;
           const others = reviewLines.filter((l) => !isComboLine(l));
           reviewLines.length = 0;
           reviewLines.push(
@@ -290,6 +314,9 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
               quantity: flatCombo.racerIds.length,
               amount,
               time: comboLines[0].time,
+              ...(hasPromo
+                ? { originalAmount, promoPct: session.appliedPromo?.amountPct ?? undefined }
+                : {}),
             },
             ...others,
           );
@@ -369,6 +396,16 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       const total = Math.max(0, grossTotal - rewardDiscount);
       const tax = quotedTotal != null ? Math.max(0, quotedTotal - preTaxSubtotal) : estTax;
 
+      // USA250: total saved across all reviewed lines (race/attraction lines
+      // arrive pre-discounted from bmiOverview; bowling + combo stamped above).
+      const promoSavings =
+        Math.round(
+          reviewLines.reduce(
+            (s, l) => s + (l.originalAmount != null ? l.originalAmount - l.amount : 0),
+            0,
+          ) * 100,
+        ) / 100;
+
       const overview: BillOverview = {
         lines: reviewLines,
         subtotal: preTaxSubtotal,
@@ -377,6 +414,8 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
         cashOwed: total,
         creditApplied: bmiOverview?.creditApplied ?? 0,
         isCreditOrder: preTaxSubtotal <= 0,
+        promoCode: session.appliedPromo?.code ?? null,
+        promoSavings: promoSavings > 0 ? promoSavings : undefined,
       };
 
       const syntheticBillId = bmiBillId ?? `cart-${session.items[0]?.id ?? "0"}`;
@@ -661,6 +700,15 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
             redeem regardless of brand. LoyaltySection labels itself per session brand. */}
         <LoyaltySection session={session} dispatch={dispatch} phone={phone} />
 
+        {/* USA250-style promo entry. The ?promo= URL seed sets this too; this
+            field lets a guest who hears the code apply it at checkout. The savings
+            render on the review (strikethrough + "You saved" line). */}
+        <PromoCodeInput
+          appliedCode={session.appliedPromo?.code ?? null}
+          onApply={(promo) => dispatch({ type: "applyPromo", promo })}
+          onClear={() => dispatch({ type: "applyPromo", promo: null })}
+        />
+
         <div className="flex items-center justify-between pt-2">
           <button
             type="button"
@@ -860,6 +908,11 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
                 {line.quantity > 1 && <span> x {line.quantity}</span>}
               </span>
               <span className="shrink-0 text-white">
+                {line.originalAmount != null && line.originalAmount > line.amount && (
+                  <span className="mr-1.5 text-white/40 line-through">
+                    ${line.originalAmount.toFixed(2)}
+                  </span>
+                )}
                 {line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}
               </span>
             </div>
@@ -874,6 +927,14 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
               <span className="text-white/60">Tax</span>
               <span className="text-white">${overview.tax.toFixed(2)}</span>
             </div>
+            {overview.promoSavings != null && overview.promoSavings > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-green-400">{overview.promoCode ?? "Promo"} applied</span>
+                <span className="text-green-400">
+                  You saved ${overview.promoSavings.toFixed(2)}
+                </span>
+              </div>
+            )}
             {session.loyalty?.selectedRewardTier &&
               session.loyalty.selectedRewardTier.discountCents > 0 && (
                 <div className="flex justify-between text-sm">
