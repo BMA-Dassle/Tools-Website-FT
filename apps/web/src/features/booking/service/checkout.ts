@@ -867,6 +867,10 @@ export function buildRaceChargeLines(
   const lines: BillLine[] = [];
   const packageRacerIds = new Set<string>();
   let standalonePovQty = 0;
+  // Visit date for the session-level add-on lines (license, POV) so the promo's
+  // booking-date gate treats them like the race heats they ride with.
+  const raceVisitDate =
+    session.items.find((i): i is RaceItem => i.kind === "race")?.date ?? undefined;
 
   // Combo special (features/combos): when the session was seeded by a
   // /book/combo entry AND the strict gate passes (exactly the combo's
@@ -910,6 +914,8 @@ export function buildRaceChargeLines(
       quantity: newRacerCount,
       amount: round2(LICENSE_PRICE * newRacerCount),
       bmiProductId: LICENSE_PRODUCT_ID,
+      domain: "racing",
+      visitDate: raceVisitDate,
     });
   }
 
@@ -928,15 +934,16 @@ export function buildRaceChargeLines(
       quantity: standalonePovQty,
       amount: round2(POV_PRICE * standalonePovQty),
       bmiProductId: POV_PRODUCT_ID,
+      domain: "racing",
+      visitDate: raceVisitDate,
     });
   }
 
-  // USA250-style promo: reduce the price key on eligible race-heat lines.
-  // This is the SHARED race seam — both the display overview and the cash
-  // reserve path call buildRaceChargeLines, so displayed == charged. Idempotent:
-  // combo lines arrive pre-discounted (stamped) and are skipped; license/POV
-  // carry no `domain` and are never discounted (matches membership-discount
-  // behavior — racing % applies to heats, not add-on fees).
+  // USA250-style promo: reduce the price key on every eligible line — race
+  // heats AND the license + POV add-ons (all carry domain:"racing" + the race
+  // date). Shared race seam: the display overview AND the cash reserve path
+  // both call buildRaceChargeLines, so displayed == charged. Idempotent: combo
+  // lines arrive pre-discounted (stamped) and are skipped.
   return applyPromoToBillLines(lines, session.appliedPromo);
 }
 

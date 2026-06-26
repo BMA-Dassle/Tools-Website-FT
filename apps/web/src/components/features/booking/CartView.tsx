@@ -405,12 +405,18 @@ function RaceCartCard({
   // already includes license + POV; single/combo add session license (new
   // racers) + standalone POV + add-ons on top.
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
-  const licenseTotal = LICENSE_PRICE * newRacerCount;
-  const povTotal = POV_PRICE * item.povQuantity;
+  // USA250: license + POV are racing add-ons too — discount them like the heats
+  // (gated on this race item's date) so the cart estimate matches checkout.
+  const raceAddonFactor = promoFactor(
+    { domain: "racing", visitDate: item.date },
+    session.appliedPromo,
+  );
+  const licenseTotal = Math.round(LICENSE_PRICE * newRacerCount * raceAddonFactor * 100) / 100;
+  const povTotal = Math.round(POV_PRICE * item.povQuantity * raceAddonFactor * 100) / 100;
   const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
 
-  // USA250: reduce race lines (they carry domain/visitDate) so the cart
-  // estimate matches what checkout charges. License/POV/add-ons stay full price.
+  // Reduce race lines too (they carry domain/visitDate) so the cart estimate
+  // matches what checkout charges. Add-ons stay full price.
   const raceLinesTotal = applyPromoToBillLines(
     raceItemChargeLines(item),
     session.appliedPromo,
