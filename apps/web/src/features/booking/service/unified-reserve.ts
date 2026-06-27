@@ -958,18 +958,23 @@ async function unifiedReserveInner(
         console.error("[unified-reserve] Neon insert (bowling) failed (non-fatal):", err);
       }
 
-      // Final QAMF title + notes patch (v1 parity — includes shoe status,
-      // line items, deposit, short URL, and attraction add-ons)
-      const finalTitle = `${guest.name} (${players.length}p)`;
-      const shortCode = shortCodes[shortCodes.length - 1];
-
-      const finalParts: string[] = [];
-
       // Combo special (Ultimate VIP): this bowling leg is the combo's VIP lane.
       // Lead the QAMF note with a VIP banner so HeadPinz staff see it's the
       // package, and treat shoes as INCLUDED (owner: VIP includes shoes — the
       // generic slug check below misses VIP hourly experiences).
       const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+
+      // Final QAMF title + notes patch (v1 parity — includes shoe status,
+      // line items, deposit, short URL, and attraction add-ons). Combo bowling
+      // legs get a "VIP Exp." prefix so HeadPinz staff spot the VIP package at a
+      // glance in the QAMF reservation list (owner request 2026-06-27).
+      const finalTitle = combo
+        ? `VIP Exp. ${guest.name} (${players.length}p)`
+        : `${guest.name} (${players.length}p)`;
+      const shortCode = shortCodes[shortCodes.length - 1];
+
+      const finalParts: string[] = [];
+
       if (combo) {
         finalParts.push(`*** ${combo.name.toUpperCase()} — VIP LANE (paid online) ***`);
       }

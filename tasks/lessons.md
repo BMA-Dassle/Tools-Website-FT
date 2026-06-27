@@ -1497,3 +1497,28 @@ non-cancelled/completed reservation whose live QAMF Time option is wrong. `?dryR
   option ordering and absent `Minutes` make "longest" unreliable. Use the seeded offer option.
 - A renamed report ("Have-A-Ball") may not be the feature you think. Confirm with **data** (reservation
   labels) which booking path is actually involved before remediating production.
+
+---
+
+## QAMF reservation PATCH requires Title + Notes together (2026-06-27)
+
+**Symptom:** `patchReservation(centerId, id, { Title })` (Title only) 400s with
+`"JSON deserialization for type 'CenterReservationSvc.Controllers...'"`. Adding the
+existing `Notes` back makes it succeed.
+
+**Rule:** When PATCHing a QAMF reservation's `Title`, always include `Notes` in the
+same body. Fetch the reservation first (`getReservation`) and resend its current
+`Notes` unchanged so you don't blank it. The production booking path already does
+this in `unified-reserve.ts` (final patch sends `{ Title, Notes }`); ad-hoc scripts
+must too.
+
+**Also corrected:** the old "QAMF creds Vercel-only" note is stale for the NEW REST
+API — `QAMF_BOWLING_CLIENT_ID`/`_SECRET` ARE in local `.env.local`, so scripts hitting
+`@/lib/qamf-bowling` (getReservation/patchReservation) run fine from a dev machine.
+
+**Context:** owner asked to prefix every Ultimate VIP combo *bowling* leg's QAMF
+Title with `VIP Exp.` so HeadPinz staff spot the VIP package in the Conqueror list.
+Forward fix: `unified-reserve.ts` finalTitle now prefixes `VIP Exp. ` when the leg has
+a `comboSpecialId`. Existing today/future legs remediated via
+`scripts/_vip-qamf-title-prefix.mts` (dry-run default, `--live`; idempotent — skips
+titles already starting with `VIP Exp.`). 13 legs patched (today → 7/8).
