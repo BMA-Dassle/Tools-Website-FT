@@ -299,6 +299,50 @@ describe("comboOrderGroups — one Square order per entity", () => {
     expect(groups.find((g) => g.entity === "fasttrax-fm")!.subtotalCents).toBe(9800); // 2 × $49
     expect(groups.find((g) => g.entity === "headpinz-fm")!.subtotalCents).toBe(5200); // 2 × $26
   });
+
+  it("re-attaches the VIP experience's $0 inclusions (Chips & Salsa) to the HeadPinz order", () => {
+    // The VIP bowling experience carries a complimentary $0 Chips & Salsa item on
+    // the bowling item's lineItems; the collapsed revenueSplit otherwise drops it.
+    const CHIPS = "LHZXWYO72N5QFX4CGYKRVPZX";
+    const s = comboSession(SAT, {
+      items: [
+        raceItem({ date: SAT, heats: itineraryHeats(SAT, ["a", "b"]) }),
+        bowlingItem(SAT, {
+          lineItems: [
+            // priced primary experience line — already represented by revenueSplit, must NOT duplicate
+            {
+              squareProductId: 1,
+              quantity: 1,
+              label: "1.5 Hr Fri-Sun VIP",
+              priceCents: 8250,
+              squareCatalogObjectId: "UFD6XVXU6GKCIRCLRUFLSKMJ",
+            },
+            // $0 complimentary inclusion — must be re-attached to the bowling order
+            {
+              squareProductId: 2,
+              quantity: 1,
+              label: "VIP Chips & Salsa",
+              priceCents: 0,
+              squareCatalogObjectId: CHIPS,
+            },
+          ],
+        }),
+      ],
+    });
+    const groups = comboOrderGroups(s)!;
+    const hp = groups.find((g) => g.entity === "headpinz-fm")!;
+    const ft = groups.find((g) => g.entity === "fasttrax-fm")!;
+    const chips = hp.lines.find((l) => l.catalogObjectId === CHIPS);
+    expect(chips).toBeTruthy();
+    expect(chips!.unitCents).toBe(0); // $0 → no effect on totals
+    expect(chips!.quantity).toBe(1);
+    expect(hp.subtotalCents).toBe(5200); // unchanged: 2 × $26, the $0 line adds nothing
+    expect(ft.lines.some((l) => l.catalogObjectId === CHIPS)).toBe(false); // bowling order only
+    // priced line is NOT re-added (only $0 inclusions ride along)
+    expect(hp.lines.filter((l) => l.catalogObjectId === "UFD6XVXU6GKCIRCLRUFLSKMJ")).toHaveLength(
+      0,
+    );
+  });
 });
 
 describe("buildRaceChargeLines — combo integration (display == charge seam)", () => {

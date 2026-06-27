@@ -325,6 +325,39 @@ export function comboOrderGroups(session: BookingSession): ComboOrderGroup[] | n
     arr.push(l);
     byEntity.set(l.entity, arr);
   }
+
+  // Included $0 day-of items the VIP bowling EXPERIENCE carries (e.g. the
+  // complimentary VIP Chips & Salsa) live on the bowling item's lineItems but
+  // are NOT part of the registry revenueSplit, so the collapsed combo order
+  // would otherwise DROP them — and the kitchen never fires the perk (standalone
+  // VIP lanes keep it because they build the order from item.lineItems). Re-attach
+  // every $0, catalog-linked bowling line to the bowling (HeadPinz) order. Because
+  // they're $0 the totals/deposit and displayed==charged invariant are untouched,
+  // and this self-syncs with whatever inclusions an experience defines (no
+  // hard-coded catalog ids). Bowling is always HeadPinz in this codebase
+  // (resolveLocationId / QAMF centers). See project_combo_date_drift_remediation
+  // sibling fix + tasks/lessons.md.
+  const active = activeComboSpecial(session);
+  if (active) {
+    const BOWLING_ENTITY: ComboEntity = "headpinz-fm";
+    const bowlingLines = byEntity.get(BOWLING_ENTITY) ?? [];
+    const seen = new Set(bowlingLines.map((l) => l.catalogObjectId));
+    for (const li of active.bowlingItem.lineItems) {
+      if ((li.priceCents ?? 0) !== 0 || !li.squareCatalogObjectId) continue;
+      if (seen.has(li.squareCatalogObjectId)) continue;
+      seen.add(li.squareCatalogObjectId);
+      bowlingLines.push({
+        key: `incl-${li.squareCatalogObjectId}`,
+        name: li.label ?? "Included",
+        entity: BOWLING_ENTITY,
+        catalogObjectId: li.squareCatalogObjectId,
+        quantity: li.quantity,
+        unitCents: 0,
+      });
+    }
+    if (bowlingLines.length > 0) byEntity.set(BOWLING_ENTITY, bowlingLines);
+  }
+
   return [...byEntity.entries()].map(([entity, lines]) => ({
     entity,
     lines,
