@@ -31,7 +31,7 @@ import type {
 } from "@/lib/bowling-db";
 
 import { wallClockMs, type LegCandidate } from "./combo-itinerary";
-import { legKey, type ComboLeg, type ComboSpecial } from "./combo-specials";
+import { comboLanesForPlayers, legKey, type ComboLeg, type ComboSpecial } from "./combo-specials";
 
 const QAMF_CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
@@ -411,12 +411,15 @@ function etHourMinute(iso: string): { hour: number; minute: number } {
  * The QAMF hold is NOT created here (see holdComboBowling).
  */
 export function comboBowlingPatch(
+  combo: ComboSpecial,
   candidate: ComboBowlingCandidate,
   players: number,
   dateYmd: string,
 ): Partial<BowlingItem> {
   const { slot, experience, durationOption } = candidate;
-  const laneCount = Math.max(1, Math.ceil(players / 6));
+  // Lane sizing is registry-driven (combo.addon.laneCapacity, default 6) so the
+  // original booking and the post-booking add-on agree on one source of truth.
+  const laneCount = comboLanesForPlayers(combo, players);
   const isPerLane = experience.kind === "hourly" || experience.slug.startsWith("pizza-bowl");
   const qtyMultiplier = isPerLane ? laneCount : players;
 

@@ -39,6 +39,24 @@ import { SQUARE_CATALOG_IDS } from "~/features/booking/data/square-catalog-map";
  */
 export type ComboEntity = "fasttrax-fm" | "headpinz-fm";
 
+/**
+ * Post-booking "add more guests" self-service policy. Absent on a combo =
+ * guests can NOT be added after the booking is placed. Registry-driven so a
+ * future special opts in with a data change — the engine in
+ * `features/combo-addon` reads only this + the existing `revenueSplit` /
+ * `components`, never anything combo-specific.
+ */
+export interface ComboAddonPolicy {
+  /** Master switch — guests may be added to a completed booking of this combo. */
+  enabled: boolean;
+  /** Guests per bowling lane before another lane is required (default 6). */
+  laneCapacity?: number;
+  /** May the add-on book an ADDITIONAL bowling lane when capacity is exceeded? */
+  allowAddLane?: boolean;
+  /** Sanity ceiling on guests added in ONE add-on transaction (default 8). */
+  maxAddPerTransaction?: number;
+}
+
 /** One itemized revenue line of a combo's flat per-person price. */
 export interface ComboRevenueLine {
   key: string;
@@ -171,6 +189,11 @@ export interface ComboSpecial {
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
   availability?: { startsAt?: string; expiresAt?: string; allowedWeekdays?: number[] };
+  /**
+   * Post-booking "add more guests" policy. Absent = not addable after booking.
+   * Read by the `features/combo-addon` engine (confirmation-page self-service).
+   */
+  addon?: ComboAddonPolicy;
 }
 
 /**
@@ -178,6 +201,16 @@ export interface ComboSpecial {
  * Vercel prod keeps it "false" until the staff canary passes).
  */
 const COMBO_RACE_BOWL_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED !== "false";
+
+/**
+ * Add-guests flag: ships DARK (default OFF per the v2 cutover rule). Flip
+ * `NEXT_PUBLIC_COMBO_ADDON_ENABLED=true` in Vercel after the staff canary
+ * passes. Gates both the confirmation-page card and the add-on API routes.
+ */
+const COMBO_ADDON_ENABLED = process.env.NEXT_PUBLIC_COMBO_ADDON_ENABLED === "true";
+
+/** Default guests per bowling lane when a combo's addon policy doesn't override. */
+export const DEFAULT_LANE_CAPACITY = 6;
 
 /**
  * Reorder-fallback flag: default OFF (ships dark per the v2 cutover rule).
@@ -290,6 +323,14 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     ],
     enabled: COMBO_RACE_BOWL_ENABLED,
     displayOrder: 10,
+    // Post-booking add-guests: the VIP suite is 8 lanes; seat 6/lane, then add a
+    // second lane. Cap one self-service add at 8 guests (call us for bigger).
+    addon: {
+      enabled: COMBO_ADDON_ENABLED,
+      laneCapacity: 6,
+      allowAddLane: true,
+      maxAddPerTransaction: 8,
+    },
   },
 ];
 
@@ -341,6 +382,26 @@ export function comboTotalCents(
   headcount: number,
 ): number {
   return comboPriceCentsForDate(combo, dateYmd) * Math.max(0, Math.floor(headcount));
+}
+
+/** Whether guests can be added to a completed booking of this combo. */
+export function comboAddonEnabled(combo: ComboSpecial): boolean {
+  return combo.addon?.enabled === true;
+}
+
+/** Guests per bowling lane for this combo (defaults to 6). */
+export function comboLaneCapacity(combo: ComboSpecial): number {
+  return Math.max(1, Math.floor(combo.addon?.laneCapacity ?? DEFAULT_LANE_CAPACITY));
+}
+
+/** Bowling lanes needed to seat `players` for this combo (≥1). */
+export function comboLanesForPlayers(combo: ComboSpecial, players: number): number {
+  return Math.max(1, Math.ceil(Math.max(0, players) / comboLaneCapacity(combo)));
+}
+
+/** Max guests addable in ONE add-on transaction (defaults to 8). */
+export function comboMaxAddPerTransaction(combo: ComboSpecial): number {
+  return Math.max(1, Math.floor(combo.addon?.maxAddPerTransaction ?? 8));
 }
 
 /** The combo's race legs, in itinerary order. */

@@ -638,7 +638,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
       const bowlingEntry = chain.find((e) => e.payload.kind === "bowling");
       const bowlingPatch =
         bowling && bowlingEntry && bowlingEntry.payload.kind === "bowling" && date
-          ? comboBowlingPatch(bowlingEntry.payload, party.length, date)
+          ? comboBowlingPatch(combo, bowlingEntry.payload, party.length, date)
           : null;
       if (bowling && bowlingPatch) {
         dispatch({ type: "updateItem", id: bowling.id, patch: bowlingPatch });

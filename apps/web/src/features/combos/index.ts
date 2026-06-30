@@ -1,8 +1,14 @@
 export {
   COMBO_SPECIALS,
+  DEFAULT_LANE_CAPACITY,
+  comboAddonEnabled,
   comboAvailableOn,
   comboBowlingComponent,
   comboHeatsPerRacer,
+  comboLaneCapacity,
+  comboLanesForPlayers,
+  comboMaxAddPerTransaction,
+  comboMinHeadcount,
   comboPriceCentsForDate,
   comboRaceLegs,
   comboReservationNote,
@@ -11,7 +17,13 @@ export {
   enabledCombos,
   getComboSpecial,
 } from "./combo-specials";
-export type { ComboEntity, ComboLeg, ComboRevenueLine, ComboSpecial } from "./combo-specials";
+export type {
+  ComboAddonPolicy,
+  ComboEntity,
+  ComboLeg,
+  ComboRevenueLine,
+  ComboSpecial,
+} from "./combo-specials";
 export {
   activeComboSpecial,
   comboChargeLines,

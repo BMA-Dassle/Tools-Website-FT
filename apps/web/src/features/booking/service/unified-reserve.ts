@@ -10,6 +10,7 @@
 import { randomBytes } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
 import { createDepositAndCharge } from "./deposit";
+import { createDayofOrder as createDayofOrderShared } from "./square-dayof";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import {
@@ -24,7 +25,6 @@ import {
 import {
   lookupCatalogId,
   lookupCatalogIdByName,
-  LOCATION_TAX,
   SQUARE_LOCATIONS,
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
@@ -480,52 +480,14 @@ async function unifiedReserveInner(
   // fund both (a Square gift card is seller-wide), and each location's
   // settlement (race-dayof-pay / lane-open) charges the card for ITS order's
   // own outstanding total. See tasks/combo-split-orders-plan.md.
-  const createDayofOrder = async (
-    locId: string,
-    items: SquareLineItem[],
-    keySuffix: string,
-  ): Promise<{ orderId: string; totalCents: number }> => {
-    const taxCatalogId = LOCATION_TAX[locId];
-    const orderTaxes = taxCatalogId
-      ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
-      : [];
-    const res = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `unified-dayof-${baseKey}-${keySuffix}`,
-        order: {
-          location_id: locId,
-          ...(input.squareCustomerId ? { customer_id: input.squareCustomerId } : {}),
-          line_items: items.map((li) => {
-            if (li.catalogObjectId) {
-              return {
-                catalog_object_id: li.catalogObjectId,
-                quantity: li.quantity,
-                ...(li.basePriceMoney ? { base_price_money: li.basePriceMoney } : {}),
-                ...(li.note ? { note: li.note } : {}),
-              };
-            }
-            return {
-              name: li.name,
-              quantity: li.quantity,
-              base_price_money: li.basePriceMoney,
-              ...(li.note ? { note: li.note } : {}),
-            };
-          }),
-          ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
-        },
-      }),
+  const createDayofOrder = (locId: string, items: SquareLineItem[], keySuffix: string) =>
+    createDayofOrderShared({
+      locationId: locId,
+      lineItems: items,
+      baseKey,
+      keySuffix,
+      squareCustomerId: input.squareCustomerId,
     });
-    const data = await res.json();
-    if (!res.ok || data.errors) {
-      const sqErr = data.errors?.[0];
-      throw new Error(`Square order failed: ${sqErr?.code}: ${sqErr?.detail}`);
-    }
-    const orderId: string = data.order?.id;
-    if (!orderId) throw new Error("Square order returned no ID");
-    return { orderId, totalCents: data.order?.total_money?.amount ?? 0 };
-  };
 
   // squareDayofOrderId = the PRIMARY order (race/BMI anchor + the return value).
   // bowlingDayofOrderId = the order the bowling Neon row settles against (its
