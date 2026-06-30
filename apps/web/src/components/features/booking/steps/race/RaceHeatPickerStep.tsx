@@ -12,6 +12,7 @@ import {
 } from "~/features/booking/data";
 import {
   getRaceProductById,
+  juniorProductsOnTrack,
   type RaceProduct,
   type RaceTier,
 } from "~/features/booking/service/race-products";
@@ -20,7 +21,10 @@ import {
   HEAT_CONFLICT_TOOLTIP,
   heatsConflict,
 } from "~/features/booking/service/conflict";
-import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
+import {
+  evaluateRaceRestrictions,
+  type RestrictionBlock,
+} from "~/features/booking/service/race-restriction-rules";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { holdPickedHeats } from "~/features/booking/service/race";
 import { RacerSelectorModal } from "./RacerSelectorModal";
@@ -324,6 +328,61 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       })),
     });
 
+    // "Two Junior races per hour on Mega" counts BOTH junior tiers, but an
+    // occupied junior heat is tier-exclusive in BMI availability — so when the
+    // selected junior product sits on Mega, also fetch every junior Mega product
+    // (this tier + the sibling tier) and union their blocks into the per-hour
+    // signal. Empty for adult / non-Mega picks (the rule is Mega-junior only).
+    const juniorMegaHourProducts = useMemo<FetchPlanItem[]>(() => {
+      if (category !== "junior" || !product) return [];
+      if (!buildFetchPlan(product).some((f) => f.track === "Mega")) return [];
+      return juniorProductsOnTrack("Mega", product.schedule, product.racerType).map((p) => ({
+        productId: p.productId,
+        pageId: p.pageId,
+        track: "Mega" as Track,
+      }));
+      // `category` is a closure constant (makeHeatPickerComponent), not a dep.
+    }, [product]);
+
+    const hourQueries = useQueries({
+      queries: juniorMegaHourProducts.map(({ productId: pid, pageId }) => ({
+        queryKey: bookingKeys.bmi.availability({
+          center: session.center ?? "fort-myers",
+          date: item.date ?? "",
+          productId: pid,
+        }),
+        queryFn: (): Promise<BmiAvailabilityResponse> =>
+          bmiAdapter.getAvailability({
+            date: item.date!,
+            productId: pid,
+            pageId,
+            quantity: partySize > 0 ? partySize : 1,
+          }),
+        enabled: !!item.date && juniorMegaHourProducts.length > 0 && partySize > 0,
+        staleTime: 60_000,
+      })),
+    });
+
+    // Union of every junior Mega heat (all tiers) — the occupancy signal the
+    // per-hour cap reads. Shares query keys with `queries`, so React Query
+    // dedupes the candidate tier's fetch.
+    const juniorMegaHourBlocks = useMemo<RestrictionBlock[]>(() => {
+      const out: RestrictionBlock[] = [];
+      for (const q of hourQueries) {
+        if (!q.data?.proposals) continue;
+        for (const p of q.data.proposals) {
+          const b = p.blocks?.[0]?.block;
+          if (!b) continue;
+          out.push({
+            startMs: parseLocal(b.start).getTime(),
+            freeSpots: b.freeSpots,
+            capacity: b.capacity,
+          });
+        }
+      }
+      return out;
+    }, [hourQueries]);
+
     const returningRacers = useMemo(() => racers.filter((r) => !!r.bmiPersonId), [racers]);
     const hasReturning = returningRacers.length > 0;
 
@@ -391,15 +450,17 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           if (!block) continue;
           if (leadCutoffMs > 0 && parseLocal(block.start).getTime() < leadCutoffMs) continue;
           // Apply restriction rules: "hide" drops the slot (back-to-back Mega
-          // Pro); "disable" keeps it but greys it out with a label (Mega
-          // opening-heats express-lane only).
+          // Pro / Junior, two-Junior-per-hour Mega); "disable" keeps it but greys
+          // it out with a label (Mega opening-heats express-lane only).
           const verdict = evaluateRaceRestrictions({
             tier,
+            category,
             track: fp.track,
             candidateStartMs: parseLocal(block.start).getTime(),
             candidateStartLocal: block.start,
             nowMs,
             productBlocks: restrictionBlocks,
+            categoryTrackBlocks: juniorMegaHourBlocks,
             expressEligible: allReturningHaveWaivers,
           });
           if (verdict.blocked && verdict.action === "hide") continue;
@@ -418,7 +479,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         (a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime(),
       );
       return list;
-    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers]);
+    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers, juniorMegaHourBlocks]);
 
     // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
     // immediately; on failure releases anything that succeeded and reverts the

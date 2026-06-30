@@ -479,6 +479,12 @@ function dollars(cents: number): string {
 }
 
 function confirmPath(r: Reservation): string | null {
+  // Prefer the canonical v2 (multi-activity) short link for BMI-bill legs
+  // (race/attraction) — the same /s/{code} the guest gets by email/SMS and the
+  // account dashboard shows, so a multi-activity booking opens the confirmation
+  // hub instead of the single-activity v1 page. Falls back to the QAMF-only
+  // bowling /s/{shortCode} confirmation for bowling/KBF rows (no bmiBillId).
+  if (r.confirmationShortUrl) return r.confirmationShortUrl;
   return r.shortCode ? `/s/${r.shortCode}` : null;
 }
 

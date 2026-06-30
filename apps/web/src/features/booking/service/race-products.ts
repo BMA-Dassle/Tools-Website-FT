@@ -881,6 +881,28 @@ export function productsForSchedule(
   return RACE_PRODUCTS.filter((p) => p.schedule === schedule && p.racerType === racerType);
 }
 
+/**
+ * Every JUNIOR single-race product on `track` for the given (schedule,
+ * racerType) — both tiers (e.g. junior intermediate + junior pro Mega). Used to
+ * aggregate cross-tier occupancy for the "two junior races per hour" Mega rule
+ * (race-restriction-rules.ts): an occupied junior heat shows up only in its own
+ * tier's BMI availability, so the cap must union both products. Packs/combos are
+ * excluded — the cap counts single junior heats. */
+export function juniorProductsOnTrack(
+  track: string,
+  schedule: import("./race-pricing").Schedule,
+  racerType: RacerType,
+): RaceProduct[] {
+  return RACE_PRODUCTS.filter(
+    (p) =>
+      p.category === "junior" &&
+      p.track === track &&
+      p.schedule === schedule &&
+      p.racerType === racerType &&
+      !p.packType,
+  );
+}
+
 /** Context for filterProducts — what the wizard knows about the party. */
 export interface ProductFilterContext {
   racerType: RacerType;

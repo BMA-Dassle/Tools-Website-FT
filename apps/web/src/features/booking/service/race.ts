@@ -23,7 +23,7 @@ import {
 } from "../data/bmi";
 import { registerContact } from "./bmi-register";
 import { getPackage } from "./packages";
-import { evaluateRaceRestrictions } from "./race-restriction-rules";
+import { evaluateRaceRestrictions, type RestrictionBlock } from "./race-restriction-rules";
 
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
@@ -134,7 +134,7 @@ export async function bookHeatsOnAdvance(
     if (!matchingProposal) {
       throw new Error(`Heat at ${heat.heatId} is no longer available`);
     }
-    assertHeatBookable(session, heat, availability);
+    await assertHeatBookable(session, heat, availability, item.date);
 
     const result = await bmiAdapter.bookHeat({
       productId: target.productId,
@@ -255,7 +255,7 @@ export async function holdPickedHeats(
       });
       const matchingProposal = findProposalForHeat(availability.proposals, heat.heatId);
       if (!matchingProposal) throw new Error("that time just filled up");
-      assertHeatBookable(session, heat, availability);
+      await assertHeatBookable(session, heat, availability, item.date);
 
       const result = await bmiAdapter.bookHeat({
         productId: target.productId,
@@ -351,7 +351,7 @@ export async function holdRaceItem(
     if (!matchingProposal) {
       throw new Error(`Heat at ${heat.heatId} no longer available for product ${heat.productId}`);
     }
-    assertHeatBookable(session, heat, availability);
+    await assertHeatBookable(session, heat, availability, item.date);
 
     const result = await bmiAdapter.bookHeat({
       productId: target.productId,
@@ -607,7 +607,12 @@ async function ensurePersonId(
 
 // ── internal: race-products lookups (imports hoisted; used above) ───────
 
-import { bmiBookingTarget, getRaceProductById, resolveBuildPair } from "./race-products";
+import {
+  bmiBookingTarget,
+  getRaceProductById,
+  juniorProductsOnTrack,
+  resolveBuildPair,
+} from "./race-products";
 
 // ── internal: find a proposal matching a heat's start time ──────────────
 
@@ -650,25 +655,29 @@ function centerWallClockToEpochMs(naiveIso: string): number {
  * caller just fetched for this heat's product, so its freeSpots is the live
  * global occupancy signal.
  */
-function assertHeatBookable(
+async function assertHeatBookable(
   session: BookingSession,
   heat: RaceHeatAssignment,
   availability: BmiAvailabilityResponse,
-): void {
+  date: string | null | undefined,
+): Promise<void> {
   if (!heat.heatId) return;
   const product = heat.productId ? getRaceProductById(heat.productId) : null;
   const tier = heat.tier ?? product?.tier;
   const track = heat.track ?? product?.track ?? null;
   if (!tier || !track) return;
 
-  const productBlocks = availability.proposals
-    .map((p) => p.blocks?.[0]?.block)
-    .filter((b): b is BmiBlock => !!b)
-    .map((b) => ({
-      startMs: centerWallClockToEpochMs(b.start),
-      freeSpots: b.freeSpots,
-      capacity: b.capacity,
-    }));
+  const toBlocks = (av: BmiAvailabilityResponse): RestrictionBlock[] =>
+    av.proposals
+      .map((p) => p.blocks?.[0]?.block)
+      .filter((b): b is BmiBlock => !!b)
+      .map((b) => ({
+        startMs: centerWallClockToEpochMs(b.start),
+        freeSpots: b.freeSpots,
+        capacity: b.capacity,
+      }));
+
+  const productBlocks = toBlocks(availability);
 
   // Express-lane eligibility — mirrors RaceHeatPickerStep's allReturningHaveWaivers:
   // no new racer in the heat's category AND every returning racer has a valid waiver.
@@ -680,13 +689,46 @@ function assertHeatBookable(
     !anyNewInCategory &&
     session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
 
+  // Cross-tier occupancy for the "two Junior races per hour" Mega cap. An
+  // occupied junior heat is tier-exclusive in BMI availability, so union the
+  // OTHER junior Mega tier(s) onto the candidate tier's own blocks. Best-effort:
+  // a sibling fetch failure leaves the cap to the candidate tier only (the
+  // back-to-back rule still applies regardless).
+  let categoryTrackBlocks = productBlocks;
+  if (category === "junior" && track === "Mega" && product && date) {
+    const siblingBlocks: RestrictionBlock[] = [];
+    for (const sib of juniorProductsOnTrack("Mega", product.schedule, product.racerType)) {
+      if (sib.tier === tier) continue; // candidate's own tier is already in productBlocks
+      const sibTarget = bmiBookingTarget(sib.productId, {
+        category: "junior",
+        tier: sib.tier,
+        track: "Mega",
+        withLicense: false,
+      });
+      try {
+        const sibAv = await bmiAdapter.getAvailability({
+          date,
+          productId: sibTarget.productId,
+          pageId: sibTarget.pageId,
+          quantity: 1,
+        });
+        siblingBlocks.push(...toBlocks(sibAv));
+      } catch {
+        // best-effort — see note above
+      }
+    }
+    if (siblingBlocks.length) categoryTrackBlocks = [...productBlocks, ...siblingBlocks];
+  }
+
   const verdict = evaluateRaceRestrictions({
     tier,
+    category,
     track,
     candidateStartMs: centerWallClockToEpochMs(heat.heatId),
     candidateStartLocal: heat.heatId, // heatId IS the naive wall-clock start string
     nowMs: Date.now(),
     productBlocks,
+    categoryTrackBlocks,
     expressEligible,
   });
   if (verdict.blocked) throw new Error(verdict.reason ?? "That heat can't be booked.");
