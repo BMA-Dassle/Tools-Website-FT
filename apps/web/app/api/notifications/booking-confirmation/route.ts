@@ -10,6 +10,9 @@ import {
 } from "@/lib/booking-confirmation-link";
 import { cancellationPolicyEmailHtml } from "@/lib/cancellation-policy";
 
+import { recordCustomerComm } from "@/lib/customer-comms";
+import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
+
 // Re-export so any existing importer of this route's signature verifier keeps
 // working after the helpers moved to lib/booking-confirmation-link.
 export const verifyBillSignature = verifyBillSignatureShared;
@@ -643,12 +646,26 @@ export async function POST(req: NextRequest) {
 
       // Waiver section already handled by ^WaiverSection()$ placeholder
 
+      const emailSubject = `${brandName} Booking Confirmed — #${reservationNumber}`;
       results.email = await sendEmail(
         email,
-        `${brandName} Booking Confirmed — #${reservationNumber}`,
+        emailSubject,
         html,
         isHeadPinzBrand ? "HeadPinz Entertainment" : undefined,
       );
+      // Durable evidence log (chargeback CARDHOLDER_COMMUNICATION).
+      void recordCustomerComm({
+        channel: "email",
+        toAddress: email,
+        subject: emailSubject,
+        body: html,
+        policyVersion: CURRENT_POLICY_VERSION,
+        reservationRef: billId || null,
+        kind: "booking-confirmation",
+        center: location || null,
+        provider: "sendgrid",
+        status: results.email ? "sent" : "failed",
+      });
     } catch (err) {
       console.error("[booking-confirmation] email failed:", err);
     }
@@ -728,6 +745,18 @@ export async function POST(req: NextRequest) {
                 ? VOX_FROM_HEADPINZ
                 : VOX_FROM_FASTTRAX;
           results.sms = await sendSms(normalized, smsBody, smsFrom);
+          // Durable evidence log (mirrors the Redis sms-log, but Neon-permanent).
+          void recordCustomerComm({
+            channel: "sms",
+            toAddress: normalized,
+            body: smsBody,
+            policyVersion: CURRENT_POLICY_VERSION,
+            reservationRef: billId || null,
+            kind: "booking-confirmation",
+            center: location || null,
+            provider: "vox",
+            status: results.sms ? "sent" : "failed",
+          });
 
           // POV codes are now displayed on the confirmation page only —
           // no separate per-code SMS. Cuts N+1 outbound messages per

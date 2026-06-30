@@ -9,7 +9,26 @@
  * sites migrate to this helper without a behavior change.
  */
 
+import { recordCustomerComm } from "@/lib/customer-comms";
+
 const SENDGRID_API_URL = "https://api.sendgrid.com/v3/mail/send";
+
+/** Record a send to the durable evidence log (soft-fail) when meta is given. */
+function logComm(opts: SendEmailOpts, status: string): void {
+  if (!opts.meta) return;
+  void recordCustomerComm({
+    channel: "email",
+    toAddress: opts.to,
+    subject: opts.subject,
+    body: opts.html,
+    policyVersion: opts.meta.policyVersion ?? null,
+    reservationRef: opts.meta.reservationRef ?? null,
+    kind: opts.meta.kind ?? null,
+    center: opts.meta.center ?? null,
+    provider: "sendgrid",
+    status,
+  });
+}
 
 export interface SendEmailOpts {
   to: string;
@@ -25,6 +44,14 @@ export interface SendEmailOpts {
   html: string;
   /** Optional plain-text part. When omitted only HTML is sent (SendGrid allows this, but providing both is best practice). */
   text?: string;
+  /** Optional metadata for the durable customer-communications evidence log.
+   *  When provided, the send is recorded to Neon (chargeback evidence). */
+  meta?: {
+    kind?: string;
+    reservationRef?: string;
+    policyVersion?: string;
+    center?: string;
+  };
 }
 
 export interface SendEmailResult {
@@ -95,9 +122,11 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
       console.error(
         `[sendgrid] FAILED ${res.status} to=${opts.to} subject="${opts.subject}" error=${errText}`,
       );
+      logComm(opts, `failed:${res.status}`);
       return { ok: false, status: res.status, error: errText };
     }
     console.log(`[sendgrid] sent to=${opts.to} subject="${opts.subject}" status=${res.status}`);
+    logComm(opts, "sent");
     return { ok: true, status: res.status };
   } catch (err) {
     return {
