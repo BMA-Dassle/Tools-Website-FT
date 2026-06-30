@@ -85,7 +85,7 @@ export default function RacerJourney() {
               LIVE TRACK STATUS
             </p>
             <div className="flex flex-col gap-2">
-              {trackData?.tracks.map((t) => {
+              {trackData?.tracks?.map((t) => {
                 const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as
                   | "blue"
                   | "red"

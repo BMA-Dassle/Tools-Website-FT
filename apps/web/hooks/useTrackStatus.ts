@@ -93,9 +93,17 @@ export function useTrackStatus(): TrackStatusResult | null {
       ]);
       if (signal.aborted) return;
 
-      const statusJson = await statusRes.json();
+      // Guard statusRes.ok (the racesRes read below already does). A non-200
+      // or error payload from /api/track-status yields no `tracks` array; if we
+      // let that through, every consumer's `trackData.tracks.map(...)` throws
+      // "undefined is not an object (evaluating 'tracks.map')" at render — a
+      // crash we were seeing on the home page (Clarity, ~94 sessions/14d).
+      // Treat a bad/empty status payload as a no-op cycle and keep last-known
+      // good state rather than blanking (or crashing) the UI.
+      const statusJson = statusRes.ok ? await statusRes.json() : null;
+      if (!statusJson || !Array.isArray(statusJson.tracks)) return;
       const trackStatus: TrackStatusData = {
-        megaTrackEnabled: statusJson.megaTrackEnabled,
+        megaTrackEnabled: Boolean(statusJson.megaTrackEnabled),
         tracks: statusJson.tracks,
       };
 
