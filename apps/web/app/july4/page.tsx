@@ -98,7 +98,7 @@ export default function July4PromoPage() {
           />
           <span aria-hidden className="h-9 w-px bg-white/20 sm:h-11" />
           {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
-          <img src={HP_LOGO_SRC} alt="HeadPinz" className="h-7 w-auto object-contain sm:h-9" />
+          <img src={HP_LOGO_SRC} alt="HeadPinz" className="h-11 w-auto object-contain sm:h-14" />
         </div>
 
         {/* ── Offer headline ── */}
