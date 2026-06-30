@@ -36,8 +36,9 @@ describe("combo-specials registry", () => {
     expect(raceBowl.price).toEqual({ weekday: 6500, weekend: 7500 });
     expect(raceBowl.components).toEqual([
       { kind: "race", tier: "starter" },
-      // Owner: the lane must start within 60 minutes of the first race.
-      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 60 },
+      // Owner: race assumed 30 min + 15-min transition floors bowling at
+      // race-start + 45; 75-min ceiling is the fallback window.
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 75 },
       { kind: "race", tier: "intermediate" },
     ]);
     expect(raceBowl.transitionMinutes).toBe(15);
@@ -66,7 +67,7 @@ describe("combo-specials registry", () => {
       kind: "bowling",
       durationMinutes: 90,
       vip: true,
-      maxWaitMinutes: 60,
+      maxWaitMinutes: 75,
     });
     expect(comboHeatsPerRacer(raceBowl)).toBe(2);
   });
