@@ -4,6 +4,7 @@ import {
   COMBO_SPECIALS,
   comboAvailableOn,
   comboBowlingComponent,
+  comboMinHeadcount,
   comboReorderFallbackEnabled,
   comboReservationNote,
   comboHeatsPerRacer,
@@ -48,6 +49,15 @@ describe("combo-specials registry", () => {
     expect(raceBowl.startHours).toEqual([14, 16, 18, 20, 22]);
     expect(comboStartHoursLabel(raceBowl)).toBe("2 · 4 · 6 · 8 · 10 PM");
     expect(raceBowl.perks?.length).toBeGreaterThan(0);
+  });
+
+  it("the VIP experience requires at least 2 people (shared semi-private suite)", () => {
+    expect(raceBowl.minHeadcount).toBe(2);
+    expect(comboMinHeadcount(raceBowl)).toBe(2);
+  });
+
+  it("comboMinHeadcount defaults to 1 when a combo sets no minimum", () => {
+    expect(comboMinHeadcount({ ...raceBowl, minHeadcount: undefined })).toBe(1);
   });
 
   it("leg helpers read the ordered itinerary", () => {

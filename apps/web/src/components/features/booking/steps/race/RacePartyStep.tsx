@@ -5,6 +5,7 @@ import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
 import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
+import { comboMinHeadcount, getComboSpecial } from "~/features/combos/combo-specials";
 import { ExperiencePicker } from "./ExperiencePicker";
 import { ReturningRacerLookup, type PersonData } from "./ReturningRacerLookup";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
@@ -51,6 +52,13 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
   const billingFirstName = session.contact.firstName?.trim();
   const billingLastName = session.contact.lastName?.trim();
   const billingAlreadyAdded = session.party.some((m) => m.isBillingCustomer);
+
+  // Combo specials may require a minimum party size (e.g. the VIP experience's
+  // shared semi-private suite — ≥2 guests). Surface it so the customer isn't
+  // surprised by the disabled Next button.
+  const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+  const comboMin = combo ? comboMinHeadcount(combo) : 1;
+  const belowComboMin = !!combo && session.party.length < comboMin;
 
   // ── New-racer quantity helpers ─────────────────────────────
   const newAdults = session.party.filter(
@@ -364,7 +372,15 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
           />
         </div>
 
-        {total === 0 && (
+        {combo && comboMin > 1 && (
+          <p
+            className={`text-center text-xs ${belowComboMin ? "text-amber-400/80" : "text-white/40"}`}
+          >
+            The {combo.name} requires at least {comboMin} people.
+          </p>
+        )}
+
+        {total === 0 && !combo && (
           <p className="text-center text-xs text-amber-400/70">
             Add at least one racer to continue.
           </p>
@@ -426,6 +442,11 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
         <p className="mt-1 text-sm text-white/50">
           Add everyone in your party. You can assign them to heats next.
         </p>
+        {combo && comboMin > 1 && (
+          <p className={`mt-2 text-xs ${belowComboMin ? "text-amber-400/80" : "text-white/40"}`}>
+            The {combo.name} requires at least {comboMin} people.
+          </p>
+        )}
       </div>
 
       {/* Express Lane banner */}
@@ -762,6 +783,17 @@ export const RacePartyStep: StepDef<RaceItem> = {
   canAdvance: (_item, session) => {
     if (session.party.length === 0) {
       return { reason: "Add at least one racer to continue." };
+    }
+    // Combo specials may require a minimum party size (e.g. the VIP experience
+    // sells the shared semi-private suite for ≥2 guests).
+    const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+    if (combo) {
+      const min = comboMinHeadcount(combo);
+      if (session.party.length < min) {
+        return {
+          reason: `The ${combo.name} requires at least ${min} ${min === 1 ? "person" : "people"}.`,
+        };
+      }
     }
     const missingName = session.party.some((m) => !m.isNewRacer && !m.firstName.trim());
     if (missingName) return { reason: "Every party member needs a first name." };

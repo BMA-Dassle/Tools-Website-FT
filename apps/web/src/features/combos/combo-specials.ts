@@ -95,6 +95,12 @@ export interface ComboSpecial {
   center: CenterCode;
   /** Per-PERSON price in CENTS by day tier (Mega Tuesday = weekday). */
   price: { weekday: number; weekend: number };
+  /**
+   * Minimum party size required to book this combo (owner policy — the VIP
+   * lane is a shared semi-private suite, so it sells for ≥2 guests). The party
+   * step's gate blocks advancing below this; absent = 1 (no minimum).
+   */
+  minHeadcount?: number;
   /** ORDERED visit itinerary. */
   components: ComboLeg[];
   /**
@@ -217,6 +223,8 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     accentColor: "#FFD700",
     center: "fort-myers",
     price: { weekday: 6500, weekend: 7500 },
+    // Owner: the VIP experience is a shared semi-private suite — book ≥2 guests.
+    minHeadcount: 2,
     components: [
       { kind: "race", tier: "starter" },
       // Owner: the lane must start within 60 minutes of the first race —
@@ -315,6 +323,11 @@ export function enabledCombos(): ComboSpecial[] {
  */
 export function comboPriceCentsForDate(combo: ComboSpecial, dateYmd: string | Date): number {
   return scheduleForDate(dateYmd) === "weekend" ? combo.price.weekend : combo.price.weekday;
+}
+
+/** Minimum party size to book this combo (defaults to 1 when unset). */
+export function comboMinHeadcount(combo: ComboSpecial): number {
+  return Math.max(1, Math.floor(combo.minHeadcount ?? 1));
 }
 
 /** Total combo price (cents) for a date × headcount. */
