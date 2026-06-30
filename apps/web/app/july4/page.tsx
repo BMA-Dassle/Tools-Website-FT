@@ -17,9 +17,14 @@ import { IconCar, IconBowling, IconArrowRight } from "@tabler/icons-react";
  * (`public/promo/july4-declaration.jpg`) are the supplied assets.
  *
  * Booking destinations carry the code so the discount is live on arrival:
- *   - FastTrax · Fort Myers  → /book/race/v2?code=USA250          (go-kart racing)
+ *   - FastTrax · Fort Myers  → /book/v2?code=USA250&location=fort-myers
  *   - HeadPinz · Fort Myers  → /book/v2?code=USA250&location=fort-myers
  *   - HeadPinz · Naples      → /book/v2?code=USA250&location=naples
+ *
+ * The Fort Myers complex is one building (FastTrax racing + HeadPinz bowling),
+ * so both Fort Myers buttons land on the same multi-attraction hub; Naples is
+ * scoped to its own center. `?location=` drives both the booking session AND
+ * the HeadPinz nav's displayed center (see HeadPinzNav).
  */
 
 export const metadata: Metadata = {
@@ -47,8 +52,8 @@ const LOCATIONS: PromoLocation[] = [
   {
     brand: "FastTrax",
     city: "Fort Myers",
-    activities: "Go-Kart Racing",
-    href: "/book/race/v2?code=USA250",
+    activities: "Go-Kart Racing · Duckpin Bowling · Shuffly",
+    href: "/book/v2?code=USA250&location=fort-myers",
     Icon: IconCar,
   },
   {

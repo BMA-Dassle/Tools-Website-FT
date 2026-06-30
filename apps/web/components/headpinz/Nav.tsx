@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { setBookingLocation } from "@/lib/booking-location";
-import type { LocationKey } from "@/lib/attractions-data";
+import { normalizeLocationSlug, type LocationKey } from "@/lib/attractions-data";
 import Image from "next/image";
 
 const locations = [
@@ -68,13 +68,36 @@ export default function HeadPinzNav() {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const pathname = usePathname();
 
-  // Detect location from pathname, sessionStorage (booking flow), or default
+  // Center shown in the nav, in priority order:
+  //   1. pathname (e.g. /hp/naples, /naples)
+  //   2. the ?location= URL param — booking links like /book/v2?location=naples
+  //      "flip the center through the URL" so the nav matches the center being
+  //      booked. Read in an effect (client-only) rather than via useSearchParams
+  //      to avoid forcing a Suspense de-opt on every page that renders the nav.
+  //   3. the sessionStorage value the booking flow persisted
+  //   4. default (Fort Myers)
+  const [urlLoc, setUrlLoc] = useState<string | null>(null);
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("location");
+    const normalized = normalizeLocationSlug(raw); // "headpinz" | "naples" | "fasttrax" | null
+    if (!normalized || normalized === "fasttrax") return; // not a HeadPinz center
+    setBookingLocation(normalized); // sessionStorage form ("headpinz" = Fort Myers)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reflect the URL center in the nav
+    setUrlLoc(normalized === "naples" ? "naples" : "fort-myers");
+  }, [pathname]);
+
   const bookingLoc =
     typeof window !== "undefined" ? sessionStorage.getItem("bookingLocation") : null;
+  // sessionStorage stores "headpinz" for Fort Myers; map it to the nav key.
+  const sessionNavKey =
+    bookingLoc === "naples" ? "naples" : bookingLoc === "headpinz" ? "fort-myers" : null;
   const pathLoc = locations.find((l) => pathname.includes(l.key));
   const currentLoc =
-    pathLoc || (bookingLoc ? locations.find((l) => l.key === bookingLoc) : null) || locations[0];
-  // Sync detected location to sessionStorage so booking flow inherits it
+    pathLoc ||
+    (urlLoc ? locations.find((l) => l.key === urlLoc) : null) ||
+    (sessionNavKey ? locations.find((l) => l.key === sessionNavKey) : null) ||
+    locations[0];
+  // Sync pathname-detected location to sessionStorage so the booking flow inherits it.
   if (typeof window !== "undefined" && pathLoc) {
     const bookingKey = pathLoc.key === "fort-myers" ? "headpinz" : pathLoc.key;
     setBookingLocation(bookingKey as LocationKey);
