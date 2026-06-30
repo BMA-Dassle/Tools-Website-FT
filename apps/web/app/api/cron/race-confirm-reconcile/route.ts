@@ -3,6 +3,7 @@ import redis from "@/lib/redis";
 import { buildGanPrefix } from "@/lib/gan";
 import {
   getPendingBmiConfirms,
+  getConfirmedRowsWithUnfundedGiftCard,
   getBowlingReservationByBillId,
   updateBowlingReservationConfirmed,
   updateBowlingReservationSquareIds,
@@ -40,6 +41,15 @@ import { verifyCron } from "@/lib/cron-auth";
  *
  * Once `confirmed`, race-dayof-pay settles it at check-in — closing the
  * "charged + confirmed but no row → never settles" gap.
+ *
+ * SECOND PASS — confirmed-but-unfunded backfill (added after the Freytag W41982
+ * incident, 2026-06-27): a row can reach `confirmed` while its deposit gift card
+ * was never funded (create/activate failed, square_gift_card_id never persisted).
+ * Such a row is invisible to BOTH getPendingBmiConfirms (not pending) AND
+ * race-dayof-pay (needs square_gift_card_id), so its day-of order sits OPEN
+ * forever. getConfirmedRowsWithUnfundedGiftCard finds them; backfillConfirmedRow
+ * funds the card ONLY — it must never re-confirm BMI (already confirmed) nor
+ * downgrade the row's status. race-dayof-pay then settles it normally.
  *
  * Auth mirrors race-dayof-pay: scheduled runs use verifyCron; a valid
  * ?token=<ADMIN_CAMERA_TOKEN> bypasses it for manual / dev runs. ?dryRun=1
@@ -95,6 +105,79 @@ async function setPandoraConfirmation(r: BowlingReservation, bmiBillId: string):
   }
 }
 
+/**
+ * Step-1 funding (shared): re-create + activate the deposit gift card for a row
+ * whose card was never funded after capture, then persist the ids. Idempotent —
+ * keyed off the deterministic reserveBaseKey, so a replay returns the SAME card
+ * with no double-load. Returns the row updated with the new ids (or the input row
+ * unchanged when there is nothing to fund). Throws on a Square failure so the
+ * caller can decide how to record it. Used by BOTH the pending-reconcile path and
+ * the confirmed-but-unfunded backfill.
+ */
+async function fundGiftCardIfNeeded(r: BowlingReservation): Promise<BowlingReservation> {
+  if (r.squareGiftCardId || !r.squareDepositPaymentId || r.depositCents <= 0 || !r.bmiBillId) {
+    return r;
+  }
+  // If the deposit order's line item is a GIFT_CARD sale (v2 model), recover via
+  // the order link so the recovered card is also booked as a gift-card sale;
+  // otherwise fall back to the legacy buyer_payment_instrument path. Keyed off the
+  // order's actual line-item type, not the live flag, so a retry always matches
+  // how the order was originally created.
+  let orderLink: { depositOrderId: string; lineItemUid: string } | undefined;
+  if (r.squareDepositOrderId) {
+    const li = await getDepositOrderLineItem(r.squareDepositOrderId);
+    if (li?.itemType === "GIFT_CARD" && li.uid) {
+      orderLink = { depositOrderId: r.squareDepositOrderId, lineItemUid: li.uid };
+    }
+  }
+  const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
+    baseKey: reserveBaseKey(r.bmiBillId),
+    locationId: depositLocationId(r),
+    amountCents: r.depositCents,
+    ganPrefix: buildGanPrefix("WEB", depositLocationId(r)),
+    ganSuffix: r.bmiBillId.slice(-8),
+    paymentIds: [r.squareDepositPaymentId],
+    ...(orderLink ?? {}),
+  });
+  await updateBowlingReservationSquareIds(r.id, {
+    squareGiftCardId: giftCardId,
+    squareGiftCardGan: giftCardGan,
+  });
+  console.log(
+    `[race-confirm-reconcile] ${r.bmiReservationNumber ?? "?"} (neon ${r.id}): gift card funded (${giftCardGan})`,
+  );
+  return { ...r, squareGiftCardId: giftCardId, squareGiftCardGan: giftCardGan };
+}
+
+/**
+ * Backfill an already-`confirmed` row whose gift card was never funded. ONLY
+ * funds the card — BMI is already confirmed, so this must NOT re-confirm, and on
+ * failure it must NOT touch qamf_confirm_attempts / status (downgrading a
+ * confirmed row would be a regression). Once funded, race-dayof-pay settles it.
+ */
+async function backfillConfirmedRow(
+  r: BowlingReservation,
+  dryRun: boolean,
+): Promise<ReconcileOutcome> {
+  const label = `${r.bmiReservationNumber ?? "?"} (neon ${r.id})`;
+  if (dryRun) return { label, status: "requeued", note: "would: fund gift card (confirmed row)" };
+  try {
+    const funded = await fundGiftCardIfNeeded(r);
+    if (funded.squareGiftCardId && funded.squareGiftCardId !== r.squareGiftCardId) {
+      return { label, status: "confirmed", note: `gift card funded (${funded.squareGiftCardGan})` };
+    }
+    return { label, status: "skipped", note: "nothing to fund" };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "funding error";
+    // Do NOT change status — the row is genuinely confirmed; only the card is
+    // unfunded. Surface for ops; the next cron pass retries (idempotent).
+    console.error(
+      `[race-confirm-reconcile] ${label}: confirmed-row gift-card funding FAILED — guest=${r.guestName} depositCents=${r.depositCents}: ${detail}`,
+    );
+    return { label, status: "failed", note: `confirmed-row funding failed: ${detail}` };
+  }
+}
+
 async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<ReconcileOutcome> {
   const label = `${r.bmiReservationNumber ?? "?"} (neon ${r.id})`;
   const bmiBillId = r.bmiBillId;
@@ -119,35 +202,7 @@ async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<Rec
 
   try {
     // ── 1. Gift card never funded after capture → re-create + activate ──
-    if (!r.squareGiftCardId && r.squareDepositPaymentId && r.depositCents > 0) {
-      // If the deposit order's line item is a GIFT_CARD sale (v2 model), recover
-      // via the order link so the recovered card is also booked as a gift-card
-      // sale; otherwise fall back to the legacy buyer_payment_instrument path.
-      // Keyed off the order's actual line-item type, not the live flag, so a
-      // retry always matches how the order was originally created.
-      let orderLink: { depositOrderId: string; lineItemUid: string } | undefined;
-      if (r.squareDepositOrderId) {
-        const li = await getDepositOrderLineItem(r.squareDepositOrderId);
-        if (li?.itemType === "GIFT_CARD" && li.uid) {
-          orderLink = { depositOrderId: r.squareDepositOrderId, lineItemUid: li.uid };
-        }
-      }
-      const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
-        baseKey: reserveBaseKey(bmiBillId),
-        locationId: depositLocationId(r),
-        amountCents: r.depositCents,
-        ganPrefix: buildGanPrefix("WEB", depositLocationId(r)),
-        ganSuffix: bmiBillId.slice(-8),
-        paymentIds: [r.squareDepositPaymentId],
-        ...(orderLink ?? {}),
-      });
-      await updateBowlingReservationSquareIds(r.id, {
-        squareGiftCardId: giftCardId,
-        squareGiftCardGan: giftCardGan,
-      });
-      r = { ...r, squareGiftCardId: giftCardId, squareGiftCardGan: giftCardGan };
-      console.log(`[race-confirm-reconcile] ${label}: gift card funded (${giftCardGan})`);
-    }
+    r = await fundGiftCardIfNeeded(r);
 
     // ── 2. BMI already confirmed → just promote the row ──
     if (cached) {
@@ -234,15 +289,29 @@ export async function GET(req: NextRequest) {
   if (manualBillId) {
     const r = await getBowlingReservationByBillId(manualBillId);
     if (!r) return NextResponse.json({ error: "reservation not found" }, { status: 404 });
-    if (!["confirm_pending", "confirm_failed"].includes(r.status))
-      return NextResponse.json({
-        ok: true,
-        billId: manualBillId,
-        status: r.status,
-        note: "not pending",
-      });
-    const outcome = await reconcileRow(r, dryRun);
-    return NextResponse.json({ ok: outcome.status !== "failed", dryRun, ...outcome });
+    // Pending/failed → full reconcile (fund + BMI confirm).
+    if (["confirm_pending", "confirm_failed"].includes(r.status)) {
+      const outcome = await reconcileRow(r, dryRun);
+      return NextResponse.json({ ok: outcome.status !== "failed", dryRun, ...outcome });
+    }
+    // Already confirmed but the deposit gift card was never funded → fund only
+    // (never re-confirm BMI). This is the Freytag W41982 gap.
+    if (
+      r.status === "confirmed" &&
+      !r.squareGiftCardId &&
+      r.squareDepositPaymentId &&
+      r.totalCents > 0 &&
+      !r.dayofOrderSentAt
+    ) {
+      const outcome = await backfillConfirmedRow(r, dryRun);
+      return NextResponse.json({ ok: outcome.status !== "failed", dryRun, ...outcome });
+    }
+    return NextResponse.json({
+      ok: true,
+      billId: manualBillId,
+      status: r.status,
+      note: "not pending",
+    });
   }
 
   const pending = await getPendingBmiConfirms();
@@ -265,13 +334,35 @@ export async function GET(req: NextRequest) {
     outcomes.push(outcome);
   }
 
+  // Backfill already-`confirmed` rows whose deposit gift card was never funded —
+  // the gap that left Freytag W41982's day-of order OPEN forever (skipped by both
+  // getPendingBmiConfirms and race-dayof-pay). Fund-only; no BMI re-confirm.
+  const unfunded = await getConfirmedRowsWithUnfundedGiftCard();
+  for (const r of unfunded) {
+    results.attempted++;
+    let outcome: ReconcileOutcome;
+    try {
+      outcome = await backfillConfirmedRow(r, dryRun);
+    } catch (err) {
+      outcome = {
+        label: `${r.bmiReservationNumber ?? "?"} (neon ${r.id})`,
+        status: "failed",
+        note: err instanceof Error ? err.message : "unexpected error",
+      };
+    }
+    results[outcome.status]++;
+    outcomes.push(outcome);
+  }
+
   console.log(
-    `[race-confirm-reconcile] dryRun=${dryRun} pending=${pending.length} confirmed=${results.confirmed} requeued=${results.requeued} failed=${results.failed}`,
+    `[race-confirm-reconcile] dryRun=${dryRun} pending=${pending.length} unfundedConfirmed=${unfunded.length} confirmed=${results.confirmed} requeued=${results.requeued} failed=${results.failed}`,
   );
   return NextResponse.json({
     ok: true,
     dryRun,
     elapsedMs: Date.now() - started,
+    pending: pending.length,
+    unfundedConfirmed: unfunded.length,
     ...results,
     outcomes,
   });

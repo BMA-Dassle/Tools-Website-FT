@@ -257,20 +257,22 @@ export function isOfferingInPromoScope(offering: ActivityOffering, promo: Applie
   // So we match looser where the vocabularies diverge:
   //   - racing scope present → highlight the race tile (no per-product
   //     split in v2 yet; race-pack is PR-B4 territory).
-  //   - bowling scope null → highlight BOTH bowling + kbf tiles.
-  //     bowling scope present → use the "kbf" slug-prefix heuristic
-  //     (seed values are "kbf-regular" / "kbf-vip"; any added later
-  //     follow the same naming) to decide which tile is in scope.
+  //   - bowling scope null → highlight the regular bowling tile only. KBF
+  //     (Kids Bowl Free) is OPT-IN: a generic/all-bowling code does NOT cover
+  //     it — only a code that explicitly lists kbf-* slugs badges the KBF tile
+  //     (seed values are "kbf-regular" / "kbf-vip"; any added later follow the
+  //     same naming).
   //   - attractions scope → exact slug match.
   switch (domain) {
     case "racing":
       return true;
     case "bowling": {
       const allowed = promo.scopes.bowling?.experienceSlugs;
-      if (allowed == null) return true;
       if (offering.slug === "kbf") {
-        return allowed.some((s) => s.toLowerCase().startsWith("kbf"));
+        // Opt-in: never badge KBF off a null/all-bowling scope.
+        return allowed != null && allowed.some((s) => s.toLowerCase().startsWith("kbf"));
       }
+      if (allowed == null) return true;
       return allowed.some((s) => !s.toLowerCase().startsWith("kbf"));
     }
     case "attractions": {

@@ -227,9 +227,13 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     minHeadcount: 2,
     components: [
       { kind: "race", tier: "starter" },
-      // Owner: the lane must start within 60 minutes of the first race —
-      // otherwise the start time doesn't show as available.
-      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 60 },
+      // Owner rule: assume racing takes 30 min, then bowl 15 min after — so the
+      // lane floors at race-start + 45 (e.g. a 2 PM race → 2:45 lane). The 30 min
+      // is the assumed race leg (see ASSUMED_RACE_LEG_MINUTES) and the 15 min is
+      // the global transition buffer, so NO minWaitMinutes is needed here. The
+      // 75-min ceiling (from the assumed race end) leaves a wide fallback window
+      // so a lane still surfaces if the ideal :45 slot is taken.
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 75 },
       { kind: "race", tier: "intermediate" },
     ],
     // Fallback (flag-gated): when no lane fits within 60 min of the first race

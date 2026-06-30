@@ -1798,6 +1798,38 @@ export async function getPendingBmiConfirms(): Promise<BowlingReservation[]> {
 }
 
 /**
+ * Already-`confirmed` race/attraction rows whose deposit gift card was never
+ * funded after capture: the deposit payment landed and the row was promoted to
+ * `confirmed`, but the gift-card create/activate step failed and
+ * square_gift_card_id was never persisted. These fall in a gap between two crons
+ * — getPendingBmiConfirms skips them (not pending) and race-dayof-pay skips them
+ * (its candidate query needs square_gift_card_id) — so the day-of order never
+ * settles and the captured deposit stays stuck on a PENDING/$0 card.
+ * race-confirm-reconcile backfills the card (step-1 funding ONLY; BMI is already
+ * confirmed, so it must NEVER re-confirm or downgrade the row's status). Once
+ * funded, race-dayof-pay settles it normally. See the Freytag W41982 incident
+ * (2026-06-27), the first such row found in production.
+ */
+export async function getConfirmedRowsWithUnfundedGiftCard(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE product_kind IN ('race', 'attraction')
+      AND status = 'confirmed'
+      AND square_gift_card_id IS NULL
+      AND square_deposit_payment_id IS NOT NULL
+      AND total_cents > 0
+      AND bmi_bill_id IS NOT NULL
+      AND dayof_order_sent_at IS NULL
+    ORDER BY inserted_at ASC
+    LIMIT 20
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Increment qamf_confirm_attempts and optionally update the status.
  * Called by the bowling-confirm-retry cron after each retry attempt.
  */

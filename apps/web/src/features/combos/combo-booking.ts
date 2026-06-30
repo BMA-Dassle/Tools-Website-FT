@@ -266,9 +266,13 @@ export async function fetchBowlingLegCandidates(args: {
     );
   if (eligible.length === 0) return [];
 
+  // 15-min granularity (not 30) so a lane at :45 past the hour is surfaced —
+  // race-start + 45 (e.g. a 2 PM race → 2:45 lane) must be a real candidate,
+  // else the engine rounds bowling up to the next :00/:30 slot. Doubles the
+  // QAMF probe count for the day; acceptable for the combo wizard's spinner.
   const slots = parseAvailabilities(
     await probeAvailability(
-      `/api/bowling/v2/availability?centerId=${centerId}&players=${players}&startDate=${dateYmd}&kind=open,hourly&stepMinutes=30`,
+      `/api/bowling/v2/availability?centerId=${centerId}&players=${players}&startDate=${dateYmd}&kind=open,hourly&stepMinutes=15`,
     ),
   );
 
@@ -291,8 +295,17 @@ export async function fetchBowlingLegCandidates(args: {
 
 /* ───────────────── leg-generic candidate assembly ───────────────────── */
 
-/** Heat-block length fallback when BMI returns no stop (defensive). */
-const DEFAULT_RACE_LEG_MINUTES = 30;
+/**
+ * Assumed wall-clock length of a race leg for combo SCHEDULING (owner rule:
+ * "assume racing takes 30 minutes, then start bowling 15 minutes after that").
+ * The BMI heat block is only the ~12-min on-track time, not the full
+ * check-in / briefing / results / walk-to-HeadPinz experience — scheduling
+ * off the raw block landed the lane mid-experience. We deliberately ignore
+ * BMI's stop here and reserve a flat 30 min; combined with the 15-min
+ * transition buffer this floors bowling at race-start + 45. The real heat
+ * start/stop is still carried in the payload for booking + display.
+ */
+const ASSUMED_RACE_LEG_MINUTES = 30;
 
 /**
  * Fetch every leg's candidates for `buildChains`, in the combo's itinerary
@@ -348,9 +361,10 @@ async function legCandidates(
     });
     return candidates.map((candidate) => {
       const startMs = wallClockMs(candidate.start);
-      const endMs = candidate.stop
-        ? wallClockMs(candidate.stop)
-        : startMs + DEFAULT_RACE_LEG_MINUTES * 60_000;
+      // Schedule off a flat 30-min race leg, NOT the ~12-min BMI heat block —
+      // see ASSUMED_RACE_LEG_MINUTES. (candidate.start/stop stay intact in the
+      // payload for the actual booking + display.)
+      const endMs = startMs + ASSUMED_RACE_LEG_MINUTES * 60_000;
       return {
         startIso: candidate.start,
         startMs,

@@ -22,6 +22,14 @@
  *     slides as the day's earliest heats pass or sell out and drop off the
  *     list). Two rules because Red/Mega run a 12-min cadence (opens at :24) and
  *     Blue a 15-min cadence (opens at :30).
+ *  3. blue/mega-no-back-to-back-junior — the same back-to-back spacing as the Pro
+ *     rule, applied to JUNIOR sessions on Blue (gap 16) and Mega (gap 13). Same
+ *     last-minute (1 hr) override. HIDDEN.
+ *  4. mega-junior-two-per-hour — on Mega, at most two Junior races may start in
+ *     any center-local clock hour, counted across BOTH junior tiers
+ *     (intermediate + pro) — "regardless of type". Reads `categoryTrackBlocks`
+ *     (every junior heat on the track, tiers merged), not `productBlocks` (one
+ *     tier). HIDDEN. (Blue carries no per-hour cap.)
  *
  * ── How a "Pro session" is detected (no Pandora / no check-in needed) ──
  * BMI's per-tier dayplanner pages mean an OCCUPIED heat belongs to exactly one
@@ -30,13 +38,16 @@
  * tiers, occupied heats are tier-exclusive). So a neighbor Mega slot with
  * `freeSpots < capacity` in the Pro availability is unambiguously an active Pro
  * session — global ("regardless of person"), populated the instant anyone books.
+ * The same per-tier exclusivity is why the two-per-hour Junior cap unions the
+ * availability of BOTH junior Mega products: an occupied junior heat shows up in
+ * only its own tier's response, so a single tier's blocks can't see the other's.
  *
  * ── To add a rule ──
  * Push another entry onto RACE_RESTRICTION_RULES. To add a new *kind* of
  * constraint, add an optional constraint block to RaceRestrictionRule and a
  * branch in `evaluateRaceRestrictions`.
  */
-import type { RaceTier } from "./race-products";
+import type { RaceCategory, RaceTier } from "./race-products";
 
 /** How a blocked slot is surfaced to the customer. */
 export interface RestrictionPresentation {
@@ -56,10 +67,11 @@ export interface RaceRestrictionRule {
   /** Kill-switch — matches the `enabled` pattern in membership-discounts.ts. */
   enabled: boolean;
   /**
-   * Which bookings this rule guards. `tiers` omitted = every tier. `tracks`
-   * matched case-insensitively (e.g. ["Mega"]).
+   * Which bookings this rule guards. `tiers` omitted = every tier; `categories`
+   * omitted = every category (adult + junior). `tracks` matched
+   * case-insensitively (e.g. ["Mega"]).
    */
-  appliesTo: { tiers?: RaceTier[]; tracks: string[] };
+  appliesTo: { tiers?: RaceTier[]; categories?: RaceCategory[]; tracks: string[] };
   /** How a blocked slot is presented in the picker. */
   presentation: RestrictionPresentation;
   /**
@@ -93,6 +105,16 @@ export interface RaceRestrictionRule {
      */
     windows: Record<number, { openMinutes: number; untilMinutes: number }>;
   };
+  /**
+   * Constraint: cap how many OCCUPIED same-scope heats may start within the
+   * candidate's center-local clock hour (:00–:59) on this track — counted across
+   * ALL tiers ("regardless of type"). Reads `categoryTrackBlocks` (the union of
+   * every in-scope heat on the track, tiers merged), NOT `productBlocks` (one
+   * tier). Blocks the pick when `limit` such heats are already occupied in the
+   * hour (the candidate would be the limit+1-th). No-op when `categoryTrackBlocks`
+   * or `candidateStartLocal` aren't supplied (epoch-only / non-aggregating caller).
+   */
+  maxOccupiedPerClockHour?: { limit: number };
 }
 
 /** Minutes since local midnight for an `HH:MM` clock time. */
@@ -160,6 +182,42 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
     lastMinuteOverrideMinutes: 60,
   },
   {
+    id: "blue-no-back-to-back-junior",
+    label: "Blue: no back-to-back Junior sessions",
+    enabled: true,
+    appliesTo: { categories: ["junior"], tracks: ["Blue"] },
+    presentation: {
+      action: "hide",
+      tooltip: "That time is too close to another Junior session on Blue — pick another slot.",
+    },
+    noAdjacentOccupiedSameTier: { gapMinutes: 16 }, // Blue cadence 15 min + 1
+    lastMinuteOverrideMinutes: 60,
+  },
+  {
+    id: "mega-no-back-to-back-junior",
+    label: "Mega: no back-to-back Junior sessions",
+    enabled: true,
+    appliesTo: { categories: ["junior"], tracks: ["Mega"] },
+    presentation: {
+      action: "hide",
+      tooltip: "That time is too close to another Junior session on Mega — pick another slot.",
+    },
+    noAdjacentOccupiedSameTier: { gapMinutes: 13 }, // Mega cadence 12 min + 1
+    lastMinuteOverrideMinutes: 60,
+  },
+  {
+    id: "mega-junior-two-per-hour",
+    label: "Mega: at most two Junior races per clock hour (any tier)",
+    enabled: true,
+    appliesTo: { categories: ["junior"], tracks: ["Mega"] },
+    presentation: {
+      action: "hide",
+      tooltip:
+        "Mega already has two Junior races booked this hour — pick a slot in a different hour.",
+    },
+    maxOccupiedPerClockHour: { limit: 2 },
+  },
+  {
     id: "opening-heats-express-only-12min",
     label: "Opening heats walk-in / express only — 12-min tracks (Red, Mega)",
     enabled: true,
@@ -187,6 +245,8 @@ export interface RestrictionBlock {
 export interface RestrictionContext {
   /** Tier of the slot being booked. */
   tier: RaceTier | null | undefined;
+  /** Category (adult/junior) of the slot being booked. Required by category-scoped rules. */
+  category?: RaceCategory | null;
   /** Track of the slot being booked. */
   track: string | null | undefined;
   /** Start time (epoch ms) of the slot being booked. */
@@ -207,6 +267,14 @@ export interface RestrictionContext {
    * global occupancy signal the back-to-back rule reads for neighboring slots.
    */
   productBlocks: RestrictionBlock[];
+  /**
+   * Every same-category heat on the candidate's track, with ALL tiers merged
+   * (e.g. junior intermediate + junior pro Mega unioned). The occupancy signal
+   * the `maxOccupiedPerClockHour` rule reads — `productBlocks` only carries the
+   * candidate's own tier, so it can't see the other tier's occupied heats.
+   * Optional: omit it and `maxOccupiedPerClockHour` no-ops.
+   */
+  categoryTrackBlocks?: RestrictionBlock[];
   /**
    * Whether the booking party is express-lane eligible (all returning racers,
    * every one with a valid waiver). Required by `openingWindowExpressOnly`.
@@ -231,6 +299,9 @@ function matchesScope(rule: RaceRestrictionRule, ctx: RestrictionContext): boole
   if (!ctx.track) return false;
   if (rule.appliesTo.tiers) {
     if (!ctx.tier || !rule.appliesTo.tiers.includes(ctx.tier)) return false;
+  }
+  if (rule.appliesTo.categories) {
+    if (!ctx.category || !rule.appliesTo.categories.includes(ctx.category)) return false;
   }
   const track = ctx.track.toLowerCase();
   return rule.appliesTo.tracks.some((t) => t.toLowerCase() === track);
@@ -288,6 +359,26 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
         const lastMinute =
           override != null && ctx.candidateStartMs - ctx.nowMs <= override * 60_000;
         if (!lastMinute) return block(rule);
+      }
+    }
+
+    // Constraint: cap occupied same-category heats per center-local clock hour,
+    // counted across every tier on the track (categoryTrackBlocks).
+    if (rule.maxOccupiedPerClockHour && ctx.categoryTrackBlocks && ctx.candidateStartLocal) {
+      const parts = localClockParts(ctx.candidateStartLocal);
+      if (parts) {
+        const minutesIntoHour = parts.minutes % 60;
+        const hourStartMs = ctx.candidateStartMs - minutesIntoHour * 60_000;
+        const hourEndMs = hourStartMs + 60 * 60_000;
+        // Distinct occupied start times in the hour (dedupe so a slot present in
+        // both tiers' responses counts once), excluding the candidate's own slot.
+        const occupiedStarts = new Set<number>();
+        for (const b of ctx.categoryTrackBlocks) {
+          if (b.startMs === ctx.candidateStartMs) continue;
+          if (b.freeSpots >= b.capacity) continue; // empty — doesn't count
+          if (b.startMs >= hourStartMs && b.startMs < hourEndMs) occupiedStarts.add(b.startMs);
+        }
+        if (occupiedStarts.size >= rule.maxOccupiedPerClockHour.limit) return block(rule);
       }
     }
 

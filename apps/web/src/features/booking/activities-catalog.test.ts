@@ -192,9 +192,10 @@ describe("activities-catalog", () => {
       expect(isOfferingInPromoScope(findOffering("gel-blaster")!, racingOnly)).toBe(false);
     });
 
-    it("bowling scope with null allowlist highlights both bowling AND kbf tiles", () => {
+    it("bowling scope with null allowlist highlights bowling but NOT kbf (KBF is opt-in)", () => {
       expect(isOfferingInPromoScope(findOffering("bowling")!, bowlingAll)).toBe(true);
-      expect(isOfferingInPromoScope(findOffering("kbf")!, bowlingAll)).toBe(true);
+      // KBF never badges off a generic/all-bowling code — only explicit kbf-* slugs.
+      expect(isOfferingInPromoScope(findOffering("kbf")!, bowlingAll)).toBe(false);
       expect(isOfferingInPromoScope(findOffering("race")!, bowlingAll)).toBe(false);
     });
 
