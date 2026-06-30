@@ -81,7 +81,15 @@ export default function Nav() {
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-          <span className="font-body font-semibold text-white tracking-wider text-xs">
+          {/* translate="no": clock does a server-"" → client-time swap on mount,
+              and browser auto-translate rewrites the day name, which can make React
+              throw "removeChild: node is not a child" on the next update (seen in
+              Clarity). Opt the time text out of translation — it needs none — to
+              remove that crash source without disabling translation site-wide. */}
+          <span
+            translate="no"
+            className="font-body font-semibold text-white tracking-wider text-xs"
+          >
             {todayHours}
           </span>
         </div>

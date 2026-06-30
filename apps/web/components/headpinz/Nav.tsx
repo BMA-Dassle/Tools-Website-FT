@@ -231,7 +231,16 @@ export default function HeadPinzNav() {
           <span className="text-white/20">|</span>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-            <span className="font-body font-semibold text-white tracking-wider text-xs">
+            {/* translate="no": this clock does a server-"" → client-time swap on
+                mount, and browser auto-translate (Chrome/Edge/Safari) rewrites the
+                day name ("MONDAY"→"LUNES"). When React then updates the node it can
+                throw "removeChild: node is not a child" (seen in Clarity). Times
+                need no translation, so opting this node out kills that crash source
+                without disabling translation for real page content. */}
+            <span
+              translate="no"
+              className="font-body font-semibold text-white tracking-wider text-xs"
+            >
               {todayHours}
             </span>
           </div>
