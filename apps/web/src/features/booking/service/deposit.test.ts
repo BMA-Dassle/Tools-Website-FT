@@ -235,6 +235,28 @@ describe("createDepositAndCharge — flag ON (gift-card sale)", () => {
   });
 });
 
+describe("createDepositAndCharge — chargeback-defense params", () => {
+  it("forwards buyerEmail and defaults statementDescriptor to `${ganPrefix} ${ganSuffix}`", async () => {
+    const mock = installFetchMock();
+    registerHappyRoutes(mock);
+
+    await createDepositAndCharge({ ...baseParams, buyerEmail: "guest@example.com" });
+
+    const args = mockMultiTender.mock.calls[0][0];
+    expect(args.buyerEmail).toBe("guest@example.com");
+    expect(args.statementDescriptor).toBe("RACE 12345678");
+  });
+
+  it("honors an explicit statementDescriptor override", async () => {
+    const mock = installFetchMock();
+    registerHappyRoutes(mock);
+
+    await createDepositAndCharge({ ...baseParams, statementDescriptor: "FT EVENT 42" });
+
+    expect(mockMultiTender.mock.calls[0][0].statementDescriptor).toBe("FT EVENT 42");
+  });
+});
+
 describe("activateGiftCardForDeposit — body selection", () => {
   const args = {
     baseKey: "k1",

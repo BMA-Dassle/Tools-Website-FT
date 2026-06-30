@@ -473,6 +473,7 @@ export async function POST(req: NextRequest) {
           ganSuffix,
           note: `Deposit - ${ganPrefix}${ganSuffix} - ${new Date().toISOString().slice(0, 10)}`,
           baseKey,
+          buyerEmail: body.contact.email,
         });
         depositResult = {
           depositOrderId: dr.depositOrderId,

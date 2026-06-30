@@ -96,6 +96,12 @@ export interface DepositParams {
   note: string;
   /** Idempotency base key. Auto-generated if omitted. */
   baseKey?: string;
+  /** Cardholder email — sets buyer_email_address so Square emails a receipt
+   *  (chargeback defense: reduces "I don't recognize this charge"). */
+  buyerEmail?: string;
+  /** Bank-statement descriptor suffix. Defaults to `${ganPrefix} ${ganSuffix}`
+   *  when omitted so the charge is recognizable on the cardholder's statement. */
+  statementDescriptor?: string;
 }
 
 export interface DepositResult {
@@ -214,6 +220,10 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
       cardSourceId,
       customerId: squareCustomerId,
       note,
+      buyerEmail: params.buyerEmail,
+      // Recognizable on the cardholder's statement (chargeback defense).
+      // Defaults to the GAN so it's reconcilable, e.g. "RACE 03928151".
+      statementDescriptor: params.statementDescriptor ?? `${ganPrefix} ${ganSuffix}`,
     });
     gcPaymentId = multiTender.gcPaymentId ?? undefined;
     cardPaymentId = multiTender.cardPaymentId ?? undefined;

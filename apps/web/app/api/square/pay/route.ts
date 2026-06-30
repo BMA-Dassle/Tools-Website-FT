@@ -201,6 +201,7 @@ export async function POST(req: NextRequest) {
         customerId: squareCustomerId,
         buyerEmail: contact?.email,
         note: `FastTrax - ${itemName || "Booking"} | Ref: ${billId}`,
+        statementDescriptor: `FT ${itemName || billId || "Booking"}`,
       });
     } catch (err) {
       if (err instanceof SquarePaymentError) {

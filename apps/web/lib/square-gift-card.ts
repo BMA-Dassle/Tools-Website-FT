@@ -157,6 +157,21 @@ export async function authorizeGiftCardPayment(params: {
  * Authorize a card / wallet payment against an order with
  * `autocomplete: false`. Caller completes or cancels.
  */
+/**
+ * Sanitize a value for Square's `statement_description_identifier`: this is the
+ * portion of the cardholder's bank-statement descriptor we control (appended
+ * after Square's merchant prefix). Square allows ≤20 chars of a limited charset;
+ * a recognizable descriptor cuts "I don't recognize this charge" (NO_KNOWLEDGE)
+ * chargebacks. Strips disallowed punctuation and truncates to 20.
+ */
+export function sanitizeStatementDescriptor(raw: string): string {
+  return raw
+    .replace(/[^A-Za-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 20);
+}
+
 export async function authorizeCardPayment(params: {
   orderId: string;
   locationId: string;
@@ -166,6 +181,8 @@ export async function authorizeCardPayment(params: {
   customerId?: string;
   buyerEmail?: string;
   note?: string;
+  /** Bank-statement descriptor suffix (≤20 chars after sanitize). */
+  statementDescriptor?: string;
 }): Promise<{ paymentId: string }> {
   const body: Record<string, unknown> = {
     source_id: params.sourceId,
@@ -178,6 +195,10 @@ export async function authorizeCardPayment(params: {
   if (params.customerId) body.customer_id = params.customerId;
   if (params.buyerEmail) body.buyer_email_address = params.buyerEmail;
   if (params.note) body.note = params.note;
+  if (params.statementDescriptor) {
+    const desc = sanitizeStatementDescriptor(params.statementDescriptor);
+    if (desc) body.statement_description_identifier = desc;
+  }
 
   const res = await fetch(`${SQUARE_BASE}/payments`, {
     method: "POST",
@@ -371,6 +392,8 @@ export async function authorizeMultiTender(params: {
   customerId?: string;
   buyerEmail?: string;
   note?: string;
+  /** Bank-statement descriptor suffix passed to the card authorization. */
+  statementDescriptor?: string;
 }): Promise<MultiTenderResult> {
   const { orderId, locationId, totalCents, baseKey, giftCardNonce, cardSourceId } = params;
 
@@ -455,6 +478,7 @@ export async function authorizeMultiTender(params: {
         customerId: params.customerId,
         buyerEmail: params.buyerEmail,
         note: params.note,
+        statementDescriptor: params.statementDescriptor,
       });
       cardPaymentId = cardAuth.paymentId;
       cardApprovedCents = remainingCents;

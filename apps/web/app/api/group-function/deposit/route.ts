@@ -220,6 +220,8 @@ export async function POST(req: NextRequest) {
       giftCardNonce: giftCardNonce || undefined,
       cardSourceId: cardSourceId || undefined,
       note: `GF Deposit: ${quote.event_name || ""}`,
+      buyerEmail: quote.guest_email || undefined,
+      statementDescriptor: `EVENT ${quote.event_name || ""}`,
     });
 
     const depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
@@ -499,6 +501,8 @@ async function handleLegacyDeposit(
         baseKey,
         cardSourceId,
         note: `GF Balance: ${quote.event_name || ""} (legacy deposit applied)`,
+        buyerEmail: quote.guest_email || undefined,
+        statementDescriptor: `EVENT ${quote.event_name || ""}`,
       });
       depositPaymentId = (multiTender.cardPaymentId || multiTender.gcPaymentId) as string;
 

@@ -1143,6 +1143,7 @@ export async function POST(req: NextRequest) {
           ganPrefix,
           ganSuffix,
           note: depositNote,
+          buyerEmail: guest.email || undefined,
         });
 
         squareDepositOrderId = depositResult.depositOrderId;

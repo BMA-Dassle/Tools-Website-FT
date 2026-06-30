@@ -362,6 +362,7 @@ export async function POST(req: NextRequest) {
         cardSourceId: sourceId,
         customerId: squareCustomerId,
         note: note ?? "Bowling deposit",
+        statementDescriptor: note ?? "Bowling",
       });
     } catch (err) {
       if (err instanceof SquarePaymentError) {

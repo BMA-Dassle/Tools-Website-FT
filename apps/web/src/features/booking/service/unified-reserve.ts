@@ -697,6 +697,7 @@ async function unifiedReserveInner(
         ganSuffix,
         note: `Deposit - ${ganPrefix}${ganSuffix} - ${new Date().toISOString().slice(0, 10)}`,
         baseKey,
+        buyerEmail: contact.email,
       });
       depositResult = {
         depositOrderId: dr.depositOrderId,
