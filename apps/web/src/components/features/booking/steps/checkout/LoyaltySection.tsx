@@ -43,6 +43,48 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
   const rewardsName = session.entryBrand === "headpinz" ? "HeadPinz Rewards" : "FastTrax Rewards";
   const pointsUnit = session.entryBrand === "headpinz" ? "Pinz" : "points";
 
+  // Load whole-bill dollar reward tiers (shared by the SMS-verify path and the
+  // already-verified logged-in path). Idempotent — safe to call once per verify.
+  const loadRewardTiers = useCallback(async () => {
+    try {
+      const tierRes = await fetch("/api/square/loyalty/program");
+      const tierData = await tierRes.json();
+      if (tierData.rewardTiers) {
+        setRewardTiers(
+          (
+            tierData.rewardTiers as Array<{
+              id: string;
+              name: string;
+              points: number;
+              definition?: { scope?: string; fixedDiscountCents?: number };
+            }>
+          )
+            .filter(
+              (t) => t.definition?.scope === "ORDER" && (t.definition.fixedDiscountCents ?? 0) > 0,
+            )
+            .map((t) => ({
+              id: t.id,
+              name: t.name,
+              points: t.points,
+              discountCents: t.definition?.fixedDiscountCents ?? 0,
+            })),
+        );
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, []);
+
+  // Logged-in customers arrive PRE-VERIFIED (their account session already proved
+  // the phone via OTP). Don't re-run the lookup — it would dispatch verified:false
+  // and force a redundant SMS step. Just load the reward tiers so they can redeem.
+  useEffect(() => {
+    if (loyalty?.verified && !lookupDone.current) {
+      lookupDone.current = true;
+      if (rewardTiers.length === 0) void loadRewardTiers();
+    }
+  }, [loyalty?.verified, rewardTiers.length, loadRewardTiers]);
+
   // Auto-lookup when phone reaches 10 digits
   useEffect(() => {
     if (digits.length !== 10 || lookupDone.current) return;
@@ -170,37 +212,7 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
           });
         }
         // Fetch reward tiers now that the phone is verified
-        try {
-          const tierRes = await fetch("/api/square/loyalty/program");
-          const tierData = await tierRes.json();
-          if (tierData.rewardTiers) {
-            setRewardTiers(
-              (
-                tierData.rewardTiers as Array<{
-                  id: string;
-                  name: string;
-                  points: number;
-                  definition?: { scope?: string; fixedDiscountCents?: number };
-                }>
-              )
-                // Only whole-bill dollar rewards ($10 off, $25 off the order).
-                // Exclude item/category-scoped discounts (scope !== "ORDER") and
-                // percentage / free-item / points-only tiers (no fixed $ amount).
-                .filter(
-                  (t) =>
-                    t.definition?.scope === "ORDER" && (t.definition.fixedDiscountCents ?? 0) > 0,
-                )
-                .map((t) => ({
-                  id: t.id,
-                  name: t.name,
-                  points: t.points,
-                  discountCents: t.definition?.fixedDiscountCents ?? 0,
-                })),
-            );
-          }
-        } catch {
-          // Non-fatal
-        }
+        await loadRewardTiers();
       } else {
         setVerifyError(data.error ?? "Invalid code.");
         setVerifyStep("code");

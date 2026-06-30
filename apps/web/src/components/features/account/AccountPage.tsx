@@ -6,7 +6,7 @@ import { BRAND_ACCENT } from "~/features/account/brand";
 import Spinner from "~/components/ui/Spinner";
 import { useBrand } from "./useBrand";
 import LoginFlow from "./LoginFlow";
-import Dashboard from "./Dashboard";
+import DashboardTabs from "./DashboardTabs";
 
 /**
  * Entry point for /account. Single page with an internal auth gate: `useMe`
@@ -24,7 +24,7 @@ export default function AccountPage() {
           <Spinner label="Loading your account" />
         </div>
       ) : me.data?.authenticated ? (
-        <Dashboard me={me.data} />
+        <DashboardTabs me={me.data} />
       ) : (
         <LoginFlow />
       )}

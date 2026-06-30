@@ -5,3 +5,4 @@ export {
   clearBookingSession,
   peekBookingSession,
 } from "./usePersistedReducer";
+export { useLoggedInPrefill } from "./useLoggedInPrefill";

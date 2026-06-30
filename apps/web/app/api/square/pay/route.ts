@@ -140,6 +140,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Card-on-file ownership guard: a saved card may only be charged against a
+    // Square customer the caller has proven they own. When an account session is
+    // present, the provided squareCustomerId MUST be one bound to that session —
+    // otherwise a client could replay someone else's customerId + cardId to
+    // charge their card on file. (No session → the legacy resolve-by-phone
+    // returning-racer path is unchanged.)
+    if (useSavedCard && savedCardId) {
+      const { getSession } = await import("~/features/account/service/session");
+      const session = await getSession();
+      if (session) {
+        if (!squareCustomerId || !session.squareCustomerIds.includes(squareCustomerId)) {
+          return NextResponse.json(
+            { error: "Saved card does not belong to your account" },
+            { status: 403 },
+          );
+        }
+      }
+    }
+
     // 16-char hex baseKey leaves headroom for our longest
     // idempotency prefix (`cancel-card-` = 12) within Square's
     // 45-char limit: 12 + 1 + 16 = 29 < 45.

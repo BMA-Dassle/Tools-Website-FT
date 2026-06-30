@@ -6,4 +6,5 @@ export const accountKeys = {
   all: ["account"] as const,
   me: ["account", "me"] as const,
   subscriptions: ["account", "subscriptions"] as const,
+  dashboard: ["account", "dashboard"] as const,
 };

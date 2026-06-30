@@ -36,6 +36,36 @@ export async function searchCustomersByContact(
   return ids;
 }
 
+export interface CustomerProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
+
+/** Fetch a single Square customer's profile (name/email/phone) for booking prefill. */
+export async function getCustomerProfile(customerId: string): Promise<CustomerProfile | null> {
+  const { ok, data } = await squareFetch<{
+    customer?: {
+      id?: string;
+      given_name?: string;
+      family_name?: string;
+      email_address?: string;
+      phone_number?: string;
+    };
+  }>(`/customers/${encodeURIComponent(customerId)}`);
+  const c = data.customer;
+  if (!ok || !c?.id) return null;
+  return {
+    id: c.id,
+    firstName: c.given_name || "",
+    lastName: c.family_name || "",
+    email: c.email_address || "",
+    phone: c.phone_number || "",
+  };
+}
+
 interface SquareCard {
   id: string;
   customer_id?: string;

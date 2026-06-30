@@ -232,6 +232,11 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS br_dep_sq ON bowling_reservations(square_deposit_order_id) WHERE square_deposit_order_id IS NOT NULL`;
   await q`CREATE INDEX IF NOT EXISTS br_day_sq ON bowling_reservations(square_dayof_order_id)   WHERE square_dayof_order_id IS NOT NULL`;
   await q`CREATE INDEX IF NOT EXISTS br_bmi    ON bowling_reservations(bmi_bill_id)             WHERE bmi_bill_id IS NOT NULL`;
+  // Customer-account lookups (getReservationsByContact). guest_phone is stored
+  // in mixed historical formats, so we index the normalized last-10-digits to
+  // match the predicate exactly (no seq scan). guest_email is lower-cased.
+  await q`CREATE INDEX IF NOT EXISTS br_guest_phone10 ON bowling_reservations(right(regexp_replace(guest_phone,'\\D','','g'),10)) WHERE guest_phone IS NOT NULL`;
+  await q`CREATE INDEX IF NOT EXISTS br_guest_email_lc ON bowling_reservations(lower(guest_email)) WHERE guest_email IS NOT NULL`;
 
   // ── bowling_reservation_lines ────────────────────────────────────
   await q`
@@ -1469,6 +1474,76 @@ export async function listVipComboReservations(opts: {
     WHERE left(s.event_at, 10) >= ${opts.startDate}
       AND left(s.event_at, 10) <= ${opts.endDate}
     ORDER BY s.event_at ASC
+  `;
+  const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  if (!reservations.length) return [];
+
+  const ids = reservations.map((r) => r.id);
+  const lineRows = await q`
+    SELECT * FROM bowling_reservation_lines
+    WHERE reservation_id = ANY(${ids})
+    ORDER BY id
+  `;
+  const linesByRes = new Map<number, (ReservationLine & { id: number; reservationId: number })[]>();
+  for (const lr of lineRows) {
+    const line = rowToLine(lr as Record<string, unknown>);
+    const arr = linesByRes.get(line.reservationId) ?? [];
+    arr.push(line);
+    linesByRes.set(line.reservationId, arr);
+  }
+  return reservations.map((r) => ({ ...r, lines: linesByRes.get(r.id) ?? [] }));
+}
+
+/**
+ * All reservations (kbf/open/race/attraction) belonging to a VERIFIED contact,
+ * for the customer account dashboard. Authorization is the contact itself — the
+ * caller passes EXACTLY ONE of phone/email (the channel the customer proved via
+ * OTP). We never OR the two: a single-channel session must not surface rows that
+ * only match the other channel (a recycled phone an email-verified guest never
+ * proved). Returns rows of EVERY status (the dashboard shows cancelled under
+ * "past" with a badge); the caller splits upcoming/past on `eventAt`.
+ *
+ * guest_phone is stored in mixed formats, so we match on the last 10 digits on
+ * BOTH sides (the br_guest_phone10 functional index covers the column side).
+ * Includes lines, batch-loaded like listBowlingReservations.
+ */
+export async function getReservationsByContact(opts: {
+  /** E.164 phone (`+1XXXXXXXXXX`). Mutually exclusive with email. */
+  phone?: string;
+  /** Lowercased email. Mutually exclusive with phone. */
+  email?: string;
+  limit?: number;
+}): Promise<BowlingReservationWithLines[]> {
+  if (!isDbConfigured()) return [];
+  const phone10 = opts.phone ? opts.phone.replace(/\D/g, "").slice(-10) : "";
+  const email = opts.email ? opts.email.trim().toLowerCase() : "";
+  // Require exactly one usable channel — never run an unfiltered scan.
+  if (phone10.length !== 10 && !email) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const limit = opts.limit ?? 200;
+
+  // Single-channel predicate. event_at uses the SAME COALESCE expression as
+  // listBowlingReservations so race/attraction rows sort by their real event
+  // time, not the booking timestamp.
+  const contactCond =
+    phone10.length === 10
+      ? q`right(regexp_replace(s.guest_phone,'\\D','','g'),10) = ${phone10}`
+      : q`lower(s.guest_email) = ${email}`;
+
+  const rows = await q`
+    SELECT * FROM (
+      SELECT *,
+        COALESCE(
+          (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
+        ) AS event_at
+      FROM bowling_reservations
+    ) s
+    WHERE ${contactCond}
+    ORDER BY s.event_at DESC
+    LIMIT ${limit}
   `;
   const reservations = rows.map((r) => rowToReservation(r as Record<string, unknown>));
   if (!reservations.length) return [];

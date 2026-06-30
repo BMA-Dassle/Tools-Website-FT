@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { IconUserCircle } from "@tabler/icons-react";
 import { useRouter } from "next/navigation";
 import {
   isOfferingInPromoScope,
@@ -200,6 +201,16 @@ export function PromoLanding({
       {/* Hero */}
       <section className="px-4 pb-8 sm:pb-10">
         <div className="mx-auto max-w-5xl text-center">
+          <div className="mb-2 flex justify-end">
+            <Link
+              href="/account"
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm font-medium text-white/80 transition-colors hover:text-white"
+              style={{ borderColor: `${accent}40` }}
+            >
+              <IconUserCircle size={17} style={{ color: accent }} />
+              My Account
+            </Link>
+          </div>
           <div
             className="mb-3 font-bold uppercase"
             style={{ color: accent, fontSize: "12px", letterSpacing: "3px" }}

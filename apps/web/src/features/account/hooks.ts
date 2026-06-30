@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { apiGet, apiPost } from "./api";
 import { accountKeys } from "./queries";
 import type { AccountSubscription, ContactType, SavedCard } from "./types";
+import type { AccountDashboardResponse } from "./dashboard-types";
 
 export interface MeResponse {
   authenticated: boolean;
@@ -60,6 +61,14 @@ export function useSubscriptions(enabled: boolean) {
   });
 }
 
+export function useDashboard(enabled: boolean) {
+  return useQuery({
+    queryKey: accountKeys.dashboard,
+    queryFn: () => apiGet<AccountDashboardResponse>("/api/account/dashboard"),
+    enabled,
+  });
+}
+
 export function useRequestOtp() {
   return useMutation({
     mutationFn: (contact: string) =>
@@ -76,6 +85,7 @@ export function useVerifyOtp() {
       if (data.ok) {
         qc.invalidateQueries({ queryKey: accountKeys.me });
         qc.invalidateQueries({ queryKey: accountKeys.subscriptions });
+        qc.invalidateQueries({ queryKey: accountKeys.dashboard });
       }
     },
   });
@@ -91,6 +101,7 @@ export function useLogout() {
       // mounted queries — that left the dashboard on screen after logout.
       qc.setQueryData<MeResponse>(accountKeys.me, { authenticated: false });
       qc.removeQueries({ queryKey: accountKeys.subscriptions });
+      qc.removeQueries({ queryKey: accountKeys.dashboard });
     },
   });
 }

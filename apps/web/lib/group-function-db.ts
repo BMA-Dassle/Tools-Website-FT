@@ -209,6 +209,12 @@ export async function ensureGfSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS gfq_balance_due
     ON group_function_quotes(event_date)
     WHERE status IN ('deposit_paid','balance_link_sent')`;
+  // Customer-account lookups (getGroupQuotesByContact) — normalized email +
+  // last-10-digit phone, matching both the guest_* and planner_* columns.
+  await q`CREATE INDEX IF NOT EXISTS gfq_guest_email_lc ON group_function_quotes(lower(guest_email))`;
+  await q`CREATE INDEX IF NOT EXISTS gfq_planner_email_lc ON group_function_quotes(lower(planner_email)) WHERE planner_email IS NOT NULL`;
+  await q`CREATE INDEX IF NOT EXISTS gfq_guest_phone10 ON group_function_quotes(right(regexp_replace(guest_phone,'\\D','','g'),10)) WHERE guest_phone IS NOT NULL`;
+  await q`CREATE INDEX IF NOT EXISTS gfq_planner_phone10 ON group_function_quotes(right(regexp_replace(planner_phone,'\\D','','g'),10)) WHERE planner_phone IS NOT NULL`;
   await q`CREATE INDEX IF NOT EXISTS gfq_pandadoc_doc
     ON group_function_quotes(pandadoc_document_id)
     WHERE pandadoc_document_id IS NOT NULL`;
@@ -524,6 +530,41 @@ export async function getGfQuoteByPandaDocId(
     LIMIT 1
   `;
   return (rows[0] as GroupFunctionQuote) ?? null;
+}
+
+/**
+ * Group-function quotes belonging to a VERIFIED contact, for the customer
+ * account dashboard. Single-channel match (the channel proven via OTP): a phone
+ * session matches normalized guest_phone/planner_phone; an email session matches
+ * lower(guest_email)/lower(planner_email). Never ORs phone+email (see
+ * getReservationsByContact for the anti-leak rationale). Excludes denied quotes.
+ */
+export async function getGroupQuotesByContact(opts: {
+  phone?: string;
+  email?: string;
+  limit?: number;
+}): Promise<GroupFunctionQuote[]> {
+  const phone10 = opts.phone ? opts.phone.replace(/\D/g, "").slice(-10) : "";
+  const email = opts.email ? opts.email.trim().toLowerCase() : "";
+  if (phone10.length !== 10 && !email) return [];
+  await ensureGfSchema();
+  const q = sql();
+  const limit = opts.limit ?? 100;
+
+  const contactCond =
+    phone10.length === 10
+      ? q`(right(regexp_replace(guest_phone,'\\D','','g'),10) = ${phone10}
+           OR right(regexp_replace(planner_phone,'\\D','','g'),10) = ${phone10})`
+      : q`(lower(guest_email) = ${email} OR lower(planner_email) = ${email})`;
+
+  const rows = await q`
+    SELECT * FROM group_function_quotes
+    WHERE ${contactCond}
+      AND status NOT IN ('denied')
+    ORDER BY event_date DESC
+    LIMIT ${limit}
+  `;
+  return rows as GroupFunctionQuote[];
 }
 
 // ── Balance-due queries ─────────────────────────────────────────────

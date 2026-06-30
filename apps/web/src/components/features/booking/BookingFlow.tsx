@@ -16,7 +16,11 @@ import {
 } from "~/features/booking";
 import { contactIsComplete } from "./steps/ContactStep";
 import { CenterPickerModal } from "./CenterPickerModal";
-import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
+import {
+  clearBookingSession,
+  usePersistedReducer,
+  useLoggedInPrefill,
+} from "~/features/booking/hooks";
 import type { AppliedPromo } from "~/features/discount-codes";
 import { CartView, LeaveConfirmModal } from "./CartView";
 import { CheckoutStep } from "./steps/checkout/CheckoutStep";
@@ -90,6 +94,10 @@ export function BookingFlow({
     [entryBrand, initialContext, initialPromo],
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial);
+  // Logged-in customers: seed contact + loyalty from their account so they don't
+  // retype info or re-verify rewards (no-op when not signed in). Cards on file
+  // then resolve automatically from the prefilled phone at checkout.
+  useLoggedInPrefill(session, dispatch, hydrated);
   // Seed from ?checkout=1 — opens checkout directly when arriving from the
   // landing cart bar (only meaningful on the cart view, i.e. no active item).
   const [checkoutActive, setCheckoutActive] = useState(initialCheckout);
