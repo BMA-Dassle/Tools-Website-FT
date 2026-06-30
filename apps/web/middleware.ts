@@ -531,6 +531,13 @@ export async function middleware(request: NextRequest) {
     url.pathname = `/hp${pathname}`;
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
+    // The bare location-chooser splash (headpinz.com/) is a chrome-free brand
+    // landing whose whole job is "pick a location." The root layout otherwise
+    // renders the HeadPinz center Nav/Footer here (it defaults to Fort Myers
+    // with no location picked), which is wrong on a pre-location splash. Flag
+    // the chooser so the root layout suppresses HP chrome on it ONLY — every
+    // other /hp page keeps its chrome.
+    if (pathname === "/") requestHeaders.set("x-hp-no-chrome", "1");
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
 
@@ -624,6 +631,9 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/hp")) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
+    // Mirror the prod chooser-splash rule for dev/localhost (/hp or /hp/):
+    // chrome-free brand landing — see the rewrite block above.
+    if (pathname === "/hp" || pathname === "/hp/") requestHeaders.set("x-hp-no-chrome", "1");
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
