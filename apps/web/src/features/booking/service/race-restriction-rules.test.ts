@@ -245,3 +245,166 @@ describe("evaluateRaceRestrictions — opening heats walk-in / express only", ()
     });
   });
 });
+
+describe("evaluateRaceRestrictions — Junior no back-to-back (Blue + Mega)", () => {
+  // expressEligible + no candidateStartLocal → isolate from the opening-heats rule.
+  function juniorCtx(over: Partial<RestrictionContext> = {}): RestrictionContext {
+    return {
+      tier: "intermediate",
+      category: "junior",
+      track: "Mega",
+      candidateStartMs: ms(17, 36),
+      nowMs: FAR_BEFORE,
+      expressEligible: true,
+      productBlocks: [],
+      ...over,
+    };
+  }
+
+  it("Mega: blocks a Junior slot adjacent (12 min) to an occupied Junior heat, action=hide", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({ candidateStartMs: ms(17, 36), productBlocks: [blk(17, 24, 8)] }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("mega-no-back-to-back-junior");
+    expect(r.action).toBe("hide");
+  });
+
+  it("Mega: allows the skip-one Junior slot (24 min away)", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({ candidateStartMs: ms(17, 48), productBlocks: [blk(17, 24, 8)] }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("Blue: blocks a Junior slot adjacent (15 min) to an occupied Junior heat", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({ track: "Blue", candidateStartMs: ms(17, 30), productBlocks: [blk(17, 15, 8)] }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("blue-no-back-to-back-junior");
+  });
+
+  it("Blue: allows the skip-one Junior slot (30 min away)", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({ track: "Blue", candidateStartMs: ms(17, 30), productBlocks: [blk(17, 0, 8)] }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("allows when the neighbor slot is empty", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({ candidateStartMs: ms(17, 36), productBlocks: [blk(17, 24, 10)] }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("lifts the block within the 60-min last-minute window", () => {
+    const candidate = ms(17, 36);
+    const r = evaluateRaceRestrictions(
+      juniorCtx({
+        candidateStartMs: candidate,
+        nowMs: candidate - 45 * 60_000,
+        productBlocks: [blk(17, 24, 8)],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("does NOT apply to adult parties (category-scoped)", () => {
+    // Adult intermediate Mega has no back-to-back rule (only Pro does for adults).
+    const r = evaluateRaceRestrictions(
+      juniorCtx({ category: "adult", productBlocks: [blk(17, 24, 8)] }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+});
+
+describe("evaluateRaceRestrictions — Mega two Junior races per clock hour", () => {
+  // Naive wall-clock starts on a known weekday (Tue 2026-06-23). 13:36+ is past
+  // the weekday opening window, so the opening-heats rule never interferes.
+  const wd = (h: number, m: number) =>
+    `2026-06-23T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+
+  function hourCtx(over: Partial<RestrictionContext> = {}): RestrictionContext {
+    return {
+      tier: "intermediate",
+      category: "junior",
+      track: "Mega",
+      candidateStartMs: ms(13, 36),
+      candidateStartLocal: wd(13, 36),
+      nowMs: FAR_BEFORE,
+      expressEligible: true,
+      productBlocks: [], // isolate from the back-to-back rule
+      categoryTrackBlocks: [],
+      ...over,
+    };
+  }
+
+  it("blocks a 3rd Junior heat when two are already occupied in the same clock hour, action=hide", () => {
+    const r = evaluateRaceRestrictions(
+      hourCtx({ categoryTrackBlocks: [blk(13, 0, 8), blk(13, 12, 8)] }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("mega-junior-two-per-hour");
+    expect(r.action).toBe("hide");
+  });
+
+  it("allows when only one Junior heat is occupied in the hour", () => {
+    expect(
+      evaluateRaceRestrictions(hourCtx({ categoryTrackBlocks: [blk(13, 0, 8)] })).blocked,
+    ).toBe(false);
+  });
+
+  it("counts across tiers — two occupied heats in the hour block regardless of type", () => {
+    // categoryTrackBlocks is the union of junior intermediate + junior pro Mega.
+    const r = evaluateRaceRestrictions(
+      hourCtx({ tier: "pro", categoryTrackBlocks: [blk(13, 0, 8), blk(13, 24, 8)] }),
+    );
+    expect(r.blocked).toBe(true);
+  });
+
+  it("only counts heats in the candidate's clock hour", () => {
+    // Occupied at 12:48 (prior hour) + 14:00 (next hour) — neither in the 13:00 hour.
+    const r = evaluateRaceRestrictions(
+      hourCtx({ categoryTrackBlocks: [blk(12, 48, 8), blk(14, 0, 8)] }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("dedupes the same start time across tiers (counts once)", () => {
+    // Same slot present in both tiers' responses + one other → 2 distinct → block.
+    const r = evaluateRaceRestrictions(
+      hourCtx({ categoryTrackBlocks: [blk(13, 0, 8), blk(13, 0, 8), blk(13, 12, 8)] }),
+    );
+    expect(r.blocked).toBe(true);
+    // Same slot twice but no second distinct slot → 1 distinct → allow.
+    expect(
+      evaluateRaceRestrictions(hourCtx({ categoryTrackBlocks: [blk(13, 0, 8), blk(13, 0, 8)] }))
+        .blocked,
+    ).toBe(false);
+  });
+
+  it("ignores empty heats and the candidate's own slot", () => {
+    const r = evaluateRaceRestrictions(
+      hourCtx({
+        candidateStartMs: ms(13, 36),
+        categoryTrackBlocks: [blk(13, 36, 8), blk(13, 0, 10), blk(13, 12, 8)],
+      }),
+    );
+    // candidate's own (13:36) excluded, 13:00 empty excluded → only 13:12 → allow.
+    expect(r.blocked).toBe(false);
+  });
+
+  it("no-ops when categoryTrackBlocks is absent", () => {
+    const r = evaluateRaceRestrictions(hourCtx({ categoryTrackBlocks: undefined }));
+    expect(r.blocked).toBe(false);
+  });
+
+  it("does not apply on Blue (per-hour cap is Mega-only)", () => {
+    const r = evaluateRaceRestrictions(
+      hourCtx({ track: "Blue", categoryTrackBlocks: [blk(13, 0, 8), blk(13, 15, 8)] }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+});
