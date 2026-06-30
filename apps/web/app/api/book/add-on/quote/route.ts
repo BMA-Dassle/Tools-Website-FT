@@ -9,6 +9,7 @@ import {
   AddOnContextError,
 } from "~/features/combo-addon";
 import { comboAddonEnabled, getComboSpecial } from "~/features/combos";
+import { SQUARE_LOCATIONS } from "~/features/booking/data/square-catalog-map";
 
 /**
  * POST /api/book/add-on/quote — price + capacity for adding N guests to a combo.
@@ -51,6 +52,9 @@ export async function POST(req: NextRequest) {
       comboName: combo.name,
       eventDate: ctx.eventDate,
       lane: ctx.bowling?.lane ?? null,
+      // Card form inits against the entity that holds the deposit (bowling →
+      // HeadPinz FM; combos are Fort-Myers only). Location ids aren't secret.
+      squareLocationId: SQUARE_LOCATIONS.HEADPINZ_FM,
       quote,
       capacity,
     });

@@ -13,7 +13,8 @@ import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
-import { comboReservationNote, getComboSpecial } from "~/features/combos";
+import { comboAddonEnabled, comboReservationNote, getComboSpecial } from "~/features/combos";
+import AddGuestsCard from "~/components/features/booking/confirmation/AddGuestsCard";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
 
 /** Resolve a race line's display name from our own registries instead
@@ -1559,6 +1560,15 @@ export default function ConfirmationPage() {
       {/* Main content */}
       {!loading && orderId && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-6">
+          {/* Add more guests to a VIP combo (flag-gated via combo.addon.enabled).
+              Shown on the hub, not inside a single-activity detail view. */}
+          {comboSpecial && comboAddonEnabled(comboSpecial) && !isDetail && orderId && (
+            <AddGuestsCard
+              billId={orderId}
+              comboName={comboSpecial.name}
+              accentColor={comboSpecial.accentColor}
+            />
+          )}
           {/* Multi-activity detail view — back to the hub of buttons */}
           {isDetail && (
             <button
