@@ -226,3 +226,39 @@ online-payment reservations and recovering them via Pandora. The v2/reserve rout
 **Rule:** Both the sweep cron and the v2/reserve Pandora call must be removed
 once BMI confirms the fix. Search for `BMI_AUTOCANCEL_WORKAROUND` to find all
 workaround code.
+
+## Periodic sync branches must be change-gated, or they spam (2026-06-23)
+
+**Incident:** The JW Marriott / Pascual GF event (contract 5dc45f97, Naples proj
+8191022) logged 68 identical `[ts] Contract updated` BMI private notes — one per
+minute — over ~2 hours, plus 71 junk `contract_versions` rows.
+
+**Root cause:** `group-quote-dispatch` runs every minute (`* * * * *`). Its
+post-sign branch (status in deposit_paid/resign_required/balance_charged/
+balance_link_sent/completed) ran `createContractVersion` + `appendProjectPrivateNote`
++ day-of `reconcile` **unconditionally** on every pass — no "did anything actually
+change?" gate (the pre-deposit branch above it HAS a `pricingUnchanged` gate; the
+post-sign branch never got the equivalent). The 60s debounce can't save you: it
+equals the cron period, so scheduler jitter leaks a run through most minutes. The
+branch only fires while the BMI project sits in "Send Contract" state, so the spam
+self-terminates when the project leaves that state (here, a re-sign at 12:26 PM) —
+but that's luck, not a guard.
+
+**Fix:** Diff the incoming BMI data against the stored quote and only version /
+sync / note / reconcile / re-sign when something truly changed. Two traps:
+  1. `line_items`/`prior_payments` come back from JSONB with keys re-sorted by
+     Postgres — a raw `JSON.stringify` compare against freshly-scanned BMI objects
+     ALWAYS reports a false change. Compare a fixed-order projection (signature) instead.
+  2. `event_date` raw timestamptz round-trips through the DB in a different format
+     and always differs — compare the display string, not the raw value.
+The change-set must be a SUPERSET of every field the writer touches, or a changed
+field silently stops syncing. On a no-op pass, bump ONLY `hermes_last_processed_at`
+via a targeted UPDATE — calling the full updater bumps `updated_at` and makes the
+portal show the event as freshly edited every minute.
+
+**Rule:** Any cron/loop that re-processes the same rows on a schedule must gate
+its side effects (notes, version snapshots, external API writes) behind a real
+change check. "Runs every pass, idempotent-ish" is not good enough when each pass
+leaves a visible artifact. Cleanup script for the BMI note spam:
+`scripts/_gf-clean-marriott-notes.mts` (dry-run default, `--commit` to write;
+backs up the original memo first).
