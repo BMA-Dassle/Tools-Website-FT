@@ -349,6 +349,11 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Set by admin board; NULL = not yet checked in.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checkin_method TEXT`;
 
+  // Actual check-in / arrival timestamp — proof the guest showed up (stronger
+  // chargeback SERVICE_RECEIVED evidence than order status alone). Stamped once
+  // on first check-in (admin board) or QAMF "Arrived"; never overwritten.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMPTZ`;
+
   // Loyalty action during booking: 'signup' (new account), 'existing' (logged in),
   // or NULL (no loyalty interaction). Redemption tracked separately via
   // square_loyalty_reward_id + reward_discount_cents.
@@ -1627,7 +1632,10 @@ export async function updateBowlingReservationBookedAt(
   await q`UPDATE bowling_reservations SET booked_at = ${bookedAt} WHERE id = ${id}`;
 }
 
-/** Set check-in method on a reservation (admin action). */
+/** Set check-in method on a reservation (admin action). Also stamps
+ *  checked_in_at the first time a method is set (proof-of-service for
+ *  chargebacks); never overwrites an existing stamp, and clearing the method
+ *  (null) leaves the timestamp intact. */
 export async function updateBowlingCheckinMethod(
   id: number,
   method: "self" | "desk" | null,
@@ -1635,7 +1643,24 @@ export async function updateBowlingCheckinMethod(
   if (!isDbConfigured()) return;
   await ensureBowlingSchema();
   const q = sql();
-  await q`UPDATE bowling_reservations SET checkin_method = ${method} WHERE id = ${id}`;
+  await q`
+    UPDATE bowling_reservations
+    SET checkin_method = ${method},
+        checked_in_at = CASE
+          WHEN ${method}::text IS NOT NULL THEN COALESCE(checked_in_at, NOW())
+          ELSE checked_in_at
+        END
+    WHERE id = ${id}`;
+}
+
+/** Stamp the actual check-in/arrival time once (idempotent — never overwrites).
+ *  Called from the QAMF "Arrived" webhook so races/bowling get a real
+ *  attendance timestamp independent of the admin board. */
+export async function markBowlingCheckedIn(id: number): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`UPDATE bowling_reservations SET checked_in_at = COALESCE(checked_in_at, NOW()) WHERE id = ${id}`;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   insertBowlingReservation,
   updateBowlingReservationBookedAt,
   updateBowlingReservationStatus,
+  markBowlingCheckedIn,
   updateBowlingReservationCancelled,
   updateSquareDayofOrderId,
   updateWalkinGuestData,
@@ -660,6 +661,12 @@ async function processEvent(
     console.log(
       `[qamf-bowling] neonId=${reservation.id} qamfId=${qamfId} status ${current} → ${neonAction}`,
     );
+
+    // Stamp a real attendance time on arrival (proof-of-service for chargebacks).
+    // Idempotent — never overwrites an existing stamp.
+    if (neonAction === "arrived") {
+      await markBowlingCheckedIn(reservation.id).catch(() => {});
+    }
 
     // ── Guest survey enqueue on Completed transition ──────────────────
     // Fire-and-forget so the webhook stays under SLA. The service is
