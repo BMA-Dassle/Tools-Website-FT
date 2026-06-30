@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useImperativeHandle, useRef, forwardRef, useState } from "react";
+import type { SquareVerificationDetails } from "@/lib/square-verification-details";
 
 /**
  * Minimal Square card-capture form for subscription flows.
@@ -13,7 +14,8 @@ import { useEffect, useImperativeHandle, useRef, forwardRef, useState } from "re
 // Window.Square type is already declared globally by PaymentForm.tsx — reuse at runtime.
 interface SquareCard {
   attach: (selector: string) => Promise<void>;
-  tokenize: () => Promise<{
+  // verificationDetails triggers SCA/3-D Secure (chargeback defense).
+  tokenize: (verificationDetails?: SquareVerificationDetails) => Promise<{
     status: string;
     token?: string;
     errors?: { message: string }[];
@@ -23,7 +25,10 @@ interface SquareCard {
 }
 
 export interface CardCaptureHandle {
-  tokenize: () => Promise<{ token: string; brand?: string; last4?: string } | { error: string }>;
+  /** Pass verificationDetails (intent "STORE" for add-card) to run SCA. */
+  tokenize: (
+    verificationDetails?: SquareVerificationDetails,
+  ) => Promise<{ token: string; brand?: string; last4?: string } | { error: string }>;
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -60,10 +65,10 @@ const CardCaptureForm = forwardRef<CardCaptureHandle, Props>(function CardCaptur
   const cardRef = useRef<SquareCard | null>(null);
 
   useImperativeHandle(ref, () => ({
-    async tokenize() {
+    async tokenize(verificationDetails?: SquareVerificationDetails) {
       if (!cardRef.current) return { error: "Card form not ready" };
       try {
-        const r = await cardRef.current.tokenize();
+        const r = await cardRef.current.tokenize(verificationDetails);
         if (r.status === "OK" && r.token) {
           return {
             token: r.token,

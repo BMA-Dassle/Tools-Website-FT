@@ -5,6 +5,10 @@ import { clickableDivProps } from "@/lib/a11y";
 import SavedCardSelector from "./SavedCardSelector";
 import type { SavedCard } from "./SavedCardSelector";
 import GiftCardCapture, { type GiftCardCaptureHandle } from "./GiftCardCapture";
+import {
+  buildVerificationDetails,
+  type SquareVerificationDetails,
+} from "@/lib/square-verification-details";
 
 declare global {
   interface Window {
@@ -28,7 +32,10 @@ interface SquarePayments {
 
 interface SquareCard {
   attach: (selector: string) => Promise<void>;
-  tokenize: () => Promise<{ status: string; token?: string; errors?: { message: string }[] }>;
+  // verificationDetails triggers SCA/3-D Secure (chargeback defense).
+  tokenize: (
+    verificationDetails?: SquareVerificationDetails,
+  ) => Promise<{ status: string; token?: string; errors?: { message: string }[] }>;
   destroy: () => void;
 }
 
@@ -412,7 +419,16 @@ export default function PaymentForm({
         await processPayment(selectedCardId, true);
       } else {
         if (!cardRef.current) throw new Error("Card form not ready");
-        const result = await cardRef.current.tokenize();
+        // Pass verificationDetails so Square runs SCA/3-D Secure on the card
+        // amount (chargeback defense / fraud liability shift). The card portion
+        // is the post-gift-card remainder.
+        const result = await cardRef.current.tokenize(
+          buildVerificationDetails({
+            intent: "CHARGE",
+            amountDollars: remainingDollars,
+            contact,
+          }),
+        );
         if (result.status !== "OK" || !result.token) {
           throw new Error(result.errors?.[0]?.message || "Card validation failed");
         }

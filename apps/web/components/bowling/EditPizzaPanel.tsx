@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import CardCaptureForm, { type CardCaptureHandle } from "@/components/square/CardCaptureForm";
+import { buildVerificationDetails } from "@/lib/square-verification-details";
 
 /**
  * Guest-facing panel to change a Pizza Bowl's TOPPINGS + DRINK up to check-in.
@@ -166,7 +167,9 @@ export default function EditPizzaPanel({
     try {
       let squareToken: string | undefined;
       if (diffCents > 0) {
-        const r = await cardRef.current?.tokenize();
+        const r = await cardRef.current?.tokenize(
+          buildVerificationDetails({ intent: "CHARGE", amountDollars: diffCents / 100 }),
+        );
         if (!r || "error" in r) {
           setError(r && "error" in r ? r.error : "Enter a card to cover the added toppings.");
           setSubmitting(false);

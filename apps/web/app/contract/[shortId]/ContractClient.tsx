@@ -20,6 +20,10 @@ import {
 } from "@tabler/icons-react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
+import {
+  buildVerificationDetails,
+  type SquareVerificationDetails,
+} from "@/lib/square-verification-details";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images";
@@ -192,7 +196,7 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
   const [giftCardGan, setGiftCardGan] = useState(quote.giftCardGan);
   const [saveCard, setSaveCard] = useState(true);
   const cardRef = useRef<{
-    tokenize: () => Promise<{
+    tokenize: (verificationDetails?: SquareVerificationDetails) => Promise<{
       status: string;
       token?: string;
       errors?: Array<{ message: string }>;
@@ -517,7 +521,13 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     setError(null);
     setProcessing(true);
     try {
-      const result = await cardRef.current.tokenize();
+      const result = await cardRef.current.tokenize(
+        buildVerificationDetails({
+          intent: "CHARGE",
+          amountDollars: (isResign ? resignDueCents : quote.depositDueCents) / 100,
+          contact: { firstName: quote.guestFirstName },
+        }),
+      );
       if (result.status !== "OK" || !result.token) {
         setError(result.errors?.[0]?.message || "Card validation failed.");
         setProcessing(false);
@@ -2386,7 +2396,7 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
   const [result, setResult] = useState<{ last4: string; brand: string } | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
   const updateCardRef = useRef<{
-    tokenize: () => Promise<{
+    tokenize: (verificationDetails?: SquareVerificationDetails) => Promise<{
       status: string;
       token?: string;
       errors?: Array<{ message: string }>;
@@ -2424,7 +2434,9 @@ function UpdateCardSection({ shortId, locationId }: { shortId: string; locationI
     setUpdating(true);
     setCardError(null);
     try {
-      const tokenResult = await updateCardRef.current.tokenize();
+      const tokenResult = await updateCardRef.current.tokenize(
+        buildVerificationDetails({ intent: "STORE" }),
+      );
       if (tokenResult.status !== "OK" || !tokenResult.token) {
         setCardError(tokenResult.errors?.[0]?.message || "Card verification failed");
         return;

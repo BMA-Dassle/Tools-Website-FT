@@ -10,6 +10,10 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
+import {
+  buildVerificationDetails,
+  type SquareVerificationDetails,
+} from "@/lib/square-verification-details";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
 
@@ -50,7 +54,7 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
   const [paidLast4, setPaidLast4] = useState<string | null>(null);
   const squareLoaded = useRef(false);
   const cardRef = useRef<{
-    tokenize: () => Promise<{
+    tokenize: (verificationDetails?: SquareVerificationDetails) => Promise<{
       status: string;
       token?: string;
       errors?: Array<{ message: string }>;
@@ -127,7 +131,13 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
     setError(null);
     setProcessing(true);
     try {
-      const result = await cardRef.current.tokenize();
+      const result = await cardRef.current.tokenize(
+        buildVerificationDetails({
+          intent: "CHARGE",
+          amountDollars: quote.balanceCents / 100,
+          contact: { firstName: quote.guestFirstName },
+        }),
+      );
       if (result.status !== "OK" || !result.token) {
         setError(result.errors?.[0]?.message || "Card validation failed.");
         return;

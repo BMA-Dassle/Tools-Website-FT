@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import CardCaptureForm, { type CardCaptureHandle } from "@/components/square/CardCaptureForm";
+import { buildVerificationDetails } from "@/lib/square-verification-details";
 import GiftCardCapture, { type GiftCardCaptureHandle } from "@/components/square/GiftCardCapture";
 
 /**
@@ -257,7 +258,11 @@ export default function BowlingPaymentStep({
     setTokenizing(true);
     setTokenizeError(null);
 
-    const result = await cardRef.current.tokenize();
+    // verificationDetails triggers SCA/3-D Secure on the card portion
+    // (post-gift-card remainder) — chargeback defense.
+    const result = await cardRef.current.tokenize(
+      buildVerificationDetails({ intent: "CHARGE", amountDollars: remainderCents / 100 }),
+    );
 
     if ("error" in result) {
       setTokenizeError(result.error);

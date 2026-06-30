@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import CardCaptureForm, { type CardCaptureHandle } from "@/components/square/CardCaptureForm";
+import { buildVerificationDetails } from "@/lib/square-verification-details";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /**
@@ -139,7 +140,17 @@ export default function SignupModal({ onClose }: Props) {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const tok = await cardRef.current?.tokenize();
+      const tok = await cardRef.current?.tokenize(
+        buildVerificationDetails({
+          intent: "STORE",
+          contact: {
+            firstName: bowler.firstName,
+            lastName: bowler.lastName,
+            email: bowler.email,
+            phone: bowler.phone,
+          },
+        }),
+      );
       if (!tok || "error" in tok) {
         setSubmitError(tok && "error" in tok ? tok.error : "Card entry failed");
         setSubmitting(false);

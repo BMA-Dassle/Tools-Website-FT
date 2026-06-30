@@ -6,6 +6,7 @@ import Modal from "~/components/ui/Modal";
 import Button from "~/components/ui/Button";
 import ErrorBox from "~/components/ui/ErrorBox";
 import { AccountApiError } from "~/features/account/api";
+import { buildVerificationDetails } from "@/lib/square-verification-details";
 import { useAddCard, useChangeSubscriptionCard } from "~/features/account/hooks";
 import type { AccountSubscription, SavedCard } from "~/features/account/types";
 
@@ -34,7 +35,7 @@ export function AddCardModal({
     setError(null);
     setSaving(true);
     try {
-      const tok = await cardRef.current?.tokenize();
+      const tok = await cardRef.current?.tokenize(buildVerificationDetails({ intent: "STORE" }));
       const tErr = tokenError(tok);
       if (tErr || !tok || "error" in tok) {
         setError(tErr);
@@ -94,7 +95,7 @@ export function ChangeCardModal({
     try {
       let cardId = selected;
       if (selected === "new") {
-        const tok = await cardRef.current?.tokenize();
+        const tok = await cardRef.current?.tokenize(buildVerificationDetails({ intent: "STORE" }));
         const tErr = tokenError(tok);
         if (tErr || !tok || "error" in tok) {
           setError(tErr);
