@@ -22,7 +22,7 @@ import { getReservationsByContact, type BowlingReservationWithLines } from "@/li
 import { getGroupQuotesByContact, type GroupFunctionQuote } from "@/lib/group-function-db";
 import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { lookupLoyaltyByPhone } from "../data/loyalty";
-import { getPandoraWaiver, getRaceCredits, resolveBmiPerson } from "../data/bmi-race";
+import { getRacerAccounts } from "../data/bmi-race";
 
 function siteBase(): string {
   return process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
@@ -123,41 +123,20 @@ export async function loadRewards(session: AccountSession): Promise<DashRewards>
 }
 
 export async function loadRaceAccount(session: AccountSession): Promise<DashRaceAccount> {
-  if (session.contactType !== "phone") {
-    return { status: "not_applicable", person: null, credits: null };
-  }
-  const resolution = await resolveBmiPerson(session.contact, session.contact);
-  if (resolution.ambiguous) {
-    return {
-      status: "ok",
-      ambiguous: true,
-      candidates: resolution.candidates,
-      person: null,
-      credits: null,
-    };
-  }
-  if (!resolution.person) {
-    return { status: "ok", person: null, credits: null };
-  }
-  const { personId, firstName, lastName } = resolution.person;
-  const [waiverRes, creditsRes] = await Promise.allSettled([
-    getPandoraWaiver(personId),
-    getRaceCredits(personId),
-  ]);
-  const waiver = waiverRes.status === "fulfilled" ? waiverRes.value : null;
-  const credits =
-    creditsRes.status === "fulfilled" && creditsRes.value.items.length ? creditsRes.value : null;
+  // BMI is phone-keyed; an email-only session has no verified phone to search.
+  if (session.contactType !== "phone") return { status: "not_applicable", accounts: [] };
+  const accounts = await getRacerAccounts(session.contact, session.contact);
+  // Trim to the dashboard shape — email/loginCode/birthDate stay server-side.
   return {
     status: "ok",
-    person: {
-      personId,
-      firstName: waiver?.firstName || firstName,
-      lastName: waiver?.lastName || lastName,
-      waiverValid: waiver?.waiverValid ?? false,
-      waiverExpiry: waiver?.waiverExpiry ?? null,
-      lastVisit: waiver?.lastVisit ?? null,
-    },
-    credits,
+    accounts: accounts.map((a) => ({
+      personId: a.personId,
+      fullName: a.fullName,
+      lastSeen: a.lastSeen,
+      races: a.races,
+      memberships: a.memberships,
+      credits: a.credits,
+    })),
   };
 }
 
@@ -187,6 +166,6 @@ export async function buildDashboard(session: AccountSession): Promise<AccountDa
     raceAccount:
       raceAccount.status === "fulfilled"
         ? raceAccount.value
-        : { status: phone ? "unavailable" : "not_applicable", person: null, credits: null },
+        : { status: phone ? "unavailable" : "not_applicable", accounts: [] },
   };
 }

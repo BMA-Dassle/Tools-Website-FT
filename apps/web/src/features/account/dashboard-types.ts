@@ -67,31 +67,24 @@ export interface DashRewards {
   } | null;
 }
 
-export interface DashRaceCandidate {
+/** One racer profile on the account's phone (a phone may have several). */
+export interface DashRacerAccount {
   personId: string;
-  firstName: string;
-  lastName: string;
+  fullName: string;
+  /** Most recent race (ISO), or null. */
+  lastSeen: string | null;
+  /** Lifetime race count (≈ check-in tags). */
+  races: number;
+  /** Active, relevant membership names (license, Pro/Intermediate, passes, …). */
+  memberships: string[];
+  /** Redeemable race credits / passes. */
+  credits: Array<{ kind: string; balance: number }>;
 }
 
 export interface DashRaceAccount {
   status: SectionStatus;
-  /** True when phone matched >1 BMI person; UI shows a picker instead of guessing. */
-  ambiguous?: boolean;
-  candidates?: DashRaceCandidate[];
-  person: {
-    /** RAW string — never coerced through Number(). */
-    personId: string;
-    firstName: string;
-    lastName: string;
-    waiverValid: boolean;
-    waiverExpiry: string | null;
-    lastVisit: string | null;
-  } | null;
-  /** Redeemable race credits/deposits (sum of positive balances), or null when none. */
-  credits: {
-    totalBalance: number;
-    items: Array<{ kind: string; balance: number }>;
-  } | null;
+  /** Racer profiles on this phone — empty when none found. */
+  accounts: DashRacerAccount[];
 }
 
 export interface AccountDashboardResponse {

@@ -2,6 +2,19 @@
 
 import { useState, useRef, useEffect } from "react";
 import { bmiGet, isRelevantMembership } from "../data";
+import { findRacerAccounts, type RacerLookupTransport } from "@/lib/bmi-racer-lookup";
+
+/** Client transport for the shared racer lookup — the /api/bmi-office proxy. */
+const clientOfficeTransport: RacerLookupTransport = {
+  search: (token, max) =>
+    fetch(`/api/bmi-office?action=search&q=${encodeURIComponent(token)}&max=${max}`).then((r) =>
+      r.json(),
+    ),
+  getPerson: (localId) =>
+    fetch(`/api/bmi-office?action=person&id=${localId}`).then((r) => r.json()),
+  getDeposits: (personId) =>
+    fetch(`/api/bmi-office?action=deposits&personId=${personId}`).then((r) => r.json()),
+};
 
 export interface PersonData {
   personId: string;
@@ -77,119 +90,32 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoCode]);
 
-  /** Shared search + fetch person details logic for both phone and email.
-   *
-   * Two non-obvious behaviors here:
-   *
-   * 1. `max=500` (was 200). Every reservation registered for a person
-   *    creates a per-bill contact-person row in BMI Office, which all
-   *    show up in phone-keyed search alongside the real person record.
-   *    A frequent racer's real profile can sit at index 200+ once the
-   *    stubs accumulate (Eric Osborn's primary record was at index 227
-   *    on the day this was fixed). Bumping to 500 keeps real records
-   *    in the result set for ~all heavy users; we still dedup down to
-   *    the top 10 distinct names below so the per-record detail
-   *    fetches stay cheap.
-   *
-   * 2. Dedup-by-name picks the highest-SCORED record per name, not the
-   *    first one BMI returned. Stub rows render as
-   *    `Name phone: ... Last seen: ...` with no birthdate paren,
-   *    Memberships, or zip — easy to discriminate from primary records
-   *    that have those fields. Without scoring, when Eric Osborn the
-   *    racer and "Eric Osborn" the contact-person stub collide on
-   *    name, the stub wins (it's earlier in BMI's response) and the
-   *    real account is never surfaced to the user.
+  /**
+   * Search + fetch racer accounts for a phone/email/code query. The lookup logic
+   * (max=500 search, stub-discriminating dedupe, login-code gate, credit balances)
+   * lives ONCE in lib/bmi-racer-lookup — shared with the account dashboard. Here
+   * we supply the CLIENT transport (the /api/bmi-office proxy) and map the shared
+   * RacerAccount to this component's FoundAccount (formatted lastSeen, etc.).
    */
-  function scoreSearchResult(desc: string): number {
-    let s = 0;
-    if (/\(\d/.test(desc)) s += 100; // birthdate paren — strong primary-record signal
-    if (desc.includes("Memberships:")) s += 50; // memberships listed
-    if (desc.includes("zip:")) s += 25; // address present
-    if (desc.includes("Last seen:")) s += 10; // activity history
-    return s;
-  }
-
   async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
-    const searchRes = await fetch(
-      `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
-    );
-    const results = await searchRes.json();
-    if (!Array.isArray(results) || results.length === 0) return [];
-
-    const byName = new Map<string, { localId: string; description: string; score: number }>();
-    for (const r of results as { localId: string; description: string }[]) {
-      const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-      const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-      const score = scoreSearchResult(r.description);
-      const existing = byName.get(name);
-      if (!existing || score > existing.score) {
-        byName.set(name, { localId: r.localId, description: r.description, score });
-      }
-    }
-    const uniqueEntries = [...byName.values()].slice(0, 10);
-    const detailPromises = uniqueEntries.map(async (r) => {
-      try {
-        const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
-        const p = await res.json();
-        const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-          (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-        );
-        const loginCode = tags[0]?.tag || "";
-        const memberships = (p.memberships || [])
-          .filter(
-            (m: { stops: string; name: string }) =>
-              (!m.stops || new Date(m.stops) > new Date()) && isRelevantMembership(m.name),
-          )
-          .map((m: { name: string }) => m.name)
-          .filter((name: string, i: number, arr: string[]) => arr.indexOf(name) === i);
-        const lastSeen = p.lastLineUp
-          ? new Date(p.lastLineUp).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })
-          : "";
-        // Fetch credit balances
-        let creditBalances: { kind: string; balance: number }[] = [];
-        try {
-          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
-          if (depRes.ok) {
-            const deposits: { depositKind: string; balance: number }[] = await depRes.json();
-            creditBalances = deposits
-              .filter(
-                (d) =>
-                  d.balance > 0 &&
-                  (d.depositKind.toLowerCase().includes("credit") ||
-                    d.depositKind.toLowerCase().includes("pass")),
-              )
-              .map((d) => ({ kind: d.depositKind, balance: d.balance }));
-          }
-        } catch {}
-        const acctEmail = p.addresses?.[0]?.email || "";
-        return {
-          personId: String(p.id),
-          fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
-          email: acctEmail,
-          loginCode,
-          lastSeen,
-          races: (p.tags || []).length,
-          memberships,
-          birthDate: p.birthDate || null,
-          creditBalances,
-        } as FoundAccount;
-      } catch {
-        return null;
-      }
-    });
-    const allDetails = (await Promise.all(detailPromises)).filter(
-      (d): d is FoundAccount => d !== null && !!d.loginCode,
-    );
-    allDetails.sort((a, b) => {
-      if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
-      if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
-      return (b.lastSeen || "").localeCompare(a.lastSeen || "");
-    });
-    return allDetails.slice(0, 5);
+    const accounts = await findRacerAccounts(query, clientOfficeTransport);
+    return accounts.map((a) => ({
+      personId: a.personId,
+      fullName: a.fullName,
+      email: a.email,
+      loginCode: a.loginCode,
+      lastSeen: a.lastSeen
+        ? new Date(a.lastSeen).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "",
+      races: a.races,
+      memberships: a.memberships,
+      birthDate: a.birthDate,
+      creditBalances: a.credits,
+    }));
   }
 
   async function handleEmailLookup() {

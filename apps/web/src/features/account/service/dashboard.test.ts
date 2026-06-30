@@ -10,9 +10,7 @@ import type { AccountSession } from "../types";
 const getReservationsByContact = vi.fn();
 const getGroupQuotesByContact = vi.fn();
 const lookupLoyaltyByPhone = vi.fn();
-const resolveBmiPerson = vi.fn();
-const getPandoraWaiver = vi.fn();
-const getRaceCredits = vi.fn();
+const getRacerAccounts = vi.fn();
 
 vi.mock("@/lib/bowling-db", () => ({
   getReservationsByContact: (...a: unknown[]) => getReservationsByContact(...a),
@@ -27,9 +25,7 @@ vi.mock("../data/loyalty", () => ({
   lookupLoyaltyByPhone: (...a: unknown[]) => lookupLoyaltyByPhone(...a),
 }));
 vi.mock("../data/bmi-race", () => ({
-  resolveBmiPerson: (...a: unknown[]) => resolveBmiPerson(...a),
-  getPandoraWaiver: (...a: unknown[]) => getPandoraWaiver(...a),
-  getRaceCredits: (...a: unknown[]) => getRaceCredits(...a),
+  getRacerAccounts: (...a: unknown[]) => getRacerAccounts(...a),
 }));
 
 import { buildDashboard } from "./dashboard";
@@ -61,14 +57,14 @@ describe("buildDashboard", () => {
     expect(data.reservations.status).toBe("ok");
     // Phone-keyed lookups must not even be attempted for an email session.
     expect(lookupLoyaltyByPhone).not.toHaveBeenCalled();
-    expect(resolveBmiPerson).not.toHaveBeenCalled();
+    expect(getRacerAccounts).not.toHaveBeenCalled();
   });
 
   it("BMI failure → raceAccount unavailable, other sections unaffected", async () => {
     getReservationsByContact.mockResolvedValue([]);
     getGroupQuotesByContact.mockResolvedValue([]);
     lookupLoyaltyByPhone.mockResolvedValue(null); // enrolled-check ok, not enrolled
-    resolveBmiPerson.mockRejectedValue(new Error("office down"));
+    getRacerAccounts.mockRejectedValue(new Error("office down"));
 
     const data = await buildDashboard(session({}));
 
@@ -78,21 +74,33 @@ describe("buildDashboard", () => {
     expect(data.rewards.account).toBeNull();
   });
 
-  it("ambiguous BMI match surfaces candidates, never a guessed person", async () => {
+  it("lists every racer linked to the phone", async () => {
     getReservationsByContact.mockResolvedValue([]);
     getGroupQuotesByContact.mockResolvedValue([]);
     lookupLoyaltyByPhone.mockResolvedValue(null);
-    resolveBmiPerson.mockResolvedValue({
-      person: null,
-      ambiguous: true,
-      candidates: [{ personId: "1", firstName: "A", lastName: "X" }],
-    });
+    getRacerAccounts.mockResolvedValue([
+      {
+        personId: "1",
+        fullName: "Mom One",
+        lastSeen: null,
+        races: 3,
+        memberships: ["Pro"],
+        credits: [],
+      },
+      {
+        personId: "2",
+        fullName: "Kid Two",
+        lastSeen: null,
+        races: 1,
+        memberships: [],
+        credits: [],
+      },
+    ]);
 
     const data = await buildDashboard(session({}));
 
-    expect(data.raceAccount.ambiguous).toBe(true);
-    expect(data.raceAccount.person).toBeNull();
-    expect(data.raceAccount.candidates).toHaveLength(1);
-    expect(getPandoraWaiver).not.toHaveBeenCalled();
+    expect(data.raceAccount.status).toBe("ok");
+    expect(data.raceAccount.accounts).toHaveLength(2);
+    expect(data.raceAccount.accounts.map((a) => a.fullName)).toEqual(["Mom One", "Kid Two"]);
   });
 });
