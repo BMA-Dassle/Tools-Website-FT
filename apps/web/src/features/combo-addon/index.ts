@@ -15,6 +15,8 @@ export type {
 } from "./types";
 export { buildAddOnQuote, addonOrderGroups } from "./pricing";
 export { checkAddOnCapacity, lanePlan, seatsOnExistingLanes, type CapacityDeps } from "./capacity";
+export { loadAddOnContext, serverHeatFreeSpots, AddOnContextError } from "./context";
+export { bookAddOn, type BookAddOnArgs } from "./book";
 export {
   addGuestSchema,
   addOnQuoteRequestSchema,

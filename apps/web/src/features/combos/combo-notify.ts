@@ -14,7 +14,7 @@ import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/s
 import type { ContactInfo } from "~/features/booking/types";
 
 import { wallClockLabel, wallClockMs } from "./combo-itinerary";
-import { getComboSpecial } from "./combo-specials";
+import { getComboSpecial, type ComboSpecial } from "./combo-specials";
 
 const COMBO_BOOKED_RECIPIENTS = [
   "eric@headpinz.com",
@@ -135,4 +135,63 @@ export async function notifyComboBooked(args: {
 
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Staff alert when guests are ADDED to an existing combo booking (post-booking
+ * self-service add-on). Same recipients as a fresh combo booking. Best-effort —
+ * never throws (a mail hiccup must not fail a captured add-on).
+ */
+export async function notifyComboGuestsAdded(args: {
+  combo: ComboSpecial;
+  contact: { firstName?: string; lastName?: string; email?: string; phone?: string };
+  eventDate: string;
+  addedGuests: string[];
+  lanesAdded: number;
+  lane: string | null;
+  newBmiBillId: string | null;
+  chargedCents: number;
+}): Promise<void> {
+  try {
+    const { combo, contact } = args;
+    const guest = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown guest";
+    const dateLabel = new Date(`${args.eventDate}T12:00:00`).toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+    const n = args.addedGuests.length;
+    const total = `$${(args.chargedCents / 100).toFixed(2)}`;
+    const laneNote =
+      args.lanesAdded > 0
+        ? `<strong>+${args.lanesAdded} bowling lane${args.lanesAdded === 1 ? "" : "s"}</strong> needed — seat with the original party (lane ${args.lane ?? "—"}).`
+        : `Seat the new guest${n === 1 ? "" : "s"} with the original party on lane ${args.lane ?? "—"}.`;
+
+    const subject = `➕ ${combo.name} — ${n} guest${n === 1 ? "" : "s"} added · ${guest} · ${dateLabel}`;
+    const html = [
+      `<h2 style="margin:0 0 4px">${combo.name} — guests added</h2>`,
+      `<p style="margin:0 0 12px;color:#555">${dateLabel} · +${n} ${n === 1 ? "guest" : "guests"} · ${total} paid online</p>`,
+      `<p style="margin:0 0 12px"><strong>${guest}</strong><br/>${contact.email ?? ""}<br/>${contact.phone ?? ""}</p>`,
+      `<p style="margin:0 0 4px"><strong>Added</strong></p>`,
+      `<ul style="margin:0 0 12px;padding-left:20px">${args.addedGuests.map((g) => `<li>${g}</li>`).join("")}</ul>`,
+      `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01">${laneNote}</p>`,
+      `<p style="margin:0;color:#555;font-size:13px">Add-on BMI bill ${args.newBmiBillId ?? "—"} · same itinerary as the original booking.</p>`,
+    ].join("\n");
+
+    const result = await sendEmail({
+      to: COMBO_BOOKED_RECIPIENTS[0],
+      cc: COMBO_BOOKED_RECIPIENTS.slice(1),
+      subject,
+      html,
+      text:
+        `${combo.name}: ${n} guest(s) added — ${guest}, ${dateLabel}, ${total} paid.\n` +
+        `Added: ${args.addedGuests.join(", ")}\n` +
+        (args.lanesAdded > 0 ? `+${args.lanesAdded} lane(s). ` : "") +
+        `Seat with original party (lane ${args.lane ?? "—"}). Add-on bill ${args.newBmiBillId ?? "—"}.`,
+    });
+    if (!result.ok) console.error("[combo-notify] add-on alert rejected:", result.error);
+  } catch (err) {
+    console.error("[combo-notify] add-on alert failed (non-fatal):", err);
+  }
 }
