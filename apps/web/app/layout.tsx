@@ -235,7 +235,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // HeadPinz shared top-level routes (e.g. /event, /survey) render on THIS layout
   // — /hp pages get their chrome elsewhere. Mirror FastTrax so HeadPinz visitors
   // aren't left without a nav/footer on those routes.
-  const showHpChrome = isHeadPinz && !isAdmin;
+  // Exception: the location-chooser splash (headpinz.com/) is intentionally
+  // chrome-free — middleware flags it with x-hp-no-chrome so the center
+  // Nav/Footer (which defaults to Fort Myers pre-selection) doesn't render
+  // on a "pick a location" page.
+  const noHpChrome = hdrs.get("x-hp-no-chrome") === "1";
+  const showHpChrome = isHeadPinz && !isAdmin && !noHpChrome;
   const showMobileBar = showChrome && !noMobileBar;
   const showHpMobileBar = showHpChrome && !noMobileBar;
   // GA4 measurement ID, brand-aware. Admin routes opt out (PII / staff

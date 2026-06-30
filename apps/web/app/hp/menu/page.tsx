@@ -25,13 +25,9 @@ type MenuSection = { name: string; note?: string; accent: string; items: MenuIte
 const menuSections: MenuSection[] = [
   {
     name: "Nemo's Wings",
-    note: "10 jumbo bone-in wings made with our secret seasoned flour and fried to perfection, served with choice of sauce. All flats or drums +4",
+    note: "10 jumbo wings hand breaded with our secret seasoned flour, fried to perfection and served with your sauce selection. All flats or drums +4",
     accent: coral,
-    items: [
-      { name: "All to Yourself", price: "14" },
-      { name: "Out with a Friend", desc: "25 wings", price: "25" },
-      { name: "Party Time", desc: "50 wings", price: "45" },
-    ],
+    items: [{ name: "Nemo's Chicken Wings", desc: "10 jumbo wings", price: "17.50" }],
   },
   {
     name: "Wings & Things",
