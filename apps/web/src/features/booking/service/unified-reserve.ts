@@ -95,6 +95,10 @@ export interface UnifiedReserveResult {
   giftCardGan: string | null;
   depositCents: number;
   totalCents: number;
+  /** Card brand / last-4 of the card tender (null when GC-only) — for the
+   *  clickwrap acceptance record. */
+  cardBrand: string | null;
+  cardLast4: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -323,6 +327,10 @@ async function unifiedCachedSuccess(bmiBillId: string): Promise<UnifiedReserveRe
     giftCardGan: row?.squareGiftCardGan ?? null,
     depositCents: row?.depositCents ?? 0,
     totalCents: row?.totalCents ?? 0,
+    // Cached replay (already-confirmed retry): the original charge already
+    // recorded card details on the acceptance; not re-derived here.
+    cardBrand: null,
+    cardLast4: null,
   };
 }
 
@@ -668,7 +676,16 @@ async function unifiedReserveInner(
     depositPaymentId: string | null;
     giftCardId: string | null;
     giftCardGan: string | null;
-  } = { depositOrderId: null, depositPaymentId: null, giftCardId: null, giftCardGan: null };
+    cardBrand: string | null;
+    cardLast4: string | null;
+  } = {
+    depositOrderId: null,
+    depositPaymentId: null,
+    giftCardId: null,
+    giftCardGan: null,
+    cardBrand: null,
+    cardLast4: null,
+  };
 
   if (depositCents > 0) {
     if (!input.cardSourceId && !input.giftCardNonce) {
@@ -704,6 +721,8 @@ async function unifiedReserveInner(
         depositPaymentId: dr.depositPaymentId,
         giftCardId: dr.giftCardId,
         giftCardGan: dr.giftCardGan,
+        cardBrand: dr.cardBrand ?? null,
+        cardLast4: dr.cardLast4 ?? null,
       };
     } catch (err) {
       // Clean up loyalty reward if deposit fails
@@ -1327,6 +1346,8 @@ async function unifiedReserveInner(
     giftCardGan: depositResult.giftCardGan,
     depositCents,
     totalCents: dayofTotalCents,
+    cardBrand: depositResult.cardBrand,
+    cardLast4: depositResult.cardLast4,
   };
 }
 

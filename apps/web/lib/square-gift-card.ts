@@ -183,7 +183,7 @@ export async function authorizeCardPayment(params: {
   note?: string;
   /** Bank-statement descriptor suffix (≤20 chars after sanitize). */
   statementDescriptor?: string;
-}): Promise<{ paymentId: string }> {
+}): Promise<{ paymentId: string; cardBrand: string | null; cardLast4: string | null }> {
   const body: Record<string, unknown> = {
     source_id: params.sourceId,
     idempotency_key: `pay-card-${params.baseKey}`,
@@ -217,7 +217,14 @@ export async function authorizeCardPayment(params: {
   if (!paymentId) {
     throw new SquarePaymentError("MISSING_PAYMENT_ID", "Card authorize returned no paymentId");
   }
-  return { paymentId };
+  // Card brand / last-4 are on the CreatePayment response — surfaced so the
+  // clickwrap acceptance can be tied to the exact card (chargeback defense).
+  const card = data.payment?.card_details?.card;
+  return {
+    paymentId,
+    cardBrand: card?.card_brand ?? null,
+    cardLast4: card?.last_4 ?? null,
+  };
 }
 
 export async function completeSquarePayment(
@@ -352,6 +359,10 @@ export interface MultiTenderResult {
   cardApprovedCents: number;
   /** GAN of the redeemed gift card, for UI / sales-log breadcrumbs. */
   gcGan?: string;
+  /** Card brand / last-4 of the card tender (null when GC-only). For tying the
+   *  clickwrap acceptance to the exact card used. */
+  cardBrand?: string | null;
+  cardLast4?: string | null;
 }
 
 export class SquarePaymentError extends Error {
@@ -454,6 +465,8 @@ export async function authorizeMultiTender(params: {
   // ── Step B: Authorize card / wallet for remainder (if needed) ─────
   let cardPaymentId: string | undefined;
   let cardApprovedCents = 0;
+  let cardBrand: string | null = null;
+  let cardLast4: string | null = null;
 
   if (remainingCents > 0) {
     if (!cardSourceId) {
@@ -482,6 +495,8 @@ export async function authorizeMultiTender(params: {
       });
       cardPaymentId = cardAuth.paymentId;
       cardApprovedCents = remainingCents;
+      cardBrand = cardAuth.cardBrand;
+      cardLast4 = cardAuth.cardLast4;
     } catch (err) {
       // Card auth failed → void the GC auth so the customer's GC
       // balance is preserved.
@@ -516,6 +531,8 @@ export async function authorizeMultiTender(params: {
     gcApprovedCents,
     cardApprovedCents,
     gcGan,
+    cardBrand,
+    cardLast4,
   };
 }
 

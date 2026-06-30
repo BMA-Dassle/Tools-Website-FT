@@ -118,6 +118,10 @@ export interface DepositResult {
    *  (idempotent via baseKey). */
   giftCardPending?: boolean;
   gcError?: string;
+  /** Card brand / last-4 of the card tender (null when fully GC-funded). Used to
+   *  tie the clickwrap acceptance to the exact card (chargeback defense). */
+  cardBrand?: string | null;
+  cardLast4?: string | null;
 }
 
 export const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
@@ -209,6 +213,8 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
   let cardPaymentId: string | undefined;
   let gcApprovedCents = 0;
   let cardApprovedCents = 0;
+  let cardBrand: string | null = null;
+  let cardLast4: string | null = null;
 
   try {
     const multiTender = await authorizeMultiTender({
@@ -229,6 +235,8 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
     cardPaymentId = multiTender.cardPaymentId ?? undefined;
     gcApprovedCents = multiTender.gcApprovedCents;
     cardApprovedCents = multiTender.cardApprovedCents;
+    cardBrand = multiTender.cardBrand ?? null;
+    cardLast4 = multiTender.cardLast4 ?? null;
   } catch (err) {
     if (err instanceof SquarePaymentError) {
       const friendly =
@@ -273,6 +281,8 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
       giftCardGan,
       gcApprovedCents,
       cardApprovedCents,
+      cardBrand,
+      cardLast4,
     };
   } catch (gcErr) {
     const detail = gcErr instanceof Error ? gcErr.message : String(gcErr);
@@ -287,6 +297,8 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
       giftCardGan: null,
       gcApprovedCents,
       cardApprovedCents,
+      cardBrand,
+      cardLast4,
       giftCardPending: true,
       gcError: detail,
     };

@@ -1147,6 +1147,10 @@ export interface ReserveAllResult {
   giftCardGan: string | null;
   depositCents: number;
   totalCents: number;
+  /** Card brand / last-4 of the card tender (null when GC-only) — recorded on
+   *  the clickwrap acceptance to tie consent to the exact card. */
+  cardBrand?: string | null;
+  cardLast4?: string | null;
 }
 
 export async function reserveAll(params: ReserveAllParams): Promise<ReserveAllResult> {

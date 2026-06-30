@@ -100,6 +100,49 @@ describe("authorizeCardPayment — chargeback-defense fields", () => {
     expect(body.statement_description_identifier).toBe("RACE 03928151");
   });
 
+  it("returns card brand + last-4 parsed from the payment response", async () => {
+    const mock = installFetchMock();
+    mock.when(
+      (c) => c.method === "POST" && c.url === `${SQUARE_BASE}/payments`,
+      () => ({
+        status: 200,
+        body: {
+          payment: { id: "pay_1", card_details: { card: { card_brand: "VISA", last_4: "6335" } } },
+        },
+      }),
+    );
+
+    const res = await authorizeCardPayment({
+      orderId: "ord_1",
+      locationId: "LOC",
+      sourceId: "cnon:fake",
+      amountCents: 4399,
+      baseKey: "bk",
+    });
+
+    expect(res.cardBrand).toBe("VISA");
+    expect(res.cardLast4).toBe("6335");
+  });
+
+  it("returns null card details when the response omits card_details", async () => {
+    const mock = installFetchMock();
+    mock.when(
+      (c) => c.method === "POST" && c.url === `${SQUARE_BASE}/payments`,
+      () => ({ status: 200, body: { payment: { id: "pay_1" } } }),
+    );
+
+    const res = await authorizeCardPayment({
+      orderId: "ord_1",
+      locationId: "LOC",
+      sourceId: "cnon:fake",
+      amountCents: 4399,
+      baseKey: "bk",
+    });
+
+    expect(res.cardBrand).toBeNull();
+    expect(res.cardLast4).toBeNull();
+  });
+
   it("omits both fields when not supplied", async () => {
     const mock = installFetchMock();
     mock.when(
@@ -148,5 +191,36 @@ describe("authorizeMultiTender — forwards descriptor + email to the card auth"
     const payBody = mock.calls.find((c) => c.url === `${SQUARE_BASE}/payments`)!.body!;
     expect(payBody.buyer_email_address).toBe("guest@example.com");
     expect(payBody.statement_description_identifier).toBe("RACE 03928151");
+  });
+
+  it("surfaces card brand/last-4 from the card auth in the result", async () => {
+    const mock = installFetchMock();
+    mock.when(
+      (c) => c.method === "POST" && c.url === `${SQUARE_BASE}/payments`,
+      () => ({
+        status: 200,
+        body: {
+          payment: {
+            id: "pay_card",
+            card_details: { card: { card_brand: "MASTERCARD", last_4: "4203" } },
+          },
+        },
+      }),
+    );
+    mock.when(
+      (c) => c.method === "POST" && c.url.includes("/orders/") && c.url.endsWith("/pay"),
+      () => ({ status: 200, body: { order: { id: "ord_1" } } }),
+    );
+
+    const res = await authorizeMultiTender({
+      orderId: "ord_1",
+      locationId: "LOC",
+      totalCents: 4399,
+      baseKey: "bk",
+      cardSourceId: "cnon:fake",
+    });
+
+    expect(res.cardBrand).toBe("MASTERCARD");
+    expect(res.cardLast4).toBe("4203");
   });
 });

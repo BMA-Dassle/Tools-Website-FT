@@ -1127,6 +1127,9 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
             firstName: contact.firstName,
             amountCents: Math.round(overview.cashOwed * 100),
             bookingType: hasBmi ? "racing" : "bowling",
+            // Tie the acceptance to the exact card charged (chargeback defense).
+            cardLast4: result.cardLast4 ?? undefined,
+            cardBrand: result.cardBrand ?? undefined,
           });
 
           await saveBookingDetails(sessionForReserve, effectiveBillId, overview, contact);
