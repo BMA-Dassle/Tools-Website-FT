@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import { getCancellationPolicy } from "@/lib/cancellation-policy";
 
 interface ClickwrapCheckboxProps {
   checked: boolean;
@@ -11,6 +12,22 @@ interface ClickwrapCheckboxProps {
    * Defaults to 2. Pass 1 for bowling.
    */
   cancellationHours?: number;
+}
+
+/** Render a policy line, turning the brand phone substring into a tel: link. */
+function renderWithPhoneLink(text: string, phone: string, tel: string) {
+  const parts = text.split(phone);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) => (
+    <Fragment key={i}>
+      {part}
+      {i < parts.length - 1 && (
+        <a href={`tel:${tel}`} className="text-[#00E2E5] hover:underline">
+          {phone}
+        </a>
+      )}
+    </Fragment>
+  ));
 }
 
 /**
@@ -39,6 +56,7 @@ export default function ClickwrapCheckbox({
   const brandPhone = isHeadPinz ? "(239) 302-2155" : "(239) 481-9666";
   const brandPhoneTel = isHeadPinz ? "+12393022155" : "+12394819666";
   const policyUrl = "/cancellation-policy";
+  const policy = getCancellationPolicy({ brandName, brandPhone, cancellationHours });
 
   return (
     <>
@@ -137,65 +155,25 @@ export default function ClickwrapCheckbox({
                 </button>
               </div>
 
-              {/* Policy body */}
+              {/* Policy body — single source: lib/cancellation-policy */}
               <div className="text-xs text-white/60 space-y-4 leading-relaxed">
-                <p className="text-white/80">
-                  Reservations are confirmed immediately upon payment. All sales are final.
-                </p>
+                <p className="text-white/80">{policy.intro}</p>
 
-                <div>
-                  <p className="text-white/80 font-semibold mb-1">
-                    Cancellations &amp; Reschedules
-                  </p>
-                  <ul className="space-y-1 ml-3">
-                    <li>
-                      &middot; Cancellations must be made{" "}
-                      <strong className="text-white/80">
-                        more than {cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}
-                      </strong>{" "}
-                      before your reservation to be eligible for a refund or credit.
-                    </li>
-                    <li>
-                      &middot; Cancellations within{" "}
-                      <strong className="text-white/80">
-                        {cancellationHours} hour{cancellationHours !== 1 ? "s" : ""}
-                      </strong>{" "}
-                      of your reservation are{" "}
-                      <strong className="text-white/80">non-refundable</strong>, no exceptions.
-                    </li>
-                    <li>
-                      &middot; All cancellation and reschedule requests must be made by{" "}
-                      <strong className="text-white/80">phone or SMS</strong> at{" "}
-                      <a href={`tel:${brandPhoneTel}`} className="text-[#00E2E5] hover:underline">
-                        {brandPhone}
-                      </a>
-                      . Online requests are not accepted.
-                    </li>
-                  </ul>
-                </div>
-
-                <div>
-                  <p className="text-white/80 font-semibold mb-1">Disputes &amp; Chargebacks</p>
-                  <ul className="space-y-1 ml-3">
-                    <li>
-                      &middot; If you have a concern about a charge, please{" "}
-                      <strong className="text-white/80">contact us first</strong> at{" "}
-                      <a href={`tel:${brandPhoneTel}`} className="text-[#00E2E5] hover:underline">
-                        {brandPhone}
-                      </a>{" "}
-                      before contacting your bank. We can typically resolve issues within one
-                      business day.
-                    </li>
-                    <li>
-                      &middot; Initiating a chargeback without first contacting {brandName} may
-                      result in suspension of booking privileges.
-                    </li>
-                  </ul>
-                </div>
+                {policy.sections.map((section) => (
+                  <div key={section.heading}>
+                    <p className="text-white/80 font-semibold mb-1">{section.heading}</p>
+                    <ul className="space-y-1 ml-3">
+                      {section.items.map((item, i) => (
+                        <li key={i}>
+                          &middot; {renderWithPhoneLink(item, brandPhone, brandPhoneTel)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
 
                 <p className="text-white/40 pt-2 border-t border-white/[0.06]">
-                  By checking the box and completing payment, you acknowledge that you have read,
-                  understood, and agreed to this policy.
+                  {policy.acknowledgement}
                 </p>
               </div>
 

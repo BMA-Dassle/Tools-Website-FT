@@ -1,4 +1,5 @@
 import { sql, isDbConfigured } from "@/lib/db";
+import { CANCELLATION_POLICY_VERSION } from "@/lib/cancellation-policy";
 
 /**
  * Clickwrap acceptance log — chargeback prevention.
@@ -22,7 +23,8 @@ import { sql, isDbConfigured } from "@/lib/db";
  * that was in effect at the time of acceptance.
  */
 
-export const CURRENT_POLICY_VERSION = "v2-2026-04-30";
+// Single source: the policy copy + its version live in lib/cancellation-policy.
+export const CURRENT_POLICY_VERSION = CANCELLATION_POLICY_VERSION;
 
 export interface ClickwrapAcceptance {
   /** ISO timestamp of acceptance (client-side, when button clicked). */

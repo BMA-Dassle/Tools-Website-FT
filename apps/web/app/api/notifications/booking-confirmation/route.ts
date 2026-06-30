@@ -8,6 +8,7 @@ import {
   signedConfirmationUrl,
   verifyBillSignature as verifyBillSignatureShared,
 } from "@/lib/booking-confirmation-link";
+import { cancellationPolicyEmailHtml } from "@/lib/cancellation-policy";
 
 // Re-export so any existing importer of this route's signature verifier keeps
 // working after the helpers moved to lib/booking-confirmation-link.
@@ -577,6 +578,21 @@ export async function POST(req: NextRequest) {
             : "",
         )
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
+
+      // Cancellation & Payment Policy block — restates the all-sales-final terms
+      // the guest accepted at checkout. Strong CARDHOLDER_COMMUNICATION evidence
+      // and reduces "I didn't know it was non-refundable" disputes. Bowling = 1h
+      // window, racing/attractions = 2h (mirrors the checkout clickwrap).
+      const policyAll = [...products, ...scheduled.map((s: { name: string }) => s.name)]
+        .join(" ")
+        .toLowerCase();
+      const isBowlingBooking = /bowl|lane|\bpins?\b|strike/.test(policyAll);
+      const policyHtml = cancellationPolicyEmailHtml({
+        brandName: isHeadPinz ? "HeadPinz" : "FastTrax Entertainment",
+        brandPhone: isHeadPinz ? "(239) 302-2155" : "(239) 481-9666",
+        cancellationHours: isBowlingBooking && !isRacingBooking ? 1 : 2,
+      });
+      html = html.replace(/\^CancellationPolicySection\(\)\$/g, policyHtml);
 
       // Free appetizer call-out — appended before </body> for any
       // package that carries an appetizerCode. Copy adapts to the
