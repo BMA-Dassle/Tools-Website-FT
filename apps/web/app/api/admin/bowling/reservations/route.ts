@@ -92,10 +92,44 @@ export async function GET(req: NextRequest) {
     // Attach guest-survey snapshot per reservation (one batch query, no
     // N+1). Reservations without a survey row return `survey: null`.
     const surveyMap = await getSurveysForReservations(withCodes.map((r) => r.id));
-    const enriched = withCodes.map((r) => ({
-      ...r,
-      survey: surveyMap.get(String(r.id)) ?? null,
-    }));
+    const enriched = await Promise.all(
+      withCodes.map(async (r) => ({
+        ...r,
+        survey: surveyMap.get(String(r.id)) ?? null,
+        // Canonical v2 (multi-activity) short confirmation link for any BMI-bill
+        // leg (race/attraction). This is the same /s/{code} the guest gets by
+        // email/SMS and the account dashboard shows, so a booking that spans
+        // multiple activities opens the multi-activity confirmation hub instead
+        // of the single-activity v1 page. Bowling/KBF rows have no bmiBillId and
+        // get their v2 link by sibling propagation below (or keep their bowling
+        // /s/{shortCode}). Deterministic + idempotent; best-effort.
+        confirmationShortUrl: r.bmiBillId
+          ? await confirmationShortUrl(r.bmiBillId, true).catch(() => undefined)
+          : (undefined as string | undefined),
+      })),
+    );
+
+    // Propagate the v2 link to sibling legs of the SAME booking that have no BMI
+    // bill of their own. A unified cart (e.g. bowling + gel blaster) writes TWO
+    // Neon rows sharing one square_dayof_order_id: the attraction/race row carries
+    // the bmiBillId (→ v2 link above); the bowling row carries only its QAMF short
+    // code. Both legs are one booking and the guest lands on ONE v2 confirmation,
+    // so the bowling leg's admin link must point there too — not its standalone
+    // /hp/book/bowling/confirmation page. A pure bowling booking has no bmi-bill
+    // sibling and keeps its v1 link. (Combo legs split into separate Square orders,
+    // so they never cross-link here — combos render via comboMerge regardless.)
+    const v2LinkByDayofOrder = new Map<string, string>();
+    for (const r of enriched) {
+      if (r.squareDayofOrderId && r.bmiBillId && r.confirmationShortUrl) {
+        v2LinkByDayofOrder.set(r.squareDayofOrderId, r.confirmationShortUrl);
+      }
+    }
+    for (const r of enriched) {
+      if (!r.confirmationShortUrl && r.squareDayofOrderId) {
+        const sibling = v2LinkByDayofOrder.get(r.squareDayofOrderId);
+        if (sibling) r.confirmationShortUrl = sibling;
+      }
+    }
 
     // Group function events for the same date.
     // `center` is a Square location ID (bowling reservations use it); group
