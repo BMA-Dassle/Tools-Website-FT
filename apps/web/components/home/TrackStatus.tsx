@@ -50,21 +50,21 @@ export default function TrackStatus() {
                 <div className="flex flex-col">
                   <div className="flex items-center gap-3">
                     <span
-                      className={`w-2 h-2 rounded-full ${dotColor(data.tracks[0]?.status || "ok")} animate-pulse`}
+                      className={`w-2 h-2 rounded-full ${dotColor(data.tracks?.[0]?.status || "ok")} animate-pulse`}
                     />
                     <span className="font-body font-semibold text-white text-sm">Mega Track</span>
                     <span
                       className="font-body text-xs font-bold"
                       style={{ color: "rgb(134,82,255)" }}
                     >
-                      {data.tracks[0]?.delayFormatted || "On Time"}
+                      {data.tracks?.[0]?.delayFormatted || "On Time"}
                     </span>
                   </div>
                   {currentRaces.mega && <CheckingInTag race={currentRaces.mega} />}
                 </div>
               </div>
             ) : (
-              data.tracks.map((t) => {
+              data.tracks?.map((t) => {
                 const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as
                   | "blue"
                   | "red"

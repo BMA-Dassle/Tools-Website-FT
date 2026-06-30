@@ -2926,7 +2926,7 @@ function ExpressTrackStatus({ liveStatus }: { liveStatus: ReturnType<typeof useT
         Live Track Status
       </p>
       <div className="space-y-2">
-        {trackData.tracks.map((t) => {
+        {trackData.tracks?.map((t) => {
           const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as "blue" | "red" | "mega";
           const race = currentRaces[key] || null;
           return (
@@ -2996,7 +2996,7 @@ function RacerJourneySteps({ liveStatus }: { liveStatus: ReturnType<typeof useTr
           <p className="text-white/30 text-xs uppercase tracking-wider font-semibold">
             Live Track Status
           </p>
-          {trackData.tracks.map((t) => {
+          {trackData.tracks?.map((t) => {
             const key = t.trackName.toLowerCase().replace(/\s+track/i, "") as
               | "blue"
               | "red"
