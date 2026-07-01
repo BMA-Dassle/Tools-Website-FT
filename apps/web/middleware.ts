@@ -492,6 +492,10 @@ export async function middleware(request: NextRequest) {
     pathname === "/privacy-policy" ||
     pathname.startsWith("/privacy-policy/") ||
     pathname.startsWith("/event/") ||
+    // July-4 USA250 promo landing — advertised on both brand homepages via the
+    // promo popup, routes to the right per-venue booking page. Brand chrome is
+    // host-aware; the page itself serves both domains.
+    pathname === "/july4" ||
     // Short check-in shortlink (redirects into /event/healthnet-2026/confirm).
     pathname === "/healthnet" ||
     // Guest-survey landing pages (PR-GS2). Bowling surveys are HP-branded
@@ -567,6 +571,20 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/account")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    // July-4 promo landing: full-bleed marketing hero with its own dual-brand
+    // logos — suppress the HeadPinz Nav/Footer entirely (like the chooser splash).
+    if (pathname === "/july4") {
+      requestHeaders.set("x-no-chrome", "1");
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // July-4 promo landing on the FastTrax host: suppress site chrome so the
+  // full-bleed marketing hero (with its own dual-brand logos) stands alone.
+  // (The HeadPinz host is handled in the shared-route block above.)
+  if (pathname === "/july4") {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-no-chrome", "1");
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
