@@ -1,5 +1,48 @@
 # Open Tasks
 
+## Race restrictions: reserve 2 Starter slots/hour + unconditional junior back-to-back — IN PROGRESS 2026-07-02
+
+**Owner decisions (2026-07-02):** all three tracks (Red/Blue/Mega) · only ADULT starter counts
+toward/consumes the guarantee (junior starter is a consumer like int/pro) · 60-min last-minute
+lift on the reserve rule · blocked slots HIDDEN. Plus: junior back-to-back becomes unconditional
+("regardless of anything") — no last-minute override, and adjacency counts ANY junior race
+(cross-tier via categoryTrackBlocks, not just the candidate's own tier). Hidden like Pro.
+
+**Design:** new constraint `reserveStarterRoomPerClockHour {minRoom:2}` in
+race-restriction-rules.ts. Counts remaining "starter room" in the candidate's clock hour =
+distinct heat starts that are empty OR occupied by an adult-starter race (occupied heats are
+tier-exclusive in BMI availability, so tag blocks by source product). Blocks a non-adult-starter
+pick when booking it would leave room < 2. Room-counting (vs. hardcoded cap of heats/hour − 2)
+degrades conservatively when BMI drops passed/sold-out heats and handles partial hours.
+Two rule entries cover "everything except adult starter": tiers [intermediate,pro] all
+categories + tier starter category junior (Blue only — juniors don't run Red/Mega starter).
+
+- [x] `race-products.ts`: `singleRaceProductsOnTrack(track, schedule, racerType)` (all
+      tiers+categories, !packType); reimplemented `juniorProductsOnTrack` on top of it
+- [x] `race-restriction-rules.ts`: renamed `noAdjacentOccupiedSameTier` → `noAdjacentOccupied`
+      with `scope: "tier" | "category"`; junior b2b rules → scope category, override dropped;
+      new `reserveStarterRoomPerClockHour` constraint + `trackAllTierBlocks` ctx (tagged
+      `adultStarter`); 2 new rules; header doc updated
+- [x] Unit tests: 52 pass (12 new reserve-room cases + junior b2b cross-tier/unconditional)
+- [x] `RaceHeatPickerStep.tsx`: junior-Mega-only fan-out → all-tier per-track `crossTierProducts`
+      fan-out (skipped for adult-starter grids); one query set feeds junior + tagged unions
+- [x] `race.ts` `assertHeatBookable`: all-tier union, Promise.all best-effort sibling fetches;
+      junior union now covers Blue AND Mega
+- [x] `_restriction-smoke.mts`: rewritten to run EVERY single product on a track with the unions
+- [x] vitest (261 booking tests) + tsc clean (only pre-existing scratch-script errors)
+- [x] LIVE SMOKE (2026-07-02): Blue Thu = exactly right blocks (hour-18 reserve, junior
+      cross-tier b2b at 17:48/19:00, Starter never blocked); Mega 7/7 empty→no blocks; Red Fri
+      sparse→no blocks. Live data forced one fix: joining an already-occupied session consumes
+      no room → never reserve-blocked (was blocking a 16:48 join).
+- [x] Verified live: occupied heats ARE tier-exclusive (16:12 occupied-Int absent from Starter
+      list); room-counting is drop-off-safe by construction either way.
+- ⚠️ DISCOVERED: Blue ran a 12-MIN cadence on 2026-07-02 (17:00/17:12/17:24…), not the 15-min
+      the opening-heats-express-only-15min windows + jr-b2b gap-16 comment assume. Reserve rule
+      is cadence-independent (counts real slots); the OPENING-WINDOW rule for Blue would cover
+      3 heats (13:00/13:12/13:24) on 12-min days, not 2 — confirm intent with owner.
+- [ ] Commit on a fresh branch off main (changes currently uncommitted in the working tree;
+      current checkout is feat/account-dashboard-login — unrelated)
+
 ## Self-service "edit reservation up to check-in" — SPEC, awaiting approval 2026-06-21
 
 **Goal:** let a guest change their booked bowling reservation (food, players, lanes, time)

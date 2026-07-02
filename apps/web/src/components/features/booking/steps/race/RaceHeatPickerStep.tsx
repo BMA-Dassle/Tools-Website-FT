@@ -12,7 +12,7 @@ import {
 } from "~/features/booking/data";
 import {
   getRaceProductById,
-  juniorProductsOnTrack,
+  singleRaceProductsOnTrack,
   type RaceProduct,
   type RaceTier,
 } from "~/features/booking/service/race-products";
@@ -24,6 +24,7 @@ import {
 import {
   evaluateRaceRestrictions,
   type RestrictionBlock,
+  type TrackTierBlock,
 } from "~/features/booking/service/race-restriction-rules";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { holdPickedHeats } from "~/features/booking/service/race";
@@ -81,6 +82,13 @@ interface FetchPlanItem {
   productId: string;
   pageId: string;
   track: TrackOrNull;
+}
+
+/** One cross-tier occupancy fetch: a sibling product on the grid's track whose
+ *  availability feeds the union the cross-tier restriction rules read. */
+interface CrossTierFetch extends FetchPlanItem {
+  category: Category;
+  adultStarter: boolean;
 }
 
 interface TrackedProposal {
@@ -328,24 +336,33 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       })),
     });
 
-    // "Two Junior races per hour on Mega" counts BOTH junior tiers, but an
-    // occupied junior heat is tier-exclusive in BMI availability — so when the
-    // selected junior product sits on Mega, also fetch every junior Mega product
-    // (this tier + the sibling tier) and union their blocks into the per-hour
-    // signal. Empty for adult / non-Mega picks (the rule is Mega-junior only).
-    const juniorMegaHourProducts = useMemo<FetchPlanItem[]>(() => {
-      if (category !== "junior" || !product) return [];
-      if (!buildFetchPlan(product).some((f) => f.track === "Mega")) return [];
-      return juniorProductsOnTrack("Mega", product.schedule, product.racerType).map((p) => ({
-        productId: p.productId,
-        pageId: p.pageId,
-        track: "Mega" as Track,
-      }));
+    // Cross-tier occupancy fan-out. An occupied heat is tier-exclusive in BMI
+    // availability, so the rules that see past the candidate's own tier
+    // (junior back-to-back + two-per-hour, the adult-Starter room reserve)
+    // need the union of EVERY single-race product's availability on the grid's
+    // track(s). Adult Starter grids skip the fan-out — no cross-tier rule
+    // guards them. Shares query keys with `queries`, so React Query dedupes
+    // the candidate product's own fetch.
+    const crossTierProducts = useMemo<CrossTierFetch[]>(() => {
+      if (!product) return [];
+      if (product.tier === "starter" && category === "adult") return [];
+      const tracks = [...new Set(buildFetchPlan(product).map((f) => f.track))].filter(
+        (t): t is Track => !!t,
+      );
+      return tracks.flatMap((track) =>
+        singleRaceProductsOnTrack(track, product.schedule, product.racerType).map((p) => ({
+          productId: p.productId,
+          pageId: p.pageId,
+          track: track as TrackOrNull,
+          category: p.category as Category,
+          adultStarter: p.tier === "starter" && p.category === "adult",
+        })),
+      );
       // `category` is a closure constant (makeHeatPickerComponent), not a dep.
     }, [product]);
 
-    const hourQueries = useQueries({
-      queries: juniorMegaHourProducts.map(({ productId: pid, pageId }) => ({
+    const crossTierQueries = useQueries({
+      queries: crossTierProducts.map(({ productId: pid, pageId }) => ({
         queryKey: bookingKeys.bmi.availability({
           center: session.center ?? "fort-myers",
           date: item.date ?? "",
@@ -358,30 +375,40 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             pageId,
             quantity: partySize > 0 ? partySize : 1,
           }),
-        enabled: !!item.date && juniorMegaHourProducts.length > 0 && partySize > 0,
+        enabled: !!item.date && crossTierProducts.length > 0 && partySize > 0,
         staleTime: 60_000,
       })),
     });
 
-    // Union of every junior Mega heat (all tiers) — the occupancy signal the
-    // per-hour cap reads. Shares query keys with `queries`, so React Query
-    // dedupes the candidate tier's fetch.
-    const juniorMegaHourBlocks = useMemo<RestrictionBlock[]>(() => {
-      const out: RestrictionBlock[] = [];
-      for (const q of hourQueries) {
-        if (!q.data?.proposals) continue;
+    // Per-track unions the evaluator reads: every tier + category (tagged with
+    // whether the source product is adult Starter), plus the junior-only
+    // subset the junior back-to-back / per-hour rules read.
+    const crossTierBlocks = useMemo(() => {
+      const allByTrack = new Map<string, TrackTierBlock[]>();
+      const juniorByTrack = new Map<string, RestrictionBlock[]>();
+      crossTierQueries.forEach((q, qi) => {
+        const src = crossTierProducts[qi];
+        if (!src?.track || !q.data?.proposals) return;
         for (const p of q.data.proposals) {
           const b = p.blocks?.[0]?.block;
           if (!b) continue;
-          out.push({
+          const rb: RestrictionBlock = {
             startMs: parseLocal(b.start).getTime(),
             freeSpots: b.freeSpots,
             capacity: b.capacity,
-          });
+          };
+          const all = allByTrack.get(src.track) ?? [];
+          all.push({ ...rb, adultStarter: src.adultStarter });
+          allByTrack.set(src.track, all);
+          if (src.category === "junior") {
+            const jr = juniorByTrack.get(src.track) ?? [];
+            jr.push(rb);
+            juniorByTrack.set(src.track, jr);
+          }
         }
-      }
-      return out;
-    }, [hourQueries]);
+      });
+      return { allByTrack, juniorByTrack };
+    }, [crossTierQueries, crossTierProducts]);
 
     const returningRacers = useMemo(() => racers.filter((r) => !!r.bmiPersonId), [racers]);
     const hasReturning = returningRacers.length > 0;
@@ -460,7 +487,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             candidateStartLocal: block.start,
             nowMs,
             productBlocks: restrictionBlocks,
-            categoryTrackBlocks: juniorMegaHourBlocks,
+            categoryTrackBlocks:
+              category === "junior" ? crossTierBlocks.juniorByTrack.get(fp.track ?? "") : undefined,
+            trackAllTierBlocks: crossTierBlocks.allByTrack.get(fp.track ?? ""),
             expressEligible: allReturningHaveWaivers,
           });
           if (verdict.blocked && verdict.action === "hide") continue;
@@ -479,7 +508,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         (a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime(),
       );
       return list;
-    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers, juniorMegaHourBlocks]);
+    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers, crossTierBlocks]);
 
     // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
     // immediately; on failure releases anything that succeeded and reverts the
