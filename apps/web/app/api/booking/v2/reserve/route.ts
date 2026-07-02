@@ -25,6 +25,7 @@ import {
   CreditRedemptionError,
 } from "~/features/booking/service/race-credit-redeem";
 import type { CreditRedemption } from "~/features/booking/data/race-credits";
+import { patchHeatSetups, type HeatSetupInput } from "~/features/booking/service/session-setup";
 
 /**
  * POST /api/booking/v2/reserve
@@ -735,6 +736,16 @@ export async function POST(req: NextRequest) {
         console.log(`[v2/reserve] reservation ${neonId} → confirmed`);
       } catch (err) {
         console.error("[v2/reserve] confirmed-status update failed (non-fatal):", err);
+      }
+    }
+
+    // ── Step 5: Heat setup patch (race only) ────────────────────────────
+    // Set each booked heat block's name/style for its race level (kills the
+    // manual "Placeholder" setup step). Never throws; a failure is log-only.
+    if (body.bookingKind === "race") {
+      const heats = (body.bookingMetadata?.heats ?? []) as HeatSetupInput[];
+      if (Array.isArray(heats) && heats.length > 0) {
+        await patchHeatSetups(heats, { source: "v2/reserve", billId: body.bmiBillId });
       }
     }
 

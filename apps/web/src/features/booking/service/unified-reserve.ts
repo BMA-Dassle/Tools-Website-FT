@@ -28,6 +28,7 @@ import {
   SQUARE_LOCATIONS,
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
+import { patchHeatSetups } from "./session-setup";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines } from "./checkout";
 import { promoFactor } from "./promo-pricing";
@@ -1124,12 +1125,19 @@ async function unifiedReserveInner(
 
     const bookingMetadata: Record<string, unknown> = {};
     if (raceItems.length > 0) {
-      bookingMetadata.heats = raceItems[0].heats.map((h) => ({
-        productId: h.productId,
-        track: h.track,
-        heatId: h.heatId,
-        assignedTo: h.assignedTo,
-      }));
+      bookingMetadata.heats = raceItems[0].heats.map((h) => {
+        const product = getRaceProductById(h.productId);
+        return {
+          productId: h.productId,
+          track: h.track,
+          heatId: h.heatId,
+          assignedTo: h.assignedTo,
+          // Resolved level parts — lets the reconcile cron patch heat setups for
+          // package/combo heats whose productId is a pack SKU not in RACE_PRODUCTS.
+          tier: h.tier ?? product?.tier,
+          category: h.category ?? product?.category,
+        };
+      });
       bookingMetadata.racerNames = session.party.map((m) => m.firstName);
     }
     // Persist attraction slot START times so the day-of settle cron can tell when
@@ -1270,6 +1278,16 @@ async function unifiedReserveInner(
         );
       } catch (pandoraErr) {
         console.error("[unified-reserve] Pandora state update failed (non-fatal):", pandoraErr);
+      }
+
+      // Heat setup patch — set each booked heat block's name/style for its race
+      // level (kills the manual "Placeholder" setup step). ALL race items' heats
+      // (bookingMetadata only packs raceItems[0]). Never throws.
+      if (raceItems.length > 0) {
+        await patchHeatSetups(
+          raceItems.flatMap((r) => r.heats),
+          { source: "unified-reserve", billId: bmiBillId },
+        );
       }
 
       // Deduct redeemed race credits (post-confirm). Idempotent per heat; a failed

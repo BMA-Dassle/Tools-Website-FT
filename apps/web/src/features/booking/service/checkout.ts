@@ -616,12 +616,20 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
 
   const bookingMetadata: Record<string, unknown> = {};
   if (raceItem) {
-    bookingMetadata.heats = raceItem.heats.map((h) => ({
-      productId: h.productId,
-      track: h.track,
-      heatId: h.heatId,
-      assignedTo: h.assignedTo,
-    }));
+    bookingMetadata.heats = raceItem.heats.map((h) => {
+      const product = getRaceProductById(h.productId);
+      return {
+        productId: h.productId,
+        track: h.track,
+        heatId: h.heatId,
+        assignedTo: h.assignedTo,
+        // Resolved level parts — lets the server + reconcile cron patch heat
+        // setups for package/combo heats whose productId is a pack SKU not in
+        // RACE_PRODUCTS.
+        tier: h.tier ?? product?.tier,
+        category: h.category ?? product?.category,
+      };
+    });
     bookingMetadata.racerNames = session.party.map((m) => m.firstName);
   }
 
