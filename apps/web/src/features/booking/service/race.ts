@@ -23,7 +23,11 @@ import {
 } from "../data/bmi";
 import { registerContact } from "./bmi-register";
 import { getPackage } from "./packages";
-import { evaluateRaceRestrictions, type RestrictionBlock } from "./race-restriction-rules";
+import {
+  evaluateRaceRestrictions,
+  type RestrictionBlock,
+  type TrackTierBlock,
+} from "./race-restriction-rules";
 
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
@@ -610,8 +614,8 @@ async function ensurePersonId(
 import {
   bmiBookingTarget,
   getRaceProductById,
-  juniorProductsOnTrack,
   resolveBuildPair,
+  singleRaceProductsOnTrack,
 } from "./race-products";
 
 // ── internal: find a proposal matching a heat's start time ──────────────
@@ -689,35 +693,53 @@ async function assertHeatBookable(
     !anyNewInCategory &&
     session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
 
-  // Cross-tier occupancy for the "two Junior races per hour" Mega cap. An
-  // occupied junior heat is tier-exclusive in BMI availability, so union the
-  // OTHER junior Mega tier(s) onto the candidate tier's own blocks. Best-effort:
-  // a sibling fetch failure leaves the cap to the candidate tier only (the
-  // back-to-back rule still applies regardless).
+  // Cross-tier occupancy for the rules that see past the candidate's own tier
+  // (junior back-to-back + two-per-hour, the adult-Starter room reserve). An
+  // occupied heat is tier-exclusive in BMI availability, so union every OTHER
+  // single-race product on the candidate's track onto its own blocks. Adult
+  // Starter candidates skip the fan-out — no cross-tier rule guards them.
+  // Best-effort: a sibling fetch failure leaves that product out of the union
+  // (rules degrade toward the candidate's own tier).
   let categoryTrackBlocks = productBlocks;
-  if (category === "junior" && track === "Mega" && product && date) {
-    const siblingBlocks: RestrictionBlock[] = [];
-    for (const sib of juniorProductsOnTrack("Mega", product.schedule, product.racerType)) {
-      if (sib.tier === tier) continue; // candidate's own tier is already in productBlocks
-      const sibTarget = bmiBookingTarget(sib.productId, {
-        category: "junior",
-        tier: sib.tier,
-        track: "Mega",
-        withLicense: false,
-      });
-      try {
-        const sibAv = await bmiAdapter.getAvailability({
-          date,
-          productId: sibTarget.productId,
-          pageId: sibTarget.pageId,
-          quantity: 1,
+  let trackAllTierBlocks: TrackTierBlock[] | undefined;
+  const isAdultStarter = tier === "starter" && category === "adult";
+  if (!isAdultStarter && product && date) {
+    const siblings = singleRaceProductsOnTrack(track, product.schedule, product.racerType).filter(
+      (sib) => sib.productId !== product.productId,
+    );
+    const fetched = await Promise.all(
+      siblings.map(async (sib) => {
+        const sibTarget = bmiBookingTarget(sib.productId, {
+          category: sib.category,
+          tier: sib.tier,
+          track: sib.track,
+          withLicense: false,
         });
-        siblingBlocks.push(...toBlocks(sibAv));
-      } catch {
-        // best-effort — see note above
+        try {
+          const sibAv = await bmiAdapter.getAvailability({
+            date,
+            productId: sibTarget.productId,
+            pageId: sibTarget.pageId,
+            quantity: 1,
+          });
+          return { sib, blocks: toBlocks(sibAv) };
+        } catch {
+          return null; // best-effort — see note above
+        }
+      }),
+    );
+    trackAllTierBlocks = productBlocks.map((b) => ({ ...b, adultStarter: false }));
+    const juniorSiblingBlocks: RestrictionBlock[] = [];
+    for (const f of fetched) {
+      if (!f) continue;
+      const adultStarter = f.sib.tier === "starter" && f.sib.category === "adult";
+      trackAllTierBlocks.push(...f.blocks.map((b) => ({ ...b, adultStarter })));
+      if (category === "junior" && f.sib.category === "junior") {
+        juniorSiblingBlocks.push(...f.blocks);
       }
     }
-    if (siblingBlocks.length) categoryTrackBlocks = [...productBlocks, ...siblingBlocks];
+    if (juniorSiblingBlocks.length)
+      categoryTrackBlocks = [...productBlocks, ...juniorSiblingBlocks];
   }
 
   const verdict = evaluateRaceRestrictions({
@@ -729,6 +751,7 @@ async function assertHeatBookable(
     nowMs: Date.now(),
     productBlocks,
     categoryTrackBlocks,
+    trackAllTierBlocks,
     expressEligible,
   });
   if (verdict.blocked) throw new Error(verdict.reason ?? "That heat can't be booked.");

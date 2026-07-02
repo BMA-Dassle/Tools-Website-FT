@@ -27,14 +27,15 @@ describe("heatsConflict", () => {
     });
   });
 
-  describe("same-track Blue (15-min cadence, 16-min threshold)", () => {
-    it("blocks adjacent heat 15 min apart", () => {
-      expect(heatsConflict(T(15, 30), "Blue", T(15, 15), "Blue")).toBe(true);
-      expect(heatsConflict(T(15, 30), "Blue", T(15, 45), "Blue")).toBe(true);
+  describe("same-track Blue (12-min cadence since 2026-07-02, 13-min threshold)", () => {
+    it("blocks adjacent heat 12 min apart", () => {
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 12), "Blue")).toBe(true);
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 36), "Blue")).toBe(true);
     });
 
-    it("allows the next-after-adjacent heat at 30 min apart", () => {
-      expect(heatsConflict(T(15, 30), "Blue", T(16, 0), "Blue")).toBe(false);
+    it("allows the next-after-adjacent heat at 24 min apart", () => {
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 48), "Blue")).toBe(false);
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 0), "Blue")).toBe(false);
     });
   });
 
@@ -120,7 +121,7 @@ describe("findHeatConflict", () => {
 describe("thresholds export", () => {
   it("exposes per-track gap constants", () => {
     expect(TRACK_ADJACENT_GAP_MIN.red).toBe(13);
-    expect(TRACK_ADJACENT_GAP_MIN.blue).toBe(16);
+    expect(TRACK_ADJACENT_GAP_MIN.blue).toBe(13);
     expect(TRACK_ADJACENT_GAP_MIN.mega).toBe(13);
   });
 

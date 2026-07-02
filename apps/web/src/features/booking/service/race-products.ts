@@ -882,24 +882,35 @@ export function productsForSchedule(
 }
 
 /**
- * Every JUNIOR single-race product on `track` for the given (schedule,
- * racerType) — both tiers (e.g. junior intermediate + junior pro Mega). Used to
- * aggregate cross-tier occupancy for the "two junior races per hour" Mega rule
- * (race-restriction-rules.ts): an occupied junior heat shows up only in its own
- * tier's BMI availability, so the cap must union both products. Packs/combos are
- * excluded — the cap counts single junior heats. */
-export function juniorProductsOnTrack(
+ * Every single-race product on `track` for the given (schedule, racerType) —
+ * all tiers, both categories. Used to aggregate cross-tier occupancy for the
+ * restriction rules (race-restriction-rules.ts): an occupied heat shows up only
+ * in its OWN tier's BMI availability, so any rule that counts other tiers'
+ * sessions (junior back-to-back / per-hour caps, the adult-starter room
+ * reserve) must union availability across these products. Packs/combos are
+ * excluded — their heats book the same underlying sessions the singles expose. */
+export function singleRaceProductsOnTrack(
   track: string,
   schedule: import("./race-pricing").Schedule,
   racerType: RacerType,
 ): RaceProduct[] {
   return RACE_PRODUCTS.filter(
-    (p) =>
-      p.category === "junior" &&
-      p.track === track &&
-      p.schedule === schedule &&
-      p.racerType === racerType &&
-      !p.packType,
+    (p) => p.track === track && p.schedule === schedule && p.racerType === racerType && !p.packType,
+  );
+}
+
+/**
+ * Every JUNIOR single-race product on `track` for the given (schedule,
+ * racerType) — all junior tiers merged (e.g. junior intermediate + junior pro
+ * Mega). The union the junior back-to-back + "two junior races per hour" rules
+ * read (see singleRaceProductsOnTrack for why a union is needed). */
+export function juniorProductsOnTrack(
+  track: string,
+  schedule: import("./race-pricing").Schedule,
+  racerType: RacerType,
+): RaceProduct[] {
+  return singleRaceProductsOnTrack(track, schedule, racerType).filter(
+    (p) => p.category === "junior",
   );
 }
 
