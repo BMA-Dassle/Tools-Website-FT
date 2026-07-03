@@ -75,6 +75,42 @@ guest when they actually race when the QR they scanned isn't currently being cal
 
 **404** — no upcoming race scheduled for that racer (surfaced to staff as "No upcoming race found").
 
+### PATCH /bmi/session/{locationID}
+
+Sets a heat block's display name + style (setup) for a race level via BMI's `SESS_SET`
+procedure. Used by the booking v2 confirm paths
+([session-setup.ts](../apps/web/src/features/booking/service/session-setup.ts)) to replace the
+manual "Placeholder" setup step: fired post-confirm from unified reserve, `/api/booking/v2/reserve`,
+and the race-confirm-reconcile cron. Idempotent — re-applying the same style is a no-op.
+
+**Parameters:**
+| Name | Type | In | Description |
+|------|------|-----|-------------|
+| locationID | string | path | Pandora location ID (`LAB52GY480CJF` for FastTrax FT Myers — the only racing location) |
+
+**Body:**
+
+```json
+{
+  "track": "Blue",
+  "heatStart": "2026-07-30T16:30:00",
+  "level": "starter",
+  "junior": false
+}
+```
+
+- `track` — track name; bare name works, optional "Track" suffix accepted (e.g. `"Mega"` or `"Mega Track"`).
+- `heatStart` — naive center-local ISO start of the heat block (same format booking v2 stores as `heatId`).
+- `level` — `starter | intermediate | pro` (matches `RaceTier` exactly).
+- `junior` — `true` = Junior style/name, `false` = Adult.
+- `productLimitId` (optional, integer) — locks a BMI product limit on the heat; on virgin heats the
+  limit name appends to the derived name. Booking v2 does NOT send it (owner decision 2026-07-01).
+
+**Response (200):** sessionId, derived heat name, styleId, and the array of updated fields
+(e.g. `["style", "name"]`).
+
+**404** — `{"success":false,"message":"No heat found for that track and start time."}` (verified 2026-07-01).
+
 ## Environment Variables
 
 | Variable                | Value                                          | Description                            |

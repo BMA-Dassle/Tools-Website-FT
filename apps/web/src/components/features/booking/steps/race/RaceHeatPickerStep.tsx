@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import { bookingKeys } from "~/features/booking";
 import {
@@ -12,11 +12,12 @@ import {
 } from "~/features/booking/data";
 import {
   getRaceProductById,
-  juniorProductsOnTrack,
+  singleRaceProductsOnTrack,
   type RaceProduct,
   type RaceTier,
 } from "~/features/booking/service/race-products";
 import {
+  EXISTING_RESERVATION_CONFLICT_TOOLTIP,
   findHeatConflict,
   HEAT_CONFLICT_TOOLTIP,
   heatsConflict,
@@ -24,6 +25,7 @@ import {
 import {
   evaluateRaceRestrictions,
   type RestrictionBlock,
+  type TrackTierBlock,
 } from "~/features/booking/service/race-restriction-rules";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { holdPickedHeats } from "~/features/booking/service/race";
@@ -68,10 +70,9 @@ import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track
 // Minimum minutes between "now" and a new racer's heat start (check-in buffer).
 const NEW_RACER_LEAD_MINUTES = 40;
 
-// Single-race products have no fixed raceCount. Allow a racer to book MORE than
-// one heat (up to this many per racer) so they can race multiple times in a
-// visit; the heat-conflict check still blocks back-to-back / too-close picks.
-const SINGLE_RACE_MAX_PER_RACER = 6;
+// Single-race products have no fixed raceCount and NO per-racer heat cap
+// (owner 2026-07-02: racers may book as many heats as they like) — the
+// heat-conflict spacing check is the only limit on how picks stack up.
 
 type Category = "adult" | "junior";
 type Track = "Red" | "Blue" | "Mega";
@@ -81,6 +82,13 @@ interface FetchPlanItem {
   productId: string;
   pageId: string;
   track: TrackOrNull;
+}
+
+/** One cross-tier occupancy fetch: a sibling product on the grid's track whose
+ *  availability feeds the union the cross-tier restriction rules read. */
+interface CrossTierFetch extends FetchPlanItem {
+  category: Category;
+  adultStarter: boolean;
 }
 
 interface TrackedProposal {
@@ -275,9 +283,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       );
     }
     // Combo packs require exactly raceCount heats. Single races (no raceCount)
-    // may book MORE than one — capped generously per racer; the conflict logic
-    // below prevents picking back-to-back / too-close heats.
-    const heatsMax = product?.raceCount ?? partySize * SINGLE_RACE_MAX_PER_RACER;
+    // are UNCAPPED — the conflict logic below (back-to-back / too-close picks)
+    // is the only limit.
+    const heatsMax = product?.raceCount ?? Infinity;
 
     // Locked-track filter: when ProductStep TrackPickerModal set
     // productTrackAdult/Junior, only fetch that track. Mirrors v1's
@@ -328,24 +336,33 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       })),
     });
 
-    // "Two Junior races per hour on Mega" counts BOTH junior tiers, but an
-    // occupied junior heat is tier-exclusive in BMI availability — so when the
-    // selected junior product sits on Mega, also fetch every junior Mega product
-    // (this tier + the sibling tier) and union their blocks into the per-hour
-    // signal. Empty for adult / non-Mega picks (the rule is Mega-junior only).
-    const juniorMegaHourProducts = useMemo<FetchPlanItem[]>(() => {
-      if (category !== "junior" || !product) return [];
-      if (!buildFetchPlan(product).some((f) => f.track === "Mega")) return [];
-      return juniorProductsOnTrack("Mega", product.schedule, product.racerType).map((p) => ({
-        productId: p.productId,
-        pageId: p.pageId,
-        track: "Mega" as Track,
-      }));
+    // Cross-tier occupancy fan-out. An occupied heat is tier-exclusive in BMI
+    // availability, so the rules that see past the candidate's own tier
+    // (junior back-to-back + two-per-hour, the adult-Starter room reserve)
+    // need the union of EVERY single-race product's availability on the grid's
+    // track(s). Adult Starter grids skip the fan-out — no cross-tier rule
+    // guards them. Shares query keys with `queries`, so React Query dedupes
+    // the candidate product's own fetch.
+    const crossTierProducts = useMemo<CrossTierFetch[]>(() => {
+      if (!product) return [];
+      if (product.tier === "starter" && category === "adult") return [];
+      const tracks = [...new Set(buildFetchPlan(product).map((f) => f.track))].filter(
+        (t): t is Track => !!t,
+      );
+      return tracks.flatMap((track) =>
+        singleRaceProductsOnTrack(track, product.schedule, product.racerType).map((p) => ({
+          productId: p.productId,
+          pageId: p.pageId,
+          track: track as TrackOrNull,
+          category: p.category as Category,
+          adultStarter: p.tier === "starter" && p.category === "adult",
+        })),
+      );
       // `category` is a closure constant (makeHeatPickerComponent), not a dep.
     }, [product]);
 
-    const hourQueries = useQueries({
-      queries: juniorMegaHourProducts.map(({ productId: pid, pageId }) => ({
+    const crossTierQueries = useQueries({
+      queries: crossTierProducts.map(({ productId: pid, pageId }) => ({
         queryKey: bookingKeys.bmi.availability({
           center: session.center ?? "fort-myers",
           date: item.date ?? "",
@@ -358,30 +375,40 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             pageId,
             quantity: partySize > 0 ? partySize : 1,
           }),
-        enabled: !!item.date && juniorMegaHourProducts.length > 0 && partySize > 0,
+        enabled: !!item.date && crossTierProducts.length > 0 && partySize > 0,
         staleTime: 60_000,
       })),
     });
 
-    // Union of every junior Mega heat (all tiers) — the occupancy signal the
-    // per-hour cap reads. Shares query keys with `queries`, so React Query
-    // dedupes the candidate tier's fetch.
-    const juniorMegaHourBlocks = useMemo<RestrictionBlock[]>(() => {
-      const out: RestrictionBlock[] = [];
-      for (const q of hourQueries) {
-        if (!q.data?.proposals) continue;
+    // Per-track unions the evaluator reads: every tier + category (tagged with
+    // whether the source product is adult Starter), plus the junior-only
+    // subset the junior back-to-back / per-hour rules read.
+    const crossTierBlocks = useMemo(() => {
+      const allByTrack = new Map<string, TrackTierBlock[]>();
+      const juniorByTrack = new Map<string, RestrictionBlock[]>();
+      crossTierQueries.forEach((q, qi) => {
+        const src = crossTierProducts[qi];
+        if (!src?.track || !q.data?.proposals) return;
         for (const p of q.data.proposals) {
           const b = p.blocks?.[0]?.block;
           if (!b) continue;
-          out.push({
+          const rb: RestrictionBlock = {
             startMs: parseLocal(b.start).getTime(),
             freeSpots: b.freeSpots,
             capacity: b.capacity,
-          });
+          };
+          const all = allByTrack.get(src.track) ?? [];
+          all.push({ ...rb, adultStarter: src.adultStarter });
+          allByTrack.set(src.track, all);
+          if (src.category === "junior") {
+            const jr = juniorByTrack.get(src.track) ?? [];
+            jr.push(rb);
+            juniorByTrack.set(src.track, jr);
+          }
         }
-      }
-      return out;
-    }, [hourQueries]);
+      });
+      return { allByTrack, juniorByTrack };
+    }, [crossTierQueries, crossTierProducts]);
 
     const returningRacers = useMemo(() => racers.filter((r) => !!r.bmiPersonId), [racers]);
     const hasReturning = returningRacers.length > 0;
@@ -411,13 +438,51 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const pickedSet = new Set(pickedBlocks.map((p) => heatKey(p.productId, p.heatId)));
     const atCap = pickedBlocks.length >= heatsMax;
 
+    // Heats these racers ALREADY hold in other reservations on this date —
+    // the cross-reservation spacing signal (matched by bmiPersonId). Greys the
+    // same slots the server-side reserve guard would reject, so the dodge of
+    // booking each heat in a separate reservation dies in the picker instead
+    // of erroring at payment. Fail-open: no personIds / fetch error → empty.
+    const racerPersonIds = useMemo(
+      () =>
+        [...new Set(racers.map((r) => r.bmiPersonId).filter((id): id is string => !!id))].sort(),
+      [racers],
+    );
+    const bookedHeatsQuery = useQuery({
+      queryKey: [
+        "race-booked-heats",
+        item.date ?? "",
+        racerPersonIds.join(","),
+        session.bmiBillId ?? "",
+      ],
+      queryFn: async (): Promise<{ heats: Array<{ heatId: string; track: string | null }> }> => {
+        const params = new URLSearchParams({
+          date: item.date!,
+          personIds: racerPersonIds.join(","),
+        });
+        if (session.bmiBillId) params.set("excludeBillId", session.bmiBillId);
+        const res = await fetch(`/api/booking/v2/booked-heats?${params.toString()}`);
+        if (!res.ok) return { heats: [] };
+        return res.json();
+      },
+      enabled: !!item.date && racerPersonIds.length > 0,
+      staleTime: 60_000,
+    });
+
     // Gap enforcement spans ALL of this category's heats — every product/track the
     // racer has added across the "Add another race" loop, not just the current
     // screen — so they can't end up booked back-to-back across tracks/products.
+    // Kept SEPARATE from the racers' already-booked heats (other reservations,
+    // above) so the card copy can say which one is blocking: "picked heat" vs
+    // "existing reservation" (owner feedback 2026-07-02).
     const categoryRacerIds = new Set(racers.map((r) => r.id));
-    const conflictBlocks = item.heats
+    const cartConflictBlocks = item.heats
       .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
       .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }));
+    const existingConflictBlocks = (bookedHeatsQuery.data?.heats ?? []).map((h) => ({
+      heatId: h.heatId,
+      track: (h.track as TrackOrNull) ?? null,
+    }));
 
     const anyNewInCategory = racers.some((r) => r.isNewRacer);
     const allReturningHaveWaivers =
@@ -460,7 +525,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             candidateStartLocal: block.start,
             nowMs,
             productBlocks: restrictionBlocks,
-            categoryTrackBlocks: juniorMegaHourBlocks,
+            categoryTrackBlocks:
+              category === "junior" ? crossTierBlocks.juniorByTrack.get(fp.track ?? "") : undefined,
+            trackAllTierBlocks: crossTierBlocks.allByTrack.get(fp.track ?? ""),
             expressEligible: allReturningHaveWaivers,
           });
           if (verdict.blocked && verdict.action === "hide") continue;
@@ -479,7 +546,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         (a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime(),
       );
       return list;
-    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers, juniorMegaHourBlocks]);
+    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers, crossTierBlocks]);
 
     // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
     // immediately; on failure releases anything that succeeded and reverts the
@@ -735,11 +802,21 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               const block = tp.block;
               const isSelected = pickedSet.has(heatKey(tp.productId, block.start));
               const blockStartMs = parseLocal(block.start).getTime();
-              const isConflict =
+              const conflictsWithCart =
                 !isSelected &&
-                conflictBlocks.some((p) =>
+                cartConflictBlocks.some((p) =>
                   heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
                 );
+              // Blocked by a heat the racer holds in a PRIOR reservation (not
+              // this cart) — same spacing rules, different copy. Cart wins when
+              // both apply ("picked heat" is the one they can still unselect).
+              const conflictsWithExisting =
+                !isSelected &&
+                !conflictsWithCart &&
+                existingConflictBlocks.some((p) =>
+                  heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
+                );
+              const isConflict = conflictsWithCart || conflictsWithExisting;
               const isEventReserved =
                 !isSelected &&
                 blockWindows.some((w) => {
@@ -773,7 +850,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 : isEventReserved || isBeforeReopen
                   ? "Reserved for event"
                   : isConflict
-                    ? "Too close to picked heat"
+                    ? conflictsWithExisting
+                      ? "Too close to existing reservation"
+                      : "Too close to picked heat"
                     : isLowCap
                       ? `Need ${partySize}, only ${block.freeSpots} left`
                       : isCapped
@@ -815,9 +894,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   title={
                     isRestricted
                       ? tp.restriction!.reason
-                      : isConflict
-                        ? HEAT_CONFLICT_TOOLTIP
-                        : undefined
+                      : conflictsWithExisting
+                        ? EXISTING_RESERVATION_CONFLICT_TOOLTIP
+                        : isConflict
+                          ? HEAT_CONFLICT_TOOLTIP
+                          : undefined
                   }
                   className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
                 >

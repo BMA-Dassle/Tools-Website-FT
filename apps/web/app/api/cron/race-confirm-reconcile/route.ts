@@ -19,6 +19,7 @@ import {
 import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
 import { SQUARE_LOCATIONS } from "~/features/booking/data/square-catalog-map";
 import { verifyCron } from "@/lib/cron-auth";
+import { patchHeatSetups, type HeatSetupInput } from "~/features/booking/service/session-setup";
 
 /**
  * GET /api/cron/race-confirm-reconcile
@@ -103,6 +104,17 @@ async function setPandoraConfirmation(r: BowlingReservation, bmiBillId: string):
   } catch (err) {
     console.error("[race-confirm-reconcile] Pandora state update failed (non-fatal):", err);
   }
+}
+
+/** Heat setup patch for a recovered race row — mirror of the reserve paths'
+ *  post-confirm patch (sets each booked heat block's name/style for its race
+ *  level instead of the manual "Placeholder" step). Idempotent + never throws,
+ *  so re-firing on rows whose reserve-path patch already ran is harmless. */
+async function patchRowHeatSetups(r: BowlingReservation): Promise<void> {
+  if (r.productKind !== "race" || !r.bmiBillId) return;
+  const heats = (r.bookingMetadata?.heats ?? []) as HeatSetupInput[];
+  if (!Array.isArray(heats) || heats.length === 0) return;
+  await patchHeatSetups(heats, { source: "race-confirm-reconcile", billId: r.bmiBillId });
 }
 
 /**
@@ -212,6 +224,9 @@ async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<Rec
       await updateBowlingReservationConfirmed(r.id, {
         bmiReservationNumber: c.reservationNumber ?? r.bmiReservationNumber ?? undefined,
       });
+      // Covers reserve crashes where /api/booking/confirm did the BMI confirm —
+      // that path never fires the heat setup patch.
+      await patchRowHeatSetups(r);
       return { label, status: "confirmed", note: "promoted (BMI already confirmed)" };
     }
 
@@ -256,6 +271,7 @@ async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<Rec
     await updateBowlingReservationConfirmed(r.id, {
       bmiReservationNumber: reservationNumber ?? r.bmiReservationNumber ?? undefined,
     });
+    await patchRowHeatSetups(r);
     return { label, status: "confirmed", note: `confirmed (resNum=${reservationNumber})` };
   } catch (err) {
     const detail = err instanceof Error ? err.message : "reconcile error";

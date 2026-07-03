@@ -28,8 +28,9 @@ import {
   SQUARE_LOCATIONS,
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
+import { patchHeatSetups } from "./session-setup";
 import { raceUsesZeroBmiModel } from "./race";
-import { buildRaceChargeLines } from "./checkout";
+import { buildRaceChargeLines, raceHeatsMetadata } from "./checkout";
 import { promoFactor } from "./promo-pricing";
 import { recordRedemption, getDiscountCodeByCode } from "~/features/discount-codes";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
@@ -46,8 +47,10 @@ import {
   updateBowlingReservationConfirmed,
   updateBowlingReservationConfirmFailed,
   updateBowlingReservationSquareIds,
+  raceHeatsForPersonsOnDate,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
+import { findCrossBookingConflict, heatClockLabel } from "./conflict";
 import { shortenUrl } from "@/lib/short-url";
 import type {
   BookingSession,
@@ -349,6 +352,29 @@ export class BillExpiredError extends Error {
   }
 }
 
+/**
+ * Thrown when a cart heat is too close to a heat the SAME racer already holds
+ * in another reservation (cross-reservation spacing — see conflict.ts). Raised
+ * BEFORE any Square write, so nothing was charged.
+ */
+export class ExistingBookingConflictError extends Error {
+  code = "EXISTING_BOOKING_CONFLICT";
+  constructor(message: string) {
+    super(message);
+    this.name = "ExistingBookingConflictError";
+  }
+}
+
+/** Rejection copy for a cross-reservation spacing conflict. */
+export function existingBookingConflictMessage(conflict: {
+  cart: { heatId: string | null; racer?: string | null };
+  existing: { heatId: string };
+}): string {
+  const who = conflict.cart.racer || "One of your racers";
+  const cartLabel = conflict.cart.heatId ? heatClockLabel(conflict.cart.heatId) : "the selected";
+  return `${who} already has a race booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} heat. Please pick a different time.`;
+}
+
 // ── Main orchestrator ─────────────────────────────────────────────────
 
 /**
@@ -438,6 +464,47 @@ async function unifiedReserveInner(
         `[unifiedReserve] BILL_EXPIRED — bmiBillId ${session.bmiBillId} auto-cancelled before payment; refusing to charge`,
       );
       throw new BillExpiredError();
+    }
+  }
+
+  // ── 0b. Guard: cross-reservation heat spacing ──────────────────────
+  // A racer must not dodge the same-track / cross-track spacing rules by
+  // booking each heat in a SEPARATE reservation. Match the cart's heats (by
+  // each racer's bmiPersonId) against the party's already-booked heats for the
+  // same day in Neon, and reject BEFORE any Square write. Fail-open on a query
+  // error — an outage must never block a legitimate paying customer.
+  if (raceItems.length > 0) {
+    const cartHeats = raceItems
+      .flatMap((r) => raceHeatsMetadata(r.heats, session.party))
+      .filter((h) => typeof h.heatId === "string" && typeof h.bmiPersonId === "string")
+      .map((h) => ({
+        heatId: h.heatId as string,
+        track: (h.track as string | null) ?? null,
+        bmiPersonId: h.bmiPersonId as string,
+        racer: (h.racer as string | null) ?? null,
+      }));
+    const personIds = [...new Set(cartHeats.map((h) => h.bmiPersonId))];
+    const dates = [...new Set(cartHeats.map((h) => h.heatId.slice(0, 10)))];
+    if (personIds.length > 0) {
+      try {
+        const existing = (
+          await Promise.all(
+            dates.map((date) =>
+              raceHeatsForPersonsOnDate({ date, personIds, excludeBillId: session.bmiBillId }),
+            ),
+          )
+        ).flat();
+        const conflict = findCrossBookingConflict(cartHeats, existing);
+        if (conflict) {
+          console.error(
+            `[unifiedReserve] EXISTING_BOOKING_CONFLICT — person ${conflict.cart.bmiPersonId} cart ${conflict.cart.heatId} vs booked ${conflict.existing.heatId}`,
+          );
+          throw new ExistingBookingConflictError(existingBookingConflictMessage(conflict));
+        }
+      } catch (err) {
+        if (err instanceof ExistingBookingConflictError) throw err;
+        console.error("[unifiedReserve] cross-reservation check errored (failing open):", err);
+      }
     }
   }
 
@@ -719,6 +786,11 @@ async function unifiedReserveInner(
     `[unified-reserve] bowlingItems=${bowlingItems.length} raceItems=${raceItems.length} attractionItems=${attractionItems.length}`,
   );
 
+  // Per-row coupon attribution for the admin board: bowling rows record their
+  // own lines' savings; the race/attraction anchor row records the remainder
+  // of the cart-wide total (races, attractions, combo lines).
+  let bowlingPromoSavingsCents = 0;
+
   for (const item of bowlingItems) {
     const centerId = item.qamfCenterId ?? 9172;
     const playerCount =
@@ -861,6 +933,23 @@ async function unifiedReserveInner(
       const centerCode = session.center ?? "fort-myers";
       const productKind: ReservationProductKind = item.kind === "kbf" ? "kbf" : "open";
 
+      // This item's share of the USA250-style savings (same per-line math as
+      // buildLines) — recorded on the row for the admin board. Combo carts
+      // suppress the bowling item's own lines, so their savings ride on the
+      // race anchor row instead.
+      const comboSuppressed = activeComboSpecial(session) != null;
+      const itemVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
+      const itemPromoSavingsCents = (comboSuppressed ? [] : item.lineItems).reduce((s, li) => {
+        const full = li.priceCents ?? 0;
+        if (full <= 0) return s;
+        const f = promoFactor(
+          { domain: "bowling", visitDate: itemVisitDate },
+          session.appliedPromo,
+        );
+        return s + (full - Math.round(full * f)) * li.quantity;
+      }, 0);
+      bowlingPromoSavingsCents += itemPromoSavingsCents;
+
       try {
         const reservation = await insertBowlingReservation(
           {
@@ -888,9 +977,14 @@ async function unifiedReserveInner(
             squareCustomerId: input.squareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
+            // Coupon applied to this item's lines (admin board display).
+            promoCode:
+              itemPromoSavingsCents > 0 ? (session.appliedPromo?.code ?? undefined) : undefined,
+            promoSavingsCents: itemPromoSavingsCents,
             // Combo (Ultimate VIP): stamp the combo id so the reservations
             // portal can flag + group this VIP bowling leg with its race leg
-            // (they share square_dayof_order_id).
+            // (correlated via the shared square_deposit_order_id; each leg
+            // settles its own day-of order).
             comboSpecialId: session.comboSpecialId ?? undefined,
           },
           item.lineItems.map((li) => ({
@@ -1086,12 +1180,7 @@ async function unifiedReserveInner(
 
     const bookingMetadata: Record<string, unknown> = {};
     if (raceItems.length > 0) {
-      bookingMetadata.heats = raceItems[0].heats.map((h) => ({
-        productId: h.productId,
-        track: h.track,
-        heatId: h.heatId,
-        assignedTo: h.assignedTo,
-      }));
+      bookingMetadata.heats = raceHeatsMetadata(raceItems[0].heats, session.party);
       bookingMetadata.racerNames = session.party.map((m) => m.firstName);
     }
     // Persist attraction slot START times so the day-of settle cron can tell when
@@ -1149,6 +1238,13 @@ async function unifiedReserveInner(
             squareCustomerId: input.squareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
+            // Coupon share not carried by the bowling rows (races, attractions,
+            // combo lines) — cart-wide total minus the bowling rows' share.
+            promoCode:
+              promoSavingsCents - bowlingPromoSavingsCents > 0
+                ? (session.appliedPromo?.code ?? undefined)
+                : undefined,
+            promoSavingsCents: Math.max(0, promoSavingsCents - bowlingPromoSavingsCents),
             bookingMetadata,
             // Combo (Ultimate VIP): stamp the combo id on the race/attraction
             // leg too, so it groups with the VIP bowling leg in the portal.
@@ -1232,6 +1328,16 @@ async function unifiedReserveInner(
         );
       } catch (pandoraErr) {
         console.error("[unified-reserve] Pandora state update failed (non-fatal):", pandoraErr);
+      }
+
+      // Heat setup patch — set each booked heat block's name/style for its race
+      // level (kills the manual "Placeholder" setup step). ALL race items' heats
+      // (bookingMetadata only packs raceItems[0]). Never throws.
+      if (raceItems.length > 0) {
+        await patchHeatSetups(
+          raceItems.flatMap((r) => r.heats),
+          { source: "unified-reserve", billId: bmiBillId },
+        );
       }
 
       // Deduct redeemed race credits (post-confirm). Idempotent per heat; a failed

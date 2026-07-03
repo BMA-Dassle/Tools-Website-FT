@@ -56,6 +56,10 @@ interface Reservation {
   bookingSource?: string;
   squareLoyaltyRewardId?: string;
   rewardDiscountCents: number;
+  /** Coupon / discount code applied at booking (e.g. "USA250"). */
+  promoCode?: string;
+  /** Pre-tax cents the coupon removed from this reservation's charge. */
+  promoSavingsCents: number;
   checkinMethod?: string;
   loyaltyAction?: string;
   squareCustomerId?: string;
@@ -1833,6 +1837,8 @@ export default function ReservationsClient({ token }: { token: string }) {
     squareDayofOrderId: string | null;
     rewardDiscountCents: number;
     squareLoyaltyRewardId?: string | null;
+    promoCode?: string | null;
+    promoSavingsCents?: number;
   } | null>(null);
   const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
@@ -2621,6 +2627,26 @@ export default function ReservationsClient({ token }: { token: string }) {
               </div>
             )}
 
+            {orderTarget.promoCode && (orderTarget.promoSavingsCents ?? 0) > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 12,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: "rgba(168,85,247,0.08)",
+                  border: "1px solid rgba(168,85,247,0.25)",
+                }}
+              >
+                <span style={{ color: "#c084fc", fontSize: "0.75rem", fontWeight: 600 }}>
+                  Coupon {orderTarget.promoCode} −$
+                  {((orderTarget.promoSavingsCents ?? 0) / 100).toFixed(2)}
+                </span>
+              </div>
+            )}
+
             {orderItems &&
               orderItems.length > 0 &&
               (() => {
@@ -3200,6 +3226,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 squareDayofOrderId: o.orderId,
                                 rewardDiscountCents: o.leg.rewardDiscountCents ?? 0,
                                 squareLoyaltyRewardId: o.leg.squareLoyaltyRewardId,
+                                promoCode: o.leg.promoCode ?? null,
+                                promoSavingsCents: o.leg.promoSavingsCents ?? 0,
                               })
                             }
                             style={{ ...NAV_BTN, fontSize: "0.72rem", fontWeight: 600 }}
@@ -3761,8 +3789,11 @@ export default function ReservationsClient({ token }: { token: string }) {
                       </span>
                     </div>
 
-                    {/* Row 3 (optional): rewards + square */}
-                    {(r.loyaltyAction || r.rewardDiscountCents > 0 || r.squareDayofOrderId) && (
+                    {/* Row 3 (optional): rewards + coupon + square */}
+                    {(r.loyaltyAction ||
+                      r.rewardDiscountCents > 0 ||
+                      r.promoSavingsCents > 0 ||
+                      r.squareDayofOrderId) && (
                       <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
                         {r.loyaltyAction === "signup" && (
                           <span
@@ -3809,6 +3840,22 @@ export default function ReservationsClient({ token }: { token: string }) {
                             −${(r.rewardDiscountCents / 100).toFixed(0)}
                           </span>
                         )}
+                        {r.promoCode && r.promoSavingsCents > 0 && (
+                          <span
+                            title={`Coupon ${r.promoCode} — saved $${(r.promoSavingsCents / 100).toFixed(2)}`}
+                            style={{
+                              padding: "0px 3px",
+                              borderRadius: 3,
+                              fontSize: "0.5rem",
+                              fontWeight: 600,
+                              backgroundColor: "rgba(168,85,247,0.15)",
+                              color: "#c084fc",
+                              border: "1px solid rgba(168,85,247,0.3)",
+                            }}
+                          >
+                            {r.promoCode} −${(r.promoSavingsCents / 100).toFixed(0)}
+                          </span>
+                        )}
                         {r.squareDayofOrderId && (
                           <button
                             type="button"
@@ -3818,6 +3865,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 squareDayofOrderId: r.squareDayofOrderId ?? null,
                                 rewardDiscountCents: r.rewardDiscountCents,
                                 squareLoyaltyRewardId: r.squareLoyaltyRewardId,
+                                promoCode: r.promoCode ?? null,
+                                promoSavingsCents: r.promoSavingsCents,
                               })
                             }
                             style={{
@@ -4348,11 +4397,30 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 −${(r.rewardDiscountCents / 100).toFixed(0)}
                               </span>
                             )}
-                            {!r.loyaltyAction && r.rewardDiscountCents === 0 && (
-                              <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>
-                                —
+                            {r.promoCode && r.promoSavingsCents > 0 && (
+                              <span
+                                title={`Coupon ${r.promoCode} — saved $${(r.promoSavingsCents / 100).toFixed(2)}`}
+                                style={{
+                                  display: "inline-block",
+                                  padding: "0.1rem 0.3rem",
+                                  borderRadius: 4,
+                                  fontSize: "0.55rem",
+                                  fontWeight: 600,
+                                  backgroundColor: "rgba(168,85,247,0.15)",
+                                  color: "#c084fc",
+                                  border: "1px solid rgba(168,85,247,0.3)",
+                                }}
+                              >
+                                {r.promoCode} −${(r.promoSavingsCents / 100).toFixed(0)}
                               </span>
                             )}
+                            {!r.loyaltyAction &&
+                              r.rewardDiscountCents === 0 &&
+                              r.promoSavingsCents === 0 && (
+                                <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>
+                                  —
+                                </span>
+                              )}
                           </div>
                         </td>
 
@@ -4414,6 +4482,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                                       squareDayofOrderId: o.orderId,
                                       rewardDiscountCents: o.leg.rewardDiscountCents,
                                       squareLoyaltyRewardId: o.leg.squareLoyaltyRewardId,
+                                      promoCode: o.leg.promoCode ?? null,
+                                      promoSavingsCents: o.leg.promoSavingsCents,
                                     })
                                   }
                                   style={{
@@ -4442,6 +4512,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                                   squareDayofOrderId: r.squareDayofOrderId ?? null,
                                   rewardDiscountCents: r.rewardDiscountCents,
                                   squareLoyaltyRewardId: r.squareLoyaltyRewardId,
+                                  promoCode: r.promoCode ?? null,
+                                  promoSavingsCents: r.promoSavingsCents,
                                 })
                               }
                               style={{
