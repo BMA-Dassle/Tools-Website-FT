@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
-import { getBowlingReservation, updateBowlingReservationCancelled } from "@/lib/bowling-db";
-import { deleteReservation } from "@/lib/qamf-bowling";
-import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
+import { getBowlingReservation } from "@/lib/bowling-db";
+import { CancelGuardError, cancelReservationCascade } from "~/features/cancellation";
 
 /**
  * GET /api/bowling/v2/reservations/[id]
@@ -42,14 +40,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   }
 }
 
-const CENTER_CODE_TO_QAMF: Record<string, number> = {
-  TXBSQN0FEKQ11: 9172,
-  PPTR5G2N0QXF7: 3148,
-};
-
-/** Cancellations must be requested at least this many ms before the booking. */
-const CANCEL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id: idStr } = await ctx.params;
   const id = parseInt(idStr, 10);
@@ -57,72 +47,45 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
 
-  const reservation = await getBowlingReservation(id);
-  if (!reservation) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
-  if (reservation.status === "cancelled") {
-    return NextResponse.json({
-      message: "already cancelled",
-      refundCents: reservation.refundCents ?? 0,
+  // Delegates to the cancellation cascade (kills the old drift: this route
+  // previously skipped the loyalty-reward delete and BMI add-on cancels).
+  // Response contract preserved for legacy callers.
+  try {
+    const result = await cancelReservationCascade({
+      neonId: id,
+      outcome: "refund",
+      actor: "customer",
+      dryRun: false,
+      allowCustomerRefund: process.env.NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY !== "true",
     });
-  }
-
-  // ── 1-hour cancellation window ──────────────────────────────────
-  const bookedAtMs = new Date(reservation.bookedAt).getTime();
-  const nowMs = Date.now();
-  const msUntilGame = bookedAtMs - nowMs;
-
-  if (msUntilGame < CANCEL_WINDOW_MS) {
-    return NextResponse.json(
-      {
-        error: "too_late",
-        message: "Cancellations must be made at least 1 hour before your start time.",
-      },
-      { status: 409 },
-    );
-  }
-
-  // ── Delete QAMF reservation (best-effort) ───────────────────────
-  if (reservation.qamfReservationId) {
-    const qamfCenterId = CENTER_CODE_TO_QAMF[reservation.centerCode];
-    if (qamfCenterId) {
-      try {
-        await deleteReservation(qamfCenterId, reservation.qamfReservationId);
-      } catch {
-        // Non-fatal — QAMF reservation may have already expired or been played
-      }
-    }
-  }
-
-  // ── Square refund + day-of order cancellation ───────────────────
-  let squareRefundId: string | undefined;
-  let refundCents = 0;
-
-  if (reservation.squareDepositPaymentId && reservation.squareGiftCardId) {
-    try {
-      const result = await processSquareBowlingRefund({
-        depositPaymentId: reservation.squareDepositPaymentId,
-        depositOrderId: reservation.squareDepositOrderId,
-        giftCardId: reservation.squareGiftCardId,
-        dayofOrderId: reservation.squareDayofOrderId,
-        locationId: reservation.centerCode,
-        idempotencyKey: randomUUID(),
+    if (result.alreadyCancelled) {
+      return NextResponse.json({
+        message: "already cancelled",
+        refundCents: result.refundCents ?? 0,
       });
-      squareRefundId = result.refundId;
-      refundCents = result.refundedCents;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Refund request failed";
-      return NextResponse.json({ error: msg }, { status: 502 });
     }
+    return NextResponse.json({
+      message: "cancelled",
+      refundCents: result.refundCents ?? 0,
+      squareRefundId: result.refundIds?.[0],
+    });
+  } catch (err) {
+    if (err instanceof CancelGuardError) {
+      if (err.code === "within_1_hour") {
+        return NextResponse.json(
+          {
+            error: "too_late",
+            message: "Cancellations must be made at least 1 hour before your start time.",
+          },
+          { status: 409 },
+        );
+      }
+      if (err.code === "not_found") {
+        return NextResponse.json({ error: "not found" }, { status: 404 });
+      }
+      return NextResponse.json({ error: err.message }, { status: err.httpStatus });
+    }
+    const msg = err instanceof Error ? err.message : "Refund request failed";
+    return NextResponse.json({ error: msg }, { status: 502 });
   }
-
-  // ── Persist cancellation to Neon ────────────────────────────────
-  await updateBowlingReservationCancelled(id, { squareRefundId, refundCents });
-
-  return NextResponse.json({
-    message: "cancelled",
-    refundCents,
-    squareRefundId,
-  });
 }
