@@ -61,8 +61,10 @@ until its LED wall is verified). Everything self-hides after the final.
 
 ## NOT in this PR (blocking follow-ups, in order)
 
-1. **QAMF ops:** 150-min Time options under FM web offers **155 + 159** (Naples 119 + 125
-   when ready) → 4 option ids into the seed constants.
+1. **QAMF ops:** the DEDICATED World Cup web offers exist — **FM 175 (Mon–Thur) / 174
+   (Fri–Sun), Naples 141 / 139**, already wired into the seed constants — but aren't yet
+   activating in Conqueror. Once active: read each offer's **150-min Time option id** → 4
+   option ids into the seed, and confirm each offer books the **VIP lane group**.
 2. **Square ops (dedicated mode):** catalog item "World Cup VIP Match Window (2.5 Hrs)",
    variations Mon–Thur $112.50 / Fri–Sun $137.50, all locations, same category/tax as
    `BESYYLCKLOVD7YE4GYJU24HR` → 2 variation ids. (Or flip the seed to FALLBACK mode: zero

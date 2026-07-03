@@ -12,14 +12,16 @@
  *
  * ── REQUIRED INPUTS (script hard-fails until they're filled in) ────────────
  *
- *  1. FOUR QAMF 150-minute Time option ids (from Conqueror ops), created
- *     under the EXISTING VIP web offers:
- *       FM     offer 155 (VIP Mon–Thur)  → QAMF.monThur.fm.optionId
- *       FM     offer 159 (VIP Fri–Sun)   → QAMF.friSun.fm.optionId
- *       Naples offer 119 (VIP Mon–Thur)  → QAMF.monThur.naples.optionId
- *       Naples offer 125 (VIP Fri–Sun)   → QAMF.friSun.naples.optionId
- *     If ops creates NEW web offers instead (e.g. Conqueror can't add options
- *     to live offers), update the webOfferId fields too — nothing else changes.
+ *  1. FOUR QAMF 150-minute Time option ids. The DEDICATED World Cup web
+ *     offers exist in Conqueror (owner 7/3 — separate offers because of the
+ *     2.5-hr duration) but are NOT YET ACTIVATING; once they activate, read
+ *     each offer's 150-min Time option id and fill it in:
+ *       FM     offer 175 (World Cup Mon–Thur) → QAMF.monThur.fm.optionId
+ *       FM     offer 174 (World Cup Fri–Sun)  → QAMF.friSun.fm.optionId
+ *       Naples offer 141 (World Cup Mon–Thur) → QAMF.monThur.naples.optionId
+ *       Naples offer 139 (World Cup Fri–Sun)  → QAMF.friSun.naples.optionId
+ *     Before seeding, confirm in Conqueror that each offer books the VIP
+ *     lane group (lane assignment follows the web offer).
  *
  *  2. DEDICATED mode only: TWO Square catalog variation ids for the item
  *     "World Cup VIP Match Window (2.5 Hrs)" (create in Square Dashboard,
@@ -112,16 +114,19 @@ const HOURLY_1_5_FRI_VIP = "UFD6XVXU6GKCIRCLRUFLSKMJ"; // $82.50/lane
 const HOURLY_1_FRI_VIP = "OSOZ7RJ6WW7G4CEFL55U7LXF"; // $55.00/lane
 const CHIPS_SALSA = "LHZXWYO72N5QFX4CGYKRVPZX"; // $0.00 comp
 
-// ── QAMF 150-min Time options (REQUIRED — from Conqueror ops) ────────────────
-// optionId 0 = placeholder → the script refuses to run.
+// ── QAMF web offers + 150-min Time options ───────────────────────────────────
+// DEDICATED World Cup web offers (owner 7/3) — separate from the shared VIP
+// offers (155/159/119/125) because of the 2.5-hr duration. Offer ids are
+// final; the optionId placeholders (0 → script refuses to run) get the
+// 150-min Time option ids once the offers ACTIVATE in Conqueror.
 const QAMF = {
   monThur: {
-    fm: { webOfferId: 155, optionId: 0 },
-    naples: { webOfferId: 119, optionId: 0 },
+    fm: { webOfferId: 175, optionId: 0 }, // HeadPinz Fort Myers — World Cup Mon–Thur
+    naples: { webOfferId: 141, optionId: 0 }, // HeadPinz Naples — World Cup Mon–Thur
   },
   friSun: {
-    fm: { webOfferId: 159, optionId: 0 },
-    naples: { webOfferId: 125, optionId: 0 },
+    fm: { webOfferId: 174, optionId: 0 }, // HeadPinz Fort Myers — World Cup Fri–Sun
+    naples: { webOfferId: 139, optionId: 0 }, // HeadPinz Naples — World Cup Fri–Sun
   },
 };
 
@@ -132,7 +137,7 @@ function validateInputs(): void {
     for (const [center, cfg] of Object.entries(centers)) {
       if (!cfg.optionId) {
         problems.push(
-          `QAMF.${band}.${center}.optionId is unset — need the 150-min Time option id under web offer ${cfg.webOfferId}`,
+          `QAMF.${band}.${center}.optionId is unset — read the 150-min Time option id under web offer ${cfg.webOfferId} once it activates in Conqueror`,
         );
       }
     }
