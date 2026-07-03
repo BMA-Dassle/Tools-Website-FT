@@ -48,7 +48,10 @@ until its LED wall is verified). Everything self-hides after the final.
   rejection; line-item math both seed modes × lanes × bands; entry parse).
 - **tsc:** clean (only pre-existing failures in two *untracked local* scratch scripts that
   never reach CI).
-- **`next build`:** compiles + type-checks + full route manifest clean.
+- **`turbo run build`:** compiles + type-checks + full route manifest + **a11y gate**
+  (`[a11y-gate] ✓ zero jsx-a11y violations`) clean — the gate initially failed the first
+  Vercel deploy on the match-card button (text nested too deep for
+  `control-has-associated-label`); fixed with an explicit `aria-label` in `d914373d`.
 
 ## NOT in this PR (blocking follow-ups, in order)
 

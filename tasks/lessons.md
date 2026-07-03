@@ -1,5 +1,24 @@
 # Lessons Learned
 
+## Local build verification must run the WORKSPACE build script, not `next build` directly (2026-07-03)
+
+**What happened:** The World Cup VIP branch passed a local `npx next build` clean, then the
+Vercel deploy failed on the **a11y gate** (`scripts/a11y-gate.mjs`, a jsx-a11y sweep wired as
+the package's `postbuild` hook). `next build` invoked directly never runs npm lifecycle hooks,
+so the gate silently didn't execute locally — the "green build" claim was false.
+
+**Rules:**
+
+- Verify with `npx turbo run build --filter=fasttrax-web` (or `npm run build` in `apps/web`) —
+  anything that skips the `postbuild` a11y gate is not a build verification.
+- The gate's `control-has-associated-label` rule can't see button text nested ≥3 levels deep in
+  conditional markup — rich card-style `<button>`s need an explicit `aria-label` (better for
+  screen readers anyway).
+- Wrinkle: untracked local scratch scripts under `apps/web/scripts/` (gitignored `.mts` probes)
+  ARE type-checked by local builds and can fail them even though CI/Vercel never sees those
+  files. Park them out of the tree for the verification run rather than concluding the branch
+  is broken — and prefer writing scratch probes that type-check.
+
 ## A re-sign must re-confirm BMI, and "deposit paid" must never read `deposit_due_cents` (2026-06-22)
 
 Incident — **Suffolk** (FM, BMI project **49972983**, GAN HPFM49972983, quote #101, event 6/25). Two
