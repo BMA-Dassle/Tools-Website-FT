@@ -598,6 +598,36 @@ diagnosis was never tested in isolation — link+override was assumed broken, ne
 - Separate "never attempted" (null/null) from "attempted, ignored" (price present but order
   shows catalog price) — they point at different bugs.
 
+### Addendum: the misdiagnosis had METASTASIZED (2026-07-03, USA250 incident)
+
+The retracted 2026-06-05 belief ("Square rejects `base_price_money` on fixed-price catalog
+items") had been **copied into three more routes before it was retracted** — and the 2026-06-08
+correction only fixed `buildSquareLineItem` (group functions). The stale copies lived on in
+`/api/square/bowling-orders`, its `/quote` sibling, and the `bowling/v2/reserve` fallback, each
+with an `if (catalogObjectId) → drop basePriceMoney` branch (one even kept the wrong claim as a
+comment). They were harmless for a year because no bowling caller sent a reduced price — until
+USA250 (price-key promo, 2026-06-26) did. Result: bowling-only carts with the code applied were
+charged FULL price while the review showed the discount and plugged the difference into the
+displayed "Tax" line (the total-unchanged screenshot is the signature). Racing/mixed carts were
+fine (unified-reserve passed the override through).
+
+- **When a belief about an external API is corrected, grep for every copy of the belief** —
+  `catalog_object_id` order-construction sites, comments quoting the old claim — not just the
+  file where the bug was found. A wrong comment is executable documentation: the next author
+  copies it. (Full sweep done 2026-07-03: all other order-creation sites verified safe.)
+- **A dormant drop-the-override branch is a time bomb, not a no-op.** "No caller sends a
+  reduced price today" lasts exactly until someone ships a promo.
+- **Display seams that plug totals hide charge bugs.** The checkout review computed
+  `tax = quotedTotal − discountedSubtotal`, so a full-price quote surfaced as an inflated tax
+  line instead of a wrong total. Guard at the source instead: the quote route now FAILS (502)
+  if Square's returned line prices don't echo every `base_price_money` sent (see
+  `bowling-orders/quote/route.ts` invariant), and the reserve route re-derives price-key promos
+  server-side from the code alone, so even the no-quote fallback charges what was displayed.
+- **A client-side-only discount is unauditable.** The bowling-only path never sent the promo
+  code to the server, so no redemption row existed and victims couldn't be identified from our
+  data. Any price-affecting state the client holds MUST reach the server at charge time (the
+  code, not the amounts). Audit tooling: `scripts/usa250-bowling-overcharge-scan.mts`.
+
 ## Full-prepay group events never paid out day-of — two coupled bugs (2026-06-03)
 
 "Hayes Birthday Party" should have auto-paid on the event day, but `/api/cron/group-dayof-pay`
