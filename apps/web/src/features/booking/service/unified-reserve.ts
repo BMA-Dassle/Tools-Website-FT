@@ -824,6 +824,11 @@ async function unifiedReserveInner(
     `[unified-reserve] bowlingItems=${bowlingItems.length} raceItems=${raceItems.length} attractionItems=${attractionItems.length}`,
   );
 
+  // Per-row coupon attribution for the admin board: bowling rows record their
+  // own lines' savings; the race/attraction anchor row records the remainder
+  // of the cart-wide total (races, attractions, combo lines).
+  let bowlingPromoSavingsCents = 0;
+
   for (const item of bowlingItems) {
     const centerId = item.qamfCenterId ?? 9172;
     const playerCount =
@@ -966,6 +971,23 @@ async function unifiedReserveInner(
       const centerCode = session.center ?? "fort-myers";
       const productKind: ReservationProductKind = item.kind === "kbf" ? "kbf" : "open";
 
+      // This item's share of the USA250-style savings (same per-line math as
+      // buildLines) — recorded on the row for the admin board. Combo carts
+      // suppress the bowling item's own lines, so their savings ride on the
+      // race anchor row instead.
+      const comboSuppressed = activeComboSpecial(session) != null;
+      const itemVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
+      const itemPromoSavingsCents = (comboSuppressed ? [] : item.lineItems).reduce((s, li) => {
+        const full = li.priceCents ?? 0;
+        if (full <= 0) return s;
+        const f = promoFactor(
+          { domain: "bowling", visitDate: itemVisitDate },
+          session.appliedPromo,
+        );
+        return s + (full - Math.round(full * f)) * li.quantity;
+      }, 0);
+      bowlingPromoSavingsCents += itemPromoSavingsCents;
+
       try {
         const reservation = await insertBowlingReservation(
           {
@@ -993,6 +1015,10 @@ async function unifiedReserveInner(
             squareCustomerId: input.squareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
+            // Coupon applied to this item's lines (admin board display).
+            promoCode:
+              itemPromoSavingsCents > 0 ? (session.appliedPromo?.code ?? undefined) : undefined,
+            promoSavingsCents: itemPromoSavingsCents,
             // Combo (Ultimate VIP): stamp the combo id so the reservations
             // portal can flag + group this VIP bowling leg with its race leg
             // (correlated via the shared square_deposit_order_id; each leg
@@ -1250,6 +1276,13 @@ async function unifiedReserveInner(
             squareCustomerId: input.squareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
+            // Coupon share not carried by the bowling rows (races, attractions,
+            // combo lines) — cart-wide total minus the bowling rows' share.
+            promoCode:
+              promoSavingsCents - bowlingPromoSavingsCents > 0
+                ? (session.appliedPromo?.code ?? undefined)
+                : undefined,
+            promoSavingsCents: Math.max(0, promoSavingsCents - bowlingPromoSavingsCents),
             bookingMetadata,
             // Combo (Ultimate VIP): stamp the combo id on the race/attraction
             // leg too, so it groups with the VIP bowling leg in the portal.
