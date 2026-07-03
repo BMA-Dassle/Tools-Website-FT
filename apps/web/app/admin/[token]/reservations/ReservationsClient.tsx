@@ -3931,7 +3931,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             Check In
                           </button>
                         )}
-                        {r.status !== "arrived" && r.qamfReservationId && (
+                        {r.status !== "arrived" && r.qamfReservationId && !r.comboSpecialId && (
                           <button
                             type="button"
                             onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
@@ -3999,7 +3999,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             Resend
                           </button>
                         )}
-                        {r.status !== "arrived" && bowlingActionable(r) && (
+                        {r.status !== "arrived" && bowlingActionable(r) && !r.comboSpecialId && (
                           <button
                             type="button"
                             onClick={() => setCancelTarget(r)}
@@ -4686,6 +4686,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               r.status !== "completed" &&
                               r.status !== "arrived" &&
                               r.qamfReservationId &&
+                              !r.comboSpecialId &&
                               (() => {
                                 const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
                                 return (
@@ -4763,11 +4764,14 @@ export default function ReservationsClient({ token }: { token: string }) {
                                   Resend
                                 </button>
                               )}
-                            {/* Cancel — bowling-only */}
+                            {/* Cancel — bowling-only; never a combo leg (single-leg
+                                cancel refunds the card while the shared gift card
+                                stays loaded, and orphans the other leg) */}
                             {!isCancelled &&
                               r.status !== "arrived" &&
                               r.status !== "completed" &&
-                              bowlingActionable(r) && (
+                              bowlingActionable(r) &&
+                              !r.comboSpecialId && (
                                 <button
                                   type="button"
                                   onClick={() => setCancelTarget(r)}

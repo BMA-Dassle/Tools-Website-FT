@@ -42,6 +42,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Already cancelled" }, { status: 409 });
   }
 
+  // Combo (VIP) legs span two reservations + two day-of orders + one shared
+  // gift card. Cancelling one leg here refunds the card while the gift card
+  // stays loaded (double-pay) and orphans the other leg. Combos need the
+  // full close-out (tasks/future/combo-cancellation.md).
+  if (reservation.comboSpecialId) {
+    return NextResponse.json(
+      { error: "VIP combo legs cannot be cancelled here — use the combo close-out process." },
+      { status: 400 },
+    );
+  }
+
   // ── 1. Cancel in QAMF (best-effort) ──────────────────────────────
   const qamfCenterId = CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
   if (qamfCenterId && reservation.qamfReservationId) {
