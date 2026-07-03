@@ -1494,6 +1494,60 @@ export async function listVipComboReservations(opts: {
   return reservations.map((r) => ({ ...r, lines: linesByRes.get(r.id) ?? [] }));
 }
 
+/** One already-booked heat with racer identity — cross-reservation spacing signal. */
+export interface BookedRaceHeatRow {
+  heatId: string;
+  track: string | null;
+  /** BMI personId as a STRING (never Number() a BMI id). */
+  bmiPersonId: string;
+  racer: string | null;
+}
+
+/**
+ * Every heat already booked for any of `personIds` on `date` — the signal for
+ * cross-reservation spacing enforcement (conflict.ts findCrossBookingConflict).
+ * Reads booking_metadata.heats[].bmiPersonId, persisted at reserve time since
+ * 2026-07-02; older rows lack the field and simply never match (forward-only
+ * per owner). Active reservations only. `excludeBillId` drops the caller's own
+ * bill so a reserve retry (confirm_pending anchor already written) never
+ * self-conflicts.
+ */
+export async function raceHeatsForPersonsOnDate(opts: {
+  /** Center-local date the heats start on, "YYYY-MM-DD". */
+  date: string;
+  personIds: string[];
+  excludeBillId?: string | null;
+}): Promise<BookedRaceHeatRow[]> {
+  if (!isDbConfigured()) return [];
+  const personIds = opts.personIds.filter(Boolean);
+  if (personIds.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(opts.date)) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const excludeBillId = opts.excludeBillId ?? null;
+  const rows = await q`
+    SELECT t.e->>'heatId' AS heat_id, t.e->>'track' AS track,
+           t.e->>'bmiPersonId' AS person_id, t.e->>'racer' AS racer
+    FROM bowling_reservations r
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(r.booking_metadata->'heats')='array'
+           THEN r.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)
+    WHERE r.product_kind = 'race'
+      AND r.status IN ('confirmed','confirm_pending')
+      AND (${excludeBillId}::text IS NULL OR r.bmi_bill_id IS DISTINCT FROM ${excludeBillId})
+      AND t.e->>'bmiPersonId' = ANY(${personIds})
+      AND left(t.e->>'heatId', 10) = ${opts.date}
+  `;
+  return rows
+    .map((r) => r as Record<string, unknown>)
+    .filter((r) => typeof r.heat_id === "string" && typeof r.person_id === "string")
+    .map((r) => ({
+      heatId: r.heat_id as string,
+      track: (r.track as string | null) ?? null,
+      bmiPersonId: r.person_id as string,
+      racer: (r.racer as string | null) ?? null,
+    }));
+}
+
 /**
  * All reservations (kbf/open/race/attraction) belonging to a VERIFIED contact,
  * for the customer account dashboard. Authorization is the contact itself — the

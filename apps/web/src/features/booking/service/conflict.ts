@@ -118,6 +118,65 @@ export function packageGapTooltip(minutes: number, refLabel: string): string {
   return `Available ${minutes} min after your ${refLabel} ends — gives you time to qualify, review your POV video, and grab your appetizer.`;
 }
 
+// ── Cross-reservation spacing ────────────────────────────────────────────
+//
+// The rules above only see the CURRENT cart, so a racer could dodge them by
+// booking each heat in a separate reservation. Every booked heat is persisted
+// to Neon with its racer's bmiPersonId (booking_metadata.heats), and the
+// reserve guard + heat picker run the SAME spacing rules against the union of
+// cart heats and the party's already-booked same-day heats. Matching is by
+// bmiPersonId, so this covers identified racers (returning racers, and a new
+// racer's later bookings once they come back through the returning lookup) —
+// a person who re-registers as new with fresh details gets a duplicate BMI
+// person and is not matched (accepted limitation, owner 2026-07-02).
+
+/** One heat tied to a specific racer, cart-side or already booked. */
+export interface BookedPersonHeat {
+  /** Naive center-local start string, e.g. "2026-07-02T15:36:00". */
+  heatId: string;
+  track: string | null;
+  /** BMI personId as a STRING (never Number() a BMI id). Null = unidentified. */
+  bmiPersonId: string | null;
+  /** Racer first name when known — used in the rejection message. */
+  racer?: string | null;
+}
+
+/**
+ * First cart heat that violates the spacing rules against a heat the SAME
+ * person already holds in another reservation, or null. Heats without a
+ * bmiPersonId are skipped (no identity to match). An identical start on the
+ * same track still conflicts (diff 0 < gap) — the same person double-booking
+ * one heat through two reservations is also a dodge. Callers must exclude the
+ * current bill's own reservation from `existingHeats` (retries would otherwise
+ * self-conflict).
+ */
+export function findCrossBookingConflict(
+  cartHeats: BookedPersonHeat[],
+  existingHeats: BookedPersonHeat[],
+): { cart: BookedPersonHeat; existing: BookedPersonHeat } | null {
+  for (const c of cartHeats) {
+    if (!c.bmiPersonId || !c.heatId) continue;
+    const cMs = Date.parse(c.heatId.replace(/Z$/, ""));
+    if (!Number.isFinite(cMs)) continue;
+    for (const e of existingHeats) {
+      if (!e.bmiPersonId || e.bmiPersonId !== c.bmiPersonId || !e.heatId) continue;
+      const eMs = Date.parse(e.heatId.replace(/Z$/, ""));
+      if (!Number.isFinite(eMs)) continue;
+      if (heatsConflict(cMs, c.track, eMs, e.track)) return { cart: c, existing: e };
+    }
+  }
+  return null;
+}
+
+/** "2026-07-02T15:36:00" → "3:36 PM" (for rejection messages). */
+export function heatClockLabel(heatId: string): string {
+  const m = heatId.match(/T(\d{2}):(\d{2})/);
+  if (!m) return heatId;
+  const h24 = Number(m[1]);
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${m[2]} ${h24 < 12 ? "AM" : "PM"}`;
+}
+
 /**
  * Helper: do any two heats in a list (same racer) conflict?
  * Pairwise check; returns the first conflict pair found, or null.

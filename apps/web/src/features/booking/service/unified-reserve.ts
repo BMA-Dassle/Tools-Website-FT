@@ -30,7 +30,7 @@ import {
 import { getRaceProductById } from "./race-products";
 import { patchHeatSetups } from "./session-setup";
 import { raceUsesZeroBmiModel } from "./race";
-import { buildRaceChargeLines } from "./checkout";
+import { buildRaceChargeLines, raceHeatsMetadata } from "./checkout";
 import { promoFactor } from "./promo-pricing";
 import { recordRedemption, getDiscountCodeByCode } from "~/features/discount-codes";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
@@ -47,8 +47,10 @@ import {
   updateBowlingReservationConfirmed,
   updateBowlingReservationConfirmFailed,
   updateBowlingReservationSquareIds,
+  raceHeatsForPersonsOnDate,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
+import { findCrossBookingConflict, heatClockLabel } from "./conflict";
 import { shortenUrl } from "@/lib/short-url";
 import type {
   BookingSession,
@@ -350,6 +352,29 @@ export class BillExpiredError extends Error {
   }
 }
 
+/**
+ * Thrown when a cart heat is too close to a heat the SAME racer already holds
+ * in another reservation (cross-reservation spacing — see conflict.ts). Raised
+ * BEFORE any Square write, so nothing was charged.
+ */
+export class ExistingBookingConflictError extends Error {
+  code = "EXISTING_BOOKING_CONFLICT";
+  constructor(message: string) {
+    super(message);
+    this.name = "ExistingBookingConflictError";
+  }
+}
+
+/** Rejection copy for a cross-reservation spacing conflict. */
+export function existingBookingConflictMessage(conflict: {
+  cart: { heatId: string | null; racer?: string | null };
+  existing: { heatId: string };
+}): string {
+  const who = conflict.cart.racer || "One of your racers";
+  const cartLabel = conflict.cart.heatId ? heatClockLabel(conflict.cart.heatId) : "the selected";
+  return `${who} already has a race booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} heat. Please pick a different time.`;
+}
+
 // ── Main orchestrator ─────────────────────────────────────────────────
 
 /**
@@ -439,6 +464,47 @@ async function unifiedReserveInner(
         `[unifiedReserve] BILL_EXPIRED — bmiBillId ${session.bmiBillId} auto-cancelled before payment; refusing to charge`,
       );
       throw new BillExpiredError();
+    }
+  }
+
+  // ── 0b. Guard: cross-reservation heat spacing ──────────────────────
+  // A racer must not dodge the same-track / cross-track spacing rules by
+  // booking each heat in a SEPARATE reservation. Match the cart's heats (by
+  // each racer's bmiPersonId) against the party's already-booked heats for the
+  // same day in Neon, and reject BEFORE any Square write. Fail-open on a query
+  // error — an outage must never block a legitimate paying customer.
+  if (raceItems.length > 0) {
+    const cartHeats = raceItems
+      .flatMap((r) => raceHeatsMetadata(r.heats, session.party))
+      .filter((h) => typeof h.heatId === "string" && typeof h.bmiPersonId === "string")
+      .map((h) => ({
+        heatId: h.heatId as string,
+        track: (h.track as string | null) ?? null,
+        bmiPersonId: h.bmiPersonId as string,
+        racer: (h.racer as string | null) ?? null,
+      }));
+    const personIds = [...new Set(cartHeats.map((h) => h.bmiPersonId))];
+    const dates = [...new Set(cartHeats.map((h) => h.heatId.slice(0, 10)))];
+    if (personIds.length > 0) {
+      try {
+        const existing = (
+          await Promise.all(
+            dates.map((date) =>
+              raceHeatsForPersonsOnDate({ date, personIds, excludeBillId: session.bmiBillId }),
+            ),
+          )
+        ).flat();
+        const conflict = findCrossBookingConflict(cartHeats, existing);
+        if (conflict) {
+          console.error(
+            `[unifiedReserve] EXISTING_BOOKING_CONFLICT — person ${conflict.cart.bmiPersonId} cart ${conflict.cart.heatId} vs booked ${conflict.existing.heatId}`,
+          );
+          throw new ExistingBookingConflictError(existingBookingConflictMessage(conflict));
+        }
+      } catch (err) {
+        if (err instanceof ExistingBookingConflictError) throw err;
+        console.error("[unifiedReserve] cross-reservation check errored (failing open):", err);
+      }
     }
   }
 
@@ -1125,19 +1191,7 @@ async function unifiedReserveInner(
 
     const bookingMetadata: Record<string, unknown> = {};
     if (raceItems.length > 0) {
-      bookingMetadata.heats = raceItems[0].heats.map((h) => {
-        const product = getRaceProductById(h.productId);
-        return {
-          productId: h.productId,
-          track: h.track,
-          heatId: h.heatId,
-          assignedTo: h.assignedTo,
-          // Resolved level parts — lets the reconcile cron patch heat setups for
-          // package/combo heats whose productId is a pack SKU not in RACE_PRODUCTS.
-          tier: h.tier ?? product?.tier,
-          category: h.category ?? product?.category,
-        };
-      });
+      bookingMetadata.heats = raceHeatsMetadata(raceItems[0].heats, session.party);
       bookingMetadata.racerNames = session.party.map((m) => m.firstName);
     }
     // Persist attraction slot START times so the day-of settle cron can tell when

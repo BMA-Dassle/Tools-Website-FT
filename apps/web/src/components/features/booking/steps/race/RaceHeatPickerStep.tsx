@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import { bookingKeys } from "~/features/booking";
 import {
@@ -69,10 +69,9 @@ import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track
 // Minimum minutes between "now" and a new racer's heat start (check-in buffer).
 const NEW_RACER_LEAD_MINUTES = 40;
 
-// Single-race products have no fixed raceCount. Allow a racer to book MORE than
-// one heat (up to this many per racer) so they can race multiple times in a
-// visit; the heat-conflict check still blocks back-to-back / too-close picks.
-const SINGLE_RACE_MAX_PER_RACER = 6;
+// Single-race products have no fixed raceCount and NO per-racer heat cap
+// (owner 2026-07-02: racers may book as many heats as they like) — the
+// heat-conflict spacing check is the only limit on how picks stack up.
 
 type Category = "adult" | "junior";
 type Track = "Red" | "Blue" | "Mega";
@@ -283,9 +282,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       );
     }
     // Combo packs require exactly raceCount heats. Single races (no raceCount)
-    // may book MORE than one — capped generously per racer; the conflict logic
-    // below prevents picking back-to-back / too-close heats.
-    const heatsMax = product?.raceCount ?? partySize * SINGLE_RACE_MAX_PER_RACER;
+    // are UNCAPPED — the conflict logic below (back-to-back / too-close picks)
+    // is the only limit.
+    const heatsMax = product?.raceCount ?? Infinity;
 
     // Locked-track filter: when ProductStep TrackPickerModal set
     // productTrackAdult/Junior, only fetch that track. Mirrors v1's
@@ -438,13 +437,51 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const pickedSet = new Set(pickedBlocks.map((p) => heatKey(p.productId, p.heatId)));
     const atCap = pickedBlocks.length >= heatsMax;
 
+    // Heats these racers ALREADY hold in other reservations on this date —
+    // the cross-reservation spacing signal (matched by bmiPersonId). Greys the
+    // same slots the server-side reserve guard would reject, so the dodge of
+    // booking each heat in a separate reservation dies in the picker instead
+    // of erroring at payment. Fail-open: no personIds / fetch error → empty.
+    const racerPersonIds = useMemo(
+      () =>
+        [...new Set(racers.map((r) => r.bmiPersonId).filter((id): id is string => !!id))].sort(),
+      [racers],
+    );
+    const bookedHeatsQuery = useQuery({
+      queryKey: [
+        "race-booked-heats",
+        item.date ?? "",
+        racerPersonIds.join(","),
+        session.bmiBillId ?? "",
+      ],
+      queryFn: async (): Promise<{ heats: Array<{ heatId: string; track: string | null }> }> => {
+        const params = new URLSearchParams({
+          date: item.date!,
+          personIds: racerPersonIds.join(","),
+        });
+        if (session.bmiBillId) params.set("excludeBillId", session.bmiBillId);
+        const res = await fetch(`/api/booking/v2/booked-heats?${params.toString()}`);
+        if (!res.ok) return { heats: [] };
+        return res.json();
+      },
+      enabled: !!item.date && racerPersonIds.length > 0,
+      staleTime: 60_000,
+    });
+
     // Gap enforcement spans ALL of this category's heats — every product/track the
     // racer has added across the "Add another race" loop, not just the current
     // screen — so they can't end up booked back-to-back across tracks/products.
+    // PLUS the racers' already-booked heats from other reservations (above).
     const categoryRacerIds = new Set(racers.map((r) => r.id));
-    const conflictBlocks = item.heats
-      .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
-      .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }));
+    const conflictBlocks = [
+      ...item.heats
+        .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
+        .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull })),
+      ...(bookedHeatsQuery.data?.heats ?? []).map((h) => ({
+        heatId: h.heatId,
+        track: (h.track as TrackOrNull) ?? null,
+      })),
+    ];
 
     const anyNewInCategory = racers.some((r) => r.isNewRacer);
     const allReturningHaveWaivers =
