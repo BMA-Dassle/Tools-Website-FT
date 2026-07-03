@@ -30,6 +30,15 @@ import {
   splitGuestName,
 } from "~/features/marketing";
 import { evaluateCode, getDiscountCodeByCode, recordRedemption } from "~/features/discount-codes";
+import {
+  isWorldCupSlug,
+  validateWorldCupBooking,
+  WorldCupReservationError,
+  worldCupQamfTitle,
+  worldCupQamfBanner,
+  fixtureLabel,
+  type WorldCupFixture,
+} from "~/features/world-cup";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
 import {
   KBF_GAMES_PER_SESSION,
@@ -177,6 +186,9 @@ interface ReserveBody {
   /** QAMF option ID (game/time/unlimited). */
   optionId?: number;
   optionType?: "Game" | "Time" | "Unlimited";
+  /** Experience slug (e.g. "world-cup-vip-mon-thur") — drives the World Cup
+   *  fixture/center validation + staff banner when it's a world-cup-* slug. */
+  experienceSlug?: string;
   /** ISO 8601 with UTC offset, e.g. "2026-05-15T14:00:00-04:00" */
   bookedAt: string;
   /** 'BookForLater' for advance reservations (default); 'PlayNow' for walk-in */
@@ -383,6 +395,29 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       console.error("[bowling/v2/reserve] promo validation failed (treated as no promo):", err);
+    }
+  }
+
+  // ── World Cup VIP Bowling (fail-closed, server-authoritative) ────
+  // Bowling-only carts reserve through THIS route (mixed carts run the same
+  // check in unified-reserve), so the fixture/center validation lives here
+  // too: a stale or doctored client can't book a disabled center or a
+  // non-kickoff start. Rejects BEFORE any QAMF confirm or Square write.
+  let wcFixture: WorldCupFixture | null = null;
+  if (isWorldCupSlug(body.experienceSlug)) {
+    try {
+      wcFixture = validateWorldCupBooking({ centerQamfId: centerId, bookedAt: body.bookedAt });
+    } catch (err) {
+      if (err instanceof WorldCupReservationError) {
+        return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+      }
+      throw err;
+    }
+    if (body.optionId == null) {
+      return NextResponse.json(
+        { error: "World Cup booking is missing its lane time option — please re-pick your match." },
+        { status: 400 },
+      );
     }
   }
 
@@ -1282,6 +1317,20 @@ export async function POST(req: NextRequest) {
         // amount comes from the same evaluate step that logs the redemption).
         promoCode: promoRow && promoSavingsCents > 0 ? promoRow.code : undefined,
         promoSavingsCents: promoRow ? promoSavingsCents : 0,
+        // World Cup VIP Bowling: persist WHICH match at capture (persist-first
+        // rule) so ops/admin can tie the lane window to its fixture.
+        ...(wcFixture
+          ? {
+              bookingMetadata: {
+                worldCup: {
+                  matchId: wcFixture.id,
+                  round: wcFixture.round,
+                  label: fixtureLabel(wcFixture),
+                  kickoffEt: bookedAt,
+                },
+              },
+            }
+          : {}),
         loyaltyAction: body.loyaltyAction,
         attractionBookings: body.attractionBookings,
       },
@@ -1534,8 +1583,14 @@ export async function POST(req: NextRequest) {
     // User-supplied notes
     if (notes) finalParts.push(notes);
 
+    // World Cup: lead the notes with the match + prefix the title so front
+    // desk sees what this lane window is for (unified-reserve parity).
+    if (wcFixture) finalParts.unshift(worldCupQamfBanner(wcFixture));
+
     const finalNotes = finalParts.join("\n");
-    const finalTitle = `${guest.name} (${players.length}p)`;
+    const finalTitle = wcFixture
+      ? worldCupQamfTitle(guest.name, players.length)
+      : `${guest.name} (${players.length}p)`;
     patchReservation(centerId, qamfReservationId, { Title: finalTitle, Notes: finalNotes }).catch(
       (err) => console.warn("[bowling/v2/reserve] final notes patch failed (non-fatal):", err),
     );

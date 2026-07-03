@@ -63,6 +63,12 @@ export interface EntryContext {
    * single center (Naples shows ONLY Naples-available activities).
    */
   center?: CenterCode;
+  /**
+   * World Cup VIP Bowling entry (`?experience=world-cup`) — seeds the bowling
+   * item in match-picker mode (tier pinned to VIP, fixture-kickoff slots).
+   * Ignored when the feature window is over or the center's flag is off.
+   */
+  worldCup?: true;
 }
 
 /** Convenience: an empty context. Used when the entry URL carried nothing. */

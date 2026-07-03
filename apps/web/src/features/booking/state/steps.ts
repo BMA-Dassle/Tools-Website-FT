@@ -81,6 +81,7 @@ import BowlingTierStep from "~/components/features/booking/steps/bowling/Bowling
 import BowlingOfferStep from "~/components/features/booking/steps/bowling/BowlingOfferStep";
 import BowlingShoesStep from "~/components/features/booking/steps/bowling/BowlingShoesStep";
 import BowlingFoodStep from "~/components/features/booking/steps/bowling/BowlingFoodStep";
+import WorldCupMatchStep from "~/components/features/booking/steps/bowling/WorldCupMatchStep";
 import KbfIdentityStep from "~/components/features/booking/steps/bowling/KbfIdentityStep";
 import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowlersStep";
 import {
@@ -101,6 +102,22 @@ function hiddenInCombo(step: StepDef): StepDef {
   return {
     ...step,
     isVisible: (item, session) => !session.comboSpecialId && step.isVisible(item, session),
+  };
+}
+
+/**
+ * Hide a step for World Cup match-mode bowling items (?experience=world-cup).
+ * The World Cup entry replaces the date/hour + tier + offer steps with
+ * WorldCupMatchStep — a fixture picker pinned to match kickoffs (VIP only,
+ * fixed 2.5-hr window). Contact/Players/Shoes run unchanged; Food already
+ * self-hides (pizza-bowl slug gate).
+ */
+function hiddenForWorldCup(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) =>
+      !(item.kind === "bowling" && (item as { isWorldCup?: boolean }).isWorldCup) &&
+      step.isVisible(item, session),
   };
 }
 
@@ -154,9 +171,13 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // programmatically by the combo steps (the cart hides its Edit too).
     hiddenInCombo(ContactStep),
     hiddenInCombo(BowlingPlayersStep as StepDef),
-    hiddenInCombo(BowlingSlotsStep as StepDef),
-    hiddenInCombo(BowlingTierStep as StepDef),
-    hiddenInCombo(BowlingOfferStep as StepDef),
+    // World Cup mode: the match picker replaces Slots/Tier/Offer (it holds
+    // the lane at the fixture kickoff itself); its own isVisible gates on
+    // item.isWorldCup so plain bowling items never see it.
+    hiddenInCombo(WorldCupMatchStep as StepDef),
+    hiddenInCombo(hiddenForWorldCup(BowlingSlotsStep as StepDef)),
+    hiddenInCombo(hiddenForWorldCup(BowlingTierStep as StepDef)),
+    hiddenInCombo(hiddenForWorldCup(BowlingOfferStep as StepDef)),
     hiddenInCombo(BowlingShoesStep as StepDef),
     // Attractions step removed — user returns to activity picker and
     // adds attractions as separate cart items.

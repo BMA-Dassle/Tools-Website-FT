@@ -340,6 +340,15 @@ export interface BowlingItem extends BookingItemBase, BowlingCommon {
   assignedTo: string[];
   /** Discount code applied mid-flow (bowling slots step). */
   discountCode: string | null;
+  /**
+   * World Cup VIP Bowling entry mode (?experience=world-cup): the match
+   * picker step replaces the Slots/Tier/Offer steps and pins the lane window
+   * to a fixture kickoff (tier forced to VIP). Optional so sessions persisted
+   * before this field hydrate undefined → falsy.
+   */
+  isWorldCup?: boolean;
+  /** WORLD_CUP_FIXTURES id of the picked match (persisted to booking metadata). */
+  worldCupMatchId?: string | null;
 }
 
 export interface KbfItem extends BookingItemBase, BowlingCommon {
@@ -589,6 +598,8 @@ export function newItem(activity: Activity): SessionItem {
         hasBookingFee: false,
         assignedTo: [],
         discountCode: null,
+        isWorldCup: false,
+        worldCupMatchId: null,
       };
     case "kbf":
       return {

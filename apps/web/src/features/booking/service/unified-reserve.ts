@@ -40,6 +40,15 @@ import { notifyComboBooked } from "~/features/combos/combo-notify";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
 import {
+  isWorldCupBowlingItem,
+  validateWorldCupBooking,
+  WorldCupReservationError,
+  worldCupQamfTitle,
+  worldCupQamfBanner,
+  fixtureForBookedAt,
+  fixtureLabel,
+} from "~/features/world-cup";
+import {
   insertBowlingReservation,
   updateBowlingReservationShortCode,
   findReusableReservation,
@@ -539,6 +548,22 @@ async function unifiedReserveInner(
     await validateCreditRedemptions(creditRedemptions);
   }
 
+  // ── 2c. Validate World Cup match windows (fail-closed) ────────────
+  // Config-driven server check against the fixture table: a stale or doctored
+  // client session can't book a disabled center or a non-kickoff start.
+  // Throws WorldCupReservationError (→ 409 in reserve-all) BEFORE any Square
+  // or QAMF write — nothing is charged.
+  for (const item of bowlingItems) {
+    if (item.kind === "bowling" && isWorldCupBowlingItem(item)) {
+      validateWorldCupBooking({ center: session.center, bookedAt: item.bookedAt });
+      if (item.optionId == null) {
+        throw new WorldCupReservationError(
+          "World Cup booking is missing its lane time option — please re-pick your match.",
+        );
+      }
+    }
+  }
+
   // ── 3. Create the Square day-of order(s) ──────────────────────────
   // Default: ONE order at the session's location. COMBO SPLIT: the itemized
   // revenue lines are grouped by entity (FastTrax racing + HeadPinz bowling)
@@ -988,6 +1013,14 @@ async function unifiedReserveInner(
       }, 0);
       bowlingPromoSavingsCents += itemPromoSavingsCents;
 
+      // World Cup VIP Bowling: re-derive the fixture SERVER-SIDE from the
+      // validated bookedAt (guard 2c) — never a client-supplied label. Feeds
+      // the Neon booking metadata + the Conqueror title/banner below.
+      const wcFixture =
+        item.kind === "bowling" && isWorldCupBowlingItem(item) && item.bookedAt
+          ? fixtureForBookedAt(item.bookedAt)
+          : null;
+
       try {
         const reservation = await insertBowlingReservation(
           {
@@ -1024,6 +1057,20 @@ async function unifiedReserveInner(
             // (correlated via the shared square_deposit_order_id; each leg
             // settles its own day-of order).
             comboSpecialId: session.comboSpecialId ?? undefined,
+            // World Cup VIP Bowling: persist WHICH match at capture (persist-
+            // first rule) so ops/admin can tie the lane window to its fixture.
+            ...(wcFixture
+              ? {
+                  bookingMetadata: {
+                    worldCup: {
+                      matchId: wcFixture.id,
+                      round: wcFixture.round,
+                      label: fixtureLabel(wcFixture),
+                      kickoffEt: item.bookedAt,
+                    },
+                  },
+                }
+              : {}),
           },
           item.lineItems.map((li) => ({
             squareProductId: li.squareProductId,
@@ -1064,13 +1111,20 @@ async function unifiedReserveInner(
       // glance in the QAMF reservation list (owner request 2026-06-27).
       const finalTitle = combo
         ? `VIP Exp. ${guest.name} (${players.length}p)`
-        : `${guest.name} (${players.length}p)`;
+        : wcFixture
+          ? worldCupQamfTitle(guest.name, players.length)
+          : `${guest.name} (${players.length}p)`;
       const shortCode = shortCodes[shortCodes.length - 1];
 
       const finalParts: string[] = [];
 
       if (combo) {
         finalParts.push(`*** ${combo.name.toUpperCase()} — VIP LANE (paid online) ***`);
+      }
+      // World Cup: lead the notes with the match so front desk sees what this
+      // lane window is for (the "VIP Exp." banner precedent).
+      if (wcFixture) {
+        finalParts.push(worldCupQamfBanner(wcFixture));
       }
 
       // Shoe status — staff see it at a glance
