@@ -97,6 +97,12 @@ interface Reservation {
     }>;
     [k: string]: unknown;
   };
+  /** CURRENT scheduled race lines re-read from the BMI bill overview
+   *  (server-side, race legs only). Office reschedules move heats after
+   *  booking — and can convert an Intermediate to a second Starter — so when
+   *  present these override the booking_metadata times stamped at booking.
+   *  `start` is a naive ET wall-clock ISO, same shape as heatId. */
+  liveHeats?: Array<{ start: string; name: string | null }>;
   insertedAt: string;
   lines: ReservationLine[];
 }
@@ -107,6 +113,9 @@ interface ComboMeta {
   accentColor: string;
   includes: string[];
   center: string;
+  /** Lane length from the combo registry (Ultimate VIP = 90) — drives the
+   *  board's live "time left on lane" countdown. */
+  bowlingDurationMinutes?: number;
 }
 
 /** One step of a VIP combo's itinerary (race heat → bowling slot → race heat). */
@@ -117,6 +126,11 @@ interface ComboScheduleStep {
   lane?: string;
   loc: string;
   pending?: boolean;
+  /** Expected length of this step (minutes) — bowling comes from the combo
+   *  registry; race legs use the owner's assumed 30-min leg (arrive → off
+   *  track, mirrors ASSUMED_RACE_LEG_MINUTES in combo-booking). Drives the
+   *  Done / in-progress / up-next markers on the card. */
+  durationMin: number;
 }
 
 /** Attached to the single main-list row that represents a whole VIP combo
@@ -463,6 +477,36 @@ function etWallMs(iso: string): number {
   const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
   const hh = g("hour") === "24" ? "00" : g("hour");
   return Date.parse(`${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}Z`);
+}
+
+/** "Now" in the same ET-wall-clock-ms frame as etWallMs, so a naive heatId
+ *  compares against the current moment correctly in any browser timezone. */
+function nowEtWallMs(): number {
+  return etWallMs(new Date().toISOString());
+}
+
+/** Compact duration: 42 → "42m", 95 → "1h 35m". */
+function fmtDurShort(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return h > 0 ? `${h}h ${r ? `${r}m` : ""}`.trim() : `${r}m`;
+}
+
+/** Where a combo itinerary step sits relative to now (schedule-based — the
+ *  step's booked start + expected duration, not check-in state). */
+function stepProgress(
+  step: ComboScheduleStep,
+  nowMs: number,
+): { state: "done" | "active" | "upcoming"; minsLeft: number; minsUntil: number } | null {
+  if (!step.iso) return null;
+  const startMs = etWallMs(step.iso);
+  if (Number.isNaN(startMs)) return null;
+  const endMs = startMs + step.durationMin * 60_000;
+  if (nowMs >= endMs) return { state: "done", minsLeft: 0, minsUntil: 0 };
+  if (nowMs >= startMs)
+    return { state: "active", minsLeft: (endMs - nowMs) / 60_000, minsUntil: 0 };
+  return { state: "upcoming", minsLeft: 0, minsUntil: (startMs - nowMs) / 60_000 };
 }
 
 function fmtDate(iso: string): string {
@@ -2025,38 +2069,79 @@ export default function ReservationsClient({ token }: { token: string }) {
         (l) => l.status === "cancelled" || l.status === "completed",
       );
 
-      // Real schedule times. heatId IS the heat's block-start ISO (booking state
-      // types), persisted in the race leg's booking_metadata.heats — so race
-      // times need no extra lookup. The racer always runs Starter first (to
-      // qualify) then Intermediate, so the EARLIEST heat is the Starter and the
-      // next is the Intermediate — true whether bowling runs in the middle
-      // (normal) or last (reorder fallback: both races before the lane).
-      const bowlingMs = bowling ? etWallMs(bowling.bookedAt) : NaN;
-      const heatTimes = Array.from(
-        new Set(
-          races.flatMap((r) =>
-            (r.bookingMetadata?.heats ?? []).map((h) => h.heatId).filter((x): x is string => !!x),
-          ),
-        ),
+      // Assumed race-leg length (arrive → off track) — owner's 30-min rule,
+      // mirrors ASSUMED_RACE_LEG_MINUTES in combo-booking. Drives the card's
+      // Done / on-track / up-next markers only, never the booked schedule.
+      const RACE_STEP_MIN = 30;
+
+      // Race steps. PREFERRED source: the bill's CURRENT lines re-read from
+      // BMI (liveHeats) — office reschedules move heats after booking, and a
+      // didn't-qualify Intermediate gets CONVERTED to a second Starter, so
+      // both the times AND the labels come from BMI truth. Fallback (live
+      // read absent): booking_metadata heat times stamped at booking, with
+      // the booked-order assumption — the racer qualifies on the Starter
+      // first, so the earliest heat is the Starter and the next is the
+      // Intermediate, whether bowling runs in the middle or last.
+      const liveHeats = Array.from(
+        new Map(
+          races
+            .flatMap((r) => r.liveHeats ?? [])
+            .map((h) => [`${h.start}|${h.name ?? ""}`, h] as const),
+        ).values(),
       )
-        .map((iso) => ({ iso, ms: etWallMs(iso) }))
+        .map((h) => ({ ...h, ms: etWallMs(h.start) }))
         .filter((h) => !Number.isNaN(h.ms))
         .sort((a, b) => a.ms - b.ms);
-      const starterIso = heatTimes[0]?.iso ?? null;
-      const intermediateIso = heatTimes[1]?.iso ?? null;
+      let raceSteps: ComboScheduleStep[];
+      if (liveHeats.length) {
+        raceSteps = liveHeats.map((h, i) => ({
+          icon: "🏁",
+          // BMI line names carry the track ("Starter Race Blue") — drop the
+          // track suffix to match the card's label style.
+          label:
+            h.name?.replace(/\s+(red|blue|mega)(\s+track)?$/i, "").trim() ||
+            (i === 0 ? "Starter Race" : "Intermediate Race"),
+          iso: h.start,
+          loc: "FastTrax",
+          durationMin: RACE_STEP_MIN,
+        }));
+      } else {
+        // heatId IS the heat's block-start ISO (booking state types),
+        // persisted in the race leg's booking_metadata.heats.
+        const heatTimes = Array.from(
+          new Set(
+            races.flatMap((r) =>
+              (r.bookingMetadata?.heats ?? []).map((h) => h.heatId).filter((x): x is string => !!x),
+            ),
+          ),
+        )
+          .map((iso) => ({ iso, ms: etWallMs(iso) }))
+          .filter((h) => !Number.isNaN(h.ms))
+          .sort((a, b) => a.ms - b.ms);
+        raceSteps = [
+          {
+            icon: "🏁",
+            label: "Starter Race",
+            iso: heatTimes[0]?.iso ?? null,
+            loc: "FastTrax",
+            durationMin: RACE_STEP_MIN,
+          },
+        ];
+        if (heatTimes[1]) {
+          raceSteps.push({
+            icon: "🏁",
+            label: "Intermediate Race",
+            iso: heatTimes[1].iso,
+            loc: "FastTrax",
+            durationMin: RACE_STEP_MIN,
+          });
+        }
+      }
       const expectsIntermediate = (meta?.includes ?? []).some((s) => /intermediate/i.test(s));
-      // Reorder: the lane runs AFTER both booked races (it wasn't free between
-      // them). Flagged on the card so staff plan scheduling for the swapped order.
-      const reordered =
-        !Number.isNaN(bowlingMs) &&
-        heatTimes.length > 0 &&
-        heatTimes.every((h) => h.ms < bowlingMs);
 
       // Assemble the steps, then render in ACTUAL chronological order (a
       // pending/un-booked intermediate sorts last).
-      const steps: ComboScheduleStep[] = [
-        { icon: "🏁", label: "Starter Race", iso: starterIso, loc: "FastTrax" },
-      ];
+      const steps: ComboScheduleStep[] = [...raceSteps];
       if (bowling) {
         steps.push({
           icon: "🎳",
@@ -2064,16 +2149,10 @@ export default function ReservationsClient({ token }: { token: string }) {
           iso: bowling.bookedAt,
           lane: bowling.dayofOrderLane,
           loc: `HeadPinz ${centerLabel(anchor.centerCode)}`,
+          durationMin: meta?.bowlingDurationMinutes ?? 90,
         });
       }
-      if (intermediateIso) {
-        steps.push({
-          icon: "🏁",
-          label: "Intermediate Race",
-          iso: intermediateIso,
-          loc: "FastTrax",
-        });
-      } else if (expectsIntermediate) {
+      if (raceSteps.length < 2 && expectsIntermediate) {
         // Intermediate is qualify-gated — booked later if the racer qualifies.
         steps.push({
           icon: "🏁",
@@ -2081,6 +2160,7 @@ export default function ReservationsClient({ token }: { token: string }) {
           iso: null,
           loc: "FastTrax",
           pending: true,
+          durationMin: RACE_STEP_MIN,
         });
       }
       const schedule: ComboScheduleStep[] = steps.sort(
@@ -3073,6 +3153,9 @@ export default function ReservationsClient({ token }: { token: string }) {
               {comboGroups.map((g) => {
                 const name = g.meta?.name ?? "VIP Combo";
                 const accent = g.meta?.accentColor ?? "#d4af37";
+                // Recomputed on every render — the 10s silent auto-refresh
+                // keeps the "left"/"in" countdowns current.
+                const nowMs = nowEtWallMs();
                 return (
                   <div
                     key={g.key}
@@ -3120,50 +3203,104 @@ export default function ReservationsClient({ token }: { token: string }) {
                     {/* Schedule — real per-leg times: race heat times (heatId =
                         block-start ISO) + the bowling slot, with the lane. */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {g.schedule.map((step, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            fontSize: "0.85rem",
-                            color: "var(--ba-fg)",
-                          }}
-                        >
-                          <span style={{ width: 18, textAlign: "center" }}>{step.icon}</span>
-                          {/* Time — prominent: this is the whole point of the schedule. */}
-                          <span
+                      {g.schedule.map((step, i) => {
+                        // Schedule-based progress marker (booked start + expected
+                        // length vs now) — hidden on cancelled combos, and the
+                        // "up next" hint only shows inside a 4h window so a
+                        // tomorrow board isn't wallpapered with "in 19h".
+                        const prog = g.allCancelled ? null : stepProgress(step, nowMs);
+                        const isBowling = step.icon === "🎳";
+                        return (
+                          <div
+                            key={i}
                             style={{
-                              minWidth: 84,
-                              fontWeight: 800,
-                              fontSize: "1rem",
-                              color: step.iso ? accent : "var(--ba-muted)",
-                              fontVariantNumeric: "tabular-nums",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: "0.85rem",
+                              color: "var(--ba-fg)",
+                              opacity: prog?.state === "done" ? 0.6 : 1,
                             }}
                           >
-                            {step.iso ? fmtClock(step.iso) : step.pending ? "—" : "TBD"}
-                          </span>
-                          <span style={{ flex: 1, fontWeight: 600 }}>
-                            {step.label}
-                            {step.lane ? (
-                              <span style={{ color: accent, fontWeight: 700 }}>
-                                {" "}
-                                · Lane {step.lane}
+                            <span style={{ width: 18, textAlign: "center" }}>{step.icon}</span>
+                            {/* Time — prominent: this is the whole point of the schedule. */}
+                            <span
+                              style={{
+                                minWidth: 84,
+                                fontWeight: 800,
+                                fontSize: "1rem",
+                                color: step.iso ? accent : "var(--ba-muted)",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {step.iso ? fmtClock(step.iso) : step.pending ? "—" : "TBD"}
+                            </span>
+                            <span style={{ flex: 1, fontWeight: 600 }}>
+                              {step.label}
+                              {step.lane ? (
+                                <span style={{ color: accent, fontWeight: 700 }}>
+                                  {" "}
+                                  · Lane {step.lane}
+                                </span>
+                              ) : null}
+                              {step.pending ? (
+                                <span style={{ color: "var(--ba-muted)", fontWeight: 400 }}>
+                                  {" "}
+                                  (if qualified)
+                                </span>
+                              ) : null}
+                            </span>
+                            {prog?.state === "done" && (
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  fontWeight: 700,
+                                  color: "#22c55e",
+                                  border: "1px solid rgba(34,197,94,0.35)",
+                                  backgroundColor: "rgba(34,197,94,0.12)",
+                                  borderRadius: 999,
+                                  padding: "1px 8px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                ✓ Done
                               </span>
-                            ) : null}
-                            {step.pending ? (
-                              <span style={{ color: "var(--ba-muted)", fontWeight: 400 }}>
-                                {" "}
-                                (if qualified)
+                            )}
+                            {prog?.state === "active" && (
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  fontWeight: 700,
+                                  color: accent,
+                                  border: `1px solid ${accent}`,
+                                  backgroundColor: "rgba(212,175,55,0.15)",
+                                  borderRadius: 999,
+                                  padding: "1px 8px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {isBowling
+                                  ? `Bowling now · ${fmtDurShort(prog.minsLeft)} left`
+                                  : "On track now"}
                               </span>
-                            ) : null}
-                          </span>
-                          <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
-                            {step.loc}
-                          </span>
-                        </div>
-                      ))}
+                            )}
+                            {prog?.state === "upcoming" && prog.minsUntil <= 240 && (
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  color: "var(--ba-muted)",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                in {fmtDurShort(prog.minsUntil)}
+                              </span>
+                            )}
+                            <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
+                              {step.loc}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
 
                     {/* Per-leg status + actions */}
