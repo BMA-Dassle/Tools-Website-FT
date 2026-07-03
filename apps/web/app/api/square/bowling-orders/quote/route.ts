@@ -115,7 +115,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Mirror the same line-item building logic as bowling-orders:
-    // catalog items → catalog_object_id only; ad-hoc → name + base_price_money
+    // catalog items → catalog_object_id (+ base_price_money when the caller sent
+    // a reduced price, e.g. a USA250 price-key discount); ad-hoc → name +
+    // base_price_money. Square honors base_price_money as a price-key OVERRIDE on
+    // catalog-linked line items (the catalog price is only a default) — see
+    // tasks/lessons.md "base_price_money override". Dropping it here silently
+    // rang the full catalog price and dumped the discount onto the tax line.
     const dayofLineItems = lineItems.map((li) => {
       const modifiers = li.modifiers?.length
         ? {
@@ -129,6 +134,7 @@ export async function POST(req: NextRequest) {
         return {
           catalog_object_id: li.catalogObjectId,
           quantity: li.quantity,
+          ...(li.basePriceMoney ? { base_price_money: li.basePriceMoney } : {}),
           ...modifiers,
           ...noteField,
         };
