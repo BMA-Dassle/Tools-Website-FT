@@ -26,7 +26,7 @@ function headers(): Record<string, string> {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-async function sq(
+export async function sq(
   method: string,
   path: string,
   body?: unknown,
@@ -75,9 +75,7 @@ export async function fetchGiftCardFacts(
   };
 }
 
-export async function fetchOrderFacts(
-  orderId: string,
-): Promise<
+export async function fetchOrderFacts(orderId: string): Promise<
   GatheredFacts["dayofOrders"][string] & {
     tenders: Array<{ paymentId: string; amountCents: number }>;
   }
