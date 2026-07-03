@@ -32,6 +32,7 @@ import {
 } from "~/features/booking/service/race-credit-redeem";
 import type { CreditRedemption } from "~/features/booking/data/race-credits";
 import { patchHeatSetups, type HeatSetupInput } from "~/features/booking/service/session-setup";
+import { getDiscountCodeByCode, recordRedemption } from "~/features/discount-codes";
 
 /**
  * POST /api/booking/v2/reserve
@@ -121,6 +122,16 @@ interface ReserveRequest {
   loyaltyAccountId?: string;
   rewardTierId?: string;
   rewardDiscountCents?: number;
+  /**
+   * Coupon applied at checkout (e.g. "USA250") + the pre-tax cents it removed.
+   * RECORDING ONLY — pricing is already baked into cartItems' unitPriceCents
+   * (price-key reduction applied client-side and verified against the quote),
+   * so these fields never change what is charged. Stamped on the reservation
+   * row for the admin board; the usage ledger (discount_redemptions) is
+   * written separately keyed on the day-of order.
+   */
+  promoCode?: string;
+  promoSavingsCents?: number;
   contact: {
     firstName: string;
     lastName: string;
@@ -600,6 +611,10 @@ export async function POST(req: NextRequest) {
             squareCustomerId: body.squareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
+            // Coupon bookkeeping (see ReserveBody.promoCode — never affects pricing).
+            promoCode:
+              body.promoCode && (body.promoSavingsCents ?? 0) > 0 ? body.promoCode : undefined,
+            promoSavingsCents: body.promoSavingsCents ?? 0,
             bookingMetadata: body.bookingMetadata ?? undefined,
           },
           body.cartItems.map((ci) => ({
@@ -622,6 +637,31 @@ export async function POST(req: NextRequest) {
         { error: "Could not persist reservation. Please retry.", code: "ANCHOR_WRITE_FAILED" },
         { status: 500 },
       );
+    }
+
+    // ── Coupon redemption ledger (idempotent, soft-fail) ────────────────
+    // Deposit is captured + the day-of order exists — log the use so
+    // uses_count / max_uses hold on this path too (bowling + unified already
+    // do). Keyed on the order id: a retry never double-counts. The code is
+    // re-resolved from Neon; the client-sent savings are bookkeeping only.
+    if (body.promoCode && (body.promoSavingsCents ?? 0) > 0 && dayofOrderId) {
+      try {
+        const codeRow = await getDiscountCodeByCode(body.promoCode);
+        if (codeRow) {
+          await recordRedemption({
+            codeId: codeRow.id,
+            domain: "racing",
+            externalRef: dayofOrderId,
+            amountOffCents: body.promoSavingsCents ?? 0,
+            squareCustomerId: body.squareCustomerId ?? null,
+          });
+          console.log(
+            `[v2/reserve] promo ${codeRow.code} redeemed (order=${dayofOrderId} off=$${((body.promoSavingsCents ?? 0) / 100).toFixed(2)})`,
+          );
+        }
+      } catch (err) {
+        console.error("[v2/reserve] promo redemption logging failed (non-fatal):", err);
+      }
     }
 
     // ── Step 3: Confirm BMI payment ─────────────────────────────────────

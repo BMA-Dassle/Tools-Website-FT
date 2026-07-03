@@ -341,6 +341,14 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Discount amount in cents from the redeemed reward (e.g. 1000 = $10 off).
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS reward_discount_cents INT NOT NULL DEFAULT 0`;
 
+  // Coupon / discount code applied at booking (e.g. "USA250") + the pre-tax
+  // cents it removed from this reservation's charge. Covers BOTH mechanisms
+  // (price-key promo and order-level Square catalog discount) — the guest sees
+  // one "coupon". Recorded for the admin board + reporting; the authoritative
+  // usage ledger stays discount_redemptions.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS promo_code TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS promo_savings_cents INT NOT NULL DEFAULT 0`;
+
   // Attraction add-ons booked via BMI during the bowling wizard.
   // JSON array of { slug, name, bmiOrderId, bmiBillLineId, quantity, totalPriceDollars, timeSlot, timeLabel }.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS attraction_bookings JSONB NOT NULL DEFAULT '[]'`;
@@ -614,6 +622,10 @@ export interface BowlingReservation {
   squareLoyaltyRewardId?: string;
   /** Discount amount in cents from the redeemed loyalty reward (e.g. 1000 = $10 off deposit). */
   rewardDiscountCents: number;
+  /** Coupon / discount code applied at booking (e.g. "USA250"). Undefined = none. */
+  promoCode?: string;
+  /** Pre-tax cents the coupon removed from THIS reservation's charge. */
+  promoSavingsCents: number;
   /** Check-in method: 'self' (kiosk/self-service), 'desk' (front desk), or undefined (not checked in). */
   checkinMethod?: "self" | "desk";
   /** Loyalty action during booking: 'signup' (new account created), 'existing' (logged in with existing). */
@@ -821,6 +833,8 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     squareCustomerId: (row.square_customer_id as string) ?? undefined,
     squareLoyaltyRewardId: (row.square_loyalty_reward_id as string) ?? undefined,
     rewardDiscountCents: (row.reward_discount_cents as number) ?? 0,
+    promoCode: (row.promo_code as string) ?? undefined,
+    promoSavingsCents: (row.promo_savings_cents as number) ?? 0,
     checkinMethod: (row.checkin_method as BowlingReservation["checkinMethod"]) ?? undefined,
     loyaltyAction: (row.loyalty_action as BowlingReservation["loyaltyAction"]) ?? undefined,
     attractionBookings: (() => {
@@ -887,11 +901,13 @@ export async function insertBowlingReservation(
     | "refundCents"
     | "qamfConfirmAttempts"
     | "rewardDiscountCents"
+    | "promoSavingsCents"
     | "attractionBookings"
     | "checkinMethod"
     | "bookingMetadata"
   > & {
     rewardDiscountCents?: number;
+    promoSavingsCents?: number;
     attractionBookings?: BowlingReservation["attractionBookings"];
     bookingMetadata?: Record<string, unknown>;
   },
@@ -912,6 +928,7 @@ export async function insertBowlingReservation(
       guest_name, guest_email, guest_phone, notes,
       booking_source, square_customer_id,
       square_loyalty_reward_id, reward_discount_cents,
+      promo_code, promo_savings_cents,
       loyalty_action, attraction_bookings, booking_metadata, combo_special_id
     ) VALUES (
       ${r.centerCode}, ${r.productKind},
@@ -923,6 +940,7 @@ export async function insertBowlingReservation(
       ${r.guestName ?? null}, ${r.guestEmail ?? null}, ${r.guestPhone ?? null}, ${r.notes ?? null},
       ${r.bookingSource ?? "web"}, ${r.squareCustomerId ?? null},
       ${r.squareLoyaltyRewardId ?? null}, ${r.rewardDiscountCents ?? 0},
+      ${r.promoCode ?? null}, ${r.promoSavingsCents ?? 0},
       ${r.loyaltyAction ?? null}, ${JSON.stringify(r.attractionBookings ?? [])}::jsonb,
       ${r.bookingMetadata ? JSON.stringify(r.bookingMetadata) : null}::jsonb,
       ${r.comboSpecialId ?? null}
@@ -949,6 +967,25 @@ export async function insertBowlingReservation(
   }
 
   return reservation;
+}
+
+/**
+ * Stamp a coupon (code + pre-tax savings cents) onto a reservation row for the
+ * admin board. No-ops if the row already carries a code (insert-time stamp wins).
+ */
+export async function setBowlingReservationPromo(
+  id: number,
+  code: string,
+  savingsCents: number,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET promo_code = ${code}, promo_savings_cents = ${savingsCents}
+    WHERE id = ${id} AND promo_code IS NULL
+  `;
 }
 
 export async function getBowlingReservation(

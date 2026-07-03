@@ -14,6 +14,7 @@ import {
   getKbfRedeemedMembers,
   insertBowlingReservation,
   insertReservationPlayers,
+  setBowlingReservationPromo,
   updateBowlingReservationShortCode,
   type BowlingSquareProduct,
   type ReservationLine,
@@ -1275,6 +1276,12 @@ export async function POST(req: NextRequest) {
         squareCustomerId: resolvedSquareCustomerId,
         squareLoyaltyRewardId: loyaltyRewardId,
         rewardDiscountCents,
+        // Price-key promo (e.g. USA250): code + the pre-tax cents it removed,
+        // both server-derived above. The order-level discountCode mechanism
+        // stamps these via UPDATE in its redemption block below instead (its
+        // amount comes from the same evaluate step that logs the redemption).
+        promoCode: promoRow && promoSavingsCents > 0 ? promoRow.code : undefined,
+        promoSavingsCents: promoRow ? promoSavingsCents : 0,
         loyaltyAction: body.loyaltyAction,
         attractionBookings: body.attractionBookings,
       },
@@ -1387,6 +1394,12 @@ export async function POST(req: NextRequest) {
               `[bowling/v2/reserve] discount ${body.discountCode} redeemed ` +
                 `(neonId=${neonId} order=${squareDayofOrderId} off=$${(amountOff / 100).toFixed(2)})`,
             );
+          }
+          // Stamp the coupon onto the reservation row for the admin board.
+          // (The price-key promo stamps at insert; this mechanism's amount is
+          // only known here.) Best-effort, same soft-fail contract as above.
+          if (neonId > 0) {
+            await setBowlingReservationPromo(neonId, codeRow.code, amountOff);
           }
         }
       } catch (err) {

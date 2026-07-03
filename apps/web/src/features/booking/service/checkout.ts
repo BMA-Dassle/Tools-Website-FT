@@ -687,6 +687,14 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
       bookingKind,
       bookingMetadata,
       cartItems,
+      // Coupon bookkeeping — cartItems are already promo-reduced; the server
+      // stamps these on the reservation row (admin board) + redemption ledger.
+      ...(overview.promoCode && (overview.promoSavings ?? 0) > 0
+        ? {
+            promoCode: overview.promoCode,
+            promoSavingsCents: Math.round((overview.promoSavings ?? 0) * 100),
+          }
+        : {}),
       centerCode,
       // $0 model: the whole BMI bill is $0 (heats + bundled license all $0), so
       // confirm it as a $0 credit. Square holds the real money. Omitted on legacy.
