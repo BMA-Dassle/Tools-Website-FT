@@ -1,0 +1,189 @@
+/**
+ * Pure guard/derivation functions for the cancellation cascade — no I/O, unit
+ * tested. Every rule here traces to a production incident or a hard rule in
+ * tasks/lessons.md; see comments on each function.
+ */
+import type { BowlingReservation } from "@/lib/bowling-db";
+import { CancelGuardError, type CancelActor, type GatheredFacts, type MoneyClass } from "./types";
+
+/** UTC instant → naive ET wall-clock ISO ("2026-07-03T14:00:00"). */
+export function toEtWallClock(instant: Date): string {
+  return instant.toLocaleString("sv-SE", { timeZone: "America/New_York" }).replace(" ", "T");
+}
+
+/**
+ * The reservation's real EVENT start as a naive ET wall-clock ISO. booked_at is
+ * the booking timestamp for race/attraction rows — the actual times live in
+ * booking_metadata (heats[].heatId / attractions[].slot, both naked-local ET
+ * ISO strings, so min() by lexical order is chronological). TS port of the
+ * COALESCE in closePastReservationStatuses (bowling-db.ts).
+ */
+export function eventStartEt(r: BowlingReservation): string {
+  const md = r.bookingMetadata as
+    | { heats?: Array<{ heatId?: unknown }>; attractions?: Array<{ slot?: unknown }> }
+    | undefined;
+  const heatTimes = Array.isArray(md?.heats)
+    ? md.heats.map((h) => h?.heatId).filter((v): v is string => typeof v === "string" && v !== "")
+    : [];
+  if (heatTimes.length) return heatTimes.reduce((a, b) => (a < b ? a : b));
+  const slotTimes = Array.isArray(md?.attractions)
+    ? md.attractions
+        .map((a) => a?.slot)
+        .filter((v): v is string => typeof v === "string" && v !== "")
+    : [];
+  if (slotTimes.length) return slotTimes.reduce((a, b) => (a < b ? a : b));
+  return toEtWallClock(new Date(r.bookedAt));
+}
+
+/**
+ * Customer self-serve cutoff: changes close 1 hour before the EARLIEST leg's
+ * event time (same rule as the existing bowling cancel). Lexical compare of
+ * naive-ET strings is chronological.
+ */
+export function guardCustomerCutoff(legs: BowlingReservation[], nowMs: number): void {
+  const earliest = legs.map(eventStartEt).reduce((a, b) => (a < b ? a : b));
+  const oneHourFromNowEt = toEtWallClock(new Date(nowMs + 60 * 60 * 1000));
+  if (earliest < oneHourFromNowEt) {
+    throw new CancelGuardError(
+      "within_1_hour",
+      "Reservation starts within 1 hour — call the center to make changes.",
+      409,
+    );
+  }
+}
+
+/**
+ * Actor/outcome policy (owner-locked 2026-07-03): combos are staff-only; card
+ * refunds are staff-only for customers except the flagged legacy plain-bowling
+ * path (allowCustomerRefund from the route).
+ */
+export function guardActorOutcome(params: {
+  isCombo: boolean;
+  actor: CancelActor;
+  outcome: "refund" | "store_credit";
+  allowCustomerRefund?: boolean;
+}): void {
+  if (params.actor === "admin") return;
+  if (params.isCombo) {
+    throw new CancelGuardError(
+      "combo_requires_admin",
+      "Ultimate VIP combos are handled by our team — call the center.",
+      403,
+    );
+  }
+  if (params.outcome === "refund" && !params.allowCustomerRefund) {
+    throw new CancelGuardError(
+      "refund_requires_admin",
+      "Card refunds are handled by the center — call us, or choose a gift card.",
+      403,
+    );
+  }
+}
+
+/**
+ * Money shape of the group (judged off the anchor leg's payment fields — the
+ * group shares one deposit/gift card):
+ *   funded — deposit charge loaded an internal gift card (the normal shape);
+ *   zero   — nothing was charged (credit bookings, $0 rows): cancel-only;
+ *   broken — a deposit payment exists but no gift card: the refund engine
+ *            can't derive a trustworthy amount → manual path in Square.
+ */
+export function classifyMoney(legs: BowlingReservation[]): MoneyClass {
+  const paid = legs.find((l) => l.squareDepositPaymentId);
+  if (!paid) return "zero";
+  const carded = legs.find((l) => l.squareGiftCardId);
+  return carded ? "funded" : "broken";
+}
+
+/**
+ * Day-of order disposition (ported from _itl0um08-close.mts, the proven combo
+ * close-out): a TENDERED order means the guest already paid at the venue — the
+ * money is no longer cleanly on the internal gift card, so the whole cascade
+ * refuses ("paid" is tenders, never state === "COMPLETED" — lessons.md).
+ */
+export function guardDayofOrder(order: {
+  state: string;
+  tenderCount: number;
+}): "cancel" | "skip" | "refuse" {
+  if (order.tenderCount > 0) return "refuse";
+  if (order.state === "CANCELED" || order.state === "CANCELLED") return "skip";
+  if (order.state === "COMPLETED") return "skip";
+  if (order.state === "OPEN" || order.state === "DRAFT") return "cancel";
+  return "refuse";
+}
+
+export interface TenderRefund {
+  paymentId: string;
+  amountCents: number;
+}
+
+/**
+ * Per-tender refunds still owed on the deposit order — the exactly-once core.
+ * A payment's refunded_money already covers what prior attempts (or manual
+ * staff refunds) issued, so a resume/re-run refunds only the remainder.
+ */
+export function tenderRefundsNeeded(facts: GatheredFacts): TenderRefund[] {
+  const tenders = facts.depositOrder?.tenders ?? [];
+  const out: TenderRefund[] = [];
+  for (const t of tenders) {
+    const pay = facts.payments[t.paymentId];
+    if (!pay) {
+      throw new CancelGuardError(
+        "amount_mismatch",
+        `Deposit tender payment ${t.paymentId} could not be fetched — manual review.`,
+        409,
+      );
+    }
+    const remaining = pay.amountCents - pay.refundedCents;
+    if (remaining > 0) out.push({ paymentId: t.paymentId, amountCents: remaining });
+  }
+  return out;
+}
+
+/**
+ * "Is it safe to refund `refundsNeededCents` right now?" — safe only when the
+ * internal gift card still holds exactly that money. Mismatch means partial
+ * redemption or manual Square activity, where an automated full refund would
+ * over- or under-pay (square-bowling-refund.ts rule, kept verbatim).
+ *
+ * CALLER CONTRACT: skip this guard when refundsNeededCents === 0 — that is the
+ * legitimate crash-resume state (refunds already issued; the drain/teardown
+ * may or may not have happened) and the money step is a no-op there.
+ */
+export function guardRefundTotal(params: {
+  refundsNeededCents: number;
+  gcBalanceCents: number;
+}): void {
+  if (params.refundsNeededCents !== params.gcBalanceCents) {
+    throw new CancelGuardError(
+      "amount_mismatch",
+      `Refundable tender total (${params.refundsNeededCents}¢) ≠ gift card balance ` +
+        `(${params.gcBalanceCents}¢) — partial redemption or manual activity; handle in Square.`,
+      409,
+    );
+  }
+}
+
+/** Human display for a GAN: "1234-5678-9012-3456". Never alters the value. */
+export function formatGan(gan: string): string {
+  return gan.replace(/(.{4})(?=.)/g, "$1-");
+}
+
+/** Kind → guest/staff-facing label for leg summaries + notifications. */
+export function legLabel(r: BowlingReservation): string {
+  switch (r.productKind) {
+    case "race":
+      return "Karting";
+    case "attraction": {
+      const md = r.bookingMetadata as { attractions?: Array<{ name?: unknown }> } | undefined;
+      const name = Array.isArray(md?.attractions)
+        ? md.attractions.find((a) => typeof a?.name === "string")?.name
+        : undefined;
+      return typeof name === "string" && name ? (name as string) : "Attraction";
+    }
+    case "kbf":
+      return "Kids Bowl Free";
+    default:
+      return "Bowling";
+  }
+}

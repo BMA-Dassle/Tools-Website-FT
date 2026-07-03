@@ -1110,6 +1110,43 @@ export async function listComboSiblingReservations(
 }
 
 /**
+ * The MONEY GROUP a cancellation must operate on: every reservation row that
+ * shares the anchor's deposit charge. One deposit order funds one internal
+ * gift card, so refunding/converting it for half a group is impossible —
+ * combo legs (race + bowling) AND mixed carts (race + attraction rows on one
+ * bill) cancel together. Grouping key: square_deposit_order_id when charged;
+ * bmi_bill_id for $0/credit rows; the anchor alone otherwise.
+ *
+ * Deliberately does NOT filter status: already-cancelled legs are returned so
+ * the cascade can (a) short-circuit when the WHOLE group is cancelled and
+ * (b) repair legacy partial cancels (the old combo bug) by skipping done legs.
+ */
+export async function listCancelGroupReservations(
+  anchor: BowlingReservation,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [anchor];
+  await ensureBowlingSchema();
+  const q = sql();
+  if (anchor.squareDepositOrderId) {
+    const rows = await q`
+      SELECT * FROM bowling_reservations
+      WHERE square_deposit_order_id = ${anchor.squareDepositOrderId}
+      ORDER BY id
+    `;
+    return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  }
+  if (anchor.bmiBillId) {
+    const rows = await q`
+      SELECT * FROM bowling_reservations
+      WHERE bmi_bill_id = ${anchor.bmiBillId}
+      ORDER BY id
+    `;
+    return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  }
+  return [anchor];
+}
+
+/**
  * Reserve-path anchor idempotency: the existing non-cancelled reservation for a
  * (bill, productKind), so a double-submit / retry REUSES the row instead of
  * inserting a duplicate. Scoped by product_kind because race + attraction
