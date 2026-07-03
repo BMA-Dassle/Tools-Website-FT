@@ -9,6 +9,14 @@ import {
 import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
 import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-codes";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
+import {
+  fixtureDayLabel,
+  fixtureLabel,
+  fixtureTimeLabel,
+  upcomingFixtures,
+  worldCupEnabledCenters,
+  worldCupWindowActive,
+} from "~/features/world-cup";
 import { PromoLanding } from "./PromoLanding";
 
 /**
@@ -85,6 +93,24 @@ export default async function BookV2LandingPage({
   // (racing combos are Fort Myers-only, so Naples never sees them).
   const combos: ComboSpecial[] = enabledCombos().filter((c) => !center || c.center === center);
 
+  // World Cup VIP Bowling tile — HeadPinz brand only, limited-time (self-hides
+  // after the July 19 final), per-center kill switches honored. Launch = Fort
+  // Myers only (the Naples flag ships "false" until its LED wall is verified);
+  // Naples appears automatically when its flag flips. The link seeds the
+  // match-picker entry at this landing's center (or the first enabled one).
+  const nowMs = Date.now();
+  const wcCenters = worldCupEnabledCenters().filter((c) => !center || c === center);
+  const nextFixture = upcomingFixtures(nowMs)[0] ?? null;
+  const worldCup =
+    entryBrand === "headpinz" && worldCupWindowActive(nowMs) && wcCenters.length > 0
+      ? {
+          href: `/book/bowling/v2?experience=world-cup&location=${center ?? wcCenters[0]}`,
+          nextMatch: nextFixture
+            ? `${fixtureLabel(nextFixture)} — ${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
+            : null,
+        }
+      : null;
+
   return (
     <PromoLanding
       entryBrand={entryBrand}
@@ -95,6 +121,7 @@ export default async function BookV2LandingPage({
       initialOfferings={initialOfferings}
       allOfferings={initialOfferings}
       combos={combos}
+      worldCup={worldCup}
     />
   );
 }

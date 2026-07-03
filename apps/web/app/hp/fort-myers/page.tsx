@@ -4,6 +4,7 @@ import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import EventClosurePopup from "@/components/EventClosurePopup";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
+import WorldCupVipPopup from "@/components/WorldCupVipPopup";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import {
   BreadcrumbJsonLd,
@@ -240,7 +241,9 @@ export default function FortMyersPage() {
   return (
     <div className="bg-[#0a1628]">
       <EventClosurePopup brand="headpinz" />
+      {/* Mutually exclusive by date gates: USA250 dies 7/5 00:00 ET, World Cup starts then. */}
       <Usa250PromoPopup />
+      <WorldCupVipPopup bookHref="/book/bowling/v2?experience=world-cup&location=fort-myers" />
       <BreadcrumbJsonLd
         items={[
           { name: "HeadPinz", url: "https://headpinz.com" },

@@ -12,6 +12,7 @@ import type { CenterCode } from "~/features/booking/types";
 import {
   fixtureForBookedAt,
   fixtureKickoffMs,
+  fixtureLabel,
   fixtureStaffLabel,
   isWorldCupSlug,
   type WorldCupFixture,
@@ -74,6 +75,50 @@ export function validateWorldCupBooking(args: {
     );
   }
   return fixture;
+}
+
+/* ───────────────────── line items (match window) ───────────────────── */
+
+/** The slice of a bowling experience item the line builder needs (client
+ *  shape from GET /api/bowling/v2/experiences). */
+export interface WorldCupExperienceItemLike {
+  squareProductId: number;
+  quantity: number;
+  label: string;
+  priceCents: number;
+  depositPct: number;
+  squareCatalogObjectId?: string;
+  sortOrder: number;
+}
+
+/**
+ * Cart line items for a World Cup lane window. Mirrors
+ * BowlingOfferStep.buildLineItems for an hourly experience with NO duration
+ * options: EVERY item scales × laneCount (the primary's duration multiplier
+ * is 1), so chips & salsa lands one per lane. The PRIMARY (sortOrder 0)
+ * label carries the match name — it becomes the Neon line label, which the
+ * confirmation email + receipts surface as the experience label.
+ */
+export function buildWorldCupLineItems(
+  items: WorldCupExperienceItemLike[],
+  laneCount: number,
+  fixture: WorldCupFixture,
+): Array<{
+  squareProductId: number;
+  quantity: number;
+  label: string;
+  priceCents: number;
+  depositPct: number;
+  squareCatalogObjectId?: string;
+}> {
+  return items.map((ei) => ({
+    squareProductId: ei.squareProductId,
+    quantity: ei.quantity * laneCount,
+    label: ei.sortOrder === 0 ? `${ei.label} — ${fixtureLabel(fixture)}` : ei.label,
+    priceCents: ei.priceCents,
+    depositPct: ei.depositPct,
+    squareCatalogObjectId: ei.squareCatalogObjectId,
+  }));
 }
 
 /* ───────────────────── staff-facing strings (QAMF) ─────────────────── */

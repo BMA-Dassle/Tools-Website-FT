@@ -6,6 +6,7 @@ import RacerJourney from "@/components/home/RacerJourney";
 import GroupEvents from "@/components/home/GroupEvents";
 import EventClosurePopup from "@/components/EventClosurePopup";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
+import WorldCupVipPopup from "@/components/WorldCupVipPopup";
 import { fasttraxOpenGraph, fasttraxTwitter } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -30,7 +31,10 @@ export default function HomePage() {
   return (
     <>
       <EventClosurePopup brand="fasttrax" />
+      {/* Date gates make these two mutually exclusive: USA250 self-expires at
+          the exact instant (7/5 00:00 ET) the World Cup popup starts. */}
       <Usa250PromoPopup />
+      <WorldCupVipPopup />
       <Hero />
       <Attractions />
       <GalleryStrip />

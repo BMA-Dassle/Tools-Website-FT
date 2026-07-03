@@ -3,6 +3,8 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
+import WorldCupVipPopup from "@/components/WorldCupVipPopup";
+import { worldCupCenterEnabled } from "~/features/world-cup";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import {
   BreadcrumbJsonLd,
@@ -219,7 +221,17 @@ const weeklyEvents = [
 export default function NaplesPage() {
   return (
     <div className="bg-[#0a1628]">
+      {/* Mutually exclusive by date gates: USA250 dies 7/5 00:00 ET, World Cup starts then. */}
       <Usa250PromoPopup bookHref="/book/v2?code=USA250&location=naples" />
+      {/* Naples-scoped link once its kill switch is on; until then the popup
+          advertises the Fort Myers offer (launch = FM only, owner 7/3). */}
+      <WorldCupVipPopup
+        bookHref={
+          worldCupCenterEnabled("naples")
+            ? "/book/bowling/v2?experience=world-cup&location=naples"
+            : undefined
+        }
+      />
       <BreadcrumbJsonLd
         items={[
           { name: "HeadPinz", url: "https://headpinz.com" },

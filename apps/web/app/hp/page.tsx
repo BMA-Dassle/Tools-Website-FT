@@ -3,6 +3,7 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
+import WorldCupVipPopup from "@/components/WorldCupVipPopup";
 import { HEADPINZ_OG } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -127,7 +128,9 @@ const activities = ["BOWLING", "LASER TAG", "GEL BLASTERS", "ARCADE", "DINING"];
 export default function HeadPinzHome() {
   return (
     <>
+      {/* Mutually exclusive by date gates: USA250 dies 7/5 00:00 ET, World Cup starts then. */}
       <Usa250PromoPopup />
+      <WorldCupVipPopup />
       <BreadcrumbJsonLd items={[{ name: "HeadPinz", url: "https://headpinz.com" }]} />
       <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
         {jsonLdSchemas.map((schema, i) => (

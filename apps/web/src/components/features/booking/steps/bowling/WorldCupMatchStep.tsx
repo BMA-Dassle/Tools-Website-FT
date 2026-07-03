@@ -9,6 +9,7 @@ import { getPublicReopenMinutes } from "@/lib/group-events";
 import { releaseComboBowlingHold } from "~/features/combos/combo-booking";
 import {
   WORLD_CUP_WINDOW_MINUTES,
+  buildWorldCupLineItems,
   fixtureLabel,
   fixtureDayLabel,
   fixtureTimeLabel,
@@ -188,19 +189,7 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
         return;
       }
 
-      // Mirrors BowlingOfferStep.buildLineItems for an hourly experience with
-      // no duration options: primary × laneCount × 1, every other item ×
-      // laneCount (chips & salsa lands one per lane). The PRIMARY label
-      // carries the match name — it becomes the Neon line label, which the
-      // confirmation email + receipts surface as the experience label.
-      const lineItems = (exp.items ?? []).map((ei) => ({
-        squareProductId: ei.squareProductId,
-        quantity: ei.quantity * laneCount,
-        label: ei.sortOrder === 0 ? `${ei.label} — ${fixtureLabel(f)}` : ei.label,
-        priceCents: ei.priceCents,
-        depositPct: ei.depositPct,
-        squareCatalogObjectId: ei.squareCatalogObjectId,
-      }));
+      const lineItems = buildWorldCupLineItems(exp.items ?? [], laneCount, f);
 
       dispatch({
         type: "setBowlingHold",
