@@ -295,6 +295,7 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
                       type="button"
                       disabled={soldOut || reserving}
                       onClick={() => void pickMatch(f)}
+                      aria-label={`${fixtureLabel(f)}, ${f.round}, kickoff ${fixtureTimeLabel(f)} ${fixtureDayLabel(f)}${soldOut ? " — sold out at this center" : ""}`}
                       className={`w-full rounded-2xl p-4 text-left ring-1 transition-colors ${
                         selected
                           ? "bg-white/10 ring-2 ring-[#FFD700]"
