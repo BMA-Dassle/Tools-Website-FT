@@ -159,6 +159,16 @@ interface ReserveBody {
   discountCode?: string;
   /** YYYY-MM-DD of the booking date — needed for weekday-gated codes. */
   bookingDate?: string;
+  /**
+   * USA250-style price-key promo code (uppercased). Distinct from
+   * `discountCode` (order-level Square catalog discount): a price-key promo
+   * REDUCES each eligible line's price directly and attaches no Square
+   * discount object. Only the CODE is trusted from the client — eligibility
+   * and the percent come from Neon via `evaluateCode`, so this route charges
+   * the discounted price even on the fallback path (no pre-created quote
+   * order), and records the redemption on both paths.
+   */
+  promoCode?: string;
   /** QAMF center ID. Exactly one of centerId / centerCode must be provided. */
   centerId?: number;
   centerCode?: string;
@@ -342,8 +352,41 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── USA250-style price-key promo (server-authoritative) ─────────
+  // The quote path bakes the same reduction into the pre-created order's
+  // lines; re-deriving it here from the Neon row makes the FALLBACK path (no
+  // quote order) charge the same discounted price the review displayed, and
+  // gives both paths a redemption ledger row. Client-sent amounts are never
+  // trusted — only the code; window/domain/percent all come from Neon.
+  // Mirrors the client seam (promo-pricing.ts): percent codes only, unit
+  // price rounded per line, KBF extras + booking fee never discounted.
+  let promoPriceFactor = 1;
+  let promoRow: Awaited<ReturnType<typeof getDiscountCodeByCode>> = null;
+  let promoSavingsCents = 0;
+  if (body.promoCode) {
+    try {
+      const row = await getDiscountCodeByCode(body.promoCode);
+      const evald = evaluateCode(row, {
+        code: body.promoCode,
+        domain: "bowling",
+        locationId: centerCode,
+        bookingDate: body.bookedAt.slice(0, 10),
+      });
+      if (evald.valid && row?.mechanic === "percent" && row.amountPct != null) {
+        promoPriceFactor = 1 - row.amountPct / 100;
+        promoRow = row;
+      } else if (!evald.valid) {
+        console.warn(
+          `[bowling/v2/reserve] promo ${body.promoCode} not valid here (${evald.reason}) — charging full price`,
+        );
+      }
+    } catch (err) {
+      console.error("[bowling/v2/reserve] promo validation failed (treated as no promo):", err);
+    }
+  }
+
   // ── Load Square products + compute subtotals ────────────────────
-  const productItems: { product: BowlingSquareProduct; quantity: number }[] = [];
+  const productItems: { product: BowlingSquareProduct; quantity: number; unitCents: number }[] = [];
   const reservationLines: ReservationLine[] = [];
 
   for (const li of lineItems) {
@@ -355,12 +398,18 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    productItems.push({ product, quantity: li.quantity });
+    // Promo-reduced unit price (same per-line rounding as the client/quote).
+    const unitCents =
+      promoPriceFactor === 1 || product.priceCents <= 0
+        ? product.priceCents
+        : Math.round(product.priceCents * promoPriceFactor);
+    promoSavingsCents += (product.priceCents - unitCents) * li.quantity;
+    productItems.push({ product, quantity: li.quantity, unitCents });
     reservationLines.push({
       squareProductId: product.id,
       label: product.label,
       quantity: li.quantity,
-      unitPriceCents: product.priceCents,
+      unitPriceCents: unitCents,
     });
   }
 
@@ -463,15 +512,15 @@ export async function POST(req: NextRequest) {
 
   // Pre-tax subtotal (used to compute overallDepositPct + squareToken validation)
   const productTotal = productItems.reduce(
-    (s, { product, quantity }) => s + product.priceCents * quantity,
+    (s, { unitCents, quantity }) => s + unitCents * quantity,
     0,
   );
   // Adult game + VIP upcharge are 100% deposit (pay upfront, no day-of split).
   const kbfExtraCents = adultGameTotalCents + kbfVipUpchargeCents;
   const preTaxTotalCents = productTotal + kbfExtraCents + (hasBookingFee ? BOOKING_FEE_CENTS : 0);
   const productDeposit = productItems.reduce(
-    (s, { product, quantity }) =>
-      s + Math.round(product.priceCents * quantity * (product.depositPct / 100)),
+    (s, { product, quantity, unitCents }) =>
+      s + Math.round(unitCents * quantity * (product.depositPct / 100)),
     0,
   );
   const preTaxDepositCents =
@@ -1074,6 +1123,12 @@ export async function POST(req: NextRequest) {
             return {
               catalog_object_id: li.catalogObjectId,
               quantity: li.quantity,
+              // Square honors base_price_money as a price-key OVERRIDE on
+              // catalog-linked lines (catalog price is only a default) — it
+              // MUST ride along or a promo-reduced line rings full catalog
+              // price (the July-2026 USA250 incident). $0 pass-through lines
+              // (pizza/soda) send amount 0 deliberately.
+              ...(li.basePriceMoney ? { base_price_money: li.basePriceMoney } : {}),
               ...modifiers,
               ...noteField,
             };
@@ -1336,6 +1391,34 @@ export async function POST(req: NextRequest) {
         }
       } catch (err) {
         console.error("[bowling/v2/reserve] redemption logging failed (non-fatal):", err);
+      }
+    }
+
+    // ── USA250 price-key promo redemption log ───────────────────────
+    // Same soft-fail contract as discountCode above. Previously bowling-only
+    // carts never recorded price-key redemptions at all, so uses_count /
+    // max_uses were unenforceable on this path and the ledger undercounted.
+    // amountOff = the actual pre-tax per-line reduction applied, matching the
+    // unified-reserve ledger convention. Keyed on the day-of order id —
+    // idempotent on retry, and the refund path decrements by the same ref.
+    if (promoRow && promoSavingsCents > 0 && squareDayofOrderId) {
+      try {
+        const { alreadyRedeemed } = await recordRedemption({
+          codeId: promoRow.id,
+          domain: "bowling",
+          externalRef: squareDayofOrderId,
+          amountOffCents: promoSavingsCents,
+          squareCustomerId: resolvedSquareCustomerId ?? null,
+        });
+        console.log(
+          `[bowling/v2/reserve] promo ${promoRow.code} ${
+            alreadyRedeemed
+              ? `already redeemed for order ${squareDayofOrderId} (idempotent retry)`
+              : `redeemed (neonId=${neonId} order=${squareDayofOrderId} off=$${(promoSavingsCents / 100).toFixed(2)})`
+          }`,
+        );
+      } catch (err) {
+        console.error("[bowling/v2/reserve] promo redemption logging failed (non-fatal):", err);
       }
     }
   } catch (err) {

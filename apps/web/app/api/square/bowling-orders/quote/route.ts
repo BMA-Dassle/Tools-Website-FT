@@ -179,6 +179,32 @@ export async function POST(req: NextRequest) {
     const dayofTotalCents: number = orderData.order?.total_money?.amount ?? 0;
     const depositCents = Math.round((dayofTotalCents * depositPct) / 100);
 
+    // ── Invariant: Square must echo every price override we sent ─────────
+    // If a returned line prices differently than the base_price_money we
+    // requested, the quote silently mispriced the booking — exactly the
+    // July-2026 USA250 failure mode (override dropped → full catalog price
+    // rang while the review showed a discount). Fail the quote instead:
+    // the client falls back to its estimate and the reserve fallback path
+    // re-derives the promo server-side, so failing here never overcharges.
+    // Square returns line_items in request order; compare index-wise.
+    const returnedLines: Array<{ base_price_money?: { amount?: number } }> =
+      orderData.order?.line_items ?? [];
+    for (let i = 0; i < lineItems.length; i++) {
+      const sent = lineItems[i].basePriceMoney?.amount;
+      const got = returnedLines[i]?.base_price_money?.amount;
+      if (sent != null && got !== sent) {
+        console.error(
+          `[square/bowling-orders/quote] price-override MISMATCH on order ${dayofOrderId} ` +
+            `line ${i} ("${lineItems[i].name}"): sent ${sent}, Square priced ${got}. ` +
+            `Failing the quote so the mispriced order is never charged.`,
+        );
+        return NextResponse.json(
+          { error: `Square did not honor the requested price on line ${i}` },
+          { status: 502 },
+        );
+      }
+    }
+
     // For UI display only — pull the order-level discount amount Square calculated.
     if (discountCatalogId) {
       const totalDiscountCents = Number(orderData.order?.total_discount_money?.amount ?? 0);
