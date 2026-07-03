@@ -77,6 +77,11 @@ export function heatsConflict(
 export const HEAT_CONFLICT_TOOLTIP =
   "Pick a different heat — this one's too close. Same-track heats need to skip at least one slot between them, and jumping between tracks needs 30 minutes to walk across and check in.";
 
+/** Tooltip variant when the blocking heat lives in a PRIOR reservation (the
+ *  cross-reservation spacing signal), not the current cart. */
+export const EXISTING_RESERVATION_CONFLICT_TOOLTIP =
+  "A racer in your group already has a race reserved too close to this time. Same-track heats need to skip at least one slot between them, and jumping between tracks needs 30 minutes to walk across and check in.";
+
 /**
  * Package heat-gap rule: candidate must start at least `minutes` after
  * a previously-picked component finished. Used by v1's Ultimate Qualifier
