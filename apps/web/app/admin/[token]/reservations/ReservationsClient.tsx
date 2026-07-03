@@ -2146,7 +2146,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       if (liveHeats.length) {
         raceSteps = liveHeats.map((h, i) => {
           // BMI gives the REAL session window (stop − start, ~7-12 min) —
-          // use it so "On track now"/"Done" flip at the actual session end.
+          // use it so "In progress"/"Done" flip at the actual session end.
           const stopMs = h.stop ? etWallMs(h.stop) : NaN;
           const realMin = (stopMs - h.ms) / 60_000;
           return {
@@ -3379,7 +3379,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                                       ? "Bowling now · wrapping up"
                                       : `Bowling now · ${fmtDurShort(prog.minsLeft)} left`
                                     : "Lane due · not arrived"
-                                  : "On track now";
+                                  : "In progress";
                                 const color = late ? "#f59e0b" : accent;
                                 const bg = late ? "rgba(245,158,11,0.15)" : "rgba(212,175,55,0.15)";
                                 return (
