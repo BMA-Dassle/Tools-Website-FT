@@ -362,10 +362,12 @@ export async function ensureBowlingSchema(): Promise<void> {
 
   // ── Combo special linkage (Ultimate VIP Experience) ──────────────
   // A combo books as TWO rows (a `race` leg + an `open` bowling leg) that
-  // share one square_dayof_order_id. Neither product_kind says "VIP", so we
-  // stamp the combo id (e.g. 'race-bowl') on BOTH legs at insert time. This
-  // is the ONLY queryable VIP marker — the rest lives in Redis / BMI memo.
-  // Lets the reservations portal filter + group VIP combos across centers.
+  // share one square_deposit_order_id (+ gift card); since the order split
+  // each leg settles its OWN square_dayof_order_id (older pre-split rows
+  // shared one). Neither product_kind says "VIP", so we stamp the combo id
+  // (e.g. 'race-bowl') on BOTH legs at insert time. This is the ONLY
+  // queryable VIP marker — the rest lives in Redis / BMI memo. Lets the
+  // reservations portal filter + group VIP combos across centers.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS combo_special_id TEXT`;
   await q`CREATE INDEX IF NOT EXISTS br_combo ON bowling_reservations(combo_special_id) WHERE combo_special_id IS NOT NULL`;
 
@@ -990,6 +992,33 @@ export async function getBowlingReservationByBillId(
   `;
   if (!rows.length) return null;
   return rowToReservation(rows[0] as Record<string, unknown>);
+}
+
+/**
+ * Combo sibling legs (Ultimate VIP): the OTHER reservation row(s) from the same
+ * combo checkout. Post-split combos write TWO rows (race @ FastTrax + bowling @
+ * HeadPinz) with DIFFERENT day-of orders; the one key that survives the split is
+ * square_deposit_order_id — one deposit charge for the whole cart (br_dep_sq
+ * index). combo_special_id must MATCH so a plain mixed cart, which also shares
+ * one deposit order across rows, never pairs here.
+ */
+export async function listComboSiblingReservations(
+  depositOrderId: string,
+  comboSpecialId: string,
+  excludeId: number,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE square_deposit_order_id = ${depositOrderId}
+      AND combo_special_id = ${comboSpecialId}
+      AND id != ${excludeId}
+      AND status != 'cancelled'
+    ORDER BY id
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
 }
 
 /**

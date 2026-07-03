@@ -995,7 +995,8 @@ async function unifiedReserveInner(
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
             // Combo (Ultimate VIP): stamp the combo id so the reservations
             // portal can flag + group this VIP bowling leg with its race leg
-            // (they share square_dayof_order_id).
+            // (correlated via the shared square_deposit_order_id; each leg
+            // settles its own day-of order).
             comboSpecialId: session.comboSpecialId ?? undefined,
           },
           item.lineItems.map((li) => ({
