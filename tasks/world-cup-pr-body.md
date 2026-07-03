@@ -38,6 +38,12 @@ until its LED wall is verified). Everything self-hides after the final.
   conflict on `(experience_id, center_code)` — NOT the main seed's dropped
   `(center_code, qamf_web_offer_id)` target, which would steal the shared VIP offers from
   `vip-mon-thur`/`vip-fri-sun`. Deliberately seeds ZERO duration options.
+- **Self-updating matchups** (`features/world-cup/live-teams.ts` + `GET /api/world-cup/fixtures`):
+  TBD team labels live-fill from ESPN's public scoreboard, matched by EXACT kickoff instant, only
+  into null slots (committed strings remain the manual override). One Redis key (1h TTL, 10m on
+  errors) + per-lambda memo; fail-soft to "Teams TBD"; display-only (validation keys off
+  date/hour); kill switch `WORLD_CUP_LIVE_TEAMS_ENABLED=false`. Feeds the picker, the tile's
+  next-match teaser, and both reserve rails' QAMF banner/metadata.
 
 ## Test evidence
 
@@ -72,7 +78,9 @@ until its LED wall is verified). Everything self-hides after the final.
    refund/void per usual. Negative: Naples fully dark (no tile/step; doctored reserve replay
    rejected pre-charge); popup absent before 7/5; normal bowling wizard unchanged.
 6. Naples later: verify wall → ops ids → re-run seed → flip env → redeploy → Naples smoke.
-7. As rounds resolve: edit `teams` in `src/features/world-cup/fixtures.ts` (config-only).
+7. As rounds resolve: **nothing to do** — labels live-fill from ESPN within ~1 h (Redis TTL).
+   Manual lever if the feed misbehaves: edit `teams` in `src/features/world-cup/fixtures.ts`
+   (committed strings always win) or set `WORLD_CUP_LIVE_TEAMS_ENABLED=false`.
 8. Post-final: surfaces self-hide;
    `UPDATE bowling_experiences SET is_active=FALSE WHERE slug LIKE 'world-cup-%';` + cleanup PR.
 
