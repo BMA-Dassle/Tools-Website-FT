@@ -11,12 +11,112 @@ import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { getReservation } from "@/lib/qamf-bowling";
+import { parseWithRawIds } from "@ft/db";
 
 /** QAMF numeric center ids (mirrors bowling-lane-poll). */
 const QAMF_CENTER_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172, // HeadPinz Fort Myers
   PPTR5G2N0QXF7: 3148, // HeadPinz Naples
 };
+
+// ── Live BMI heat times for VIP combo race legs ─────────────────────────────
+// Staff reschedule combo heats in BMI Office, which makes the heat times
+// stamped into booking_metadata at BOOKING time stale. The bill's public
+// overview reflects the CURRENT session per line, so re-read it and let the
+// board prefer these times. Mirrors race-cancel-watch's auth/overview pattern.
+const BMI_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
+const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
+const BMI_USERNAME = process.env.BMI_USERNAME || "";
+const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
+/** Combos are Fort Myers-only; race bills live under the FastTrax client key. */
+const RACE_CLIENT_KEY = "headpinzftmyers";
+
+let bmiTokenCache: { token: string; expiry: number } | null = null;
+async function getBmiToken(): Promise<string> {
+  if (bmiTokenCache && Date.now() < bmiTokenCache.expiry - 60_000) return bmiTokenCache.token;
+  const res = await fetch(`${BMI_API_URL}/auth/${RACE_CLIENT_KEY}/publicbooking`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "BMI-Subscription-Key": BMI_SUB_KEY },
+    body: JSON.stringify({ Username: BMI_USERNAME, Password: BMI_PASSWORD }),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`BMI auth ${res.status}`);
+  const data = await res.json();
+  const token = data.AccessToken || data.accessToken;
+  const expiresIn = parseInt(data.ExpiresIn || data.expiresIn || "3600", 10);
+  bmiTokenCache = { token, expiry: Date.now() + expiresIn * 1000 };
+  return token;
+}
+
+interface LiveHeat {
+  /** Naive ET wall-clock ISO (same shape as booking_metadata heatIds). */
+  start: string;
+  /** REAL session end from BMI (~7-12 min after start) — the board flips a
+   *  race to Done at this moment instead of guessing a duration. */
+  stop: string | null;
+  /** BMI line name, e.g. "Starter Race Blue" — the board labels from it. */
+  name: string | null;
+}
+
+/** In-memory per-bill cache: the board polls this route every 10s, so without
+ *  a TTL every open admin tab would hit BMI per race leg per poll. 60s is
+ *  fresh enough for an office reschedule; failures cache 30s so a BMI outage
+ *  can't hammer. In-memory (not Redis) on purpose — warm lambdas cover the
+ *  10s poll, and a cold-start miss is just one light GET per bill. */
+const liveHeatCache = new Map<string, { heats: LiveHeat[] | null; expiry: number }>();
+
+async function fetchLiveHeats(billId: string): Promise<LiveHeat[] | null> {
+  const cached = liveHeatCache.get(billId);
+  if (cached && Date.now() < cached.expiry) return cached.heats;
+  let heats: LiveHeat[] | null = null;
+  try {
+    const token = await getBmiToken();
+    const res = await fetch(
+      `${BMI_API_URL}/public-booking/${RACE_CLIENT_KEY}/order/${billId}/overview`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "BMI-Subscription-Key": BMI_SUB_KEY,
+          "Accept-Language": "en",
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (res.ok) {
+      // Overview carries 17-digit ids — lossless parse only (never res.json()).
+      const ov = parseWithRawIds<{
+        lines?: Array<{
+          name?: string;
+          scheduledTime?: { start?: string; stop?: string };
+          start?: string;
+          stop?: string;
+        }>;
+      }>(await res.text());
+      // Scheduled lines only — the race heats. POV/license lines have no
+      // scheduledTime and drop out here.
+      const seen = new Set<string>();
+      heats = (ov.lines ?? [])
+        .map((l) => ({
+          start: l.scheduledTime?.start ?? l.start ?? "",
+          stop: l.scheduledTime?.stop ?? l.stop ?? null,
+          name: l.name ?? null,
+        }))
+        .filter((h) => h.start)
+        .filter((h) => {
+          const k = `${h.start}|${h.name ?? ""}`;
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        })
+        .sort((a, b) => a.start.localeCompare(b.start));
+    }
+  } catch {
+    /* non-fatal — board falls back to booking_metadata heat times */
+  }
+  liveHeatCache.set(billId, { heats, expiry: Date.now() + (heats ? 60_000 : 30_000) });
+  return heats;
+}
 
 /**
  * GET /api/admin/bowling/reservations?token=...&date=YYYY-MM-DD&center=...
@@ -238,20 +338,44 @@ export async function GET(req: NextRequest) {
       }),
     );
 
+    // Live heat lines from BMI for each combo RACE leg — office reschedules
+    // move heats after booking (and can convert an Intermediate to a second
+    // Starter), so the board prefers these times + names over the (stale)
+    // booking_metadata ones. Best-effort + cached; never fails the response.
+    await Promise.all(
+      vipReservations.map(async (r) => {
+        if (r.productKind !== "race" || !r.bmiBillId || r.status === "cancelled") return;
+        const heats = await fetchLiveHeats(r.bmiBillId);
+        if (heats && heats.length) {
+          (r as { liveHeats?: LiveHeat[] }).liveHeats = heats;
+        }
+      }),
+    );
+
     const comboMeta: Record<
       string,
-      { name: string; accentColor: string; includes: string[]; center: string }
+      {
+        name: string;
+        accentColor: string;
+        includes: string[];
+        center: string;
+        bowlingDurationMinutes?: number;
+      }
     > = {};
     for (const r of vipReservations) {
       const id = r.comboSpecialId;
       if (!id || comboMeta[id]) continue;
       const combo = getComboSpecial(id);
       if (combo) {
+        const bowlingLeg = combo.components.find((c) => c.kind === "bowling");
         comboMeta[id] = {
           name: combo.name,
           accentColor: combo.accentColor,
           includes: combo.includes,
           center: combo.center,
+          // Registry lane length (Ultimate VIP = 90) — drives the board's
+          // live "time left on lane" countdown.
+          bowlingDurationMinutes: bowlingLeg?.durationMinutes,
         };
       }
     }
