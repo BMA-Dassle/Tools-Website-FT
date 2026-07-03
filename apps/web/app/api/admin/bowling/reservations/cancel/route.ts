@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
     try {
       const result = await processSquareBowlingRefund({
         depositPaymentId: reservation.squareDepositPaymentId,
+        depositOrderId: reservation.squareDepositOrderId,
         giftCardId: reservation.squareGiftCardId,
         dayofOrderId: reservation.squareDayofOrderId,
         locationId: reservation.centerCode,
