@@ -231,11 +231,15 @@ export function fixturesOn(dateEt: string): WorldCupFixture[] {
   return WORLD_CUP_FIXTURES.filter((f) => f.dateEt === dateEt);
 }
 
+/** Matches still sellable from a given table (the match picker passes the
+ *  live-enriched fixtures from /api/world-cup/fixtures). */
+export function upcomingFrom(fixtures: WorldCupFixture[], nowMs: number): WorldCupFixture[] {
+  return fixtures.filter((f) => fixtureKickoffMs(f) - WORLD_CUP_BOOKING_CUTOFF_MS > nowMs);
+}
+
 /** Matches still sellable: kickoff at least the booking cutoff away. */
 export function upcomingFixtures(nowMs: number): WorldCupFixture[] {
-  return WORLD_CUP_FIXTURES.filter(
-    (f) => fixtureKickoffMs(f) - WORLD_CUP_BOOKING_CUTOFF_MS > nowMs,
-  );
+  return upcomingFrom(WORLD_CUP_FIXTURES, nowMs);
 }
 
 /** Whole feature (tile + picker) lives until the final's window ends. */

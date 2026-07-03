@@ -13,10 +13,11 @@ import {
   fixtureDayLabel,
   fixtureLabel,
   fixtureTimeLabel,
-  upcomingFixtures,
+  upcomingFrom,
   worldCupEnabledCenters,
   worldCupWindowActive,
 } from "~/features/world-cup";
+import { fixturesWithLiveTeams } from "~/features/world-cup/live-teams";
 import { PromoLanding } from "./PromoLanding";
 
 /**
@@ -100,16 +101,20 @@ export default async function BookV2LandingPage({
   // match-picker entry at this landing's center (or the first enabled one).
   const nowMs = Date.now();
   const wcCenters = worldCupEnabledCenters().filter((c) => !center || c === center);
-  const nextFixture = upcomingFixtures(nowMs)[0] ?? null;
-  const worldCup =
-    entryBrand === "headpinz" && worldCupWindowActive(nowMs) && wcCenters.length > 0
-      ? {
-          href: `/book/bowling/v2?experience=world-cup&location=${center ?? wcCenters[0]}`,
-          nextMatch: nextFixture
-            ? `${fixtureLabel(nextFixture)} — ${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
-            : null,
-        }
-      : null;
+  const showWorldCup =
+    entryBrand === "headpinz" && worldCupWindowActive(nowMs) && wcCenters.length > 0;
+  // Live-enriched fixtures (Redis-cached, fail-soft) only when the tile shows.
+  const nextFixture = showWorldCup
+    ? (upcomingFrom(await fixturesWithLiveTeams(), nowMs)[0] ?? null)
+    : null;
+  const worldCup = showWorldCup
+    ? {
+        href: `/book/bowling/v2?experience=world-cup&location=${center ?? wcCenters[0]}`,
+        nextMatch: nextFixture
+          ? `${fixtureLabel(nextFixture)} — ${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
+          : null,
+      }
+    : null;
 
   return (
     <PromoLanding

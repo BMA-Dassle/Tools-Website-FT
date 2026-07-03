@@ -39,6 +39,7 @@ import {
   fixtureLabel,
   type WorldCupFixture,
 } from "~/features/world-cup";
+import { enrichFixture } from "~/features/world-cup/live-teams";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
 import {
   KBF_GAMES_PER_SESSION,
@@ -419,6 +420,8 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    // Live team names for the staff banner + metadata (fail-soft, cached).
+    wcFixture = await enrichFixture(wcFixture!);
   }
 
   // ── Load Square products + compute subtotals ────────────────────

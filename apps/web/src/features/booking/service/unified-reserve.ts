@@ -48,6 +48,7 @@ import {
   fixtureForBookedAt,
   fixtureLabel,
 } from "~/features/world-cup";
+import { enrichFixture } from "~/features/world-cup/live-teams";
 import {
   insertBowlingReservation,
   updateBowlingReservationShortCode,
@@ -1014,12 +1015,15 @@ async function unifiedReserveInner(
       bowlingPromoSavingsCents += itemPromoSavingsCents;
 
       // World Cup VIP Bowling: re-derive the fixture SERVER-SIDE from the
-      // validated bookedAt (guard 2c) — never a client-supplied label. Feeds
-      // the Neon booking metadata + the Conqueror title/banner below.
-      const wcFixture =
+      // validated bookedAt (guard 2c) — never a client-supplied label. Live
+      // team names fill the TBD slots (fail-soft, Redis-cached) so staff and
+      // metadata show real matchups once the bracket resolves. Feeds the Neon
+      // booking metadata + the Conqueror title/banner below.
+      const wcFixtureStatic =
         item.kind === "bowling" && isWorldCupBowlingItem(item) && item.bookedAt
           ? fixtureForBookedAt(item.bookedAt)
           : null;
+      const wcFixture = wcFixtureStatic ? await enrichFixture(wcFixtureStatic) : null;
 
       try {
         const reservation = await insertBowlingReservation(

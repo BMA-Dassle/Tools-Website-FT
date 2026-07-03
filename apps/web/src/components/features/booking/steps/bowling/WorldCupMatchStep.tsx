@@ -8,6 +8,7 @@ import { probeAvailability, parseAvailabilities } from "./availability-client";
 import { getPublicReopenMinutes } from "@/lib/group-events";
 import { releaseComboBowlingHold } from "~/features/combos/combo-booking";
 import {
+  WORLD_CUP_FIXTURES,
   WORLD_CUP_WINDOW_MINUTES,
   buildWorldCupLineItems,
   fixtureLabel,
@@ -15,7 +16,7 @@ import {
   fixtureTimeLabel,
   fixtureMatchesBookedAt,
   isWorldCupSlug,
-  upcomingFixtures,
+  upcomingFrom,
   worldCupCenterEnabledByQamfId,
   worldCupSlugForDate,
   type WorldCupFixture,
@@ -74,6 +75,25 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
   const [reservingId, setReservingId] = useState<string | null>(null);
   /** Fixtures whose exact kickoff probed empty at this center. */
   const [soldOutIds, setSoldOutIds] = useState<Set<string>>(new Set());
+  /** Fixture table, TBD matchups live-filled server-side (ESPN feed). The
+   *  committed table renders instantly; the fetch only upgrades labels —
+   *  ids/dates/kickoffs are identical, so selections stay stable. */
+  const [fixtures, setFixtures] = useState<WorldCupFixture[]>(WORLD_CUP_FIXTURES);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/world-cup/fixtures");
+        if (!res.ok) return;
+        const data = (await res.json()) as { fixtures?: WorldCupFixture[] };
+        if (Array.isArray(data.fixtures) && data.fixtures.length) {
+          setFixtures(data.fixtures);
+        }
+      } catch {
+        // Feed down — the committed table ("Teams TBD") is the fallback.
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!centerCode || !centerEnabled) {
@@ -240,7 +260,7 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
     );
   }
 
-  const upcoming = upcomingFixtures(Date.now());
+  const upcoming = upcomingFrom(fixtures, Date.now());
   const dates = [...new Set(upcoming.map((f) => f.dateEt))];
 
   return (
