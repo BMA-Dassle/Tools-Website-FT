@@ -17,6 +17,7 @@ import {
   type RaceTier,
 } from "~/features/booking/service/race-products";
 import {
+  EXISTING_RESERVATION_CONFLICT_TOOLTIP,
   findHeatConflict,
   HEAT_CONFLICT_TOOLTIP,
   heatsConflict,
@@ -471,17 +472,17 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     // Gap enforcement spans ALL of this category's heats — every product/track the
     // racer has added across the "Add another race" loop, not just the current
     // screen — so they can't end up booked back-to-back across tracks/products.
-    // PLUS the racers' already-booked heats from other reservations (above).
+    // Kept SEPARATE from the racers' already-booked heats (other reservations,
+    // above) so the card copy can say which one is blocking: "picked heat" vs
+    // "existing reservation" (owner feedback 2026-07-02).
     const categoryRacerIds = new Set(racers.map((r) => r.id));
-    const conflictBlocks = [
-      ...item.heats
-        .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
-        .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull })),
-      ...(bookedHeatsQuery.data?.heats ?? []).map((h) => ({
-        heatId: h.heatId,
-        track: (h.track as TrackOrNull) ?? null,
-      })),
-    ];
+    const cartConflictBlocks = item.heats
+      .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
+      .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }));
+    const existingConflictBlocks = (bookedHeatsQuery.data?.heats ?? []).map((h) => ({
+      heatId: h.heatId,
+      track: (h.track as TrackOrNull) ?? null,
+    }));
 
     const anyNewInCategory = racers.some((r) => r.isNewRacer);
     const allReturningHaveWaivers =
@@ -801,11 +802,21 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               const block = tp.block;
               const isSelected = pickedSet.has(heatKey(tp.productId, block.start));
               const blockStartMs = parseLocal(block.start).getTime();
-              const isConflict =
+              const conflictsWithCart =
                 !isSelected &&
-                conflictBlocks.some((p) =>
+                cartConflictBlocks.some((p) =>
                   heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
                 );
+              // Blocked by a heat the racer holds in a PRIOR reservation (not
+              // this cart) — same spacing rules, different copy. Cart wins when
+              // both apply ("picked heat" is the one they can still unselect).
+              const conflictsWithExisting =
+                !isSelected &&
+                !conflictsWithCart &&
+                existingConflictBlocks.some((p) =>
+                  heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
+                );
+              const isConflict = conflictsWithCart || conflictsWithExisting;
               const isEventReserved =
                 !isSelected &&
                 blockWindows.some((w) => {
@@ -839,7 +850,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 : isEventReserved || isBeforeReopen
                   ? "Reserved for event"
                   : isConflict
-                    ? "Too close to picked heat"
+                    ? conflictsWithExisting
+                      ? "Too close to existing reservation"
+                      : "Too close to picked heat"
                     : isLowCap
                       ? `Need ${partySize}, only ${block.freeSpots} left`
                       : isCapped
@@ -881,9 +894,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   title={
                     isRestricted
                       ? tp.restriction!.reason
-                      : isConflict
-                        ? HEAT_CONFLICT_TOOLTIP
-                        : undefined
+                      : conflictsWithExisting
+                        ? EXISTING_RESERVATION_CONFLICT_TOOLTIP
+                        : isConflict
+                          ? HEAT_CONFLICT_TOOLTIP
+                          : undefined
                   }
                   className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
                 >
