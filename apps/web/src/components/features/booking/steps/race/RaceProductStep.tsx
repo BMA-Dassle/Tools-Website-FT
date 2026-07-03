@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { IconDiscount2 } from "@tabler/icons-react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
 import {
@@ -49,25 +50,19 @@ import { PackageCard } from "./PackageCard";
 
 type Category = "adult" | "junior";
 
-const TIER_COLOR: Record<RaceTier, { border: string; bg: string; badge: string; text: string }> = {
-  starter: {
-    border: "border-[#00E2E5]",
-    bg: "bg-[#00E2E5]/10",
-    badge: "bg-[#00E2E5]/20 text-[#00E2E5]",
-    text: "text-[#00E2E5]",
-  },
-  intermediate: {
-    border: "border-[#8652FF]",
-    bg: "bg-[#8652FF]/10",
-    badge: "bg-[#8652FF]/20 text-[#8652FF]",
-    text: "text-[#8652FF]",
-  },
-  pro: {
-    border: "border-[#E53935]",
-    bg: "bg-[#E53935]/10",
-    badge: "bg-[#E53935]/20 text-[#E53935]",
-    text: "text-[#E53935]",
-  },
+// Tier accent hues — section-heading text (lightened for readability on the
+// dark ground) + the card's left-border accent. Price text is WHITE everywhere
+// (the old per-tier price colors read as random); amber is reserved for the
+// pack "Save $X" chip. (2026-07-02 redesign — Option C mockup.)
+const TIER_HEADING: Record<RaceTier, string> = {
+  starter: "text-[#00E2E5]",
+  intermediate: "text-[#B39DFF]",
+  pro: "text-[#FF7A76]",
+};
+const TIER_ACCENT: Record<RaceTier, string> = {
+  starter: "#00E2E5",
+  intermediate: "#8652FF",
+  pro: "#E53935",
 };
 
 const TIER_LABEL: Record<RaceTier, string> = {
@@ -76,21 +71,40 @@ const TIER_LABEL: Record<RaceTier, string> = {
   pro: "Pro",
 };
 
-// Verbatim copy from v1 data.ts:1022-1028 — keep in sync if v1 edits.
+// One-liners. Qualification/ages moved to TIER_META (rendered in the section
+// header, not buried in a paragraph); the first-visit license copy moved to
+// NEW_RACER_LICENSE_NOTE so returning racers never see it.
 const TIER_DESCRIPTIONS: Record<RaceTier, string> = {
-  starter:
-    "Everyone must start at our Starter speed — a fun, exciting race meant for everyone on either track. Being your first visit, you'll also purchase a FastTrax license which includes use of helmets, FastTrax app tracking, head sock, waived booking fees, and more.",
-  intermediate:
-    "Higher speed unlock — not for the faint of heart. A real competitive karting experience. Qualified from Starter. Ages 13+.",
-  pro: "Our fastest unlocked speed. Maximum performance for racers who've proven their skill.",
+  starter: "Fun, fast, and where every racer begins.",
+  intermediate: "Higher speed unlock — a real competitive karting experience.",
+  pro: "Our fastest karts — maximum performance for proven racers.",
 };
+
+/** Right side of each tier's section header. */
+const TIER_META: Record<RaceTier, string> = {
+  starter: "Everyone starts here",
+  intermediate: "Ages 13+ · Starter qualification",
+  pro: "Intermediate qualification",
+};
+
+/** Junior screens drop the adult age line — junior racers are under it by
+ *  definition; the qualification part still applies. */
+function tierMeta(tier: RaceTier, category: Category): string {
+  if (category === "junior" && tier === "intermediate") return "Starter qualification";
+  return TIER_META[tier];
+}
+
+/** Shown only on the NEW-racer Starter card (their whole product list). */
+const NEW_RACER_LICENSE_NOTE =
+  "First visit? Your FastTrax racing license is bundled — helmets, app tracking, head sock, and waived booking fees included.";
 
 const TIER_ORDER: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
 
-const TRACK_BADGE: Record<string, { bg: string; text: string }> = {
-  Red: { bg: "bg-red-500/20", text: "text-red-400" },
-  Blue: { bg: "bg-blue-500/20", text: "text-blue-400" },
-  Mega: { bg: "bg-[#A855F7]/20", text: "text-[#C084FC]" },
+/** Track dot hues for the "Runs on …" line (replaces the bare track chips). */
+const TRACK_DOT: Record<string, string> = {
+  Red: "#E53935",
+  Blue: "#2196F3",
+  Mega: "#A855F7",
 };
 
 function racersOfCategory(
@@ -191,7 +205,6 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     const selectedPackageId = item.packageId;
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
-    const selectedTrack = category === "adult" ? item.productTrackAdult : item.productTrackJunior;
 
     const setProductWithTrack = (productId: string, track: string | null) =>
       onChange(
@@ -311,9 +324,12 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
         {discountRacers.length > 0 && (
           <div className="mx-auto max-w-md space-y-1 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-center text-sm text-amber-300">
             {discountRacers.map((r) => (
-              <p key={r.name}>
-                🏁 <span className="font-semibold">{r.label ?? "Member"}</span>: {r.pct}% off{" "}
-                {r.name}&apos;s races — applied at checkout
+              <p key={r.name} className="flex items-center justify-center gap-1.5">
+                <IconDiscount2 size={15} aria-hidden className="shrink-0" />
+                <span>
+                  <span className="font-semibold">{r.label ?? "Member"}</span>: {r.pct}% off{" "}
+                  {r.name}&apos;s races — applied at checkout
+                </span>
               </p>
             ))}
           </div>
@@ -369,31 +385,51 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
         )}
 
         <div className="space-y-6">
-          {groupByTier(sorted).map(([tier, tierProducts]) => (
-            <div key={tier}>
-              <div className="mb-2 flex items-center gap-2">
-                <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${TIER_COLOR[tier].badge}`}
-                >
-                  {TIER_LABEL[tier]}
-                </span>
-                <div className="h-px flex-1 bg-white/10" />
-              </div>
-              <div className="grid gap-3">
-                {tierProducts.map((product) => (
-                  <ProductCard
-                    key={product.productId}
-                    product={product}
-                    isSelected={selectedProductId === product.productId}
-                    selectedTrack={selectedTrack}
-                    onSelect={() => handleCardClick(product)}
+          {groupByTier(sorted).map(([tier, tierProducts]) => {
+            // A tier carries at most one single race (Red+Blue collapsed by
+            // combineTrackVariants, or a lone Mega/junior product) and at most
+            // one 3-pack. They render as ONE card — the pack is a pricing
+            // option, not a competing product. `extras` is defensive: any
+            // unexpected additional product still gets its own simple card.
+            const single = tierProducts.find((p) => p.packType !== "combo");
+            const pack = tierProducts.find((p) => p.packType === "combo");
+            const extras = tierProducts.filter((p) => p !== single && p !== pack);
+            return (
+              <div key={tier}>
+                <div className="mb-2 flex items-center gap-2.5">
+                  <span
+                    className={`text-xs font-bold tracking-[0.16em] uppercase ${TIER_HEADING[tier]}`}
+                  >
+                    {TIER_LABEL[tier]}
+                  </span>
+                  <div className="h-px flex-1 bg-white/10" />
+                  <span className="text-xs whitespace-nowrap text-white/35">
+                    {tierMeta(tier, category)}
+                  </span>
+                </div>
+                <div className="grid gap-3">
+                  <TierCard
+                    single={single}
+                    pack={pack}
+                    selectedProductId={selectedProductId}
+                    onSelect={handleCardClick}
                     racerType={racerType}
                     racerCount={racerCount}
                   />
-                ))}
+                  {extras.map((p) => (
+                    <TierCard
+                      key={p.productId}
+                      single={p}
+                      selectedProductId={selectedProductId}
+                      onSelect={handleCardClick}
+                      racerType={racerType}
+                      racerCount={racerCount}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -401,148 +437,205 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
   return Component;
 }
 
-function ProductCard({
-  product,
-  isSelected,
-  selectedTrack,
+/** Track names a product runs on (combined cards carry trackProducts), in the
+ *  house order Red → Blue → Mega (trackProducts key order varies by catalog). */
+const TRACK_SORT: Record<string, number> = { Red: 0, Blue: 1, Mega: 2 };
+function trackList(product: RaceProduct): string[] {
+  const tracks = product.trackProducts
+    ? Object.keys(product.trackProducts)
+    : product.track
+      ? [product.track]
+      : [];
+  return tracks.sort((a, b) => (TRACK_SORT[a] ?? 9) - (TRACK_SORT[b] ?? 9));
+}
+
+/** "Runs on Red + Blue — pick your track with your heat time" with colored
+ *  dots. Replaces the old bare track chips, which read as unexplained tags. */
+function TrackLine({ product }: { product: RaceProduct }) {
+  const tracks = trackList(product);
+  if (tracks.length === 0) return null;
+  return (
+    <div className="mt-2 flex items-center gap-1.5 text-xs text-white/35">
+      {tracks.map((t) => (
+        <span
+          key={t}
+          className="inline-block h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: TRACK_DOT[t] ?? "#999" }}
+        />
+      ))}
+      <span className="ml-0.5">
+        {tracks.length > 1
+          ? `Runs on ${tracks.join(" + ")} — pick your track with your heat time`
+          : `Runs on ${tracks[0]} Track`}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * One card per tier. When the tier has a 3-pack, the Single / 3-Pack choice
+ * renders as two selectable columns INSIDE the card (Option C mockup) — the
+ * pack is a pricing option, not a competing product. Tiers without a pack
+ * (Starter, junior, weekend Pro) render as a simple full-card button.
+ * Selection semantics are unchanged: each column/card still selects its own
+ * RaceProduct via the parent's handleCardClick, so the heat grid and the
+ * pack's raceCount=3 flow work exactly as before.
+ */
+function TierCard({
+  single,
+  pack,
+  selectedProductId,
   onSelect,
   racerType,
   racerCount,
 }: {
-  product: RaceProduct;
-  isSelected: boolean;
-  selectedTrack: string | null;
-  onSelect: () => void;
+  single?: RaceProduct;
+  pack?: RaceProduct;
+  selectedProductId: string | null | undefined;
+  onSelect: (product: RaceProduct) => void;
   racerType: RacerType;
   racerCount: number;
 }) {
-  const c = TIER_COLOR[product.tier];
-  const tierLabel = TIER_LABEL[product.tier];
-  const tierDesc = TIER_DESCRIPTIONS[product.tier];
-  const isPack = product.packType === "combo";
-  const isMulti = isMultiTrack(product);
+  const primary = (single ?? pack)!;
+  const tier = primary.tier;
+  const singleSelected = !!single && selectedProductId === single.productId;
+  const packSelected = !!pack && selectedProductId === pack.productId;
+  const isSelected = singleSelected || packSelected;
   const racers = Math.max(1, racerCount);
 
-  const isSinglePerPersonRace = !isPack && product.price > 0;
-  const showNewBreakdown = isSinglePerPersonRace && racerType === "new";
+  const showNewBreakdown = !!single && single.price > 0 && racerType === "new";
   const licensePerRacer = showNewBreakdown ? LICENSE_PRICE : 0;
-  const perRacerTotal = product.price + licensePerRacer;
-  const groupTotal = perRacerTotal * racers;
+  const groupTotal = ((single?.price ?? 0) + licensePerRacer) * racers;
 
-  // Display track: for multi-track packs after a choice has been made,
-  // show the chosen track inline (matches v1 ProductPicker:283 behavior).
-  const displayTrack = isMulti && isSelected ? selectedTrack : product.track;
-
-  const trackAccent: Record<string, string> = {
-    Red: "#E53935",
-    Blue: "#2196F3",
-    Mega: "#A855F7",
+  const cardShell = `relative w-full rounded-xl border p-4 transition-all duration-200 ${
+    isSelected ? "border-[#00E2E5] bg-[#00E2E5]/5" : "border-white/10 bg-white/5"
+  }`;
+  const accentStyle = {
+    borderLeftWidth: 3,
+    borderLeftColor: isSelected ? "#00E2E5" : TIER_ACCENT[tier],
   };
-  const leftBorderColor = displayTrack ? trackAccent[displayTrack] : undefined;
+  const selectedFlag = isSelected ? (
+    <span className="absolute -top-2.5 right-3.5 rounded-full bg-[#00E2E5] px-2.5 py-0.5 text-[10px] font-extrabold tracking-[0.12em] text-[#000418] uppercase">
+      Selected
+    </span>
+  ) : null;
 
-  const baseClasses = "text-left rounded-xl border p-4 transition-all duration-200 w-full";
-  const selectedClasses = `${c.border} ${c.bg} ring-2 ring-offset-2 ring-offset-[#010A20]`;
-  const packClasses =
-    "border-amber-500/20 bg-amber-500/5 hover:border-amber-500/40 hover:bg-amber-500/10";
-  const regularClasses = "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/8";
+  // ── Simple card (no Single-vs-Pack choice): the whole card is the button.
+  if (!single || !pack) {
+    const product = primary;
+    return (
+      <button
+        type="button"
+        onClick={() => onSelect(product)}
+        className={`${cardShell} text-left ${isSelected ? "" : "hover:border-white/30 hover:bg-white/8"}`}
+        style={accentStyle}
+      >
+        {selectedFlag}
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="text-[15px] font-bold text-white">{product.name}</span>
+          {product.price > 0 && (
+            <span className="text-[15px] font-extrabold whitespace-nowrap text-white tabular-nums">
+              ${(showNewBreakdown ? groupTotal : product.price).toFixed(2)}
+              {!showNewBreakdown && product.packType !== "combo" && (
+                <span className="text-xs font-medium text-white/40"> / racer</span>
+              )}
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-[13px] leading-relaxed text-white/50">{TIER_DESCRIPTIONS[tier]}</p>
+        {racerType === "new" && tier === "starter" && (
+          <p className="mt-1.5 text-xs leading-relaxed text-[#00E2E5]/80">
+            {NEW_RACER_LICENSE_NOTE}
+          </p>
+        )}
+        <TrackLine product={product} />
+
+        {showNewBreakdown && single && (
+          <div className="mt-3 space-y-1 text-xs">
+            <div className="flex items-baseline justify-between gap-2 text-white/70">
+              <span>
+                <span className="text-emerald-400">✓</span> {single.name}
+                {racers > 1 && <span className="text-white/40"> × {racers}</span>}
+              </span>
+              <span className="text-white/60">${(single.price * racers).toFixed(2)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2 text-white/70">
+              <span>
+                <span className="text-emerald-400">✓</span> Racing License
+                {racers > 1 && <span className="text-white/40"> × {racers}</span>}
+              </span>
+              <span className="text-white/60">${(licensePerRacer * racers).toFixed(2)}</span>
+            </div>
+            <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-white/10 pt-1.5">
+              <span className="text-[11px] font-bold tracking-wider text-white/80 uppercase">
+                Total
+              </span>
+              <span className="font-bold text-white">${groupTotal.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        {!showNewBreakdown && product.packType !== "combo" && racers > 1 && product.price > 0 && (
+          <div className="mt-2 text-xs text-white/50">
+            ${product.price.toFixed(2)} × {racers} racers = ${(product.price * racers).toFixed(2)}{" "}
+            total
+          </div>
+        )}
+        {product.packType === "combo" && (
+          <div className="mt-2 text-xs text-white/50">
+            ${(product.price / (product.raceCount ?? 1)).toFixed(2)}/race · {product.raceCount}{" "}
+            heats on one bill
+          </div>
+        )}
+      </button>
+    );
+  }
+
+  // ── Single | 3-Pack columns (Option C).
+  const perRace = pack.price / (pack.raceCount ?? 1);
+  const saveDollars = Math.round(single.price * (pack.raceCount ?? 1) - pack.price);
+  const col = (on: boolean) =>
+    `rounded-lg border p-3 text-left transition-all duration-150 ${
+      on
+        ? "border-[#00E2E5]/70 bg-[#00E2E5]/5"
+        : "border-white/10 bg-white/[0.03] hover:border-white/30"
+    }`;
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`${baseClasses} ${isSelected ? selectedClasses : isPack ? packClasses : regularClasses}`}
-      style={leftBorderColor ? { borderLeftWidth: 4, borderLeftColor: leftBorderColor } : undefined}
-    >
-      <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-bold text-white">{product.name}</span>
-          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${c.badge}`}>
-            {tierLabel}
-          </span>
-          {isPack && (
-            <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-400">
-              {product.raceCount}-Race Pack
-            </span>
-          )}
-          {displayTrack && TRACK_BADGE[displayTrack] && (
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-bold ${TRACK_BADGE[displayTrack].bg} ${TRACK_BADGE[displayTrack].text}`}
-            >
-              {displayTrack} Track
-            </span>
-          )}
-          {/* Combined single race — both tracks offered; the heat grid shows
-              both and the customer picks any time on either (like Ultimate). */}
-          {isMulti &&
-            !isPack &&
-            Object.keys(product.trackProducts ?? {}).map(
-              (t) =>
-                TRACK_BADGE[t] && (
-                  <span
-                    key={t}
-                    className={`rounded-full px-2 py-0.5 text-xs font-bold ${TRACK_BADGE[t].bg} ${TRACK_BADGE[t].text}`}
-                  >
-                    {t}
-                  </span>
-                ),
-            )}
-        </div>
-        {showNewBreakdown ? (
-          <span className={`${c.text} shrink-0 text-base font-bold`}>${groupTotal.toFixed(2)}</span>
-        ) : product.price > 0 ? (
-          <span className={`${c.text} shrink-0 text-sm font-bold whitespace-nowrap`}>
-            ${product.price.toFixed(2)}
-            {!isPack && <span className="text-xs text-white/40"> / racer</span>}
-          </span>
-        ) : null}
+    <div className={cardShell} style={accentStyle}>
+      {selectedFlag}
+      <span className="text-[15px] font-bold text-white">{single.name}</span>
+      <p className="mt-1 text-[13px] leading-relaxed text-white/50">{TIER_DESCRIPTIONS[tier]}</p>
+      <TrackLine product={single} />
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button type="button" onClick={() => onSelect(single)} className={col(singleSelected)}>
+          <div className="text-[10px] font-extrabold tracking-[0.14em] text-white/40 uppercase">
+            Single race
+          </div>
+          <div className="mt-1 text-base font-extrabold text-white tabular-nums">
+            ${single.price.toFixed(2)}{" "}
+            <span className="text-xs font-medium text-white/40">/ racer</span>
+          </div>
+          <div className="mt-0.5 text-xs text-white/50">
+            {racers > 1
+              ? `$${single.price.toFixed(2)} × ${racers} racers = $${(single.price * racers).toFixed(2)} total`
+              : "One heat — you can add more races later"}
+          </div>
+        </button>
+        <button type="button" onClick={() => onSelect(pack)} className={col(packSelected)}>
+          <div className="text-[10px] font-extrabold tracking-[0.14em] text-white/40 uppercase">
+            {pack.raceCount}-Race Pack
+            {saveDollars >= 1 && <span className="ml-1.5 text-amber-400">Save ${saveDollars}</span>}
+          </div>
+          <div className="mt-1 text-base font-extrabold text-white tabular-nums">
+            ${pack.price.toFixed(2)}
+          </div>
+          <div className="mt-0.5 text-xs text-white/50">
+            ${perRace.toFixed(2)}/race · {pack.raceCount} heats on one bill
+          </div>
+        </button>
       </div>
-
-      <p className="mt-1 text-xs leading-relaxed text-white/40">{tierDesc}</p>
-
-      {showNewBreakdown && (
-        <div className="mt-3 space-y-1 text-xs">
-          <div className="flex items-baseline justify-between gap-2 text-white/70">
-            <span>
-              <span className="text-emerald-400">✓</span> {product.name}
-              {racers > 1 && <span className="text-white/40"> × {racers}</span>}
-            </span>
-            <span className="text-white/60">${(product.price * racers).toFixed(2)}</span>
-          </div>
-          <div className="flex items-baseline justify-between gap-2 text-white/70">
-            <span>
-              <span className="text-emerald-400">✓</span> Racing License
-              {racers > 1 && <span className="text-white/40"> × {racers}</span>}
-            </span>
-            <span className="text-white/60">${(licensePerRacer * racers).toFixed(2)}</span>
-          </div>
-          <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-white/10 pt-1.5">
-            <span className="text-[11px] font-bold tracking-wider text-white/80 uppercase">
-              Total
-            </span>
-            <span className={`${c.text} font-bold`}>${groupTotal.toFixed(2)}</span>
-          </div>
-        </div>
-      )}
-
-      {!showNewBreakdown && !isPack && racers > 1 && (
-        <div className="mt-2 text-xs text-white/50">
-          ${product.price.toFixed(2)} × {racers} racers = ${(product.price * racers).toFixed(2)}{" "}
-          total
-        </div>
-      )}
-
-      {isPack && product.price > 0 && (
-        <p className="mt-1 text-xs text-amber-400/70">
-          ${(product.price / (product.raceCount ?? 1)).toFixed(2)}/race — Race more, save more
-        </p>
-      )}
-
-      {isPack && (
-        <div className="mt-2 text-xs text-white/50">
-          {product.raceCount} heats on one bill · pick your heat times next.
-        </div>
-      )}
-    </button>
+    </div>
   );
 }
 

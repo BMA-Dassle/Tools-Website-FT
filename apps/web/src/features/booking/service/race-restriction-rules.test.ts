@@ -3,6 +3,7 @@ import {
   evaluateRaceRestrictions,
   type RestrictionBlock,
   type RestrictionContext,
+  type TrackTierBlock,
 } from "./race-restriction-rules";
 
 // Heat clock helpers — Mega Tuesday 12-min cadence.
@@ -149,7 +150,7 @@ describe("evaluateRaceRestrictions — opening heats walk-in / express only", ()
     expect(r.blocked).toBe(true);
     expect(r.action).toBe("disable");
     expect(r.cardLabel).toBe("Walk-In or Express Only");
-    expect(r.ruleId).toBe("opening-heats-express-only-12min");
+    expect(r.ruleId).toBe("opening-heats-express-only");
   });
 
   it("allows an opening heat for an express-eligible party", () => {
@@ -187,7 +188,7 @@ describe("evaluateRaceRestrictions — opening heats walk-in / express only", ()
     ).toBe(false);
   });
 
-  describe("12-min tracks (Red, Mega) — block first 2, third heat (:24) bookable", () => {
+  describe("Red + Mega — block first 2, third heat (:24) bookable", () => {
     const mega = (local: string) => at({ track: "Mega", candidateStartLocal: local });
     const red = (local: string) => at({ track: "Red", candidateStartLocal: local });
 
@@ -217,31 +218,31 @@ describe("evaluateRaceRestrictions — opening heats walk-in / express only", ()
       expect(mega(wd(13, 36)).blocked).toBe(false); // well past the window
     });
 
-    it("uses ruleId opening-heats-express-only-12min", () => {
-      expect(mega(wd(13, 0)).ruleId).toBe("opening-heats-express-only-12min");
-      expect(red(wed(13, 0)).ruleId).toBe("opening-heats-express-only-12min");
+    it("uses ruleId opening-heats-express-only", () => {
+      expect(mega(wd(13, 0)).ruleId).toBe("opening-heats-express-only");
+      expect(red(wed(13, 0)).ruleId).toBe("opening-heats-express-only");
     });
   });
 
-  describe("15-min track (Blue) — block first 2, third heat (:30) bookable", () => {
+  describe("Blue (12-min cadence since 2026-07-02) — block first 2, third heat (:24) bookable", () => {
     const blue = (local: string) => at({ track: "Blue", candidateStartLocal: local });
 
-    it("weekday: blocks 1:00 + 1:15, ALLOWS 1:30", () => {
+    it("weekday: blocks 1:00 + 1:12, ALLOWS 1:24", () => {
       expect(blue(wd(13, 0)).blocked).toBe(true);
-      expect(blue(wd(13, 15)).blocked).toBe(true);
-      expect(blue(wd(13, 30)).blocked).toBe(false);
+      expect(blue(wd(13, 12)).blocked).toBe(true);
+      expect(blue(wd(13, 24)).blocked).toBe(false);
     });
 
-    it("weekend: blocks 11:00 + 11:15, ALLOWS 11:30 (Sat & Sun)", () => {
+    it("weekend: blocks 11:00 + 11:12, ALLOWS 11:24 (Sat & Sun)", () => {
       expect(blue(sat(11, 0)).blocked).toBe(true);
-      expect(blue(sat(11, 15)).blocked).toBe(true);
-      expect(blue(sat(11, 30)).blocked).toBe(false);
-      expect(blue(sun(11, 15)).blocked).toBe(true);
-      expect(blue(sun(11, 30)).blocked).toBe(false);
+      expect(blue(sat(11, 12)).blocked).toBe(true);
+      expect(blue(sat(11, 24)).blocked).toBe(false);
+      expect(blue(sun(11, 12)).blocked).toBe(true);
+      expect(blue(sun(11, 24)).blocked).toBe(false);
     });
 
-    it("uses ruleId opening-heats-express-only-15min", () => {
-      expect(blue(wd(13, 0)).ruleId).toBe("opening-heats-express-only-15min");
+    it("uses ruleId opening-heats-express-only", () => {
+      expect(blue(wd(13, 0)).ruleId).toBe("opening-heats-express-only");
     });
   });
 });
@@ -277,17 +278,17 @@ describe("evaluateRaceRestrictions — Junior no back-to-back (Blue + Mega)", ()
     expect(r.blocked).toBe(false);
   });
 
-  it("Blue: blocks a Junior slot adjacent (15 min) to an occupied Junior heat", () => {
+  it("Blue: blocks a Junior slot adjacent (12 min) to an occupied Junior heat", () => {
     const r = evaluateRaceRestrictions(
-      juniorCtx({ track: "Blue", candidateStartMs: ms(17, 30), productBlocks: [blk(17, 15, 8)] }),
+      juniorCtx({ track: "Blue", candidateStartMs: ms(17, 36), productBlocks: [blk(17, 24, 8)] }),
     );
     expect(r.blocked).toBe(true);
     expect(r.ruleId).toBe("blue-no-back-to-back-junior");
   });
 
-  it("Blue: allows the skip-one Junior slot (30 min away)", () => {
+  it("Blue: allows the skip-one Junior slot (24 min away)", () => {
     const r = evaluateRaceRestrictions(
-      juniorCtx({ track: "Blue", candidateStartMs: ms(17, 30), productBlocks: [blk(17, 0, 8)] }),
+      juniorCtx({ track: "Blue", candidateStartMs: ms(17, 48), productBlocks: [blk(17, 24, 8)] }),
     );
     expect(r.blocked).toBe(false);
   });
@@ -299,7 +300,7 @@ describe("evaluateRaceRestrictions — Junior no back-to-back (Blue + Mega)", ()
     expect(r.blocked).toBe(false);
   });
 
-  it("lifts the block within the 60-min last-minute window", () => {
+  it("does NOT lift within 60 min — junior back-to-back is unconditional", () => {
     const candidate = ms(17, 36);
     const r = evaluateRaceRestrictions(
       juniorCtx({
@@ -308,7 +309,32 @@ describe("evaluateRaceRestrictions — Junior no back-to-back (Blue + Mega)", ()
         productBlocks: [blk(17, 24, 8)],
       }),
     );
-    expect(r.blocked).toBe(false);
+    expect(r.blocked).toBe(true);
+  });
+
+  it("counts OTHER junior tiers' occupied neighbors (scope=category via categoryTrackBlocks)", () => {
+    // Candidate is junior intermediate; the occupied neighbor exists only in the
+    // junior PRO union — invisible in productBlocks, visible in categoryTrackBlocks.
+    const r = evaluateRaceRestrictions(
+      juniorCtx({
+        candidateStartMs: ms(17, 36),
+        productBlocks: [],
+        categoryTrackBlocks: [blk(17, 24, 8)],
+      }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("mega-no-back-to-back-junior");
+  });
+
+  it("falls back to productBlocks when categoryTrackBlocks is absent/empty", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({
+        candidateStartMs: ms(17, 36),
+        productBlocks: [blk(17, 24, 8)],
+        categoryTrackBlocks: [],
+      }),
+    );
+    expect(r.blocked).toBe(true);
   });
 
   it("does NOT apply to adult parties (category-scoped)", () => {
@@ -406,5 +432,210 @@ describe("evaluateRaceRestrictions — Mega two Junior races per clock hour", ()
       hourCtx({ track: "Blue", categoryTrackBlocks: [blk(13, 0, 8), blk(13, 15, 8)] }),
     );
     expect(r.blocked).toBe(false);
+  });
+});
+
+describe("evaluateRaceRestrictions — reserve room for two adult Starter races per hour", () => {
+  // Naive wall-clock starts on a known weekday (Tue 2026-06-23), mid-afternoon
+  // so the opening-heats rule never interferes. All tracks run the 12-min
+  // cadence = 5 heats/hour (:00 :12 :24 :36 :48; Blue included since 2026-07-02).
+  const wd = (h: number, m: number) =>
+    `2026-06-23T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+  const tblk = (
+    h: number,
+    m: number,
+    freeSpots: number,
+    adultStarter = false,
+    capacity = 10,
+  ): TrackTierBlock => ({ ...blk(h, m, freeSpots, capacity), adultStarter });
+
+  function roomCtx(over: Partial<RestrictionContext> = {}): RestrictionContext {
+    return {
+      tier: "intermediate",
+      category: "adult",
+      track: "Mega",
+      candidateStartMs: ms(15, 36),
+      candidateStartLocal: wd(15, 36),
+      nowMs: FAR_BEFORE,
+      expressEligible: true,
+      productBlocks: [], // isolate from the back-to-back rules
+      trackAllTierBlocks: [],
+      ...over,
+    };
+  }
+
+  it("blocks a non-Starter pick that would leave under 2 slots for adult Starter, action=hide", () => {
+    // Hour 15: 3 occupied non-Starter + candidate (15:36) + one free (15:48)
+    // → booking would leave room = 1.
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        trackAllTierBlocks: [
+          tblk(15, 0, 8),
+          tblk(15, 12, 8),
+          tblk(15, 24, 8),
+          tblk(15, 36, 10),
+          tblk(15, 48, 10),
+        ],
+      }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("starter-room-per-hour");
+    expect(r.action).toBe("hide");
+  });
+
+  it("allows when 2 slots would remain free after booking", () => {
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        trackAllTierBlocks: [
+          tblk(15, 0, 8),
+          tblk(15, 12, 8),
+          tblk(15, 24, 10),
+          tblk(15, 36, 10),
+          tblk(15, 48, 10),
+        ],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("counts an occupied adult-Starter session as room (booked Starter races satisfy the guarantee)", () => {
+    // 15:00 is an ACTIVE adult Starter race; 15:12 + 15:24 occupied non-Starter;
+    // 15:48 free. Room after booking 15:36 = Starter session + one free = 2.
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        trackAllTierBlocks: [
+          tblk(15, 0, 8, true),
+          tblk(15, 12, 8),
+          tblk(15, 24, 8),
+          tblk(15, 36, 10),
+          tblk(15, 48, 10),
+        ],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("joining an already-occupied same-tier heat consumes no new room — allowed even under quota", () => {
+    // Candidate 15:36 is itself an active session (occupied). The hour is
+    // ALREADY under the 2-slot guarantee (3 occupied non-Starter, 1 free), but
+    // adding a racer to a running race takes nothing from Starters → allowed.
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        trackAllTierBlocks: [
+          tblk(15, 0, 8),
+          tblk(15, 12, 8),
+          tblk(15, 24, 8),
+          tblk(15, 36, 8),
+          tblk(15, 48, 10),
+        ],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("dedupes a free slot present in several products' responses (counts once)", () => {
+    // 15:48 free appears in 3 tiers' availability; 3 occupied non-Starter →
+    // room = 1 (not 3) → block.
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        trackAllTierBlocks: [
+          tblk(15, 0, 8),
+          tblk(15, 12, 8),
+          tblk(15, 24, 8),
+          tblk(15, 48, 10),
+          tblk(15, 48, 10),
+          tblk(15, 48, 10),
+        ],
+      }),
+    );
+    expect(r.blocked).toBe(true);
+  });
+
+  it("only counts the candidate's clock hour", () => {
+    // Everything occupied in hour 14 — hour 15 is wide open.
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        trackAllTierBlocks: [
+          tblk(14, 0, 8),
+          tblk(14, 12, 8),
+          tblk(14, 24, 8),
+          tblk(14, 36, 8),
+          tblk(14, 48, 8),
+          tblk(15, 24, 10),
+          tblk(15, 48, 10),
+        ],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("lifts the block when the candidate starts within 60 min of now (fill unused reserved slots)", () => {
+    const candidate = ms(15, 36);
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        nowMs: candidate - 45 * 60_000,
+        trackAllTierBlocks: [tblk(15, 0, 8), tblk(15, 12, 8), tblk(15, 24, 8), tblk(15, 48, 10)],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("applies to Pro and on Red/Blue too", () => {
+    const proRed = evaluateRaceRestrictions(
+      roomCtx({
+        tier: "pro",
+        track: "Red",
+        trackAllTierBlocks: [tblk(15, 0, 8), tblk(15, 12, 8), tblk(15, 24, 8), tblk(15, 48, 10)],
+      }),
+    );
+    expect(proRed.blocked).toBe(true);
+    // Blue: 2 occupied non-Starter + candidate 15:36 + free 15:48 → room = 1 → block.
+    const intBlue = evaluateRaceRestrictions(
+      roomCtx({
+        track: "Blue",
+        candidateStartMs: ms(15, 36),
+        candidateStartLocal: wd(15, 36),
+        trackAllTierBlocks: [tblk(15, 0, 8), tblk(15, 12, 8), tblk(15, 48, 10)],
+      }),
+    );
+    expect(intBlue.blocked).toBe(true);
+  });
+
+  it("guards junior Starter on Blue (reserved slots are for ADULT Starter only)", () => {
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        tier: "starter",
+        category: "junior",
+        track: "Blue",
+        candidateStartMs: ms(15, 36),
+        candidateStartLocal: wd(15, 36),
+        trackAllTierBlocks: [tblk(15, 0, 8), tblk(15, 12, 8), tblk(15, 48, 10)],
+      }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("starter-room-per-hour-junior-starter");
+  });
+
+  it("never blocks an ADULT Starter pick", () => {
+    const r = evaluateRaceRestrictions(
+      roomCtx({
+        tier: "starter",
+        category: "adult",
+        trackAllTierBlocks: [tblk(15, 0, 8), tblk(15, 12, 8), tblk(15, 24, 8), tblk(15, 48, 8)],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("no-ops when trackAllTierBlocks or candidateStartLocal is absent", () => {
+    const occupiedHour = [tblk(15, 0, 8), tblk(15, 12, 8), tblk(15, 24, 8), tblk(15, 48, 10)];
+    expect(evaluateRaceRestrictions(roomCtx({ trackAllTierBlocks: undefined })).blocked).toBe(
+      false,
+    );
+    expect(
+      evaluateRaceRestrictions(
+        roomCtx({ candidateStartLocal: undefined, trackAllTierBlocks: occupiedHour }),
+      ).blocked,
+    ).toBe(false);
   });
 });

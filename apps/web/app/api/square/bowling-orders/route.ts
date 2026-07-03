@@ -176,9 +176,13 @@ export async function POST(req: NextRequest) {
       ? [{ uid: "location-sales-tax", catalog_object_id: taxCatalogId, scope: "ORDER" }]
       : [];
 
-    // ── Step 1: Day-of order (full line items + tax, left OPEN) ──────────────
-    // When catalogObjectId is present: let Square use the catalog price (Square
-    // rejects base_price_money overrides on fixed-price items).
+    // ── Step 1: Day-of order (line items + tax, left OPEN) ───────────────────
+    // Catalog line items carry base_price_money when the caller sent a reduced
+    // price (e.g. a USA250 price-key discount). Square honors base_price_money
+    // as a price-key OVERRIDE on catalog-linked line items — the catalog price
+    // is only a default (tasks/lessons.md "base_price_money override"). Without
+    // passing it through, a discounted booking rang the FULL catalog price here,
+    // so the guest was charged full price while the review showed a fake saving.
     // When provided via existingDayofOrderId, skip creation entirely.
     let dayofOrderId: string;
     let dayofTotalCents: number;
@@ -240,6 +244,7 @@ export async function POST(req: NextRequest) {
           return {
             catalog_object_id: li.catalogObjectId,
             quantity: li.quantity,
+            ...(li.basePriceMoney ? { base_price_money: li.basePriceMoney } : {}),
             ...modifiers,
             ...noteField,
           };
