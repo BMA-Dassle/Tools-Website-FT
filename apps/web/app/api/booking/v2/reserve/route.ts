@@ -16,8 +16,14 @@ import {
   updateBowlingReservationConfirmed,
   updateBowlingReservationConfirmFailed,
   updateBowlingReservationSquareIds,
+  raceHeatsForPersonsOnDate,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
+import {
+  findCrossBookingConflict,
+  type BookedPersonHeat,
+} from "~/features/booking/service/conflict";
+import { existingBookingConflictMessage } from "~/features/booking/service/unified-reserve";
 import redis from "@/lib/redis";
 import {
   validateCreditRedemptions,
@@ -281,6 +287,57 @@ export async function POST(req: NextRequest) {
       }
     } catch (e) {
       console.error("[v2/reserve] bill liveness check errored (failing open):", e);
+    }
+
+    // ── Step 0b: Guard — cross-reservation heat spacing ─────────────────
+    // A racer must not dodge the same-track / cross-track spacing rules by
+    // booking each heat in a SEPARATE reservation. The cart's heats arrive in
+    // bookingMetadata.heats tagged with each racer's bmiPersonId (stamped at
+    // capture — see checkout.ts raceHeatsMetadata); match them against the
+    // party's already-booked same-day heats in Neon and reject BEFORE any
+    // Square write. Fail-open on a query error — an outage must never block a
+    // legitimate paying customer.
+    if (body.bookingKind === "race") {
+      const rawHeats = (body.bookingMetadata as { heats?: unknown } | undefined)?.heats;
+      const cartHeats: BookedPersonHeat[] = Array.isArray(rawHeats)
+        ? rawHeats
+            .map((h) => h as Record<string, unknown>)
+            .filter((h) => typeof h.heatId === "string" && typeof h.bmiPersonId === "string")
+            .map((h) => ({
+              heatId: h.heatId as string,
+              track: typeof h.track === "string" ? h.track : null,
+              bmiPersonId: h.bmiPersonId as string,
+              racer: typeof h.racer === "string" ? h.racer : null,
+            }))
+        : [];
+      const personIds = [...new Set(cartHeats.map((h) => h.bmiPersonId as string))];
+      const dates = [...new Set(cartHeats.map((h) => h.heatId.slice(0, 10)))];
+      if (personIds.length > 0) {
+        try {
+          const existing = (
+            await Promise.all(
+              dates.map((date) =>
+                raceHeatsForPersonsOnDate({ date, personIds, excludeBillId: billId }),
+              ),
+            )
+          ).flat();
+          const conflict = findCrossBookingConflict(cartHeats, existing);
+          if (conflict) {
+            console.error(
+              `[v2/reserve] EXISTING_BOOKING_CONFLICT — person ${conflict.cart.bmiPersonId} cart ${conflict.cart.heatId} vs booked ${conflict.existing.heatId}`,
+            );
+            return NextResponse.json(
+              {
+                error: existingBookingConflictMessage(conflict),
+                code: "EXISTING_BOOKING_CONFLICT",
+              },
+              { status: 409 },
+            );
+          }
+        } catch (e) {
+          console.error("[v2/reserve] cross-reservation check errored (failing open):", e);
+        }
+      }
     }
 
     // ── Step 0: Validate credit redemptions (charge-time re-eval) ───────

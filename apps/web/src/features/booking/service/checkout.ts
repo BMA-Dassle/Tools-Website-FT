@@ -590,6 +590,40 @@ export interface ReserveResult {
   depositCents: number;
 }
 
+/**
+ * booking_metadata.heats payload — one entry per booked heat. Carries:
+ *  - resolved level parts (tier/category) so the server + reconcile cron can
+ *    patch heat setups for package/combo heats whose productId is a pack SKU
+ *    not in RACE_PRODUCTS;
+ *  - the racer's bmiPersonId (STRING — never Number() a BMI id) + first name.
+ *    `assignedTo` alone is a session-local id that means nothing across
+ *    reservations; persisting the BMI identity at capture is what lets the
+ *    reserve guard enforce heat spacing across SEPARATE reservations
+ *    (conflict.ts findCrossBookingConflict).
+ * Shared by reserveBooking (below) and unified-reserve so both paths persist
+ * the same shape.
+ */
+export function raceHeatsMetadata(
+  heats: RaceHeatAssignment[],
+  party: PartyMember[],
+): Array<Record<string, unknown>> {
+  const byId = new Map(party.map((m) => [m.id, m]));
+  return heats.map((h) => {
+    const product = getRaceProductById(h.productId);
+    const member = h.assignedTo ? byId.get(h.assignedTo) : undefined;
+    return {
+      productId: h.productId ?? null,
+      track: h.track ?? null,
+      heatId: h.heatId ?? null,
+      assignedTo: h.assignedTo ?? null,
+      tier: h.tier ?? product?.tier,
+      category: h.category ?? product?.category,
+      bmiPersonId: member?.bmiPersonId ?? null,
+      racer: member?.firstName ?? null,
+    };
+  });
+}
+
 export async function reserveBooking(params: ReserveParams): Promise<ReserveResult> {
   const { session, bmiBillId, overview, contact } = params;
 
@@ -616,20 +650,7 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
 
   const bookingMetadata: Record<string, unknown> = {};
   if (raceItem) {
-    bookingMetadata.heats = raceItem.heats.map((h) => {
-      const product = getRaceProductById(h.productId);
-      return {
-        productId: h.productId,
-        track: h.track,
-        heatId: h.heatId,
-        assignedTo: h.assignedTo,
-        // Resolved level parts — lets the server + reconcile cron patch heat
-        // setups for package/combo heats whose productId is a pack SKU not in
-        // RACE_PRODUCTS.
-        tier: h.tier ?? product?.tier,
-        category: h.category ?? product?.category,
-      };
-    });
+    bookingMetadata.heats = raceHeatsMetadata(raceItem.heats, session.party);
     bookingMetadata.racerNames = session.party.map((m) => m.firstName);
   }
 

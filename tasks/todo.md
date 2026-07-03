@@ -1,5 +1,27 @@
 # Open Tasks
 
+## Cross-reservation heat spacing + heat-cap removal — 2026-07-02
+
+**Problem (owner):** racers dodge the per-racer spacing rules (same-track 13-min, cross-track
+30-min) by booking each heat in a SEPARATE reservation — the conflict check only saw the cart,
+and only client-side. **Decisions:** spacing rules only (no daily cap — the per-cart
+6-heat `SINGLE_RACE_MAX_PER_RACER` is REMOVED entirely) · hard block · forward-only (no
+backfill; personId matching covers returning racers; a re-registered "new" racer duplicates
+the BMI person and slips — accepted).
+
+**How:** persist `bmiPersonId` + racer name per heat in `booking_metadata.heats` at reserve
+(shared `raceHeatsMetadata` in checkout.ts, used by BOTH reserve paths) → server guards in
+`/api/booking/v2/reserve` (step 0b) + `unifiedReserve` (guard 0b) query Neon
+(`raceHeatsForPersonsOnDate`, excludes own bill so retries don't self-conflict) and run
+`findCrossBookingConflict` (conflict.ts — same heatsConflict rules) BEFORE any Square write →
+409 EXISTING_BOOKING_CONFLICT with racer name + times. Picker greys the same slots up front
+via GET `/api/booking/v2/booked-heats`. Fail-open on query errors everywhere.
+
+- [x] 268 booking tests pass (7 new) · tsc clean · SQL live-validated against prod Neon
+      (0 matches expected pre-rollout; 299 heats scanned; exclude param works)
+- [ ] Live verify post-deploy: book a race, then try an adjacent heat for the same racer in a
+      fresh session → picker greys it / reserve 409s; confirm new rows carry bmiPersonId
+
 ## Race restrictions: reserve 2 Starter slots/hour + unconditional junior back-to-back — IN PROGRESS 2026-07-02
 
 **Owner decisions (2026-07-02):** all three tracks (Red/Blue/Mega) · only ADULT starter counts
