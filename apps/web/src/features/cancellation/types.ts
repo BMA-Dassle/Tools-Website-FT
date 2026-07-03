@@ -27,6 +27,14 @@ export interface CancelRequest {
   allowCustomerRefund?: boolean;
   /** Re-run best-effort teardown of an already-committed cancel. */
   resumeTeardown?: boolean;
+  /**
+   * Admin store-credit cancels only (default true): when false, the gift card
+   * is NOT emailed/texted to the guest — staff keep the GAN (shown in the
+   * modal + on the row) and use it themselves to pay for the guest's new
+   * booking over the phone. Refund cancels always notify; customer self-serve
+   * always notifies (the guest needs their own card).
+   */
+  notifyGuest?: boolean;
 }
 
 export type GuardCode =
@@ -152,6 +160,8 @@ export interface CancelResult {
   refundCents?: number;
   storeCredit?: { giftCardId: string; gan: string; amountCents: number };
   notified?: { email: boolean; sms: boolean };
+  /** True when staff chose NOT to send the gift card to the guest (notifyGuest=false). */
+  notificationsSkipped?: boolean;
   warnings: string[];
 }
 
