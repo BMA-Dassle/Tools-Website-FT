@@ -264,7 +264,8 @@ export function BookingFlow({
   // A compact sticky timer bar for the cart + checkout pages (the wizard has its
   // own richer header). Renders nothing when there's no live hold.
   const timerBar = hasActiveHold ? (
-    <div className="sticky top-18 z-30 border-b border-white/8 bg-[#000418] sm:top-20">
+    // Same 120px offset as the step indicator below — clears the fixed nav.
+    <div className="sticky top-[120px] z-30 border-b border-white/8 bg-[#000418]">
       <div className="mx-auto flex max-w-4xl items-center justify-end gap-2 px-4 py-2.5">
         <span className="text-[11px] uppercase tracking-wider text-white/30">
           Holding your spot
@@ -620,8 +621,11 @@ export function BookingFlow({
         <CenterPickerModal onSelect={(center) => dispatch({ type: "setCenter", center })} />
       )}
 
-      {/* Sticky step indicator — matches v1: sticky below fixed nav */}
-      <div className="sticky top-18 z-30 border-b border-white/8 bg-[#000418] sm:top-20">
+      {/* Sticky step indicator — sticks just below the fixed site nav. The nav
+          is ~120px tall (28px social/clock bar + 92px glass logo pill; the HP
+          brand's is ~112px), so the old top-18/top-20 (72/80px) left the nav
+          pill overlapping the stepper. 120px clears both brands at all widths. */}
+      <div className="sticky top-[120px] z-30 border-b border-white/8 bg-[#000418]">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto">
             {steps.map((s, i) => {

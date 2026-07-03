@@ -217,6 +217,11 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
         phone: contact.phone,
       },
       lineItems: item.lineItems,
+      // USA250-style price-key promo: send only the CODE — the route
+      // re-validates against Neon and re-derives the reduction itself, so the
+      // fallback path (quote failed → no dayofOrderId) charges the discounted
+      // price too, and the redemption is recorded on both paths.
+      ...(session.appliedPromo ? { promoCode: session.appliedPromo.code } : {}),
       rawItems: item.rawItems.length > 0 ? item.rawItems : undefined,
       squareToken: params.cardToken,
       giftCardNonce: params.giftCardNonce ?? undefined,

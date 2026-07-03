@@ -11,25 +11,38 @@
  *  1. mega-no-back-to-back-pro — don't book a Pro Mega session adjacent to an
  *     already-occupied Pro Mega session (kart/staff reconfiguration spacing),
  *     unless the slot starts within 1 hour (last-minute fill). HIDDEN.
- *  2. opening-heats-express-only-12min / -15min — on every race track, the
- *     first TWO heats of the day are reserved for walk-in / express-lane parties
- *     (all returning racers with valid waivers); new racers need time to check
- *     in when the track first opens, so the third heat is the first one they can
- *     book online. DISABLED + labelled "Walk-In or Express Only" (replaces a BMI
+ *  2. opening-heats-express-only — on every race track, the first TWO heats of
+ *     the day are reserved for walk-in / express-lane parties (all returning
+ *     racers with valid waivers); new racers need time to check in when the
+ *     track first opens, so the third heat is the first one they can book
+ *     online. DISABLED + labelled "Walk-In or Express Only" (replaces a BMI
  *     dayplanner restriction we're moving in-house). Implemented as a
  *     center-local clock window = open .. open + 2×cadence, matched against the
  *     heat's wall-clock start — NOT its rank in the availability response (which
  *     slides as the day's earliest heats pass or sell out and drop off the
- *     list). Two rules because Red/Mega run a 12-min cadence (opens at :24) and
- *     Blue a 15-min cadence (opens at :30).
- *  3. blue/mega-no-back-to-back-junior — the same back-to-back spacing as the Pro
- *     rule, applied to JUNIOR sessions on Blue (gap 16) and Mega (gap 13). Same
- *     last-minute (1 hr) override. HIDDEN.
+ *     list). One rule for all tracks since 2026-07-02: every track now runs the
+ *     12-min cadence (opens at :24). (Blue ran 15-min — window until :30 — as a
+ *     separate -15min rule before the owner moved it to 12-min.)
+ *  3. blue/mega-no-back-to-back-junior — no Junior session adjacent to another
+ *     occupied Junior session on Blue or Mega (gap 13 both), counted across
+ *     EVERY junior tier ("regardless of anything", owner 2026-07-02): a junior
+ *     pro neighbor blocks a junior intermediate pick and vice versa (scope
+ *     "category" reads `categoryTrackBlocks`). UNCONDITIONAL — no last-minute
+ *     override. HIDDEN.
  *  4. mega-junior-two-per-hour — on Mega, at most two Junior races may start in
  *     any center-local clock hour, counted across BOTH junior tiers
  *     (intermediate + pro) — "regardless of type". Reads `categoryTrackBlocks`
  *     (every junior heat on the track, tiers merged), not `productBlocks` (one
  *     tier). HIDDEN. (Blue carries no per-hour cap.)
+ *  5. starter-room-per-hour / -junior-starter — every track keeps room for TWO
+ *     ADULT STARTER races in each center-local clock hour (owner 2026-07-02:
+ *     new racers must always be able to get in). A non-adult-starter pick
+ *     (adult intermediate/pro, any junior — the two rules' scopes union to
+ *     "everything except adult starter") is blocked when booking it would leave
+ *     fewer than 2 slots in its hour that are still empty or already running an
+ *     adult Starter session. Booked Starter races count toward the guarantee —
+ *     the reserve is "two Starter races can happen", not "two slots frozen".
+ *     60-min last-minute lift so unused reserved slots still fill. HIDDEN.
  *
  * ── How a "Pro session" is detected (no Pandora / no check-in needed) ──
  * BMI's per-tier dayplanner pages mean an OCCUPIED heat belongs to exactly one
@@ -38,9 +51,10 @@
  * tiers, occupied heats are tier-exclusive). So a neighbor Mega slot with
  * `freeSpots < capacity` in the Pro availability is unambiguously an active Pro
  * session — global ("regardless of person"), populated the instant anyone books.
- * The same per-tier exclusivity is why the two-per-hour Junior cap unions the
- * availability of BOTH junior Mega products: an occupied junior heat shows up in
- * only its own tier's response, so a single tier's blocks can't see the other's.
+ * The same per-tier exclusivity is why every cross-tier rule (junior
+ * back-to-back / per-hour, the Starter room reserve) unions the availability of
+ * every in-scope product on the track: an occupied heat shows up in only its
+ * own tier's response, so a single tier's blocks can't see the others'.
  *
  * ── To add a rule ──
  * Push another entry onto RACE_RESTRICTION_RULES. To add a new *kind* of
@@ -75,14 +89,19 @@ export interface RaceRestrictionRule {
   /** How a blocked slot is presented in the picker. */
   presentation: RestrictionPresentation;
   /**
-   * Constraint: no adjacent OCCUPIED same-tier slot. Block the pick when another
-   * slot of the same product within `gapMinutes` is occupied (freeSpots <
-   * capacity). `gapMinutes` = track cadence + 1 (Mega = 12 + 1).
+   * Constraint: no adjacent OCCUPIED slot. Block the pick when another slot
+   * within `gapMinutes` is occupied (freeSpots < capacity). `gapMinutes` =
+   * track cadence + 1 (Mega = 12 + 1). `scope` picks the occupancy signal:
+   * "tier" reads `productBlocks` (the candidate's own product only);
+   * "category" reads `categoryTrackBlocks` (every same-category heat on the
+   * track, tiers merged — falls back to `productBlocks` when the caller can't
+   * supply the union).
    */
-  noAdjacentOccupiedSameTier?: { gapMinutes: number };
+  noAdjacentOccupied?: { gapMinutes: number; scope: "tier" | "category" };
   /**
-   * Exception for `noAdjacentOccupiedSameTier`: lift the block when the slot
-   * being booked starts within this many minutes of now (fill near-term empty
+   * Exception for the blocking constraints that honor it (`noAdjacentOccupied`,
+   * `reserveStarterRoomPerClockHour`): lift the block when the slot being
+   * booked starts within this many minutes of now (fill near-term empty
    * slots). Omit for an unconditional block.
    */
   lastMinuteOverrideMinutes?: number;
@@ -115,6 +134,21 @@ export interface RaceRestrictionRule {
    * or `candidateStartLocal` aren't supplied (epoch-only / non-aggregating caller).
    */
   maxOccupiedPerClockHour?: { limit: number };
+  /**
+   * Constraint: keep room for `minRoom` ADULT STARTER races in the candidate's
+   * center-local clock hour. Reads `trackAllTierBlocks` (every heat on the
+   * track across ALL tiers + categories, each tagged with whether it came from
+   * the adult-starter product's availability). A slot counts as "Starter room"
+   * when nothing non-adult-starter occupies it — i.e. it is still empty, or it
+   * is an active adult Starter session (booked Starter races satisfy the
+   * guarantee). Blocks the pick when consuming the candidate's slot would leave
+   * fewer than `minRoom` such slots in the hour. Counting remaining room —
+   * rather than capping occupied non-Starter heats at heats-per-hour − minRoom
+   * — stays correct when BMI drops passed/sold-out heats from availability and
+   * in partial (end-of-day) hours. No-op when `trackAllTierBlocks` or
+   * `candidateStartLocal` aren't supplied (epoch-only / non-aggregating caller).
+   */
+  reserveStarterRoomPerClockHour?: { minRoom: number };
 }
 
 /** Minutes since local midnight for an `HH:MM` clock time. */
@@ -136,23 +170,16 @@ function openingWindows(
 
 // The opening window reserves the first TWO heats of the day for walk-in /
 // express-lane parties (new racers need check-in time when the track opens), so
-// the window length is 2 × the track's heat cadence — the THIRD heat is the
-// first one a non-express party can book online. The cadence differs by track,
-// hence two windows / two rules:
-//   • 12-min cadence (Red, Mega): blocks :00 + :12, opens at :24
-//     (1:24 PM weekday / 11:24 AM weekend).
-//   • 15-min cadence (Blue):      blocks :00 + :15, opens at :30
-//     (1:30 PM weekday / 11:30 AM weekend).
-const OPENING_WINDOWS_12MIN = openingWindows(
+// the window length is 2 × the heat cadence — the THIRD heat is the first one a
+// non-express party can book online. Every track runs the 12-min cadence
+// (owner 2026-07-02 — Blue was 15-min before): blocks :00 + :12, opens at :24
+// (1:24 PM weekday / 11:24 AM weekend).
+const OPENING_WINDOWS = openingWindows(
   { openMinutes: at(13), untilMinutes: at(13, 24) }, // weekday 1:00–1:24 PM
   { openMinutes: at(11), untilMinutes: at(11, 24) }, // weekend 11:00–11:24 AM
 );
-const OPENING_WINDOWS_15MIN = openingWindows(
-  { openMinutes: at(13), untilMinutes: at(13, 30) }, // weekday 1:00–1:30 PM
-  { openMinutes: at(11), untilMinutes: at(11, 30) }, // weekend 11:00–11:30 AM
-);
 
-/** Shared presentation for the opening-heats rules (both cadences). */
+/** Presentation for the opening-heats rule. */
 const WALK_IN_OR_EXPRESS_PRESENTATION: RestrictionPresentation = {
   // DISABLED (not hidden) for non-express parties — the opening heats stay
   // visible but greyed with a "Walk-In or Express Only" label, so guests know
@@ -178,32 +205,32 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
       action: "hide",
       tooltip: "That time is too close to another Pro session on Mega — pick another slot.",
     },
-    noAdjacentOccupiedSameTier: { gapMinutes: 13 }, // Mega cadence 12 min + 1
+    noAdjacentOccupied: { gapMinutes: 13, scope: "tier" }, // Mega cadence 12 min + 1
     lastMinuteOverrideMinutes: 60,
   },
+  // Junior back-to-back is UNCONDITIONAL (owner 2026-07-02: "regardless of
+  // anything") — cross-tier (scope "category") and no last-minute override.
   {
     id: "blue-no-back-to-back-junior",
-    label: "Blue: no back-to-back Junior sessions",
+    label: "Blue: no back-to-back Junior sessions (any tier, no exceptions)",
     enabled: true,
     appliesTo: { categories: ["junior"], tracks: ["Blue"] },
     presentation: {
       action: "hide",
       tooltip: "That time is too close to another Junior session on Blue — pick another slot.",
     },
-    noAdjacentOccupiedSameTier: { gapMinutes: 16 }, // Blue cadence 15 min + 1
-    lastMinuteOverrideMinutes: 60,
+    noAdjacentOccupied: { gapMinutes: 13, scope: "category" }, // Blue cadence 12 min + 1 (12-min since 2026-07-02)
   },
   {
     id: "mega-no-back-to-back-junior",
-    label: "Mega: no back-to-back Junior sessions",
+    label: "Mega: no back-to-back Junior sessions (any tier, no exceptions)",
     enabled: true,
     appliesTo: { categories: ["junior"], tracks: ["Mega"] },
     presentation: {
       action: "hide",
       tooltip: "That time is too close to another Junior session on Mega — pick another slot.",
     },
-    noAdjacentOccupiedSameTier: { gapMinutes: 13 }, // Mega cadence 12 min + 1
-    lastMinuteOverrideMinutes: 60,
+    noAdjacentOccupied: { gapMinutes: 13, scope: "category" }, // Mega cadence 12 min + 1
   },
   {
     id: "mega-junior-two-per-hour",
@@ -217,21 +244,44 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
     },
     maxOccupiedPerClockHour: { limit: 2 },
   },
+  // Reserve room for two ADULT STARTER races per clock hour on every track
+  // (owner 2026-07-02). Two entries because appliesTo can't express "everything
+  // except adult starter": the first covers intermediate + pro (both
+  // categories); the second covers junior starter (Blue is the only junior
+  // starter track). Together = every non-adult-starter booking.
   {
-    id: "opening-heats-express-only-12min",
-    label: "Opening heats walk-in / express only — 12-min tracks (Red, Mega)",
+    id: "starter-room-per-hour",
+    label: "All tracks: keep room for two adult Starter races per clock hour",
     enabled: true,
-    appliesTo: { tracks: ["Red", "Mega"] }, // 12-min cadence, all tiers
-    presentation: WALK_IN_OR_EXPRESS_PRESENTATION,
-    openingWindowExpressOnly: { windows: OPENING_WINDOWS_12MIN },
+    appliesTo: { tiers: ["intermediate", "pro"], tracks: ["Red", "Blue", "Mega"] },
+    presentation: {
+      action: "hide",
+      tooltip:
+        "That hour is holding its last spots for Starter races — pick a slot in a different hour.",
+    },
+    reserveStarterRoomPerClockHour: { minRoom: 2 },
+    lastMinuteOverrideMinutes: 60,
   },
   {
-    id: "opening-heats-express-only-15min",
-    label: "Opening heats walk-in / express only — 15-min track (Blue)",
+    id: "starter-room-per-hour-junior-starter",
+    label: "Blue: junior Starter also respects the adult-Starter hourly room reserve",
     enabled: true,
-    appliesTo: { tracks: ["Blue"] }, // 15-min cadence, all tiers
+    appliesTo: { tiers: ["starter"], categories: ["junior"], tracks: ["Blue"] },
+    presentation: {
+      action: "hide",
+      tooltip:
+        "That hour is holding its last spots for Starter races — pick a slot in a different hour.",
+    },
+    reserveStarterRoomPerClockHour: { minRoom: 2 },
+    lastMinuteOverrideMinutes: 60,
+  },
+  {
+    id: "opening-heats-express-only",
+    label: "Opening heats walk-in / express only (all race tracks)",
+    enabled: true,
+    appliesTo: { tracks: ["Red", "Blue", "Mega"] }, // 12-min cadence, all tiers
     presentation: WALK_IN_OR_EXPRESS_PRESENTATION,
-    openingWindowExpressOnly: { windows: OPENING_WINDOWS_15MIN },
+    openingWindowExpressOnly: { windows: OPENING_WINDOWS },
   },
 ];
 
@@ -240,6 +290,14 @@ export interface RestrictionBlock {
   startMs: number;
   freeSpots: number;
   capacity: number;
+}
+
+/** A RestrictionBlock tagged with which product's availability it came from —
+ *  the `reserveStarterRoomPerClockHour` signal needs to tell an active adult
+ *  Starter session (counts as room) from every other occupied heat. */
+export interface TrackTierBlock extends RestrictionBlock {
+  /** True when this block came from the ADULT STARTER product's availability. */
+  adultStarter: boolean;
 }
 
 export interface RestrictionContext {
@@ -275,6 +333,13 @@ export interface RestrictionContext {
    * Optional: omit it and `maxOccupiedPerClockHour` no-ops.
    */
   categoryTrackBlocks?: RestrictionBlock[];
+  /**
+   * Every heat on the candidate's track with ALL tiers AND categories merged,
+   * each tagged with whether it came from the adult-starter product's
+   * availability. The occupancy signal `reserveStarterRoomPerClockHour` reads.
+   * Optional: omit it and that constraint no-ops.
+   */
+  trackAllTierBlocks?: TrackTierBlock[];
   /**
    * Whether the booking party is express-lane eligible (all returning racers,
    * every one with a valid waiver). Required by `openingWindowExpressOnly`.
@@ -317,14 +382,24 @@ function block(rule: RaceRestrictionRule): RestrictionResult {
   };
 }
 
-/** Does an OCCUPIED same-product neighbor sit within `gapMinutes` of the candidate? */
-function hasOccupiedNeighbor(ctx: RestrictionContext, gapMinutes: number): boolean {
+/** Does an OCCUPIED neighbor in `blocks` sit within `gapMinutes` of the candidate? */
+function hasOccupiedNeighbor(
+  blocks: RestrictionBlock[],
+  candidateStartMs: number,
+  gapMinutes: number,
+): boolean {
   const gapMs = gapMinutes * 60_000;
-  return ctx.productBlocks.some((b) => {
-    if (b.startMs === ctx.candidateStartMs) return false; // not the candidate itself
+  return blocks.some((b) => {
+    if (b.startMs === candidateStartMs) return false; // not the candidate itself
     if (b.freeSpots >= b.capacity) return false; // empty — doesn't count
-    return Math.abs(b.startMs - ctx.candidateStartMs) < gapMs;
+    return Math.abs(b.startMs - candidateStartMs) < gapMs;
   });
+}
+
+/** True when the rule's last-minute override lifts a would-be block. */
+function lastMinuteLift(rule: RaceRestrictionRule, ctx: RestrictionContext): boolean {
+  const override = rule.lastMinuteOverrideMinutes;
+  return override != null && ctx.candidateStartMs - ctx.nowMs <= override * 60_000;
 }
 
 /**
@@ -352,13 +427,50 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
     if (!rule.enabled) continue;
     if (!matchesScope(rule, ctx)) continue;
 
-    // Constraint: no back-to-back occupied same-tier slot.
-    if (rule.noAdjacentOccupiedSameTier) {
-      if (hasOccupiedNeighbor(ctx, rule.noAdjacentOccupiedSameTier.gapMinutes)) {
-        const override = rule.lastMinuteOverrideMinutes;
-        const lastMinute =
-          override != null && ctx.candidateStartMs - ctx.nowMs <= override * 60_000;
-        if (!lastMinute) return block(rule);
+    // Constraint: no back-to-back occupied slot. Scope "tier" sees only the
+    // candidate's own product; "category" sees every same-category heat on the
+    // track (tiers merged) when the caller supplied the union.
+    if (rule.noAdjacentOccupied) {
+      const blocks =
+        rule.noAdjacentOccupied.scope === "category" && ctx.categoryTrackBlocks?.length
+          ? ctx.categoryTrackBlocks
+          : ctx.productBlocks;
+      if (hasOccupiedNeighbor(blocks, ctx.candidateStartMs, rule.noAdjacentOccupied.gapMinutes)) {
+        if (!lastMinuteLift(rule, ctx)) return block(rule);
+      }
+    }
+
+    // Constraint: keep room for N adult-Starter races in the candidate's
+    // center-local clock hour. A slot is "Starter room" when nothing
+    // non-adult-starter occupies it (still empty, or an active adult Starter
+    // session — occupied heats are tier-exclusive, so an occupied start appears
+    // in exactly one product's response). The candidate's own slot is excluded:
+    // booking consumes it (and if it's already an occupied same-tier session,
+    // it was never room to begin with).
+    if (rule.reserveStarterRoomPerClockHour && ctx.trackAllTierBlocks && ctx.candidateStartLocal) {
+      // Joining an already-running session at the candidate's start consumes no
+      // new room — the slot left the Starter pool when its first racer booked
+      // — so the reserve never blocks it, even in an hour already under quota.
+      const joiningActiveSession = ctx.trackAllTierBlocks.some(
+        (b) => b.startMs === ctx.candidateStartMs && b.freeSpots < b.capacity,
+      );
+      const parts = joiningActiveSession ? null : localClockParts(ctx.candidateStartLocal);
+      if (parts) {
+        const minutesIntoHour = parts.minutes % 60;
+        const hourStartMs = ctx.candidateStartMs - minutesIntoHour * 60_000;
+        const hourEndMs = hourStartMs + 60 * 60_000;
+        const starts = new Set<number>();
+        const consumed = new Set<number>(); // occupied by a NON-adult-starter session
+        for (const b of ctx.trackAllTierBlocks) {
+          if (b.startMs === ctx.candidateStartMs) continue;
+          if (b.startMs < hourStartMs || b.startMs >= hourEndMs) continue;
+          starts.add(b.startMs);
+          if (b.freeSpots < b.capacity && !b.adultStarter) consumed.add(b.startMs);
+        }
+        const room = starts.size - consumed.size;
+        if (room < rule.reserveStarterRoomPerClockHour.minRoom) {
+          if (!lastMinuteLift(rule, ctx)) return block(rule);
+        }
       }
     }
 

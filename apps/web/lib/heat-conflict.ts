@@ -8,9 +8,9 @@
  *   Red   every 12 min  →  threshold 13 min blocks only the adjacent
  *                          heat. E.g. pick 3:24 → blocks 3:12 + 3:36;
  *                          next pickable is 3:48 (+24 min away).
- *   Blue  every 15 min  →  threshold 16 min blocks only the adjacent
- *                          heat. E.g. pick 3:30 → blocks 3:15 + 3:45;
- *                          next pickable is 4:00 (+30 min away).
+ *   Blue  every 12 min  →  threshold 13 min, same as Red. (Blue ran a
+ *                          15-min cadence / 16-min threshold until
+ *                          2026-07-02; owner: 12 min from now on.)
  *   Mega  every 12 min  →  same cadence as Red (threshold 13 min). On
  *                          Mega Tuesdays both tracks combine into a
  *                          single long configuration but the heat
@@ -29,7 +29,7 @@
 /** Per-track adjacent-heat threshold, in minutes. */
 export const TRACK_ADJACENT_GAP_MIN: Record<string, number> = {
   red: 13,
-  blue: 16,
+  blue: 13, // 12-min cadence since 2026-07-02 (was 15-min / 16)
   mega: 13, // Mega runs the same 12-min cadence as Red
 };
 

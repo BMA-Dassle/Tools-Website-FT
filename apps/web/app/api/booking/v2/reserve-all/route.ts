@@ -4,6 +4,7 @@ import {
   RewardFailedError,
   ReserveInProgressError,
   BillExpiredError,
+  ExistingBookingConflictError,
 } from "~/features/booking/service/unified-reserve";
 import { DepositPaymentError } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
@@ -54,6 +55,11 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof BillExpiredError) {
       // 409 Conflict — the held bill lapsed before payment. No charge happened.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof ExistingBookingConflictError) {
+      // 409 — a cart heat is too close to one the same racer already booked in
+      // another reservation. Raised before any Square write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof RewardFailedError) {

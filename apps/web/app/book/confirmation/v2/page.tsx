@@ -453,6 +453,10 @@ export default function ConfirmationPage() {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let notificationPayload: Record<string, any> | null = null;
+        // Raw {name, start, stop} entries behind reservationSchedule's formatted
+        // lines, kept so the combo bowling-leg merge (before the email send) can
+        // re-sort by time instead of string-splicing the joined schedule.
+        const bmiScheduleEntries: { name: string; start: string; stop?: string }[] = [];
 
         if (allConfirmations.length === 0 && allBillIds.length > 0) {
           console.error(
@@ -505,7 +509,6 @@ export default function ConfirmationPage() {
               overview?.lines && overview.lines.length > 0
                 ? overview.lines
                 : parsedOverviews.flatMap((ov: { lines?: OrderLine[] }) => ov.lines || []);
-            const scheduleLines: string[] = [];
             for (const line of sourceLines) {
               const sched =
                 line.scheduledTime ||
@@ -514,11 +517,17 @@ export default function ConfirmationPage() {
                   : null);
               if (sched?.start) {
                 const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
-                scheduleLines.push(
-                  `${displayLineName(line)}${qty} · ${formatTime(sched.start)}${sched.stop ? ` - ${formatTime(sched.stop)}` : ""}`,
-                );
+                bmiScheduleEntries.push({
+                  name: `${displayLineName(line)}${qty}`,
+                  start: sched.start,
+                  stop: sched.stop || undefined,
+                });
               }
             }
+            const scheduleLines = bmiScheduleEntries.map(
+              (e) =>
+                `${e.name} · ${formatTime(e.start)}${e.stop ? ` - ${formatTime(e.stop)}` : ""}`,
+            );
             const firstHeat =
               sourceLines.find((l) => l.scheduledTime?.start)?.scheduledTime?.start ||
               sourceLines[0]?.schedules?.[0]?.start ||
@@ -997,12 +1006,12 @@ export default function ConfirmationPage() {
           // racer activity with its time). scheduledItems is intentionally left
           // untouched so the racing sales-log participantCount math is
           // unaffected.
+          const norm = (t: string) =>
+            t
+              .replace(/Z$/, "")
+              .replace(/[+-]\d{2}:\d{2}$/, "")
+              .slice(0, 16);
           if (!notificationPayload.reservationSchedule) {
-            const norm = (t: string) =>
-              t
-                .replace(/Z$/, "")
-                .replace(/[+-]\d{2}:\d{2}$/, "")
-                .slice(0, 16);
             const recItems: { name: string; start: string }[] = [];
             for (const b of (bookingRecord?.bowling ?? []) as Array<{
               kind?: string;
@@ -1044,6 +1053,43 @@ export default function ConfirmationPage() {
               notificationPayload.reservationDate = formatDate(recItems[0].start);
               notificationPayload.reservationTime = formatTime(recItems[0].start);
               notificationPayload.productNames = recItems.map((s) => s.name);
+            }
+          } else if (
+            ((bookingRecord?.bowling ?? []) as unknown[]).length > 0 &&
+            !/bowl/i.test(notificationPayload.reservationSchedule)
+          ) {
+            // The BMI overview never carries the QAMF bowling leg, so a
+            // non-empty racing-derived schedule silently omitted it — the
+            // Ultimate VIP email listed both races but never the VIP lane.
+            // Merge the booking record's bowling legs in, time-sorted.
+            // scheduledItems stays untouched (racing sales-log math).
+            const isCombo = !!bookingRecord?.comboSpecial;
+            const merged = [...bmiScheduleEntries];
+            const bowlingNames: string[] = [];
+            for (const b of (bookingRecord?.bowling ?? []) as Array<{
+              kind?: string;
+              bookedAt?: string;
+              date?: string;
+            }>) {
+              const t = b.bookedAt || (b.date ? `${b.date}T00:00:00` : "");
+              if (!t) continue;
+              const name =
+                b.kind === "kbf" ? "Kids Bowl Free" : isCombo ? "VIP Bowling" : "Bowling";
+              merged.push({ name, start: t });
+              bowlingNames.push(name);
+            }
+            if (bowlingNames.length > 0) {
+              merged.sort((a, b) => norm(a.start).localeCompare(norm(b.start)));
+              notificationPayload.reservationSchedule = merged
+                .map(
+                  (s) =>
+                    `${s.name} · ${formatTime(s.start)}${s.stop ? ` - ${formatTime(s.stop)}` : ""}`,
+                )
+                .join("<br/>");
+              notificationPayload.productNames = [
+                ...((notificationPayload.productNames as string[] | undefined) ?? []),
+                ...bowlingNames,
+              ];
             }
           }
 

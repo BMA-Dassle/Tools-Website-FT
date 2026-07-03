@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   CROSS_TRACK_MIN_GAP_MIN,
   TRACK_ADJACENT_GAP_MIN,
+  findCrossBookingConflict,
   findHeatConflict,
+  heatClockLabel,
   heatsConflict,
   violatesMinGapAfter,
+  type BookedPersonHeat,
 } from "./conflict";
 
 const T = (h: number, m = 0) =>
@@ -27,14 +30,15 @@ describe("heatsConflict", () => {
     });
   });
 
-  describe("same-track Blue (15-min cadence, 16-min threshold)", () => {
-    it("blocks adjacent heat 15 min apart", () => {
-      expect(heatsConflict(T(15, 30), "Blue", T(15, 15), "Blue")).toBe(true);
-      expect(heatsConflict(T(15, 30), "Blue", T(15, 45), "Blue")).toBe(true);
+  describe("same-track Blue (12-min cadence since 2026-07-02, 13-min threshold)", () => {
+    it("blocks adjacent heat 12 min apart", () => {
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 12), "Blue")).toBe(true);
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 36), "Blue")).toBe(true);
     });
 
-    it("allows the next-after-adjacent heat at 30 min apart", () => {
-      expect(heatsConflict(T(15, 30), "Blue", T(16, 0), "Blue")).toBe(false);
+    it("allows the next-after-adjacent heat at 24 min apart", () => {
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 48), "Blue")).toBe(false);
+      expect(heatsConflict(T(15, 24), "Blue", T(15, 0), "Blue")).toBe(false);
     });
   });
 
@@ -120,11 +124,88 @@ describe("findHeatConflict", () => {
 describe("thresholds export", () => {
   it("exposes per-track gap constants", () => {
     expect(TRACK_ADJACENT_GAP_MIN.red).toBe(13);
-    expect(TRACK_ADJACENT_GAP_MIN.blue).toBe(16);
+    expect(TRACK_ADJACENT_GAP_MIN.blue).toBe(13);
     expect(TRACK_ADJACENT_GAP_MIN.mega).toBe(13);
   });
 
   it("exposes the cross-track buffer constant", () => {
     expect(CROSS_TRACK_MIN_GAP_MIN).toBe(30);
+  });
+});
+
+describe("findCrossBookingConflict (cross-reservation spacing)", () => {
+  const h = (iso: string, track: string | null, pid: string | null): BookedPersonHeat => ({
+    heatId: iso,
+    track,
+    bmiPersonId: pid,
+  });
+
+  it("blocks the same person booked adjacent (12 min) on the same track in another reservation", () => {
+    const conflict = findCrossBookingConflict(
+      [h("2026-07-02T15:36:00", "Red", "409523")],
+      [h("2026-07-02T15:24:00", "Red", "409523")],
+    );
+    expect(conflict).not.toBeNull();
+    expect(conflict?.existing.heatId).toBe("2026-07-02T15:24:00");
+  });
+
+  it("ignores a DIFFERENT person's heats in the same slots", () => {
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:36:00", "Red", "409523")],
+        [h("2026-07-02T15:24:00", "Red", "777777")],
+      ),
+    ).toBeNull();
+  });
+
+  it("applies the 30-min cross-track walk buffer", () => {
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:36:00", "Blue", "409523")],
+        [h("2026-07-02T15:12:00", "Red", "409523")], // 24 min apart, cross-track
+      ),
+    ).not.toBeNull();
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:42:00", "Blue", "409523")],
+        [h("2026-07-02T15:12:00", "Red", "409523")], // 30 min — allowed
+      ),
+    ).toBeNull();
+  });
+
+  it("conflicts on the identical heat (double-booking the same slot across reservations)", () => {
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:24:00", "Red", "409523")],
+        [h("2026-07-02T15:24:00", "Red", "409523")],
+      ),
+    ).not.toBeNull();
+  });
+
+  it("allows properly spaced heats for the same person", () => {
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:48:00", "Red", "409523")],
+        [h("2026-07-02T15:24:00", "Red", "409523")], // 24 min same-track — fine
+      ),
+    ).toBeNull();
+  });
+
+  it("skips heats without a bmiPersonId (unidentified racers)", () => {
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:36:00", "Red", null)],
+        [h("2026-07-02T15:24:00", "Red", null)],
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("heatClockLabel", () => {
+  it("formats a naive heat start as 12-hour clock", () => {
+    expect(heatClockLabel("2026-07-02T15:36:00")).toBe("3:36 PM");
+    expect(heatClockLabel("2026-07-02T00:12:00")).toBe("12:12 AM");
+    expect(heatClockLabel("2026-07-02T12:00:00")).toBe("12:00 PM");
+    expect(heatClockLabel("2026-07-02T09:05:00")).toBe("9:05 AM");
   });
 });
