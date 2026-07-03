@@ -51,6 +51,9 @@ async function getBmiToken(): Promise<string> {
 interface LiveHeat {
   /** Naive ET wall-clock ISO (same shape as booking_metadata heatIds). */
   start: string;
+  /** REAL session end from BMI (~7-12 min after start) — the board flips a
+   *  race to Done at this moment instead of guessing a duration. */
+  stop: string | null;
   /** BMI line name, e.g. "Starter Race Blue" — the board labels from it. */
   name: string | null;
 }
@@ -83,13 +86,22 @@ async function fetchLiveHeats(billId: string): Promise<LiveHeat[] | null> {
     if (res.ok) {
       // Overview carries 17-digit ids — lossless parse only (never res.json()).
       const ov = parseWithRawIds<{
-        lines?: Array<{ name?: string; scheduledTime?: { start?: string }; start?: string }>;
+        lines?: Array<{
+          name?: string;
+          scheduledTime?: { start?: string; stop?: string };
+          start?: string;
+          stop?: string;
+        }>;
       }>(await res.text());
       // Scheduled lines only — the race heats. POV/license lines have no
       // scheduledTime and drop out here.
       const seen = new Set<string>();
       heats = (ov.lines ?? [])
-        .map((l) => ({ start: l.scheduledTime?.start ?? l.start ?? "", name: l.name ?? null }))
+        .map((l) => ({
+          start: l.scheduledTime?.start ?? l.start ?? "",
+          stop: l.scheduledTime?.stop ?? l.stop ?? null,
+          name: l.name ?? null,
+        }))
         .filter((h) => h.start)
         .filter((h) => {
           const k = `${h.start}|${h.name ?? ""}`;

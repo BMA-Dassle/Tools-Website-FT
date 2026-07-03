@@ -101,8 +101,9 @@ interface Reservation {
    *  (server-side, race legs only). Office reschedules move heats after
    *  booking — and can convert an Intermediate to a second Starter — so when
    *  present these override the booking_metadata times stamped at booking.
-   *  `start` is a naive ET wall-clock ISO, same shape as heatId. */
-  liveHeats?: Array<{ start: string; name: string | null }>;
+   *  `start`/`stop` are naive ET wall-clock ISOs (same shape as heatId);
+   *  stop is the REAL session end (~7-12 min sessions). */
+  liveHeats?: Array<{ start: string; stop: string | null; name: string | null }>;
   insertedAt: string;
   lines: ReservationLine[];
 }
@@ -126,11 +127,16 @@ interface ComboScheduleStep {
   lane?: string;
   loc: string;
   pending?: boolean;
-  /** Expected length of this step (minutes) — bowling comes from the combo
-   *  registry; race legs use the owner's assumed 30-min leg (arrive → off
-   *  track, mirrors ASSUMED_RACE_LEG_MINUTES in combo-booking). Drives the
-   *  Done / in-progress / up-next markers on the card. */
+  /** Expected length of this step (minutes) — bowling from the combo
+   *  registry; race legs use the REAL BMI session window (start→stop, ~7-12
+   *  min) when live data is present, else the owner's assumed 30-min leg
+   *  (mirrors ASSUMED_RACE_LEG_MINUTES in combo-booking). Drives the Done /
+   *  in-progress / up-next markers on the card. */
   durationMin: number;
+  /** The leg's reservation status, attached to the BOWLING step only —
+   *  QAMF lane truth: `arrived` = lane open right now, `completed` = lane
+   *  closed. Beats the clock when a party runs early or late. */
+  legStatus?: string;
 }
 
 /** Attached to the single main-list row that represents a whole VIP combo
@@ -493,20 +499,48 @@ function fmtDurShort(minutes: number): string {
   return h > 0 ? `${h}h ${r ? `${r}m` : ""}`.trim() : `${r}m`;
 }
 
-/** Where a combo itinerary step sits relative to now (schedule-based — the
- *  step's booked start + expected duration, not check-in state). */
+/** Where a combo itinerary step sits relative to now. Status truth first
+ *  (bowling legStatus: QAMF lane state — completed = lane closed, arrived =
+ *  lane open even when the clock disagrees), then the booked start +
+ *  expected duration. `overdue` = schedule-active but the party hasn't
+ *  checked in, or lane still open past its scheduled end. */
 function stepProgress(
   step: ComboScheduleStep,
   nowMs: number,
-): { state: "done" | "active" | "upcoming"; minsLeft: number; minsUntil: number } | null {
+): {
+  state: "done" | "active" | "upcoming";
+  minsLeft: number;
+  minsUntil: number;
+  overdue: boolean;
+} | null {
+  if (step.legStatus === "completed") {
+    return { state: "done", minsLeft: 0, minsUntil: 0, overdue: false };
+  }
   if (!step.iso) return null;
   const startMs = etWallMs(step.iso);
   if (Number.isNaN(startMs)) return null;
   const endMs = startMs + step.durationMin * 60_000;
-  if (nowMs >= endMs) return { state: "done", minsLeft: 0, minsUntil: 0 };
+  if (step.legStatus === "arrived") {
+    // Lane is open RIGHT NOW — active regardless of the clock; past the
+    // scheduled end it's running over, not done.
+    return {
+      state: "active",
+      minsLeft: Math.max(0, (endMs - nowMs) / 60_000),
+      minsUntil: 0,
+      overdue: nowMs >= endMs,
+    };
+  }
+  if (nowMs >= endMs) return { state: "done", minsLeft: 0, minsUntil: 0, overdue: false };
   if (nowMs >= startMs)
-    return { state: "active", minsLeft: (endMs - nowMs) / 60_000, minsUntil: 0 };
-  return { state: "upcoming", minsLeft: 0, minsUntil: (startMs - nowMs) / 60_000 };
+    return {
+      state: "active",
+      minsLeft: (endMs - nowMs) / 60_000,
+      minsUntil: 0,
+      // A bowling step carries legStatus; schedule-active without an open
+      // lane means the party hasn't checked in to the lane yet.
+      overdue: step.legStatus != null && step.legStatus !== "arrived",
+    };
+  return { state: "upcoming", minsLeft: 0, minsUntil: (startMs - nowMs) / 60_000, overdue: false };
 }
 
 function fmtDate(iso: string): string {
@@ -1862,6 +1896,15 @@ export default function ReservationsClient({ token }: { token: string }) {
   // racing + HeadPinz bowling) so they surface in every location's portal view.
   const [vipReservations, setVipReservations] = useState<Reservation[]>([]);
   const [comboMeta, setComboMeta] = useState<Record<string, ComboMeta>>({});
+  // Liveness tick: the team watches this board to see where VIPs are, so the
+  // countdown pills must keep moving even when a silent refresh fails or the
+  // tab is throttled. The 10s data poll drives re-renders on success; this is
+  // the clock's fallback heartbeat.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -2014,13 +2057,19 @@ export default function ReservationsClient({ token }: { token: string }) {
       // stay visible until they truly finish), but races never get one, so an
       // arrived race is effectively done. Past-event no-shows are flipped to a
       // terminal status by the reservation-status-close cron (not filtered here).
-      list = list.filter(
-        (r) =>
+      // VIP combo legs are exempt from the status drops (cancelled aside):
+      // staff flip a leg to completed at check-in/settle while later itinerary
+      // steps are still hours away, so retiring a combo is a GROUP decision —
+      // displayRows drops the merged row 30 min after its last scheduled step.
+      list = list.filter((r) => {
+        if (r.comboSpecialId) return r.status !== "cancelled";
+        return (
           r.status !== "cancelled" &&
           r.status !== "completed" &&
           r.status !== "no_show" &&
-          !(r.status === "arrived" && r.productKind === "race"),
-      );
+          !(r.status === "arrived" && r.productKind === "race")
+        );
+      });
     }
     if (kindFilter && kindFilter !== "vip") {
       list = list.filter((r) => r.productKind === kindFilter);
@@ -2065,8 +2114,9 @@ export default function ReservationsClient({ token }: { token: string }) {
       const anchor = bowling ?? sorted[0];
       const comboId = sorted.find((l) => l.comboSpecialId)?.comboSpecialId ?? "";
       const meta = comboMeta[comboId];
-      const allCancelled = sorted.every(
-        (l) => l.status === "cancelled" || l.status === "completed",
+      const allLegsCancelled = sorted.every((l) => l.status === "cancelled");
+      const allTerminal = sorted.every(
+        (l) => l.status === "cancelled" || l.status === "completed" || l.status === "no_show",
       );
 
       // Assumed race-leg length (arrive → off track) — owner's 30-min rule,
@@ -2094,17 +2144,23 @@ export default function ReservationsClient({ token }: { token: string }) {
         .sort((a, b) => a.ms - b.ms);
       let raceSteps: ComboScheduleStep[];
       if (liveHeats.length) {
-        raceSteps = liveHeats.map((h, i) => ({
-          icon: "🏁",
-          // BMI line names carry the track ("Starter Race Blue") — drop the
-          // track suffix to match the card's label style.
-          label:
-            h.name?.replace(/\s+(red|blue|mega)(\s+track)?$/i, "").trim() ||
-            (i === 0 ? "Starter Race" : "Intermediate Race"),
-          iso: h.start,
-          loc: "FastTrax",
-          durationMin: RACE_STEP_MIN,
-        }));
+        raceSteps = liveHeats.map((h, i) => {
+          // BMI gives the REAL session window (stop − start, ~7-12 min) —
+          // use it so "On track now"/"Done" flip at the actual session end.
+          const stopMs = h.stop ? etWallMs(h.stop) : NaN;
+          const realMin = (stopMs - h.ms) / 60_000;
+          return {
+            icon: "🏁",
+            // BMI line names carry the track ("Starter Race Blue") — drop the
+            // track suffix to match the card's label style.
+            label:
+              h.name?.replace(/\s+(red|blue|mega)(\s+track)?$/i, "").trim() ||
+              (i === 0 ? "Starter Race" : "Intermediate Race"),
+            iso: h.start,
+            loc: "FastTrax",
+            durationMin: Number.isFinite(realMin) && realMin > 0 ? realMin : RACE_STEP_MIN,
+          };
+        });
       } else {
         // heatId IS the heat's block-start ISO (booking state types),
         // persisted in the race leg's booking_metadata.heats.
@@ -2150,6 +2206,9 @@ export default function ReservationsClient({ token }: { token: string }) {
           lane: bowling.dayofOrderLane,
           loc: `HeadPinz ${centerLabel(anchor.centerCode)}`,
           durationMin: meta?.bowlingDurationMinutes ?? 90,
+          // QAMF lane truth: arrived = lane open, completed = lane closed —
+          // the marker trusts this over the clock.
+          legStatus: bowling.status,
         });
       }
       if (raceSteps.length < 2 && expectsIntermediate) {
@@ -2168,6 +2227,22 @@ export default function ReservationsClient({ token }: { token: string }) {
           (a.iso ? etWallMs(a.iso) : Number.POSITIVE_INFINITY) -
           (b.iso ? etWallMs(b.iso) : Number.POSITIVE_INFINITY),
       );
+
+      // Retiring a combo is a GROUP + SCHEDULE decision, not a status one:
+      // legs flip to completed at check-in/settle while later itinerary
+      // steps are still hours away (real case: both legs completed by 6pm
+      // with a 7:24 race still ahead). Keep the combo active until 30 min
+      // past its LAST scheduled step's end — or while the lane is open —
+      // and retire all-cancelled combos immediately.
+      const stepEnds = steps.flatMap((s) => {
+        if (!s.iso) return [];
+        const ms = etWallMs(s.iso);
+        return Number.isNaN(ms) ? [] : [ms + s.durationMin * 60_000];
+      });
+      const scheduleOver =
+        stepEnds.length === 0 || nowEtWallMs() >= Math.max(...stepEnds) + 30 * 60_000;
+      const laneOpen = bowling?.status === "arrived";
+      const inactive = allLegsCancelled || (allTerminal && scheduleOver && !laneOpen);
 
       // Distinct day-of Square orders in this combo: after the split a combo
       // has TWO (racing → FastTrax, bowling → HeadPinz); pre-split combos share
@@ -2211,11 +2286,18 @@ export default function ReservationsClient({ token }: { token: string }) {
           ? dayofOrders.reduce((s, o) => s + o.totalCents, 0)
           : Math.max(0, ...sorted.map((l) => l.totalCents ?? 0)),
         schedule,
-        allCancelled,
+        inactive,
       };
     });
-    let out = groups;
-    if (hideCancelled) out = out.filter((g) => !g.allCancelled);
+    return groups.sort((a, b) => a.anchor.bookedAt.localeCompare(b.anchor.bookedAt));
+  }, [vipReservations, comboMeta]);
+
+  // VIP cards honor the Active Only toggle + search. The schedule lookup
+  // below (comboScheduleByKey) deliberately uses ALL groups, so main-list
+  // retirement + itinerary still resolve for combos hidden from the cards.
+  const visibleComboGroups = useMemo(() => {
+    let out = comboGroups;
+    if (hideCancelled) out = out.filter((g) => !g.inactive);
     if (search.trim()) {
       const query = search.toLowerCase().trim();
       out = out.filter((g) =>
@@ -2226,8 +2308,8 @@ export default function ReservationsClient({ token }: { token: string }) {
         ),
       );
     }
-    return out.sort((a, b) => a.anchor.bookedAt.localeCompare(b.anchor.bookedAt));
-  }, [vipReservations, comboMeta, hideCancelled, search]);
+    return out;
+  }, [comboGroups, hideCancelled, search]);
 
   // Combo schedule lookup so a VIP row in the MAIN list can open its itinerary.
   // Keyed by every id a row might carry (deposit + each day-of order id), since
@@ -2235,7 +2317,13 @@ export default function ReservationsClient({ token }: { token: string }) {
   const comboScheduleByKey = useMemo(() => {
     const m = new Map<
       string,
-      { name: string; accent: string; centerCode: string; schedule: ComboScheduleStep[] }
+      {
+        name: string;
+        accent: string;
+        centerCode: string;
+        schedule: ComboScheduleStep[];
+        inactive: boolean;
+      }
     >();
     for (const g of comboGroups) {
       const entry = {
@@ -2243,6 +2331,7 @@ export default function ReservationsClient({ token }: { token: string }) {
         accent: g.meta?.accentColor ?? "#d4af37",
         centerCode: g.centerCode,
         schedule: g.schedule,
+        inactive: g.inactive,
       };
       for (const leg of g.legs) {
         if (leg.squareDepositOrderId) m.set(leg.squareDepositOrderId, entry);
@@ -2286,6 +2375,16 @@ export default function ReservationsClient({ token }: { token: string }) {
     for (const legs of comboLegs.values()) {
       const anchor =
         legs.find((l) => l.productKind === "open" || l.productKind === "kbf") ?? legs[0];
+      // Whole-combo retirement (Active Only): drop the merged row only when
+      // the GROUP is inactive — 30 min past its last scheduled step — never
+      // on a single leg's status (legs flip to completed at check-in while
+      // later steps are still ahead). Mirrors the VIP cards' rule.
+      if (hideCancelled) {
+        const entry =
+          comboScheduleByKey.get(anchor.squareDepositOrderId ?? "") ??
+          comboScheduleByKey.get(anchor.squareDayofOrderId ?? "");
+        if (entry?.inactive) continue;
+      }
       const byOrder = new Map<string, Reservation>();
       for (const l of legs)
         if (l.squareDayofOrderId && !byOrder.has(l.squareDayofOrderId))
@@ -2306,7 +2405,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       });
     }
     return out.sort((a, b) => (a.eventAt ?? a.bookedAt).localeCompare(b.eventAt ?? b.bookedAt));
-  }, [filtered]);
+  }, [filtered, hideCancelled, comboScheduleByKey]);
 
   // Stats
   const active = displayRows.filter((r) => r.status !== "cancelled" && r.status !== "completed");
@@ -3132,7 +3231,7 @@ export default function ReservationsClient({ token }: { token: string }) {
             {error}
           </div>
         ) : vipActive ? (
-          comboGroups.length === 0 ? (
+          visibleComboGroups.length === 0 ? (
             <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
               {search ? "No matching VIP combos." : "No VIP combos for this date."}
             </div>
@@ -3148,9 +3247,9 @@ export default function ReservationsClient({ token }: { token: string }) {
                   marginBottom: 4,
                 }}
               >
-                ★ VIP Combos ({comboGroups.length}) — all centers
+                ★ VIP Combos ({visibleComboGroups.length}) — all centers
               </div>
-              {comboGroups.map((g) => {
+              {visibleComboGroups.map((g) => {
                 const name = g.meta?.name ?? "VIP Combo";
                 const accent = g.meta?.accentColor ?? "#d4af37";
                 // Recomputed on every render — the 10s silent auto-refresh
@@ -3165,7 +3264,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                       borderLeft: `4px solid ${accent}`,
                       background: "rgba(212,175,55,0.06)",
                       padding: "14px 16px",
-                      opacity: g.allCancelled ? 0.55 : 1,
+                      opacity: g.inactive ? 0.55 : 1,
                     }}
                   >
                     {/* Header */}
@@ -3208,7 +3307,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                         // length vs now) — hidden on cancelled combos, and the
                         // "up next" hint only shows inside a 4h window so a
                         // tomorrow board isn't wallpapered with "in 19h".
-                        const prog = g.allCancelled ? null : stepProgress(step, nowMs);
+                        const prog = g.inactive ? null : stepProgress(step, nowMs);
                         const isBowling = step.icon === "🎳";
                         return (
                           <div
@@ -3266,24 +3365,40 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 ✓ Done
                               </span>
                             )}
-                            {prog?.state === "active" && (
-                              <span
-                                style={{
-                                  fontSize: "0.7rem",
-                                  fontWeight: 700,
-                                  color: accent,
-                                  border: `1px solid ${accent}`,
-                                  backgroundColor: "rgba(212,175,55,0.15)",
-                                  borderRadius: 999,
-                                  padding: "1px 8px",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {isBowling
-                                  ? `Bowling now · ${fmtDurShort(prog.minsLeft)} left`
-                                  : "On track now"}
-                              </span>
-                            )}
+                            {prog?.state === "active" &&
+                              (() => {
+                                // Bowling wording follows QAMF lane truth:
+                                // lane open → countdown (or "wrapping up" past
+                                // the scheduled end); slot started but nobody
+                                // checked in → amber "not arrived" nudge.
+                                const laneOpen = step.legStatus === "arrived";
+                                const late = isBowling && !laneOpen;
+                                const text = isBowling
+                                  ? laneOpen
+                                    ? prog.overdue
+                                      ? "Bowling now · wrapping up"
+                                      : `Bowling now · ${fmtDurShort(prog.minsLeft)} left`
+                                    : "Lane due · not arrived"
+                                  : "On track now";
+                                const color = late ? "#f59e0b" : accent;
+                                const bg = late ? "rgba(245,158,11,0.15)" : "rgba(212,175,55,0.15)";
+                                return (
+                                  <span
+                                    style={{
+                                      fontSize: "0.7rem",
+                                      fontWeight: 700,
+                                      color,
+                                      border: `1px solid ${color}`,
+                                      backgroundColor: bg,
+                                      borderRadius: 999,
+                                      padding: "1px 8px",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {text}
+                                  </span>
+                                );
+                              })()}
                             {prog?.state === "upcoming" && prog.minsUntil <= 240 && (
                               <span
                                 style={{
