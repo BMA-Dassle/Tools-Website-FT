@@ -1,5 +1,25 @@
 # Open Tasks
 
+## Race product step redesign (Option C) + stepper overlap fix — SHIPPED 2026-07-02
+
+Owner picked Option C from mockups: each tier is ONE card; Single vs 3-Race Pack are
+side-by-side selectable columns inside it (5 cards → 3 for a returning racer). Copy rewritten:
+one-line descriptions, qualification/ages in the tier section header (junior screens drop the
+adult age line), "Runs on Red + Blue — pick your track with your heat time" dot line replaces
+bare track chips, prices unified white (amber only for "Save $X"), first-visit license note
+shows ONLY for new racers. Discount banner 🏁 emoji → IconDiscount2 (@tabler/icons-react).
+Selection semantics untouched (each column selects its RaceProduct via handleCardClick).
+Also: sticky stepper + timer bar `top-18/top-20` → `top-[120px]` (fixed nav is ~120px tall —
+was overlapping the stepper).
+
+- [x] `RaceProductStep.tsx` TierCard replaces ProductCard; `BookingFlow.tsx` sticky offsets
+- [x] Verified live via dev server + puppeteer with seeded `sessionStorage.booking_session`
+      (v2 envelope, item cursor): returning pro (3 cards, both packs, Save $13), new racer
+      (license breakdown + note), junior (Blue-only, meta sans age), weekend (Save $21,
+      $19.99/race, no Pro), pack-column click → SELECTED flag + Next enabled, mobile 390px
+      stacks clean, stepper clears nav. 268 booking tests + tsc clean.
+- [x] Merged to main per owner (was slated for preview-first; owner said push to main)
+
 ## Cross-reservation heat spacing + heat-cap removal — 2026-07-02
 
 **Problem (owner):** racers dodge the per-racer spacing rules (same-track 13-min, cross-track
