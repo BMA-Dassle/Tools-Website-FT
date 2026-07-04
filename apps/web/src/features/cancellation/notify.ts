@@ -121,12 +121,17 @@ async function sendEmail(
   fromName: string,
   subject: string,
   html: string,
+  opts?: { fromEmail?: string; extraBcc?: string[] },
 ): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
     console.error("[cancel/notify] no SENDGRID_API_KEY — email skipped");
     return false;
   }
   try {
+    const bcc = [
+      { email: "vendorcases@dassle.us" },
+      ...(opts?.extraBcc ?? []).map((email) => ({ email })),
+    ];
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
@@ -134,8 +139,8 @@ async function sendEmail(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        personalizations: [{ to: [{ email: to }], bcc: [{ email: "vendorcases@dassle.us" }] }],
-        from: { email: FROM_EMAIL, name: fromName },
+        personalizations: [{ to: [{ email: to }], bcc }],
+        from: { email: opts?.fromEmail ?? FROM_EMAIL, name: fromName },
         subject,
         content: [{ type: "text/html", value: html }],
       }),
@@ -288,11 +293,17 @@ export async function sendCancellationNotifications(
         WalletUrl: walletUrl,
         RebookUrl: rebook,
       });
+      // Gift-card mail goes out AS guest services (owner ask 2026-07-03) with
+      // a guestservices BCC so the desk sees every card it may get asked about.
       email = await sendEmail(
         contactLeg.guestEmail,
         meta.fromName,
         `Your HeadPinz FastTrax Gift Card - ${meta.centerName}`,
         html,
+        {
+          fromEmail: "guestservices@headpinz.com",
+          extraBcc: ["guestservices@headpinz.com"],
+        },
       );
     }
     if (contactLeg.guestPhone) {
