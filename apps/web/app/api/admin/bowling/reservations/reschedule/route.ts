@@ -84,6 +84,15 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // Combo (VIP) legs are inseparable from their sibling leg (race heats in
+  // BMI, shared gift card + deposit). Rescheduling only the bowling leg here
+  // desyncs the combo — this is exactly what stranded a combo on 2026-07-03.
+  if (existing.comboSpecialId) {
+    return NextResponse.json(
+      { error: "VIP combo legs cannot be rescheduled here — rebook the combo instead." },
+      { status: 400 },
+    );
+  }
 
   const qamfCenterId = CENTER_CODE_TO_QAMF[existing.centerCode];
   if (!qamfCenterId) {

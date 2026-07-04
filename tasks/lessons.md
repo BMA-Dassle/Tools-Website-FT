@@ -1,5 +1,56 @@
 # Lessons Learned
 
+## BMI public bill-delete returns TRUE on confirmed bills — while the PROJECT lives on (2026-07-03)
+
+First live cancels through the cascade (bills 63000000004148142/…180, W47613/W47615): the
+public-booking `DELETE bill/{orderId}/cancel` returned `true` on CONFIRMED bills — a
+"Cancellation" record even appears in the BMI reservations list, so it LOOKS like a full
+cancel — but it only deletes the BILL record. The real Office PROJECT (id = billId+1, resolved
+via `search?token={W} → kind===2 → localId`) stays Confirmation and keeps holding the heat
+capacity. The old 2026-05-11 lesson ("delete only works pre-confirm") was half right: it
+doesn't *fail* post-confirm, it half-succeeds, which is worse.
+
+Rules:
+- **The Office project state (-4 via setProjectState) is the ONLY real cancel for a booked
+  BMI reservation.** The public bill delete is bill-record cleanup afterwards, or the primary
+  only when NO project resolves (never-confirmed bills). Never treat its `true` as done.
+- **Verify with retries**: Pandora's state write lands asynchronously — an immediate re-read
+  showed -3 for a few seconds before flipping to -4. Poll (~4 tries, backoff) before
+  declaring a write failed.
+- Pandora writes show `userUpdatedId = -17` (ONLINE_BOOKING) — an intentional-cancel writer
+  for the bmi-cancel-sweep gate (never -1), on top of the Neon cancelled-record gate.
+- `cancelBmiProject` (src/features/cancellation/bmi-cancel.ts) encodes all of this; the
+  regression test pins the public-delete-true trap.
+
+## Cancellations settle MONEY GROUPS, and store credit must be a fresh Square-GAN card (2026-07-03)
+
+Built the all-kinds cancellation cascade (`src/features/cancellation/`, branch
+`feat/cancel-refund-improvements`). Rules that must outlive the feature:
+
+- **One deposit order = one money group.** VIP combo legs AND mixed race+attraction carts are
+  multiple `bowling_reservations` rows funded by ONE deposit charge / ONE internal gift card.
+  Any cancel/refund path that settles a single row of such a group is wrong by construction
+  (the old combo bug: card refunded, sibling leg + gift card + second day-of order orphaned).
+  Resolve the group by `square_deposit_order_id` (fallback `bmi_bill_id`), settle once, mark
+  every leg. `listCancelGroupReservations` in bowling-db.ts is the canonical resolver.
+- **Never hand a guest an internal deposit GAN.** `isInternalDepositGan` (lib/square-gift-card.ts)
+  blocks every WEBHPFM…/GFFT…-style prefix as an online payment method, so "just give them the
+  deposit card" can never work — store credit must be a NEW DIGITAL card created WITHOUT a
+  custom GAN (Square generates the number). Persist the GAN to Neon BEFORE activation/delivery;
+  email/SMS can fail, the row cannot.
+- **Square may reject a gift card buying a gift card.** The "purchase" store-credit strategy
+  (order with a GIFT_CARD line paid by the internal card) is gated behind a $1 live probe
+  (`scripts/store-credit-probe.mts`); the default "comp" strategy (mintDigitalGiftCard +
+  ADJUST_DECREMENT drain) is prod-proven. A comp mint without its drain is a DOUBLE LIABILITY —
+  the drain is fatal, never best-effort.
+- **Cancelled Neon rows are the cron gate.** Every settle cron filters `status='confirmed'` and
+  bmi-cancel-sweep treats a cancelled record as an intentional cancel — so the cascade marks
+  Neon between the money step and the external teardown. Ordering is load-bearing.
+- **Amounts are stamped per leg for display but are GROUP-level** — never SUM
+  `refund_cents`/`store_credit_cents` across legs of one deposit group; `reservation_cancel_events`
+  is the authoritative money record (and the idempotency attempt counter: failed attempts burn
+  their Square key namespace, crashed ones resume it).
+
 ## A re-sign must re-confirm BMI, and "deposit paid" must never read `deposit_due_cents` (2026-06-22)
 
 Incident — **Suffolk** (FM, BMI project **49972983**, GAN HPFM49972983, quote #101, event 6/25). Two

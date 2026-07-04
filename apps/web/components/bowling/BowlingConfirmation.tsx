@@ -12,6 +12,7 @@ import type {
 } from "@/lib/bowling-db";
 import { modalBackdropProps } from "@/lib/a11y";
 import { clarityEvent } from "~/lib/clarity";
+import GiftCardIssuedPanel from "~/components/features/cancellation/GiftCardIssuedPanel";
 
 /**
  * Shared bowling confirmation page component.
@@ -50,6 +51,11 @@ const CENTER_PHONE: Record<string, string> = {
 type ReservationWithLines = BowlingReservation & {
   lines: (ReservationLine & { id: number; reservationId: number })[];
 };
+
+// Owner policy 2026-07-03 (shipped ON, no flag — owner call): self-serve
+// bowling cancels issue a HeadPinz FastTrax Gift Card instead of a card
+// refund — refunds are phone/staff-only (the admin portal keeps both
+// outcomes).
 
 // ── Shoe size catalog ─────────────────────────────────────────────────────
 
@@ -746,8 +752,26 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   );
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelRefundCents, setCancelRefundCents] = useState(0);
+  /** Store-credit card issued by a flag-ON cancel (this session). */
+  const [cancelGiftCard, setCancelGiftCard] = useState<{
+    gan: string;
+    giftCardId: string | null;
+    amountCents: number;
+    sentToGuest: boolean;
+  } | null>(null);
 
   const isCancelled = cancelPhase === "cancelled" || reservation?.status === "cancelled";
+  // On reload after a store-credit cancel, the card lives on the Neon row.
+  const storeCreditIssued =
+    cancelGiftCard ??
+    (reservation?.storeCreditGiftCardGan && (reservation.storeCreditCents ?? 0) > 0
+      ? {
+          gan: reservation.storeCreditGiftCardGan,
+          giftCardId: reservation.storeCreditGiftCardId ?? null,
+          amountCents: reservation.storeCreditCents,
+          sentToGuest: true,
+        }
+      : null);
 
   // ── Lane-ready background poll ────────────────────────────────────
   // Polls GET /checkin every 30 s. "ready" → show Check In button.
@@ -815,10 +839,38 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     setCancelPhase("busy");
     setCancelError(null);
     try {
-      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/cancel`, { method: "POST" });
-      const data = (await res.json()) as { ok?: boolean; refundCents?: number; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Cancellation failed");
+      // Flag ON + money paid → store-credit gift card; otherwise the legacy
+      // refund call ($0 bookings are a plain cancel on either path).
+      const wantsCredit = displayDepositPaid > 0;
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/cancel`, {
+        method: "POST",
+        ...(wantsCredit
+          ? {
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ outcome: "store_credit" }),
+            }
+          : {}),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        refundCents?: number;
+        error?: string;
+        detail?: string;
+        gan?: string;
+        giftCardId?: string;
+        storeCreditCents?: number;
+        notified?: { email: boolean; sms: boolean };
+      };
+      if (!res.ok) throw new Error(data.detail ?? data.error ?? "Cancellation failed");
       setCancelRefundCents(data.refundCents ?? 0);
+      if (data.gan) {
+        setCancelGiftCard({
+          gan: data.gan,
+          giftCardId: data.giftCardId ?? null,
+          amountCents: data.storeCreditCents ?? displayDepositPaid,
+          sentToGuest: !!(data.notified?.email || data.notified?.sms),
+        });
+      }
       setCancelPhase("cancelled");
       clarityEvent("confirmation:cancelled");
     } catch (err) {
@@ -1216,9 +1268,17 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                     : cfg.heroSubtitle(hasPaidDeposit)}
                 </p>
 
-                {/* Refund line — shown directly in hero when cancelled */}
+                {/* Refund / gift-card line — shown directly in hero when cancelled */}
                 {isCancelled &&
                   (() => {
+                    if (storeCreditIssued) {
+                      return (
+                        <p className="text-white/55 text-sm mt-2">
+                          Your {centsToDollars(storeCreditIssued.amountCents)} is on a gift card —
+                          details below.
+                        </p>
+                      );
+                    }
                     const refund = cancelRefundCents || (reservation?.refundCents ?? 0);
                     return refund > 0 ? (
                       <p className="text-white/55 text-sm mt-2">
@@ -1230,6 +1290,21 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                     );
                   })()}
               </div>
+
+              {/* ── Store-credit gift card (cancelled → rebook with it) ── */}
+              {isCancelled && storeCreditIssued && (
+                <GiftCardIssuedPanel
+                  gan={storeCreditIssued.gan}
+                  giftCardId={storeCreditIssued.giftCardId}
+                  amountCents={storeCreditIssued.amountCents}
+                  rebookHref={
+                    reservation?.productKind === "kbf"
+                      ? "/hp/book/kids-bowl-free"
+                      : "/hp/book/bowling"
+                  }
+                  sentToGuest={storeCreditIssued.sentToGuest}
+                />
+              )}
 
               {/* ── Fetch-failed warning ── */}
               {(fetchError || !hasNeonRecord) && (
@@ -1965,7 +2040,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                       onClick={() => setCancelPhase("confirming")}
                       className="w-full text-center text-sm font-body text-white/35 hover:text-white/60 transition-colors underline underline-offset-2"
                     >
-                      Cancel this booking
+                      {displayDepositPaid > 0 ? "Cancel & get a gift card" : "Cancel this booking"}
                     </button>
                   )}
 
@@ -1974,9 +2049,25 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                       <p className="text-white/70 text-sm">
                         Are you sure you want to cancel?
                         {displayDepositPaid > 0
-                          ? ` Your deposit of ${centsToDollars(displayDepositPaid)} will be refunded within 3–5 business days.`
+                          ? ` We'll issue a ${centsToDollars(displayDepositPaid)} HeadPinz FastTrax Gift Card by email and text — use it to rebook any date online.`
                           : " No charges will be made."}
                       </p>
+                      {displayDepositPaid > 0 &&
+                        (() => {
+                          const phone = reservation ? CENTER_PHONE[reservation.centerCode] : null;
+                          return phone ? (
+                            <p className="text-white/40 text-xs">
+                              Prefer the refund back on your card instead? Call us at{" "}
+                              <a
+                                href={`tel:${phone.replace(/\D/g, "")}`}
+                                className="text-white/60 hover:underline"
+                              >
+                                {phone}
+                              </a>
+                              .
+                            </p>
+                          ) : null;
+                        })()}
                       {cancelError && (
                         <p className="text-sm" style={{ color: CORAL }}>
                           {cancelError}
@@ -1999,7 +2090,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                           className="px-5 py-2 rounded-full text-sm font-body font-bold text-white transition-colors"
                           style={{ backgroundColor: CORAL }}
                         >
-                          Yes, cancel
+                          {displayDepositPaid > 0 ? "Yes, cancel & issue gift card" : "Yes, cancel"}
                         </button>
                       </div>
                     </div>
