@@ -64,6 +64,8 @@ export interface QueuedSend {
     | "bowling-confirm"
     | "bowling-pre-arrival"
     | "bowling-lane-ready"
+    | "cancel-refund"
+    | "cancel-credit"
     | "other";
   /** ISO timestamp of original (failed) attempt */
   queuedAt: string;

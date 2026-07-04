@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
-import { getBowlingReservation, updateBowlingReservationCancelled } from "@/lib/bowling-db";
-import { deleteReservation } from "@/lib/qamf-bowling";
-import { processSquareBowlingRefund } from "@/lib/square-bowling-refund";
-import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
-
-const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
-  TXBSQN0FEKQ11: 9172,
-  PPTR5G2N0QXF7: 3148,
-};
+import { CancelGuardError, cancelReservationCascade } from "~/features/cancellation";
 
 /**
  * POST /api/admin/bowling/reservations/cancel?token=...
  *
- * Admin cancellation — same logic as the customer cancel route but
- * WITHOUT the 1-hour cutoff. Admins can cancel at any time.
+ * LEGACY admin cancel (the portal's original refund-only button + the KBF
+ * admin board). Now a thin shell over the cancellation cascade — which means
+ * combo legs cancel BOTH legs correctly (refund once, drain the shared gift
+ * card, cancel both day-of orders, QAMF + BMI) instead of orphaning the race
+ * leg. New admin work should use /api/admin/reservations/cancel, which also
+ * offers the store-credit outcome + dry-run preview.
  *
- * Body: { neonId: number }
+ * Body: { neonId: number }   Response: { ok, refundCents } (contract kept)
  * Auth: ADMIN_CAMERA_TOKEN query param.
  */
 export async function POST(req: NextRequest) {
@@ -28,80 +23,34 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const { neonId } = body as { neonId: number };
-
   if (!neonId) {
     return NextResponse.json({ error: "neonId required" }, { status: 400 });
   }
 
-  const reservation = await getBowlingReservation(neonId);
-  if (!reservation) {
-    return NextResponse.json({ error: "Reservation not found" }, { status: 404 });
-  }
-
-  if (reservation.status === "cancelled") {
-    return NextResponse.json({ error: "Already cancelled" }, { status: 409 });
-  }
-
-  // Combo (VIP) legs span two reservations + two day-of orders + one shared
-  // gift card. Cancelling one leg here refunds the card while the gift card
-  // stays loaded (double-pay) and orphans the other leg. Combos need the
-  // full close-out (tasks/future/combo-cancellation.md).
-  if (reservation.comboSpecialId) {
+  try {
+    const result = await cancelReservationCascade({
+      neonId,
+      outcome: "refund",
+      actor: "admin",
+      dryRun: false,
+      allowCustomerRefund: true,
+    });
+    if (result.alreadyCancelled) {
+      return NextResponse.json({ error: "Already cancelled" }, { status: 409 });
+    }
+    return NextResponse.json({ ok: true, refundCents: result.refundCents ?? 0 });
+  } catch (err) {
+    if (err instanceof CancelGuardError) {
+      if (err.code === "not_found") {
+        return NextResponse.json({ error: "Reservation not found" }, { status: 404 });
+      }
+      return NextResponse.json({ error: err.message }, { status: err.httpStatus });
+    }
+    const msg = err instanceof Error ? err.message : "unknown error";
+    console.error(`[admin/bowling/cancel] neonId=${neonId} failed:`, msg);
     return NextResponse.json(
-      { error: "VIP combo legs cannot be cancelled here — use the combo close-out process." },
-      { status: 400 },
+      { error: "Refund failed — try again or issue manual refund in Square." },
+      { status: 502 },
     );
   }
-
-  // ── 1. Cancel in QAMF (best-effort) ──────────────────────────────
-  const qamfCenterId = CENTER_CODE_TO_QAMF_ID[reservation.centerCode];
-  if (qamfCenterId && reservation.qamfReservationId) {
-    try {
-      await deleteReservation(qamfCenterId, reservation.qamfReservationId);
-    } catch (err) {
-      console.warn(
-        `[admin/bowling/cancel] QAMF delete non-fatal neonId=${neonId}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
-
-  // ── 2. Square refund (only if deposit was charged) ────────────────
-  let squareRefundId: string | undefined;
-  let refundCents = 0;
-
-  if (reservation.squareDepositPaymentId && reservation.squareGiftCardId) {
-    try {
-      const result = await processSquareBowlingRefund({
-        depositPaymentId: reservation.squareDepositPaymentId,
-        giftCardId: reservation.squareGiftCardId,
-        dayofOrderId: reservation.squareDayofOrderId,
-        locationId: reservation.centerCode,
-        idempotencyKey: `admin-cancel-${neonId}-${randomUUID()}`,
-      });
-      squareRefundId = result.refundId;
-      refundCents = result.refundedCents;
-      console.log(`[admin/bowling/cancel] refunded ${refundCents}c neonId=${neonId}`);
-    } catch (err) {
-      console.error(
-        `[admin/bowling/cancel] Square refund failed neonId=${neonId}:`,
-        err instanceof Error ? err.message : err,
-      );
-      return NextResponse.json(
-        { error: "Refund failed — try again or issue manual refund in Square." },
-        { status: 502 },
-      );
-    }
-  }
-
-  // ── 2b. Cancel BMI attraction bookings (best-effort) ──────────────
-  if (reservation.attractionBookings?.length) {
-    await cancelBmiAttractions(reservation.centerCode, reservation.attractionBookings);
-  }
-
-  // ── 3. Mark cancelled in Neon ─────────────────────────────────────
-  await updateBowlingReservationCancelled(neonId, { squareRefundId, refundCents });
-  console.log(`[admin/bowling/cancel] neonId=${neonId} cancelled refundCents=${refundCents}`);
-
-  return NextResponse.json({ ok: true, refundCents });
 }

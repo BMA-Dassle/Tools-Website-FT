@@ -15,6 +15,8 @@ import { buildReservationMemo } from "~/features/booking/service/reservation-mem
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { comboReservationNote, getComboSpecial } from "~/features/combos";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
+import ComboManageNote from "~/components/features/cancellation/ComboManageNote";
+import StoreCreditCancelSection from "~/components/features/cancellation/StoreCreditCancelSection";
 
 /** Resolve a race line's display name from our own registries instead
  *  of trusting BMI's public-facing name. BMI's bill/overview API has
@@ -278,6 +280,8 @@ export default function ConfirmationPage() {
     packageLabel: string;
   } | null>(null);
   const [confirmFailed, setConfirmFailed] = useState(false);
+  /** The confirmation URL's HMAC sig — authorizes self-serve cancel. */
+  const [urlSig, setUrlSig] = useState<string | null>(null);
   /** Multi-activity hub: which activity the guest tapped into. `null`
    *  = the hub (button list). Only meaningful when the booking has 2+
    *  activities; single-activity bookings ignore this and render as v1. */
@@ -293,6 +297,8 @@ export default function ConfirmationPage() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("billId") || params.get("orderId");
     setOrderId(id);
+    // The signed-URL sig authorizes self-serve actions (cancel → gift card).
+    setUrlSig(params.get("sig"));
     if (!id) {
       setError("No booking ID found.");
       setLoading(false);
@@ -1758,6 +1764,44 @@ export default function ConfirmationPage() {
               )}
             </div>
           )}
+
+          {/* Manage booking — self-serve cancel converts the payment into a
+              HeadPinz FastTrax Gift Card (that IS the reschedule path for
+              racing/attractions). Combos are staff-only → call-us note.
+              Shipped ON without a flag per owner call 2026-07-03. */}
+          {!isDetail &&
+            (comboSpecial ? (
+              <div className="max-w-2xl mx-auto mb-8">
+                <ComboManageNote phone="(239) 275-2226" />
+              </div>
+            ) : orderId && urlSig ? (
+              <div className="max-w-2xl mx-auto mb-8">
+                <StoreCreditCancelSection
+                  billId={orderId}
+                  sig={urlSig}
+                  activities={activities.map((a) => ({
+                    label: activityLabel(a),
+                    time: a.time || null,
+                  }))}
+                  amountCents={receipt?.paidOnlineCents ?? null}
+                  centerPhone={(() => {
+                    const cfg = activityCfg(activities[0] ?? null);
+                    const loc = cfg
+                      ? cfg.location === "both"
+                        ? "headpinz"
+                        : cfg.location
+                      : "headpinz";
+                    const phones: Record<string, string> = {
+                      fasttrax: "(239) 275-2226",
+                      headpinz: "(239) 302-2155",
+                      naples: "(239) 455-3755",
+                    };
+                    return phones[loc] ?? "(239) 302-2155";
+                  })()}
+                  rebookHref="/book"
+                />
+              </div>
+            ) : null)}
 
           {/* Multi-activity hub — one button per activity, sorted by start
               time. Single-activity bookings skip the hub and render as v1. */}
