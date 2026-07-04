@@ -291,14 +291,14 @@ export async function sendCancellationNotifications(
       email = await sendEmail(
         contactLeg.guestEmail,
         meta.fromName,
-        `Your Gift Card & Cancellation - ${meta.centerName}`,
+        `Your HeadPinz FastTrax Gift Card - ${meta.centerName}`,
         html,
       );
     }
     if (contactLeg.guestPhone) {
       const body =
         `${meta.brand}: Your ${when.compact} booking is cancelled. ` +
-        `Gift card ${formatGan(sc.gan)} for ${D(sc.amountCents)} was emailed to you. ` +
+        `HeadPinz FastTrax Gift Card ${formatGan(sc.gan)} for ${D(sc.amountCents)} was emailed to you. ` +
         `Rebook: ${rebook} Wallet: ${walletShort} Balance: ${balanceShort}`;
       sms = await sendSms(contactLeg.guestPhone, body, meta.smsFrom, "cancel-credit");
     }

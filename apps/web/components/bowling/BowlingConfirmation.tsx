@@ -52,13 +52,10 @@ type ReservationWithLines = BowlingReservation & {
   lines: (ReservationLine & { id: number; reservationId: number })[];
 };
 
-/**
- * Flag-gated cutover (owner policy 2026-07-03): when ON, self-serve bowling
- * cancels issue a store-credit GIFT CARD instead of a card refund — refunds
- * move to phone/staff-only (the admin portal keeps both outcomes). OFF =
- * today's refund flow, byte-for-byte.
- */
-const CANCEL_CREDIT_ONLY = process.env.NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY === "true";
+// Owner policy 2026-07-03 (shipped ON, no flag — owner call): self-serve
+// bowling cancels issue a HeadPinz FastTrax Gift Card instead of a card
+// refund — refunds are phone/staff-only (the admin portal keeps both
+// outcomes).
 
 // ── Shoe size catalog ─────────────────────────────────────────────────────
 
@@ -844,7 +841,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     try {
       // Flag ON + money paid → store-credit gift card; otherwise the legacy
       // refund call ($0 bookings are a plain cancel on either path).
-      const wantsCredit = CANCEL_CREDIT_ONLY && displayDepositPaid > 0;
+      const wantsCredit = displayDepositPaid > 0;
       const res = await fetch(`/api/bowling/v2/reservations/${neonId}/cancel`, {
         method: "POST",
         ...(wantsCredit
@@ -2043,9 +2040,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                       onClick={() => setCancelPhase("confirming")}
                       className="w-full text-center text-sm font-body text-white/35 hover:text-white/60 transition-colors underline underline-offset-2"
                     >
-                      {CANCEL_CREDIT_ONLY && displayDepositPaid > 0
-                        ? "Cancel & get a gift card"
-                        : "Cancel this booking"}
+                      {displayDepositPaid > 0 ? "Cancel & get a gift card" : "Cancel this booking"}
                     </button>
                   )}
 
@@ -2054,13 +2049,10 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                       <p className="text-white/70 text-sm">
                         Are you sure you want to cancel?
                         {displayDepositPaid > 0
-                          ? CANCEL_CREDIT_ONLY
-                            ? ` We'll issue a ${centsToDollars(displayDepositPaid)} gift card by email and text — use it to rebook any date online.`
-                            : ` Your deposit of ${centsToDollars(displayDepositPaid)} will be refunded within 3–5 business days.`
+                          ? ` We'll issue a ${centsToDollars(displayDepositPaid)} HeadPinz FastTrax Gift Card by email and text — use it to rebook any date online.`
                           : " No charges will be made."}
                       </p>
-                      {CANCEL_CREDIT_ONLY &&
-                        displayDepositPaid > 0 &&
+                      {displayDepositPaid > 0 &&
                         (() => {
                           const phone = reservation ? CENTER_PHONE[reservation.centerCode] : null;
                           return phone ? (
@@ -2098,9 +2090,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                           className="px-5 py-2 rounded-full text-sm font-body font-bold text-white transition-colors"
                           style={{ backgroundColor: CORAL }}
                         >
-                          {CANCEL_CREDIT_ONLY && displayDepositPaid > 0
-                            ? "Yes, cancel & issue gift card"
-                            : "Yes, cancel"}
+                          {displayDepositPaid > 0 ? "Yes, cancel & issue gift card" : "Yes, cancel"}
                         </button>
                       </div>
                     </div>

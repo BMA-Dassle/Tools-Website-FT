@@ -54,8 +54,8 @@ export function guardCustomerCutoff(legs: BowlingReservation[], nowMs: number): 
 
 /**
  * Actor/outcome policy (owner-locked 2026-07-03): combos are staff-only; card
- * refunds are staff-only for customers except the flagged legacy plain-bowling
- * path (allowCustomerRefund from the route).
+ * refunds are staff-only for customers (allowCustomerRefund is set only by
+ * admin routes — guests settle as a HeadPinz FastTrax Gift Card).
  */
 export function guardActorOutcome(params: {
   isCombo: boolean;

@@ -49,14 +49,15 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
 
   // Delegates to the cancellation cascade (kills the old drift: this route
   // previously skipped the loyalty-reward delete and BMI add-on cancels).
-  // Response contract preserved for legacy callers.
+  // Response contract preserved for legacy callers. Owner policy 2026-07-03:
+  // customer card refunds are staff-only — this legacy refund route now 403s
+  // via the cascade guard with the call-us message (stale surfaces only).
   try {
     const result = await cancelReservationCascade({
       neonId: id,
       outcome: "refund",
       actor: "customer",
       dryRun: false,
-      allowCustomerRefund: process.env.NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY !== "true",
     });
     if (result.alreadyCancelled) {
       return NextResponse.json({

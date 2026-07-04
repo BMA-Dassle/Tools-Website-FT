@@ -11,7 +11,7 @@ staff can keep the GAN (notifyGuest=false) for phone rebooks; every cancel email
 
 **Built:** money-group cascade (`src/features/cancellation/` — 82 unit tests) over every row
 sharing the deposit order (combos + mixed carts cancel together): audit row →
-exactly-once per-tender refunds OR store-credit issuance (GAN persisted BEFORE
+exactly-once per-tender refunds OR gift-card issuance (GAN persisted BEFORE
 activation/delivery) → mark legs cancelled → best-effort teardown (day-of orders w/ tendered
 refusal, GC drain ADJUST_DECREMENT + deactivate, QAMF delete, BMI project -4 via W-number
 search + verify, add-ons, loyalty, promo) → email/SMS. New `reservation_cancel_events` audit
@@ -20,22 +20,21 @@ table doubles as idempotency attempt counter. Routes: `POST /api/admin/reservati
 legacy cancel routes delegate (fixes the combo single-leg bug for stale tabs). Portal: cancel
 on ALL kinds + Cancel Combo on VIP cards + outcome picker modal (auto dry-run body) + GAN
 copy button + durable "GC 1234-… ($X)" / "-$X" display on cancelled rows. Customer: v2
-confirmation "Can't make it?" section (flag `NEXT_PUBLIC_CANCEL_CREDIT_SELF_SERVE`), combos
-get call-us note; BowlingConfirmation credit-only swap (flag
-`NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY`). Both flags default OFF.
+confirmation "Can't make it?" section + BowlingConfirmation gift-card-only swap — **shipped
+ON, no flags (owner call 7/3)**; the guest card is branded **HeadPinz FastTrax Gift Card**
+(order line item, emails, SMS, all UI).
 
 - [x] 82 feature unit tests green; tsc + eslint parity with main; each step committed green
-- [ ] **Run `npx tsx scripts/store-credit-probe.mts --live`** (blocked on owner: prod Square
-      $1 probe) → exit 0 ⇒ set `STORE_CREDIT_STRATEGY=purchase`, else leave comp default.
-      Comp path needs a "Store Credit — Reservation Cancellation" catalog discount + env
+- [x] Dry-run exercises on prod rows (all shapes + a live combo; partial-redemption block
+      verified on a real tonight-combo) · owner previewed the modal on Vercel preview
+- [ ] **Run `npx tsx scripts/store-credit-probe.mts --live`** (owner: prod Square $1 probe)
+      → exit 0 ⇒ set `STORE_CREDIT_STRATEGY=purchase`, else leave comp default.
+      Comp path wants a "HeadPinz FastTrax Gift Card" catalog discount + env
       `SQUARE_STORE_CREDIT_DISCOUNT_CATALOG_ID` for honest GL (falls back to survey discount
       with a loud warn).
-- [ ] Dry-run exercises on prod rows (one of each kind + a live combo) via the admin route
-- [ ] Live smoke per plan: race store-credit e2e (GAN redeemable online, sweep dry-runs skip
-      the -4, day-of order CANCELED) · admin refund + idempotent re-run · combo both outcomes
-      · tendered-day-of refusal · flag-off bowling regression
-- [ ] Ops sign-off → flip `CANCEL_CREDIT_SELF_SERVE`; after ≥1 clean week flip
-      `BOWLING_CANCEL_CREDIT_ONLY` (phone script: card refunds via staff/admin)
+- [ ] Post-deploy live smoke: race gift-card cancel e2e (GAN redeemable online, sweep
+      dry-runs skip the -4, day-of order CANCELED) · admin refund + idempotent re-run ·
+      combo both outcomes · tendered-day-of refusal
 
 ## Race product step redesign (Option C) + stepper overlap fix — SHIPPED 2026-07-02
 

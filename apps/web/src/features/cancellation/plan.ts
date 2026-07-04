@@ -219,7 +219,7 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
       kind: "issue_store_credit",
       fatal: true,
       target: facts.giftCard?.id ?? "",
-      detail: `Issue a ${D(amountCents)} gift card (new Square card number) funded by the deposit`,
+      detail: `Issue a ${D(amountCents)} HeadPinz FastTrax Gift Card (new Square card number) funded by the deposit`,
       amountCents,
     });
   }

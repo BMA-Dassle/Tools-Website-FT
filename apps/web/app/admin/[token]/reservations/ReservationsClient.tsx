@@ -50,7 +50,7 @@ interface Reservation {
   cancellationOutcome?: string;
   /** Who cancelled: 'customer' (self-serve) or 'admin' (this portal). */
   cancelledBy?: string;
-  /** Store-credit gift card issued on cancellation (Square-generated GAN). */
+  /** HeadPinz FastTrax Gift Card issued on cancellation (Square-generated GAN). */
   storeCreditGiftCardGan?: string;
   storeCreditCents?: number;
   dayofOrderSentAt?: string;
@@ -524,7 +524,7 @@ function bowlingActionable(r: Reservation): boolean {
 /**
  * Cancel is an ALL-KINDS action (races, attractions, bowling±add-ons, and VIP
  * combos — the cascade resolves every leg server-side from any leg's neonId)
- * with two outcomes: refund to card, or a store-credit gift card the guest
+ * with two outcomes: refund to card, or a HeadPinz FastTrax Gift Card the guest
  * rebooks with. Row fields are a fast pre-filter only — the modal opens with
  * an authoritative server dry-run that catches anything these miss (e.g. a
  * day-of order tendered seconds ago).
@@ -923,8 +923,8 @@ function CancelModal({
                 )}
                 {pickRow(
                   "store_credit",
-                  "Store-credit gift card",
-                  `Issue a ${dollars(plan.amountCents)} gift card the guest rebooks with online — how "reschedules" work for racing and attractions.`,
+                  "HeadPinz FastTrax Gift Card",
+                  `Issue a ${dollars(plan.amountCents)} HeadPinz FastTrax Gift Card the guest rebooks with online — how "reschedules" work for racing and attractions.`,
                   "#22c55e",
                 )}
                 {outcome === "store_credit" && (
@@ -1027,7 +1027,7 @@ function CancelModal({
             >
               <div style={{ fontWeight: 700, color: "#22c55e" }}>
                 {result.storeCredit
-                  ? "Gift card issued and reservation cancelled."
+                  ? "HeadPinz FastTrax Gift Card issued — reservation cancelled."
                   : "Reservation cancelled."}
               </div>
               {result.storeCredit ? (
@@ -1040,7 +1040,7 @@ function CancelModal({
                       color: "var(--ba-muted)",
                     }}
                   >
-                    Gift card number &middot; {dollars(result.storeCredit.amountCents)}
+                    HeadPinz FastTrax Gift Card &middot; {dollars(result.storeCredit.amountCents)}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                     <span style={{ fontFamily: "monospace", fontSize: "1.05rem", fontWeight: 700 }}>
@@ -3626,7 +3626,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             onClick={() =>
                               setCancelTarget(g.legs.find((l) => cancelActionable(l)) ?? g.anchor)
                             }
-                            title="Cancel BOTH legs — one refund or one store-credit gift card for the full package"
+                            title="Cancel BOTH legs — one refund or one HeadPinz FastTrax Gift Card for the full package"
                             style={{
                               ...NAV_BTN,
                               fontSize: "0.72rem",
@@ -4218,7 +4218,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               marginLeft: 4,
                               fontFamily: "monospace",
                             }}
-                            title={`Store-credit gift card issued${r.cancelledBy ? ` (${r.cancelledBy})` : ""} — guest rebooks with it`}
+                            title={`HeadPinz FastTrax Gift Card issued${r.cancelledBy ? ` (${r.cancelledBy})` : ""} — guest rebooks with it`}
                           >
                             GC {ganDisplay(r.storeCreditGiftCardGan)} (
                             {dollars(r.storeCreditCents ?? 0)})
@@ -4443,10 +4443,10 @@ export default function ReservationsClient({ token }: { token: string }) {
                             onClick={() => setCancelTarget(r)}
                             title={
                               r.comboSpecialId
-                                ? "Cancel the whole VIP combo — refund or store-credit gift card"
+                                ? "Cancel the whole VIP combo — refund or HeadPinz FastTrax Gift Card"
                                 : bowlingActionable(r)
-                                  ? "Cancel — refund or store-credit gift card"
-                                  : "Cancel — refund, or a store-credit gift card the guest rebooks with"
+                                  ? "Cancel — refund or HeadPinz FastTrax Gift Card"
+                                  : "Cancel — refund, or a HeadPinz FastTrax Gift Card the guest rebooks with"
                             }
                             style={{
                               flex: 1,
@@ -5093,7 +5093,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 fontSize: "0.6rem",
                                 fontFamily: "monospace",
                               }}
-                              title={`Store-credit gift card issued${r.cancelledBy ? ` (${r.cancelledBy})` : ""} — guest rebooks with it`}
+                              title={`HeadPinz FastTrax Gift Card issued${r.cancelledBy ? ` (${r.cancelledBy})` : ""} — guest rebooks with it`}
                             >
                               GC {ganDisplay(r.storeCreditGiftCardGan)} (
                               {dollars(r.storeCreditCents ?? 0)})
@@ -5157,7 +5157,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                                     disabled={hasAttr}
                                     title={
                                       hasAttr
-                                        ? "Reschedule is bowling-only. Use Cancel — a store-credit gift card lets the guest rebook any date."
+                                        ? "Reschedule is bowling-only. Use Cancel — a HeadPinz FastTrax Gift Card lets the guest rebook any date."
                                         : "Reschedule bowling time"
                                     }
                                     style={{
@@ -5233,8 +5233,8 @@ export default function ReservationsClient({ token }: { token: string }) {
                                 onClick={() => setCancelTarget(r)}
                                 title={
                                   r.comboSpecialId
-                                    ? "Cancel the whole VIP combo — refund or store-credit gift card"
-                                    : "Cancel — refund, or a store-credit gift card the guest rebooks with"
+                                    ? "Cancel the whole VIP combo — refund or HeadPinz FastTrax Gift Card"
+                                    : "Cancel — refund, or a HeadPinz FastTrax Gift Card the guest rebooks with"
                                 }
                                 style={{
                                   background: "none",

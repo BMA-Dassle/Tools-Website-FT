@@ -20,9 +20,9 @@ export interface CancelRequest {
   actor: CancelActor;
   dryRun: boolean;
   /**
-   * Customer routes only: allows the refund outcome for plain bowling while
-   * NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY is off (legacy behavior). Admin
-   * routes pass true unconditionally.
+   * Admin routes pass true. Customer routes omit it — self-serve card refunds
+   * are staff-only (owner policy 2026-07-03; guests get the HeadPinz FastTrax
+   * Gift Card outcome instead).
    */
   allowCustomerRefund?: boolean;
   /** Re-run best-effort teardown of an already-committed cancel. */

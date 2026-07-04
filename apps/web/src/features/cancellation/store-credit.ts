@@ -116,7 +116,7 @@ async function issueViaPurchase(params: {
       location_id: params.locationId,
       line_items: [
         {
-          name: "Store Credit — Cancelled Reservation",
+          name: "HeadPinz FastTrax Gift Card",
           quantity: "1",
           item_type: "GIFT_CARD",
           base_price_money: { amount: params.amountCents, currency: "USD" },

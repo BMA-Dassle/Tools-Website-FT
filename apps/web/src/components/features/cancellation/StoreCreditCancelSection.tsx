@@ -141,9 +141,9 @@ export default function StoreCreditCancelSection({
             Can&apos;t make it?
           </h2>
           <p className="text-white/60 text-sm leading-relaxed mt-1">
-            Cancel and we&apos;ll issue a gift card for {amountLabel} — sent instantly by email and
-            text. Use it to rebook any date online; if prices differ, the card simply covers its
-            value toward your new booking.
+            Cancel and we&apos;ll issue a HeadPinz FastTrax Gift Card for {amountLabel} — sent
+            instantly by email and text. Use it to rebook any date online; if prices differ, the
+            card simply covers its value toward your new booking.
           </p>
           <p className="text-white/40 text-xs leading-relaxed mt-2 flex items-center gap-1.5">
             <IconPhone className="w-3.5 h-3.5 shrink-0" />
@@ -196,8 +196,8 @@ export default function StoreCreditCancelSection({
             ))}
           </div>
           <p className="text-white/60 text-sm leading-relaxed">
-            This cancels your entire booking. A gift card for {amountLabel} will be emailed and
-            texted to you right away — use it to rebook any date online.
+            This cancels your entire booking. A HeadPinz FastTrax Gift Card for {amountLabel} will
+            be emailed and texted to you right away — use it to rebook any date online.
           </p>
           {error && (
             <p className="mt-3 text-sm text-red-400 font-medium leading-relaxed">{error}</p>

@@ -41,7 +41,7 @@ export default function GiftCardIssuedPanel({
         </div>
         <div>
           <h2 className="font-display text-lg uppercase tracking-widest text-white">
-            Your gift card is ready
+            Your HeadPinz FastTrax Gift Card is ready
           </h2>
           <p className="text-white/50 text-xs">
             Booking cancelled — the full ${(amountCents / 100).toFixed(2)} you paid is on this card.
@@ -51,7 +51,7 @@ export default function GiftCardIssuedPanel({
 
       <div className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4 text-center">
         <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-400 font-bold">
-          Gift card number
+          HeadPinz FastTrax Gift Card
         </p>
         <div className="mt-1.5 flex items-center justify-center gap-2 flex-wrap">
           <span className="font-mono text-lg sm:text-xl font-bold text-white tracking-wide">

@@ -1766,15 +1766,15 @@ export default function ConfirmationPage() {
           )}
 
           {/* Manage booking — self-serve cancel converts the payment into a
-              store-credit gift card (that IS the reschedule path for racing/
-              attractions). Combos are staff-only → call-us note. Flagged dark
-              until ops sign-off (v2 cutover rule). */}
+              HeadPinz FastTrax Gift Card (that IS the reschedule path for
+              racing/attractions). Combos are staff-only → call-us note.
+              Shipped ON without a flag per owner call 2026-07-03. */}
           {!isDetail &&
             (comboSpecial ? (
               <div className="max-w-2xl mx-auto mb-8">
                 <ComboManageNote phone="(239) 275-2226" />
               </div>
-            ) : process.env.NEXT_PUBLIC_CANCEL_CREDIT_SELF_SERVE === "true" && orderId && urlSig ? (
+            ) : orderId && urlSig ? (
               <div className="max-w-2xl mx-auto mb-8">
                 <StoreCreditCancelSection
                   billId={orderId}

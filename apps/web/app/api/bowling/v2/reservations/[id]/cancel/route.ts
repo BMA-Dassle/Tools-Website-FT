@@ -9,22 +9,20 @@ import { CancelGuardError, cancelReservationCascade } from "~/features/cancellat
  * refunds, day-of order cancel, BMI add-on cancels, loyalty/promo cleanup,
  * Neon marking, and the guest email+SMS.
  *
- * Body (optional): { outcome?: "store_credit" }
- *   no body / no outcome → refund to card (legacy behavior), ALLOWED only
- *   while NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY is not "true". When the flag
- *   is on, self-serve refunds return 409 refund_requires_admin and the UI
- *   offers the gift-card path ("prefer a refund? call us").
- *   outcome "store_credit" → the deposit converts to a NEW Square-GAN gift
- *   card, emailed + texted to the guest.
+ * Owner policy 2026-07-03 (live, no flag): self-serve settles as a HeadPinz
+ * FastTrax Gift Card — card refunds are staff/phone-only. A legacy no-body
+ * call (stale bundle asking for the old refund) gets 409
+ * refund_requires_admin with the call-us copy rather than silently receiving
+ * a gift card it didn't ask for.
+ *
+ * Body: { outcome: "store_credit" } → the deposit converts to a NEW
+ * Square-GAN HeadPinz FastTrax Gift Card, emailed + texted to the guest.
  *
  * Response contract (kept for the existing confirmation page):
  *   200 { ok, refundCents } (+ gan/giftCardId/storeCreditCents for credit)
  *   409 { error: "already cancelled" } · 409 { error: "within_1_hour" }
  *   502 { error: "Refund failed — contact the center for assistance." }
  */
-
-const CREDIT_ONLY = () => process.env.NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY === "true";
-
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const neonId = parseInt(id, 10);
@@ -40,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // empty body = legacy refund call
   }
 
-  if (outcome === "refund" && CREDIT_ONLY()) {
+  if (outcome === "refund") {
     return NextResponse.json(
       {
         error: "refund_requires_admin",
@@ -56,7 +54,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       outcome,
       actor: "customer",
       dryRun: false,
-      allowCustomerRefund: !CREDIT_ONLY(),
     });
 
     if (result.alreadyCancelled) {

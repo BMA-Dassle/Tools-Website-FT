@@ -7,9 +7,9 @@ VIP combos), driven from `POST /api/admin/reservations/cancel` (dry-run preview 
 outcomes: refund to card, or a store-credit gift card with a Square-generated GAN). The
 portal's Cancel button + the VIP card's "Cancel Combo" both use it; the legacy
 `/api/admin/bowling/reservations/cancel` route delegates to the same cascade, so even stale
-tabs now cancel BOTH legs. Guest self-serve (store-credit only) ships flag-dark:
-`NEXT_PUBLIC_CANCEL_CREDIT_SELF_SERVE` / `NEXT_PUBLIC_BOWLING_CANCEL_CREDIT_ONLY`.
-The manual close-out below remains as the historical spec + fallback runbook.
+tabs now cancel BOTH legs. Guest self-serve (HeadPinz FastTrax Gift Card only) shipped ON
+without flags per owner call 2026-07-03. The manual close-out below remains as the
+historical spec + fallback runbook.
 
 _(Original spec, proven 2026-06-30 — Valentino Alvarez, W46405 / short `itL0Um08`.)_
 
