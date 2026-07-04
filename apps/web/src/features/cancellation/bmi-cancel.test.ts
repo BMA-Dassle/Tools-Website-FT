@@ -130,8 +130,28 @@ afterEach(() => {
 });
 
 describe("cancelBmiProject", () => {
-  it("public delete true → done, Office never consulted", async () => {
+  it("REGRESSION 2026-07-03: a confirmed project is cancelled via Office state even when the public bill delete returns true", async () => {
+    // The public delete returning `true` on a CONFIRMED bill deletes only the
+    // bill record — the project stays Confirmation and keeps the slot
+    // (W47613/W47615 incident). It must never short-circuit the cancel.
     mockPublic("true");
+    mockOffice();
+    const r = await cancelBmiProject(params);
+    expect(r).toMatchObject({ ok: true, method: "office_state", verifiedStateId: "-4" });
+    expect(vi.mocked(setProjectState)).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: PROJECT, stateId: "-4" }),
+    );
+  });
+
+  it("public delete is the primary cancel ONLY when no project resolves (never-confirmed bill)", async () => {
+    mockPublic("true");
+    // Office knows nothing about this bill: no search hit, no project records.
+    officeRoutes.push({
+      match: "/auth/token",
+      status: 200,
+      body: () => JSON.stringify({ access_token: "ot", expires_in: "86400" }),
+    });
+    officeRoutes.push({ match: "/search?token=", status: 200, body: () => "[]" });
     const r = await cancelBmiProject(params);
     expect(r).toMatchObject({ ok: true, method: "public_delete" });
     expect(vi.mocked(setProjectState)).not.toHaveBeenCalled();
@@ -178,7 +198,7 @@ describe("cancelBmiProject", () => {
     );
   });
 
-  it("rejects a candidate whose W-number does not match, then reports unresolved", async () => {
+  it("rejects a candidate whose W-number does not match, then reports unresolved (public delete declined)", async () => {
     mockPublic("false");
     mockOffice({ searchHit: false });
     officeRoutes.push({
@@ -191,15 +211,24 @@ describe("cancelBmiProject", () => {
     expect(vi.mocked(setProjectState)).not.toHaveBeenCalled();
   });
 
-  it("verify failure (state write did not stick) → ok:false with detail", async () => {
+  it("verify failure (state write did not stick) → ok:false after the retry window", async () => {
     mockPublic("false");
     mockOffice();
     vi.mocked(setProjectState).mockImplementation(async () => {
       /* write silently lost */
     });
-    const r = await cancelBmiProject(params);
-    expect(r.ok).toBe(false);
-    expect(r.detail).toMatch(/did not stick/);
+    // The verify polls with real setTimeout backoff (Pandora writes land
+    // async) — drive it with fake timers so the test doesn't sleep ~9s.
+    vi.useFakeTimers();
+    try {
+      const pending = cancelBmiProject(params);
+      await vi.advanceTimersByTimeAsync(15_000);
+      const r = await pending;
+      expect(r.ok).toBe(false);
+      expect(r.detail).toMatch(/did not stick/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("public delete hard error is non-fatal — Office path still runs", async () => {

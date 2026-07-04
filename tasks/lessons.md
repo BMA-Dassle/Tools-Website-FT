@@ -1,5 +1,27 @@
 # Lessons Learned
 
+## BMI public bill-delete returns TRUE on confirmed bills — while the PROJECT lives on (2026-07-03)
+
+First live cancels through the cascade (bills 63000000004148142/…180, W47613/W47615): the
+public-booking `DELETE bill/{orderId}/cancel` returned `true` on CONFIRMED bills — a
+"Cancellation" record even appears in the BMI reservations list, so it LOOKS like a full
+cancel — but it only deletes the BILL record. The real Office PROJECT (id = billId+1, resolved
+via `search?token={W} → kind===2 → localId`) stays Confirmation and keeps holding the heat
+capacity. The old 2026-05-11 lesson ("delete only works pre-confirm") was half right: it
+doesn't *fail* post-confirm, it half-succeeds, which is worse.
+
+Rules:
+- **The Office project state (-4 via setProjectState) is the ONLY real cancel for a booked
+  BMI reservation.** The public bill delete is bill-record cleanup afterwards, or the primary
+  only when NO project resolves (never-confirmed bills). Never treat its `true` as done.
+- **Verify with retries**: Pandora's state write lands asynchronously — an immediate re-read
+  showed -3 for a few seconds before flipping to -4. Poll (~4 tries, backoff) before
+  declaring a write failed.
+- Pandora writes show `userUpdatedId = -17` (ONLINE_BOOKING) — an intentional-cancel writer
+  for the bmi-cancel-sweep gate (never -1), on top of the Neon cancelled-record gate.
+- `cancelBmiProject` (src/features/cancellation/bmi-cancel.ts) encodes all of this; the
+  regression test pins the public-delete-true trap.
+
 ## Cancellations settle MONEY GROUPS, and store credit must be a fresh Square-GAN card (2026-07-03)
 
 Built the all-kinds cancellation cascade (`src/features/cancellation/`, branch
