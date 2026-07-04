@@ -3872,7 +3872,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* One button per day-of order — a split combo has two
                           (Racing → FastTrax, Bowling → HeadPinz); pre-split has one. */}
                       <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
-                        {!g.allCancelled && g.legs.some((l) => cancelActionable(l)) && (
+                        {g.legs.some((l) => cancelActionable(l)) && (
                           <button
                             type="button"
                             onClick={() =>
