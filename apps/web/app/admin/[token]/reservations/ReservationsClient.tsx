@@ -2546,6 +2546,14 @@ export default function ReservationsClient({ token }: { token: string }) {
         .map((h) => ({ ...h, ms: etWallMs(h.start) }))
         .filter((h) => !Number.isNaN(h.ms))
         .sort((a, b) => a.ms - b.ms);
+      // Track tag ("Blue" / "Red" / "Mega") from a BMI line name or a stored
+      // heat track ("Blue Track") — the owner wants the track visible on every
+      // race step, not just the tier.
+      const trackTag = (s: string | null | undefined): string | null => {
+        const m = (s ?? "").match(/\b(red|blue|mega)\b/i);
+        return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : null;
+      };
+      const withTrack = (base: string, tag: string | null) => (tag ? `${base} · ${tag}` : base);
       let raceSteps: ComboScheduleStep[];
       if (liveHeats.length) {
         raceSteps = liveHeats.map((h, i) => {
@@ -2553,13 +2561,14 @@ export default function ReservationsClient({ token }: { token: string }) {
           // use it so "In progress"/"Done" flip at the actual session end.
           const stopMs = h.stop ? etWallMs(h.stop) : NaN;
           const realMin = (stopMs - h.ms) / 60_000;
+          // BMI line names carry the track ("Starter Race Blue") — surface it
+          // as "Starter Race · Blue" instead of hiding it.
+          const base =
+            h.name?.replace(/\s+(red|blue|mega)(\s+track)?$/i, "").trim() ||
+            (i === 0 ? "Starter Race" : "Intermediate Race");
           return {
             icon: "🏁",
-            // BMI line names carry the track ("Starter Race Blue") — drop the
-            // track suffix to match the card's label style.
-            label:
-              h.name?.replace(/\s+(red|blue|mega)(\s+track)?$/i, "").trim() ||
-              (i === 0 ? "Starter Race" : "Intermediate Race"),
+            label: withTrack(base, trackTag(h.name)),
             iso: h.start,
             loc: "FastTrax",
             durationMin: Number.isFinite(realMin) && realMin > 0 ? realMin : RACE_STEP_MIN,
@@ -2567,21 +2576,23 @@ export default function ReservationsClient({ token }: { token: string }) {
         });
       } else {
         // heatId IS the heat's block-start ISO (booking state types),
-        // persisted in the race leg's booking_metadata.heats.
+        // persisted in the race leg's booking_metadata.heats — which also
+        // stamps each heat's track at booking time.
         const heatTimes = Array.from(
-          new Set(
-            races.flatMap((r) =>
-              (r.bookingMetadata?.heats ?? []).map((h) => h.heatId).filter((x): x is string => !!x),
-            ),
-          ),
+          new Map(
+            races
+              .flatMap((r) => r.bookingMetadata?.heats ?? [])
+              .filter((h): h is { heatId: string; track?: string } => !!h.heatId)
+              .map((h) => [h.heatId, h] as const),
+          ).values(),
         )
-          .map((iso) => ({ iso, ms: etWallMs(iso) }))
+          .map((h) => ({ iso: h.heatId, track: h.track, ms: etWallMs(h.heatId) }))
           .filter((h) => !Number.isNaN(h.ms))
           .sort((a, b) => a.ms - b.ms);
         raceSteps = [
           {
             icon: "🏁",
-            label: "Starter Race",
+            label: withTrack("Starter Race", trackTag(heatTimes[0]?.track)),
             iso: heatTimes[0]?.iso ?? null,
             loc: "FastTrax",
             durationMin: RACE_STEP_MIN,
@@ -2590,7 +2601,7 @@ export default function ReservationsClient({ token }: { token: string }) {
         if (heatTimes[1]) {
           raceSteps.push({
             icon: "🏁",
-            label: "Intermediate Race",
+            label: withTrack("Intermediate Race", trackTag(heatTimes[1].track)),
             iso: heatTimes[1].iso,
             loc: "FastTrax",
             durationMin: RACE_STEP_MIN,
