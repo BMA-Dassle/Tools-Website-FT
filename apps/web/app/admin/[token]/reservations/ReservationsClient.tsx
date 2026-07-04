@@ -46,6 +46,13 @@ interface Reservation {
   notes?: string;
   cancelledAt?: string;
   refundCents: number;
+  /** How the cancellation settled: 'refund' | 'store_credit' | 'none'. */
+  cancellationOutcome?: string;
+  /** Who cancelled: 'customer' (self-serve) or 'admin' (this portal). */
+  cancelledBy?: string;
+  /** HeadPinz FastTrax Gift Card issued on cancellation (Square-generated GAN). */
+  storeCreditGiftCardGan?: string;
+  storeCreditCents?: number;
   dayofOrderSentAt?: string;
   dayofOrderLane?: string;
   dayofPaymentId?: string;
@@ -97,6 +104,13 @@ interface Reservation {
     }>;
     [k: string]: unknown;
   };
+  /** CURRENT scheduled race lines re-read from the BMI bill overview
+   *  (server-side, race legs only). Office reschedules move heats after
+   *  booking — and can convert an Intermediate to a second Starter — so when
+   *  present these override the booking_metadata times stamped at booking.
+   *  `start`/`stop` are naive ET wall-clock ISOs (same shape as heatId);
+   *  stop is the REAL session end (~7-12 min sessions). */
+  liveHeats?: Array<{ start: string; stop: string | null; name: string | null }>;
   insertedAt: string;
   lines: ReservationLine[];
 }
@@ -107,6 +121,9 @@ interface ComboMeta {
   accentColor: string;
   includes: string[];
   center: string;
+  /** Lane length from the combo registry (Ultimate VIP = 90) — drives the
+   *  board's live "time left on lane" countdown. */
+  bowlingDurationMinutes?: number;
 }
 
 /** One step of a VIP combo's itinerary (race heat → bowling slot → race heat). */
@@ -117,6 +134,16 @@ interface ComboScheduleStep {
   lane?: string;
   loc: string;
   pending?: boolean;
+  /** Expected length of this step (minutes) — bowling from the combo
+   *  registry; race legs use the REAL BMI session window (start→stop, ~7-12
+   *  min) when live data is present, else the owner's assumed 30-min leg
+   *  (mirrors ASSUMED_RACE_LEG_MINUTES in combo-booking). Drives the Done /
+   *  in-progress / up-next markers on the card. */
+  durationMin: number;
+  /** The leg's reservation status, attached to the BOWLING step only —
+   *  QAMF lane truth: `arrived` = lane open right now, `completed` = lane
+   *  closed. Beats the clock when a party runs early or late. */
+  legStatus?: string;
 }
 
 /** Attached to the single main-list row that represents a whole VIP combo
@@ -465,6 +492,64 @@ function etWallMs(iso: string): number {
   return Date.parse(`${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}Z`);
 }
 
+/** "Now" in the same ET-wall-clock-ms frame as etWallMs, so a naive heatId
+ *  compares against the current moment correctly in any browser timezone. */
+function nowEtWallMs(): number {
+  return etWallMs(new Date().toISOString());
+}
+
+/** Compact duration: 42 → "42m", 95 → "1h 35m". */
+function fmtDurShort(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return h > 0 ? `${h}h ${r ? `${r}m` : ""}`.trim() : `${r}m`;
+}
+
+/** Where a combo itinerary step sits relative to now. Status truth first
+ *  (bowling legStatus: QAMF lane state — completed = lane closed, arrived =
+ *  lane open even when the clock disagrees), then the booked start +
+ *  expected duration. `overdue` = schedule-active but the party hasn't
+ *  checked in, or lane still open past its scheduled end. */
+function stepProgress(
+  step: ComboScheduleStep,
+  nowMs: number,
+): {
+  state: "done" | "active" | "upcoming";
+  minsLeft: number;
+  minsUntil: number;
+  overdue: boolean;
+} | null {
+  if (step.legStatus === "completed") {
+    return { state: "done", minsLeft: 0, minsUntil: 0, overdue: false };
+  }
+  if (!step.iso) return null;
+  const startMs = etWallMs(step.iso);
+  if (Number.isNaN(startMs)) return null;
+  const endMs = startMs + step.durationMin * 60_000;
+  if (step.legStatus === "arrived") {
+    // Lane is open RIGHT NOW — active regardless of the clock; past the
+    // scheduled end it's running over, not done.
+    return {
+      state: "active",
+      minsLeft: Math.max(0, (endMs - nowMs) / 60_000),
+      minsUntil: 0,
+      overdue: nowMs >= endMs,
+    };
+  }
+  if (nowMs >= endMs) return { state: "done", minsLeft: 0, minsUntil: 0, overdue: false };
+  if (nowMs >= startMs)
+    return {
+      state: "active",
+      minsLeft: (endMs - nowMs) / 60_000,
+      minsUntil: 0,
+      // A bowling step carries legStatus; schedule-active without an open
+      // lane means the party hasn't checked in to the lane yet.
+      overdue: step.legStatus != null && step.legStatus !== "arrived",
+    };
+  return { state: "upcoming", minsLeft: 0, minsUntil: (startMs - nowMs) / 60_000, overdue: false };
+}
+
 function fmtDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("en-US", {
@@ -512,6 +597,32 @@ function comboConfirmPath(r: Reservation & { comboMerge?: ComboMergeInfo }): str
 function bowlingActionable(r: Reservation): boolean {
   const isBowling = r.productKind === "open" || r.productKind === "kbf";
   return isBowling && (r.attractionBookings?.length ?? 0) === 0;
+}
+
+/**
+ * Cancel is an ALL-KINDS action (races, attractions, bowling±add-ons, and VIP
+ * combos — the cascade resolves every leg server-side from any leg's neonId)
+ * with two outcomes: refund to card, or a HeadPinz FastTrax Gift Card the guest
+ * rebooks with. Row fields are a fast pre-filter only — the modal opens with
+ * an authoritative server dry-run that catches anything these miss (e.g. a
+ * day-of order tendered seconds ago).
+ */
+function cancelActionable(r: Reservation): boolean {
+  if (
+    r.status === "cancelled" ||
+    r.status === "completed" ||
+    r.status === "no_show" ||
+    r.status === "arrived"
+  ) {
+    return false;
+  }
+  if (r.dayofPaymentId) return false; // already paid at the venue — manual path
+  return true;
+}
+
+/** "1234-5678-9012-3456" display for a gift-card GAN. */
+function ganDisplay(gan: string): string {
+  return gan.replace(/(.{4})(?=.)/g, "$1-");
 }
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -604,47 +715,161 @@ function BowlingResendModal({
 
 // ── Cancel Modal ─────────────────────────────────────────────────────────
 
+type CancelPlanView = {
+  ok: boolean;
+  dryRun?: boolean;
+  alreadyCancelled?: boolean;
+  outcome: string;
+  legs: Array<{ neonId: number; kind: string; label: string; status: string }>;
+  amountCents: number;
+  steps: Array<{ kind: string; detail: string; fatal: boolean; amountCents?: number }>;
+  warnings: string[];
+  refundIds?: string[];
+  refundCents?: number;
+  storeCredit?: { giftCardId: string; gan: string; amountCents: number };
+  notified?: { email: boolean; sms: boolean };
+  notificationsSkipped?: boolean;
+};
+
 function CancelModal({
   reservation,
   token,
   onClose,
-  onCancelled,
+  onDone,
 }: {
   reservation: Reservation;
   token: string;
   onClose: () => void;
-  onCancelled: () => void;
+  onDone: (msg: string) => void;
 }) {
-  const [cancelling, setCancelling] = useState(false);
+  const [phase, setPhase] = useState<
+    "loading" | "choose" | "busy" | "success" | "blocked" | "error"
+  >("loading");
+  const [plan, setPlan] = useState<CancelPlanView | null>(null);
+  const [outcome, setOutcome] = useState<"refund" | "store_credit" | null>(null);
+  const [notifyGuest, setNotifyGuest] = useState(true);
+  const [result, setResult] = useState<CancelPlanView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ganCopied, setGanCopied] = useState(false);
 
-  async function handleCancel() {
-    setCancelling(true);
+  // Authoritative dry-run on mount — its output IS the modal body, so staff
+  // always see exactly what this cancel involves before choosing anything.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/reservations/cancel?token=${encodeURIComponent(token)}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ neonId: reservation.id, outcome: "refund", dryRun: true }),
+          },
+        );
+        const data = (await res.json()) as CancelPlanView & { error?: string; detail?: string };
+        if (!alive) return;
+        if (!res.ok) {
+          setError(data.detail || data.error || `HTTP ${res.status}`);
+          setPhase("blocked");
+          return;
+        }
+        if (data.alreadyCancelled) {
+          setError("This reservation is already cancelled.");
+          setPhase("blocked");
+          return;
+        }
+        setPlan(data);
+        setPhase("choose");
+      } catch (err) {
+        if (!alive) return;
+        setError(err instanceof Error ? err.message : "Failed to load the cancel preview");
+        setPhase("error");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [reservation.id, token]);
+
+  async function execute() {
+    if (!plan) return;
+    const chosen = plan.amountCents === 0 ? "refund" : outcome;
+    if (!chosen) return;
+    setPhase("busy");
     setError(null);
     try {
-      const res = await fetch(
-        `/api/admin/bowling/reservations/cancel?token=${encodeURIComponent(token)}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ neonId: reservation.id }),
-        },
-      );
-      const data = await res.json();
+      const res = await fetch(`/api/admin/reservations/cancel?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ neonId: reservation.id, outcome: chosen, notifyGuest }),
+      });
+      const data = (await res.json()) as CancelPlanView & { error?: string; detail?: string };
       if (!res.ok) {
-        setError(data.error || `HTTP ${res.status}`);
-      } else {
-        onCancelled();
-        onClose();
+        if (res.status === 409) {
+          setError(data.detail || data.error || `HTTP ${res.status}`);
+          setPhase("blocked");
+        } else {
+          setError(data.detail || data.error || `HTTP ${res.status}`);
+          setPhase("error");
+        }
+        return;
       }
+      setResult(data);
+      setPhase("success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
-    } finally {
-      setCancelling(false);
+      setError(err instanceof Error ? err.message : "Cancel failed");
+      setPhase("error");
     }
   }
 
-  const hasDeposit = reservation.depositCents > 0;
+  function finish() {
+    const guest = reservation.guestName || "Guest";
+    if (result?.storeCredit) {
+      onDone(
+        `${guest}: cancelled — ${dollars(result.storeCredit.amountCents)} gift card ${ganDisplay(result.storeCredit.gan)}${result.notificationsSkipped ? " (kept for staff rebook)" : " sent"}`,
+      );
+    } else if (result?.refundCents) {
+      onDone(`${guest}: cancelled — ${dollars(result.refundCents)} refund issued`);
+    } else {
+      onDone(`${guest}: reservation cancelled`);
+    }
+    onClose();
+  }
+
+  const isCombo = !!reservation.comboSpecialId;
+  const multi = (plan?.legs.length ?? 1) > 1;
+  const hasMoney = (plan?.amountCents ?? 0) > 0;
+
+  const pickRow = (key: "refund" | "store_credit", title: string, sub: string, accent: string) => (
+    <button
+      type="button"
+      onClick={() => setOutcome(key)}
+      style={{
+        display: "block",
+        width: "100%",
+        textAlign: "left",
+        padding: "0.6rem 0.75rem",
+        borderRadius: 10,
+        backgroundColor: outcome === key ? `${accent}14` : "var(--ba-bg2)",
+        border: `1px solid ${outcome === key ? accent : "var(--ba-border)"}`,
+        cursor: "pointer",
+        marginBottom: 8,
+      }}
+    >
+      <div
+        style={{
+          fontSize: "0.82rem",
+          fontWeight: 700,
+          color: outcome === key ? accent : "var(--ba-fg)",
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ fontSize: "0.72rem", color: "var(--ba-muted)", marginTop: 2, lineHeight: 1.4 }}>
+        {sub}
+      </div>
+    </button>
+  );
 
   return (
     <div
@@ -664,11 +889,13 @@ function CancelModal({
       <div
         style={{
           width: "100%",
-          maxWidth: 400,
+          maxWidth: 440,
           backgroundColor: "var(--ba-modal-bg)",
           border: "1px solid rgba(239,68,68,0.3)",
           borderRadius: 16,
           padding: "1.5rem",
+          maxHeight: "90vh",
+          overflowY: "auto",
         }}
       >
         {/* Header */}
@@ -681,7 +908,11 @@ function CancelModal({
           }}
         >
           <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#ef4444", margin: 0 }}>
-            Cancel Reservation
+            {isCombo
+              ? "Cancel VIP Combo — both legs"
+              : multi
+                ? "Cancel Booking — all parts"
+                : "Cancel Reservation"}
           </h3>
           <button
             type="button"
@@ -698,103 +929,354 @@ function CancelModal({
           </button>
         </div>
 
-        {/* Reservation info */}
-        <div
-          style={{
-            padding: "0.75rem",
-            borderRadius: 10,
-            backgroundColor: "var(--ba-bg2)",
-            border: "1px solid var(--ba-border)",
-            marginBottom: "1rem",
-            fontSize: "0.8rem",
-            lineHeight: 1.7,
-          }}
-        >
-          <div>
-            <strong style={{ color: "var(--ba-fg)" }}>{reservation.guestName || "Guest"}</strong>
-          </div>
-          <div style={{ color: "var(--ba-muted)" }}>
-            {fmtTime(reservation.bookedAt)} &middot; {fmtDate(reservation.bookedAt)} &middot;{" "}
-            {CENTERS[reservation.centerCode] ?? reservation.centerCode}
-          </div>
-          <div style={{ color: "var(--ba-muted)" }}>
-            {reservation.playerCount ?? 1} bowler{(reservation.playerCount ?? 1) > 1 ? "s" : ""}{" "}
-            &middot; {KIND_FULL_LABELS[reservation.productKind] ?? reservation.productKind}
-          </div>
-          {hasDeposit && (
-            <div style={{ color: "#22c55e", fontWeight: 600, marginTop: 2 }}>
-              Deposit: {dollars(reservation.depositCents)}
-            </div>
-          )}
-        </div>
-
-        {/* Warning */}
-        <div
-          style={{
-            padding: "0.6rem 0.75rem",
-            borderRadius: 8,
-            backgroundColor: "rgba(239,68,68,0.1)",
-            border: "1px solid rgba(239,68,68,0.2)",
-            fontSize: "0.75rem",
-            color: "var(--ba-muted)",
-            marginBottom: "1rem",
-            lineHeight: 1.5,
-          }}
-        >
-          {hasDeposit
-            ? "This will cancel the QAMF reservation and issue a full refund of the deposit to the customer’s card."
-            : "This will cancel the QAMF reservation. No refund is needed (no deposit was charged)."}
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div
-            style={{
-              padding: "0.5rem 0.75rem",
-              borderRadius: 8,
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              marginBottom: "1rem",
-              backgroundColor: "rgba(239,68,68,0.15)",
-              color: "#ef4444",
-              border: "1px solid rgba(239,68,68,0.3)",
-            }}
-          >
-            {error}
+        {phase === "loading" && (
+          <div style={{ color: "var(--ba-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
+            Checking what this cancel involves...
           </div>
         )}
 
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              ...NAV_BTN,
-              fontSize: "0.8rem",
-            }}
-          >
-            Keep It
-          </button>
-          <button
-            type="button"
-            onClick={handleCancel}
-            disabled={cancelling}
-            style={{
-              padding: "0.5rem 1.25rem",
-              borderRadius: 8,
-              fontSize: "0.8rem",
-              fontWeight: 700,
-              cursor: cancelling ? "not-allowed" : "pointer",
-              border: "none",
-              backgroundColor: cancelling ? "rgba(239,68,68,0.3)" : "#ef4444",
-              color: "#fff",
-              opacity: cancelling ? 0.6 : 1,
-            }}
-          >
-            {cancelling ? "Cancelling..." : "Cancel & Refund"}
-          </button>
-        </div>
+        {(phase === "choose" || phase === "busy") && plan && (
+          <>
+            {/* Booking summary — from the server dry-run (authoritative) */}
+            <div
+              style={{
+                padding: "0.75rem",
+                borderRadius: 10,
+                backgroundColor: "var(--ba-bg2)",
+                border: "1px solid var(--ba-border)",
+                marginBottom: "0.9rem",
+                fontSize: "0.8rem",
+                lineHeight: 1.7,
+              }}
+            >
+              <div>
+                <strong style={{ color: "var(--ba-fg)" }}>
+                  {reservation.guestName || "Guest"}
+                </strong>
+              </div>
+              <div style={{ color: "var(--ba-muted)" }}>
+                {fmtTime(reservation.eventAt ?? reservation.bookedAt)} &middot;{" "}
+                {fmtDate(reservation.eventAt ?? reservation.bookedAt)} &middot;{" "}
+                {CENTERS[reservation.centerCode] ?? reservation.centerCode}
+              </div>
+              {plan.legs.map((leg) => (
+                <div key={leg.neonId} style={{ color: "var(--ba-muted)" }}>
+                  {leg.label} <span style={{ opacity: 0.7 }}>#{leg.neonId}</span> &middot;{" "}
+                  {STATUS_LABELS[leg.status] ?? leg.status}
+                </div>
+              ))}
+              {hasMoney && (
+                <div style={{ color: "#22c55e", fontWeight: 600, marginTop: 2 }}>
+                  Paid{multi ? " (covers every part)" : ""}: {dollars(plan.amountCents)}
+                </div>
+              )}
+            </div>
+
+            {plan.warnings.length > 0 && (
+              <div
+                style={{
+                  padding: "0.5rem 0.75rem",
+                  borderRadius: 8,
+                  backgroundColor: "rgba(245,158,11,0.1)",
+                  border: "1px solid rgba(245,158,11,0.25)",
+                  fontSize: "0.72rem",
+                  color: "#f59e0b",
+                  marginBottom: "0.9rem",
+                  lineHeight: 1.5,
+                }}
+              >
+                {plan.warnings.map((w, i) => (
+                  <div key={i}>{w}</div>
+                ))}
+              </div>
+            )}
+
+            {hasMoney ? (
+              <>
+                {pickRow(
+                  "refund",
+                  `Refund to card`,
+                  `${dollars(plan.amountCents)} back to the original card in 3-5 business days.`,
+                  "#ef4444",
+                )}
+                {pickRow(
+                  "store_credit",
+                  "HeadPinz FastTrax Gift Card",
+                  `Issue a ${dollars(plan.amountCents)} HeadPinz FastTrax Gift Card the guest rebooks with online — how "reschedules" work for racing and attractions.`,
+                  "#22c55e",
+                )}
+                {outcome === "store_credit" && (
+                  <label
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "flex-start",
+                      fontSize: "0.75rem",
+                      color: "var(--ba-muted)",
+                      margin: "0 2px 10px",
+                      cursor: "pointer",
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={notifyGuest}
+                      onChange={(e) => setNotifyGuest(e.target.checked)}
+                      style={{ marginTop: 2 }}
+                    />
+                    <span>
+                      Email &amp; text the gift card to the guest
+                      {!notifyGuest && (
+                        <span style={{ display: "block", color: "#f59e0b", marginTop: 2 }}>
+                          Nothing goes to the guest — you get the card number here and use it to pay
+                          for their new booking.
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                )}
+              </>
+            ) : (
+              <div
+                style={{
+                  padding: "0.6rem 0.75rem",
+                  borderRadius: 8,
+                  backgroundColor: "rgba(239,68,68,0.1)",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                  fontSize: "0.75rem",
+                  color: "var(--ba-muted)",
+                  marginBottom: "1rem",
+                  lineHeight: 1.5,
+                }}
+              >
+                No deposit was charged — this cancels the reservation only. No refund or gift card
+                will be issued.
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
+                Keep It
+              </button>
+              <button
+                type="button"
+                onClick={execute}
+                disabled={phase === "busy" || (hasMoney && !outcome)}
+                style={{
+                  padding: "0.5rem 1.25rem",
+                  borderRadius: 8,
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  cursor: phase === "busy" || (hasMoney && !outcome) ? "not-allowed" : "pointer",
+                  border: "none",
+                  backgroundColor: outcome === "store_credit" ? "#22c55e" : "#ef4444",
+                  color: "#fff",
+                  opacity: phase === "busy" || (hasMoney && !outcome) ? 0.5 : 1,
+                }}
+              >
+                {phase === "busy"
+                  ? outcome === "store_credit"
+                    ? "Issuing gift card..."
+                    : "Cancelling..."
+                  : !hasMoney
+                    ? "Cancel Reservation"
+                    : outcome === "store_credit"
+                      ? `Cancel & Issue ${dollars(plan.amountCents)} Gift Card`
+                      : `Cancel & Refund ${dollars(plan.amountCents)}`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {phase === "success" && result && (
+          <>
+            <div
+              style={{
+                padding: "0.75rem",
+                borderRadius: 10,
+                backgroundColor: "rgba(34,197,94,0.08)",
+                border: "1px solid rgba(34,197,94,0.3)",
+                marginBottom: "0.9rem",
+                fontSize: "0.85rem",
+                color: "var(--ba-fg)",
+                lineHeight: 1.6,
+              }}
+            >
+              <div style={{ fontWeight: 700, color: "#22c55e" }}>
+                {result.storeCredit
+                  ? "HeadPinz FastTrax Gift Card issued — reservation cancelled."
+                  : "Reservation cancelled."}
+              </div>
+              {result.storeCredit ? (
+                <div style={{ marginTop: 8 }}>
+                  <div
+                    style={{
+                      fontSize: "0.68rem",
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      color: "var(--ba-muted)",
+                    }}
+                  >
+                    HeadPinz FastTrax Gift Card &middot; {dollars(result.storeCredit.amountCents)}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                    <span style={{ fontFamily: "monospace", fontSize: "1.05rem", fontWeight: 700 }}>
+                      {ganDisplay(result.storeCredit.gan)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(result.storeCredit!.gan).then(() => {
+                          setGanCopied(true);
+                          setTimeout(() => setGanCopied(false), 1500);
+                        });
+                      }}
+                      style={{ ...NAV_BTN, fontSize: "0.7rem", padding: "0.25rem 0.6rem" }}
+                    >
+                      {ganCopied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                </div>
+              ) : result.refundCents ? (
+                <div style={{ marginTop: 4, color: "var(--ba-muted)", fontSize: "0.78rem" }}>
+                  Refund {dollars(result.refundCents)}
+                  {result.refundIds?.[0] ? (
+                    <span style={{ fontFamily: "monospace" }}> &middot; {result.refundIds[0]}</span>
+                  ) : null}
+                </div>
+              ) : null}
+              <div
+                style={{
+                  marginTop: 8,
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap",
+                  fontSize: "0.7rem",
+                }}
+              >
+                {result.notificationsSkipped ? (
+                  <span style={{ color: "#f59e0b", fontWeight: 600 }}>
+                    Not sent to guest — use the card number above to rebook for them.
+                  </span>
+                ) : (
+                  <>
+                    <span
+                      style={{
+                        color: result.notified?.email ? "#22c55e" : "#ef4444",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {result.notified?.email
+                        ? "Email sent"
+                        : "Email failed — copy the details and send manually."}
+                    </span>
+                    <span
+                      style={{
+                        color: result.notified?.sms ? "#22c55e" : "#ef4444",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {result.notified?.sms ? "SMS sent" : "SMS not sent."}
+                    </span>
+                  </>
+                )}
+              </div>
+              {result.warnings.length > 0 && (
+                <div
+                  style={{ marginTop: 8, fontSize: "0.7rem", color: "#f59e0b", lineHeight: 1.5 }}
+                >
+                  {result.warnings.map((w, i) => (
+                    <div key={i}>{w}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={finish}
+                style={{
+                  padding: "0.5rem 1.5rem",
+                  borderRadius: 8,
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: "none",
+                  backgroundColor: "#22c55e",
+                  color: "#fff",
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </>
+        )}
+
+        {phase === "blocked" && (
+          <>
+            <div
+              style={{
+                padding: "0.6rem 0.75rem",
+                borderRadius: 8,
+                backgroundColor: "rgba(239,68,68,0.12)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                fontSize: "0.78rem",
+                color: "#ef4444",
+                marginBottom: "1rem",
+                lineHeight: 1.5,
+                fontWeight: 600,
+              }}
+            >
+              {error}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
+                Close
+              </button>
+            </div>
+          </>
+        )}
+
+        {phase === "error" && (
+          <>
+            <div
+              style={{
+                padding: "0.5rem 0.75rem",
+                borderRadius: 8,
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                marginBottom: "1rem",
+                backgroundColor: "rgba(239,68,68,0.15)",
+                color: "#ef4444",
+                border: "1px solid rgba(239,68,68,0.3)",
+              }}
+            >
+              {error}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
+                Keep It
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhase("choose")}
+                style={{
+                  padding: "0.5rem 1.25rem",
+                  borderRadius: 8,
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: "none",
+                  backgroundColor: "#ef4444",
+                  color: "#fff",
+                }}
+              >
+                Try Again
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1818,6 +2300,15 @@ export default function ReservationsClient({ token }: { token: string }) {
   // racing + HeadPinz bowling) so they surface in every location's portal view.
   const [vipReservations, setVipReservations] = useState<Reservation[]>([]);
   const [comboMeta, setComboMeta] = useState<Record<string, ComboMeta>>({});
+  // Liveness tick: the team watches this board to see where VIPs are, so the
+  // countdown pills must keep moving even when a silent refresh fails or the
+  // tab is throttled. The 10s data poll drives re-renders on success; this is
+  // the clock's fallback heartbeat.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -1970,13 +2461,19 @@ export default function ReservationsClient({ token }: { token: string }) {
       // stay visible until they truly finish), but races never get one, so an
       // arrived race is effectively done. Past-event no-shows are flipped to a
       // terminal status by the reservation-status-close cron (not filtered here).
-      list = list.filter(
-        (r) =>
+      // VIP combo legs are exempt from the status drops (cancelled aside):
+      // staff flip a leg to completed at check-in/settle while later itinerary
+      // steps are still hours away, so retiring a combo is a GROUP decision —
+      // displayRows drops the merged row 30 min after its last scheduled step.
+      list = list.filter((r) => {
+        if (r.comboSpecialId) return r.status !== "cancelled";
+        return (
           r.status !== "cancelled" &&
           r.status !== "completed" &&
           r.status !== "no_show" &&
-          !(r.status === "arrived" && r.productKind === "race"),
-      );
+          !(r.status === "arrived" && r.productKind === "race")
+        );
+      });
     }
     if (kindFilter && kindFilter !== "vip") {
       list = list.filter((r) => r.productKind === kindFilter);
@@ -2021,42 +2518,101 @@ export default function ReservationsClient({ token }: { token: string }) {
       const anchor = bowling ?? sorted[0];
       const comboId = sorted.find((l) => l.comboSpecialId)?.comboSpecialId ?? "";
       const meta = comboMeta[comboId];
-      const allCancelled = sorted.every(
-        (l) => l.status === "cancelled" || l.status === "completed",
+      const allLegsCancelled = sorted.every((l) => l.status === "cancelled");
+      const allTerminal = sorted.every(
+        (l) => l.status === "cancelled" || l.status === "completed" || l.status === "no_show",
       );
 
-      // Real schedule times. heatId IS the heat's block-start ISO (booking state
-      // types), persisted in the race leg's booking_metadata.heats — so race
-      // times need no extra lookup. The racer always runs Starter first (to
-      // qualify) then Intermediate, so the EARLIEST heat is the Starter and the
-      // next is the Intermediate — true whether bowling runs in the middle
-      // (normal) or last (reorder fallback: both races before the lane).
-      const bowlingMs = bowling ? etWallMs(bowling.bookedAt) : NaN;
-      const heatTimes = Array.from(
-        new Set(
-          races.flatMap((r) =>
-            (r.bookingMetadata?.heats ?? []).map((h) => h.heatId).filter((x): x is string => !!x),
-          ),
-        ),
+      // Assumed race-leg length (arrive → off track) — owner's 30-min rule,
+      // mirrors ASSUMED_RACE_LEG_MINUTES in combo-booking. Drives the card's
+      // Done / on-track / up-next markers only, never the booked schedule.
+      const RACE_STEP_MIN = 30;
+
+      // Race steps. PREFERRED source: the bill's CURRENT lines re-read from
+      // BMI (liveHeats) — office reschedules move heats after booking, and a
+      // didn't-qualify Intermediate gets CONVERTED to a second Starter, so
+      // both the times AND the labels come from BMI truth. Fallback (live
+      // read absent): booking_metadata heat times stamped at booking, with
+      // the booked-order assumption — the racer qualifies on the Starter
+      // first, so the earliest heat is the Starter and the next is the
+      // Intermediate, whether bowling runs in the middle or last.
+      const liveHeats = Array.from(
+        new Map(
+          races
+            .flatMap((r) => r.liveHeats ?? [])
+            .map((h) => [`${h.start}|${h.name ?? ""}`, h] as const),
+        ).values(),
       )
-        .map((iso) => ({ iso, ms: etWallMs(iso) }))
+        .map((h) => ({ ...h, ms: etWallMs(h.start) }))
         .filter((h) => !Number.isNaN(h.ms))
         .sort((a, b) => a.ms - b.ms);
-      const starterIso = heatTimes[0]?.iso ?? null;
-      const intermediateIso = heatTimes[1]?.iso ?? null;
+      // Track tag ("Blue" / "Red" / "Mega") from a BMI line name or a stored
+      // heat track ("Blue Track") — the owner wants the track visible on every
+      // race step, not just the tier.
+      const trackTag = (s: string | null | undefined): string | null => {
+        const m = (s ?? "").match(/\b(red|blue|mega)\b/i);
+        return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : null;
+      };
+      const withTrack = (base: string, tag: string | null) => (tag ? `${base} · ${tag}` : base);
+      let raceSteps: ComboScheduleStep[];
+      if (liveHeats.length) {
+        raceSteps = liveHeats.map((h, i) => {
+          // BMI gives the REAL session window (stop − start, ~7-12 min) —
+          // use it so "In progress"/"Done" flip at the actual session end.
+          const stopMs = h.stop ? etWallMs(h.stop) : NaN;
+          const realMin = (stopMs - h.ms) / 60_000;
+          // BMI line names carry the track ("Starter Race Blue") — surface it
+          // as "Starter Race · Blue" instead of hiding it.
+          const base =
+            h.name?.replace(/\s+(red|blue|mega)(\s+track)?$/i, "").trim() ||
+            (i === 0 ? "Starter Race" : "Intermediate Race");
+          return {
+            icon: "🏁",
+            label: withTrack(base, trackTag(h.name)),
+            iso: h.start,
+            loc: "FastTrax",
+            durationMin: Number.isFinite(realMin) && realMin > 0 ? realMin : RACE_STEP_MIN,
+          };
+        });
+      } else {
+        // heatId IS the heat's block-start ISO (booking state types),
+        // persisted in the race leg's booking_metadata.heats — which also
+        // stamps each heat's track at booking time.
+        const heatTimes = Array.from(
+          new Map(
+            races
+              .flatMap((r) => r.bookingMetadata?.heats ?? [])
+              .filter((h): h is { heatId: string; track?: string } => !!h.heatId)
+              .map((h) => [h.heatId, h] as const),
+          ).values(),
+        )
+          .map((h) => ({ iso: h.heatId, track: h.track, ms: etWallMs(h.heatId) }))
+          .filter((h) => !Number.isNaN(h.ms))
+          .sort((a, b) => a.ms - b.ms);
+        raceSteps = [
+          {
+            icon: "🏁",
+            label: withTrack("Starter Race", trackTag(heatTimes[0]?.track)),
+            iso: heatTimes[0]?.iso ?? null,
+            loc: "FastTrax",
+            durationMin: RACE_STEP_MIN,
+          },
+        ];
+        if (heatTimes[1]) {
+          raceSteps.push({
+            icon: "🏁",
+            label: withTrack("Intermediate Race", trackTag(heatTimes[1].track)),
+            iso: heatTimes[1].iso,
+            loc: "FastTrax",
+            durationMin: RACE_STEP_MIN,
+          });
+        }
+      }
       const expectsIntermediate = (meta?.includes ?? []).some((s) => /intermediate/i.test(s));
-      // Reorder: the lane runs AFTER both booked races (it wasn't free between
-      // them). Flagged on the card so staff plan scheduling for the swapped order.
-      const reordered =
-        !Number.isNaN(bowlingMs) &&
-        heatTimes.length > 0 &&
-        heatTimes.every((h) => h.ms < bowlingMs);
 
       // Assemble the steps, then render in ACTUAL chronological order (a
       // pending/un-booked intermediate sorts last).
-      const steps: ComboScheduleStep[] = [
-        { icon: "🏁", label: "Starter Race", iso: starterIso, loc: "FastTrax" },
-      ];
+      const steps: ComboScheduleStep[] = [...raceSteps];
       if (bowling) {
         steps.push({
           icon: "🎳",
@@ -2064,16 +2620,13 @@ export default function ReservationsClient({ token }: { token: string }) {
           iso: bowling.bookedAt,
           lane: bowling.dayofOrderLane,
           loc: `HeadPinz ${centerLabel(anchor.centerCode)}`,
+          durationMin: meta?.bowlingDurationMinutes ?? 90,
+          // QAMF lane truth: arrived = lane open, completed = lane closed —
+          // the marker trusts this over the clock.
+          legStatus: bowling.status,
         });
       }
-      if (intermediateIso) {
-        steps.push({
-          icon: "🏁",
-          label: "Intermediate Race",
-          iso: intermediateIso,
-          loc: "FastTrax",
-        });
-      } else if (expectsIntermediate) {
+      if (raceSteps.length < 2 && expectsIntermediate) {
         // Intermediate is qualify-gated — booked later if the racer qualifies.
         steps.push({
           icon: "🏁",
@@ -2081,6 +2634,7 @@ export default function ReservationsClient({ token }: { token: string }) {
           iso: null,
           loc: "FastTrax",
           pending: true,
+          durationMin: RACE_STEP_MIN,
         });
       }
       const schedule: ComboScheduleStep[] = steps.sort(
@@ -2088,6 +2642,22 @@ export default function ReservationsClient({ token }: { token: string }) {
           (a.iso ? etWallMs(a.iso) : Number.POSITIVE_INFINITY) -
           (b.iso ? etWallMs(b.iso) : Number.POSITIVE_INFINITY),
       );
+
+      // Retiring a combo is a GROUP + SCHEDULE decision, not a status one:
+      // legs flip to completed at check-in/settle while later itinerary
+      // steps are still hours away (real case: both legs completed by 6pm
+      // with a 7:24 race still ahead). Keep the combo active until 30 min
+      // past its LAST scheduled step's end — or while the lane is open —
+      // and retire all-cancelled combos immediately.
+      const stepEnds = steps.flatMap((s) => {
+        if (!s.iso) return [];
+        const ms = etWallMs(s.iso);
+        return Number.isNaN(ms) ? [] : [ms + s.durationMin * 60_000];
+      });
+      const scheduleOver =
+        stepEnds.length === 0 || nowEtWallMs() >= Math.max(...stepEnds) + 30 * 60_000;
+      const laneOpen = bowling?.status === "arrived";
+      const inactive = allLegsCancelled || (allTerminal && scheduleOver && !laneOpen);
 
       // Distinct day-of Square orders in this combo: after the split a combo
       // has TWO (racing → FastTrax, bowling → HeadPinz); pre-split combos share
@@ -2131,11 +2701,18 @@ export default function ReservationsClient({ token }: { token: string }) {
           ? dayofOrders.reduce((s, o) => s + o.totalCents, 0)
           : Math.max(0, ...sorted.map((l) => l.totalCents ?? 0)),
         schedule,
-        allCancelled,
+        inactive,
       };
     });
-    let out = groups;
-    if (hideCancelled) out = out.filter((g) => !g.allCancelled);
+    return groups.sort((a, b) => a.anchor.bookedAt.localeCompare(b.anchor.bookedAt));
+  }, [vipReservations, comboMeta]);
+
+  // VIP cards honor the Active Only toggle + search. The schedule lookup
+  // below (comboScheduleByKey) deliberately uses ALL groups, so main-list
+  // retirement + itinerary still resolve for combos hidden from the cards.
+  const visibleComboGroups = useMemo(() => {
+    let out = comboGroups;
+    if (hideCancelled) out = out.filter((g) => !g.inactive);
     if (search.trim()) {
       const query = search.toLowerCase().trim();
       out = out.filter((g) =>
@@ -2146,8 +2723,8 @@ export default function ReservationsClient({ token }: { token: string }) {
         ),
       );
     }
-    return out.sort((a, b) => a.anchor.bookedAt.localeCompare(b.anchor.bookedAt));
-  }, [vipReservations, comboMeta, hideCancelled, search]);
+    return out;
+  }, [comboGroups, hideCancelled, search]);
 
   // Combo schedule lookup so a VIP row in the MAIN list can open its itinerary.
   // Keyed by every id a row might carry (deposit + each day-of order id), since
@@ -2155,7 +2732,13 @@ export default function ReservationsClient({ token }: { token: string }) {
   const comboScheduleByKey = useMemo(() => {
     const m = new Map<
       string,
-      { name: string; accent: string; centerCode: string; schedule: ComboScheduleStep[] }
+      {
+        name: string;
+        accent: string;
+        centerCode: string;
+        schedule: ComboScheduleStep[];
+        inactive: boolean;
+      }
     >();
     for (const g of comboGroups) {
       const entry = {
@@ -2163,6 +2746,7 @@ export default function ReservationsClient({ token }: { token: string }) {
         accent: g.meta?.accentColor ?? "#d4af37",
         centerCode: g.centerCode,
         schedule: g.schedule,
+        inactive: g.inactive,
       };
       for (const leg of g.legs) {
         if (leg.squareDepositOrderId) m.set(leg.squareDepositOrderId, entry);
@@ -2206,6 +2790,16 @@ export default function ReservationsClient({ token }: { token: string }) {
     for (const legs of comboLegs.values()) {
       const anchor =
         legs.find((l) => l.productKind === "open" || l.productKind === "kbf") ?? legs[0];
+      // Whole-combo retirement (Active Only): drop the merged row only when
+      // the GROUP is inactive — 30 min past its last scheduled step — never
+      // on a single leg's status (legs flip to completed at check-in while
+      // later steps are still ahead). Mirrors the VIP cards' rule.
+      if (hideCancelled) {
+        const entry =
+          comboScheduleByKey.get(anchor.squareDepositOrderId ?? "") ??
+          comboScheduleByKey.get(anchor.squareDayofOrderId ?? "");
+        if (entry?.inactive) continue;
+      }
       const byOrder = new Map<string, Reservation>();
       for (const l of legs)
         if (l.squareDayofOrderId && !byOrder.has(l.squareDayofOrderId))
@@ -2226,7 +2820,7 @@ export default function ReservationsClient({ token }: { token: string }) {
       });
     }
     return out.sort((a, b) => (a.eventAt ?? a.bookedAt).localeCompare(b.eventAt ?? b.bookedAt));
-  }, [filtered]);
+  }, [filtered, hideCancelled, comboScheduleByKey]);
 
   // Stats
   const active = displayRows.filter((r) => r.status !== "cancelled" && r.status !== "completed");
@@ -2320,8 +2914,8 @@ export default function ReservationsClient({ token }: { token: string }) {
           reservation={cancelTarget}
           token={token}
           onClose={() => setCancelTarget(null)}
-          onCancelled={() => {
-            showToast(`Reservation cancelled for ${cancelTarget.guestName || "guest"}`);
+          onDone={(msg) => {
+            showToast(msg);
             void load();
           }}
         />
@@ -3052,7 +3646,7 @@ export default function ReservationsClient({ token }: { token: string }) {
             {error}
           </div>
         ) : vipActive ? (
-          comboGroups.length === 0 ? (
+          visibleComboGroups.length === 0 ? (
             <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
               {search ? "No matching VIP combos." : "No VIP combos for this date."}
             </div>
@@ -3068,11 +3662,14 @@ export default function ReservationsClient({ token }: { token: string }) {
                   marginBottom: 4,
                 }}
               >
-                ★ VIP Combos ({comboGroups.length}) — all centers
+                ★ VIP Combos ({visibleComboGroups.length}) — all centers
               </div>
-              {comboGroups.map((g) => {
+              {visibleComboGroups.map((g) => {
                 const name = g.meta?.name ?? "VIP Combo";
                 const accent = g.meta?.accentColor ?? "#d4af37";
+                // Recomputed on every render — the 10s silent auto-refresh
+                // keeps the "left"/"in" countdowns current.
+                const nowMs = nowEtWallMs();
                 return (
                   <div
                     key={g.key}
@@ -3082,7 +3679,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                       borderLeft: `4px solid ${accent}`,
                       background: "rgba(212,175,55,0.06)",
                       padding: "14px 16px",
-                      opacity: g.allCancelled ? 0.55 : 1,
+                      opacity: g.inactive ? 0.55 : 1,
                     }}
                   >
                     {/* Header */}
@@ -3120,50 +3717,120 @@ export default function ReservationsClient({ token }: { token: string }) {
                     {/* Schedule — real per-leg times: race heat times (heatId =
                         block-start ISO) + the bowling slot, with the lane. */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {g.schedule.map((step, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            fontSize: "0.85rem",
-                            color: "var(--ba-fg)",
-                          }}
-                        >
-                          <span style={{ width: 18, textAlign: "center" }}>{step.icon}</span>
-                          {/* Time — prominent: this is the whole point of the schedule. */}
-                          <span
+                      {g.schedule.map((step, i) => {
+                        // Schedule-based progress marker (booked start + expected
+                        // length vs now) — hidden on cancelled combos, and the
+                        // "up next" hint only shows inside a 4h window so a
+                        // tomorrow board isn't wallpapered with "in 19h".
+                        const prog = g.inactive ? null : stepProgress(step, nowMs);
+                        const isBowling = step.icon === "🎳";
+                        return (
+                          <div
+                            key={i}
                             style={{
-                              minWidth: 84,
-                              fontWeight: 800,
-                              fontSize: "1rem",
-                              color: step.iso ? accent : "var(--ba-muted)",
-                              fontVariantNumeric: "tabular-nums",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: "0.85rem",
+                              color: "var(--ba-fg)",
+                              opacity: prog?.state === "done" ? 0.6 : 1,
                             }}
                           >
-                            {step.iso ? fmtClock(step.iso) : step.pending ? "—" : "TBD"}
-                          </span>
-                          <span style={{ flex: 1, fontWeight: 600 }}>
-                            {step.label}
-                            {step.lane ? (
-                              <span style={{ color: accent, fontWeight: 700 }}>
-                                {" "}
-                                · Lane {step.lane}
+                            <span style={{ width: 18, textAlign: "center" }}>{step.icon}</span>
+                            {/* Time — prominent: this is the whole point of the schedule. */}
+                            <span
+                              style={{
+                                minWidth: 84,
+                                fontWeight: 800,
+                                fontSize: "1rem",
+                                color: step.iso ? accent : "var(--ba-muted)",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {step.iso ? fmtClock(step.iso) : step.pending ? "—" : "TBD"}
+                            </span>
+                            <span style={{ flex: 1, fontWeight: 600 }}>
+                              {step.label}
+                              {step.lane ? (
+                                <span style={{ color: accent, fontWeight: 700 }}>
+                                  {" "}
+                                  · Lane {step.lane}
+                                </span>
+                              ) : null}
+                              {step.pending ? (
+                                <span style={{ color: "var(--ba-muted)", fontWeight: 400 }}>
+                                  {" "}
+                                  (if qualified)
+                                </span>
+                              ) : null}
+                            </span>
+                            {prog?.state === "done" && (
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  fontWeight: 700,
+                                  color: "#22c55e",
+                                  border: "1px solid rgba(34,197,94,0.35)",
+                                  backgroundColor: "rgba(34,197,94,0.12)",
+                                  borderRadius: 999,
+                                  padding: "1px 8px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                ✓ Done
                               </span>
-                            ) : null}
-                            {step.pending ? (
-                              <span style={{ color: "var(--ba-muted)", fontWeight: 400 }}>
-                                {" "}
-                                (if qualified)
+                            )}
+                            {prog?.state === "active" &&
+                              (() => {
+                                // Bowling wording follows QAMF lane truth:
+                                // lane open → countdown (or "wrapping up" past
+                                // the scheduled end); slot started but nobody
+                                // checked in → amber "not arrived" nudge.
+                                const laneOpen = step.legStatus === "arrived";
+                                const late = isBowling && !laneOpen;
+                                const text = isBowling
+                                  ? laneOpen
+                                    ? prog.overdue
+                                      ? "Bowling now · wrapping up"
+                                      : `Bowling now · ${fmtDurShort(prog.minsLeft)} left`
+                                    : "Lane due · not arrived"
+                                  : "In progress";
+                                const color = late ? "#f59e0b" : accent;
+                                const bg = late ? "rgba(245,158,11,0.15)" : "rgba(212,175,55,0.15)";
+                                return (
+                                  <span
+                                    style={{
+                                      fontSize: "0.7rem",
+                                      fontWeight: 700,
+                                      color,
+                                      border: `1px solid ${color}`,
+                                      backgroundColor: bg,
+                                      borderRadius: 999,
+                                      padding: "1px 8px",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {text}
+                                  </span>
+                                );
+                              })()}
+                            {prog?.state === "upcoming" && prog.minsUntil <= 240 && (
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  color: "var(--ba-muted)",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                in {fmtDurShort(prog.minsUntil)}
                               </span>
-                            ) : null}
-                          </span>
-                          <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
-                            {step.loc}
-                          </span>
-                        </div>
-                      ))}
+                            )}
+                            <span style={{ color: "var(--ba-muted)", fontSize: "0.75rem" }}>
+                              {step.loc}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
 
                     {/* Per-leg status + actions */}
@@ -3216,6 +3883,24 @@ export default function ReservationsClient({ token }: { token: string }) {
                       {/* One button per day-of order — a split combo has two
                           (Racing → FastTrax, Bowling → HeadPinz); pre-split has one. */}
                       <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                        {g.legs.some((l) => cancelActionable(l)) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCancelTarget(g.legs.find((l) => cancelActionable(l)) ?? g.anchor)
+                            }
+                            title="Cancel BOTH legs — one refund or one HeadPinz FastTrax Gift Card for the full package"
+                            style={{
+                              ...NAV_BTN,
+                              fontSize: "0.72rem",
+                              fontWeight: 600,
+                              color: "#ef4444",
+                              border: "1px solid rgba(239,68,68,0.3)",
+                            }}
+                          >
+                            Cancel Combo
+                          </button>
+                        )}
                         {g.dayofOrders.map((o) => (
                           <button
                             key={o.orderId}
@@ -3782,8 +4467,24 @@ export default function ReservationsClient({ token }: { token: string }) {
                               fontWeight: 600,
                               marginLeft: 4,
                             }}
+                            title={`Refunded to card${r.cancelledBy ? ` (${r.cancelledBy})` : ""}`}
                           >
                             -{dollars(r.refundCents)}
+                          </span>
+                        )}
+                        {r.storeCreditGiftCardGan && (r.storeCreditCents ?? 0) > 0 && (
+                          <span
+                            style={{
+                              color: "#22c55e",
+                              fontSize: "0.6rem",
+                              fontWeight: 600,
+                              marginLeft: 4,
+                              fontFamily: "monospace",
+                            }}
+                            title={`HeadPinz FastTrax Gift Card issued${r.cancelledBy ? ` (${r.cancelledBy})` : ""} — guest rebooks with it`}
+                          >
+                            GC {ganDisplay(r.storeCreditGiftCardGan)} (
+                            {dollars(r.storeCreditCents ?? 0)})
                           </span>
                         )}
                       </span>
@@ -3931,7 +4632,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                             Check In
                           </button>
                         )}
-                        {r.status !== "arrived" && r.qamfReservationId && (
+                        {r.status !== "arrived" && r.qamfReservationId && !r.comboSpecialId && (
                           <button
                             type="button"
                             onClick={hasAttr ? undefined : () => setRescheduleTarget(r)}
@@ -3999,10 +4700,17 @@ export default function ReservationsClient({ token }: { token: string }) {
                             Resend
                           </button>
                         )}
-                        {r.status !== "arrived" && bowlingActionable(r) && (
+                        {cancelActionable(r) && (
                           <button
                             type="button"
                             onClick={() => setCancelTarget(r)}
+                            title={
+                              r.comboSpecialId
+                                ? "Cancel the whole VIP combo — refund or HeadPinz FastTrax Gift Card"
+                                : bowlingActionable(r)
+                                  ? "Cancel — refund or HeadPinz FastTrax Gift Card"
+                                  : "Cancel — refund, or a HeadPinz FastTrax Gift Card the guest rebooks with"
+                            }
                             style={{
                               flex: 1,
                               background: "none",
@@ -4634,8 +5342,24 @@ export default function ReservationsClient({ token }: { token: string }) {
                             <span style={{ color: "var(--ba-muted)" }}>Free</span>
                           )}
                           {r.refundCents > 0 && (
-                            <div style={{ color: "#ef4444", fontSize: "0.6rem" }}>
+                            <div
+                              style={{ color: "#ef4444", fontSize: "0.6rem" }}
+                              title={`Refunded to card${r.cancelledBy ? ` (${r.cancelledBy})` : ""}`}
+                            >
                               -{dollars(r.refundCents)}
+                            </div>
+                          )}
+                          {r.storeCreditGiftCardGan && (r.storeCreditCents ?? 0) > 0 && (
+                            <div
+                              style={{
+                                color: "#22c55e",
+                                fontSize: "0.6rem",
+                                fontFamily: "monospace",
+                              }}
+                              title={`HeadPinz FastTrax Gift Card issued${r.cancelledBy ? ` (${r.cancelledBy})` : ""} — guest rebooks with it`}
+                            >
+                              GC {ganDisplay(r.storeCreditGiftCardGan)} (
+                              {dollars(r.storeCreditCents ?? 0)})
                             </div>
                           )}
                         </td>
@@ -4686,6 +5410,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                               r.status !== "completed" &&
                               r.status !== "arrived" &&
                               r.qamfReservationId &&
+                              !r.comboSpecialId &&
                               (() => {
                                 const hasAttr = (r.attractionBookings?.length ?? 0) > 0;
                                 return (
@@ -4695,7 +5420,7 @@ export default function ReservationsClient({ token }: { token: string }) {
                                     disabled={hasAttr}
                                     title={
                                       hasAttr
-                                        ? "Rescheduling not available for bookings with attractions"
+                                        ? "Reschedule is bowling-only. Use Cancel — a HeadPinz FastTrax Gift Card lets the guest rebook any date."
                                         : "Reschedule bowling time"
                                     }
                                     style={{
@@ -4763,30 +5488,33 @@ export default function ReservationsClient({ token }: { token: string }) {
                                   Resend
                                 </button>
                               )}
-                            {/* Cancel — bowling-only */}
-                            {!isCancelled &&
-                              r.status !== "arrived" &&
-                              r.status !== "completed" &&
-                              bowlingActionable(r) && (
-                                <button
-                                  type="button"
-                                  onClick={() => setCancelTarget(r)}
-                                  style={{
-                                    background: "none",
-                                    border: "1px solid rgba(239,68,68,0.3)",
-                                    borderRadius: 5,
-                                    color: "#ef4444",
-                                    cursor: "pointer",
-                                    fontSize: "0.6rem",
-                                    fontWeight: 600,
-                                    padding: "2px 6px",
-                                    textTransform: "uppercase",
-                                    letterSpacing: "0.03em",
-                                  }}
-                                >
-                                  Cancel
-                                </button>
-                              )}
+                            {/* Cancel — all kinds (the cascade resolves combo legs
+                                and mixed carts server-side; refund OR store-credit) */}
+                            {cancelActionable(r) && (
+                              <button
+                                type="button"
+                                onClick={() => setCancelTarget(r)}
+                                title={
+                                  r.comboSpecialId
+                                    ? "Cancel the whole VIP combo — refund or HeadPinz FastTrax Gift Card"
+                                    : "Cancel — refund, or a HeadPinz FastTrax Gift Card the guest rebooks with"
+                                }
+                                style={{
+                                  background: "none",
+                                  border: "1px solid rgba(239,68,68,0.3)",
+                                  borderRadius: 5,
+                                  color: "#ef4444",
+                                  cursor: "pointer",
+                                  fontSize: "0.6rem",
+                                  fontWeight: 600,
+                                  padding: "2px 6px",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.03em",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
