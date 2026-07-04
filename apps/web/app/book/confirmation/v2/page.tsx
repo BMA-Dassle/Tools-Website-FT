@@ -15,6 +15,9 @@ import { buildReservationMemo } from "~/features/booking/service/reservation-mem
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { comboReservationNote, getComboSpecial } from "~/features/combos";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
+import ComboManageNote from "~/components/features/cancellation/ComboManageNote";
+import GiftCardIssuedPanel from "~/components/features/cancellation/GiftCardIssuedPanel";
+import StoreCreditCancelSection from "~/components/features/cancellation/StoreCreditCancelSection";
 
 /** Resolve a race line's display name from our own registries instead
  *  of trusting BMI's public-facing name. BMI's bill/overview API has
@@ -278,6 +281,16 @@ export default function ConfirmationPage() {
     packageLabel: string;
   } | null>(null);
   const [confirmFailed, setConfirmFailed] = useState(false);
+  /** The confirmation URL's HMAC sig — authorizes self-serve cancel. */
+  const [urlSig, setUrlSig] = useState<string | null>(null);
+  /** Lifecycle state from Neon — the page's other data sources are booking-time
+   *  snapshots that never learn about a cancellation. */
+  const [cancelStatus, setCancelStatus] = useState<{
+    cancelled: boolean;
+    outcome?: string;
+    refundCents?: number;
+    storeCredit?: { gan: string; giftCardId: string | null; amountCents: number } | null;
+  } | null>(null);
   /** Multi-activity hub: which activity the guest tapped into. `null`
    *  = the hub (button list). Only meaningful when the booking has 2+
    *  activities; single-activity bookings ignore this and render as v1. */
@@ -293,10 +306,27 @@ export default function ConfirmationPage() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("billId") || params.get("orderId");
     setOrderId(id);
+    // The signed-URL sig authorizes self-serve actions (cancel → gift card).
+    const sig = params.get("sig");
+    setUrlSig(sig);
     if (!id) {
       setError("No booking ID found.");
       setLoading(false);
       return;
+    }
+
+    // Lifecycle check (best-effort, parallel to the main load): a cancelled
+    // booking must render as cancelled, not "You're booked!".
+    if (sig) {
+      fetch(
+        `/api/booking/v2/booking-status?billId=${encodeURIComponent(id)}&sig=${encodeURIComponent(sig)}`,
+        { cache: "no-store" },
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.found) setCancelStatus(d);
+        })
+        .catch(() => void 0);
     }
 
     async function confirmAndLoad() {
@@ -1482,6 +1512,12 @@ export default function ConfirmationPage() {
   const heroImageUrl = heroCfg?.heroImage || BLUE_TRACK;
   const heroIsRacing = heroActivity ? heroActivity.kind === "racing" : bookingType === "racing";
   const heroTitle = heroIsRacing ? "You're on the grid!" : "You're booked!";
+  const bookingCancelled = cancelStatus?.cancelled === true;
+  const cancelledSubtitle = cancelStatus?.storeCredit
+    ? `This booking has been cancelled — your $${(cancelStatus.storeCredit.amountCents / 100).toFixed(2)} HeadPinz FastTrax Gift Card is below.`
+    : (cancelStatus?.refundCents ?? 0) > 0
+      ? `This booking has been cancelled. Your $${((cancelStatus?.refundCents ?? 0) / 100).toFixed(2)} refund is on its way back to your card (3-5 business days).`
+      : "This booking has been cancelled.";
 
   // Combo special: stamped on the booking record at checkout
   // (saveBookingDetails → comboSpecial). Drives the celebratory banner.
@@ -1560,18 +1596,37 @@ export default function ConfirmationPage() {
             </div>
           ) : (
             <>
-              <div className="w-20 h-20 rounded-full bg-[#00E2E5]/20 border-2 border-[#00E2E5]/50 flex items-center justify-center mx-auto mb-4">
+              <div
+                className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                  bookingCancelled
+                    ? "bg-red-500/15 border-2 border-red-500/50"
+                    : "bg-[#00E2E5]/20 border-2 border-[#00E2E5]/50"
+                }`}
+              >
                 <svg
-                  className="w-10 h-10 text-[#00E2E5]"
+                  className={`w-10 h-10 ${bookingCancelled ? "text-red-400" : "text-[#00E2E5]"}`}
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="3"
                   viewBox="0 0 24 24"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  {bookingCancelled ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  )}
                 </svg>
               </div>
-              <h1 className="text-4xl md:text-5xl font-display uppercase tracking-widest text-white mb-2">
+              {bookingCancelled && (
+                <p className="font-display text-sm uppercase tracking-[0.25em] text-red-400 mb-1">
+                  Booking cancelled
+                </p>
+              )}
+              <h1
+                className={`text-4xl md:text-5xl font-display uppercase tracking-widest mb-2 ${
+                  bookingCancelled ? "text-white/35 line-through" : "text-white"
+                }`}
+              >
                 {heroTitle}
               </h1>
               {comboSpecial && (
@@ -1595,7 +1650,9 @@ export default function ConfirmationPage() {
                 </p>
               )}
               <p className="text-white/50 text-sm max-w-md mx-auto">
-                Your reservation is confirmed. Show your QR code at check-in when you arrive.
+                {bookingCancelled
+                  ? cancelledSubtitle
+                  : "Your reservation is confirmed. Show your QR code at check-in when you arrive."}
               </p>
             </>
           )}
@@ -1636,7 +1693,30 @@ export default function ConfirmationPage() {
               not when the guest has drilled into one activity's detail — the
               main page is enough. (Attraction detail views keep their own small
               per-attraction reminder via cfg.showWaiverPrompt.) */}
-          {waiverUrl && !expressLane && !isDetail && (
+          {/* Cancelled settlement — the guest's card (or refund note) front and
+              center; everything below is the historical record. */}
+          {bookingCancelled && !isDetail && (
+            <div className="max-w-2xl mx-auto mb-8">
+              {cancelStatus?.storeCredit ? (
+                <GiftCardIssuedPanel
+                  gan={cancelStatus.storeCredit.gan}
+                  giftCardId={cancelStatus.storeCredit.giftCardId}
+                  amountCents={cancelStatus.storeCredit.amountCents}
+                  rebookHref="/book"
+                  sentToGuest
+                />
+              ) : (
+                <div className="rounded-2xl border border-red-400/30 bg-red-400/5 p-5 sm:p-6">
+                  <h2 className="font-display text-lg uppercase tracking-widest text-white">
+                    Booking cancelled
+                  </h2>
+                  <p className="text-white/60 text-sm leading-relaxed mt-1">{cancelledSubtitle}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {waiverUrl && !expressLane && !isDetail && !bookingCancelled && (
             <div className="max-w-2xl mx-auto rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
               <div className="flex items-start gap-4 mb-4">
                 <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center shrink-0 animate-pulse">
@@ -1758,6 +1838,46 @@ export default function ConfirmationPage() {
               )}
             </div>
           )}
+
+          {/* Manage booking — self-serve cancel converts the payment into a
+              HeadPinz FastTrax Gift Card (that IS the reschedule path for
+              racing/attractions). Combos are staff-only → call-us note.
+              Shipped ON without a flag per owner call 2026-07-03. Hidden once
+              cancelled (the settlement panel above replaces it). */}
+          {!isDetail &&
+            !bookingCancelled &&
+            (comboSpecial ? (
+              <div className="max-w-2xl mx-auto mb-8">
+                <ComboManageNote phone="(239) 275-2226" />
+              </div>
+            ) : orderId && urlSig ? (
+              <div className="max-w-2xl mx-auto mb-8">
+                <StoreCreditCancelSection
+                  billId={orderId}
+                  sig={urlSig}
+                  activities={activities.map((a) => ({
+                    label: activityLabel(a),
+                    time: a.time || null,
+                  }))}
+                  amountCents={receipt?.paidOnlineCents ?? null}
+                  centerPhone={(() => {
+                    const cfg = activityCfg(activities[0] ?? null);
+                    const loc = cfg
+                      ? cfg.location === "both"
+                        ? "headpinz"
+                        : cfg.location
+                      : "headpinz";
+                    const phones: Record<string, string> = {
+                      fasttrax: "(239) 275-2226",
+                      headpinz: "(239) 302-2155",
+                      naples: "(239) 455-3755",
+                    };
+                    return phones[loc] ?? "(239) 302-2155";
+                  })()}
+                  rebookHref="/book"
+                />
+              </div>
+            ) : null)}
 
           {/* Multi-activity hub — one button per activity, sorted by start
               time. Single-activity bookings skip the hub and render as v1. */}

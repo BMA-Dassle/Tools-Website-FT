@@ -375,6 +375,42 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
           }
         }
         if (anyQuoted) quotedTotal = quotedSum;
+
+        // ── Tax-plausibility guard (the USA250 incident signature) ────────
+        // The displayed Tax is derived as quotedTotal − displayed subtotal, so
+        // ANY disagreement between the quote order and the displayed lines
+        // (dropped discount, builder drift, stale quote) silently lands in the
+        // tax line instead of the total. Real sales tax is 6/6.5%; if the
+        // implied tax exceeds ~7.5% + $1, the quote is mispricing — discard it
+        // AND clear the stored quote ids so the reserve takes its fallback
+        // path (which re-derives promos server-side) instead of reusing the
+        // mispriced order. Displayed falls back to the estimate; never blocks.
+        if (quotedTotal != null && quotedTotal - preTaxSubtotal > preTaxSubtotal * 0.075 + 1) {
+          const impliedTax = (quotedTotal - preTaxSubtotal).toFixed(2);
+          console.error(
+            `[checkout] quote/display mismatch: quoted $${quotedTotal.toFixed(2)} implies ` +
+              `$${impliedTax} tax on a $${preTaxSubtotal.toFixed(2)} subtotal — discarding quote`,
+          );
+          void fetch("/api/debug-log", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              messages: [
+                `TAX-PLAUSIBILITY GUARD tripped: quoted=$${quotedTotal.toFixed(2)} subtotal=$${preTaxSubtotal.toFixed(2)} impliedTax=$${impliedTax} promo=${session.appliedPromo?.code ?? "none"}`,
+              ],
+            }),
+          }).catch(() => {});
+          for (const bi of bowlingItems) {
+            dispatch({
+              type: "setBowlingQuote",
+              itemId: bi.id,
+              dayofOrderId: "",
+              totalCents: 0,
+              depositCents: 0,
+            });
+          }
+          quotedTotal = null;
+        }
       }
 
       // Display tax must cover EVERY line Square will tax (LOCATION_TAX is

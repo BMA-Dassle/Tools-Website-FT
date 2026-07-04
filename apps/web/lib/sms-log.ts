@@ -37,6 +37,8 @@ export interface SmsLogEntry {
     | "bowling-lane-ready"
     | "guest-survey"
     | "group-event-rsvp"
+    | "cancel-refund"
+    | "cancel-credit"
     | "other";
   /** Voxtelesys HTTP status, or null if we didn't reach the API */
   status: number | null;

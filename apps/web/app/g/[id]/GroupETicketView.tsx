@@ -17,6 +17,7 @@ import {
   sameEtDayOrUnknown,
 } from "../../t/[id]/cards";
 import ImportantRaceInfo from "../../t/[id]/ImportantRaceInfo";
+import HeadsockNotice from "../../t/[id]/HeadsockNotice";
 import FullScreenTicket from "../../t/[id]/FullScreenTicket";
 import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
@@ -460,6 +461,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                                     </p>
                                   </div>
                                 )}
+                                <HeadsockNotice />
                                 <button
                                   type="button"
                                   onClick={() => setFullscreenQrKey(key)}
@@ -491,6 +493,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                                     </p>
                                   </div>
                                 )}
+                                <HeadsockNotice />
                                 <button
                                   type="button"
                                   onClick={() => setFullscreenQrKey(key)}

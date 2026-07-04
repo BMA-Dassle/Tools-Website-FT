@@ -395,6 +395,21 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS br_order_complete_pending ON bowling_reservations(booked_at)
           WHERE dayof_order_completed_at IS NULL AND checkin_method IS NOT NULL AND combo_special_id IS NULL`;
 
+  // ── Cancellation outcome + store-credit tracking ──────────────────
+  // A cancellation settles one of two ways: 'refund' (card refund via
+  // /v2/refunds) or 'store_credit' (deposit converted into a NEW customer
+  // gift card — Square-generated GAN, never the internal WEBHPFM… deposit
+  // card). 'none' = nothing was charged ($0/credit rows). The store-credit
+  // card id/GAN are persisted BEFORE delivery is attempted so a failed
+  // email/SMS can never lose the card — the portal reads them off the row.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS cancellation_outcome TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS cancelled_by TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS store_credit_gift_card_id TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS store_credit_gift_card_gan TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS store_credit_cents INTEGER NOT NULL DEFAULT 0`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS store_credit_state TEXT`;
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS cancel_notified_at TIMESTAMPTZ`;
+
   schemaReady = true;
 }
 
@@ -603,6 +618,24 @@ export interface BowlingReservation {
   squareRefundId?: string;
   /** Actual amount refunded to the customer (cents). 0 if free booking. */
   refundCents: number;
+  /**
+   * How the cancellation settled: 'refund' (card refund), 'store_credit'
+   * (deposit converted to a new customer gift card), or 'none' ($0 rows —
+   * nothing was charged). Undefined on rows cancelled before this existed.
+   */
+  cancellationOutcome?: "refund" | "store_credit" | "none";
+  /** Who triggered the cancellation: guest self-serve or staff portal. */
+  cancelledBy?: "customer" | "admin";
+  /** Store-credit gift card issued on cancellation (Square-generated GAN, NOT the internal deposit card). */
+  storeCreditGiftCardId?: string;
+  /** The store-credit card's GAN — shown to staff on the cancelled row + sent to the guest. */
+  storeCreditGiftCardGan?: string;
+  /** Amount loaded onto the store-credit card (cents). 0 = no store credit issued. */
+  storeCreditCents: number;
+  /** 'issuing' = persisted before activation completed; 'issued' = verified ACTIVE. */
+  storeCreditState?: "issuing" | "issued";
+  /** ISO timestamp when the cancellation email/SMS went out. Null = not (yet) notified. */
+  cancelNotifiedAt?: string;
   /** Stable 6-char short code for confirmation links (stored at booking time). */
   shortCode?: string;
   /** ISO timestamp set when the lane-open processor runs (kitchen notes + gift card payment). */
@@ -820,6 +853,17 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     cancelledAt: row.cancelled_at ? (row.cancelled_at as Date).toISOString() : undefined,
     squareRefundId: (row.square_refund_id as string) ?? undefined,
     refundCents: (row.refund_cents as number) ?? 0,
+    cancellationOutcome:
+      (row.cancellation_outcome as BowlingReservation["cancellationOutcome"]) ?? undefined,
+    cancelledBy: (row.cancelled_by as BowlingReservation["cancelledBy"]) ?? undefined,
+    storeCreditGiftCardId: (row.store_credit_gift_card_id as string) ?? undefined,
+    storeCreditGiftCardGan: (row.store_credit_gift_card_gan as string) ?? undefined,
+    storeCreditCents: (row.store_credit_cents as number) ?? 0,
+    storeCreditState:
+      (row.store_credit_state as BowlingReservation["storeCreditState"]) ?? undefined,
+    cancelNotifiedAt: row.cancel_notified_at
+      ? (row.cancel_notified_at as Date).toISOString()
+      : undefined,
     shortCode: (row.short_code as string) ?? undefined,
     dayofOrderSentAt: row.dayof_order_sent_at
       ? (row.dayof_order_sent_at as Date).toISOString()
@@ -910,6 +954,13 @@ export async function insertBowlingReservation(
     | "attractionBookings"
     | "checkinMethod"
     | "bookingMetadata"
+    | "cancellationOutcome"
+    | "cancelledBy"
+    | "storeCreditGiftCardId"
+    | "storeCreditGiftCardGan"
+    | "storeCreditCents"
+    | "storeCreditState"
+    | "cancelNotifiedAt"
   > & {
     rewardDiscountCents?: number;
     promoSavingsCents?: number;
@@ -1061,6 +1112,43 @@ export async function listComboSiblingReservations(
     ORDER BY id
   `;
   return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * The MONEY GROUP a cancellation must operate on: every reservation row that
+ * shares the anchor's deposit charge. One deposit order funds one internal
+ * gift card, so refunding/converting it for half a group is impossible —
+ * combo legs (race + bowling) AND mixed carts (race + attraction rows on one
+ * bill) cancel together. Grouping key: square_deposit_order_id when charged;
+ * bmi_bill_id for $0/credit rows; the anchor alone otherwise.
+ *
+ * Deliberately does NOT filter status: already-cancelled legs are returned so
+ * the cascade can (a) short-circuit when the WHOLE group is cancelled and
+ * (b) repair legacy partial cancels (the old combo bug) by skipping done legs.
+ */
+export async function listCancelGroupReservations(
+  anchor: BowlingReservation,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [anchor];
+  await ensureBowlingSchema();
+  const q = sql();
+  if (anchor.squareDepositOrderId) {
+    const rows = await q`
+      SELECT * FROM bowling_reservations
+      WHERE square_deposit_order_id = ${anchor.squareDepositOrderId}
+      ORDER BY id
+    `;
+    return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  }
+  if (anchor.bmiBillId) {
+    const rows = await q`
+      SELECT * FROM bowling_reservations
+      WHERE bmi_bill_id = ${anchor.bmiBillId}
+      ORDER BY id
+    `;
+    return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+  }
+  return [anchor];
 }
 
 /**
@@ -2000,7 +2088,18 @@ export async function incrementQamfConfirmAttempt(
  */
 export async function updateBowlingReservationCancelled(
   id: number,
-  { squareRefundId, refundCents }: { squareRefundId?: string; refundCents: number },
+  {
+    squareRefundId,
+    refundCents,
+    cancellationOutcome,
+    cancelledBy,
+  }: {
+    squareRefundId?: string;
+    refundCents: number;
+    /** Omitted by legacy callers — column stays NULL for them. */
+    cancellationOutcome?: "refund" | "store_credit" | "none";
+    cancelledBy?: "customer" | "admin";
+  },
 ): Promise<void> {
   if (!isDbConfigured()) return;
   await ensureBowlingSchema();
@@ -2008,11 +2107,48 @@ export async function updateBowlingReservationCancelled(
   await q`
     UPDATE bowling_reservations
     SET
-      status           = 'cancelled',
-      cancelled_at     = NOW(),
-      square_refund_id = ${squareRefundId ?? null},
-      refund_cents     = ${refundCents}
+      status               = 'cancelled',
+      cancelled_at         = NOW(),
+      square_refund_id     = ${squareRefundId ?? null},
+      refund_cents         = ${refundCents},
+      cancellation_outcome = COALESCE(${cancellationOutcome ?? null}, cancellation_outcome),
+      cancelled_by         = COALESCE(${cancelledBy ?? null}, cancelled_by)
     WHERE id = ${id}
+  `;
+}
+
+/**
+ * Persist the store-credit gift card BEFORE delivery is attempted (and before
+ * the cascade continues past the mint) so the GAN is recoverable from the
+ * portal even if activation verification, teardown, or email/SMS fail.
+ * Called with state 'issuing' right after the card object exists, then
+ * 'issued' once the ACTIVATE is verified.
+ */
+export async function updateStoreCreditIssued(
+  id: number,
+  sc: { giftCardId: string; gan: string; cents: number; state: "issuing" | "issued" },
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET
+      store_credit_gift_card_id  = ${sc.giftCardId},
+      store_credit_gift_card_gan = ${sc.gan},
+      store_credit_cents         = ${sc.cents},
+      store_credit_state         = ${sc.state}
+    WHERE id = ${id}
+  `;
+}
+
+/** Stamp the time the cancellation email/SMS went out (per anchor row). */
+export async function markCancelNotified(id: number): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations SET cancel_notified_at = NOW() WHERE id = ${id}
   `;
 }
 
