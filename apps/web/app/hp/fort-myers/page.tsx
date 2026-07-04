@@ -4,6 +4,7 @@ import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import EventClosurePopup from "@/components/EventClosurePopup";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
+import July4Fireworks from "~/components/features/july4/July4Fireworks";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import {
   BreadcrumbJsonLd,
@@ -241,6 +242,7 @@ export default function FortMyersPage() {
     <div className="bg-[#0a1628]">
       <EventClosurePopup brand="headpinz" />
       <Usa250PromoPopup />
+      <July4Fireworks />
       <BreadcrumbJsonLd
         items={[
           { name: "HeadPinz", url: "https://headpinz.com" },

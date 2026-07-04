@@ -6,6 +6,7 @@ import RacerJourney from "@/components/home/RacerJourney";
 import GroupEvents from "@/components/home/GroupEvents";
 import EventClosurePopup from "@/components/EventClosurePopup";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
+import July4Fireworks from "~/components/features/july4/July4Fireworks";
 import { fasttraxOpenGraph, fasttraxTwitter } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -31,6 +32,7 @@ export default function HomePage() {
     <>
       <EventClosurePopup brand="fasttrax" />
       <Usa250PromoPopup />
+      <July4Fireworks />
       <Hero />
       <Attractions />
       <GalleryStrip />
