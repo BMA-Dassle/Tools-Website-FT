@@ -99,6 +99,17 @@ export const TICKET_PULSE_CSS = `
     0%, 100% { box-shadow: 0 0 20px rgba(228,28,29,0.35), 0 0 40px rgba(228,28,29,0.15); }
     50% { box-shadow: 0 0 32px rgba(228,28,29,0.6), 0 0 64px rgba(228,28,29,0.28); }
   }
+  @keyframes headsockFlash {
+    0%, 100% { background-color: rgba(245,158,11,0.10); }
+    50% { background-color: rgba(245,158,11,0.30); }
+  }
+  .headsock-flash {
+    background-color: rgba(245,158,11,0.2);
+    animation: headsockFlash 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .headsock-flash { animation: none; }
+  }
 `;
 
 export function CheckingInCard({

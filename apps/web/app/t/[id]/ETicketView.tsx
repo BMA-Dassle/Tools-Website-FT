@@ -17,6 +17,7 @@ import {
   sameEtDayOrUnknown,
 } from "./cards";
 import ImportantRaceInfo from "./ImportantRaceInfo";
+import HeadsockNotice from "./HeadsockNotice";
 import FullScreenTicket from "./FullScreenTicket";
 import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
@@ -306,6 +307,7 @@ export default function ETicketView({
                     </p>
                   </div>
                 )}
+                <HeadsockNotice />
                 <button
                   type="button"
                   onClick={() => setFullscreenQr(true)}
@@ -339,6 +341,7 @@ export default function ETicketView({
                     </p>
                   </div>
                 )}
+                <HeadsockNotice />
                 <button
                   type="button"
                   onClick={() => setFullscreenQr(true)}
