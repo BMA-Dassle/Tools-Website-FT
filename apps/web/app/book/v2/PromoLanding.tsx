@@ -347,12 +347,13 @@ export function PromoLanding({
       <section className="px-4 pb-12 sm:pb-20">
         <div className="mx-auto max-w-5xl">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
-            {/* World Cup VIP Bowling — time-boxed takeover tile, leads while
-                the tournament runs (self-hides after the final). */}
-            {worldCup && <WorldCupCard worldCup={worldCup} gold={HP_GOLD} />}
             {combos.map((combo) => (
               <ComboCard key={combo.id} combo={combo} gold={HP_GOLD} />
             ))}
+            {/* World Cup VIP Bowling — compact time-boxed tile after the combo
+                specials (owner 7/6: "small box second row", Ultimate VIP keeps
+                the lead). Self-hides after the final. */}
+            {worldCup && <WorldCupCard worldCup={worldCup} gold={HP_GOLD} />}
             {initialOfferings.map((o) => (
               <AttractionCard
                 key={o.slug}
@@ -370,11 +371,12 @@ export function PromoLanding({
   );
 }
 
-/** World Cup VIP Bowling landing card — premium double-width like the
- *  Ultimate VIP tile, fronted by the real photo of the VIP lanes with the
- *  match live on the NeoVerse wall. Limited-time: the parent only passes
- *  `worldCup` while the tournament window is active and a center's kill
- *  switch is on, so this card self-retires after the July 19 final. */
+/** World Cup VIP Bowling landing card — COMPACT single-width tile (owner 7/6:
+ *  "small box second row"; Ultimate VIP keeps the lead spot). Fronted by the
+ *  real photo of the VIP lanes with the match live on the NeoVerse wall.
+ *  Limited-time: the parent only passes `worldCup` while the tournament window
+ *  is active and a center's kill switch is on, so it self-retires after the
+ *  July 19 final. */
 function WorldCupCard({
   worldCup,
   gold,
@@ -385,21 +387,21 @@ function WorldCupCard({
   return (
     <Link
       href={worldCup.href}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6 sm:col-span-2"
-      style={{ borderColor: `${gold}55`, boxShadow: `0 0 32px ${gold}2e` }}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6"
+      style={{ borderColor: `${gold}55`, boxShadow: `0 0 18px ${gold}24` }}
     >
-      <div className="relative aspect-square overflow-hidden sm:aspect-[21/9]">
+      <div className="relative aspect-[4/3] overflow-hidden">
         <Image
           src="/promo/world-cup/neoverse-vip.jpg"
           alt="World Cup match on the NeoVerse LED wall over the VIP bowling lanes"
           fill
           className="object-cover transition-transform duration-500 group-hover:scale-105"
-          sizes="(max-width: 640px) 100vw, 66vw"
+          sizes="(max-width: 640px) 100vw, 33vw"
         />
         <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
         <div className="absolute right-3 top-3">
           <span
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider backdrop-blur-sm"
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm"
             style={{ backgroundColor: gold, color: "#0a1628" }}
           >
             <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
@@ -408,52 +410,18 @@ function WorldCupCard({
             Limited Time
           </span>
         </div>
-        <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5">
-          <h3 className="font-display text-2xl font-black uppercase tracking-wider text-white sm:text-3xl">
+        <div className="absolute inset-x-0 bottom-0 p-4">
+          <h3 className="font-display text-xl font-black uppercase tracking-wider text-white">
             World Cup VIP Bowling
           </h3>
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col p-4 sm:p-5">
-        <div className="mb-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-          <div>
-            <p
-              className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
-              style={{ color: gold }}
-            >
-              Match day, VIP style
-            </p>
-            <ul className="space-y-1.5 text-sm text-white/75">
-              <li className="flex items-start gap-2">
-                <ComboCheck gold={gold} />
-                2½ hours of VIP bowling from kickoff
-              </li>
-              <li className="flex items-start gap-2">
-                <ComboCheck gold={gold} />
-                Every match on our massive NeoVerse LED walls
-              </li>
-            </ul>
-          </div>
-          <div>
-            <p
-              className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
-              style={{ color: gold }}
-            >
-              Included
-            </p>
-            <ul className="space-y-1.5 text-sm text-white/75">
-              <li className="flex items-start gap-2">
-                <ComboCheck gold={gold} />
-                Chips &amp; salsa in the semi-private VIP suite
-              </li>
-              <li className="flex items-start gap-2">
-                <ComboCheck gold={gold} />
-                Up to 6 bowlers per lane · shoe rental extra
-              </li>
-            </ul>
-          </div>
-        </div>
+      <div className="flex flex-1 flex-col p-4">
+        <p className="mb-2 text-sm text-white/75">
+          2½-hr VIP lane from kickoff · NeoVerse LED walls · chips &amp; salsa included · shoes
+          extra
+        </p>
 
         {worldCup.nextMatch && (
           <p className="mb-3 text-xs font-semibold text-white/60">
@@ -462,17 +430,12 @@ function WorldCupCard({
         )}
 
         <div className="mt-auto flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-bold text-white">
-              $112.50<span className="text-xs font-normal text-white/50">/lane Mon–Thu</span>
-            </p>
-            <p className="text-sm font-bold text-white">
-              $137.50
-              <span className="text-xs font-normal text-white/50">/lane Fri–Sun · + tax</span>
-            </p>
-          </div>
+          <p className="text-sm font-bold text-white">
+            $112.50–$137.50
+            <span className="text-xs font-normal text-white/50">/lane + tax</span>
+          </p>
           <span
-            className="whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-bold uppercase tracking-wider transition-transform group-hover:scale-[1.03]"
+            className="whitespace-nowrap rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider transition-transform group-hover:scale-[1.03]"
             style={{ backgroundColor: gold, color: "#0a1628" }}
           >
             Pick Your Match →
