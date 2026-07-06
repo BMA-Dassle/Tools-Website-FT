@@ -107,9 +107,13 @@ export default async function BookV2LandingPage({
   const nextFixture = showWorldCup
     ? (upcomingFrom(await fixturesWithLiveTeams(), nowMs)[0] ?? null)
     : null;
+  // Deep-link the center only when we actually know it (or only one center is
+  // enabled). A center-less landing must NOT force fort-myers (owner bug 7/6) —
+  // the wizard's center picker asks instead.
+  const wcHrefCenter = center ?? (wcCenters.length === 1 ? wcCenters[0] : null);
   const worldCup = showWorldCup
     ? {
-        href: `/book/bowling/v2?experience=world-cup&location=${center ?? wcCenters[0]}`,
+        href: `/book/bowling/v2?experience=world-cup${wcHrefCenter ? `&location=${wcHrefCenter}` : ""}`,
         nextMatch: nextFixture
           ? `${fixtureLabel(nextFixture)} — ${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
           : null,

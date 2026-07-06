@@ -146,7 +146,9 @@ export function PromoLanding({
       if (s) await abandonBooking(s);
     } finally {
       clearBookingSession();
-      window.location.href = "/book/v2";
+      // Keep the landing's center context (owner bug 7/6: clearing the cart on
+      // a Naples landing bounced the visitor back to the center-less default).
+      window.location.href = center ? `/book/v2?location=${center}` : "/book/v2";
     }
   }
 

@@ -26,10 +26,12 @@ const SESSION_KEY = "world-cup-vip-2026";
 const GOLD = "#FFD700";
 
 export default function WorldCupVipPopup({
-  bookHref = "/book/bowling/v2?experience=world-cup&location=fort-myers",
+  // Center-less default: the wizard's center picker asks (owner bug 7/6 —
+  // never force fort-myers on a visitor whose center we don't know). The
+  // location-page mounts pass their own center-scoped href.
+  bookHref = "/book/bowling/v2?experience=world-cup",
 }: {
-  /** Center-scoped booking link (a Naples mount passes &location=naples once
-   *  that center's flag is enabled). */
+  /** Center-scoped booking link (location-page mounts pass &location=...). */
   bookHref?: string;
 }) {
   const [visible, setVisible] = useState(false);

@@ -32,7 +32,11 @@ import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTime
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
 import { comboBowlingComponent, getComboSpecial } from "~/features/combos/combo-specials";
 import { holdComboBowling, releaseComboBowlingHold } from "~/features/combos/combo-booking";
-import { worldCupCenterEnabled, worldCupWindowActive } from "~/features/world-cup";
+import {
+  worldCupCenterEnabled,
+  worldCupEnabledCenters,
+  worldCupWindowActive,
+} from "~/features/world-cup";
 import { qamfCenterIdForCode } from "~/features/booking/types";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
@@ -190,11 +194,16 @@ export function BookingFlow({
     // WorldCupMatchStep replaces the Slots/Tier/Offer steps. Gated on the
     // per-center kill switch + the tournament window so a stale marketing
     // link degrades to the normal bowling wizard instead of a dead end.
+    // With no center known yet, seed World Cup mode as long as ANY center is
+    // enabled — the CenterPickerModal asks next (owner bug 7/6: a center-less
+    // entry silently degraded to the plain bowling wizard). A KNOWN-disabled
+    // center still degrades gracefully.
+    const wcEntryCenter = initialContext?.center ?? session.center;
     const wantWorldCup =
       activity === "bowling" &&
       !!initialContext?.worldCup &&
       worldCupWindowActive(Date.now()) &&
-      worldCupCenterEnabled(initialContext?.center ?? session.center);
+      (wcEntryCenter ? worldCupCenterEnabled(wcEntryCenter) : worldCupEnabledCenters().length > 0);
 
     const makeItem = (): SessionItem => {
       const created = newItem(activity);
