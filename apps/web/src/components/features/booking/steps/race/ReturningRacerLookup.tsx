@@ -165,7 +165,10 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
   }, [autoCode]);
 
   function formatPhoneInput(value: string): string {
-    const digits = value.replace(/\D/g, "").slice(0, 10);
+    // Strip a US country code before truncating — browser autofill supplies "+1 (239) 555-1234"
+    let digits = value.replace(/\D/g, "");
+    if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+    digits = digits.slice(0, 10);
     if (digits.length <= 3) return digits;
     if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
@@ -468,6 +471,8 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
         </p>
         <input
           type="text"
+          name="one-time-code"
+          autoComplete="one-time-code"
           inputMode="numeric"
           maxLength={6}
           value={smsCode}
@@ -526,6 +531,8 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
             <span className="mb-1 block text-xs font-semibold text-white/50">Phone number</span>
             <input
               type="tel"
+              name="phone"
+              autoComplete="tel"
               value={phone}
               onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
               placeholder="(555) 555-1234"

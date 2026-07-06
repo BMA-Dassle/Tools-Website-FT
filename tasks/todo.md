@@ -1,5 +1,18 @@
 # Open Tasks
 
+## Gate /api/bmi-office behind OTP verification — NOT STARTED (security)
+
+`/api/bmi-office` is an unauthenticated proxy to BMI Office: anyone can call
+`?action=search&q=<phone>` then `?action=person&id=…` / `?action=deposits&personId=…` and get
+full racer PII (name, email, DOB, memberships, credit balances) with zero verification. The
+returning-racer flow's OTP gate is client-side only — `ReturningRacerLookup` fetches all PII
+into state BEFORE sending the code, and the `verified:<phone>` Redis flag set by
+`/api/sms-verify` PUT is never checked server-side.
+
+- [ ] Gate `action=person|deposits` (at minimum) on the `verified:<phone>` flag
+- [ ] Reorder the client flow: send + verify OTP first, then fetch accounts
+- [ ] Check the v1 component + any other `/api/bmi-office` callers before tightening
+
 ## Cancel & refund improvements (all-kinds cancel + store-credit gift cards) — BUILT 2026-07-03
 
 **Branch `feat/cancel-refund-improvements` — not yet merged.** Owner decisions: no reschedule
