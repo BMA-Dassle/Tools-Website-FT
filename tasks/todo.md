@@ -1,5 +1,37 @@
 # Open Tasks
 
+## Ultimate VIP improvements — 3 PRs BUILT 2026-07-06, awaiting review + live smoke
+
+Owner decisions (locked 7/6): reserve the combo's Starter anchor heats from regular bookings
+(release 60 min before, Starter anchors only) · steer later same-date VIP bookings onto the
+existing group's schedule (default + highlight, staff email flags non-matches) · juniors get a
+mirror heat right AFTER the adult heat on both race legs, same per-person price. Plan file:
+`~/.claude/plans/cheeky-wandering-lampson.md`. Three independent branches, each flag-gated:
+
+- [ ] **PR 1 `feat/vip-anchor-reserve`** — new `vip-combo-anchor-reserve` restriction rule
+      (empty slot at 2/4/6/8/10 PM blocked on every track/tier, occupied-session joins
+      allowed, 60-min lift, "VIP Reserved" disabled card) + per-rule `exemptComboBookings` /
+      ctx `isComboBooking` so the combo's own `bookHeatsOnAdvance` path bypasses ONLY this
+      rule. Flag `NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE` (default OFF). 61 restriction tests
+      green. Smoke: greyed 2:00 card in the regular picker, 2:12 bookable, combo books 2:00,
+      card frees at T-59.
+- [ ] **PR 2 `feat/vip-group-match`** — `combo-group-match.ts` (pure matchers) +
+      `combo-existing.server.ts` over `listVipComboReservations` + GET
+      `/api/booking/v2/combo/existing` (fail-open, no PII) + grid banner/badges ("Joins/Near
+      the 4 PM group", gold ring) + staff-email match note (exact / ~45-min drift / DOES NOT
+      MATCH warning + subject suffix). Flag `NEXT_PUBLIC_COMBO_GROUP_MATCH` (default ON; email
+      note unflagged). 18 new unit tests. Smoke: book group A at 4 PM → reopen wizard →
+      badge; book B on it → "same Starter heat" email; book C at 8 PM → mismatch warning.
+- [ ] **PR 3 `feat/combo-junior-mirror`** — mixed parties book juniors on the first junior
+      block strictly after the adult heat (36-min window, `pickJuniorMirror`); leg end =
+      last race + 30 min (`raceLegEndMs`) so the bowling 75-min window measures from the
+      junior heat; confirm modal shows "Juniors race at 2:12 PM on Blue"; staff email rows
+      tagged "— Juniors". Flag `NEXT_PUBLIC_COMBO_JUNIOR_MIRROR` (default OFF; off =
+      byte-identical current path). Known limits: junior Starter is Blue-only; Mega Tuesday
+      stays junior-blocked. Smoke: 2 adults + 1 junior on a non-Tuesday e2e.
+- [ ] Merge order 1 → 2 → 3 (2 and 3 touch the same ComboSteps regions); delete branches
+      after merge. Flags flipped in Vercel per PR after ops sign-off (build-baked).
+
 ## Cancel & refund improvements (all-kinds cancel + store-credit gift cards) — BUILT 2026-07-03
 
 **Branch `feat/cancel-refund-improvements` — not yet merged.** Owner decisions: no reschedule
