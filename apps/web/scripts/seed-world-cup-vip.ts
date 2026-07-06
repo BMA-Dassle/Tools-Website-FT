@@ -95,7 +95,12 @@ const FM = "TXBSQN0FEKQ11";
 const NAPLES = "PPTR5G2N0QXF7";
 
 // ── Pricing mode ─────────────────────────────────────────────────────────────
-const USE_DEDICATED_CATALOG_ITEM = true;
+// LAUNCH 2026-07-06 (owner: "get it live for tonight's game"): FALLBACK mode —
+// zero Square catalog ops, each lane rings the two existing VIP rate items.
+// To upgrade later: create the "World Cup VIP Match Window" item in Square,
+// fill WC_CAT_* below, flip this to true, re-run the seed (idempotent — items
+// are replaced per experience).
+const USE_DEDICATED_CATALOG_ITEM = false;
 
 // ── Square catalog object IDs ────────────────────────────────────────────────
 // DEDICATED mode: fill these two in from the Square Dashboard.
