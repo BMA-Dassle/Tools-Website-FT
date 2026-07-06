@@ -52,7 +52,8 @@
  *     those times stays allowed. Combo bookings themselves are exempt
  *     (exemptComboBookings — the reserve exists FOR them). 60-min last-minute
  *     lift so unclaimed anchors still fill. DISABLED + "VIP Reserved" (owner
- *     2026-07-06). Flag-gated OFF via NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE.
+ *     2026-07-06). Default ON; NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE=false
+ *     kills it.
  *
  * ── How a "Pro session" is detected (no Pandora / no check-in needed) ──
  * BMI's per-tier dayplanner pages mean an OCCUPIED heat belongs to exactly one
@@ -226,17 +227,16 @@ const WALK_IN_OR_EXPRESS_PRESENTATION: RestrictionPresentation = {
 };
 
 /**
- * VIP anchor-reserve flag: default OFF (ships dark — it changes live
- * regular-customer inventory). Read per evaluation (the rule's `enabled` is a
- * getter) so the server guard, the picker bundle (NEXT_PUBLIC_* is inlined at
- * build) and tests all see the current value. Flip
- * NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE=true in Vercel + redeploy (build-baked)
- * after ops signs off. Also off whenever the Ultimate VIP combo itself is
- * disabled — no combo on sale means nothing to reserve.
+ * VIP anchor-reserve flag: default ON (owner 2026-07-06); kill with
+ * NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE=false in Vercel + redeploy
+ * (build-baked). Read per evaluation (the rule's `enabled` is a getter) so
+ * the server guard, the picker bundle (NEXT_PUBLIC_* is inlined at build) and
+ * tests all see the current value. Also off whenever the Ultimate VIP combo
+ * itself is disabled — no combo on sale means nothing to reserve.
  */
 function vipAnchorReserveEnabled(): boolean {
   return (
-    process.env.NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE === "true" &&
+    process.env.NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE !== "false" &&
     (getComboSpecial("race-bowl")?.enabled ?? false)
   );
 }

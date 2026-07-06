@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   evaluateRaceRestrictions,
   type RestrictionBlock,
@@ -641,10 +641,9 @@ describe("evaluateRaceRestrictions — reserve room for two adult Starter races 
 });
 
 describe("evaluateRaceRestrictions — VIP combo anchor reserve", () => {
-  // The rule's `enabled` is a getter reading the env per evaluation, so
-  // stubbing here flips it without a module reload. Flag default is OFF —
-  // every other suite in this file exercises the rules with it off.
-  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE", "true"));
+  // Flag defaults ON (owner 2026-07-06) — these tests run against the real
+  // default. The rule's `enabled` is a getter reading the env per evaluation,
+  // so the kill-switch test stubs "false" without a module reload.
   afterEach(() => vi.unstubAllEnvs());
 
   // Naive wall-clock starts on Tue 2026-06-23, mid-afternoon — clear of the
@@ -762,7 +761,7 @@ describe("evaluateRaceRestrictions — VIP combo anchor reserve", () => {
     );
   });
 
-  it("is inert when the flag is off (default)", () => {
+  it("kill switch: explicitly setting the flag to false disables the rule", () => {
     vi.stubEnv("NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE", "false");
     expect(evaluateRaceRestrictions(vipCtx()).blocked).toBe(false);
   });
