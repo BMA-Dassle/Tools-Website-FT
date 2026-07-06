@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   evaluateRaceRestrictions,
   type RestrictionBlock,
@@ -637,5 +637,132 @@ describe("evaluateRaceRestrictions — reserve room for two adult Starter races 
         roomCtx({ candidateStartLocal: undefined, trackAllTierBlocks: occupiedHour }),
       ).blocked,
     ).toBe(false);
+  });
+});
+
+describe("evaluateRaceRestrictions — VIP combo anchor reserve", () => {
+  // Flag defaults ON (owner 2026-07-06) — these tests run against the real
+  // default. The rule's `enabled` is a getter reading the env per evaluation,
+  // so the kill-switch test stubs "false" without a module reload.
+  afterEach(() => vi.unstubAllEnvs());
+
+  // Naive wall-clock starts on Tue 2026-06-23, mid-afternoon — clear of the
+  // opening-heats window. VIP grid = 2/4/6/8/10 PM (registry startHours).
+  const wd = (h: number, m: number) =>
+    `2026-06-23T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+
+  function vipCtx(over: Partial<RestrictionContext> = {}): RestrictionContext {
+    return {
+      tier: "starter",
+      category: "adult",
+      track: "Red",
+      candidateStartMs: ms(14, 0),
+      candidateStartLocal: wd(14, 0),
+      nowMs: FAR_BEFORE,
+      expressEligible: true,
+      productBlocks: [blk(14, 0, 10)], // the candidate's own slot, still empty
+      ...over,
+    };
+  }
+
+  it("blocks the still-empty 2:00 PM slot for adult Starter, action=disable + 'VIP Reserved'", () => {
+    const r = evaluateRaceRestrictions(vipCtx());
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("vip-combo-anchor-reserve");
+    expect(r.action).toBe("disable");
+    expect(r.cardLabel).toBe("VIP Reserved");
+  });
+
+  it("blocks every tier and category — the empty slot is shared inventory", () => {
+    const int = evaluateRaceRestrictions(
+      vipCtx({
+        tier: "intermediate",
+        candidateStartMs: ms(18, 0),
+        candidateStartLocal: wd(18, 0),
+        productBlocks: [blk(18, 0, 10)],
+      }),
+    );
+    expect(int.blocked).toBe(true);
+    expect(int.ruleId).toBe("vip-combo-anchor-reserve");
+    const jr = evaluateRaceRestrictions(
+      vipCtx({ category: "junior", track: "Blue", productBlocks: [blk(14, 0, 10)] }),
+    );
+    expect(jr.blocked).toBe(true);
+    expect(jr.ruleId).toBe("vip-combo-anchor-reserve");
+  });
+
+  it("covers the whole grid including 10 PM", () => {
+    const r = evaluateRaceRestrictions(
+      vipCtx({
+        candidateStartMs: ms(22, 0),
+        candidateStartLocal: wd(22, 0),
+        productBlocks: [blk(22, 0, 10)],
+      }),
+    );
+    expect(r.blocked).toBe(true);
+  });
+
+  it("allows non-anchor minutes and non-grid hours", () => {
+    expect(
+      evaluateRaceRestrictions(
+        vipCtx({
+          candidateStartMs: ms(14, 12),
+          candidateStartLocal: wd(14, 12),
+          productBlocks: [blk(14, 12, 10)],
+        }),
+      ).blocked,
+    ).toBe(false);
+    expect(
+      evaluateRaceRestrictions(
+        vipCtx({
+          candidateStartMs: ms(15, 0),
+          candidateStartLocal: wd(15, 0),
+          productBlocks: [blk(15, 0, 10)],
+        }),
+      ).blocked,
+    ).toBe(false);
+  });
+
+  it("allows joining an already-occupied same-tier session at the anchor time", () => {
+    const r = evaluateRaceRestrictions(vipCtx({ productBlocks: [blk(14, 0, 6)] }));
+    expect(r.blocked).toBe(false);
+  });
+
+  it("lifts within 60 min of the heat (unclaimed anchors still fill)", () => {
+    const candidate = ms(14, 0);
+    expect(evaluateRaceRestrictions(vipCtx({ nowMs: candidate - 45 * 60_000 })).blocked).toBe(
+      false,
+    );
+    expect(evaluateRaceRestrictions(vipCtx({ nowMs: candidate - 61 * 60_000 })).blocked).toBe(true);
+  });
+
+  it("exempts combo bookings from this rule only", () => {
+    // The combo's own anchor booking sails through…
+    expect(evaluateRaceRestrictions(vipCtx({ isComboBooking: true })).blocked).toBe(false);
+    // …but a combo junior heat still hits the junior back-to-back rule.
+    const r = evaluateRaceRestrictions(
+      vipCtx({
+        isComboBooking: true,
+        tier: "intermediate",
+        category: "junior",
+        track: "Blue",
+        candidateStartMs: ms(17, 36),
+        candidateStartLocal: wd(17, 36),
+        productBlocks: [blk(17, 24, 8)], // occupied junior neighbor 12 min away
+      }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("blue-no-back-to-back-junior");
+  });
+
+  it("no-ops without candidateStartLocal (epoch-only caller)", () => {
+    expect(evaluateRaceRestrictions(vipCtx({ candidateStartLocal: undefined })).blocked).toBe(
+      false,
+    );
+  });
+
+  it("kill switch: explicitly setting the flag to false disables the rule", () => {
+    vi.stubEnv("NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE", "false");
+    expect(evaluateRaceRestrictions(vipCtx()).blocked).toBe(false);
   });
 });

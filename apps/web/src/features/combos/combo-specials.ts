@@ -189,6 +189,16 @@ export function comboReorderFallbackEnabled(): boolean {
   return process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK === "true";
 }
 
+/**
+ * Group-match flag: default ON unless explicitly "false" (additive/advisory —
+ * it only badges the start grid and annotates the staff email). When a VIP
+ * combo is already booked on a date, later bookings are steered onto the same
+ * schedule so staff walk both groups to HeadPinz together (owner 2026-07-06).
+ */
+export function comboGroupMatchEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_COMBO_GROUP_MATCH !== "false";
+}
+
 export const COMBO_SPECIALS: ComboSpecial[] = [
   {
     id: "race-bowl",

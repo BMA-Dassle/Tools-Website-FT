@@ -753,6 +753,7 @@ async function assertHeatBookable(
     categoryTrackBlocks,
     trackAllTierBlocks,
     expressEligible,
+    isComboBooking: !!session.comboSpecialId,
   });
   if (verdict.blocked) throw new Error(verdict.reason ?? "That heat can't be booked.");
 }
