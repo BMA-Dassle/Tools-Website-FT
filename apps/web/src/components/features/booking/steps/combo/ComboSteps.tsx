@@ -25,6 +25,13 @@ import {
   type LegFilter,
 } from "~/features/combos/combo-itinerary";
 import {
+  matchGridToGroups,
+  type ComboExistingGroup,
+  type ComboExistingResponse,
+  type ComboGroupMatch,
+} from "~/features/combos/combo-group-match";
+import {
+  comboGroupMatchEnabled,
   comboHeatsPerRacer,
   comboPriceCentsForDate,
   comboReorderFallbackEnabled,
@@ -107,6 +114,29 @@ function etHourOfIso(iso: string): number {
 
 function bowlingItemOf(session: BookingSession): BowlingItem | null {
   return (session.items.find((i) => i.kind === "bowling") as BowlingItem | undefined) ?? null;
+}
+
+/**
+ * The date's already-booked VIP groups, for the "joins the 4 PM group" hint.
+ * Advisory only — ANY failure (flag off, network, bad payload) returns [] so
+ * the wizard renders exactly as before. The response carries no BMI ids, so
+ * plain res.json() is safe here.
+ */
+async function fetchExistingGroups(
+  comboId: string,
+  dateYmd: string,
+): Promise<ComboExistingGroup[]> {
+  if (!comboGroupMatchEnabled()) return [];
+  try {
+    const res = await fetch(
+      `/api/booking/v2/combo/existing?date=${encodeURIComponent(dateYmd)}&comboId=${encodeURIComponent(comboId)}`,
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as ComboExistingResponse;
+    return Array.isArray(body.groups) ? body.groups : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Heats complete for the combo: one heat per racer per race leg, all picked. */
@@ -516,6 +546,8 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
     key: string;
     legCandidates: Array<Array<LegCandidate<ComboLegPayload>>>;
     chains: Array<ChainResult<ComboLegPayload>>;
+    /** Already-booked VIP groups this date (schedule-match hint; [] = none). */
+    groups: ComboExistingGroup[];
     error: string | null;
   } | null>(null);
   const [switching, setSwitching] = useState(false);
@@ -535,20 +567,23 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
     let cancelled = false;
     void (async () => {
       try {
-        const legCandidates = await fetchComboLegCandidates({
-          combo,
-          dateYmd: date,
-          party,
-          centerId,
-          onLegDone: (legIndex) => {
-            if (cancelled) return;
-            setLegsDone((prev) =>
-              prev?.key === fetchKey
-                ? { key: fetchKey, done: [...prev.done, legIndex] }
-                : { key: fetchKey, done: [legIndex] },
-            );
-          },
-        });
+        const [legCandidates, groups] = await Promise.all([
+          fetchComboLegCandidates({
+            combo,
+            dateYmd: date,
+            party,
+            centerId,
+            onLegDone: (legIndex) => {
+              if (cancelled) return;
+              setLegsDone((prev) =>
+                prev?.key === fetchKey
+                  ? { key: fetchKey, done: [...prev.done, legIndex] }
+                  : { key: fetchKey, done: [legIndex] },
+              );
+            },
+          }),
+          fetchExistingGroups(combo.id, date),
+        ]);
         if (cancelled) return;
         setFetched({
           key: fetchKey,
@@ -558,6 +593,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
             combo.transitionMinutes,
             combo.components.map((l) => l.maxWaitMinutes ?? null),
           ),
+          groups,
           error: null,
         });
       } catch (err) {
@@ -566,6 +602,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
             key: fetchKey,
             legCandidates: [],
             chains: [],
+            groups: [],
             error: err instanceof Error ? err.message : "Couldn't load availability.",
           });
         }
@@ -784,6 +821,30 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
     ),
   ];
 
+  // Schedule-match hint: badge the tile(s) that join an already-booked VIP
+  // group this date (default + highlight — nothing gets blocked). Keys match
+  // the tile render keys below.
+  const existingGroups = current?.groups ?? [];
+  const groupMatches: Map<string, ComboGroupMatch> = existingGroups.length
+    ? matchGridToGroups(
+        gridCells.flatMap((c) =>
+          c.kind === "chain"
+            ? [
+                {
+                  key: `${c.result.anchor.startIso}|${trackOf(c.result.anchor) ?? ""}`,
+                  anchorStartIso: c.result.anchor.startIso,
+                  track: trackOf(c.result.anchor),
+                  hour: c.hour,
+                  anchorStartMs: c.result.anchor.startMs,
+                  feasible: !!c.result.chain,
+                },
+              ]
+            : [],
+        ),
+        existingGroups,
+      )
+    : new Map();
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="text-center">
@@ -852,6 +913,18 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
         !megaJuniorBlocked && (
           <>
             {anchorTracks.length > 0 && <TrackInfoBanner tracks={anchorTracks} />}
+            {existingGroups.length > 0 && (
+              <div
+                className="rounded-xl px-4 py-3 text-center text-sm font-medium"
+                style={{ backgroundColor: `${GOLD}14`, color: GOLD }}
+              >
+                {`Another VIP group is already booked at ${[
+                  ...new Set(existingGroups.map((g) => formatHourLabel(g.startHour))),
+                ].join(
+                  " and ",
+                )} — pick the matching time and both groups head over to HeadPinz together.`}
+              </div>
+            )}
             {gridCells.some((c) => c.kind === "empty" || !c.result.chain) && (
               <p className="text-center text-xs text-white/35">
                 Grayed-out times can&apos;t fit the full experience (VIP lane + your second race) —
@@ -890,6 +963,9 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                   !!selected && selected.start === c.anchor.startIso && selected.track === track;
                 const free =
                   c.anchor.payload.kind === "race" ? c.anchor.payload.candidate.freeSpots : 0;
+                const groupMatch = isFeasible
+                  ? groupMatches.get(`${c.anchor.startIso}|${track ?? ""}`)
+                  : undefined;
                 return (
                   <button
                     key={`${c.anchor.startIso}|${track ?? ""}`}
@@ -905,7 +981,9 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                     }
                     className={`rounded-xl border p-3 text-left transition-colors ${
                       isFeasible
-                        ? `${isSelected ? (theme?.selected ?? "") : `${theme?.base ?? "border-white/10 bg-white/5"} ${theme?.baseHover ?? ""}`}`
+                        ? `${isSelected ? (theme?.selected ?? "") : `${theme?.base ?? "border-white/10 bg-white/5"} ${theme?.baseHover ?? ""}`}${
+                            groupMatch ? " ring-1 ring-[#FFD700]/60" : ""
+                          }`
                         : DISABLED_CARD
                     }`}
                   >
@@ -936,6 +1014,16 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                         style={{ color: GOLD }}
                       >
                         Races first · lane after
+                      </div>
+                    )}
+                    {groupMatch && (
+                      <div
+                        className="mt-1 text-[10px] font-bold uppercase tracking-wider"
+                        style={{ color: GOLD }}
+                      >
+                        {groupMatch.kind === "exact"
+                          ? `Joins the ${formatHourLabel(groupMatch.group.startHour)} group`
+                          : `Near the ${formatHourLabel(groupMatch.group.startHour)} group`}
                       </div>
                     )}
                     {isSelected && (

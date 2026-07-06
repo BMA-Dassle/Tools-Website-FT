@@ -1477,6 +1477,7 @@ async function unifiedReserveInner(
       bmiReservationNumber,
       squareDayofOrderId,
       totalCents: dayofTotalCents,
+      depositOrderId: depositResult.depositOrderId,
     });
   }
 
