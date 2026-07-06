@@ -6,7 +6,6 @@ import RacerJourney from "@/components/home/RacerJourney";
 import GroupEvents from "@/components/home/GroupEvents";
 import EventClosurePopup from "@/components/EventClosurePopup";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
-import WorldCupVipPopup from "@/components/WorldCupVipPopup";
 import July4Fireworks from "~/components/features/july4/July4Fireworks";
 import { fasttraxOpenGraph, fasttraxTwitter } from "@/lib/seo";
 
@@ -32,10 +31,9 @@ export default function HomePage() {
   return (
     <>
       <EventClosurePopup brand="fasttrax" />
-      {/* Date gates make these two mutually exclusive: USA250 self-expires at
-          the exact instant (7/5 00:00 ET) the World Cup popup starts. */}
+      {/* World Cup VIP popup deliberately NOT mounted here — HeadPinz-only
+          offer (owner 7/6); it lives on the hp/* home pages. */}
       <Usa250PromoPopup />
-      <WorldCupVipPopup />
       <July4Fireworks />
       <Hero />
       <Attractions />
