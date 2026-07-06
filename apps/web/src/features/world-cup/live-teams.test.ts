@@ -1,37 +1,58 @@
 import { describe, expect, it } from "vitest";
-import { mapEspnEventsToOverrides, type EspnScoreboardEvent } from "./live-teams";
+import { applyMatchup, mapEspnEvents, type EspnScoreboardEvent } from "./live-teams";
+import { WORLD_CUP_FIXTURES } from "./fixtures";
 
 // qf-1 = 2026-07-09 4 PM ET = 2026-07-09T20:00Z (committed teams: null)
 const QF1_UTC = "2026-07-09T20:00Z";
+const FLAG = (c: string) => `https://a.espncdn.com/i/teamlogos/countries/500/${c}.png`;
 
 function event(
   date: string,
   home: string | undefined,
   away: string | undefined,
-  order: "home-first" | "away-first" = "home-first",
+  opts: { order?: "home-first" | "away-first"; homeLogo?: string; awayLogo?: string } = {},
 ): EspnScoreboardEvent {
-  const h = { homeAway: "home", team: { displayName: home } };
-  const a = { homeAway: "away", team: { displayName: away } };
+  const h = { homeAway: "home", team: { displayName: home, logo: opts.homeLogo } };
+  const a = { homeAway: "away", team: { displayName: away, logo: opts.awayLogo } };
   return {
     date,
-    competitions: [{ competitors: order === "home-first" ? [h, a] : [a, h] }],
+    competitions: [{ competitors: opts.order === "away-first" ? [a, h] : [h, a] }],
   };
 }
 
-describe("mapEspnEventsToOverrides", () => {
-  it("fills a TBD fixture matched by exact kickoff instant, home first", () => {
-    expect(mapEspnEventsToOverrides([event(QF1_UTC, "France", "Brazil")])).toEqual({
-      "qf-1": "France vs Brazil",
+describe("mapEspnEvents", () => {
+  it("maps a fixture by exact kickoff instant with label + flags, home first", () => {
+    const out = mapEspnEvents([
+      event(QF1_UTC, "France", "Brazil", { homeLogo: FLAG("fra"), awayLogo: FLAG("bra") }),
+    ]);
+    expect(out["qf-1"]).toEqual({
+      label: "France vs Brazil",
+      home: { name: "France", logo: FLAG("fra") },
+      away: { name: "Brazil", logo: FLAG("bra") },
     });
     // Competitor array order doesn't matter — homeAway does.
-    expect(mapEspnEventsToOverrides([event(QF1_UTC, "France", "Brazil", "away-first")])).toEqual({
-      "qf-1": "France vs Brazil",
-    });
+    expect(
+      mapEspnEvents([event(QF1_UTC, "France", "Brazil", { order: "away-first" })])["qf-1"],
+    ).toMatchObject({ label: "France vs Brazil" });
   });
 
-  it("never touches fixtures with committed team names", () => {
-    // r16-6 (USA vs Belgium) kickoff = 2026-07-07T00:00Z — committed, not null.
-    expect(mapEspnEventsToOverrides([event("2026-07-07T00:00Z", "Wrong", "Teams")])).toEqual({});
+  it("drops flag URLs not served by ESPN's CDN", () => {
+    const out = mapEspnEvents([
+      event(QF1_UTC, "France", "Brazil", {
+        homeLogo: "https://evil.example.com/x.png",
+        awayLogo: FLAG("bra"),
+      }),
+    ]);
+    expect(out["qf-1"].home.logo).toBeNull();
+    expect(out["qf-1"].away.logo).toBe(FLAG("bra"));
+  });
+
+  it("matches committed-teams fixtures too (flags attach; label handled by applyMatchup)", () => {
+    // r16-6 (USA vs Belgium, committed) kickoff = 2026-07-07T00:00Z.
+    const out = mapEspnEvents([
+      event("2026-07-07T00:00Z", "United States", "Belgium", { homeLogo: FLAG("usa") }),
+    ]);
+    expect(out["r16-6"]).toMatchObject({ home: { name: "United States", logo: FLAG("usa") } });
   });
 
   it("skips unresolved bracket placeholders", () => {
@@ -41,13 +62,13 @@ describe("mapEspnEventsToOverrides", () => {
       ["Winner Match 89", "Brazil"],
       ["To Be Determined", "Brazil"],
     ]) {
-      expect(mapEspnEventsToOverrides([event(QF1_UTC, h, a)])).toEqual({});
+      expect(mapEspnEvents([event(QF1_UTC, h, a)])).toEqual({});
     }
   });
 
   it("ignores events that don't land exactly on a kickoff", () => {
-    expect(mapEspnEventsToOverrides([event("2026-07-09T20:15Z", "France", "Brazil")])).toEqual({});
-    expect(mapEspnEventsToOverrides([event("2026-07-08T20:00Z", "France", "Brazil")])).toEqual({});
+    expect(mapEspnEvents([event("2026-07-09T20:15Z", "France", "Brazil")])).toEqual({});
+    expect(mapEspnEvents([event("2026-07-08T20:00Z", "France", "Brazil")])).toEqual({});
   });
 
   it("survives malformed feed shapes", () => {
@@ -59,15 +80,34 @@ describe("mapEspnEventsToOverrides", () => {
       event(QF1_UTC, "", "Brazil"),
       event(QF1_UTC, "Brazil", "Brazil"), // degenerate duplicate
     ];
-    expect(mapEspnEventsToOverrides(junk)).toEqual({});
+    expect(mapEspnEvents(junk)).toEqual({});
+  });
+});
+
+describe("applyMatchup", () => {
+  const matchup = {
+    label: "Wrong vs Label",
+    home: { name: "United States", logo: FLAG("usa") },
+    away: { name: "Belgium", logo: FLAG("bel") },
+  };
+
+  it("never overrides a committed teams string, but attaches flags", () => {
+    const committed = WORLD_CUP_FIXTURES.find((f) => f.id === "r16-6")!;
+    const out = applyMatchup(committed, matchup);
+    expect(out.teams).toBe(committed.teams); // owner-controlled label wins
+    expect(out.home).toEqual(matchup.home);
+    expect(out.away).toEqual(matchup.away);
   });
 
-  it("maps multiple resolved rounds in one pass", () => {
-    const out = mapEspnEventsToOverrides([
-      event(QF1_UTC, "France", "Brazil"),
-      event("2026-07-10T19:00Z", "Spain", "Norway"), // qf-2: 3 PM ET 7/10
-      event("2026-07-19T19:00Z", "TBD", "TBD"), // final unresolved
-    ]);
-    expect(out).toEqual({ "qf-1": "France vs Brazil", "qf-2": "Spain vs Norway" });
+  it("fills a null teams label and attaches flags", () => {
+    const tbd = WORLD_CUP_FIXTURES.find((f) => f.id === "qf-1")!;
+    const out = applyMatchup(tbd, matchup);
+    expect(out.teams).toBe("Wrong vs Label");
+    expect(out.away).toEqual(matchup.away);
+  });
+
+  it("is a no-op without a matchup", () => {
+    const tbd = WORLD_CUP_FIXTURES.find((f) => f.id === "qf-1")!;
+    expect(applyMatchup(tbd, undefined)).toBe(tbd);
   });
 });

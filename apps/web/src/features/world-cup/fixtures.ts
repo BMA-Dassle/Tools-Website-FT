@@ -18,6 +18,13 @@
 
 export type WorldCupRound = "Round of 16" | "Quarterfinal" | "Semifinal" | "Third Place" | "Final";
 
+/** One side of a matchup — display only (name + country-flag image URL). */
+export interface WorldCupTeamRef {
+  name: string;
+  /** ESPN country-flag PNG (a.espncdn.com) — null when unknown. */
+  logo: string | null;
+}
+
 export interface WorldCupFixture {
   /** Stable id — persisted into booking metadata; never renumber. */
   id: string;
@@ -30,6 +37,10 @@ export interface WorldCupFixture {
   teams: string | null;
   /** Host stadium city — display flavor only. */
   venue?: string;
+  /** Live-enriched by features/world-cup/live-teams.ts (never committed here):
+   *  per-side name + flag for the match cards. Absent = text-only rendering. */
+  home?: WorldCupTeamRef | null;
+  away?: WorldCupTeamRef | null;
 }
 
 /** Lane window sold per match: 2.5 hours from kickoff (owner decision 7/3). */

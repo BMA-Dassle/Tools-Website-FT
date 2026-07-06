@@ -14,6 +14,7 @@ import { clearBookingSession, peekBookingSession } from "~/features/booking/hook
 import { abandonBooking } from "~/features/booking/service/checkout";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { ComboSpecial } from "~/features/combos";
+import type { WorldCupTeamRef } from "~/features/world-cup";
 
 /** Customer-facing "valid on" label for a promo's booking-date window (null = any day). */
 function promoValidLabel(start: string | null, end: string | null): string | null {
@@ -77,7 +78,7 @@ export interface PromoLandingProps {
   /** World Cup VIP Bowling tile (limited-time, HeadPinz). Null when the
    *  tournament window is over, the brand isn't HeadPinz, or every in-scope
    *  center's kill switch is off. Computed server-side in page.tsx. */
-  worldCup?: { href: string; nextMatch: string | null } | null;
+  worldCup?: WorldCupTileData | null;
 }
 
 export function PromoLanding({
@@ -371,19 +372,39 @@ export function PromoLanding({
   );
 }
 
+/** Data the /book/v2 server page passes for the World Cup tile. */
+export interface WorldCupTileData {
+  href: string;
+  /** Full fallback line, e.g. "USA vs Belgium — Mon, Jul 6 8 PM". */
+  nextMatch: string | null;
+  /** Day + time only — used when the flag row renders the teams itself. */
+  nextWhen: string | null;
+  nextHome?: WorldCupTeamRef | null;
+  nextAway?: WorldCupTeamRef | null;
+}
+
+/** Country flag chip for the "Next up" line (ESPN CDN, live-enriched). Plain
+ *  img on purpose: external host, tiny, lazy, and next/image would need a
+ *  remotePatterns config for a two-week feature. */
+function FlagImg({ src, alt }: { src: string; alt: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- external ESPN flag PNG, lazy + tiny
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className="h-3.5 w-auto rounded-[2px] ring-1 ring-white/20"
+    />
+  );
+}
+
 /** World Cup VIP Bowling landing card — COMPACT single-width tile (owner 7/6:
  *  "small box second row"; Ultimate VIP keeps the lead spot). Fronted by the
  *  real photo of the VIP lanes with the match live on the NeoVerse wall.
  *  Limited-time: the parent only passes `worldCup` while the tournament window
  *  is active and a center's kill switch is on, so it self-retires after the
  *  July 19 final. */
-function WorldCupCard({
-  worldCup,
-  gold,
-}: {
-  worldCup: { href: string; nextMatch: string | null };
-  gold: string;
-}) {
+function WorldCupCard({ worldCup, gold }: { worldCup: WorldCupTileData; gold: string }) {
   return (
     <Link
       href={worldCup.href}
@@ -423,10 +444,26 @@ function WorldCupCard({
           extra
         </p>
 
-        {worldCup.nextMatch && (
-          <p className="mb-3 text-xs font-semibold text-white/60">
-            Next up: <span className="text-white/90">{worldCup.nextMatch}</span>
+        {worldCup.nextHome && worldCup.nextAway ? (
+          <p className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs font-semibold text-white/60">
+            <span>Next up:</span>
+            {worldCup.nextHome.logo && (
+              <FlagImg src={worldCup.nextHome.logo} alt={`${worldCup.nextHome.name} flag`} />
+            )}
+            <span className="text-white/90">{worldCup.nextHome.name}</span>
+            <span>vs</span>
+            {worldCup.nextAway.logo && (
+              <FlagImg src={worldCup.nextAway.logo} alt={`${worldCup.nextAway.name} flag`} />
+            )}
+            <span className="text-white/90">{worldCup.nextAway.name}</span>
+            {worldCup.nextWhen && <span>— {worldCup.nextWhen}</span>}
           </p>
+        ) : (
+          worldCup.nextMatch && (
+            <p className="mb-3 text-xs font-semibold text-white/60">
+              Next up: <span className="text-white/90">{worldCup.nextMatch}</span>
+            </p>
+          )
         )}
 
         <div className="mt-auto flex items-center justify-between gap-3">

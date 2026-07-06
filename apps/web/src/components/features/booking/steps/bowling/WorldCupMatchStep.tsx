@@ -333,7 +333,35 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
                           >
                             {f.round}
                           </span>
-                          <p className="truncate font-semibold text-white">{fixtureLabel(f)}</p>
+                          {f.home && f.away ? (
+                            /* Country flags live-enriched from the ESPN feed
+                               (owner 7/6); text-only fallback below. */
+                            <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-semibold text-white">
+                              {f.home.logo && (
+                                // eslint-disable-next-line @next/next/no-img-element -- external ESPN flag PNG, lazy + tiny
+                                <img
+                                  src={f.home.logo}
+                                  alt={`${f.home.name} flag`}
+                                  loading="lazy"
+                                  className="h-4 w-auto rounded-[2px] ring-1 ring-white/20"
+                                />
+                              )}
+                              <span>{f.home.name}</span>
+                              <span className="text-white/50">vs</span>
+                              {f.away.logo && (
+                                // eslint-disable-next-line @next/next/no-img-element -- external ESPN flag PNG, lazy + tiny
+                                <img
+                                  src={f.away.logo}
+                                  alt={`${f.away.name} flag`}
+                                  loading="lazy"
+                                  className="h-4 w-auto rounded-[2px] ring-1 ring-white/20"
+                                />
+                              )}
+                              <span>{f.away.name}</span>
+                            </p>
+                          ) : (
+                            <p className="truncate font-semibold text-white">{fixtureLabel(f)}</p>
+                          )}
                           <p className="mt-0.5 flex items-center gap-1 text-xs text-white/60">
                             <IconClockHour4 size={13} />
                             Kickoff {fixtureTimeLabel(f)}

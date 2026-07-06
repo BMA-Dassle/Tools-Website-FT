@@ -113,6 +113,13 @@ export default async function BookV2LandingPage({
         nextMatch: nextFixture
           ? `${fixtureLabel(nextFixture)} — ${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
           : null,
+        // Country flags for the "Next up" line (owner 7/6) — live-enriched,
+        // null when the feed hasn't resolved the matchup yet.
+        nextWhen: nextFixture
+          ? `${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
+          : null,
+        nextHome: nextFixture?.home ?? null,
+        nextAway: nextFixture?.away ?? null,
       }
     : null;
 
