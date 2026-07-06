@@ -189,6 +189,20 @@ export function comboReorderFallbackEnabled(): boolean {
   return process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK === "true";
 }
 
+/**
+ * Junior-mirror flag: default OFF (ships dark per the v2 cutover rule). When
+ * on, a mixed adult+junior party books juniors on the first junior heat right
+ * AFTER the adult heat of each race leg (owner 2026-07-06: "if they have a
+ * junior race it happens right after the adult race") instead of requiring a
+ * junior block at the SAME start — which never aligns in practice, so mixed
+ * parties are effectively unbookable today. Off = the exact current
+ * same-start behavior. Flip `NEXT_PUBLIC_COMBO_JUNIOR_MIRROR=true` in Vercel
+ * (+ redeploy — build-baked) after the staff canary.
+ */
+export function comboJuniorMirrorEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_COMBO_JUNIOR_MIRROR === "true";
+}
+
 export const COMBO_SPECIALS: ComboSpecial[] = [
   {
     id: "race-bowl",

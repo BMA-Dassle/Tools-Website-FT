@@ -392,6 +392,18 @@ function ScheduleConfirmModal({
                       {entry ? wallClockLabel(entry.startIso) : "—"}
                     </span>
                   </div>
+                  {/* Junior mirror: juniors run their own heat right after the
+                      adult one (different start, junior product's track). */}
+                  {entry?.payload.kind === "race" &&
+                    entry.payload.candidate.perCategory.junior?.start && (
+                      <p className="mt-1 text-xs" style={{ color: GOLD }}>
+                        {`Juniors race at ${wallClockLabel(entry.payload.candidate.perCategory.junior.start)}${
+                          entry.payload.candidate.perCategory.junior.track
+                            ? ` on ${entry.payload.candidate.perCategory.junior.track}`
+                            : ""
+                        }`}
+                      </p>
+                    )}
                   {options && options.length > 1 && (
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-[11px] uppercase tracking-wider text-white/35">
@@ -620,7 +632,9 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
             track: (cat.track as RaceHeatAssignment["track"]) ?? null,
             tier: tier as RaceHeatAssignment["tier"],
             category,
-            heatId: candidate.start,
+            // Junior mirror: the category's own start when it differs from the
+            // anchor (juniors race right after the adult heat).
+            heatId: cat.start ?? candidate.start,
             bmiLineId: null,
             assignedTo: racer.id,
           });
