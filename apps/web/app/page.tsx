@@ -7,6 +7,7 @@ import GroupEvents from "@/components/home/GroupEvents";
 import EventClosurePopup from "@/components/EventClosurePopup";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
 import WorldCupVipPopup from "@/components/WorldCupVipPopup";
+import July4Fireworks from "~/components/features/july4/July4Fireworks";
 import { fasttraxOpenGraph, fasttraxTwitter } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -35,6 +36,7 @@ export default function HomePage() {
           the exact instant (7/5 00:00 ET) the World Cup popup starts. */}
       <Usa250PromoPopup />
       <WorldCupVipPopup />
+      <July4Fireworks />
       <Hero />
       <Attractions />
       <GalleryStrip />

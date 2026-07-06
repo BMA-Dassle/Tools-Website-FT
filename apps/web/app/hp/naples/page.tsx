@@ -5,6 +5,7 @@ import BookingLink from "@/components/BookingLink";
 import Usa250PromoPopup from "@/components/Usa250PromoPopup";
 import WorldCupVipPopup from "@/components/WorldCupVipPopup";
 import { worldCupCenterEnabled } from "~/features/world-cup";
+import July4Fireworks from "~/components/features/july4/July4Fireworks";
 import LaneAvailability from "@/components/headpinz/LaneAvailability";
 import {
   BreadcrumbJsonLd,
@@ -232,6 +233,7 @@ export default function NaplesPage() {
             : undefined
         }
       />
+      <July4Fireworks />
       <BreadcrumbJsonLd
         items={[
           { name: "HeadPinz", url: "https://headpinz.com" },
