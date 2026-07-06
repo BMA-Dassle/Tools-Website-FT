@@ -175,10 +175,9 @@ Inputs (constants or env — builder's choice, documented in the header):
 ```
 WC_CAT_MON_THUR  = Square variation id "World Cup VIP Match Window / Mon-Thur $112.50"  (TBD ops)
 WC_CAT_FRI_SUN   = Square variation id "World Cup VIP Match Window / Fri-Sun  $137.50"  (TBD ops)
-QAMF: DONE — dedicated offers + 150-min option ids all in the seed (live-tested 7/3):
-  FM Mon-Thur 175/opt 1397 · FM Fri-Sun 174/opt 1389 (VERIFIED: kickoff-time holds → VIP lane →
-  deleted) · Naples Mon-Thur 141/opt 1125 · Fri-Sun 139/opt 1109 (offers enabled but holds 409
-  "LanesNotAvailable" — Conqueror lane mapping missing; fix + re-verify before Naples flag-on).
+QAMF: DONE — all four offers LIVE-VERIFIED at both centers (kickoff-time hold → VIP lane →
+  deleted): FM Mon-Thur 175/opt 1397 + Fri-Sun 174/opt 1389 (7/3, lane 7) · Naples Mon-Thur
+  141/opt 1125 + Fri-Sun 139/opt 1109 (7/6 after ops fixed Naples' lane mapping; lanes 26/25).
 ```
 Writes (upserts): 4× `bowling_square_products` (both centers × both variations, product_kind
 'hourly', price 11250/13750, deposit_pct 100); 2× `bowling_experiences`
@@ -272,11 +271,11 @@ receipt, no new Square objects. Owner picks mode at seed time.
 1. Square ops: create catalog item "World Cup VIP Match Window (2.5 Hrs)" with Mon–Thur $112.50 /
    Fri–Sun $137.50 variations, present at all locations, same category/tax setup as
    `BESYYLCKLOVD7YE4GYJU24HR` → 2 variation ids. (Or choose seed FALLBACK MODE: zero Square ops.)
-2. QAMF ops: COMPLETE for Fort Myers (live-verified 7/3 — offers 175/174 with 150-min options
-   1397/1389 create kickoff-time holds on a VIP lane; test holds deleted). Naples REMAINS:
-   offers 141/139 (options 1125/1109, already seeded) 409 "LanesNotAvailable" on every hold —
-   attach the offers to the VIP lane group/schedule in Conqueror, then re-verify one hold
-   before flipping `NEXT_PUBLIC_WORLD_CUP_VIP_NAPLES_ENABLED`.
+2. QAMF ops: COMPLETE at BOTH centers — FM live-verified 7/3 (offers 175/174, options
+   1397/1389, kickoff-time holds on a VIP lane, deleted); Naples live-verified 7/6 after ops
+   fixed its lane mapping (offers 141/139, options 1125/1109, holds on lanes 26/25 incl. the
+   USA–Belgium 8 PM window, deleted). Nothing QAMF-side blocks either center; Naples still
+   ships flag-off pending the LED-wall check + its own live smoke.
 3. Run `seed-world-cup-vip.ts` against prod Neon; verify via
    `GET /api/bowling/v2/experiences?centerCode=TXBSQN0FEKQ11` (2 rows, offer option ids set,
    durationOptions empty).

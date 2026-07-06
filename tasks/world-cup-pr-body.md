@@ -61,12 +61,11 @@ until its LED wall is verified). Everything self-hides after the final.
 
 ## NOT in this PR (blocking follow-ups, in order)
 
-1. **QAMF ops:** ~~option ids~~ **DONE + live-tested 7/3** — all four 150-min option ids are in
-   the seed (FM 175→1397, 174→1389; Naples 141→1125, 139→1109). **Fort Myers verified
-   end-to-end**: test holds at real kickoff times landed on a VIP lane and were deleted.
-   **Naples still blocked**: both offers are enabled but every hold 409s
-   `LanesNotAvailable` — the offers need their VIP lane-group/schedule mapping in Conqueror,
-   then one re-verified hold, before flipping `NEXT_PUBLIC_WORLD_CUP_VIP_NAPLES_ENABLED`.
+1. **QAMF ops: DONE — all four offers live-verified at BOTH centers.** Option ids are in the
+   seed (FM 175→1397, 174→1389; Naples 141→1125, 139→1109). FM verified 7/3 (kickoff-time test
+   holds → VIP lane 7 → deleted). Naples verified 7/6 after ops fixed its lane mapping (holds on
+   lanes 26/25 — including the USA–Belgium 8 PM window — deleted; the earlier `LanesNotAvailable`
+   409s are resolved). Naples still ships flag-off pending its LED-wall check + live smoke.
 2. **Square ops (dedicated mode):** catalog item "World Cup VIP Match Window (2.5 Hrs)",
    variations Mon–Thur $112.50 / Fri–Sun $137.50, all locations, same category/tax as
    `BESYYLCKLOVD7YE4GYJU24HR` → 2 variation ids. (Or flip the seed to FALLBACK mode: zero
