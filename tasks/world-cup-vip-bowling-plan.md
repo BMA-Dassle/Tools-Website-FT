@@ -175,9 +175,10 @@ Inputs (constants or env — builder's choice, documented in the header):
 ```
 WC_CAT_MON_THUR  = Square variation id "World Cup VIP Match Window / Mon-Thur $112.50"  (TBD ops)
 WC_CAT_FRI_SUN   = Square variation id "World Cup VIP Match Window / Fri-Sun  $137.50"  (TBD ops)
-QAMF: DEDICATED World Cup web offers (owner 7/3, separate offers because of the 2.5-hr duration):
-  FM Mon-Thur 175 · FM Fri-Sun 174 · Naples Mon-Thur 141 · Naples Fri-Sun 139 (ids final, in the
-  seed already). 150-min Time OPTION ids under each = TBD until the offers ACTIVATE in Conqueror.
+QAMF: DONE — dedicated offers + 150-min option ids all in the seed (live-tested 7/3):
+  FM Mon-Thur 175/opt 1397 · FM Fri-Sun 174/opt 1389 (VERIFIED: kickoff-time holds → VIP lane →
+  deleted) · Naples Mon-Thur 141/opt 1125 · Fri-Sun 139/opt 1109 (offers enabled but holds 409
+  "LanesNotAvailable" — Conqueror lane mapping missing; fix + re-verify before Naples flag-on).
 ```
 Writes (upserts): 4× `bowling_square_products` (both centers × both variations, product_kind
 'hourly', price 11250/13750, deposit_pct 100); 2× `bowling_experiences`
@@ -271,10 +272,11 @@ receipt, no new Square objects. Owner picks mode at seed time.
 1. Square ops: create catalog item "World Cup VIP Match Window (2.5 Hrs)" with Mon–Thur $112.50 /
    Fri–Sun $137.50 variations, present at all locations, same category/tax setup as
    `BESYYLCKLOVD7YE4GYJU24HR` → 2 variation ids. (Or choose seed FALLBACK MODE: zero Square ops.)
-2. QAMF ops: the DEDICATED World Cup web offers exist (FM 175 Mon–Thur / 174 Fri–Sun, Naples
-   141 / 139 — already in the seed constants) but are not yet activating in Conqueror. Once they
-   activate: read each offer's 150-min Time option id → 4 option ids into the seed, and confirm
-   each offer books the VIP lane group (lane assignment follows the web offer).
+2. QAMF ops: COMPLETE for Fort Myers (live-verified 7/3 — offers 175/174 with 150-min options
+   1397/1389 create kickoff-time holds on a VIP lane; test holds deleted). Naples REMAINS:
+   offers 141/139 (options 1125/1109, already seeded) 409 "LanesNotAvailable" on every hold —
+   attach the offers to the VIP lane group/schedule in Conqueror, then re-verify one hold
+   before flipping `NEXT_PUBLIC_WORLD_CUP_VIP_NAPLES_ENABLED`.
 3. Run `seed-world-cup-vip.ts` against prod Neon; verify via
    `GET /api/bowling/v2/experiences?centerCode=TXBSQN0FEKQ11` (2 rows, offer option ids set,
    durationOptions empty).

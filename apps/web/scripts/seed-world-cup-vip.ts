@@ -12,16 +12,13 @@
  *
  * ── REQUIRED INPUTS (script hard-fails until they're filled in) ────────────
  *
- *  1. FOUR QAMF 150-minute Time option ids. The DEDICATED World Cup web
- *     offers exist in Conqueror (owner 7/3 — separate offers because of the
- *     2.5-hr duration) but are NOT YET ACTIVATING; once they activate, read
- *     each offer's 150-min Time option id and fill it in:
- *       FM     offer 175 (World Cup Mon–Thur) → QAMF.monThur.fm.optionId
- *       FM     offer 174 (World Cup Fri–Sun)  → QAMF.friSun.fm.optionId
- *       Naples offer 141 (World Cup Mon–Thur) → QAMF.monThur.naples.optionId
- *       Naples offer 139 (World Cup Fri–Sun)  → QAMF.friSun.naples.optionId
- *     Before seeding, confirm in Conqueror that each offer books the VIP
- *     lane group (lane assignment follows the web offer).
+ *  1. QAMF ids — DONE (harvested + live-tested 2026-07-03, see the QAMF
+ *     constant below): FM offers 175/174 verified end-to-end (test holds at
+ *     kickoff times → VIP lane → deleted). Naples offers 141/139 are enabled
+ *     with the right options but 409 "LanesNotAvailable" on every hold —
+ *     Conqueror lane-group/schedule mapping is missing at Naples. Fix +
+ *     re-verify a hold there BEFORE enabling the Naples flag (launch is
+ *     FM-only, so this does not block).
  *
  *  2. DEDICATED mode only: TWO Square catalog variation ids for the item
  *     "World Cup VIP Match Window (2.5 Hrs)" (create in Square Dashboard,
@@ -116,17 +113,24 @@ const CHIPS_SALSA = "LHZXWYO72N5QFX4CGYKRVPZX"; // $0.00 comp
 
 // ── QAMF web offers + 150-min Time options ───────────────────────────────────
 // DEDICATED World Cup web offers (owner 7/3) — separate from the shared VIP
-// offers (155/159/119/125) because of the 2.5-hr duration. Offer ids are
-// final; the optionId placeholders (0 → script refuses to run) get the
-// 150-min Time option ids once the offers ACTIVATE in Conqueror.
+// offers (155/159/119/125) because of the 2.5-hr duration. All ids below were
+// harvested + LIVE-TESTED 2026-07-03 (each offer also carries a 180-min option
+// we deliberately don't use):
+//   FM 175/174:     test holds created at real kickoff times → VIP lane
+//                   assigned → deleted clean. WORKING end-to-end.
+//   Naples 141/139: offers enabled, options listed, but createReservation
+//                   409s "LanesNotAvailable" at every probed time → the
+//                   offers aren't attached to a lane group/schedule in
+//                   Conqueror yet. Fix that mapping + re-verify a hold
+//                   BEFORE enabling the Naples flag.
 const QAMF = {
   monThur: {
-    fm: { webOfferId: 175, optionId: 0 }, // HeadPinz Fort Myers — World Cup Mon–Thur
-    naples: { webOfferId: 141, optionId: 0 }, // HeadPinz Naples — World Cup Mon–Thur
+    fm: { webOfferId: 175, optionId: 1397 }, // HeadPinz Fort Myers — World Cup Mon–Thur, 150 min
+    naples: { webOfferId: 141, optionId: 1125 }, // HeadPinz Naples — World Cup Mon–Thur, 150 min
   },
   friSun: {
-    fm: { webOfferId: 174, optionId: 0 }, // HeadPinz Fort Myers — World Cup Fri–Sun
-    naples: { webOfferId: 139, optionId: 0 }, // HeadPinz Naples — World Cup Fri–Sun
+    fm: { webOfferId: 174, optionId: 1389 }, // HeadPinz Fort Myers — World Cup Fri–Sun, 150 min
+    naples: { webOfferId: 139, optionId: 1109 }, // HeadPinz Naples — World Cup Fri–Sun, 150 min
   },
 };
 
