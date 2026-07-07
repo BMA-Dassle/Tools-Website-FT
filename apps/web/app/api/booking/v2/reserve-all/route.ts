@@ -8,6 +8,7 @@ import {
 } from "~/features/booking/service/unified-reserve";
 import { DepositPaymentError } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
+import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -60,6 +61,12 @@ export async function POST(req: NextRequest) {
     if (err instanceof ExistingBookingConflictError) {
       // 409 — a cart heat is too close to one the same racer already booked in
       // another reservation. Raised before any Square write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof WorldCupReservationError) {
+      // 409 — a World Cup booking failed the fixture/center validation
+      // (disabled center, non-kickoff start, past kickoff). Raised before any
+      // Square write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof RewardFailedError) {

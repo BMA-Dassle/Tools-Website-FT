@@ -19,12 +19,14 @@ const audit = vi.hoisted(() => ({
   listAdminActions: vi.fn(),
   recordAdminAction: vi.fn(),
 }));
+const bmiNotes = vi.hoisted(() => ({ syncNoteToBmi: vi.fn() }));
 
 vi.mock("@/lib/bowling-db", () => db);
 vi.mock("@/lib/reservation-cancel-log", () => cancelLog);
 vi.mock("@/lib/qamf-bowling", () => qamf);
 vi.mock("~/features/cancellation/square-actions", () => square);
 vi.mock("./audit", () => audit);
+vi.mock("./bmi-notes", () => bmiNotes);
 
 import {
   firstOrderId,
@@ -68,6 +70,7 @@ function row(partial: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.resetAllMocks();
   audit.recordAdminAction.mockResolvedValue(undefined);
+  bmiNotes.syncNoteToBmi.mockResolvedValue(false);
 });
 
 describe("getReservationDetail", () => {
@@ -202,27 +205,48 @@ describe("updateReservationNotes — QAMF memo-sync matrix", () => {
     qamf.patchReservation.mockResolvedValue(undefined);
 
     const result = await updateReservationNotes(4211, "new note");
-    expect(result).toEqual({ ok: true, memoSynced: true });
+    expect(result).toEqual({ ok: true, memoSynced: true, bmiMemoSynced: false });
     expect(db.updateBowlingReservationNotes).toHaveBeenCalledWith(4211, "new note");
     // fort-myers slug → QAMF center 9172 (cancellation/centers.ts)
     expect(qamf.patchReservation).toHaveBeenCalledWith(9172, "R55100", { Notes: "MEMO TEXT" });
+    // No BMI bill on a plain bowling row → BMI sync not attempted.
+    expect(bmiNotes.syncNoteToBmi).not.toHaveBeenCalled();
     expect(audit.recordAdminAction).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "notes_edit",
         outcome: "success",
-        detail: { from: "old note", to: "new note", memoSynced: true },
+        detail: { from: "old note", to: "new note", memoSynced: true, bmiMemoSynced: false },
       }),
     );
   });
 
-  it("race row: Neon saved, no QAMF patch, memoSynced false; empty string clears to null", async () => {
+  it("race row with a BMI bill: no QAMF patch, note appended to the BMI project log", async () => {
+    const raceRow = row({
+      productKind: "race",
+      qamfReservationId: undefined,
+      bmiBillId: BILL_ID,
+    });
+    db.getBowlingReservation.mockResolvedValue({ ...raceRow, lines: [] });
+    bmiNotes.syncNoteToBmi.mockResolvedValue(true);
+
+    const result = await updateReservationNotes(4211, "headsock size XL");
+    expect(result).toEqual({ ok: true, memoSynced: false, bmiMemoSynced: true });
+    expect(qamf.patchReservation).not.toHaveBeenCalled();
+    expect(bmiNotes.syncNoteToBmi).toHaveBeenCalledWith(
+      expect.objectContaining({ bmiBillId: BILL_ID }),
+      "headsock size XL",
+    );
+  });
+
+  it("empty string clears to null and never appends an empty BMI log line", async () => {
     db.getBowlingReservation.mockResolvedValue({
-      ...row({ productKind: "race", qamfReservationId: undefined }),
+      ...row({ productKind: "race", qamfReservationId: undefined, bmiBillId: BILL_ID }),
       lines: [],
     });
     const result = await updateReservationNotes(4211, "  ");
-    expect(result).toEqual({ ok: true, memoSynced: false });
+    expect(result).toEqual({ ok: true, memoSynced: false, bmiMemoSynced: false });
     expect(db.updateBowlingReservationNotes).toHaveBeenCalledWith(4211, null);
+    expect(bmiNotes.syncNoteToBmi).not.toHaveBeenCalled();
     expect(qamf.patchReservation).not.toHaveBeenCalled();
   });
 
@@ -232,7 +256,7 @@ describe("updateReservationNotes — QAMF memo-sync matrix", () => {
     qamf.patchReservation.mockRejectedValue(new Error("QAMF down"));
 
     const result = await updateReservationNotes(4211, "note");
-    expect(result).toEqual({ ok: true, memoSynced: false });
+    expect(result).toEqual({ ok: true, memoSynced: false, bmiMemoSynced: false });
     expect(db.updateBowlingReservationNotes).toHaveBeenCalled();
   });
 });

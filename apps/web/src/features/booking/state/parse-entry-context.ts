@@ -12,6 +12,7 @@
  *   ?firstName=&lastName=&email=&phone= → prefilledContact fields
  *   ?referrer=NAME / ?ref / ?utm_source → referrer
  *   ?location=naples|fort-myers|...     → center (CenterCode)
+ *   ?experience=world-cup               → worldCup (match-picker bowling mode)
  *
  * Unknown params are silently ignored. The parser is intentionally
  * tolerant — marketing links should never 500 a wizard.
@@ -63,6 +64,10 @@ export function parseEntryContextFromSearchParams(sp: RawSearchParams): EntryCon
 
   const center = locationToCenter(first(sp.location));
   if (center) out.center = center;
+
+  // World Cup VIP Bowling entry mode. Only the exact value counts — any other
+  // ?experience= value is ignored (marketing links must never 500 a wizard).
+  if (first(sp.experience) === "world-cup") out.worldCup = true;
 
   const firstName = first(sp.firstName);
   const lastName = first(sp.lastName);

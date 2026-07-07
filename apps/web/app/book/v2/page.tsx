@@ -9,6 +9,15 @@ import {
 import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
 import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-codes";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
+import {
+  fixtureDayLabel,
+  fixtureLabel,
+  fixtureTimeLabel,
+  upcomingFrom,
+  worldCupEnabledCenters,
+  worldCupWindowActive,
+} from "~/features/world-cup";
+import { fixturesWithLiveTeams } from "~/features/world-cup/live-teams";
 import { PromoLanding } from "./PromoLanding";
 
 /**
@@ -85,6 +94,39 @@ export default async function BookV2LandingPage({
   // (racing combos are Fort Myers-only, so Naples never sees them).
   const combos: ComboSpecial[] = enabledCombos().filter((c) => !center || c.center === center);
 
+  // World Cup VIP Bowling tile — HeadPinz brand only, limited-time (self-hides
+  // after the July 19 final), per-center kill switches honored. Launch = Fort
+  // Myers only (the Naples flag ships "false" until its LED wall is verified);
+  // Naples appears automatically when its flag flips. The link seeds the
+  // match-picker entry at this landing's center (or the first enabled one).
+  const nowMs = Date.now();
+  const wcCenters = worldCupEnabledCenters().filter((c) => !center || c === center);
+  const showWorldCup =
+    entryBrand === "headpinz" && worldCupWindowActive(nowMs) && wcCenters.length > 0;
+  // Live-enriched fixtures (Redis-cached, fail-soft) only when the tile shows.
+  const nextFixture = showWorldCup
+    ? (upcomingFrom(await fixturesWithLiveTeams(), nowMs)[0] ?? null)
+    : null;
+  // Deep-link the center only when we actually know it (or only one center is
+  // enabled). A center-less landing must NOT force fort-myers (owner bug 7/6) —
+  // the wizard's center picker asks instead.
+  const wcHrefCenter = center ?? (wcCenters.length === 1 ? wcCenters[0] : null);
+  const worldCup = showWorldCup
+    ? {
+        href: `/book/bowling/v2?experience=world-cup${wcHrefCenter ? `&location=${wcHrefCenter}` : ""}`,
+        nextMatch: nextFixture
+          ? `${fixtureLabel(nextFixture)} — ${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
+          : null,
+        // Country flags for the "Next up" line (owner 7/6) — live-enriched,
+        // null when the feed hasn't resolved the matchup yet.
+        nextWhen: nextFixture
+          ? `${fixtureDayLabel(nextFixture)} ${fixtureTimeLabel(nextFixture)}`
+          : null,
+        nextHome: nextFixture?.home ?? null,
+        nextAway: nextFixture?.away ?? null,
+      }
+    : null;
+
   return (
     <PromoLanding
       entryBrand={entryBrand}
@@ -95,6 +137,7 @@ export default async function BookV2LandingPage({
       initialOfferings={initialOfferings}
       allOfferings={initialOfferings}
       combos={combos}
+      worldCup={worldCup}
     />
   );
 }

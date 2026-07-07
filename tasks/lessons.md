@@ -1,5 +1,40 @@
 # Lessons Learned
 
+## Never tell a customer they're being grouped with another party (2026-07-06)
+
+**What happened:** The VIP group-match feature shipped with a customer-facing banner
+("Another VIP group is already booked at 2 PM — pick the matching time and both groups head
+over to HeadPinz together") and a "JOINS THE 2 PM GROUP" tile badge. Owner: we should not be
+telling the end user we're putting them with another group.
+
+**Rules:**
+
+- Steering nudges that exist for OPS reasons (grouping parties, staffing, walk-overs) must be
+  ANONYMOUS in customer UI — express them as "Recommended" (or plain visual emphasis) without
+  explaining why. The why goes to staff channels (alert emails, portal) only.
+- More generally: customer-facing surfaces must never reveal the existence, timing, or size of
+  another customer's booking. Availability counts are fine; "another group/party/booking"
+  phrasing is not.
+
+## Local build verification must run the WORKSPACE build script, not `next build` directly (2026-07-03)
+
+**What happened:** The World Cup VIP branch passed a local `npx next build` clean, then the
+Vercel deploy failed on the **a11y gate** (`scripts/a11y-gate.mjs`, a jsx-a11y sweep wired as
+the package's `postbuild` hook). `next build` invoked directly never runs npm lifecycle hooks,
+so the gate silently didn't execute locally — the "green build" claim was false.
+
+**Rules:**
+
+- Verify with `npx turbo run build --filter=fasttrax-web` (or `npm run build` in `apps/web`) —
+  anything that skips the `postbuild` a11y gate is not a build verification.
+- The gate's `control-has-associated-label` rule can't see button text nested ≥3 levels deep in
+  conditional markup — rich card-style `<button>`s need an explicit `aria-label` (better for
+  screen readers anyway).
+- Wrinkle: untracked local scratch scripts under `apps/web/scripts/` (gitignored `.mts` probes)
+  ARE type-checked by local builds and can fail them even though CI/Vercel never sees those
+  files. Park them out of the tree for the verification run rather than concluding the branch
+  is broken — and prefer writing scratch probes that type-check.
+
 ## BMI public bill-delete returns TRUE on confirmed bills — while the PROJECT lives on (2026-07-03)
 
 First live cancels through the cascade (bills 63000000004148142/…180, W47613/W47615): the

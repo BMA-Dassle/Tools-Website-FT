@@ -43,6 +43,17 @@
  *     adult Starter session. Booked Starter races count toward the guarantee —
  *     the reserve is "two Starter races can happen", not "two slots frozen".
  *     60-min last-minute lift so unused reserved slots still fill. HIDDEN.
+ *  6. vip-combo-anchor-reserve — the Ultimate VIP Experience combo's fixed
+ *     start grid (registry startHours — 2/4/6/8/10 PM) needs a Starter anchor
+ *     heat free at each start hour, so the still-EMPTY slot at exactly those
+ *     clock times is held back from every regular booking on every track (an
+ *     empty slot appears in every tier's availability, so ANY tier/category
+ *     taking it consumes the anchor). Joining an occupied same-tier session at
+ *     those times stays allowed. Combo bookings themselves are exempt
+ *     (exemptComboBookings — the reserve exists FOR them). 60-min last-minute
+ *     lift so unclaimed anchors still fill. DISABLED + "VIP Reserved" (owner
+ *     2026-07-06). Default ON; NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE=false
+ *     kills it.
  *
  * ── How a "Pro session" is detected (no Pandora / no check-in needed) ──
  * BMI's per-tier dayplanner pages mean an OCCUPIED heat belongs to exactly one
@@ -61,6 +72,7 @@
  * constraint, add an optional constraint block to RaceRestrictionRule and a
  * branch in `evaluateRaceRestrictions`.
  */
+import { getComboSpecial } from "~/features/combos/combo-specials";
 import type { RaceCategory, RaceTier } from "./race-products";
 
 /** How a blocked slot is surfaced to the customer. */
@@ -149,6 +161,28 @@ export interface RaceRestrictionRule {
    * `candidateStartLocal` aren't supplied (epoch-only / non-aggregating caller).
    */
   reserveStarterRoomPerClockHour?: { minRoom: number };
+  /**
+   * Constraint: these center-local start times (minutes since local midnight)
+   * are reserved combo anchor heats — a combo special's fixed start grid
+   * needs its first-leg Starter heat still free when a VIP party books.
+   * Blocks taking a slot at one of these times while it is still EMPTY.
+   * Joining an already-occupied same-tier session is never blocked (the
+   * session IS the anchor — or the anchor is already lost — and BMI capacity
+   * gates it; same join precedent as the Starter room reserve). Pair with an
+   * all-tier/all-category appliesTo: an empty slot appears in every tier's
+   * availability, so any booking at the reserved time would consume the
+   * anchor. Honors `lastMinuteOverrideMinutes` so unclaimed anchors still
+   * fill. No-op when `candidateStartLocal` is absent (epoch-only caller).
+   */
+  reservedComboAnchorTimes?: { startMinutes: number[] };
+  /**
+   * When true, combo bookings (ctx.isComboBooking — session.comboSpecialId
+   * set) skip this rule entirely. The anchor reserve exists FOR combos, so
+   * the combo's own heat booking must not be blocked by it. Rules without
+   * this field keep applying to combo heats (junior back-to-back, Starter
+   * room, …).
+   */
+  exemptComboBookings?: boolean;
 }
 
 /** Minutes since local midnight for an `HH:MM` clock time. */
@@ -193,9 +227,56 @@ const WALK_IN_OR_EXPRESS_PRESENTATION: RestrictionPresentation = {
 };
 
 /**
+ * VIP anchor-reserve flag: default ON (owner 2026-07-06); kill with
+ * NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE=false in Vercel + redeploy
+ * (build-baked). Read per evaluation (the rule's `enabled` is a getter) so
+ * the server guard, the picker bundle (NEXT_PUBLIC_* is inlined at build) and
+ * tests all see the current value. Also off whenever the Ultimate VIP combo
+ * itself is disabled — no combo on sale means nothing to reserve.
+ */
+function vipAnchorReserveEnabled(): boolean {
+  return (
+    process.env.NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE !== "false" &&
+    (getComboSpecial("race-bowl")?.enabled ?? false)
+  );
+}
+
+/** The combo's start grid (0–26 chip notation) as center-local clock minutes —
+ *  derived from the registry so a startHours change stays a one-line edit. */
+const VIP_COMBO_ANCHOR_MINUTES: number[] = (getComboSpecial("race-bowl")?.startHours ?? []).map(
+  (h) => (h % 24) * 60,
+);
+
+/**
  * Active restriction rules. Plain const config — edit here to expand.
  */
 export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
+  // FIRST in the array so its "VIP Reserved" disabled-card presentation wins
+  // when a hide-style rule would also block the same slot (all rules block the
+  // booking identically; only the customer-facing presentation differs, and a
+  // visible "VIP Reserved" card explains the gap AND markets the package).
+  {
+    id: "vip-combo-anchor-reserve",
+    label: "All tracks: hold the first heat of each Ultimate VIP combo start hour",
+    get enabled() {
+      return vipAnchorReserveEnabled();
+    },
+    // Every tier + category — an empty slot appears in every tier's
+    // availability, so any regular booking at the reserved time consumes the
+    // anchor. (A combo's own Intermediate return heat can theoretically land
+    // on a reserved time, but combos are exempt and itinerary math puts
+    // returns at ~XX:30+.)
+    appliesTo: { tracks: ["Red", "Blue", "Mega"] },
+    presentation: {
+      action: "disable",
+      cardLabel: "VIP Reserved",
+      tooltip:
+        "This start time is held for Ultimate VIP Experience groups — it opens up one hour before the race if unclaimed.",
+    },
+    reservedComboAnchorTimes: { startMinutes: VIP_COMBO_ANCHOR_MINUTES },
+    lastMinuteOverrideMinutes: 60,
+    exemptComboBookings: true,
+  },
   {
     id: "mega-no-back-to-back-pro",
     label: "Mega: no back-to-back Pro sessions",
@@ -345,6 +426,12 @@ export interface RestrictionContext {
    * every one with a valid waiver). Required by `openingWindowExpressOnly`.
    */
   expressEligible?: boolean;
+  /**
+   * True when the heats are being booked as part of a combo special
+   * (session.comboSpecialId set). Only consulted by rules with
+   * `exemptComboBookings` — a combo booking still hits every other rule.
+   */
+  isComboBooking?: boolean;
 }
 
 export interface RestrictionResult {
@@ -426,6 +513,23 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
   for (const rule of RACE_RESTRICTION_RULES) {
     if (!rule.enabled) continue;
     if (!matchesScope(rule, ctx)) continue;
+    // Combo bookings skip rules that exempt them (the VIP anchor reserve
+    // exists FOR combos); every other rule still applies to combo heats.
+    if (rule.exemptComboBookings && ctx.isComboBooking) continue;
+
+    // Constraint: reserved combo anchor time — block taking a still-EMPTY
+    // slot at one of the combo grid's start times. Joining an occupied
+    // same-tier session at that time is fine: the session IS the anchor (or
+    // the anchor is already lost) and BMI capacity gates it.
+    if (rule.reservedComboAnchorTimes && ctx.candidateStartLocal) {
+      const parts = localClockParts(ctx.candidateStartLocal);
+      if (parts && rule.reservedComboAnchorTimes.startMinutes.includes(parts.minutes)) {
+        const joiningOccupied = ctx.productBlocks.some(
+          (b) => b.startMs === ctx.candidateStartMs && b.freeSpots < b.capacity,
+        );
+        if (!joiningOccupied && !lastMinuteLift(rule, ctx)) return block(rule);
+      }
+    }
 
     // Constraint: no back-to-back occupied slot. Scope "tier" sees only the
     // candidate's own product; "category" sees every same-category heat on the

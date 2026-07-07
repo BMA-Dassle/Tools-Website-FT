@@ -31,6 +31,8 @@ export default function HomePage() {
   return (
     <>
       <EventClosurePopup brand="fasttrax" />
+      {/* World Cup VIP popup deliberately NOT mounted here — HeadPinz-only
+          offer (owner 7/6); it lives on the hp/* home pages. */}
       <Usa250PromoPopup />
       <July4Fireworks />
       <Hero />

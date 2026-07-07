@@ -13,6 +13,8 @@ import { sendEmail } from "@/lib/sendgrid";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 
+import { listComboGroupsForDate } from "./combo-existing.server";
+import { chipHourOfIso, classifyGroupMatch } from "./combo-group-match";
 import { wallClockLabel, wallClockMs } from "./combo-itinerary";
 import { getComboSpecial } from "./combo-specials";
 
@@ -34,6 +36,8 @@ export async function notifyComboBooked(args: {
   bmiReservationNumber: string | null;
   squareDayofOrderId: string;
   totalCents: number;
+  /** This booking's Square deposit order — excludes it from the group-match lookup. */
+  depositOrderId?: string | null;
 }): Promise<void> {
   try {
     const { session, contact } = args;
@@ -62,10 +66,12 @@ export async function notifyComboBooked(args: {
         (raceItem?.heats ?? [])
           .filter((h) => h.heatId)
           .map((h) => [
-            `${h.heatId}|${h.track ?? ""}`,
+            // Category in the key: a mirrored junior heat is its own row, and
+            // even a same-start junior block never merges into the adult row.
+            `${h.heatId}|${h.track ?? ""}|${h.category ?? ""}`,
             {
               ms: wallClockMs(h.heatId!),
-              label: `${wallClockLabel(h.heatId!)} — ${cap(h.tier ?? "race")} Race${h.track ? ` (${h.track} Track)` : ""}`,
+              label: `${wallClockLabel(h.heatId!)} — ${cap(h.tier ?? "race")} Race${h.track ? ` (${h.track} Track)` : ""}${h.category === "junior" ? " — Juniors" : ""}`,
             },
           ]),
       ).values(),
@@ -89,6 +95,65 @@ export async function notifyComboBooked(args: {
     // race → bowl → race, which changes lane/track scheduling.
     const reordered = bowlMs != null && raceRows.length > 0 && raceRows.every((r) => r.ms < bowlMs);
 
+    // Schedule-match vs the date's OTHER VIP groups (owner 2026-07-06: staff
+    // walk matching groups from FastTrax to HeadPinz together, so managers
+    // need to know at a glance whether this booking joins one). Best-effort —
+    // a lookup failure must not affect the alert.
+    const hourLabel = (h: number) => {
+      const hr = h % 24;
+      return `${hr % 12 === 0 ? 12 : hr % 12} ${hr >= 12 ? "PM" : "AM"}`;
+    };
+    let groupNote: { html: string; text: string; subjectSuffix: string } | null = null;
+    try {
+      const heatsWithId = (raceItem?.heats ?? []).filter((h) => !!h.heatId);
+      const starters = heatsWithId.filter((h) => h.tier === "starter");
+      const anchor = [...(starters.length ? starters : heatsWithId)].sort((a, b) =>
+        a.heatId!.localeCompare(b.heatId!),
+      )[0];
+      if (raceItem?.date && session.comboSpecialId && anchor?.heatId) {
+        const groups = await listComboGroupsForDate({
+          dateYmd: raceItem.date,
+          comboSpecialId: session.comboSpecialId,
+          excludeDepositOrderId: args.depositOrderId ?? null,
+        });
+        if (groups.length > 0) {
+          const verdict = classifyGroupMatch(
+            {
+              anchorStartIso: anchor.heatId,
+              track: anchor.track ?? null,
+              hour: chipHourOfIso(anchor.heatId),
+            },
+            groups,
+          );
+          const hoursLabel = [...new Set(groups.map((g) => hourLabel(g.startHour)))].join(" and ");
+          if (verdict?.kind === "exact") {
+            const text = `Joins the existing ${hourLabel(verdict.group.startHour)} VIP group — SAME Starter heat. Walk both groups over together.`;
+            groupNote = {
+              html: `<p style="margin:0 0 12px;padding:10px 12px;background:#e8f6ee;border-left:4px solid #1f9d55;color:#14532d;font-weight:600">${text}</p>`,
+              text,
+              subjectSuffix: "",
+            };
+          } else if (verdict?.kind === "same-hour") {
+            const text = `Starts in the same hour as the ${hourLabel(verdict.group.startHour)} VIP group but a DIFFERENT heat — bowling times can differ by up to ~45 min. Groups may not walk over together.`;
+            groupNote = {
+              html: `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01;font-weight:600">${text}</p>`,
+              text,
+              subjectSuffix: "",
+            };
+          } else {
+            const text = `DOES NOT MATCH the existing VIP group(s) at ${hoursLabel} — the groups will walk over to HeadPinz separately. Plan staffing accordingly.`;
+            groupNote = {
+              html: `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01;font-weight:600">⚠️ ${text}</p>`,
+              text,
+              subjectSuffix: " · ⚠️ 2ND GROUP, DIFFERENT TIME",
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[combo-notify] group-match lookup failed (non-fatal):", err);
+    }
+
     const guest = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown guest";
     const partySize = session.party.length || 1;
     const total = `$${(args.totalCents / 100).toFixed(2)}`;
@@ -99,13 +164,14 @@ export async function notifyComboBooked(args: {
       "wasn't available between the races (e.g. a league had the VIP lanes), so " +
       "the system scheduled bowling last. Plan lane/track scheduling accordingly.";
 
-    const subject = `🏁 ${combo.name} booked — ${guest} · ${dateLabel}${startLabel ? ` ${startLabel}` : ""}${reordered ? " · ⚠️ RACES-FIRST ORDER" : ""}`;
+    const subject = `🏁 ${combo.name} booked — ${guest} · ${dateLabel}${startLabel ? ` ${startLabel}` : ""}${reordered ? " · ⚠️ RACES-FIRST ORDER" : ""}${groupNote?.subjectSuffix ?? ""}`;
     const lines = [
       `<h2 style="margin:0 0 4px">${combo.name} booked</h2>`,
       `<p style="margin:0 0 12px;color:#555">${dateLabel} · ${partySize} ${partySize === 1 ? "person" : "people"} · ${total} paid online</p>`,
       reordered
         ? `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01;font-weight:600">⚠️ ${reorderNotice}</p>`
         : "",
+      groupNote?.html ?? "",
       `<p style="margin:0 0 12px"><strong>${guest}</strong><br/>${contact.email ?? ""}<br/>${contact.phone ?? ""}</p>`,
       `<p style="margin:0 0 4px"><strong>Itinerary</strong></p>`,
       `<ol style="margin:0 0 12px;padding-left:20px">${itinerary.map((r) => `<li>${r}</li>`).join("")}</ol>`,
@@ -122,6 +188,7 @@ export async function notifyComboBooked(args: {
       text:
         `${combo.name} booked — ${guest}, ${dateLabel}, ${partySize} ppl, ${total} paid.\n` +
         (reordered ? `\n** ${reorderNotice} **\n\n` : "") +
+        (groupNote ? `\n** ${groupNote.text} **\n\n` : "") +
         itinerary.map((r, i) => `${i + 1}. ${r}`).join("\n") +
         `\nBMI bill ${args.bmiBillId ?? "—"} · Square order ${args.squareDayofOrderId}`,
     });

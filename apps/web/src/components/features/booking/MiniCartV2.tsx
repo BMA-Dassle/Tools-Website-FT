@@ -25,8 +25,14 @@ function readSnapshot(): SessionSnapshot | null {
   else if (first.kind === "kbf") slug = "kbf";
   else slug = "race";
 
+  // cart=1 marks this as a cart RETURN, not a fresh activity entry — without it
+  // BookingFlow treats /book/race/v2 as a Karting-tile click and tears down a
+  // persisted combo (releasing its BMI heats + QAMF lane). Same exception the
+  // landing cart bar's View Cart / Checkout links use.
   const code = session.appliedPromo?.code;
-  const href = code ? `/book/${slug}/v2?code=${encodeURIComponent(code)}` : `/book/${slug}/v2`;
+  const href = code
+    ? `/book/${slug}/v2?cart=1&code=${encodeURIComponent(code)}`
+    : `/book/${slug}/v2?cart=1`;
 
   return { itemCount: session.items.length, returnHref: href };
 }

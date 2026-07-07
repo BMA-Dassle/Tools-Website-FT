@@ -83,7 +83,11 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       try {
         const res = await fetch(`/api/bowling/v2/experiences?centerCode=${centerCode}${kindParam}`);
         const data = await res.json();
-        const all: BowlingExperienceWithDetails[] = Array.isArray(data) ? data : [];
+        const raw: BowlingExperienceWithDetails[] = Array.isArray(data) ? data : [];
+        // World-cup experiences are ONLY bookable via the match-picker entry
+        // (?experience=world-cup) — never here, where any-hour booking would
+        // book a lane outside a match window.
+        const all = raw.filter((e) => !e.slug.startsWith("world-cup-"));
         setExperiences(kind === "kbf" ? all : all.filter((e) => e.kind !== "kbf"));
       } catch {
         setExperiences([]);

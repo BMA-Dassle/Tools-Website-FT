@@ -32,6 +32,11 @@ import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTime
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
 import { comboBowlingComponent, getComboSpecial } from "~/features/combos/combo-specials";
 import { holdComboBowling, releaseComboBowlingHold } from "~/features/combos/combo-booking";
+import {
+  worldCupCenterEnabled,
+  worldCupEnabledCenters,
+  worldCupWindowActive,
+} from "~/features/world-cup";
 import { qamfCenterIdForCode } from "~/features/booking/types";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
@@ -184,10 +189,32 @@ export function BookingFlow({
     if (initialContext?.center && !session.center) {
       dispatch({ type: "setCenter", center: initialContext.center });
     }
+    // World Cup entry (?experience=world-cup): seed the bowling item in
+    // match-picker mode — VIP tier pinned, hourly per-lane pricing;
+    // WorldCupMatchStep replaces the Slots/Tier/Offer steps. Gated on the
+    // per-center kill switch + the tournament window so a stale marketing
+    // link degrades to the normal bowling wizard instead of a dead end.
+    // With no center known yet, seed World Cup mode as long as ANY center is
+    // enabled — the CenterPickerModal asks next (owner bug 7/6: a center-less
+    // entry silently degraded to the plain bowling wizard). A KNOWN-disabled
+    // center still degrades gracefully.
+    const wcEntryCenter = initialContext?.center ?? session.center;
+    const wantWorldCup =
+      activity === "bowling" &&
+      !!initialContext?.worldCup &&
+      worldCupWindowActive(Date.now()) &&
+      (wcEntryCenter ? worldCupCenterEnabled(wcEntryCenter) : worldCupEnabledCenters().length > 0);
+
     const makeItem = (): SessionItem => {
       const created = newItem(activity);
       if (created.kind === "attraction" && slug) {
         (created as AttractionItem).slug = slug;
+      }
+      if (created.kind === "bowling" && wantWorldCup) {
+        const b = created as Extract<SessionItem, { kind: "bowling" }>;
+        b.variant = "hourly";
+        b.tier = "vip";
+        b.isWorldCup = true;
       }
       return created;
     };
@@ -200,6 +227,12 @@ export function BookingFlow({
       const alreadyInCart = session.items.some((i) => {
         if (i.kind !== activity) return false;
         if (i.kind === "attraction") return (i as AttractionItem).slug === slug;
+        if (i.kind === "bowling") {
+          // A World Cup entry doesn't reuse a plain bowling item (and vice
+          // versa) — they run different step lists.
+          const isWc = !!(i as Extract<SessionItem, { kind: "bowling" }>).isWorldCup;
+          return wantWorldCup ? isWc : !isWc;
+        }
         return true;
       });
       if (!alreadyInCart) {

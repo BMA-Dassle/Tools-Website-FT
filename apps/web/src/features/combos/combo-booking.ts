@@ -31,7 +31,12 @@ import type {
 } from "@/lib/bowling-db";
 
 import { wallClockMs, type LegCandidate } from "./combo-itinerary";
-import { legKey, type ComboLeg, type ComboSpecial } from "./combo-specials";
+import {
+  comboJuniorMirrorEnabled,
+  legKey,
+  type ComboLeg,
+  type ComboSpecial,
+} from "./combo-specials";
 
 const QAMF_CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
@@ -40,6 +45,40 @@ const QAMF_CENTER_CODES: Record<number, string> = {
 
 /** New racers can't start a heat inside this lead window (v1 parity). */
 const NEW_RACER_LEAD_MINUTES = 75;
+
+/**
+ * Junior mirror window: the junior heat must start AFTER the adult heat and
+ * within this many minutes of it — three 12-min grid slots, so "right after
+ * the adult race" stays true while the junior back-to-back rule (13-min gap
+ * to another junior session) still has room to dodge. No junior block in the
+ * window → the candidate is dropped (greyed start tile), same presentation as
+ * any other infeasible chain.
+ */
+export const JUNIOR_MIRROR_WINDOW_MINUTES = 36;
+
+/**
+ * Earliest junior block strictly after the adult heat, within the mirror
+ * window, with room for every junior in the party. Pure — unit-tested
+ * directly. `blocksByStart` is that category's best-block-per-start map from
+ * `fetchRaceLegCandidates`.
+ */
+export function pickJuniorMirror<B extends { freeSpots: number }>(
+  blocksByStart: Map<string, B>,
+  adultStartMs: number,
+  juniorCount: number,
+): (B & { start: string }) | null {
+  const windowEndMs = adultStartMs + JUNIOR_MIRROR_WINDOW_MINUTES * 60_000;
+  let best: (B & { start: string; startMs: number }) | null = null;
+  for (const [start, block] of blocksByStart) {
+    const startMs = wallClockMs(start);
+    if (startMs <= adultStartMs || startMs > windowEndMs) continue;
+    if (block.freeSpots < juniorCount) continue;
+    if (!best || startMs < best.startMs) best = { ...block, start, startMs };
+  }
+  if (!best) return null;
+  const { startMs: _startMs, ...rest } = best;
+  return rest as B & { start: string };
+}
 
 function isTodayEt(ymd: string): boolean {
   return ymd === new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -61,9 +100,24 @@ export interface ComboHeatCandidate {
   track: string | null;
   /** Min free spots across the categories (vs that category's headcount). */
   freeSpots: number;
-  /** Per-category booking info for `entriesForPick`-style heat writes. */
+  /**
+   * Per-category booking info for `entriesForPick`-style heat writes.
+   * `start`/`stop` are set only when the category races at a DIFFERENT time
+   * than the anchor (the junior mirror — juniors race right after the adult
+   * heat); absent = the category shares the candidate's `start` (current
+   * same-start behavior, always the case for the primary category).
+   */
   perCategory: Partial<
-    Record<RaceCategory, { productId: string; track: string | null; freeSpots: number }>
+    Record<
+      RaceCategory,
+      {
+        productId: string;
+        track: string | null;
+        freeSpots: number;
+        start?: string;
+        stop?: string;
+      }
+    >
   >;
 }
 
@@ -187,6 +241,31 @@ export async function fetchRaceLegCandidates(args: {
     let ok = true;
     let minFree = base.freeSpots;
     for (const { category, count } of rest) {
+      // Junior mirror (flag-gated): juniors race right AFTER the adult heat
+      // instead of needing a junior block at the SAME start (which never
+      // aligns — junior sessions run their own grid, so mixed parties were
+      // effectively unbookable). `rest` only contains juniors when adults are
+      // the primary category, so `base` is always the adult heat here.
+      if (category === "junior" && comboJuniorMirrorEnabled()) {
+        const mirror = pickJuniorMirror(
+          perCatBestByStart.get(category)!,
+          wallClockMs(base.start),
+          count,
+        );
+        if (!mirror) {
+          ok = false;
+          break;
+        }
+        perCategory[category] = {
+          productId: mirror.productId,
+          track: mirror.track,
+          freeSpots: mirror.freeSpots,
+          start: mirror.start,
+          stop: mirror.stop,
+        };
+        minFree = Math.min(minFree, mirror.freeSpots);
+        continue;
+      }
       const match = perCatBestByStart.get(category)!.get(base.start);
       if (!match || match.freeSpots < count) {
         ok = false;
@@ -308,6 +387,23 @@ export async function fetchBowlingLegCandidates(args: {
 const ASSUMED_RACE_LEG_MINUTES = 30;
 
 /**
+ * Scheduling end of a race-leg candidate: the LAST category's race start (the
+ * junior mirror runs after the adult heat) + the flat 30-min leg duration —
+ * so the next leg's wait window (bowling maxWaitMinutes, transition buffer)
+ * measures from the final race of the leg, not the adult one. Pure —
+ * unit-tested directly.
+ */
+export function raceLegEndMs(candidate: ComboHeatCandidate): number {
+  const lastStartMs = Math.max(
+    wallClockMs(candidate.start),
+    ...Object.values(candidate.perCategory).map((c) =>
+      c.start ? wallClockMs(c.start) : wallClockMs(candidate.start),
+    ),
+  );
+  return lastStartMs + ASSUMED_RACE_LEG_MINUTES * 60_000;
+}
+
+/**
  * Fetch every leg's candidates for `buildChains`, in the combo's itinerary
  * order. Legs load IN PARALLEL (BMI dayplanner + the QAMF full-day probe are
  * each seconds-slow; serializing them doubled the spinner). `onLegDone`
@@ -362,13 +458,13 @@ async function legCandidates(
     return candidates.map((candidate) => {
       const startMs = wallClockMs(candidate.start);
       // Schedule off a flat 30-min race leg, NOT the ~12-min BMI heat block —
-      // see ASSUMED_RACE_LEG_MINUTES. (candidate.start/stop stay intact in the
-      // payload for the actual booking + display.)
-      const endMs = startMs + ASSUMED_RACE_LEG_MINUTES * 60_000;
+      // see ASSUMED_RACE_LEG_MINUTES — measured from the leg's LAST race (a
+      // mirrored junior heat pushes the end out; see raceLegEndMs).
+      // (candidate.start/stop stay intact in the payload for booking + display.)
       return {
         startIso: candidate.start,
         startMs,
-        endMs,
+        endMs: raceLegEndMs(candidate),
         payload: { kind: "race", tier: leg.tier, candidate } satisfies ComboRaceLegPayload,
       };
     });

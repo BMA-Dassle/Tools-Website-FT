@@ -53,6 +53,20 @@ describe("parseEntryContextFromSearchParams", () => {
     });
   });
 
+  it("extracts worldCup from ?experience=world-cup only", () => {
+    expect(parseEntryContextFromSearchParams({ experience: "world-cup" })).toEqual({
+      worldCup: true,
+    });
+    expect(
+      parseEntryContextFromSearchParams({ experience: "world-cup", location: "fort-myers" }),
+    ).toEqual({ worldCup: true, center: "fort-myers" });
+    // Unknown experience values are ignored — marketing links never 500 a wizard.
+    expect(parseEntryContextFromSearchParams({ experience: "pizza-party" })).toBe(
+      EMPTY_ENTRY_CONTEXT,
+    );
+    expect(parseEntryContextFromSearchParams({ experience: "   " })).toBe(EMPTY_ENTRY_CONTEXT);
+  });
+
   it("composes a fully prefilled session", () => {
     expect(
       parseEntryContextFromSearchParams({

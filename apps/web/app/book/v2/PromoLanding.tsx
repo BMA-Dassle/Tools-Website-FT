@@ -14,6 +14,7 @@ import { clearBookingSession, peekBookingSession } from "~/features/booking/hook
 import { abandonBooking } from "~/features/booking/service/checkout";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { ComboSpecial } from "~/features/combos";
+import type { WorldCupTeamRef } from "~/features/world-cup";
 
 /** Customer-facing "valid on" label for a promo's booking-date window (null = any day). */
 function promoValidLabel(start: string | null, end: string | null): string | null {
@@ -74,6 +75,10 @@ export interface PromoLandingProps {
    *  "Best Value" cards linking to /book/combo/[id]/v2. Empty when the flag
    *  is off or the center doesn't serve them (e.g. Naples). */
   combos?: ComboSpecial[];
+  /** World Cup VIP Bowling tile (limited-time, HeadPinz). Null when the
+   *  tournament window is over, the brand isn't HeadPinz, or every in-scope
+   *  center's kill switch is off. Computed server-side in page.tsx. */
+  worldCup?: WorldCupTileData | null;
 }
 
 export function PromoLanding({
@@ -84,6 +89,7 @@ export function PromoLanding({
   seedRejected,
   initialOfferings,
   combos = [],
+  worldCup = null,
 }: PromoLandingProps) {
   const router = useRouter();
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
@@ -140,7 +146,9 @@ export function PromoLanding({
       if (s) await abandonBooking(s);
     } finally {
       clearBookingSession();
-      window.location.href = "/book/v2";
+      // Keep the landing's center context (owner bug 7/6: clearing the cart on
+      // a Naples landing bounced the visitor back to the center-less default).
+      window.location.href = center ? `/book/v2?location=${center}` : "/book/v2";
     }
   }
 
@@ -345,6 +353,10 @@ export function PromoLanding({
             {combos.map((combo) => (
               <ComboCard key={combo.id} combo={combo} gold={HP_GOLD} />
             ))}
+            {/* World Cup VIP Bowling — compact time-boxed tile after the combo
+                specials (owner 7/6: "small box second row", Ultimate VIP keeps
+                the lead). Self-hides after the final. */}
+            {worldCup && <WorldCupCard worldCup={worldCup} gold={HP_GOLD} />}
             {initialOfferings.map((o) => (
               <AttractionCard
                 key={o.slug}
@@ -359,6 +371,117 @@ export function PromoLanding({
         </div>
       </section>
     </div>
+  );
+}
+
+/** Data the /book/v2 server page passes for the World Cup tile. */
+export interface WorldCupTileData {
+  href: string;
+  /** Full fallback line, e.g. "USA vs Belgium — Mon, Jul 6 8 PM". */
+  nextMatch: string | null;
+  /** Day + time only — used when the flag row renders the teams itself. */
+  nextWhen: string | null;
+  nextHome?: WorldCupTeamRef | null;
+  nextAway?: WorldCupTeamRef | null;
+}
+
+/** Country flag chip for the "Next up" line (ESPN CDN, live-enriched). Plain
+ *  img on purpose: external host, tiny, lazy, and next/image would need a
+ *  remotePatterns config for a two-week feature. */
+function FlagImg({ src, alt }: { src: string; alt: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- external ESPN flag PNG, lazy + tiny
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className="h-3.5 w-auto rounded-[2px] ring-1 ring-white/20"
+    />
+  );
+}
+
+/** World Cup VIP Bowling landing card — COMPACT single-width tile (owner 7/6:
+ *  "small box second row"; Ultimate VIP keeps the lead spot). Fronted by the
+ *  real photo of the VIP lanes with the match live on the NeoVerse wall.
+ *  Limited-time: the parent only passes `worldCup` while the tournament window
+ *  is active and a center's kill switch is on, so it self-retires after the
+ *  July 19 final. */
+function WorldCupCard({ worldCup, gold }: { worldCup: WorldCupTileData; gold: string }) {
+  return (
+    <Link
+      href={worldCup.href}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6"
+      style={{ borderColor: `${gold}55`, boxShadow: `0 0 18px ${gold}24` }}
+    >
+      <div className="relative aspect-[4/3] overflow-hidden">
+        <Image
+          src="/promo/world-cup/neoverse-vip.jpg"
+          alt="World Cup match on the NeoVerse LED wall over the VIP bowling lanes"
+          fill
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
+          sizes="(max-width: 640px) 100vw, 33vw"
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
+        <div className="absolute right-3 top-3">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm"
+            style={{ backgroundColor: gold, color: "#0a1628" }}
+          >
+            <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
+            </svg>
+            Limited Time
+          </span>
+        </div>
+        <div className="absolute inset-x-0 bottom-0 p-4">
+          <h3 className="font-display text-xl font-black uppercase tracking-wider text-white">
+            World Cup VIP Bowling
+          </h3>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-4">
+        <p className="mb-2 text-sm text-white/75">
+          2½-hr VIP lane from kickoff · NeoVerse LED walls · chips &amp; salsa included · shoes
+          extra
+        </p>
+
+        {worldCup.nextHome && worldCup.nextAway ? (
+          <p className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs font-semibold text-white/60">
+            <span>Next up:</span>
+            {worldCup.nextHome.logo && (
+              <FlagImg src={worldCup.nextHome.logo} alt={`${worldCup.nextHome.name} flag`} />
+            )}
+            <span className="text-white/90">{worldCup.nextHome.name}</span>
+            <span>vs</span>
+            {worldCup.nextAway.logo && (
+              <FlagImg src={worldCup.nextAway.logo} alt={`${worldCup.nextAway.name} flag`} />
+            )}
+            <span className="text-white/90">{worldCup.nextAway.name}</span>
+            {worldCup.nextWhen && <span>— {worldCup.nextWhen}</span>}
+          </p>
+        ) : (
+          worldCup.nextMatch && (
+            <p className="mb-3 text-xs font-semibold text-white/60">
+              Next up: <span className="text-white/90">{worldCup.nextMatch}</span>
+            </p>
+          )
+        )}
+
+        <div className="mt-auto flex items-center justify-between gap-3">
+          <p className="text-sm font-bold text-white">
+            $112.50–$137.50
+            <span className="text-xs font-normal text-white/50">/lane + tax</span>
+          </p>
+          <span
+            className="whitespace-nowrap rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider transition-transform group-hover:scale-[1.03]"
+            style={{ backgroundColor: gold, color: "#0a1628" }}
+          >
+            Pick Your Match →
+          </span>
+        </div>
+      </div>
+    </Link>
   );
 }
 

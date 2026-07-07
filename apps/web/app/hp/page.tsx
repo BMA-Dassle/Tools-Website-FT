@@ -129,6 +129,9 @@ export default function HeadPinzHome() {
   return (
     <>
       <Usa250PromoPopup />
+      {/* World Cup popup deliberately NOT on this location-SELECTION page
+          (owner 7/6): its one-per-session impression must fire on the
+          fort-myers/naples pages, where the CTA is center-scoped. */}
       <July4Fireworks />
       <BreadcrumbJsonLd items={[{ name: "HeadPinz", url: "https://headpinz.com" }]} />
       <div className="min-h-screen bg-[#0a1628] flex flex-col items-center justify-center relative">
