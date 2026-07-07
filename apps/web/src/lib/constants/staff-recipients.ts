@@ -13,16 +13,17 @@
 
 export type HeadPinzCenterKey = "fort-myers" | "naples";
 
-/** Owner list 2026-07-06. */
+/** Corporate — on EVERY center's alerts (owner 7/6: "that's corp"). */
+export const CORP_STAFF_RECIPIENTS = [
+  "jacob@headpinz.com",
+  "curtis@headpinz.com",
+  "eric@headpinz.com",
+];
+
+/** Each center's own crew (owner list 2026-07-06) — corp is appended by
+ *  staffRecipientsForCenter, so edit only the local names here. */
 export const CENTER_STAFF_RECIPIENTS: Record<HeadPinzCenterKey, string[]> = {
-  "fort-myers": [
-    "bruce@headpinz.com",
-    "abigail@headpinz.com",
-    "tyler@headpinz.com",
-    "jacob@headpinz.com",
-    "curtis@headpinz.com",
-    "eric@headpinz.com",
-  ],
+  "fort-myers": ["bruce@headpinz.com", "abigail@headpinz.com", "tyler@headpinz.com"],
   naples: ["donald@headpinz.com", "donna@headpinz.com", "carter@headpinz.com"],
 };
 
@@ -50,8 +51,10 @@ export function normalizeCenterKey(
   }
 }
 
-/** Recipients for a center, falling back to Fort Myers when the id is
- *  unrecognized — better a misrouted alert than a silent one. */
+/** Recipients for a center = that center's crew + corp (deduped), falling
+ *  back to Fort Myers when the id is unrecognized — better a misrouted alert
+ *  than a silent one. */
 export function staffRecipientsForCenter(center: string | number | null | undefined): string[] {
-  return CENTER_STAFF_RECIPIENTS[normalizeCenterKey(center) ?? "fort-myers"];
+  const crew = CENTER_STAFF_RECIPIENTS[normalizeCenterKey(center) ?? "fort-myers"];
+  return [...new Set([...crew, ...CORP_STAFF_RECIPIENTS])];
 }
