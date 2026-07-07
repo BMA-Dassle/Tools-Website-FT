@@ -66,10 +66,12 @@ export async function notifyComboBooked(args: {
         (raceItem?.heats ?? [])
           .filter((h) => h.heatId)
           .map((h) => [
-            `${h.heatId}|${h.track ?? ""}`,
+            // Category in the key: a mirrored junior heat is its own row, and
+            // even a same-start junior block never merges into the adult row.
+            `${h.heatId}|${h.track ?? ""}|${h.category ?? ""}`,
             {
               ms: wallClockMs(h.heatId!),
-              label: `${wallClockLabel(h.heatId!)} — ${cap(h.tier ?? "race")} Race${h.track ? ` (${h.track} Track)` : ""}`,
+              label: `${wallClockLabel(h.heatId!)} — ${cap(h.tier ?? "race")} Race${h.track ? ` (${h.track} Track)` : ""}${h.category === "junior" ? " — Juniors" : ""}`,
             },
           ]),
       ).values(),
