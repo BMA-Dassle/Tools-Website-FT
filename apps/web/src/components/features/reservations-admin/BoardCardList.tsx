@@ -13,6 +13,7 @@ import {
   STATUS_COLORS,
   STATUS_LABELS,
 } from "~/features/reservations-admin/constants";
+import { clickableDivProps } from "@/lib/a11y";
 import { centerShortOf, dollars, fmtClock, ganDisplay } from "~/features/reservations-admin/format";
 import type { ComboMergeInfo, Reservation } from "~/features/reservations-admin/types";
 import ActionButtons from "./ActionButtons";
@@ -32,6 +33,7 @@ export default function BoardCardList({
   onCancel,
   onViewOrder,
   onViewSchedule,
+  onOpenReservation,
 }: {
   rows: Row[];
   comboScheduleFor: (r: Reservation) => ComboScheduleEntry | undefined;
@@ -42,6 +44,8 @@ export default function BoardCardList({
   onCancel: (r: Row) => void;
   onViewOrder: (target: OrderTarget) => void;
   onViewSchedule: (target: ScheduleTarget) => void;
+  /** Card tap (anywhere except inner buttons/links) opens the manage modal. */
+  onOpenReservation?: (r: Row) => void;
 }) {
   return (
     <div className="md:hidden flex flex-col gap-1.5">
@@ -51,6 +55,15 @@ export default function BoardCardList({
         return (
           <div
             key={r.id}
+            {...(onOpenReservation
+              ? clickableDivProps(
+                  (e) => {
+                    if ((e.target as HTMLElement).closest("button, a, input")) return;
+                    onOpenReservation(r);
+                  },
+                  `Manage reservation for ${r.guestName ?? "guest"}`,
+                )
+              : {})}
             style={{
               borderRadius: 8,
               border: r.comboSpecialId
@@ -62,6 +75,7 @@ export default function BoardCardList({
               backgroundColor: r.comboSpecialId ? KIND_BADGE.vip.bg : "var(--ba-bg2)",
               opacity: isCancelled ? 0.45 : 1,
               padding: "8px 10px",
+              ...(onOpenReservation ? { cursor: "pointer" } : {}),
             }}
           >
             {/* Row 1: time · name · center ——— badges */}

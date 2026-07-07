@@ -14,6 +14,7 @@ import {
   STATUS_COLORS,
   STATUS_LABELS,
 } from "~/features/reservations-admin/constants";
+import { clickableDivProps } from "@/lib/a11y";
 import {
   centerShortOf,
   dayofSourceLabel,
@@ -41,6 +42,7 @@ export default function BoardTable({
   onViewOrder,
   onViewSchedule,
   onOpenContact,
+  onOpenReservation,
 }: {
   rows: Row[];
   comboScheduleFor: (r: Reservation) => ComboScheduleEntry | undefined;
@@ -52,6 +54,8 @@ export default function BoardTable({
   onViewOrder: (target: OrderTarget) => void;
   onViewSchedule: (target: ScheduleTarget) => void;
   onOpenContact: (target: ContactTarget) => void;
+  /** Row click (anywhere except inner buttons/links) opens the manage modal. */
+  onOpenReservation?: (r: Row) => void;
 }) {
   return (
     <div className="hidden md:block" style={{ overflowX: "auto" }}>
@@ -108,11 +112,22 @@ export default function BoardTable({
             return (
               <tr
                 key={r.id}
+                {...(onOpenReservation
+                  ? clickableDivProps(
+                      (e) => {
+                        // Inner buttons/links keep their own behavior.
+                        if ((e.target as HTMLElement).closest("button, a, input")) return;
+                        onOpenReservation(r);
+                      },
+                      `Manage reservation for ${r.guestName ?? "guest"}`,
+                    )
+                  : {})}
                 style={{
                   borderBottom: "1px solid var(--ba-border)",
                   opacity: rowOpacity,
                   backgroundColor: r.comboSpecialId ? KIND_BADGE.vip.bg : undefined,
                   boxShadow: r.comboSpecialId ? `inset 3px 0 0 ${KIND_BADGE.vip.color}` : undefined,
+                  ...(onOpenReservation ? { cursor: "pointer" } : {}),
                 }}
               >
                 {/* Time */}

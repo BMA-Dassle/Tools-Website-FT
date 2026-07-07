@@ -75,13 +75,10 @@ export function useReservationDetail(neonId: number, token: string): UseReservat
     }
   }, [neonId, token]);
 
+  // No reset-on-id-change here: the modal mounts with key={reservation.id},
+  // so a different reservation is a fresh hook instance (initial state).
   useEffect(() => {
     alive.current = true;
-    setDetail(null);
-    setDetailLoading(true);
-    setDetailError(null);
-    setPayments(null);
-    setPaymentsError(null);
     void refetch();
     return () => {
       alive.current = false;
