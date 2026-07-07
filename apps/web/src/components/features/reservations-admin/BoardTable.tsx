@@ -7,7 +7,6 @@
  */
 import type { ComboScheduleEntry } from "~/features/reservations-admin/combo-board";
 import {
-  FOOD_RE,
   KIND_BADGE,
   SOURCE_COLORS,
   SOURCE_LABELS,
@@ -15,19 +14,12 @@ import {
   STATUS_LABELS,
 } from "~/features/reservations-admin/constants";
 import { clickableDivProps } from "@/lib/a11y";
-import {
-  centerShortOf,
-  dayofSourceLabel,
-  dollars,
-  fmtClock,
-  ganDisplay,
-} from "~/features/reservations-admin/format";
+import { centerShortOf, dollars, fmtClock, ganDisplay } from "~/features/reservations-admin/format";
 import type { ComboMergeInfo, Reservation } from "~/features/reservations-admin/types";
 import ActionButtons from "./ActionButtons";
 import { SurveyChip } from "./chips";
 import type { ContactTarget } from "./modals/ContactModal";
 import type { ScheduleTarget } from "./modals/ComboScheduleModal";
-import type { OrderTarget } from "./modals/SquareOrderModal";
 
 type Row = Reservation & { comboMerge?: ComboMergeInfo };
 
@@ -39,7 +31,6 @@ export default function BoardTable({
   onReschedule,
   onResend,
   onCancel,
-  onViewOrder,
   onViewSchedule,
   onOpenContact,
   onOpenReservation,
@@ -51,7 +42,6 @@ export default function BoardTable({
   onReschedule: (r: Row) => void;
   onResend: (r: Row) => void;
   onCancel: (r: Row) => void;
-  onViewOrder: (target: OrderTarget) => void;
   onViewSchedule: (target: ScheduleTarget) => void;
   onOpenContact: (target: ContactTarget) => void;
   /** Row click (anywhere except inner buttons/links) opens the manage modal. */
@@ -73,35 +63,26 @@ export default function BoardTable({
               textAlign: "left",
             }}
           >
-            {[
-              "Time",
-              "Guest",
-              "Type",
-              "Status",
-              "Check-in",
-              "Rewards",
-              "Lane",
-              "Order",
-              "Square",
-              "Payment",
-              "Ref",
-              "Actions",
-            ].map((h) => (
-              <th
-                key={h}
-                style={{
-                  padding: "0.5rem 0.4rem",
-                  color: "var(--ba-muted)",
-                  fontWeight: 600,
-                  fontSize: "0.65rem",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {h}
-              </th>
-            ))}
+            {/* Rewards / Order / Square / Ref moved into the Manage modal
+                (Overview + Payments tabs) — the board stays scannable. */}
+            {["Time", "Guest", "Type", "Status", "Check-in", "Lane", "Payment", "Action", ""].map(
+              (h) => (
+                <th
+                  key={h}
+                  style={{
+                    padding: "0.5rem 0.4rem",
+                    color: "var(--ba-muted)",
+                    fontWeight: 600,
+                    fontSize: "0.65rem",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {h}
+                </th>
+              ),
+            )}
           </tr>
         </thead>
         <tbody>
@@ -112,6 +93,7 @@ export default function BoardTable({
             return (
               <tr
                 key={r.id}
+                className={onOpenReservation ? "ba-row" : undefined}
                 {...(onOpenReservation
                   ? clickableDivProps(
                       (e) => {
@@ -130,9 +112,10 @@ export default function BoardTable({
                   ...(onOpenReservation ? { cursor: "pointer" } : {}),
                 }}
               >
-                {/* Time */}
+                {/* Time — center tag beneath (mockup layout) */}
                 <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                  {fmtClock(r.eventAt ?? r.bookedAt)}
+                  <div style={{ fontWeight: 600 }}>{fmtClock(r.eventAt ?? r.bookedAt)}</div>
+                  <div style={{ fontSize: "0.6rem", color: "var(--ba-muted)" }}>{centerShort}</div>
                 </td>
 
                 {/* Guest — name, phone, center tag */}
@@ -182,21 +165,16 @@ export default function BoardTable({
                     ) : (
                       "—"
                     )}
-                    <span
-                      style={{
-                        fontSize: "0.6rem",
-                        color: "var(--ba-muted)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {centerShort}
-                    </span>
                   </div>
-                  {r.survey && (
-                    <div style={{ marginTop: 3 }}>
-                      <SurveyChip survey={r.survey} />
-                    </div>
-                  )}
+                  <div style={{ fontSize: "0.62rem", color: "var(--ba-muted)" }}>
+                    {r.playerCount ?? "—"}{" "}
+                    {r.productKind === "open" || r.productKind === "kbf" ? "bowlers" : "guests"}
+                    {r.survey && (
+                      <span style={{ marginLeft: 5 }}>
+                        <SurveyChip survey={r.survey} />
+                      </span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Type — badge + player count + source */}
@@ -270,9 +248,6 @@ export default function BoardTable({
                         </button>
                       ) : null;
                     })()}
-                  <span style={{ marginLeft: 5, color: "var(--ba-muted)", fontSize: "0.68rem" }}>
-                    {r.playerCount ?? "—"}p
-                  </span>
                   {r.bookingSource && r.bookingSource !== "web" && (
                     <span
                       style={{
@@ -379,82 +354,6 @@ export default function BoardTable({
                   )}
                 </td>
 
-                {/* Rewards */}
-                <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {r.loyaltyAction === "signup" && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.1rem 0.3rem",
-                          borderRadius: 4,
-                          fontSize: "0.55rem",
-                          fontWeight: 600,
-                          backgroundColor: "rgba(34,197,94,0.15)",
-                          color: "#22c55e",
-                          border: "1px solid rgba(34,197,94,0.3)",
-                        }}
-                      >
-                        New
-                      </span>
-                    )}
-                    {r.loyaltyAction === "existing" && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.1rem 0.3rem",
-                          borderRadius: 4,
-                          fontSize: "0.55rem",
-                          fontWeight: 600,
-                          backgroundColor: "rgba(59,130,246,0.15)",
-                          color: "#60a5fa",
-                          border: "1px solid rgba(59,130,246,0.3)",
-                        }}
-                      >
-                        Member
-                      </span>
-                    )}
-                    {r.rewardDiscountCents > 0 && (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.1rem 0.3rem",
-                          borderRadius: 4,
-                          fontSize: "0.55rem",
-                          fontWeight: 600,
-                          backgroundColor: "rgba(245,158,11,0.15)",
-                          color: "#f59e0b",
-                          border: "1px solid rgba(245,158,11,0.3)",
-                        }}
-                      >
-                        −${(r.rewardDiscountCents / 100).toFixed(0)}
-                      </span>
-                    )}
-                    {r.promoCode && r.promoSavingsCents > 0 && (
-                      <span
-                        title={`Coupon ${r.promoCode} — saved $${(r.promoSavingsCents / 100).toFixed(2)}`}
-                        style={{
-                          display: "inline-block",
-                          padding: "0.1rem 0.3rem",
-                          borderRadius: 4,
-                          fontSize: "0.55rem",
-                          fontWeight: 600,
-                          backgroundColor: "rgba(168,85,247,0.15)",
-                          color: "#c084fc",
-                          border: "1px solid rgba(168,85,247,0.3)",
-                        }}
-                      >
-                        {r.promoCode} −${(r.promoSavingsCents / 100).toFixed(0)}
-                      </span>
-                    )}
-                    {!r.loyaltyAction &&
-                      r.rewardDiscountCents === 0 &&
-                      r.promoSavingsCents === 0 && (
-                        <span style={{ color: "var(--ba-muted2)", fontSize: "0.6rem" }}>—</span>
-                      )}
-                  </div>
-                </td>
-
                 {/* Lane */}
                 <td
                   style={{
@@ -466,169 +365,6 @@ export default function BoardTable({
                   }}
                 >
                   {r.dayofOrderLane ?? "—"}
-                </td>
-
-                {/* Order — food items from lines */}
-                <td style={{ padding: "0.5rem 0.4rem" }}>
-                  {(() => {
-                    const food = r.lines.filter((l) => FOOD_RE.test(l.label));
-                    if (!food.length) return <span style={{ color: "var(--ba-muted2)" }}>—</span>;
-                    return food.map((f, i) => {
-                      const short = f.label
-                        .replace(/^VIP\s+/i, "")
-                        .replace(/Pizza Bowl /i, "PB ")
-                        .replace(/Soda Pitcher/i, "Soda")
-                        .replace(/Chips & Salsa/i, "C&S");
-                      return (
-                        <div
-                          key={i}
-                          style={{
-                            fontSize: "0.62rem",
-                            color: "var(--ba-muted)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {short}
-                          {f.quantity > 1 ? ` ×${f.quantity}` : ""}
-                        </div>
-                      );
-                    });
-                  })()}
-                </td>
-
-                {/* Square — order sent status (clickable to view line items) */}
-                <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                  {r.comboMerge ? (
-                    // A combo has two day-of orders — one button each so both
-                    // are reachable from the main list (not just the VIP filter).
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                      {r.comboMerge.orders.map((o) => (
-                        <button
-                          key={o.orderId}
-                          type="button"
-                          onClick={() =>
-                            onViewOrder({
-                              guestName: r.guestName || "Guest",
-                              squareDayofOrderId: o.orderId,
-                              rewardDiscountCents: o.leg.rewardDiscountCents,
-                              squareLoyaltyRewardId: o.leg.squareLoyaltyRewardId,
-                              promoCode: o.leg.promoCode ?? null,
-                              promoSavingsCents: o.leg.promoSavingsCents,
-                            })
-                          }
-                          style={{
-                            background: "none",
-                            border: "1px solid var(--ba-border)",
-                            borderRadius: 5,
-                            cursor: "pointer",
-                            padding: "1px 6px",
-                            fontSize: "0.6rem",
-                            fontWeight: 600,
-                            color: KIND_BADGE.vip.color,
-                            textAlign: "left",
-                          }}
-                          title={`View ${o.kind} order`}
-                        >
-                          {o.kind}
-                        </button>
-                      ))}
-                    </div>
-                  ) : r.squareDayofOrderId ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onViewOrder({
-                          guestName: r.guestName || "Guest",
-                          squareDayofOrderId: r.squareDayofOrderId ?? null,
-                          rewardDiscountCents: r.rewardDiscountCents,
-                          squareLoyaltyRewardId: r.squareLoyaltyRewardId,
-                          promoCode: r.promoCode ?? null,
-                          promoSavingsCents: r.promoSavingsCents,
-                        })
-                      }
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        padding: 0,
-                        textAlign: "left",
-                      }}
-                      title="View Square order items"
-                    >
-                      {r.dayofOrderSentAt ? (
-                        <div>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "0.1rem 0.35rem",
-                              borderRadius: 5,
-                              fontSize: "0.6rem",
-                              fontWeight: 600,
-                              backgroundColor: r.dayofOrderError
-                                ? "rgba(239,68,68,0.15)"
-                                : "rgba(34,197,94,0.15)",
-                              color: r.dayofOrderError ? "#ef4444" : "#22c55e",
-                              border: `1px solid ${r.dayofOrderError ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
-                            }}
-                          >
-                            {r.dayofOrderError ? "ERR" : "Sent"}
-                          </span>
-                          {r.dayofOrderSource && (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                marginLeft: 3,
-                                padding: "0.05rem 0.25rem",
-                                borderRadius: 3,
-                                fontSize: "0.5rem",
-                                fontWeight: 500,
-                                backgroundColor:
-                                  r.dayofOrderSource === "webhook"
-                                    ? "rgba(99,102,241,0.15)"
-                                    : "var(--ba-input-bg)",
-                                color:
-                                  r.dayofOrderSource === "webhook" ? "#818cf8" : "var(--ba-muted)",
-                                border: `1px solid ${r.dayofOrderSource === "webhook" ? "rgba(99,102,241,0.3)" : "var(--ba-border)"}`,
-                                textTransform: "uppercase",
-                                letterSpacing: "0.5px",
-                              }}
-                              title={r.dayofOrderSource}
-                            >
-                              {dayofSourceLabel(r.dayofOrderSource)}
-                            </span>
-                          )}
-                          {r.dayofOrderError && (
-                            <div
-                              style={{
-                                fontSize: "0.55rem",
-                                color: "#ef4444",
-                                marginTop: 1,
-                                maxWidth: 90,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                              title={r.dayofOrderError}
-                            >
-                              {r.dayofOrderError}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span
-                          style={{
-                            color: "var(--ba-muted)",
-                            fontSize: "0.6rem",
-                            textDecoration: "underline",
-                            textDecorationColor: "var(--ba-border)",
-                          }}
-                        >
-                          Pending
-                        </span>
-                      )}
-                    </button>
-                  ) : (
-                    <span style={{ color: "var(--ba-muted2)" }}>—</span>
-                  )}
                 </td>
 
                 {/* Payment — deposit / total merged */}
@@ -683,19 +419,6 @@ export default function BoardTable({
                   )}
                 </td>
 
-                {/* Ref — QAMF ID */}
-                <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
-                  <span
-                    style={{
-                      fontFamily: "monospace",
-                      fontSize: "0.65rem",
-                      color: "var(--ba-muted)",
-                    }}
-                  >
-                    {r.qamfReservationId ?? `#${r.id}`}
-                  </span>
-                </td>
-
                 {/* Actions — check-in, resched, view, resend, cancel */}
                 <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
                   <ActionButtons
@@ -707,6 +430,19 @@ export default function BoardTable({
                     onResend={onResend}
                     onCancel={onCancel}
                   />
+                </td>
+                <td style={{ padding: "0.5rem 0.4rem", whiteSpace: "nowrap" }}>
+                  <span
+                    className="ba-row-hint"
+                    style={{
+                      fontSize: "0.6rem",
+                      color: "var(--ba-muted)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    Manage &rarr;
+                  </span>
                 </td>
               </tr>
             );

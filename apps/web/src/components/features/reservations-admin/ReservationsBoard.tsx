@@ -38,7 +38,7 @@ import ContactModal, { type ContactTarget } from "./modals/ContactModal";
 import RescheduleModal from "./modals/RescheduleModal";
 import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
 import ManageReservationModal from "./manage/ManageReservationModal";
-import { baThemeCss } from "./theme";
+import { BOARD_CSS, baThemeCss } from "./theme";
 
 export default function ReservationsBoard({ token }: { token: string }) {
   const theme = useBoardTheme();
@@ -248,7 +248,7 @@ export default function ReservationsBoard({ token }: { token: string }) {
   // The <style> block sets variables on [data-theme], and key surface colors
   // reference them. Accent colors (status badges, pills) stay hardcoded
   // since they work on both backgrounds.
-  const themeStyle = baThemeCss(theme);
+  const themeStyle = baThemeCss(theme) + BOARD_CSS;
 
   return (
     <div
@@ -452,7 +452,6 @@ export default function ReservationsBoard({ token }: { token: string }) {
               onReschedule={setRescheduleTarget}
               onResend={setResendTarget}
               onCancel={setCancelTarget}
-              onViewOrder={setOrderTarget}
               onViewSchedule={setScheduleTarget}
               onOpenContact={setContactTarget}
               onOpenReservation={openManage}

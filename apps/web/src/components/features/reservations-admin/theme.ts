@@ -24,6 +24,18 @@ export function baThemeCss(theme: "light" | "dark"): string {
   return theme === "light" ? BA_THEME_CSS_LIGHT : BA_THEME_CSS_DARK;
 }
 
+/**
+ * Board interaction styles — row hover highlight + the "Manage →" hint.
+ * Inline styles can't express :hover, so this rides in the same <style>
+ * block as the theme variables.
+ */
+export const BOARD_CSS = `
+    .ba-row:hover td { background-color: var(--ba-hover); }
+    .ba-row .ba-row-hint { opacity: 0; transition: opacity 0.12s; }
+    .ba-row:hover .ba-row-hint, .ba-row:focus-visible .ba-row-hint { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) { .ba-row .ba-row-hint { transition: none; } }
+  `;
+
 export const INPUT_STYLE: CSSProperties = {
   backgroundColor: "var(--ba-input-bg)",
   border: "1px solid var(--ba-input-border)",
