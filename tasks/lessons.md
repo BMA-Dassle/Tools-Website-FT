@@ -1,5 +1,21 @@
 # Lessons Learned
 
+## Never tell a customer they're being grouped with another party (2026-07-06)
+
+**What happened:** The VIP group-match feature shipped with a customer-facing banner
+("Another VIP group is already booked at 2 PM — pick the matching time and both groups head
+over to HeadPinz together") and a "JOINS THE 2 PM GROUP" tile badge. Owner: we should not be
+telling the end user we're putting them with another group.
+
+**Rules:**
+
+- Steering nudges that exist for OPS reasons (grouping parties, staffing, walk-overs) must be
+  ANONYMOUS in customer UI — express them as "Recommended" (or plain visual emphasis) without
+  explaining why. The why goes to staff channels (alert emails, portal) only.
+- More generally: customer-facing surfaces must never reveal the existence, timing, or size of
+  another customer's booking. Availability counts are fine; "another group/party/booking"
+  phrasing is not.
+
 ## Local build verification must run the WORKSPACE build script, not `next build` directly (2026-07-03)
 
 **What happened:** The World Cup VIP branch passed a local `npx next build` clean, then the

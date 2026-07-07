@@ -422,6 +422,18 @@ function ScheduleConfirmModal({
                       {entry ? wallClockLabel(entry.startIso) : "—"}
                     </span>
                   </div>
+                  {/* Junior mirror: juniors run their own heat right after the
+                      adult one (different start, junior product's track). */}
+                  {entry?.payload.kind === "race" &&
+                    entry.payload.candidate.perCategory.junior?.start && (
+                      <p className="mt-1 text-xs" style={{ color: GOLD }}>
+                        {`Juniors race at ${wallClockLabel(entry.payload.candidate.perCategory.junior.start)}${
+                          entry.payload.candidate.perCategory.junior.track
+                            ? ` on ${entry.payload.candidate.perCategory.junior.track}`
+                            : ""
+                        }`}
+                      </p>
+                    )}
                   {options && options.length > 1 && (
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-[11px] uppercase tracking-wider text-white/35">
@@ -657,7 +669,9 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
             track: (cat.track as RaceHeatAssignment["track"]) ?? null,
             tier: tier as RaceHeatAssignment["tier"],
             category,
-            heatId: candidate.start,
+            // Junior mirror: the category's own start when it differs from the
+            // anchor (juniors race right after the adult heat).
+            heatId: cat.start ?? candidate.start,
             bmiLineId: null,
             assignedTo: racer.id,
           });
@@ -913,18 +927,6 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
         !megaJuniorBlocked && (
           <>
             {anchorTracks.length > 0 && <TrackInfoBanner tracks={anchorTracks} />}
-            {existingGroups.length > 0 && (
-              <div
-                className="rounded-xl px-4 py-3 text-center text-sm font-medium"
-                style={{ backgroundColor: `${GOLD}14`, color: GOLD }}
-              >
-                {`Another VIP group is already booked at ${[
-                  ...new Set(existingGroups.map((g) => formatHourLabel(g.startHour))),
-                ].join(
-                  " and ",
-                )} — pick the matching time and both groups head over to HeadPinz together.`}
-              </div>
-            )}
             {gridCells.some((c) => c.kind === "empty" || !c.result.chain) && (
               <p className="text-center text-xs text-white/35">
                 Grayed-out times can&apos;t fit the full experience (VIP lane + your second race) —
@@ -1016,14 +1018,16 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                         Races first · lane after
                       </div>
                     )}
+                    {/* Group-match steer stays ANONYMOUS to the customer
+                        (owner 2026-07-06: never reveal they're being lined up
+                        with another party) — a plain "Recommended" nudge; the
+                        why goes to the staff email only. */}
                     {groupMatch && (
                       <div
                         className="mt-1 text-[10px] font-bold uppercase tracking-wider"
                         style={{ color: GOLD }}
                       >
-                        {groupMatch.kind === "exact"
-                          ? `Joins the ${formatHourLabel(groupMatch.group.startHour)} group`
-                          : `Near the ${formatHourLabel(groupMatch.group.startHour)} group`}
+                        Recommended
                       </div>
                     )}
                     {isSelected && (
