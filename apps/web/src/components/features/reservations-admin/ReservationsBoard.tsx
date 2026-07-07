@@ -16,6 +16,7 @@ import {
   buildComboScheduleIndex,
   mergeComboRows,
 } from "~/features/reservations-admin/combo-board";
+import type { ComboMergeInfo } from "~/features/reservations-admin/types";
 import { CENTER_SLUGS } from "~/features/reservations-admin/constants";
 import { nowEtWallMs, todayET } from "~/features/reservations-admin/format";
 import {
@@ -36,6 +37,7 @@ import ComboScheduleModal, { type ScheduleTarget } from "./modals/ComboScheduleM
 import ContactModal, { type ContactTarget } from "./modals/ContactModal";
 import RescheduleModal from "./modals/RescheduleModal";
 import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
+import ManageReservationModal from "./manage/ManageReservationModal";
 import { baThemeCss } from "./theme";
 
 export default function ReservationsBoard({ token }: { token: string }) {
@@ -70,6 +72,12 @@ export default function ReservationsBoard({ token }: { token: string }) {
   const [orderTarget, setOrderTarget] = useState<OrderTarget | null>(null);
   // Combo schedule popover (also reachable from a VIP row in the main list).
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
+  // Manage Reservation modal — opened by clicking any row/card. Holds a
+  // snapshot; the render below re-resolves the freshest row by id so the
+  // 10s poll keeps the header pills live without clobbering modal state.
+  const [manageTarget, setManageTarget] = useState<
+    (Reservation & { comboMerge?: ComboMergeInfo }) | null
+  >(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // Client-side search + cancelled filter + kind filter
@@ -184,6 +192,58 @@ export default function ReservationsBoard({ token }: { token: string }) {
     setTimeout(() => setToast(null), 4000);
   }
 
+  // Open the manage modal + reflect it in the URL (?res=) so a refresh
+  // inside the portal iframe reopens the same reservation.
+  function openManage(r: Reservation & { comboMerge?: ComboMergeInfo }) {
+    setManageTarget(r);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("res", String(r.id));
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      /* URL state is best-effort */
+    }
+  }
+  function closeManage() {
+    setManageTarget(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("res");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      /* URL state is best-effort */
+    }
+  }
+
+  // ?res= deep link: once data lands, open the reservation if it's on the
+  // board (today's date). One-shot — never re-fires after a manual close.
+  // Guarded setState-during-render (React's adjust-state-on-change pattern)
+  // instead of an effect, so the open happens in the same commit the data
+  // arrives in.
+  const [pendingRes, setPendingRes] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("res");
+    const id = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(id) && id > 0 ? id : null;
+  });
+  if (pendingRes != null && !loading) {
+    const hit =
+      displayRows.find((x) => x.id === pendingRes) ??
+      reservations.find((x) => x.id === pendingRes) ??
+      vipReservations.find((x) => x.id === pendingRes);
+    if (hit) setManageTarget(hit);
+    setPendingRes(null);
+  }
+
+  // Freshest copy of the open reservation — the 10s poll updates status
+  // pills in the modal header; if the row leaves the list (date nav), the
+  // snapshot keeps the modal alive rather than force-closing mid-action.
+  const manageRow = manageTarget
+    ? (displayRows.find((x) => x.id === manageTarget.id) ??
+      reservations.find((x) => x.id === manageTarget.id) ??
+      manageTarget)
+    : null;
+
   // Theme palette — CSS variable approach avoids touching 137 inline styles.
   // The <style> block sets variables on [data-theme], and key surface colors
   // reference them. Accent colors (status badges, pills) stay hardcoded
@@ -288,6 +348,20 @@ export default function ReservationsBoard({ token }: { token: string }) {
         <SquareOrderModal target={orderTarget} token={token} onClose={() => setOrderTarget(null)} />
       )}
 
+      {/* Manage Reservation modal — full-page, opened from any row/card.
+          key remounts it per reservation so its fetched detail never leaks
+          between bookings. */}
+      {manageRow && (
+        <ManageReservationModal
+          key={manageRow.id}
+          reservation={manageRow}
+          token={token}
+          onClose={closeManage}
+          onMutated={() => void reload({ silent: true })}
+          onToast={showToast}
+        />
+      )}
+
       {/* Filters */}
       <FilterBar
         reservations={reservations}
@@ -348,6 +422,7 @@ export default function ReservationsBoard({ token }: { token: string }) {
               nowMs={nowEtWallMs()}
               onCancelLeg={setCancelTarget}
               onViewOrder={setOrderTarget}
+              onOpenReservation={openManage}
             />
           )
         ) : displayRows.length === 0 && visibleGroupEvents.length === 0 ? (
@@ -360,16 +435,19 @@ export default function ReservationsBoard({ token }: { token: string }) {
             <BoardCardList
               rows={displayRows}
               comboScheduleFor={comboScheduleFor}
+              actionMode="checkin-only"
               onCheckIn={setCheckinTarget}
               onReschedule={setRescheduleTarget}
               onResend={setResendTarget}
               onCancel={setCancelTarget}
               onViewOrder={setOrderTarget}
               onViewSchedule={setScheduleTarget}
+              onOpenReservation={openManage}
             />
             <BoardTable
               rows={displayRows}
               comboScheduleFor={comboScheduleFor}
+              actionMode="checkin-only"
               onCheckIn={setCheckinTarget}
               onReschedule={setRescheduleTarget}
               onResend={setResendTarget}
@@ -377,6 +455,7 @@ export default function ReservationsBoard({ token }: { token: string }) {
               onViewOrder={setOrderTarget}
               onViewSchedule={setScheduleTarget}
               onOpenContact={setContactTarget}
+              onOpenReservation={openManage}
             />
           </>
         )}

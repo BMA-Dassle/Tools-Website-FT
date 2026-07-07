@@ -10,6 +10,7 @@
  * the 30s heartbeat keep the "left"/"in" countdowns current) — do NOT wrap
  * this component in React.memo or the pills freeze.
  */
+import { clickableDivProps } from "@/lib/a11y";
 import { cancelActionable } from "~/features/reservations-admin/actionable";
 import { stepProgress, type ComboGroup } from "~/features/reservations-admin/combo-board";
 import {
@@ -28,11 +29,14 @@ export default function VipComboCards({
   nowMs,
   onCancelLeg,
   onViewOrder,
+  onOpenReservation,
 }: {
   groups: ComboGroup[];
   nowMs: number;
   onCancelLeg: (leg: Reservation) => void;
   onViewOrder: (target: OrderTarget) => void;
+  /** Card click (anywhere except inner buttons) opens the manage modal on the anchor leg. */
+  onOpenReservation?: (r: Reservation) => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -54,6 +58,12 @@ export default function VipComboCards({
         return (
           <div
             key={g.key}
+            {...(onOpenReservation
+              ? clickableDivProps((e) => {
+                  if ((e.target as HTMLElement).closest("button, a, input")) return;
+                  onOpenReservation(g.anchor);
+                }, `Manage ${g.guestName}'s combo`)
+              : {})}
             style={{
               borderRadius: 12,
               border: "1px solid rgba(212,175,55,0.45)",
@@ -61,6 +71,7 @@ export default function VipComboCards({
               background: "rgba(212,175,55,0.06)",
               padding: "14px 16px",
               opacity: g.inactive ? 0.55 : 1,
+              ...(onOpenReservation ? { cursor: "pointer" } : {}),
             }}
           >
             {/* Header */}
