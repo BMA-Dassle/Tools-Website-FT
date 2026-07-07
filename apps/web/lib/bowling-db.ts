@@ -1948,6 +1948,53 @@ export async function updateWalkinGuestData(
 }
 
 /**
+ * PARTIAL guest-contact edit for the admin manage-reservation view.
+ *
+ * Deliberately NOT updateWalkinGuestData: that helper full-overwrites
+ * (an omitted field NULLs the column — correct for the QAMF webhook sync it
+ * serves, wrong for a staff typo fix). Here omitted fields are untouched
+ * via per-field COALESCE. Works for web AND walk-in rows.
+ */
+export async function updateGuestContact(
+  id: number,
+  opts: {
+    guestName?: string;
+    guestEmail?: string;
+    guestPhone?: string;
+  },
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET guest_name  = COALESCE(${opts.guestName ?? null}, guest_name),
+        guest_email = COALESCE(${opts.guestEmail ?? null}, guest_email),
+        guest_phone = COALESCE(${opts.guestPhone ?? null}, guest_phone)
+    WHERE id = ${id}
+  `;
+}
+
+/**
+ * Edit the reservation notes (admin manage-reservation view). Pass null to
+ * clear. The caller re-syncs the QAMF memo (buildQamfMemo embeds notes) for
+ * bowling/KBF rows so the desk sees the change in Conqueror.
+ */
+export async function updateBowlingReservationNotes(
+  id: number,
+  notes: string | null,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET notes = ${notes}
+    WHERE id = ${id}
+  `;
+}
+
+/**
  * Write the Square day-of order ID to a reservation (used by walkin/kiosk
  * reservations that don't have a Square order at booking time).
  */

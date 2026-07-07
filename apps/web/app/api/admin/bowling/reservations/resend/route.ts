@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordAdminAction } from "~/features/reservations-admin/audit";
 
 /**
  * POST /api/admin/bowling/reservations/resend
@@ -51,6 +52,19 @@ export async function POST(req: NextRequest) {
   });
 
   const data = await res.json();
+  await recordAdminAction({
+    reservationId: neonId,
+    action: "resend",
+    outcome: res.ok ? "success" : "failed",
+    detail: {
+      channel,
+      overrideEmail: overrideEmail ?? null,
+      overridePhone: overridePhone ?? null,
+      emailSent: data?.email === true,
+      smsSent: data?.sms === true,
+    },
+    error: res.ok ? undefined : String(data?.error ?? `HTTP ${res.status}`),
+  });
   if (!res.ok) {
     return NextResponse.json(data, { status: res.status });
   }
