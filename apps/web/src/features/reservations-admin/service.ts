@@ -26,6 +26,7 @@ import {
 } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 import { listAdminActions, recordAdminAction, type AdminActionRow } from "./audit";
+import { syncNoteToBmi } from "./bmi-notes";
 
 // ── Detail ──────────────────────────────────────────────────────────────────
 
@@ -307,13 +308,21 @@ export interface NotesUpdateResult {
   ok: true;
   /** True when the QAMF memo was re-patched (bowling/KBF with a live QAMF id). */
   memoSynced: boolean;
+  /** True when the note was appended to the BMI project's private log
+   *  (race/attraction rows — merge-append, existing combo/VIP memos kept). */
+  bmiMemoSynced: boolean;
 }
 
 /**
- * Save the reservation notes, then re-sync the QAMF memo for bowling/KBF rows
- * (buildQamfMemo embeds notes — an unsynced edit silently diverges from what
- * the desk sees in Conqueror). Memo patch is best-effort, reported via
- * memoSynced so the UI can say so.
+ * Save the reservation notes, then sync downstream so the desk sees them:
+ * - QAMF (Conqueror) for bowling/KBF: buildQamfMemo embeds notes — re-patch
+ *   the reservation Notes (reschedule-route precedent).
+ * - BMI for rows with a bill (race/attraction, combo race legs): APPEND to
+ *   the Office project's private log via the read-merge-write path — never
+ *   the overwriting public booking/memo, so the booking-time memos
+ *   (Ultimate VIP banner, express lane, POV codes) are preserved.
+ * Both syncs are best-effort and reported so the UI can say what the desk
+ * actually sees.
  */
 export async function updateReservationNotes(
   neonId: number,
@@ -343,14 +352,21 @@ export async function updateReservationNotes(
     }
   }
 
+  // BMI side: only when there's a note to show (clearing a note doesn't
+  // append an empty log line) and the row carries a bill.
+  let bmiMemoSynced = false;
+  if (value && existing.bmiBillId) {
+    bmiMemoSynced = await syncNoteToBmi(existing, value);
+  }
+
   await recordAdminAction({
     reservationId: neonId,
     action: "notes_edit",
     outcome: "success",
-    detail: { from: existing.notes ?? null, to: value, memoSynced },
+    detail: { from: existing.notes ?? null, to: value, memoSynced, bmiMemoSynced },
   });
 
-  return { ok: true, memoSynced };
+  return { ok: true, memoSynced, bmiMemoSynced };
 }
 
 export interface GuestUpdateResult {

@@ -568,7 +568,7 @@ export async function appendProjectPrivateNote(params: {
   note: string;
   contractUrl?: string;
   pdfUrl?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   // Private notes are a ROLLING LOG. Pandora /memo/private REPLACES the memo (it
   // does NOT append server-side), so sending just the new line wiped prior
   // entries and any staff-typed notes. We accumulate client-side: read the
@@ -604,7 +604,7 @@ export async function appendProjectPrivateNote(params: {
       `[bmi-office] private-note read failed for project ${params.projectId}; skipping append to avoid overwrite:`,
       err,
     );
-    return;
+    return false;
   }
 
   // 2. Merge the new entry into the existing memo (preserves staff text + prior
@@ -635,7 +635,7 @@ export async function appendProjectPrivateNote(params: {
     });
     if (pandoraRes.ok) {
       console.log(`[bmi-office] appended private note for project ${params.projectId} via Pandora`);
-      return;
+      return true;
     }
     console.warn(
       `[bmi-office] Pandora private-note write failed (${pandoraRes.status}), falling back to Office API`,
@@ -678,6 +678,7 @@ export async function appendProjectPrivateNote(params: {
   }
 
   console.log(`[bmi-office] appended private note for project ${params.projectId} via Office API`);
+  return true;
 }
 
 // ── Update project product price ───────────────────────────────────
