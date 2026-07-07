@@ -12,23 +12,14 @@
 import { sendEmail } from "@/lib/sendgrid";
 import { fixtureStaffLabel, fixtureTimeLabel, type WorldCupFixture } from "./fixtures";
 
-const WORLD_CUP_BOOKED_RECIPIENTS = [
-  "eric@headpinz.com",
-  "curtis@headpinz.com",
-  "alex@headpinz.com",
-  "jacob@headpinz.com",
-  "abigail@headpinz.com",
-  "bruce@headpinz.com",
-];
-
-const CENTER_NAMES: Record<string, string> = {
-  TXBSQN0FEKQ11: "HeadPinz Fort Myers",
-  PPTR5G2N0QXF7: "HeadPinz Naples",
-  "fort-myers": "HeadPinz Fort Myers",
-  naples: "HeadPinz Naples",
-  "9172": "HeadPinz Fort Myers",
-  "3148": "HeadPinz Naples",
-};
+// Per-center recipients (owner 7/6): each center's own crew gets its own
+// bookings — never jeff/jamil@fasttraxent (racing side). Lists live in the
+// CENTRAL src/lib/constants/staff-recipients.ts so any special can reuse them.
+import {
+  CENTER_DISPLAY_NAMES,
+  normalizeCenterKey,
+  staffRecipientsForCenter,
+} from "~/lib/constants/staff-recipients";
 
 export async function notifyWorldCupBooked(args: {
   fixture: WorldCupFixture;
@@ -43,7 +34,11 @@ export async function notifyWorldCupBooked(args: {
   squareDayofOrderId: string | null;
 }): Promise<void> {
   try {
-    const centerName = CENTER_NAMES[String(args.center)] ?? String(args.center);
+    // Unknown center falls back to Fort Myers (name + recipients) — better a
+    // misrouted alert than a silent one.
+    const centerKey = normalizeCenterKey(args.center) ?? "fort-myers";
+    const centerName = CENTER_DISPLAY_NAMES[centerKey];
+    const recipients = staffRecipientsForCenter(args.center);
     const lanes = Math.max(1, Math.ceil(args.players / 6));
     const match = fixtureStaffLabel(args.fixture);
     const total = `$${(args.totalCents / 100).toFixed(2)}`;
@@ -60,8 +55,8 @@ export async function notifyWorldCupBooked(args: {
     ].join("\n");
 
     const result = await sendEmail({
-      to: WORLD_CUP_BOOKED_RECIPIENTS[0],
-      cc: WORLD_CUP_BOOKED_RECIPIENTS.slice(1),
+      to: recipients[0],
+      cc: recipients.slice(1),
       subject,
       html,
       text:
