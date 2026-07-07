@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import ReservationsClient from "./ReservationsClient";
+import ReservationsBoard from "~/components/features/reservations-admin/ReservationsBoard";
 
 /**
  * Admin: Bowling reservations board.
@@ -20,5 +20,5 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  return <ReservationsClient token={token} />;
+  return <ReservationsBoard token={token} />;
 }
