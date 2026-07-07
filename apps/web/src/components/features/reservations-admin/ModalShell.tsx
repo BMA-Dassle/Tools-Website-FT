@@ -24,6 +24,9 @@ export default function ModalShell({
   maxHeight = "calc(100dvh - 2rem)",
   borderColor = "var(--ba-modal-border)",
   borderLeft,
+  borderRadius = 16,
+  padding = "1.5rem",
+  blurBackdrop = true,
   zIndex = 50,
   variant = "centered",
   panelStyle,
@@ -36,10 +39,15 @@ export default function ModalShell({
   borderColor?: string;
   /** Optional accent left border, e.g. `4px solid ${accent}` (combo itinerary). */
   borderLeft?: string;
+  /** Action modals use 16; the lighter popovers (contact/itinerary/order) use 12. */
+  borderRadius?: number;
+  padding?: CSSProperties["padding"];
+  /** Action modals blur the backdrop; the popovers don't. */
+  blurBackdrop?: boolean;
   zIndex?: number;
   /** "full" = fill the viewport/iframe (manage-reservation modal). */
   variant?: "centered" | "full";
-  /** Escape hatch for panel style overrides (padding etc.). */
+  /** Escape hatch for panel style overrides. */
   panelStyle?: CSSProperties;
 }) {
   const full = variant === "full";
@@ -54,7 +62,7 @@ export default function ModalShell({
         justifyContent: "center",
         padding: full ? "10px" : "1rem",
         backgroundColor: "var(--ba-overlay)",
-        backdropFilter: "blur(4px)",
+        ...(blurBackdrop ? { backdropFilter: "blur(4px)" } : {}),
       }}
       {...modalBackdropProps(onClose)}
     >
@@ -66,8 +74,8 @@ export default function ModalShell({
           backgroundColor: "var(--ba-modal-bg)",
           border: `1px solid ${borderColor}`,
           ...(borderLeft ? { borderLeft } : {}),
-          borderRadius: full ? 12 : 16,
-          padding: full ? 0 : "1.5rem",
+          borderRadius: full ? 12 : borderRadius,
+          padding: full ? 0 : padding,
           maxHeight: full ? "100%" : maxHeight,
           overflowY: full ? "hidden" : "auto",
           ...(full ? { display: "flex", flexDirection: "column" } : {}),

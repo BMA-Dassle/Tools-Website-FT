@@ -1,0 +1,386 @@
+"use client";
+
+/**
+ * Admin reservations board — the portal-embedded ops view of a day's
+ * bookings (bowling, KBF, race, attraction, VIP combos, group events).
+ *
+ * This is the top-level client component composed from the
+ * reservations-admin feature module; it replaced the monolithic
+ * app/admin/[token]/reservations/ReservationsClient.tsx. All memo/filter
+ * logic is verbatim from that file (the combo math lives in
+ * ~/features/reservations-admin/combo-board.ts with unit tests).
+ */
+import { useMemo, useState } from "react";
+import {
+  buildComboGroups,
+  buildComboScheduleIndex,
+  mergeComboRows,
+} from "~/features/reservations-admin/combo-board";
+import { CENTER_SLUGS } from "~/features/reservations-admin/constants";
+import { nowEtWallMs, todayET } from "~/features/reservations-admin/format";
+import {
+  useBoardTheme,
+  useNowTick,
+  useReservationsData,
+} from "~/features/reservations-admin/hooks";
+import type { Reservation } from "~/features/reservations-admin/types";
+import BoardCardList from "./BoardCardList";
+import BoardTable from "./BoardTable";
+import FilterBar from "./FilterBar";
+import GroupEventsSection from "./GroupEventsSection";
+import VipComboCards from "./VipComboCards";
+import BowlingResendModal from "./modals/BowlingResendModal";
+import CancelModal from "./modals/CancelModal";
+import CheckInModal from "./modals/CheckInModal";
+import ComboScheduleModal, { type ScheduleTarget } from "./modals/ComboScheduleModal";
+import ContactModal, { type ContactTarget } from "./modals/ContactModal";
+import RescheduleModal from "./modals/RescheduleModal";
+import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
+import { baThemeCss } from "./theme";
+
+export default function ReservationsBoard({ token }: { token: string }) {
+  const theme = useBoardTheme();
+
+  const [date, setDate] = useState(todayET);
+  // Read ?center= slug from URL on mount (e.g. ?center=fm or ?center=naples)
+  const [center] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    const p = new URLSearchParams(window.location.search);
+    const slug = p.get("center")?.toLowerCase() || "";
+    return CENTER_SLUGS[slug] || "";
+  });
+  const [search, setSearch] = useState("");
+  const [hideCancelled, setHideCancelled] = useState(true);
+  const [hideWalkins, setHideWalkins] = useState(true);
+  const [kindFilter, setKindFilter] = useState<string | null>(null);
+
+  const { reservations, groupEvents, vipReservations, comboMeta, loading, error, reload } =
+    useReservationsData(token, date, center);
+
+  // Countdown heartbeat — keeps the VIP pills moving between data polls.
+  useNowTick(30_000);
+
+  const [resendTarget, setResendTarget] = useState<Reservation | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<Reservation | null>(null);
+  const [checkinTarget, setCheckinTarget] = useState<Reservation | null>(null);
+  // Contact details (phone/email) shown on clicking the guest name — keeps them
+  // out of the row so the row stays single-line.
+  const [contactTarget, setContactTarget] = useState<ContactTarget | null>(null);
+  const [orderTarget, setOrderTarget] = useState<OrderTarget | null>(null);
+  // Combo schedule popover (also reachable from a VIP row in the main list).
+  const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Client-side search + cancelled filter + kind filter
+  const filtered = useMemo(() => {
+    let list = reservations;
+    if (hideWalkins) {
+      list = list.filter((r) => !r.bookingSource || r.bookingSource === "web");
+    }
+    if (hideCancelled) {
+      // "Active Only": drop cancelled + completed. Also drop `arrived` RACING
+      // rows — QAMF gives bowling a real `completed` status (so arrived bowlers
+      // stay visible until they truly finish), but races never get one, so an
+      // arrived race is effectively done. Past-event no-shows are flipped to a
+      // terminal status by the reservation-status-close cron (not filtered here).
+      // VIP combo legs are exempt from the status drops (cancelled aside):
+      // staff flip a leg to completed at check-in/settle while later itinerary
+      // steps are still hours away, so retiring a combo is a GROUP decision —
+      // displayRows drops the merged row 30 min after its last scheduled step.
+      list = list.filter((r) => {
+        if (r.comboSpecialId) return r.status !== "cancelled";
+        return (
+          r.status !== "cancelled" &&
+          r.status !== "completed" &&
+          r.status !== "no_show" &&
+          !(r.status === "arrived" && r.productKind === "race")
+        );
+      });
+    }
+    if (kindFilter && kindFilter !== "vip") {
+      list = list.filter((r) => r.productKind === kindFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      list = list.filter((r) => {
+        const fields = [
+          r.guestName,
+          r.guestEmail,
+          r.guestPhone,
+          r.qamfReservationId,
+          r.notes,
+          r.dayofOrderLane,
+          String(r.id),
+        ];
+        return fields.some((f) => f?.toLowerCase().includes(q));
+      });
+    }
+    return list;
+  }, [reservations, search, hideCancelled, hideWalkins, kindFilter]);
+
+  // VIP combos grouped with live schedules. Recomputes when the 10s poll
+  // lands fresh arrays; nowEtWallMs() is read at that moment (retirement
+  // advances with the poll, the render-time pills use their own nowMs below).
+  const comboGroups = useMemo(
+    () => buildComboGroups(vipReservations, comboMeta, nowEtWallMs()),
+    [vipReservations, comboMeta],
+  );
+
+  // VIP cards honor the Active Only toggle + search. The schedule lookup
+  // below (comboScheduleByKey) deliberately uses ALL groups, so main-list
+  // retirement + itinerary still resolve for combos hidden from the cards.
+  const visibleComboGroups = useMemo(() => {
+    let out = comboGroups;
+    if (hideCancelled) out = out.filter((g) => !g.inactive);
+    if (search.trim()) {
+      const query = search.toLowerCase().trim();
+      out = out.filter((g) =>
+        g.legs.some((l) =>
+          [l.guestName, l.guestEmail, l.guestPhone, l.qamfReservationId, l.dayofOrderLane].some(
+            (f) => f?.toLowerCase().includes(query),
+          ),
+        ),
+      );
+    }
+    return out;
+  }, [comboGroups, hideCancelled, search]);
+
+  const comboScheduleByKey = useMemo(() => buildComboScheduleIndex(comboGroups), [comboGroups]);
+  const comboScheduleFor = (r: Reservation) =>
+    comboScheduleByKey.get(r.squareDepositOrderId ?? "") ??
+    comboScheduleByKey.get(r.squareDayofOrderId ?? "");
+
+  const vipActive = kindFilter === "vip";
+
+  // Group events respect the "Active Only" toggle just like reservations do:
+  // hide completed events (cancelled/denied are already excluded server-side).
+  const visibleGroupEvents = useMemo(
+    () => (hideCancelled ? groupEvents.filter((g) => g.status !== "completed") : groupEvents),
+    [groupEvents, hideCancelled],
+  );
+
+  const displayRows = useMemo(
+    () => mergeComboRows(filtered, hideCancelled, comboScheduleByKey),
+    [filtered, hideCancelled, comboScheduleByKey],
+  );
+
+  // Stats
+  const active = displayRows.filter((r) => r.status !== "cancelled" && r.status !== "completed");
+  const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
+  const totalCompletedAll = reservations.filter((r) => r.status === "completed").length;
+  const totalWalkins = reservations.filter(
+    (r) => r.bookingSource && r.bookingSource !== "web",
+  ).length;
+  const totalHidden = totalCancelledAll + totalCompletedAll;
+  // Combo rows carry the COMBINED total across their two day-of orders (and are
+  // 100% prepaid, so deposit == total); use it so revenue isn't under/double-counted.
+  const totalDeposit = active.reduce((s, r) => s + (r.comboMerge?.totalCents ?? r.depositCents), 0);
+  const totalRevenue = active.reduce((s, r) => s + (r.comboMerge?.totalCents ?? r.totalCents), 0);
+  const totalPlayers = active.reduce((s, r) => s + (r.playerCount ?? 0), 0);
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  }
+
+  // Theme palette — CSS variable approach avoids touching 137 inline styles.
+  // The <style> block sets variables on [data-theme], and key surface colors
+  // reference them. Accent colors (status badges, pills) stay hardcoded
+  // since they work on both backgrounds.
+  const themeStyle = baThemeCss(theme);
+
+  return (
+    <div
+      data-ba-theme={theme}
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "var(--ba-bg)",
+        color: "var(--ba-fg)",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        padding: "1rem",
+      }}
+    >
+      {/* eslint-disable-next-line react/no-danger -- theme CSS variables */}
+      <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
+      {/* Toast */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 16,
+            right: 16,
+            zIndex: 60,
+            padding: "0.75rem 1.25rem",
+            borderRadius: 10,
+            backgroundColor: "rgba(34,197,94,0.9)",
+            color: "#fff",
+            fontWeight: 600,
+            fontSize: "0.85rem",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
+
+      {/* Resend modal */}
+      {resendTarget && (
+        <BowlingResendModal
+          reservation={resendTarget}
+          token={token}
+          onClose={() => setResendTarget(null)}
+          onSent={(msg) => showToast(`${resendTarget.guestName || "Guest"}: ${msg}`)}
+        />
+      )}
+
+      {/* Cancel modal */}
+      {cancelTarget && (
+        <CancelModal
+          reservation={cancelTarget}
+          token={token}
+          onClose={() => setCancelTarget(null)}
+          onDone={(msg) => {
+            showToast(msg);
+            void reload();
+          }}
+        />
+      )}
+
+      {/* Reschedule modal */}
+      {rescheduleTarget && (
+        <RescheduleModal
+          reservation={rescheduleTarget}
+          token={token}
+          onClose={() => setRescheduleTarget(null)}
+          onRescheduled={(msg) => {
+            showToast(`${rescheduleTarget.guestName || "Guest"}: ${msg}`);
+            void reload();
+          }}
+        />
+      )}
+
+      {/* Check-in modal */}
+      {checkinTarget && (
+        <CheckInModal
+          reservation={checkinTarget}
+          token={token}
+          onClose={() => setCheckinTarget(null)}
+          onCheckedIn={(msg) => {
+            showToast(`${checkinTarget.guestName || "Guest"}: ${msg}`);
+            void reload();
+          }}
+        />
+      )}
+
+      {/* Guest contact (phone / email) — opened from the name */}
+      {contactTarget && (
+        <ContactModal target={contactTarget} onClose={() => setContactTarget(null)} />
+      )}
+
+      {/* VIP combo schedule (itinerary) modal */}
+      {scheduleTarget && (
+        <ComboScheduleModal target={scheduleTarget} onClose={() => setScheduleTarget(null)} />
+      )}
+
+      {/* Square order details modal */}
+      {orderTarget && (
+        <SquareOrderModal target={orderTarget} token={token} onClose={() => setOrderTarget(null)} />
+      )}
+
+      {/* Filters */}
+      <FilterBar
+        reservations={reservations}
+        vipReservations={vipReservations}
+        hideCancelled={hideCancelled}
+        setHideCancelled={setHideCancelled}
+        hideWalkins={hideWalkins}
+        setHideWalkins={setHideWalkins}
+        kindFilter={kindFilter}
+        setKindFilter={setKindFilter}
+        date={date}
+        setDate={setDate}
+        search={search}
+        setSearch={setSearch}
+        loading={loading}
+        filteredCount={filtered.length}
+        stats={{
+          activeCount: active.length,
+          totalHidden,
+          totalCancelledAll,
+          totalCompletedAll,
+          totalWalkins,
+          totalPlayers,
+          totalDeposit,
+          totalRevenue,
+        }}
+      />
+
+      {/* Content */}
+      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
+            Loading...
+          </div>
+        ) : error ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "2rem",
+              color: "#ef4444",
+              backgroundColor: "rgba(239,68,68,0.1)",
+              borderRadius: 12,
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}
+          >
+            {error}
+          </div>
+        ) : vipActive ? (
+          visibleComboGroups.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
+              {search ? "No matching VIP combos." : "No VIP combos for this date."}
+            </div>
+          ) : (
+            <VipComboCards
+              groups={visibleComboGroups}
+              // Recomputed on every render — the 10s silent auto-refresh and
+              // the 30s heartbeat keep the "left"/"in" countdowns current.
+              nowMs={nowEtWallMs()}
+              onCancelLeg={setCancelTarget}
+              onViewOrder={setOrderTarget}
+            />
+          )
+        ) : displayRows.length === 0 && visibleGroupEvents.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
+            {search ? "No matching reservations." : "No reservations for this date."}
+          </div>
+        ) : (
+          <>
+            <GroupEventsSection events={visibleGroupEvents} onViewOrder={setOrderTarget} />
+            <BoardCardList
+              rows={displayRows}
+              comboScheduleFor={comboScheduleFor}
+              onCheckIn={setCheckinTarget}
+              onReschedule={setRescheduleTarget}
+              onResend={setResendTarget}
+              onCancel={setCancelTarget}
+              onViewOrder={setOrderTarget}
+              onViewSchedule={setScheduleTarget}
+            />
+            <BoardTable
+              rows={displayRows}
+              comboScheduleFor={comboScheduleFor}
+              onCheckIn={setCheckinTarget}
+              onReschedule={setRescheduleTarget}
+              onResend={setResendTarget}
+              onCancel={setCancelTarget}
+              onViewOrder={setOrderTarget}
+              onViewSchedule={setScheduleTarget}
+              onOpenContact={setContactTarget}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
