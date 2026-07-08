@@ -60,6 +60,14 @@ export interface PandoraSession {
   scheduledStart: string; // ISO 8601 UTC
   type: string; // "Starter" | "Junior Starter" | "Intermediate" | "Pro" | "Intermediate (2)" etc.
   heatNumber: number;
+  /** When the timing system actually started/ended the session (ISO UTC,
+   *  explicit null until they happen). Added by Pandora 2026-07-08 — the
+   *  resadmin VIP board derives race Done/On-track/Delayed from these.
+   *  Same-day only; and actualEnd can occasionally fail to stamp, so
+   *  consumers must not treat "actualStart without actualEnd" as on-track
+   *  forever (see ~/features/reservations-admin/race-live-state). */
+  actualStart?: string | null;
+  actualEnd?: string | null;
 }
 
 const memoryCache: Map<string, { data: PandoraSession[]; expiry: number }> = new Map();

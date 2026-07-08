@@ -10,11 +10,13 @@
 import { centerLabel, etWallMs } from "./format";
 import type { ComboMergeInfo, ComboMeta, ComboScheduleStep, Reservation } from "./types";
 
-/** Where a combo itinerary step sits relative to now. Status truth first
- *  (bowling legStatus: QAMF lane state — completed = lane closed, arrived =
- *  lane open even when the clock disagrees), then the booked start +
- *  expected duration. `overdue` = schedule-active but the party hasn't
- *  checked in, or lane still open past its scheduled end. */
+/** Where a combo itinerary step sits relative to now. Status truth first —
+ *  bowling legStatus (QAMF lane state: completed = lane closed, arrived =
+ *  lane open) and race raceState (Pandora session actualStart/actualEnd +
+ *  called watermark: finished / on_track / called / not_called) both beat
+ *  the clock — then the booked start + expected duration. `overdue` =
+ *  schedule-active but the party hasn't checked in, lane still open past its
+ *  scheduled end, or a heat still uncalled past its scheduled end. */
 export function stepProgress(
   step: ComboScheduleStep,
   nowMs: number,
@@ -24,7 +26,7 @@ export function stepProgress(
   minsUntil: number;
   overdue: boolean;
 } | null {
-  if (step.legStatus === "completed") {
+  if (step.legStatus === "completed" || step.raceState === "finished") {
     return { state: "done", minsLeft: 0, minsUntil: 0, overdue: false };
   }
   if (!step.iso) return null;
@@ -34,6 +36,27 @@ export function stepProgress(
   if (step.legStatus === "arrived") {
     // Lane is open RIGHT NOW — active regardless of the clock; past the
     // scheduled end it's running over, not done.
+    return {
+      state: "active",
+      minsLeft: Math.max(0, (endMs - nowMs) / 60_000),
+      minsUntil: 0,
+      overdue: nowMs >= endMs,
+    };
+  }
+  if (step.raceState === "on_track" || step.raceState === "called") {
+    // Karts are on track / racers being called to the grid RIGHT NOW —
+    // active regardless of the clock (heats routinely run 6-20 min behind).
+    return {
+      state: "active",
+      minsLeft: Math.max(0, (endMs - nowMs) / 60_000),
+      minsUntil: 0,
+      overdue: false,
+    };
+  }
+  if (step.raceState === "not_called" && nowMs >= startMs) {
+    // Scheduled start passed but the track hasn't called this heat — it's
+    // running behind, NOT done (the clock-only board lied "Done" here).
+    // Amber once even the scheduled end has passed.
     return {
       state: "active",
       minsLeft: Math.max(0, (endMs - nowMs) / 60_000),
@@ -161,6 +184,9 @@ export function buildComboGroups(
           iso: h.start,
           loc: "FastTrax",
           durationMin: Number.isFinite(realMin) && realMin > 0 ? realMin : RACE_STEP_MIN,
+          // Live track truth (server-resolved, same-day only) — the marker
+          // trusts this over the clock, like bowling trusts legStatus.
+          raceState: h.raceState,
         };
       });
     } else {
@@ -236,14 +262,22 @@ export function buildComboGroups(
     // legs flip to completed at check-in/settle while later itinerary
     // steps are still hours away (real case: both legs completed by 6pm
     // with a 7:24 race still ahead). Keep the combo active until 30 min
-    // past its LAST scheduled step's end — or while the lane is open —
-    // and retire all-cancelled combos immediately.
+    // past its LAST scheduled step's end — or while the lane is open, or
+    // while live track truth says a heat hasn't actually run yet (heats
+    // routinely run 6-20+ min behind schedule; a 6h hard cap keeps a
+    // data quirk from pinning a card forever). Retire all-cancelled
+    // combos immediately.
     const stepEnds = steps.flatMap((s) => {
       if (!s.iso) return [];
       const ms = etWallMs(s.iso);
       return Number.isNaN(ms) ? [] : [ms + s.durationMin * 60_000];
     });
-    const scheduleOver = stepEnds.length === 0 || nowMs >= Math.max(...stepEnds) + 30 * 60_000;
+    const raceStillLive = steps.some((s) => s.raceState && s.raceState !== "finished");
+    const maxEndMs = stepEnds.length ? Math.max(...stepEnds) : null;
+    const scheduleOver =
+      maxEndMs === null ||
+      (nowMs >= maxEndMs + 30 * 60_000 && !raceStillLive) ||
+      nowMs >= maxEndMs + 6 * 60 * 60_000;
     const laneOpen = bowling?.status === "arrived";
     const inactive = allLegsCancelled || (allTerminal && scheduleOver && !laneOpen);
 

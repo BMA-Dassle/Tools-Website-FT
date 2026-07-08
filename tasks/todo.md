@@ -1,5 +1,52 @@
 # Open Tasks
 
+## Resadmin VIP race-truth (board stops clock-guessing race Done) — PLANNED 2026-07-08
+
+Problem: VIP combo cards mark a race step "✓ Done" purely off the clock
+(`stepProgress` in `src/features/reservations-admin/combo-board.ts` — `now >= start+duration`),
+so a delayed heat shows Done while the party is still waiting; retirement (30 min past last
+step) can drop a delayed combo from Active Only before the race runs. Bowling already has
+QAMF lane truth (`legStatus`); races have no truth signal today.
+
+**Pandora SHIPPED `actualStart` / `actualEnd` — verified live 7/8 ~7PM ET** (explicit
+`null` until they happen, never omitted) on the session objects of
+`GET /v2/bmi/sessions/{locationID}` — deliberately timestamps NOT a state enum (vt3
+`status`-drift lesson, see lib/video-match.ts:31). Derivation: `actualEnd` set → Finished ·
+`actualStart` only → On track · neither + session is the track's `races/current` entry →
+Called · neither + scheduledStart past → Delayed (amber) · neither + future → Upcoming.
+Cancelled needs no state: heat vanishes from the bill's re-read `liveHeats`.
+Live-test notes: delays are real (Blue heat 35 started 22 min late — the exact bug);
+**actualEnd can fail to stamp** (heat 35 stayed open while 36-40 finished) so on-track must
+be sanity-capped: finished if a later same-track heat has actualStart, or ~20-min cap.
+Past dates return empty — same-day only. Our sessions proxy passes the fields through
+as-is; pre-race-tickets keeps the Redis cache ≤2 min stale during ops hours.
+
+Plan (branch `fix/resadmin-vip-race-truth`):
+
+- [ ] **Server** (`app/api/admin/bowling/reservations/route.ts`): where `liveHeats` attaches,
+      resolve each heat → Pandora session (sessions proxy `prefer=cache`, warmed 2-min by
+      pre-race-tickets; match track + scheduledStart, UTC↔naive-ET convert) and stamp
+      `raceState: "ran" | "called" | "not_called"` (absent = no data → clock fallback).
+      Sources in order: session `actualStart`/`actualEnd` (once live) → `races/current` +
+      Redis last-race-per-track watermark (`pandora:last-race:fasttrax:{blue|red|mega}`,
+      checkin-alerts-warmed; heats run in order per track so watermark past heat = ran) →
+      nothing. Reuse the 60s in-memory cache pattern (10s board poll must add no load).
+- [ ] **Board logic** (`combo-board.ts`): `ComboScheduleStep.raceState`; `stepProgress`
+      precedence mirrors bowling — `called`/on-track → active "On track now" regardless of
+      clock; `ran` → done; `not_called` past scheduled end → active+overdue amber
+      "Delayed · not called yet"; no signal → current clock behavior.
+- [ ] **Retirement**: combo with a `not_called`/`called` race step can't go `inactive`;
+      hard cap end of operating day (no-show party: heat still gets called track-wide,
+      which retires the card 30 min later anyway).
+- [ ] **UI** (`VipComboCards.tsx`): pill wordings only. Main list inherits via schedule index.
+- [ ] **Tests**: extend `combo-board.test.ts` — delayed heat stays active past clock-end;
+      watermark/actualEnd flips done early+late; no-signal fallback; retirement guard.
+- [ ] **Live smoke** on a real combo night (delayed heat shows amber, flips Done on next call).
+
+Phase 2 (separate, later): party-level truth — participants `checkedIn` + F_PAR_STATE docs
+(asked Pandora) or vt3 video-match; needs racer personIds or name matching vs
+`booking_metadata.racerNames`.
+
 ## Ultimate VIP improvements — MERGED TO MAIN 2026-07-06, ALL DEFAULT ON; live smoke pending
 
 Owner decisions (locked 7/6): reserve the combo's Starter anchor heats from regular bookings

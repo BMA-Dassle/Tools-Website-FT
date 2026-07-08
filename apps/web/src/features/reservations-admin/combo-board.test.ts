@@ -129,6 +129,42 @@ describe("stepProgress", () => {
     expect(p!.minsUntil).toBeCloseTo(60, 5);
     expect(stepProgress(step({ iso: null }), at("2026-07-06T16:00:00"))).toBeNull();
   });
+
+  // ── Race live truth (raceState) beats the clock, mirroring bowling ────────
+
+  it("finished raceState is done even before the scheduled end", () => {
+    expect(stepProgress(step({ raceState: "finished" }), at("2026-07-06T17:05:00"))).toEqual({
+      state: "done",
+      minsLeft: 0,
+      minsUntil: 0,
+      overdue: false,
+    });
+  });
+
+  it("on_track stays active past the scheduled end (running behind, not done)", () => {
+    const p = stepProgress(step({ raceState: "on_track" }), at("2026-07-06T17:45:00"));
+    expect(p).toMatchObject({ state: "active", minsLeft: 0, overdue: false });
+  });
+
+  it("called is active regardless of the clock", () => {
+    const p = stepProgress(step({ raceState: "called" }), at("2026-07-06T17:40:00"));
+    expect(p).toMatchObject({ state: "active", overdue: false });
+  });
+
+  it("not_called past the scheduled END is active + overdue — never done (the old clock lie)", () => {
+    const p = stepProgress(step({ raceState: "not_called" }), at("2026-07-06T17:40:00"));
+    expect(p).toMatchObject({ state: "active", overdue: true });
+  });
+
+  it("not_called between start and end is active without the amber flag (normal drift)", () => {
+    const p = stepProgress(step({ raceState: "not_called" }), at("2026-07-06T17:10:00"));
+    expect(p).toMatchObject({ state: "active", overdue: false });
+  });
+
+  it("not_called before the scheduled start is just upcoming", () => {
+    const p = stepProgress(step({ raceState: "not_called" }), at("2026-07-06T16:00:00"));
+    expect(p).toMatchObject({ state: "upcoming" });
+  });
 });
 
 describe("buildComboGroups", () => {
@@ -205,6 +241,57 @@ describe("buildComboGroups", () => {
     const g = buildComboGroups([race, bowl], META, etWallMs("2026-07-06T23:00:00"))[0];
     // allTerminal is false while the lane shows arrived, and laneOpen guards too.
     expect(g.inactive).toBe(false);
+  });
+
+  it("a heat the track hasn't run yet holds retirement open past the 30-min mark", () => {
+    // Last step = 7:24 PM heat (9-min real session) → schedule says retire
+    // ~8:03 PM. Track truth says it never ran — card stays active…
+    const { race, bowl } = splitCombo({
+      raceStatus: "completed",
+      bowlStatus: "completed",
+      liveHeats: [
+        {
+          start: "2026-07-06T17:00:00",
+          stop: "2026-07-06T17:09:00",
+          name: "Starter Race Red",
+          raceState: "finished",
+        },
+        {
+          start: "2026-07-06T19:24:00",
+          stop: "2026-07-06T19:33:00",
+          name: "Starter Race Blue",
+          raceState: "not_called",
+        },
+      ],
+    });
+    const held = buildComboGroups([race, bowl], META, etWallMs("2026-07-06T20:30:00"))[0];
+    expect(held.inactive).toBe(false);
+    // …but the 6h hard cap still retires a card the data quirk left open.
+    const capped = buildComboGroups([race, bowl], META, etWallMs("2026-07-07T01:35:00"))[0];
+    expect(capped.inactive).toBe(true);
+  });
+
+  it("all heats finished retires on the normal 30-min schedule rule", () => {
+    const { race, bowl } = splitCombo({
+      raceStatus: "completed",
+      bowlStatus: "completed",
+      liveHeats: [
+        {
+          start: "2026-07-06T17:00:00",
+          stop: "2026-07-06T17:09:00",
+          name: "Starter Race Red",
+          raceState: "finished",
+        },
+        {
+          start: "2026-07-06T19:24:00",
+          stop: "2026-07-06T19:33:00",
+          name: "Starter Race Blue",
+          raceState: "finished",
+        },
+      ],
+    });
+    const g = buildComboGroups([race, bowl], META, etWallMs("2026-07-06T20:05:00"))[0];
+    expect(g.inactive).toBe(true); // 9-min session ended 7:33 + 30 min = 8:03
   });
 
   it("all-cancelled combos retire immediately", () => {

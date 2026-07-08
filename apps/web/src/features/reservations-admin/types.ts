@@ -5,6 +5,7 @@
  * BMI ids (bmiBillId, bmiReservationNumber, raceBillId) are TEXT — they exceed
  * Number.MAX_SAFE_INTEGER. Never coerce them with Number()/parseInt.
  */
+import type { RaceLiveState } from "./race-live-state";
 
 export interface ReservationLine {
   label: string;
@@ -101,8 +102,17 @@ export interface Reservation {
    *  booking — and can convert an Intermediate to a second Starter — so when
    *  present these override the booking_metadata times stamped at booking.
    *  `start`/`stop` are naive ET wall-clock ISOs (same shape as heatId);
-   *  stop is the REAL session end (~7-12 min sessions). */
-  liveHeats?: Array<{ start: string; stop: string | null; name: string | null }>;
+   *  stop is the REAL session end (~7-12 min sessions). `raceState` is live
+   *  track truth (Pandora actualStart/actualEnd + called watermark, resolved
+   *  server-side, same-day only) — beats the clock; absent = clock fallback. */
+  liveHeats?: Array<{
+    start: string;
+    stop: string | null;
+    name: string | null;
+    sessionId?: string;
+    heatNumber?: number;
+    raceState?: RaceLiveState;
+  }>;
   insertedAt: string;
   lines: ReservationLine[];
 }
@@ -136,6 +146,10 @@ export interface ComboScheduleStep {
    *  QAMF lane truth: `arrived` = lane open right now, `completed` = lane
    *  closed. Beats the clock when a party runs early or late. */
   legStatus?: string;
+  /** Live track truth, attached to RACE steps only (from the leg's enriched
+   *  liveHeats) — Pandora actualStart/actualEnd + called watermark. The
+   *  race analog of legStatus: beats the clock; absent = clock fallback. */
+  raceState?: RaceLiveState;
 }
 
 /** Attached to the single main-list row that represents a whole VIP combo

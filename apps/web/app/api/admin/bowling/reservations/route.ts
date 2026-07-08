@@ -10,7 +10,16 @@ import { shortenUrl } from "@/lib/short-url";
 import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
+import {
+  resolveRaceLiveState,
+  trackKeyFromName,
+  type RaceLiveState,
+  type TrackKey,
+  type TrackSession,
+  type TrackWatermark,
+} from "~/features/reservations-admin/race-live-state";
 import { getReservation } from "@/lib/qamf-bowling";
+import redis from "@/lib/redis";
 import { parseWithRawIds } from "@ft/db";
 
 /** QAMF numeric center ids (mirrors bowling-lane-poll). */
@@ -56,6 +65,13 @@ interface LiveHeat {
   stop: string | null;
   /** BMI line name, e.g. "Starter Race Blue" — the board labels from it. */
   name: string | null;
+  /** Pandora session resolved by track + start minute (string per Pandora). */
+  sessionId?: string;
+  heatNumber?: number;
+  /** Live track truth (Pandora actualStart/actualEnd + called watermark) —
+   *  the board's Done / On-track / Delayed markers trust this over the clock,
+   *  exactly like bowling trusts QAMF lane state. Absent = clock fallback. */
+  raceState?: RaceLiveState;
 }
 
 /** In-memory per-bill cache: the board polls this route every 10s, so without
@@ -116,6 +132,148 @@ async function fetchLiveHeats(billId: string): Promise<LiveHeat[] | null> {
   }
   liveHeatCache.set(billId, { heats, expiry: Date.now() + (heats ? 60_000 : 30_000) });
   return heats;
+}
+
+// ── Live race-session state (Pandora actualStart/actualEnd) ─────────────────
+// Pandora stamps actualStart/actualEnd per session (added 2026-07-08), so the
+// board can mark a combo race step Done / On-track / Delayed from track
+// reality instead of guessing by clock. Derivation is pure
+// (~/features/reservations-admin/race-live-state); this section only fetches.
+const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
+const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
+const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
+const TRACK_RESOURCE: Record<TrackKey, string> = {
+  blue: "Blue Track",
+  red: "Red Track",
+  mega: "Mega Track",
+};
+
+/** Per-track session-list cache. 30s: actualStart/actualEnd change constantly
+ *  (unlike heat times), so this stays shorter than the 60s liveHeat TTL —
+ *  combined with the sessions proxy's 2-min cron warm, a Done flip reaches
+ *  the board in ~2-3 min worst case. Failures cache 30s so a Pandora outage
+ *  can't hammer. */
+const trackSessionCache = new Map<string, { sessions: TrackSession[] | null; expiry: number }>();
+
+async function fetchTrackSessions(track: TrackKey, ymd: string): Promise<TrackSession[] | null> {
+  const resource = TRACK_RESOURCE[track];
+  const memKey = `${resource}:${ymd}`;
+  const cached = trackSessionCache.get(memKey);
+  if (cached && Date.now() < cached.expiry) return cached.sessions;
+  let sessions: TrackSession[] | null = null;
+  // 1. Redis cache written by the sessions proxy — pre-race-tickets warms it
+  //    every 2 min during operating hours. Key format MUST mirror
+  //    app/api/pandora/sessions/route.ts cacheKey + the cron's todayETRange.
+  try {
+    const raw = await redis.get(
+      `pandora:sessions:${FASTTRAX_LOCATION_ID}:${resource}:${ymd}T00:00:00:${ymd}T23:59:59`,
+    );
+    if (raw) {
+      const parsed = JSON.parse(raw) as TrackSession[];
+      if (Array.isArray(parsed) && parsed.length) sessions = parsed;
+    }
+  } catch {
+    /* fall through to live */
+  }
+  // 2. Direct Pandora read (cache cold — e.g. before the cron's first warm).
+  if (!sessions && PANDORA_KEY) {
+    try {
+      const qs = new URLSearchParams({
+        startDate: `${ymd}T00:00:00`,
+        endDate: `${ymd}T23:59:59`,
+        resourceName: resource,
+      });
+      const res = await fetch(`${PANDORA_URL}/bmi/sessions/${FASTTRAX_LOCATION_ID}?${qs}`, {
+        headers: { Authorization: `Bearer ${PANDORA_KEY}`, Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json?.data)) sessions = json.data as TrackSession[];
+      }
+    } catch {
+      /* non-fatal — heats keep clock behavior */
+    }
+  }
+  trackSessionCache.set(memKey, { sessions, expiry: Date.now() + 30_000 });
+  return sessions;
+}
+
+/** Last-called race per track — the races-current proxy persists every call
+ *  it sees to these keys (TTL end of day, warmed every minute by
+ *  checkin-alerts). Sanity/fallback layer for the actual* timestamps. */
+async function fetchTrackWatermarks(): Promise<Partial<Record<TrackKey, TrackWatermark>>> {
+  const tracks: TrackKey[] = ["blue", "red", "mega"];
+  const out: Partial<Record<TrackKey, TrackWatermark>> = {};
+  try {
+    const vals = await redis.mget(...tracks.map((t) => `pandora:last-race:fasttrax:${t}`));
+    tracks.forEach((t, i) => {
+      const raw = vals[i];
+      if (!raw) return;
+      try {
+        const r = JSON.parse(raw) as {
+          sessionId?: number | string;
+          heatNumber?: number;
+          calledAt?: string;
+        };
+        if (r && typeof r.heatNumber === "number" && r.sessionId != null) {
+          out[t] = { sessionId: r.sessionId, heatNumber: r.heatNumber, calledAt: r.calledAt ?? "" };
+        }
+      } catch {
+        /* skip malformed entry */
+      }
+    });
+  } catch {
+    /* non-fatal — derivation falls back to actual* fields only */
+  }
+  return out;
+}
+
+/** Stamp raceState/sessionId onto every live heat of the given race legs.
+ *  Same-day only (Pandora serves today; the pills only matter live).
+ *  Best-effort — an unresolved heat keeps clock behavior on the board. */
+async function attachRaceLiveState(
+  raceLegs: Array<{ liveHeats?: LiveHeat[] }>,
+  ymd: string,
+): Promise<void> {
+  const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  if (ymd !== todayEt) return;
+  const tracksNeeded = new Set<TrackKey>();
+  for (const r of raceLegs)
+    for (const h of r.liveHeats ?? []) {
+      const t = trackKeyFromName(h.name);
+      if (t) tracksNeeded.add(t);
+    }
+  if (!tracksNeeded.size) return;
+  const trackList = [...tracksNeeded];
+  const [watermarks, sessionLists] = await Promise.all([
+    fetchTrackWatermarks(),
+    Promise.all(trackList.map((t) => fetchTrackSessions(t, ymd))),
+  ]);
+  const sessionsByTrack = new Map<TrackKey, TrackSession[]>();
+  trackList.forEach((t, i) => {
+    const s = sessionLists[i];
+    if (s) sessionsByTrack.set(t, s);
+  });
+  const nowMs = Date.now();
+  for (const r of raceLegs)
+    for (const h of r.liveHeats ?? []) {
+      const t = trackKeyFromName(h.name);
+      const sessions = t ? sessionsByTrack.get(t) : undefined;
+      if (!t || !sessions) continue;
+      const live = resolveRaceLiveState({
+        heatStartIso: h.start,
+        sessions,
+        watermark: watermarks[t],
+        nowMs,
+      });
+      if (live) {
+        h.sessionId = live.sessionId;
+        h.heatNumber = live.heatNumber;
+        h.raceState = live.raceState;
+      }
+    }
 }
 
 /**
@@ -347,9 +505,22 @@ export async function GET(req: NextRequest) {
         if (r.productKind !== "race" || !r.bmiBillId || r.status === "cancelled") return;
         const heats = await fetchLiveHeats(r.bmiBillId);
         if (heats && heats.length) {
-          (r as { liveHeats?: LiveHeat[] }).liveHeats = heats;
+          // Copy: raceState gets stamped per request below and the cache
+          // entry is shared across requests — never mutate it.
+          (r as { liveHeats?: LiveHeat[] }).liveHeats = heats.map((h) => ({ ...h }));
         }
       }),
+    );
+
+    // Live track truth for those heats (Pandora actualStart/actualEnd +
+    // called watermark) — lets the board mark race steps Done / On-track /
+    // Delayed from reality instead of the clock. Best-effort; never fails
+    // the response.
+    await attachRaceLiveState(
+      vipReservations
+        .filter((r) => r.productKind === "race")
+        .map((r) => r as { liveHeats?: LiveHeat[] }),
+      date,
     );
 
     const comboMeta: Record<

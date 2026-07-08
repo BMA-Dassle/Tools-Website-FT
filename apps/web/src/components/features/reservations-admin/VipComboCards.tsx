@@ -173,15 +173,28 @@ export default function VipComboCards({
                         // lane open → countdown (or "wrapping up" past
                         // the scheduled end); slot started but nobody
                         // checked in → amber "not arrived" nudge.
+                        // Race wording follows live track truth
+                        // (raceState): on track / called to grid; a heat
+                        // past its scheduled end but still uncalled shows
+                        // amber "Delayed" — the race analog of the
+                        // bowling nudge. No raceState = clock fallback.
                         const laneOpen = step.legStatus === "arrived";
-                        const late = isBowling && !laneOpen;
+                        const late = isBowling ? !laneOpen : prog.overdue;
                         const text = isBowling
                           ? laneOpen
                             ? prog.overdue
                               ? "Bowling now · wrapping up"
                               : `Bowling now · ${fmtDurShort(prog.minsLeft)} left`
                             : "Lane due · not arrived"
-                          : "In progress";
+                          : step.raceState === "on_track"
+                            ? "On track now"
+                            : step.raceState === "called"
+                              ? "Called to grid"
+                              : prog.overdue
+                                ? "Delayed · not called"
+                                : step.raceState === "not_called"
+                                  ? "Due · not called yet"
+                                  : "In progress";
                         const color = late ? "#f59e0b" : accent;
                         const bg = late ? "rgba(245,158,11,0.15)" : "rgba(212,175,55,0.15)";
                         return (
