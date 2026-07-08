@@ -1,6 +1,6 @@
 # Open Tasks
 
-## Resadmin VIP race-truth (board stops clock-guessing race Done) — PLANNED 2026-07-08
+## Resadmin VIP race-truth (board stops clock-guessing race Done) — BUILT 2026-07-08, PR open
 
 Problem: VIP combo cards mark a race step "✓ Done" purely off the clock
 (`stepProgress` in `src/features/reservations-admin/combo-board.ts` — `now >= start+duration`),
@@ -21,9 +21,9 @@ be sanity-capped: finished if a later same-track heat has actualStart, or ~20-mi
 Past dates return empty — same-day only. Our sessions proxy passes the fields through
 as-is; pre-race-tickets keeps the Redis cache ≤2 min stale during ops hours.
 
-Plan (branch `fix/resadmin-vip-race-truth`):
+Built on branch `fix/resadmin-vip-race-truth` (651bf4d8, pushed — PR: https://github.com/BMA-Dassle/Tools-Website-FT/pull/new/fix/resadmin-vip-race-truth). States shipped as finished/on_track/called/not_called; derivation is the pure module `src/features/reservations-admin/race-live-state.ts` (18 new unit tests; 55 green in the feature dir; tsc clean apart from 2 pre-existing scratch-script files).
 
-- [ ] **Server** (`app/api/admin/bowling/reservations/route.ts`): where `liveHeats` attaches,
+- [x] **Server** (`app/api/admin/bowling/reservations/route.ts`): where `liveHeats` attaches,
       resolve each heat → Pandora session (sessions proxy `prefer=cache`, warmed 2-min by
       pre-race-tickets; match track + scheduledStart, UTC↔naive-ET convert) and stamp
       `raceState: "ran" | "called" | "not_called"` (absent = no data → clock fallback).
@@ -31,15 +31,15 @@ Plan (branch `fix/resadmin-vip-race-truth`):
       Redis last-race-per-track watermark (`pandora:last-race:fasttrax:{blue|red|mega}`,
       checkin-alerts-warmed; heats run in order per track so watermark past heat = ran) →
       nothing. Reuse the 60s in-memory cache pattern (10s board poll must add no load).
-- [ ] **Board logic** (`combo-board.ts`): `ComboScheduleStep.raceState`; `stepProgress`
+- [x] **Board logic** (`combo-board.ts`): `ComboScheduleStep.raceState`; `stepProgress`
       precedence mirrors bowling — `called`/on-track → active "On track now" regardless of
       clock; `ran` → done; `not_called` past scheduled end → active+overdue amber
       "Delayed · not called yet"; no signal → current clock behavior.
-- [ ] **Retirement**: combo with a `not_called`/`called` race step can't go `inactive`;
+- [x] **Retirement**: combo with a `not_called`/`called` race step can't go `inactive`;
       hard cap end of operating day (no-show party: heat still gets called track-wide,
       which retires the card 30 min later anyway).
-- [ ] **UI** (`VipComboCards.tsx`): pill wordings only. Main list inherits via schedule index.
-- [ ] **Tests**: extend `combo-board.test.ts` — delayed heat stays active past clock-end;
+- [x] **UI** (`VipComboCards.tsx`): pill wordings only. Main list inherits via schedule index.
+- [x] **Tests**: extend `combo-board.test.ts` — delayed heat stays active past clock-end;
       watermark/actualEnd flips done early+late; no-signal fallback; retirement guard.
 - [ ] **Live smoke** on a real combo night (delayed heat shows amber, flips Done on next call).
 
