@@ -49,6 +49,7 @@ import {
   fixtureLabel,
 } from "~/features/world-cup";
 import { enrichFixture } from "~/features/world-cup/live-teams";
+import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import {
   insertBowlingReservation,
   updateBowlingReservationShortCode,
@@ -1478,6 +1479,26 @@ async function unifiedReserveInner(
       squareDayofOrderId,
       totalCents: dayofTotalCents,
       depositOrderId: depositResult.depositOrderId,
+    });
+  }
+
+  // World Cup: staff booking alert, Ultimate-VIP style (owner 7/6). Mixed
+  // carts reserve through THIS rail; bowling-only carts fire the same alert
+  // from /api/bowling/v2/reserve. Never throws.
+  for (const item of session.items) {
+    if (item.kind !== "bowling" || !isWorldCupBowlingItem(item) || !item.bookedAt) continue;
+    const wcAlertFixture = fixtureForBookedAt(item.bookedAt);
+    if (!wcAlertFixture) continue;
+    await notifyWorldCupBooked({
+      fixture: await enrichFixture(wcAlertFixture),
+      center: session.center ?? "fort-myers",
+      guestName: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || "Unknown guest",
+      guestEmail: contact.email,
+      guestPhone: contact.phone,
+      players: item.playerCount ?? 1,
+      totalCents: dayofTotalCents,
+      qamfReservationId: item.qamfReservationId ?? null,
+      squareDayofOrderId,
     });
   }
 

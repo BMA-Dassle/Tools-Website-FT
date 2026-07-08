@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import ReservationsClient from "../../[token]/reservations/ReservationsClient";
+import ReservationsBoard from "~/components/features/reservations-admin/ReservationsBoard";
 
 /**
  * Bowling admin — portal embed entry point.
@@ -21,5 +21,5 @@ export default async function Page() {
   const token = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!token) notFound();
 
-  return <ReservationsClient token={token} />;
+  return <ReservationsBoard token={token} />;
 }

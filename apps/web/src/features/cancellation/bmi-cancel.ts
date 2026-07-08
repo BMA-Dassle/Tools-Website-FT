@@ -172,20 +172,26 @@ async function getProjectState(
 
 // ── The cancel ───────────────────────────────────────────────────────────────
 
-export async function cancelBmiProject(params: {
-  /** From resolveCenter — race projects live under the FastTrax location. */
-  pandoraStateSlug: string;
+/**
+ * Resolve the Office PROJECT for a bill — W-number search first (kind===2 →
+ * localId), order id as fallback, W-number match required before trusting an
+ * order-id-resolved project (BMI's orderId≠projectId drift). This embeds the
+ * 2026-07-03 W47613/W47615 lesson: the project is the source of truth, never
+ * the public bill record. Shared by the cancel cascade and the admin
+ * notes→BMI memo sync.
+ */
+export async function resolveBmiProject(params: {
   bmiClientKey: string;
   /** RAW string bill/order id — never Number()'d anywhere in this module. */
   bmiBillId: string;
   bmiReservationNumber?: string;
-}): Promise<BmiCancelResult> {
+}): Promise<{
+  projectId?: string;
+  project: ProjectState | null;
+  headers: Record<string, string> | null;
+  officeErr?: string;
+}> {
   const { bmiClientKey: ck, bmiBillId } = params;
-
-  // 1. Resolve the PROJECT — W-number search first, order id fallback. The
-  //    project is the source of truth; the public bill delete NEVER comes
-  //    first (on confirmed bills it returns `true` while the project lives on
-  //    — the 2026-07-03 W47613/W47615 incident).
   let officeErr: string | undefined;
   let projectId: string | undefined;
   let project: ProjectState | null = null;
@@ -242,6 +248,27 @@ export async function cancelBmiProject(params: {
       }
     }
   }
+  return { projectId: project ? projectId : undefined, project, headers, officeErr };
+}
+
+export async function cancelBmiProject(params: {
+  /** From resolveCenter — race projects live under the FastTrax location. */
+  pandoraStateSlug: string;
+  bmiClientKey: string;
+  /** RAW string bill/order id — never Number()'d anywhere in this module. */
+  bmiBillId: string;
+  bmiReservationNumber?: string;
+}): Promise<BmiCancelResult> {
+  const { bmiClientKey: ck, bmiBillId } = params;
+
+  // 1. Resolve the PROJECT — W-number search first, order id fallback. The
+  //    project is the source of truth; the public bill delete NEVER comes
+  //    first (on confirmed bills it returns `true` while the project lives on
+  //    — the 2026-07-03 W47613/W47615 incident).
+  const resolved = await resolveBmiProject(params);
+  const { headers, officeErr } = resolved;
+  const project: ProjectState | null = resolved.project;
+  const projectId: string | undefined = resolved.projectId;
 
   // 2. No project resolvable → this bill (probably) never confirmed. The
   //    public bill delete IS the real cancel for that shape.

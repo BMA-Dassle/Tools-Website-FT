@@ -225,8 +225,8 @@ describe("buildWorldCupLineItems (mirrors BowlingOfferStep.buildLineItems, hourl
 });
 
 describe("staff strings", () => {
-  it("QAMF title follows the VIP Exp. prefix precedent", () => {
-    expect(worldCupQamfTitle("Jane Doe", 12)).toBe("World Cup Jane Doe (12p)");
+  it("QAMF title carries the Futbal prefix (owner 7/6)", () => {
+    expect(worldCupQamfTitle("Jane Doe", 12)).toBe("Futbal Jane Doe (12p)");
   });
 
   it("QAMF banner leads with the match", () => {

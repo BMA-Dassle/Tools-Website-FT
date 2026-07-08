@@ -1,0 +1,231 @@
+"use client";
+
+/**
+ * Manage Reservation — Payments tab: live Square timeline for the whole
+ * money group (deposit → funding gift card → day-of order(s) → store-credit
+ * outcome). Fetched lazily when the tab first activates; every amount is
+ * read live from Square, ids are copyable, and a node-level error never
+ * blanks the rest of the timeline.
+ */
+import { useEffect } from "react";
+import { dollars, ganDisplay } from "~/features/reservations-admin/format";
+import type { PaymentTimeline, TimelineNode } from "~/features/reservations-admin/service";
+import { Card, CopyId } from "./ui";
+
+const NODE_COLORS: Record<TimelineNode["kind"], string> = {
+  deposit: "#22c55e",
+  funding_gift_card: "#d4af37",
+  dayof_order: "#f59e0b",
+  store_credit: "#ef4444",
+};
+
+function orderStateColor(state: string): string {
+  if (state === "COMPLETED") return "#22c55e";
+  if (state === "OPEN") return "#3b82f6";
+  return "#ef4444";
+}
+
+export default function PaymentsTab({
+  payments,
+  paymentsError,
+  paymentsLoading,
+  loadPayments,
+  onCopied,
+}: {
+  payments: PaymentTimeline | null;
+  paymentsError: string | null;
+  paymentsLoading: boolean;
+  loadPayments: () => Promise<void>;
+  onCopied: (msg: string) => void;
+}) {
+  // Lazy fetch on first activation.
+  useEffect(() => {
+    if (!payments && !paymentsLoading && !paymentsError) void loadPayments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <Card title="Payment timeline — live from Square">
+      {paymentsLoading && (
+        <div style={{ color: "var(--ba-muted)", fontSize: "0.82rem", padding: "0.5rem 0" }}>
+          Reading Square…
+        </div>
+      )}
+      {paymentsError && (
+        <div
+          style={{
+            padding: "0.5rem 0.75rem",
+            borderRadius: 8,
+            backgroundColor: "rgba(239,68,68,0.12)",
+            border: "1px solid rgba(239,68,68,0.3)",
+            fontSize: "0.78rem",
+            color: "#ef4444",
+          }}
+        >
+          {paymentsError}
+        </div>
+      )}
+      {payments && payments.nodes.length === 0 && (
+        <div style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
+          No Square activity on this booking (free / walk-in).
+        </div>
+      )}
+      {payments && payments.nodes.length > 0 && (
+        <div>
+          {payments.nodes.map((n, i) => {
+            const dot = NODE_COLORS[n.kind];
+            const last = i === payments.nodes.length - 1;
+            return (
+              <div key={i} style={{ display: "flex", gap: 12 }}>
+                {/* Rail */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      backgroundColor: n.error ? "#ef4444" : dot,
+                      marginTop: 5,
+                      flexShrink: 0,
+                    }}
+                  />
+                  {!last && (
+                    <span style={{ width: 1, flex: 1, backgroundColor: "var(--ba-border)" }} />
+                  )}
+                </div>
+                {/* Node body */}
+                <div style={{ paddingBottom: last ? 0 : 16, minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "baseline",
+                      flexWrap: "wrap",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {n.label}
+                    {n.order && (
+                      <>
+                        <span
+                          style={{
+                            fontSize: "0.62rem",
+                            fontWeight: 700,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            color: orderStateColor(n.order.state),
+                            backgroundColor: `${orderStateColor(n.order.state)}20`,
+                            border: `1px solid ${orderStateColor(n.order.state)}40`,
+                          }}
+                        >
+                          {n.order.state}
+                        </span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                          {dollars(n.order.totalCents)}
+                        </span>
+                        {n.order.netDueCents > 0 && (
+                          <span style={{ color: "#f59e0b", fontSize: "0.75rem" }}>
+                            {dollars(n.order.netDueCents)} due
+                          </span>
+                        )}
+                      </>
+                    )}
+                    {n.giftCard && (
+                      <>
+                        <span
+                          style={{
+                            fontSize: "0.62rem",
+                            fontWeight: 700,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            color: n.giftCard.state === "ACTIVE" ? "#22c55e" : "var(--ba-muted)",
+                            border: "1px solid var(--ba-border)",
+                          }}
+                        >
+                          {n.giftCard.state}
+                        </span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                          {dollars(n.giftCard.balanceCents)} balance
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      flexWrap: "wrap",
+                      marginTop: 4,
+                      alignItems: "center",
+                    }}
+                  >
+                    {n.order && (
+                      <CopyId
+                        value={n.order.id}
+                        label={`${n.order.id.slice(0, 10)}…`}
+                        onCopied={onCopied}
+                      />
+                    )}
+                    {n.giftCard?.gan && (
+                      <CopyId
+                        value={n.giftCard.gan}
+                        label={ganDisplay(n.giftCard.gan)}
+                        onCopied={onCopied}
+                      />
+                    )}
+                    {n.order?.tenders.map((t) => (
+                      <span
+                        key={t.paymentId}
+                        style={{ fontSize: "0.72rem", color: "var(--ba-muted)" }}
+                      >
+                        {dollars(t.amountCents)} tender
+                        {t.status ? ` · ${t.status}` : ""}
+                        {t.refundedCents ? (
+                          <span style={{ color: "#ef4444" }}>
+                            {" "}
+                            · {dollars(t.refundedCents)} refunded
+                          </span>
+                        ) : null}{" "}
+                        <CopyId
+                          value={t.paymentId}
+                          label={`${t.paymentId.slice(0, 8)}…`}
+                          onCopied={onCopied}
+                        />
+                      </span>
+                    ))}
+                  </div>
+                  {n.error && (
+                    <div style={{ marginTop: 4, fontSize: "0.72rem", color: "#ef4444" }}>
+                      Couldn&rsquo;t read this from Square: {n.error}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {payments && (
+        <div style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            onClick={() => void loadPayments()}
+            style={{
+              background: "var(--ba-input-bg)",
+              border: "1px solid var(--ba-input-border)",
+              borderRadius: 6,
+              color: "var(--ba-muted)",
+              padding: "3px 10px",
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Refresh from Square
+          </button>
+        </div>
+      )}
+    </Card>
+  );
+}

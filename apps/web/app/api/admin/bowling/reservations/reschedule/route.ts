@@ -12,6 +12,7 @@ import {
 } from "@/lib/bowling-db";
 import { sql } from "@/lib/db";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
+import { recordAdminAction } from "~/features/reservations-admin/audit";
 
 const CENTER_CODE_TO_QAMF: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
@@ -183,6 +184,13 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF error";
     console.error("[admin/reschedule] createReservation failed:", msg);
+    await recordAdminAction({
+      reservationId: neonId,
+      action: "reschedule",
+      outcome: "failed",
+      detail: { fromBookedAt: existing.bookedAt, toBookedAt: bookedAt },
+      error: msg,
+    });
     return NextResponse.json(
       { error: `QAMF failed to create new reservation: ${msg}` },
       { status: 502 },
@@ -201,6 +209,13 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best effort */
     }
+    await recordAdminAction({
+      reservationId: neonId,
+      action: "reschedule",
+      outcome: "failed",
+      detail: { fromBookedAt: existing.bookedAt, toBookedAt: bookedAt },
+      error: msg,
+    });
     return NextResponse.json(
       { error: `QAMF failed to confirm new reservation: ${msg}` },
       { status: 502 },
@@ -209,6 +224,18 @@ export async function POST(req: NextRequest) {
 
   // ── Update Neon ────────────────────────────────────────────────────
   await updateReservationReschedule(neonId, bookedAt, newQamfId);
+
+  await recordAdminAction({
+    reservationId: neonId,
+    action: "reschedule",
+    outcome: "success",
+    detail: {
+      fromBookedAt: existing.bookedAt,
+      toBookedAt: bookedAt,
+      oldQamfId: existing.qamfReservationId ?? null,
+      newQamfId,
+    },
+  });
 
   // Also reset status to "confirmed" (in case it was arrived / pending)
   try {

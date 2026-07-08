@@ -123,9 +123,10 @@ export function buildWorldCupLineItems(
 
 /* ───────────────────── staff-facing strings (QAMF) ─────────────────── */
 
-/** Conqueror reservation Title — "VIP Exp." prefix precedent (unified-reserve). */
+/** Conqueror reservation Title — "VIP Exp." prefix precedent (unified-reserve).
+ *  Owner 7/6: prefix "Futbal" so World Cup lanes jump out on the grid. */
 export function worldCupQamfTitle(guestName: string, players: number): string {
-  return `World Cup ${guestName} (${players}p)`;
+  return `Futbal ${guestName} (${players}p)`;
 }
 
 /** Lead line for the Conqueror Notes so front desk spots the package. */

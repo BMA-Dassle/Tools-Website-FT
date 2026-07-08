@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateBowlingCheckinMethod } from "@/lib/bowling-db";
+import { recordAdminAction } from "~/features/reservations-admin/audit";
 
 /**
  * POST /api/admin/bowling/reservations/checkin?token=...
@@ -25,6 +26,12 @@ export async function POST(req: NextRequest) {
     }
 
     await updateBowlingCheckinMethod(neonId, method);
+    await recordAdminAction({
+      reservationId: neonId,
+      action: "checkin_method",
+      outcome: "success",
+      detail: { method },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[admin/bowling/checkin]", err);

@@ -40,6 +40,7 @@ import {
   type WorldCupFixture,
 } from "~/features/world-cup";
 import { enrichFixture } from "~/features/world-cup/live-teams";
+import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
 import {
   KBF_GAMES_PER_SESSION,
@@ -1612,6 +1613,22 @@ export async function POST(req: NextRequest) {
   }).catch((err) => {
     console.error("[bowling/v2/reserve] notification fire-and-forget failed:", err);
   });
+
+  // World Cup: staff booking alert, Ultimate-VIP style (owner 7/6). Only
+  // after everything above succeeded; best-effort inside.
+  if (wcFixture) {
+    await notifyWorldCupBooked({
+      fixture: wcFixture,
+      center: centerId,
+      guestName: guest.name,
+      guestEmail: guest.email,
+      guestPhone: guest.phone,
+      players: players.length,
+      totalCents,
+      qamfReservationId,
+      squareDayofOrderId: squareDayofOrderId ?? null,
+    });
+  }
 
   return NextResponse.json({
     neonId,

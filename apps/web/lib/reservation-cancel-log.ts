@@ -214,6 +214,32 @@ export async function getLatestCancelEvent(
   }
 }
 
+/**
+ * All cancel events touching ANY of the given reservation ids — as the
+ * cascade anchor OR as a leg (leg_ids overlap). The manage-reservation
+ * detail view merges these into its History tab, and any leg of a money
+ * group can have been a past cascade's anchor, so both matches matter.
+ */
+export async function listCancelEventsByAnchors(
+  reservationIds: number[],
+  limit = 50,
+): Promise<CancelEventRow[]> {
+  if (!isDbConfigured() || reservationIds.length === 0) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT * FROM reservation_cancel_events
+      WHERE anchor_reservation_id = ANY(${reservationIds})
+         OR leg_ids && ${reservationIds}
+      ORDER BY created_at DESC LIMIT ${limit}
+    `;
+    return rows.map(rowToEvent);
+  } catch {
+    return [];
+  }
+}
+
 /** Recent cancellations for admin/incident review. */
 export async function listCancelEvents(limit = 100): Promise<CancelEventRow[]> {
   if (!isDbConfigured()) return [];
