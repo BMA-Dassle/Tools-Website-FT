@@ -1,5 +1,33 @@
 # Lessons Learned
 
+## A recovery sweep and a cancel cascade share the SAME state — every writer must close every gate (2026-07-07)
+
+**What happened:** Res 11416/11417 (W48833) was cancelled + refunded through the cascade. The
+cascade wrote the BMI project to -4 via Pandora, but the write became visible only after ~20-25s
+(the cascade's 9s verify poll gave up → logged a FALSE "did not stick"). Five minutes later
+`bmi-cancel-sweep` RECOVERED the -4 back to Confirmation (-3): Pandora's direct Firebird write
+leaves `userUpdatedId=-1` — indistinguishable from BMI's auto-cancel bug the sweep exists to
+undo — and the sweep's "intentional cancel" gate (the Redis booking record) still said
+"confirmed" because the cascade never updated it. Staff saw a refunded booking still live in BMI.
+
+**Rules:**
+
+- When a watchdog/sweep auto-reverts state, EVERY code path that intentionally sets that state
+  must close the sweep's gates BEFORE (or atomically with) the write — never assume the sweep
+  will "recognize" the writer. Pandora Firebird writes carry NO user identity (`userUpdatedId`
+  stays -1); do not gate on writer identity for anything written via Pandora.
+- The cascade now marks the Redis booking record cancelled at COMMIT (step C, before BMI
+  teardown), and the sweep has a durable Neon backstop (`bowling_reservations.status='cancelled'`
+  by W-number) because Redis records expire (90d TTL) and evict (6/29 OOM).
+- Pandora `/v2/bmi/reservation/state` returns 200 immediately but the Firebird write can take
+  ~25s to become visible via the Office API. Verify polls must cover that (~22s now), and a
+  verify "failure" should be worded as "not yet visible", not "did not stick" — the write
+  usually lands after we stop watching.
+- The confirmation page PATCHes the booking record `status:"confirmed"` on EVERY load — a
+  cancelled/refunded record must refuse resurrection server-side (booking-record PATCH now
+  drops the status flip). Staff clicking "View confirmation" on a cancelled booking was enough
+  to re-open the sweep gate.
+
 ## Never tell a customer they're being grouped with another party (2026-07-06)
 
 **What happened:** The VIP group-match feature shipped with a customer-facing banner

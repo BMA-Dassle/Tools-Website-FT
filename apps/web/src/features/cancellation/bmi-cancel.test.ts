@@ -109,7 +109,7 @@ function mockOffice(opts: { stateId?: string; searchHit?: boolean; number?: stri
   });
   vi.mocked(setProjectState).mockImplementation(async (p) => {
     state.stateId = p.stateId;
-    state.userUpdatedId = "17750"; // API2's user — never -1
+    state.userUpdatedId = "-1"; // Pandora's Firebird write leaves the system writer (W48833, 2026-07-07)
   });
   return state;
 }
@@ -170,7 +170,9 @@ describe("cancelBmiProject", () => {
     expect(vi.mocked(setProjectState)).toHaveBeenCalledWith(
       expect.objectContaining({ centerCode: "fasttrax", projectId: PROJECT, stateId: "-4" }),
     );
-    expect(r.userUpdatedId).not.toBe("-1");
+    // Pandora writes leave userUpdatedId=-1 — the cancel still succeeds; sweep
+    // safety comes from the cancelled booking record + Neon gate, not the writer.
+    expect(r.userUpdatedId).toBe("-1");
   });
 
   it("already at -4 → success without writing", async () => {
@@ -218,14 +220,14 @@ describe("cancelBmiProject", () => {
       /* write silently lost */
     });
     // The verify polls with real setTimeout backoff (Pandora writes land
-    // async) — drive it with fake timers so the test doesn't sleep ~9s.
+    // async, ~22s window) — drive it with fake timers so the test doesn't sleep.
     vi.useFakeTimers();
     try {
       const pending = cancelBmiProject(params);
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(30_000);
       const r = await pending;
       expect(r.ok).toBe(false);
-      expect(r.detail).toMatch(/did not stick/);
+      expect(r.detail).toMatch(/not yet visible/);
     } finally {
       vi.useRealTimers();
     }

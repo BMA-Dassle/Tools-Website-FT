@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import https from "https";
+import { neon } from "@neondatabase/serverless";
 import { parseWithRawIds } from "@ft/db";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
@@ -26,6 +27,10 @@ import { verifyCron } from "@/lib/cron-auth";
  *   (C) stateId=-101/-102 (stuck payment) + has online payment
  * NEVER recovered:
  *   - a booking-record explicitly marked cancelled/refunded
+ *   - a reservation our Neon bowling_reservations table says is cancelled
+ *     (durable backstop — Redis records expire/evict; and Pandora -4 writes
+ *     leave userUpdatedId=-1, so the writer check alone can't distinguish our
+ *     cancel cascade from BMI's auto-cancel bug)
  *   - a -4 Cancellation whose last writer was a real user (staff onsite cancel or
  *     online cancel; userUpdatedId !== -1) — that's intentional. This is what lets
  *     staff cancel a booking onsite without the sweep flipping it back to confirmed.
@@ -131,6 +136,34 @@ async function lookupRecord(reservationNumber: string): Promise<BookingRecord | 
   } catch (err) {
     console.warn(`[bmi-cancel-sweep] booking-record lookup failed for ${reservationNumber}:`, err);
     return null;
+  }
+}
+
+/**
+ * Durable backstop for the Redis record gate: our own Neon reservations table.
+ * Redis booking records expire (90-day TTL) and evict (the 2026-06-29 OOM
+ * incident) — a project whose W-number matches a CANCELLED
+ * bowling_reservations row was cancelled by our cascade and must stand, no
+ * matter what Redis says (res 11417 / W48833, 2026-07-07: cascade -4 reverted
+ * because the Redis record still said "confirmed"). Non-fatal: DB trouble =
+ * "no opinion".
+ */
+async function neonReservationCancelled(reservationNumber: string): Promise<boolean> {
+  if (!reservationNumber || !process.env.DATABASE_URL) return false;
+  try {
+    const sql = neon(process.env.DATABASE_URL);
+    const rows = await sql`
+      SELECT 1 FROM bowling_reservations
+      WHERE bmi_reservation_number = ${reservationNumber} AND status = 'cancelled'
+      LIMIT 1
+    `;
+    return rows.length > 0;
+  } catch (err) {
+    console.warn(
+      `[bmi-cancel-sweep] Neon cancelled-lookup failed for ${reservationNumber}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
   }
 }
 
@@ -303,6 +336,8 @@ async function sweepCenter(
     let reason: string;
     if (recordCancelled) {
       reason = `intentional: booking-record ${recordStatus || "cancelled"}`;
+    } else if (await neonReservationCancelled(num)) {
+      reason = "intentional: Neon reservation cancelled";
     } else if (isCancellation && !isAutoCancel) {
       reason = `intentional: cancelled by ${cancelledByName} (userUpdatedId=${userUpdatedId || "?"})`;
     } else if ((pStateId === "-101" || pStateId === "-102") && hasOnlinePayment) {

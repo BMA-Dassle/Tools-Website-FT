@@ -5,7 +5,15 @@
  * holds the heat capacity, and what staff see as Confirmation. So the cancel
  * is: resolve the Office project (W-number search → kind===2 → localId; the
  * order id as fallback) and drive it to -4 via setProjectState (Pandora →
- * Office, as user API2 so the bmi-cancel-sweep treats it as intentional).
+ * Office fallback).
+ *
+ * SWEEP SAFETY: Pandora's direct Firebird write leaves userUpdatedId=-1 —
+ * IDENTICAL to BMI's auto-cancel bug — so bmi-cancel-sweep cannot tell our -4
+ * from the failure it exists to undo. What keeps the sweep from reverting us
+ * is its record gates: the Redis booking record (marked cancelled by the
+ * cascade at commit, before this module runs) and the Neon reservation status.
+ * PROVEN 2026-07-07 (W48833): a cascade -4 with a still-"confirmed" booking
+ * record was recovered to -3 by the sweep within 5 minutes.
  *
  * The public-booking `DELETE bill/{orderId}/cancel` is ONLY a supplementary
  * bill-record cleanup, and the primary path ONLY for bills that never
@@ -265,7 +273,7 @@ export async function cancelBmiProject(params: {
     };
   }
 
-  // 3. State → -4 (Pandora first, Office PUT fallback — both as user API2).
+  // 3. State → -4 (Pandora first, Office PUT fallback).
   await setProjectState({
     centerCode: params.pandoraStateSlug,
     projectId,
@@ -273,12 +281,14 @@ export async function cancelBmiProject(params: {
     label: "reservation cancelled (cascade)",
   });
 
-  // 4. Verify + record the writer for sweep-safety evidence. Pandora's write
-  //    lands ASYNCHRONOUSLY — the 2026-07-03 remediation read back -3 for a
-  //    few seconds before flipping — so poll briefly before declaring failure.
+  // 4. Verify. Pandora's write lands ASYNCHRONOUSLY — W48833 (2026-07-07)
+  //    read back -3 for ~20-25 seconds before flipping — so poll up to ~22s
+  //    before declaring failure. Even a "failure" here is usually a LATE
+  //    write, not a lost one: the cancelled booking record + Neon status keep
+  //    the sweep from reverting a -4 that lands after we stop watching.
   let verifiedStateId: string | undefined;
   let userUpdatedId: string | undefined;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
     const after = await getProjectState(ck, headers!, projectId);
     verifiedStateId = after.project?.stateId;
@@ -292,14 +302,10 @@ export async function cancelBmiProject(params: {
       projectId,
       verifiedStateId,
       userUpdatedId,
-      detail: `state write did not stick (now ${verifiedStateId ?? "?"}) — verify in BMI`,
+      detail:
+        `state write not yet visible (still ${verifiedStateId ?? "?"} after ~22s) — Pandora ` +
+        `writes can land late; re-check the project in BMI in a few minutes`,
     };
-  }
-  if (userUpdatedId === "-1") {
-    // Should be impossible (we write as API2/Pandora) — but if BMI ever
-    // reports the system writer, the Neon cancelled-record gate still keeps
-    // the sweep from reverting us. Log it as evidence.
-    console.warn(`[bmi-cancel] project ${projectId} shows userUpdatedId=-1 after our write`);
   }
   console.log(
     `[bmi-cancel] project ${projectId} → -4 verified (userUpdatedId=${userUpdatedId ?? "?"})`,

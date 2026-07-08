@@ -6,12 +6,16 @@
  *   B. MONEY (fatal)              — per-tender refunds (exactly-once via
  *                                   refunded_money) OR store-credit issuance
  *                                   (GAN persisted before activation).
- *   C. COMMIT — mark every active leg cancelled in Neon. Sitting between
- *      money and teardown: (1) the settle crons all filter status='confirmed',
- *      so the window where one could charge the just-drained gift card closes
- *      immediately after the money step; (2) bmi-cancel-sweep leaves a -4
- *      alone when the Neon record is cancelled, so both sweep gates hold from
- *      the instant the BMI -4 exists; (3) a crash after B re-runs safely (the
+ *   C. COMMIT — mark every active leg cancelled in Neon AND mark the Redis
+ *      booking record cancelled. Sitting between money and teardown:
+ *      (1) the settle crons all filter status='confirmed', so the window where
+ *      one could charge the just-drained gift card closes immediately after
+ *      the money step; (2) bmi-cancel-sweep treats a -4 as intentional only
+ *      via its record gates (Pandora state writes leave userUpdatedId=-1,
+ *      identical to BMI's auto-cancel bug), so BOTH gates — Redis booking
+ *      record and Neon status — must be cancelled BEFORE the -4 lands in
+ *      teardown, or the sweep recovers the project within 5 minutes (res
+ *      11417 / W48833, 2026-07-07); (3) a crash after B re-runs safely (the
  *      money step no-ops on re-entry), a crash after C resumes teardown via
  *      resumeTeardown.
  *   D. Best-effort teardown       — day-of order cancels, gift-card
@@ -37,6 +41,7 @@ import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 import { finishCancelEvent, startCancelEvent } from "@/lib/reservation-cancel-log";
 import { refundRedemption } from "~/features/discount-codes/data";
 import { cancelBmiProject } from "./bmi-cancel";
+import { markBookingRecordCancelled } from "./booking-record";
 import { resolveCenter } from "./centers";
 import { legLabel } from "./guards";
 import { buildCancelPlan } from "./plan";
@@ -209,6 +214,23 @@ export async function cancelReservationCascade(req: CancelRequest): Promise<Canc
       }).catch((err) =>
         console.warn(`[cancel/${plan.cascadeId}] store-credit mirror to #${leg.id} failed:`, err),
       );
+    }
+  }
+
+  // Close the sweep's booking-record gate BEFORE the BMI -4 lands in teardown.
+  // ALL legs (not just active) so a re-run heals a record a prior attempt
+  // missed. Failures are warnings — the sweep's Neon gate is the backstop.
+  const bmiBillIds = [
+    ...new Set(plan.legs.map((l) => l.bmiBillId).filter((v): v is string => !!v)),
+  ];
+  for (const billId of bmiBillIds) {
+    try {
+      const r = await markBookingRecordCancelled({ bmiBillId: billId, cancelledBy: req.actor });
+      log("mark_booking_record", billId, r);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      warnings.push(`booking-record mark (bill ${billId}): ${detail}`);
+      log("mark_booking_record", billId, `FAILED: ${detail}`);
     }
   }
 

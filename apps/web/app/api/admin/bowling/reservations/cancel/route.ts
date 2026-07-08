@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CancelGuardError, cancelReservationCascade } from "~/features/cancellation";
 
+// Refund + teardown + BMI state verification (Pandora writes can take ~25s to
+// become visible) can exceed the default function window.
+export const maxDuration = 60;
+
 /**
  * POST /api/admin/bowling/reservations/cancel?token=...
  *

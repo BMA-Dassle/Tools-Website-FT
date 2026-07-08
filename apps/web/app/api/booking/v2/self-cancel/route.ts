@@ -3,6 +3,10 @@ import { verifyBillSignature } from "@/lib/booking-confirmation-link";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
 import { CancelGuardError, cancelReservationCascade } from "~/features/cancellation";
 
+// Store-credit issuance + teardown + BMI state verification (Pandora writes
+// can take ~25s to become visible) can exceed the default function window.
+export const maxDuration = 60;
+
 /**
  * POST /api/booking/v2/self-cancel
  *

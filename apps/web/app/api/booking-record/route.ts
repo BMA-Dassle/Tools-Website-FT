@@ -121,6 +121,20 @@ export async function PATCH(req: NextRequest) {
 
     const record = JSON.parse(existing);
 
+    // A cancelled/refunded record must never flip back to "confirmed": the
+    // confirmation page PATCHes status:"confirmed" on EVERY load, so a guest
+    // (or staff via "View confirmation") revisiting a cancelled booking's
+    // page would re-open bmi-cancel-sweep's record gate and let it revert the
+    // BMI -4 (res 11417 / W48833, 2026-07-07).
+    if (
+      (record.status === "cancelled" || record.status === "refunded") &&
+      updates.status === "confirmed"
+    ) {
+      delete updates.status;
+      delete updates.confirmedAt;
+      console.log(`[booking-record] billId=${billId} is ${record.status} — ignoring re-confirm`);
+    }
+
     // Merge updates
     const updated = { ...record, ...updates, updatedAt: new Date().toISOString() };
     await redis.set(`bookingrecord:${billId}`, JSON.stringify(updated), "EX", TTL);

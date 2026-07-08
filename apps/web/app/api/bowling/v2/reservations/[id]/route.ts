@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getBowlingReservation } from "@/lib/bowling-db";
 import { CancelGuardError, cancelReservationCascade } from "~/features/cancellation";
 
+// Cancel teardown + BMI state verification (Pandora writes can take ~25s to
+// become visible) can exceed the default function window.
+export const maxDuration = 60;
+
 /**
  * GET /api/bowling/v2/reservations/[id]
  *
