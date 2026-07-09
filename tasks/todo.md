@@ -1,6 +1,6 @@
 # Open Tasks
 
-## Resadmin VIP race-truth (board stops clock-guessing race Done) — BUILT 2026-07-08, PR open
+## Resadmin VIP race-truth (board stops clock-guessing race Done) — MERGED TO MAIN 2026-07-08
 
 Problem: VIP combo cards mark a race step "✓ Done" purely off the clock
 (`stepProgress` in `src/features/reservations-admin/combo-board.ts` — `now >= start+duration`),
@@ -47,7 +47,7 @@ Phase 2 (separate, later): party-level truth — participants `checkedIn` + F_PA
 (asked Pandora) or vt3 video-match; needs racer personIds or name matching vs
 `booking_metadata.racerNames`.
 
-## Race close-out on track truth (race-dayof-pay settle gate) — BUILT 2026-07-08
+## Race close-out on track truth (race-dayof-pay settle gate) — MERGED TO MAIN 2026-07-08
 
 Branch `fix/race-dayof-settle-truth` (84cc3d7f, pushed — STACKED on
 `fix/resadmin-vip-race-truth`; merge that PR first, then re-base/merge this one).
@@ -63,7 +63,7 @@ cap; resolved-but-delayed heats WAIT past the net (truth wins); `reservation-sta
 - [x] Fetchers extracted to `race-live-state.server.ts` (shared board + cron; verbatim move)
 - [x] Cron gates race fallback; `dayof_order_source` = `-fallback-raceend` (verified finished)
       vs `-fallback-timepassed` (any clock path); skip logs show gate waiting reason
-- [ ] Merge (after fix/resadmin-vip-race-truth) + deploy
+- [x] Merged to main 7/8 (ff, with fix/resadmin-vip-race-truth) — deploys with next Vercel build
 - [ ] **Live smoke** on a race night: `?dryRun=1&token=…` shows `waiting: … on_track` for a
       delayed heat instead of charging at scheduled start; settles minutes later with source
       `-raceend`; a -5 arrival still charges immediately (source `race-dayof-pay`)
