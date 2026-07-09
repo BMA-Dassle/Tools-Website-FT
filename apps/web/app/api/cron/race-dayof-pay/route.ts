@@ -9,6 +9,7 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { verifyCron } from "@/lib/cron-auth";
+import redis from "@/lib/redis";
 import {
   raceSettleGate,
   type SettleHeat,
@@ -189,6 +190,53 @@ function bmiStartEpoch(r: BowlingReservation): number | null {
     if (Number.isFinite(ms) && ms < earliest) earliest = ms;
   }
   return Number.isFinite(earliest) ? earliest : null;
+}
+
+// ── Settle audit log (Redis) ─────────────────────────────────────────────────
+// One list per ET day: race-settle-log:{YYYY-MM-DD}, JSON entries, 14-day TTL.
+// Purpose: verify the track-truth settle gate live (added 2026-07-08) —
+// "settled" entries carry the path (arrived / fallback-raceend /
+// fallback-timepassed) + minutes past scheduled start; "held" entries record
+// the gate REFUSING a past-start race the old clock rule would have charged
+// (deduped per reservation+reason so the 2-min cron doesn't spam). Read with:
+//   LRANGE race-settle-log:2026-07-10 0 -1
+const SETTLE_LOG_TTL_S = 14 * 24 * 60 * 60;
+
+function etToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+async function logSettleEvent(entry: Record<string, unknown>): Promise<void> {
+  try {
+    const key = `race-settle-log:${etToday()}`;
+    await redis.rpush(key, JSON.stringify({ ts: new Date().toISOString(), ...entry }));
+    await redis.expire(key, SETTLE_LOG_TTL_S);
+  } catch {
+    /* best-effort — never fails the settle */
+  }
+}
+
+/** Log a gate hold ONCE per (reservation, reason) per day. */
+async function logHeldOnce(id: number, reason: string, extra: Record<string, unknown>) {
+  try {
+    const dedup = await redis.set(
+      `race-settle-log:held:${etToday()}:${id}:${reason}`,
+      "1",
+      "EX",
+      SETTLE_LOG_TTL_S,
+      "NX",
+    );
+    if (dedup === "OK") await logSettleEvent({ event: "held", id, reason, ...extra });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Minutes from the earliest booked start to now — the headline "how late did
+ *  we settle vs the schedule" number for the audit log. */
+function minsPastStart(r: BowlingReservation): number | null {
+  const start = bmiStartEpoch(r);
+  return start == null ? null : Math.round((Date.now() - start) / 60_000);
 }
 
 /** A race's booked heats for the settle gate: heatId = naive-ET block start,
@@ -385,6 +433,16 @@ export async function GET(req: NextRequest) {
         paymentId: res.paymentId,
         source: "race-dayof-pay-manual",
       });
+      await logSettleEvent({
+        event: "settled",
+        id: r.id,
+        num: r.bmiReservationNumber ?? null,
+        kind: r.productKind,
+        source: "race-dayof-pay-manual",
+        reason: "manual billId settle",
+        minsPastStart: minsPastStart(r),
+        note: res.note,
+      });
     }
     return NextResponse.json({
       ok: res.paid,
@@ -498,6 +556,15 @@ export async function GET(req: NextRequest) {
           ? fallbackReason
           : "not checked in (-5) yet";
         (result.skipped as string[]).push(`${label}: ${why}`);
+        // Audit: the gate holding a PAST-START race is exactly the new
+        // behavior (the old clock rule would have charged here) — record it.
+        const late = minsPastStart(r);
+        if (!dryRun && fallbackReason.startsWith("waiting") && late != null && late > 0) {
+          await logHeldOnce(r.id, fallbackReason, {
+            num: r.bmiReservationNumber ?? null,
+            minsPastStart: late,
+          });
+        }
         continue;
       }
       const tag = viaFallback ? ` [FALLBACK: ${fallbackReason}]` : "";
@@ -508,27 +575,52 @@ export async function GET(req: NextRequest) {
       try {
         const res = await chargeDayof(r);
         if (res.paid) {
+          // "-raceend" = every heat verified finished (track truth);
+          // "-timepassed" = any clock component (45m net / hard cap /
+          // past-date / attraction start-passed). Distinct for audit.
+          const source = viaFallback
+            ? fallbackReason === "race-finished"
+              ? "race-dayof-pay-fallback-raceend"
+              : "race-dayof-pay-fallback-timepassed"
+            : "race-dayof-pay";
           await updateBowlingReservationLaneOpen(r.id, {
             laneNumbers: [],
             paymentId: res.paymentId,
-            // "-raceend" = every heat verified finished (track truth);
-            // "-timepassed" = any clock component (45m net / hard cap /
-            // past-date / attraction start-passed). Distinct for audit.
-            source: viaFallback
-              ? fallbackReason === "race-finished"
-                ? "race-dayof-pay-fallback-raceend"
-                : "race-dayof-pay-fallback-timepassed"
-              : "race-dayof-pay",
+            source,
           });
           (result.paid as string[]).push(`${label}${tag}: ${res.note}`);
           totalPaid += 1;
+          await logSettleEvent({
+            event: "settled",
+            id: r.id,
+            num: r.bmiReservationNumber ?? null,
+            kind: r.productKind,
+            source,
+            reason: viaFallback ? fallbackReason : "arrived(-5)",
+            minsPastStart: minsPastStart(r),
+            note: res.note,
+          });
         } else {
           (result.skipped as string[]).push(`${label}: ${res.note}`);
+          await logSettleEvent({
+            event: "charge-failed",
+            id: r.id,
+            num: r.bmiReservationNumber ?? null,
+            kind: r.productKind,
+            note: res.note,
+          });
         }
       } catch (err) {
         (result.skipped as string[]).push(
           `${label}: ${err instanceof Error ? err.message : "charge error"}`,
         );
+        await logSettleEvent({
+          event: "charge-error",
+          id: r.id,
+          num: r.bmiReservationNumber ?? null,
+          kind: r.productKind,
+          note: err instanceof Error ? err.message : "charge error",
+        });
       }
     }
     centers.push(result);
