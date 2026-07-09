@@ -20,7 +20,9 @@ import { verifyCron } from "@/lib/cron-auth";
  *    lifecycle once the session is well over. See
  *    docs/postmortems/2026-06-16-bowling-day-of-orders-left-open.md.
  *
- * Combos are excluded (held / own settle flow); confirm_failed/confirm_pending
+ * Combo bowling legs are included in the order-complete step (2026-07-08 —
+ * their "own settle flow" never existed, so paid legs sat OPEN forever);
+ * combo NO-SHOWS still settle manually. confirm_failed/confirm_pending
  * are left alone (real issues that should stay visible). Runs AFTER the
  * money-settlement crons (bowling-no-show-close, race-dayof-pay): a funded,
  * unsettled no-show is left for those to charge first.

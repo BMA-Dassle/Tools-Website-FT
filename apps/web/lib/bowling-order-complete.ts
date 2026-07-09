@@ -139,12 +139,16 @@ function orderIdOf(r: BowlingReservation): string | null {
  * lane-open. By the Completed transition the order is final (no changes are made
  * after the lane is open) and fully paid, so it's safe to complete + drop the
  * KDS ticket. Stamps dayof_order_completed_at on success / already-terminal so
- * the reservation-status-close backstop cron skips it. Skips combos and
- * non-bowling kinds (races complete on payment via race-dayof-pay). Idempotent
- * and non-throwing-by-contract for callers that want fire-and-forget.
+ * the reservation-status-close backstop cron skips it. Skips non-bowling kinds
+ * (races complete on payment via race-dayof-pay). Combo bowling legs are
+ * INCLUDED (2026-07-08): they pay at lane-open like regular bowling, but the
+ * old "combo (own settle flow)" skip pointed at a flow that never got built, so
+ * paid legs sat OPEN forever. A combo no-show (never lane-opened, balance still
+ * due) is protected by completeOrder's $0-due check — it stays OPEN for the
+ * manual no-show flow. Idempotent and non-throwing-by-contract for callers that
+ * want fire-and-forget.
  */
 export async function completeReservationOrder(r: BowlingReservation): Promise<Outcome> {
-  if (r.comboSpecialId) return { kind: "skipped", note: "combo (own settle flow)" };
   if (r.productKind !== "open" && r.productKind !== "kbf")
     return { kind: "skipped", note: `kind ${r.productKind}` };
   const orderId = orderIdOf(r);

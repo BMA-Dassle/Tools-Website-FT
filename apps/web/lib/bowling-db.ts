@@ -1290,10 +1290,14 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
  * postmortem). This matches the same `sent` predicate closePastReservationStatuses
  * uses to flip these to status='completed'. Session ended (3h buffer — larger than
  * the no-show 2h buffer so even a long session's food ticket is done before we drop
- * it from KDS), not a combo (own settle flow), and not yet completed by us. The
+ * it from KDS), and not yet completed by us. Combo bowling legs ARE included
+ * (2026-07-08): the promised combo "own settle flow" never materialized, so paid
+ * legs sat OPEN forever (45 found in the portal's 7/8 sweep) — they pay at
+ * lane-open exactly like regular bowling, so they complete the same way. The
  * completeOrder() safety net still re-checks state=OPEN + $0-due before closing, so
  * a sent-but-unpaid order is skipped (left to surface/retry), never force-closed.
- * No-shows (never lane-opened) are handled by bowling-no-show-close.
+ * No-shows (never lane-opened) are handled by bowling-no-show-close — which still
+ * EXCLUDES combos (charging a combo no-show's shared gift card stays manual).
  */
 export async function getCheckedInOrdersToComplete(): Promise<BowlingReservation[]> {
   if (!isDbConfigured()) return [];
@@ -1304,7 +1308,6 @@ export async function getCheckedInOrdersToComplete(): Promise<BowlingReservation
     WHERE product_kind IN ('open', 'kbf')
       AND (dayof_order_sent_at IS NOT NULL OR checkin_method IS NOT NULL)
       AND status NOT IN ('cancelled')
-      AND combo_special_id IS NULL
       AND square_dayof_order_id IS NOT NULL
       AND square_dayof_order_id <> ''
       AND dayof_order_completed_at IS NULL

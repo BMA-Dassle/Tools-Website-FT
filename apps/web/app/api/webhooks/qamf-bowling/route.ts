@@ -695,7 +695,7 @@ async function processEvent(
     // makes it import into QuickBooks as a completed sale. Fire-and-forget to
     // stay under webhook SLA; the reservation-status-close cron is the backstop
     // for any that miss this (idempotent via dayof_order_completed_at). Skips
-    // combos / non-bowling internally. See
+    // non-bowling kinds internally; combo bowling legs complete here too. See
     // docs/postmortems/2026-06-16-bowling-day-of-orders-left-open.md.
     if (neonAction === "completed") {
       const completedReservation = reservation;
