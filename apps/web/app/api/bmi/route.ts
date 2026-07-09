@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import redis from "@/lib/redis";
+import { mirrorMemoIntoNotesByBillId } from "@/lib/bowling-db";
 
 // ── Config from env ───────────────────────────────────────────────────────────
 
@@ -384,6 +385,26 @@ export async function POST(req: NextRequest) {
         await redis.ltrim("bmi:api:log", 0, 4999);
       } catch {
         // Redis failure is non-fatal
+      }
+    }
+
+    // Mirror booking/memo writes into OUR reservation notes so the admin
+    // Notes tab shows what BMI got (owner request 2026-07-08) — this covers
+    // the race-disclaimer memo and the confirmation page's combined combo
+    // memo, both of which flow through this proxy. Best-effort; replace-
+    // placeholder/append semantics in the helper protect staff edits.
+    if (endpoint.startsWith("booking/memo") && upstream.ok && orderIdMatch?.[1]) {
+      try {
+        // Quote the raw orderId digits BEFORE parsing so JSON.parse can't
+        // round the 17-digit id; we only need the (properly unescaped) memo.
+        const parsed = JSON.parse(bodyStr.replace(/"orderId"\s*:\s*(\d+)/, '"orderId":"$1"')) as {
+          memo?: unknown;
+        };
+        if (typeof parsed.memo === "string" && parsed.memo.trim()) {
+          await mirrorMemoIntoNotesByBillId(orderIdMatch[1], parsed.memo);
+        }
+      } catch {
+        /* non-fatal — notes mirror never affects the BMI write */
       }
     }
 

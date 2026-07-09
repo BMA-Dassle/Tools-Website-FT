@@ -15,6 +15,7 @@ import {
   insertBowlingReservation,
   insertReservationPlayers,
   setBowlingReservationPromo,
+  updateBowlingReservationNotes,
   updateBowlingReservationShortCode,
   type BowlingSquareProduct,
   type ReservationLine,
@@ -1595,6 +1596,15 @@ export async function POST(req: NextRequest) {
     const finalTitle = wcFixture
       ? worldCupQamfTitle(guest.name, players.length)
       : `${guest.name} (${players.length}p)`;
+    // Mirror the composed memo into OUR reservation notes FIRST (persist-first
+    // rule) so the admin Notes tab shows what Conqueror got. finalNotes already
+    // ends with the guest's own notes, so this supersedes the raw value saved
+    // at insert.
+    if (neonId) {
+      updateBowlingReservationNotes(neonId, finalNotes).catch((err) =>
+        console.warn("[bowling/v2/reserve] notes mirror failed (non-fatal):", err),
+      );
+    }
     patchReservation(centerId, qamfReservationId, { Title: finalTitle, Notes: finalNotes }).catch(
       (err) => console.warn("[bowling/v2/reserve] final notes patch failed (non-fatal):", err),
     );

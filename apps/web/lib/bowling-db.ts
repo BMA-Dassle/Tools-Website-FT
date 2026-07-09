@@ -1995,6 +1995,31 @@ export async function updateBowlingReservationNotes(
 }
 
 /**
+ * Mirror a memo we just pushed to an external system (BMI booking/memo) into
+ * the reservation's own notes, so the admin Notes tab shows what the external
+ * system got instead of sitting empty (owner request 2026-07-08). Matched on
+ * bmi_bill_id (TEXT — 17-digit ids, never numeric). Semantics protect staff
+ * edits: replace only empty/placeholder notes; skip when the memo is already
+ * present (BMI's memo field is overwriting and gets rewritten with a superset
+ * by the confirmation page); append otherwise.
+ */
+export async function mirrorMemoIntoNotesByBillId(billId: string, memo: string): Promise<void> {
+  if (!isDbConfigured() || !billId || !memo.trim()) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET notes = CASE
+      WHEN notes IS NULL OR notes = '' OR notes LIKE 'v2 unified%' THEN ${memo}
+      WHEN position(${memo} in notes) > 0 THEN notes
+      WHEN position(notes in ${memo}) > 0 THEN ${memo}
+      ELSE notes || E'\n' || ${memo}
+    END
+    WHERE bmi_bill_id = ${billId}
+  `;
+}
+
+/**
  * Write the Square day-of order ID to a reservation (used by walkin/kiosk
  * reservations that don't have a Square order at booking time).
  */

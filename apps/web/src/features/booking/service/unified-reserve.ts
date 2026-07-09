@@ -52,6 +52,7 @@ import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import {
   insertBowlingReservation,
+  updateBowlingReservationNotes,
   updateBowlingReservationShortCode,
   findReusableReservation,
   getBowlingReservationByBillId,
@@ -1026,6 +1027,7 @@ async function unifiedReserveInner(
           : null;
       const wcFixture = wcFixtureStatic ? await enrichFixture(wcFixtureStatic) : null;
 
+      let bowlingNeonId: number | null = null;
       try {
         const reservation = await insertBowlingReservation(
           {
@@ -1085,6 +1087,7 @@ async function unifiedReserveInner(
           })),
         );
         neonIds.push(reservation.id);
+        bowlingNeonId = reservation.id;
 
         // Generate short code for confirmation URL (same as v1 bowling reserve)
         try {
@@ -1174,6 +1177,14 @@ async function unifiedReserveInner(
       }
 
       const finalNotes = finalParts.join("\n");
+      // Mirror the composed memo into OUR reservation notes FIRST (persist-
+      // first rule) so the admin Notes tab shows what Conqueror got —
+      // replaces the "v2 unified …" placeholder stamped at insert.
+      if (bowlingNeonId != null) {
+        updateBowlingReservationNotes(bowlingNeonId, finalNotes).catch(() =>
+          log(`[unified-reserve] notes mirror failed (non-fatal)`),
+        );
+      }
       try {
         await patchReservation(centerId, qamfReservationId, {
           Title: finalTitle,
