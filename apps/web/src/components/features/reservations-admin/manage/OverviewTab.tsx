@@ -21,14 +21,19 @@ interface ItineraryStep {
 
 /** Real schedule steps for one leg — liveHeats (BMI truth, board row only)
  *  beat booking_metadata heats; bowling uses the slot; attractions their
- *  timeLabel. */
+ *  timeLabel. Race sources carry one entry per RACER per heat — consolidate
+ *  to one row per heat with a racer count (mirrors bowling's "N bowlers"). */
 function legSteps(leg: DetailLeg, boardRow: Reservation): ItineraryStep[] {
   if (leg.productKind === "race") {
+    const racersSub = (n: number | undefined) =>
+      n ? `${n} racer${n === 1 ? "" : "s"}` : undefined;
     const live = leg.id === boardRow.id ? boardRow.liveHeats : undefined;
     if (live?.length) {
+      // Server already collapsed the per-racer bill lines and kept the count.
       return live.map((h) => ({
         iso: h.start,
         label: h.name ?? "Race",
+        sub: racersSub(h.racers),
         legKind: "race",
       }));
     }
@@ -36,13 +41,26 @@ function legSteps(leg: DetailLeg, boardRow: Reservation): ItineraryStep[] {
       heatId?: string | null;
       track?: string;
     }>;
-    return heats
-      .filter((h) => h.heatId)
-      .map((h) => ({
-        iso: h.heatId as string,
-        label: h.track ? `Race · ${h.track}` : "Race",
-        legKind: "race",
-      }));
+    // booking_metadata stamps one entry per racer per heat — group them.
+    const byHeat = new Map<string, { iso: string; label: string; racers: number }>();
+    for (const h of heats) {
+      if (!h.heatId) continue;
+      const key = `${h.heatId}|${h.track ?? ""}`;
+      const cur = byHeat.get(key);
+      if (cur) cur.racers += 1;
+      else
+        byHeat.set(key, {
+          iso: h.heatId,
+          label: h.track ? `Race · ${h.track.replace(/\s*Track$/i, "")}` : "Race",
+          racers: 1,
+        });
+    }
+    return [...byHeat.values()].map((g) => ({
+      iso: g.iso,
+      label: g.label,
+      sub: racersSub(g.racers),
+      legKind: "race",
+    }));
   }
   const steps: ItineraryStep[] = [];
   if (leg.productKind === "open" || leg.productKind === "kbf") {

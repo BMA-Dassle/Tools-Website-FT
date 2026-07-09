@@ -74,6 +74,9 @@ interface LiveHeat {
    *  the board's Done / On-track / Delayed markers trust this over the clock,
    *  exactly like bowling trusts QAMF lane state. Absent = clock fallback. */
   raceState?: RaceLiveState;
+  /** How many bill lines share this session — one line per racer, so this is
+   *  the racer count for the heat (the manage modal shows "N racers"). */
+  racers?: number;
 }
 
 /** In-memory per-bill cache: the board polls this route every 10s, so without
@@ -112,22 +115,27 @@ async function fetchLiveHeats(billId: string): Promise<LiveHeat[] | null> {
         }>;
       }>(await res.text());
       // Scheduled lines only — the race heats. POV/license lines have no
-      // scheduledTime and drop out here.
-      const seen = new Set<string>();
-      heats = (ov.lines ?? [])
-        .map((l) => ({
-          start: l.scheduledTime?.start ?? l.start ?? "",
-          stop: l.scheduledTime?.stop ?? l.stop ?? null,
-          name: l.name ?? null,
-        }))
-        .filter((h) => h.start)
-        .filter((h) => {
-          const k = `${h.start}|${h.name ?? ""}`;
-          if (seen.has(k)) return false;
-          seen.add(k);
-          return true;
-        })
-        .sort((a, b) => a.start.localeCompare(b.start));
+      // scheduledTime and drop out here. The bill carries ONE line per racer
+      // per session — collapse to one heat per session and keep the line
+      // count as the racer count.
+      const bySession = new Map<string, LiveHeat>();
+      for (const l of ov.lines ?? []) {
+        const start = l.scheduledTime?.start ?? l.start ?? "";
+        if (!start) continue;
+        const k = `${start}|${l.name ?? ""}`;
+        const cur = bySession.get(k);
+        if (cur) {
+          cur.racers = (cur.racers ?? 1) + 1;
+        } else {
+          bySession.set(k, {
+            start,
+            stop: l.scheduledTime?.stop ?? l.stop ?? null,
+            name: l.name ?? null,
+            racers: 1,
+          });
+        }
+      }
+      heats = [...bySession.values()].sort((a, b) => a.start.localeCompare(b.start));
     }
   } catch {
     /* non-fatal — board falls back to booking_metadata heat times */

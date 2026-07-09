@@ -112,6 +112,9 @@ export interface Reservation {
     sessionId?: string;
     heatNumber?: number;
     raceState?: RaceLiveState;
+    /** Racers on this session — the bill carries one line per racer; the
+     *  server collapses duplicates and keeps the count. */
+    racers?: number;
   }>;
   insertedAt: string;
   lines: ReservationLine[];
