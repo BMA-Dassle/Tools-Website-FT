@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  raceSettleGate,
   resolveRaceLiveState,
   trackKeyFromName,
+  type SettleHeat,
   type TrackSession,
   type TrackWatermark,
 } from "./race-live-state";
@@ -144,5 +146,128 @@ describe("resolveRaceLiveState", () => {
   it("no signals at all → not_called (the delayed-heat case)", () => {
     const r = resolveRaceLiveState({ heatStartIso: HEAT_ET, sessions: base(), nowMs: NOW });
     expect(r?.raceState).toBe("not_called");
+  });
+});
+
+describe("raceSettleGate", () => {
+  // July = EDT (UTC-4): heat "17:24" ET starts 21:24Z. NOW helpers below are
+  // real epoch ms, matching the cron's Date.now().
+  const at = (utcIso: string) => Date.parse(utcIso);
+  const TODAY = "2026-07-08";
+  const HEAT_A: SettleHeat = { startIso: "2026-07-08T17:24:00", track: "Blue Track" };
+  const HEAT_B: SettleHeat = { startIso: "2026-07-08T19:24:00", track: "Blue Track" };
+
+  /** Blue sessions covering both heats; per-heat actual* via overrides. */
+  function blue(
+    a?: Partial<TrackSession>,
+    b?: Partial<TrackSession>,
+  ): Partial<Record<"blue" | "red" | "mega", TrackSession[]>> {
+    return {
+      blue: [
+        {
+          sessionId: "101",
+          scheduledStart: "2026-07-08T21:24:00.000Z",
+          heatNumber: 35,
+          actualStart: null,
+          actualEnd: null,
+          ...a,
+        },
+        {
+          sessionId: "102",
+          scheduledStart: "2026-07-08T23:24:00.000Z",
+          heatNumber: 45,
+          actualStart: null,
+          actualEnd: null,
+          ...b,
+        },
+      ],
+    };
+  }
+  const FINISHED_A = { actualStart: "2026-07-08T21:46:00Z", actualEnd: "2026-07-08T21:55:00Z" };
+  const FINISHED_B = { actualStart: "2026-07-08T23:40:00Z", actualEnd: "2026-07-08T23:49:00Z" };
+
+  function gate(args: {
+    heats: SettleHeat[];
+    sessions?: Partial<Record<"blue" | "red" | "mega", TrackSession[]>>;
+    nowMs: number;
+  }) {
+    return raceSettleGate({
+      heats: args.heats,
+      sessionsByTrack: args.sessions ?? {},
+      watermarks: {},
+      nowMs: args.nowMs,
+      todayEtYmd: TODAY,
+    });
+  }
+
+  it("all heats finished → eligible, race-finished", () => {
+    const g = gate({
+      heats: [HEAT_A, HEAT_B],
+      sessions: blue(FINISHED_A, FINISHED_B),
+      nowMs: at("2026-07-08T23:55:00Z"),
+    });
+    expect(g).toEqual({ eligible: true, reason: "race-finished" });
+  });
+
+  it("first finished + second still on track → waits, even past the 45m net (truth wins)", () => {
+    const g = gate({
+      heats: [HEAT_A, HEAT_B],
+      sessions: blue(FINISHED_A, { actualStart: "2026-07-09T00:15:00Z" }),
+      // 19:24 ET heat +50 min = 00:14Z next day — past the grace, still waits.
+      nowMs: at("2026-07-09T00:16:00Z"),
+    });
+    expect(g.eligible).toBe(false);
+    expect(g.reason).toContain("on_track");
+  });
+
+  it("not-yet-called second heat waits too", () => {
+    const g = gate({
+      heats: [HEAT_A, HEAT_B],
+      sessions: blue(FINISHED_A, {}),
+      nowMs: at("2026-07-09T00:16:00Z"),
+    });
+    expect(g.eligible).toBe(false);
+    expect(g.reason).toContain("not_called");
+  });
+
+  it("unresolvable heat: waits inside 45m, clock-settles after", () => {
+    // No sessions at all — e.g. Pandora outage / reschedule drift.
+    const early = gate({ heats: [HEAT_A], nowMs: at("2026-07-08T21:50:00Z") }); // +26m
+    expect(early.eligible).toBe(false);
+    expect(early.reason).toContain("unresolved");
+    const late = gate({ heats: [HEAT_A], nowMs: at("2026-07-08T22:10:00Z") }); // +46m
+    expect(late).toEqual({ eligible: true, reason: "clock-45m" });
+  });
+
+  it("mixed: resolved-finished + unresolvable past 45m → eligible via clock-45m", () => {
+    const noSecondSession = { blue: blue(FINISHED_A).blue!.slice(0, 1) };
+    const g = gate({
+      heats: [HEAT_A, HEAT_B],
+      sessions: noSecondSession,
+      nowMs: at("2026-07-09T00:16:00Z"), // second heat +52m, unresolved
+    });
+    expect(g).toEqual({ eligible: true, reason: "clock-45m" });
+  });
+
+  it("heat dated yesterday settles immediately (Pandora is same-day only)", () => {
+    const g = gate({
+      heats: [{ startIso: "2026-07-07T19:24:00", track: "Blue Track" }],
+      nowMs: at("2026-07-08T15:00:00Z"),
+    });
+    expect(g).toEqual({ eligible: true, reason: "clock-past-date" });
+  });
+
+  it("resolved session that never finishes force-settles at the +6h hard cap", () => {
+    const sessions = blue({ actualStart: "2026-07-08T21:46:00Z" }); // A on_track forever
+    const before = gate({ heats: [HEAT_A], sessions, nowMs: at("2026-07-09T03:20:00Z") }); // +5h56m
+    expect(before.eligible).toBe(false);
+    const after = gate({ heats: [HEAT_A], sessions, nowMs: at("2026-07-09T03:30:00Z") }); // +6h06m
+    expect(after).toEqual({ eligible: true, reason: "clock-hardcap" });
+  });
+
+  it("no heats recorded → not eligible (route keeps -5-only behavior)", () => {
+    const g = gate({ heats: [], nowMs: at("2026-07-08T23:55:00Z") });
+    expect(g.eligible).toBe(false);
+    expect(g.reason).toBe("no heats recorded");
   });
 });

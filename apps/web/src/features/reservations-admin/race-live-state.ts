@@ -115,3 +115,104 @@ function isCalledNow(
 function minuteOf(ms: number): number | null {
   return Number.isNaN(ms) ? null : Math.round(ms / 60_000);
 }
+
+// ── Settle gate (race-dayof-pay fallback) ────────────────────────────────────
+
+/** One booked heat as stored in booking_metadata.heats: `heatId` is the naive
+ *  ET block-start, `track` the booking-time track ("Blue Track"). */
+export interface SettleHeat {
+  startIso: string;
+  track?: string | null;
+}
+
+/** Whether a heat may settle by clock alone. Owner decisions 2026-07-08:
+ *  unresolvable heats wait 45 min past scheduled start (Pandora gets a
+ *  chance, money never sticks); a resolved-but-never-finished session is
+ *  force-done at +6h (mirrors the board's hard cap). */
+const SETTLE_GRACE_MS = 45 * 60_000;
+const SETTLE_HARD_CAP_MS = 6 * 60 * 60_000;
+
+/**
+ * Should race-dayof-pay's no-check-in fallback settle this bill?
+ *
+ * Eligible only when EVERY booked heat is delivered: its session actually
+ * finished (truth), or — when Pandora can't resolve it (stale metadata after
+ * an office reschedule, outage, missing track) — 45 min past its scheduled
+ * start. A heat that RESOLVES but hasn't finished waits, even past +45
+ * (truth beats the safety net), up to the +6h hard cap. Heats dated before
+ * today (ET) settle by clock immediately — Pandora is same-day only and
+ * those already ran.
+ *
+ * `nowMs` is real epoch ms; heat epochs use the same month-approx ET offset
+ * as race-dayof-pay's bmiStartEpoch, so the two clocks agree.
+ */
+export function raceSettleGate(args: {
+  heats: SettleHeat[];
+  sessionsByTrack: Partial<Record<TrackKey, TrackSession[]>>;
+  watermarks: Partial<Record<TrackKey, TrackWatermark>>;
+  nowMs: number;
+  /** Today's ET date, "YYYY-MM-DD" (heat dates are naive ET so this is a
+   *  plain string compare). */
+  todayEtYmd: string;
+}): { eligible: boolean; reason: string } {
+  const { heats, sessionsByTrack, watermarks, nowMs, todayEtYmd } = args;
+  if (heats.length === 0) return { eligible: false, reason: "no heats recorded" };
+
+  const doneVia: string[] = [];
+  for (const heat of heats) {
+    const hhmm = heat.startIso.slice(11, 16);
+    if (heat.startIso.slice(0, 10) < todayEtYmd) {
+      doneVia.push("clock-past-date");
+      continue;
+    }
+    const startMs = etNaiveEpochMs(heat.startIso);
+    const pastGrace = Number.isFinite(startMs) && nowMs > startMs + SETTLE_GRACE_MS;
+    const pastHardCap = Number.isFinite(startMs) && nowMs > startMs + SETTLE_HARD_CAP_MS;
+    const track = trackKeyFromName(heat.track);
+    const sessions = track ? sessionsByTrack[track] : undefined;
+    const live =
+      track && sessions
+        ? resolveRaceLiveState({
+            heatStartIso: heat.startIso,
+            sessions,
+            watermark: watermarks[track],
+            nowMs,
+          })
+        : null;
+    if (live) {
+      if (live.raceState === "finished") {
+        doneVia.push("finished");
+        continue;
+      }
+      if (pastHardCap) {
+        doneVia.push("clock-hardcap");
+        continue;
+      }
+      return { eligible: false, reason: `waiting: ${hhmm} heat ${live.raceState}` };
+    }
+    // Unresolvable — clock safety net.
+    if (pastGrace) {
+      doneVia.push("clock-45m");
+      continue;
+    }
+    return { eligible: false, reason: `waiting: ${hhmm} heat unresolved (45m grace)` };
+  }
+
+  const reason = doneVia.every((v) => v === "finished")
+    ? "race-finished"
+    : doneVia.includes("clock-hardcap")
+      ? "clock-hardcap"
+      : doneVia.includes("clock-45m")
+        ? "clock-45m"
+        : "clock-past-date";
+  return { eligible: true, reason };
+}
+
+/** Naive ET ISO → real epoch ms, using the same month-approx DST offset as
+ *  race-dayof-pay's bmiStartEpoch (deliberate parity — the gate and the cron
+ *  must agree on when "start + grace" falls). */
+function etNaiveEpochMs(iso: string): number {
+  const month = Number(iso.slice(5, 7));
+  const offset = month >= 3 && month <= 11 ? "-04:00" : "-05:00"; // EDT vs EST (approx)
+  return Date.parse(iso.replace(/Z$/, "") + offset);
+}

@@ -9,6 +9,18 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { verifyCron } from "@/lib/cron-auth";
+import {
+  raceSettleGate,
+  type SettleHeat,
+  type TrackKey,
+  type TrackSession,
+  type TrackWatermark,
+  trackKeyFromName,
+} from "~/features/reservations-admin/race-live-state";
+import {
+  fetchTrackSessions,
+  fetchTrackWatermarks,
+} from "~/features/reservations-admin/race-live-state.server";
 
 /**
  * GET /api/cron/race-dayof-pay
@@ -35,12 +47,18 @@ import { verifyCron } from "@/lib/cron-auth";
  * Mirrors bmi-cancel-sweep (Office dayplanner scan) + group-dayof-pay (charge).
  * Registered in vercel.json (every 2 min).
  *
- * ⚠️ TEMPORARY FALLBACK (remove once -5 check-in detection is proven reliable):
- * if a race's START TIME has passed and we STILL haven't seen an Arrived (-5)
- * state — including when the dayplanner scan itself fails — we settle the day-of
- * order anyway. The gift card was already funded at booking, so this only moves
+ * FALLBACK (no -5 seen — including when the dayplanner scan itself fails):
+ * the gift card was already funded at booking, so settling only moves
  * already-captured funds onto the open order; it guards against a missed/failed
- * check-in scan leaving a raced reservation unpaid. Search "FALLBACK" to delete.
+ * check-in scan leaving a raced reservation unpaid.
+ *   - RACES settle on TRACK TRUTH via raceSettleGate: every booked heat's
+ *     Pandora session actually finished (actualStart/actualEnd, shipped
+ *     2026-07-08). Heats run 6-22+ min behind schedule, so the old
+ *     "scheduled start passed" rule charged guests before they raced.
+ *     Unresolvable heats (office-reschedule drift / Pandora outage) clock-
+ *     settle at start +45 min; past-date stragglers immediately; +6h hard cap.
+ *   - ATTRACTIONS keep the plain start-time-passed rule (no Pandora sessions
+ *     for attraction slots).
  */
 
 export const dynamic = "force-dynamic";
@@ -171,6 +189,19 @@ function bmiStartEpoch(r: BowlingReservation): number | null {
     if (Number.isFinite(ms) && ms < earliest) earliest = ms;
   }
   return Number.isFinite(earliest) ? earliest : null;
+}
+
+/** A race's booked heats for the settle gate: heatId = naive-ET block start,
+ *  track stamped at booking ("Blue Track"). Empty for non-race metadata. */
+function raceHeatsOf(r: BowlingReservation): SettleHeat[] {
+  const md = r.bookingMetadata as
+    | { heats?: Array<{ heatId?: string; track?: string }> }
+    | null
+    | undefined;
+  if (!Array.isArray(md?.heats)) return [];
+  return md.heats
+    .filter((h): h is { heatId: string; track?: string } => typeof h?.heatId === "string")
+    .map((h) => ({ startIso: h.heatId, track: h.track ?? null }));
 }
 
 /** Fetch the dayplanner for a center and return the set of Arrived (-5) project
@@ -372,6 +403,33 @@ export async function GET(req: NextRequest) {
   ]);
   const candidates = [...raceCandidates, ...attractionCandidates];
 
+  // Live track truth for the race settle gate — one fetch per track per run
+  // (Redis-first via the cron-warmed sessions cache; ≤3 tracks). Best-effort:
+  // empty data just means heats resolve to nothing and the gate falls back to
+  // its clock rules.
+  const todayEtYmd = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const gateTracks = new Set<TrackKey>();
+  for (const r of raceCandidates)
+    for (const h of raceHeatsOf(r)) {
+      if (h.startIso.slice(0, 10) !== todayEtYmd) continue; // Pandora is same-day only
+      const t = trackKeyFromName(h.track);
+      if (t) gateTracks.add(t);
+    }
+  const sessionsByTrack: Partial<Record<TrackKey, TrackSession[]>> = {};
+  let watermarks: Partial<Record<TrackKey, TrackWatermark>> = {};
+  if (gateTracks.size > 0) {
+    const trackList = [...gateTracks];
+    const [wm, sessionLists] = await Promise.all([
+      fetchTrackWatermarks(),
+      Promise.all(trackList.map((t) => fetchTrackSessions(t, todayEtYmd))),
+    ]);
+    watermarks = wm;
+    trackList.forEach((t, i) => {
+      const s = sessionLists[i];
+      if (s) sessionsByTrack[t] = s;
+    });
+  }
+
   const centers: Array<Record<string, unknown>> = [];
   let totalPaid = 0;
 
@@ -405,18 +463,44 @@ export async function GET(req: NextRequest) {
     for (const r of mine) {
       const label = `${r.bmiReservationNumber ?? "?"} (neon ${r.id})`;
       const isArrived = arrived.has(normalizeNum(r.bmiReservationNumber));
-      // ⚠️ TEMPORARY FALLBACK (see header — remove once -5 detection is trusted):
-      // settle once the actual race START TIME (earliest heat) has passed even if
-      // we never saw Arrived. Uses booking_metadata heat time, NOT booked_at
-      // (which is the booking timestamp for race/attraction anchor rows).
-      const startEpoch = bmiStartEpoch(r);
-      const startPassed = startEpoch != null && Date.now() > startEpoch;
-      const viaFallback = !isArrived && startPassed;
+      // FALLBACK (see header) — never saw Arrived. RACES gate on track truth:
+      // settle only once every booked heat's session actually ran (Pandora
+      // actualStart/actualEnd; clock safety nets inside the gate). ATTRACTIONS
+      // keep the plain start-time-passed rule. Both use booking_metadata
+      // times, NOT booked_at (the booking timestamp for anchor rows).
+      let viaFallback = false;
+      let fallbackReason = "";
+      if (!isArrived) {
+        if (r.productKind === "race") {
+          const heats = raceHeatsOf(r);
+          if (heats.length > 0) {
+            const gate = raceSettleGate({
+              heats,
+              sessionsByTrack,
+              watermarks,
+              nowMs: Date.now(),
+              todayEtYmd,
+            });
+            viaFallback = gate.eligible;
+            fallbackReason = gate.reason;
+          }
+          // No heats recorded → -5 only (matches the old bmiStartEpoch null rule).
+        } else {
+          const startEpoch = bmiStartEpoch(r);
+          viaFallback = startEpoch != null && Date.now() > startEpoch;
+          fallbackReason = "start time passed";
+        }
+      }
       if (!isArrived && !viaFallback) {
-        (result.skipped as string[]).push(`${label}: not checked in (-5) yet`);
+        // Surface the gate's waiting detail (e.g. "waiting: 19:24 heat
+        // on_track") so ops can see WHY a past-start race hasn't settled.
+        const why = fallbackReason.startsWith("waiting")
+          ? fallbackReason
+          : "not checked in (-5) yet";
+        (result.skipped as string[]).push(`${label}: ${why}`);
         continue;
       }
-      const tag = viaFallback ? " [FALLBACK: start time passed]" : "";
+      const tag = viaFallback ? ` [FALLBACK: ${fallbackReason}]` : "";
       if (dryRun) {
         (result.wouldPay as string[]).push(`${label}${tag}`);
         continue;
@@ -427,7 +511,14 @@ export async function GET(req: NextRequest) {
           await updateBowlingReservationLaneOpen(r.id, {
             laneNumbers: [],
             paymentId: res.paymentId,
-            source: viaFallback ? "race-dayof-pay-fallback-timepassed" : "race-dayof-pay",
+            // "-raceend" = every heat verified finished (track truth);
+            // "-timepassed" = any clock component (45m net / hard cap /
+            // past-date / attraction start-passed). Distinct for audit.
+            source: viaFallback
+              ? fallbackReason === "race-finished"
+                ? "race-dayof-pay-fallback-raceend"
+                : "race-dayof-pay-fallback-timepassed"
+              : "race-dayof-pay",
           });
           (result.paid as string[]).push(`${label}${tag}: ${res.note}`);
           totalPaid += 1;
