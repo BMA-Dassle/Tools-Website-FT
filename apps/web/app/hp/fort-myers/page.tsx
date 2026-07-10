@@ -210,13 +210,15 @@ const specials = [
     when: "Mon-Thu open to close",
     regular: "$15.99",
     vip: "$17.99",
-    note: "1.5 hours per lane · Shoes included",
+    per: "per person",
+    note: "1.5 hours · Shoes included",
   },
   {
     name: "Late Night Madness",
     when: "Fri-Sat 12AM-2AM",
     regular: "$11.99",
     vip: "$13.99",
+    per: "per person",
     note: "2 hours unlimited",
   },
   {
@@ -224,6 +226,7 @@ const specials = [
     when: "Sundays all day",
     regular: "$64.95",
     vip: "$79.95",
+    per: "per lane",
     note: "2 hrs + shoes + pizza + soda per lane",
   },
 ];
@@ -738,7 +741,7 @@ export default function FortMyersPage() {
             />
           </div>
           <p className="font-body text-white/50 text-center text-sm mb-10 max-w-lg mx-auto">
-            Bowling specials run all week long. All prices per lane, 1.5 hours unless noted.
+            Bowling specials run all week long.
           </p>
 
           {/* Specials cards */}
@@ -758,7 +761,7 @@ export default function FortMyersPage() {
                 <p className="font-body text-white/40 text-xs uppercase tracking-wider mb-4">
                   {s.when}
                 </p>
-                <div className="flex items-baseline gap-4 mb-3">
+                <div className="flex items-baseline gap-4 mb-1">
                   <div>
                     <span className="font-heading text-[#fd5b56]" style={{ fontSize: "28px" }}>
                       {s.regular}
@@ -772,6 +775,9 @@ export default function FortMyersPage() {
                     <span className="font-body text-white/40 text-xs ml-1">VIP</span>
                   </div>
                 </div>
+                <p className="font-body text-white/60 text-xs uppercase tracking-wider mb-3">
+                  {s.per}
+                </p>
                 {s.note && <p className="font-body text-white/50 text-xs">{s.note}</p>}
               </div>
             ))}
