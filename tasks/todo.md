@@ -86,7 +86,8 @@ build-baked). Plan file: `~/.claude/plans/cheeky-wandering-lampson.md`.
 - [x] **Group match** — `combo-group-match.ts` (pure matchers) + `combo-existing.server.ts`
       over `listVipComboReservations` + GET `/api/booking/v2/combo/existing` (fail-open, no
       PII) + grid banner/badges ("Joins/Near the 4 PM group", gold ring) + staff-email match
-      note (exact / ~45-min drift / DOES NOT MATCH warning + subject suffix). Kill:
+      note (exact / same-hour-different-race ⚠️ warning + subject suffix / different-hour
+      neutral FYI — 2026-07-10: warning narrowed to the same-hour case only). Kill:
       `NEXT_PUBLIC_COMBO_GROUP_MATCH=false` (email note unflagged). Advisory-only: reads
       booking_metadata heat times; office reschedules degrade the hint, never block.
 - [x] **Junior mirror** — mixed parties book juniors on the first junior block strictly
@@ -99,8 +100,9 @@ build-baked). Plan file: `~/.claude/plans/cheeky-wandering-lampson.md`.
 - [x] Merged 1 → 2 → 3; ~36 new unit tests green; tsc clean; branches deleted.
 - [ ] **Post-deploy live smoke:** regular picker greys "VIP Reserved" at 2:00 PM (2:12
       bookable), combo still books 2:00, card frees at T-59 · book VIP group A at 4 PM →
-      reopen wizard → badge; book B on it → "same Starter heat" email; group C at 8 PM →
-      mismatch warning email · 2 adults + 1 junior e2e on a non-Tuesday (junior heat right
+      reopen wizard → badge; book B on it → "same Starter heat" email; group C same hour
+      but different heat (e.g. 4:12) → ⚠️ SAME HOUR, DIFFERENT RACE email; group D at 8 PM →
+      neutral FYI note, no warning · 2 adults + 1 junior e2e on a non-Tuesday (junior heat right
       after adult on BOTH legs on the BMI bill; bowling scheduled off the junior heat).
 - [ ] **Unrelated, found during merge:** `lib/guest-survey-db.test.ts` has 5 pre-existing
       failures on main (seed grew 22 → 30 questions — racing survey — without updating this

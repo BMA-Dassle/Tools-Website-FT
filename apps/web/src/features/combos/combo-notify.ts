@@ -134,18 +134,23 @@ export async function notifyComboBooked(args: {
               subjectSuffix: "",
             };
           } else if (verdict?.kind === "same-hour") {
-            const text = `Starts in the same hour as the ${hourLabel(verdict.group.startHour)} VIP group but a DIFFERENT heat — bowling times can differ by up to ~45 min. Groups may not walk over together.`;
-            groupNote = {
-              html: `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01;font-weight:600">${text}</p>`,
-              text,
-              subjectSuffix: "",
-            };
-          } else {
-            const text = `DOES NOT MATCH the existing VIP group(s) at ${hoursLabel} — the groups will walk over to HeadPinz separately. Plan staffing accordingly.`;
+            // The only true mismatch worth alarming on: same booked hour but a
+            // different heat, so two groups that LOOK simultaneous end up on
+            // different races with bowling starts up to ~45 min apart.
+            const text = `DOES NOT MATCH the ${hourLabel(verdict.group.startHour)} VIP group — same hour but a DIFFERENT race, so bowling times can differ by up to ~45 min. The groups will walk over to HeadPinz separately. Plan staffing accordingly.`;
             groupNote = {
               html: `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01;font-weight:600">⚠️ ${text}</p>`,
               text,
-              subjectSuffix: " · ⚠️ 2ND GROUP, DIFFERENT TIME",
+              subjectSuffix: " · ⚠️ SAME HOUR, DIFFERENT RACE",
+            };
+          } else {
+            // A group at a different hour entirely (e.g. 2 PM vs 4 PM) is
+            // separate visits by design — an FYI, never a mismatch warning.
+            const text = `Heads-up: this date also has VIP group(s) at ${hoursLabel} — different time slots, each group walks over on its own schedule.`;
+            groupNote = {
+              html: `<p style="margin:0 0 12px;padding:10px 12px;background:#eef2f7;border-left:4px solid #94a3b8;color:#334155">${text}</p>`,
+              text,
+              subjectSuffix: "",
             };
           }
         }
