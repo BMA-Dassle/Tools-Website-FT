@@ -9,7 +9,8 @@
  * path returns null/empty and the caller falls back to clock behavior.
  */
 import redis from "@/lib/redis";
-import type { TrackKey, TrackSession, TrackWatermark } from "./race-live-state";
+import { parseWithRawIds } from "@ft/db";
+import type { RaceLiveState, TrackKey, TrackSession, TrackWatermark } from "./race-live-state";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
@@ -104,4 +105,121 @@ export async function fetchTrackWatermarks(): Promise<Partial<Record<TrackKey, T
     /* non-fatal — derivation falls back to actual* fields only */
   }
   return out;
+}
+
+// ── Live BMI heat times per bill ─────────────────────────────────────────────
+// Staff reschedule heats in BMI Office (and grid migrations move whole days),
+// which makes the heat times stamped into booking_metadata at BOOKING time
+// stale — live audit 2026-07-10: 21 of 107 booked heats no longer matched any
+// Pandora session while the bills' CURRENT lines matched cleanly. The bill's
+// public overview reflects the current session per line, so consumers (the
+// admin board's combo cards AND the race-dayof-pay settle gate) prefer these
+// times over metadata. Moved verbatim from the admin reservations route.
+const BMI_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
+const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
+const BMI_USERNAME = process.env.BMI_USERNAME || "";
+const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
+/** Race bills live under the FastTrax client key (combos are Fort Myers-only). */
+const RACE_CLIENT_KEY = "headpinzftmyers";
+
+let bmiTokenCache: { token: string; expiry: number } | null = null;
+async function getBmiToken(): Promise<string> {
+  if (bmiTokenCache && Date.now() < bmiTokenCache.expiry - 60_000) return bmiTokenCache.token;
+  const res = await fetch(`${BMI_API_URL}/auth/${RACE_CLIENT_KEY}/publicbooking`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "BMI-Subscription-Key": BMI_SUB_KEY },
+    body: JSON.stringify({ Username: BMI_USERNAME, Password: BMI_PASSWORD }),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`BMI auth ${res.status}`);
+  const data = await res.json();
+  const token = data.AccessToken || data.accessToken;
+  const expiresIn = parseInt(data.ExpiresIn || data.expiresIn || "3600", 10);
+  bmiTokenCache = { token, expiry: Date.now() + expiresIn * 1000 };
+  return token;
+}
+
+export interface LiveHeat {
+  /** Naive ET wall-clock ISO (same shape as booking_metadata heatIds). */
+  start: string;
+  /** REAL session end from BMI (~7-12 min after start) — the board flips a
+   *  race to Done at this moment instead of guessing a duration. */
+  stop: string | null;
+  /** BMI line name, e.g. "Starter Race Blue" — the board labels from it. */
+  name: string | null;
+  /** Pandora session resolved by track + start minute (string per Pandora). */
+  sessionId?: string;
+  heatNumber?: number;
+  /** Live track truth (Pandora actualStart/actualEnd + called watermark) —
+   *  the board's Done / On-track / Delayed markers trust this over the clock,
+   *  exactly like bowling trusts QAMF lane state. Absent = clock fallback. */
+  raceState?: RaceLiveState;
+  /** How many bill lines share this session — one line per racer, so this is
+   *  the racer count for the heat (the manage modal shows "N racers"). */
+  racers?: number;
+}
+
+/** In-memory per-bill cache: the board polls its route every 10s, so without
+ *  a TTL every open admin tab would hit BMI per race leg per poll. 60s is
+ *  fresh enough for an office reschedule; failures cache 30s so a BMI outage
+ *  can't hammer. In-memory (not Redis) on purpose — warm lambdas cover the
+ *  10s poll, and a cold-start miss is just one light GET per bill. */
+const liveHeatCache = new Map<string, { heats: LiveHeat[] | null; expiry: number }>();
+
+export async function fetchLiveHeats(billId: string): Promise<LiveHeat[] | null> {
+  const cached = liveHeatCache.get(billId);
+  if (cached && Date.now() < cached.expiry) return cached.heats;
+  let heats: LiveHeat[] | null = null;
+  try {
+    const token = await getBmiToken();
+    const res = await fetch(
+      `${BMI_API_URL}/public-booking/${RACE_CLIENT_KEY}/order/${billId}/overview`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "BMI-Subscription-Key": BMI_SUB_KEY,
+          "Accept-Language": "en",
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (res.ok) {
+      // Overview carries 17-digit ids — lossless parse only (never res.json()).
+      const ov = parseWithRawIds<{
+        lines?: Array<{
+          name?: string;
+          scheduledTime?: { start?: string; stop?: string };
+          start?: string;
+          stop?: string;
+        }>;
+      }>(await res.text());
+      // Scheduled lines only — the race heats. POV/license lines have no
+      // scheduledTime and drop out here. The bill carries ONE line per racer
+      // per session — collapse to one heat per session and keep the line
+      // count as the racer count.
+      const bySession = new Map<string, LiveHeat>();
+      for (const l of ov.lines ?? []) {
+        const start = l.scheduledTime?.start ?? l.start ?? "";
+        if (!start) continue;
+        const k = `${start}|${l.name ?? ""}`;
+        const cur = bySession.get(k);
+        if (cur) {
+          cur.racers = (cur.racers ?? 1) + 1;
+        } else {
+          bySession.set(k, {
+            start,
+            stop: l.scheduledTime?.stop ?? l.stop ?? null,
+            name: l.name ?? null,
+            racers: 1,
+          });
+        }
+      }
+      heats = [...bySession.values()].sort((a, b) => a.start.localeCompare(b.start));
+    }
+  } catch {
+    /* non-fatal — callers fall back to booking_metadata heat times */
+  }
+  liveHeatCache.set(billId, { heats, expiry: Date.now() + (heats ? 60_000 : 30_000) });
+  return heats;
 }

@@ -13,16 +13,16 @@ import { getComboSpecial } from "~/features/combos/combo-specials";
 import {
   resolveRaceLiveState,
   trackKeyFromName,
-  type RaceLiveState,
   type TrackKey,
   type TrackSession,
 } from "~/features/reservations-admin/race-live-state";
 import {
+  fetchLiveHeats,
   fetchTrackSessions,
   fetchTrackWatermarks,
+  type LiveHeat,
 } from "~/features/reservations-admin/race-live-state.server";
 import { getReservation } from "@/lib/qamf-bowling";
-import { parseWithRawIds } from "@ft/db";
 
 /** QAMF numeric center ids (mirrors bowling-lane-poll). */
 const QAMF_CENTER_ID: Record<string, number> = {
@@ -30,119 +30,10 @@ const QAMF_CENTER_ID: Record<string, number> = {
   PPTR5G2N0QXF7: 3148, // HeadPinz Naples
 };
 
-// ── Live BMI heat times for VIP combo race legs ─────────────────────────────
-// Staff reschedule combo heats in BMI Office, which makes the heat times
-// stamped into booking_metadata at BOOKING time stale. The bill's public
-// overview reflects the CURRENT session per line, so re-read it and let the
-// board prefer these times. Mirrors race-cancel-watch's auth/overview pattern.
-const BMI_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
-const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
-const BMI_USERNAME = process.env.BMI_USERNAME || "";
-const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
-/** Combos are Fort Myers-only; race bills live under the FastTrax client key. */
-const RACE_CLIENT_KEY = "headpinzftmyers";
-
-let bmiTokenCache: { token: string; expiry: number } | null = null;
-async function getBmiToken(): Promise<string> {
-  if (bmiTokenCache && Date.now() < bmiTokenCache.expiry - 60_000) return bmiTokenCache.token;
-  const res = await fetch(`${BMI_API_URL}/auth/${RACE_CLIENT_KEY}/publicbooking`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "BMI-Subscription-Key": BMI_SUB_KEY },
-    body: JSON.stringify({ Username: BMI_USERNAME, Password: BMI_PASSWORD }),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`BMI auth ${res.status}`);
-  const data = await res.json();
-  const token = data.AccessToken || data.accessToken;
-  const expiresIn = parseInt(data.ExpiresIn || data.expiresIn || "3600", 10);
-  bmiTokenCache = { token, expiry: Date.now() + expiresIn * 1000 };
-  return token;
-}
-
-interface LiveHeat {
-  /** Naive ET wall-clock ISO (same shape as booking_metadata heatIds). */
-  start: string;
-  /** REAL session end from BMI (~7-12 min after start) — the board flips a
-   *  race to Done at this moment instead of guessing a duration. */
-  stop: string | null;
-  /** BMI line name, e.g. "Starter Race Blue" — the board labels from it. */
-  name: string | null;
-  /** Pandora session resolved by track + start minute (string per Pandora). */
-  sessionId?: string;
-  heatNumber?: number;
-  /** Live track truth (Pandora actualStart/actualEnd + called watermark) —
-   *  the board's Done / On-track / Delayed markers trust this over the clock,
-   *  exactly like bowling trusts QAMF lane state. Absent = clock fallback. */
-  raceState?: RaceLiveState;
-  /** How many bill lines share this session — one line per racer, so this is
-   *  the racer count for the heat (the manage modal shows "N racers"). */
-  racers?: number;
-}
-
-/** In-memory per-bill cache: the board polls this route every 10s, so without
- *  a TTL every open admin tab would hit BMI per race leg per poll. 60s is
- *  fresh enough for an office reschedule; failures cache 30s so a BMI outage
- *  can't hammer. In-memory (not Redis) on purpose — warm lambdas cover the
- *  10s poll, and a cold-start miss is just one light GET per bill. */
-const liveHeatCache = new Map<string, { heats: LiveHeat[] | null; expiry: number }>();
-
-async function fetchLiveHeats(billId: string): Promise<LiveHeat[] | null> {
-  const cached = liveHeatCache.get(billId);
-  if (cached && Date.now() < cached.expiry) return cached.heats;
-  let heats: LiveHeat[] | null = null;
-  try {
-    const token = await getBmiToken();
-    const res = await fetch(
-      `${BMI_API_URL}/public-booking/${RACE_CLIENT_KEY}/order/${billId}/overview`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "BMI-Subscription-Key": BMI_SUB_KEY,
-          "Accept-Language": "en",
-        },
-        cache: "no-store",
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    if (res.ok) {
-      // Overview carries 17-digit ids — lossless parse only (never res.json()).
-      const ov = parseWithRawIds<{
-        lines?: Array<{
-          name?: string;
-          scheduledTime?: { start?: string; stop?: string };
-          start?: string;
-          stop?: string;
-        }>;
-      }>(await res.text());
-      // Scheduled lines only — the race heats. POV/license lines have no
-      // scheduledTime and drop out here. The bill carries ONE line per racer
-      // per session — collapse to one heat per session and keep the line
-      // count as the racer count.
-      const bySession = new Map<string, LiveHeat>();
-      for (const l of ov.lines ?? []) {
-        const start = l.scheduledTime?.start ?? l.start ?? "";
-        if (!start) continue;
-        const k = `${start}|${l.name ?? ""}`;
-        const cur = bySession.get(k);
-        if (cur) {
-          cur.racers = (cur.racers ?? 1) + 1;
-        } else {
-          bySession.set(k, {
-            start,
-            stop: l.scheduledTime?.stop ?? l.stop ?? null,
-            name: l.name ?? null,
-            racers: 1,
-          });
-        }
-      }
-      heats = [...bySession.values()].sort((a, b) => a.start.localeCompare(b.start));
-    }
-  } catch {
-    /* non-fatal — board falls back to booking_metadata heat times */
-  }
-  liveHeatCache.set(billId, { heats, expiry: Date.now() + (heats ? 60_000 : 30_000) });
-  return heats;
-}
+// Live BMI heat times (fetchLiveHeats) moved to
+// ~/features/reservations-admin/race-live-state.server.ts — shared with the
+// race-dayof-pay settle gate, which needs the same booking-metadata-staleness
+// protection the board gets.
 
 // ── Live race-session state (Pandora actualStart/actualEnd) ─────────────────
 // Pandora stamps actualStart/actualEnd per session (added 2026-07-08), so the

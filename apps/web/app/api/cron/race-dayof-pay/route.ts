@@ -19,6 +19,7 @@ import {
   trackKeyFromName,
 } from "~/features/reservations-admin/race-live-state";
 import {
+  fetchLiveHeats,
   fetchTrackSessions,
   fetchTrackWatermarks,
 } from "~/features/reservations-admin/race-live-state.server";
@@ -252,6 +253,23 @@ function raceHeatsOf(r: BowlingReservation): SettleHeat[] {
     .map((h) => ({ startIso: h.heatId, track: h.track ?? null }));
 }
 
+/** The gate's heats — the bill's CURRENT lines first, metadata as fallback.
+ *  booking_metadata heat times go stale (office reschedules, grid migrations:
+ *  live audit 2026-07-10 found 21 of 107 booked heats matching no Pandora
+ *  session while the bills' current lines matched cleanly), and a stale heat
+ *  degrades the gate to its 45-min clock net. Re-read the bill overview the
+ *  way the admin board does — line names ("Starter Race Blue") carry the
+ *  track. Live read only when metadata has a same-day heat: past dates settle
+ *  by clock anyway and future bookings shouldn't hit BMI every tick. */
+async function settleHeatsOf(r: BowlingReservation, todayEtYmd: string): Promise<SettleHeat[]> {
+  const stamped = raceHeatsOf(r);
+  const todayStamped = stamped.some((h) => h.startIso.slice(0, 10) === todayEtYmd);
+  if (!todayStamped || !r.bmiBillId) return stamped;
+  const live = await fetchLiveHeats(r.bmiBillId);
+  if (!live || live.length === 0) return stamped;
+  return live.map((h) => ({ startIso: h.start, track: h.name }));
+}
+
 /** Fetch the dayplanner for a center and return the set of Arrived (-5) project
  *  numbers (normalized). */
 async function arrivedNumbers(clientKey: string): Promise<Set<string>> {
@@ -466,9 +484,19 @@ export async function GET(req: NextRequest) {
   // empty data just means heats resolve to nothing and the gate falls back to
   // its clock rules.
   const todayEtYmd = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  // Resolve each race candidate's heats ONCE (live bill truth → metadata
+  // fallback) so the track pre-scan and the gate below see the same times.
+  // Only candidates with a same-day metadata heat trigger a BMI read — a
+  // handful per run — and fetchLiveHeats memo-caches per bill.
+  const settleHeatsByRes = new Map<number, SettleHeat[]>();
+  await Promise.all(
+    raceCandidates.map(async (r) => {
+      settleHeatsByRes.set(r.id, await settleHeatsOf(r, todayEtYmd));
+    }),
+  );
   const gateTracks = new Set<TrackKey>();
-  for (const r of raceCandidates)
-    for (const h of raceHeatsOf(r)) {
+  for (const heats of settleHeatsByRes.values())
+    for (const h of heats) {
       if (h.startIso.slice(0, 10) !== todayEtYmd) continue; // Pandora is same-day only
       const t = trackKeyFromName(h.track);
       if (t) gateTracks.add(t);
@@ -523,14 +551,15 @@ export async function GET(req: NextRequest) {
       const isArrived = arrived.has(normalizeNum(r.bmiReservationNumber));
       // FALLBACK (see header) — never saw Arrived. RACES gate on track truth:
       // settle only once every booked heat's session actually ran (Pandora
-      // actualStart/actualEnd; clock safety nets inside the gate). ATTRACTIONS
-      // keep the plain start-time-passed rule. Both use booking_metadata
-      // times, NOT booked_at (the booking timestamp for anchor rows).
+      // actualStart/actualEnd; clock safety nets inside the gate). Heats come
+      // from the bill's live lines (settleHeatsOf, metadata fallback), NOT
+      // booked_at (the booking timestamp for anchor rows). ATTRACTIONS keep
+      // the plain start-time-passed rule on booking_metadata times.
       let viaFallback = false;
       let fallbackReason = "";
       if (!isArrived) {
         if (r.productKind === "race") {
-          const heats = raceHeatsOf(r);
+          const heats = settleHeatsByRes.get(r.id) ?? raceHeatsOf(r);
           if (heats.length > 0) {
             const gate = raceSettleGate({
               heats,
