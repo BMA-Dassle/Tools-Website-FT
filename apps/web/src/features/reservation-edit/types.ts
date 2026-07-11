@@ -23,6 +23,8 @@ export type EditSettlement = "card_refund" | "store_credit";
 export type EditPaymentSource =
   | { kind: "card_on_file"; cardId: string }
   | { kind: "payment_link" }
+  /** Square Web Payments nonce — the self-hosted payment-difference page. */
+  | { kind: "nonce"; token: string }
   | { kind: "none" };
 
 /** Desired player roster entry (bowling/KBF). */

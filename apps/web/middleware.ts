@@ -520,7 +520,11 @@ export async function middleware(request: NextRequest) {
     // subscription payment management). Same route on both hosts; brand is
     // chrome-only. Without this the /hp rewrite turns it into a 404 on HeadPinz.
     pathname === "/account" ||
-    pathname.startsWith("/account/");
+    pathname.startsWith("/account/") ||
+    // Self-hosted payment-difference links for reservation edits — SMS/email
+    // links point at either brand domain; token-gated, brand-neutral page.
+    // Without this the /hp rewrite turns it into a 404 on HeadPinz.
+    pathname.startsWith("/pay/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&

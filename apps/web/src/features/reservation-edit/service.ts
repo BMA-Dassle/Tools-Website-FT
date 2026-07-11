@@ -61,8 +61,15 @@ export interface ExecuteEditRequest {
   paymentSource?: EditPaymentSource;
   notifyGuest: boolean;
   actor: string;
-  /** Request origin — the BMI sync drives the /api/bmi proxy by absolute URL. */
+  /** Request origin — BMI sync + payment links need absolute URLs. */
   origin: string;
+  /**
+   * Resume a pending_payment attempt (self-hosted payment-link completion):
+   * reuse THIS editId so every Square idempotency key replays the original
+   * attempt's namespace, and skip the await_payment_link step (the payment
+   * source is now real).
+   */
+  resumeEditId?: string;
 }
 
 export interface EditResult {
@@ -73,6 +80,8 @@ export interface EditResult {
   refundIds: string[];
   storeCreditGan?: string;
   newQamfReservationId?: string;
+  /** Set on pending_payment results — the link staff send to the guest. */
+  paymentLinkUrl?: string;
   stepLog: Array<{ step: string; ok: boolean; detail?: string }>;
   warnings: EditWarning[];
 }
@@ -150,8 +159,10 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
     }
 
     // ── Audit row (fatal) ──────────────────────────────────────────────
-    const attempt = await nextEditAttempt(anchorId);
-    const editId = `edit-${anchorId}-a${attempt}`;
+    const attempt = req.resumeEditId
+      ? parseInt(req.resumeEditId.match(/-a(\d+)$/)?.[1] ?? "1", 10)
+      : await nextEditAttempt(anchorId);
+    const editId = req.resumeEditId ?? `edit-${anchorId}-a${attempt}`;
     await startEditEvent({
       editId,
       anchorReservationId: anchorId,
@@ -184,9 +195,11 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
     const sourceId =
       req.paymentSource?.kind === "card_on_file"
         ? req.paymentSource.cardId
-        : req.paymentSource?.kind === "payment_link"
-          ? null
-          : (plan.chargeCard?.cardId ?? null);
+        : req.paymentSource?.kind === "nonce"
+          ? req.paymentSource.token
+          : req.paymentSource?.kind === "payment_link"
+            ? null
+            : (plan.chargeCard?.cardId ?? null);
 
     const center = resolveCenter(anchor.centerCode, anchor.productKind);
     const fallbackLocationId = center.attractionCancelCenterCode;
@@ -200,7 +213,14 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             break; // already logged
 
           case "await_payment_link": {
+            if (sourceId) {
+              // Link completion: the payment source is real now — proceed.
+              stepLog.push({ step: step.kind, ok: true, detail: "payment received" });
+              break;
+            }
             await markEditPendingPayment(editId);
+            const { buildPayLinkUrl } = await import("./pay-link");
+            const paymentLinkUrl = buildPayLinkUrl(req.origin, editId);
             stepLog.push({ step: step.kind, ok: true, detail: "awaiting guest payment" });
             await finishEditEvent(editId, { state: "pending_payment", stepLog });
             return {
@@ -209,6 +229,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               diffCents: plan.diffCents,
               paymentIds,
               refundIds,
+              paymentLinkUrl,
               stepLog,
               warnings,
             };
