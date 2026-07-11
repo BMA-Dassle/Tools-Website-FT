@@ -11,15 +11,8 @@ import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import {
-  resolveRaceLiveState,
-  trackKeyFromName,
-  type TrackKey,
-  type TrackSession,
-} from "~/features/reservations-admin/race-live-state";
-import {
+  attachRaceLiveState,
   fetchLiveHeats,
-  fetchTrackSessions,
-  fetchTrackWatermarks,
   type LiveHeat,
 } from "~/features/reservations-admin/race-live-state.server";
 import { getReservation } from "@/lib/qamf-bowling";
@@ -35,58 +28,10 @@ const QAMF_CENTER_ID: Record<string, number> = {
 // race-dayof-pay settle gate, which needs the same booking-metadata-staleness
 // protection the board gets.
 
-// ── Live race-session state (Pandora actualStart/actualEnd) ─────────────────
-// Pandora stamps actualStart/actualEnd per session (added 2026-07-08), so the
-// board can mark a combo race step Done / On-track / Delayed from track
-// reality instead of guessing by clock. Derivation is pure
-// (~/features/reservations-admin/race-live-state); the fetchers live in
-// race-live-state.server (shared with the race-dayof-pay settle gate).
-
-/** Stamp raceState/sessionId onto every live heat of the given race legs.
- *  Same-day only (Pandora serves today; the pills only matter live).
- *  Best-effort — an unresolved heat keeps clock behavior on the board. */
-async function attachRaceLiveState(
-  raceLegs: Array<{ liveHeats?: LiveHeat[] }>,
-  ymd: string,
-): Promise<void> {
-  const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  if (ymd !== todayEt) return;
-  const tracksNeeded = new Set<TrackKey>();
-  for (const r of raceLegs)
-    for (const h of r.liveHeats ?? []) {
-      const t = trackKeyFromName(h.name);
-      if (t) tracksNeeded.add(t);
-    }
-  if (!tracksNeeded.size) return;
-  const trackList = [...tracksNeeded];
-  const [watermarks, sessionLists] = await Promise.all([
-    fetchTrackWatermarks(),
-    Promise.all(trackList.map((t) => fetchTrackSessions(t, ymd))),
-  ]);
-  const sessionsByTrack = new Map<TrackKey, TrackSession[]>();
-  trackList.forEach((t, i) => {
-    const s = sessionLists[i];
-    if (s) sessionsByTrack.set(t, s);
-  });
-  const nowMs = Date.now();
-  for (const r of raceLegs)
-    for (const h of r.liveHeats ?? []) {
-      const t = trackKeyFromName(h.name);
-      const sessions = t ? sessionsByTrack.get(t) : undefined;
-      if (!t || !sessions) continue;
-      const live = resolveRaceLiveState({
-        heatStartIso: h.start,
-        sessions,
-        watermark: watermarks[t],
-        nowMs,
-      });
-      if (live) {
-        h.sessionId = live.sessionId;
-        h.heatNumber = live.heatNumber;
-        h.raceState = live.raceState;
-      }
-    }
-}
+// Live race-session state (attachRaceLiveState — Pandora actualStart/actualEnd
+// + called watermark) moved to ~/features/reservations-admin/race-live-state.server.ts,
+// shared with the vip-move-alerts cron. Derivation stays pure in
+// ~/features/reservations-admin/race-live-state.
 
 /**
  * GET /api/admin/bowling/reservations?token=...&date=YYYY-MM-DD&center=...

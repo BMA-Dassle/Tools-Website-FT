@@ -69,6 +69,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/vip-move-alerts",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/bowling-pre-arrival",
       "schedule": "*/2 * * * *"
     },

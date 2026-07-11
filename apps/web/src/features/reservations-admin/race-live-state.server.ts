@@ -10,6 +10,7 @@
  */
 import redis from "@/lib/redis";
 import { parseWithRawIds } from "@ft/db";
+import { resolveRaceLiveState, trackKeyFromName } from "./race-live-state";
 import type { RaceLiveState, TrackKey, TrackSession, TrackWatermark } from "./race-live-state";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
@@ -222,4 +223,52 @@ export async function fetchLiveHeats(billId: string): Promise<LiveHeat[] | null>
   }
   liveHeatCache.set(billId, { heats, expiry: Date.now() + (heats ? 60_000 : 30_000) });
   return heats;
+}
+
+/** Stamp raceState/sessionId onto every live heat of the given race legs.
+ *  Same-day only (Pandora serves today; the pills only matter live).
+ *  Best-effort — an unresolved heat keeps clock behavior on the board.
+ *  Moved verbatim from the admin reservations route so the vip-move-alerts
+ *  cron can share it. */
+export async function attachRaceLiveState(
+  raceLegs: Array<{ liveHeats?: LiveHeat[] }>,
+  ymd: string,
+): Promise<void> {
+  const todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  if (ymd !== todayEt) return;
+  const tracksNeeded = new Set<TrackKey>();
+  for (const r of raceLegs)
+    for (const h of r.liveHeats ?? []) {
+      const t = trackKeyFromName(h.name);
+      if (t) tracksNeeded.add(t);
+    }
+  if (!tracksNeeded.size) return;
+  const trackList = [...tracksNeeded];
+  const [watermarks, sessionLists] = await Promise.all([
+    fetchTrackWatermarks(),
+    Promise.all(trackList.map((t) => fetchTrackSessions(t, ymd))),
+  ]);
+  const sessionsByTrack = new Map<TrackKey, TrackSession[]>();
+  trackList.forEach((t, i) => {
+    const s = sessionLists[i];
+    if (s) sessionsByTrack.set(t, s);
+  });
+  const nowMs = Date.now();
+  for (const r of raceLegs)
+    for (const h of r.liveHeats ?? []) {
+      const t = trackKeyFromName(h.name);
+      const sessions = t ? sessionsByTrack.get(t) : undefined;
+      if (!t || !sessions) continue;
+      const live = resolveRaceLiveState({
+        heatStartIso: h.start,
+        sessions,
+        watermark: watermarks[t],
+        nowMs,
+      });
+      if (live) {
+        h.sessionId = live.sessionId;
+        h.heatNumber = live.heatNumber;
+        h.raceState = live.raceState;
+      }
+    }
 }
