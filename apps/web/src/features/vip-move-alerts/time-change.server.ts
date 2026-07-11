@@ -4,7 +4,7 @@
  * happened in QAMF/Neon. Returns whether the card actually posted.
  */
 import { sendAdaptiveCardToChannel } from "@/lib/teams-bot";
-import { vipMoveAlertsChatId } from "./config";
+import { vipBoardUrl, vipMoveAlertsChatId } from "./config";
 import {
   buildTimeChangeCard,
   timeChangeSummaryText,
@@ -13,8 +13,9 @@ import {
 
 export async function sendBowlingTimeChangedAlert(params: TimeChangeParams): Promise<boolean> {
   try {
-    await sendAdaptiveCardToChannel(vipMoveAlertsChatId(), buildTimeChangeCard(params), {
-      summaryText: timeChangeSummaryText(params),
+    const withLink = { ...params, boardUrl: params.boardUrl ?? vipBoardUrl() };
+    await sendAdaptiveCardToChannel(vipMoveAlertsChatId(), buildTimeChangeCard(withLink), {
+      summaryText: timeChangeSummaryText(withLink),
     });
     return true;
   } catch (err) {

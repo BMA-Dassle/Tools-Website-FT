@@ -66,14 +66,16 @@ function laterStepUnderway(b: ComboScheduleStep, nowMs: number): boolean {
   return false;
 }
 
-/** The cross-center boundary pair starting at a bowling step, if any. */
-function bowlingBoundary(
+/** The cross-center boundary pair for a direction, if the schedule has one. */
+function boundaryFor(
   schedule: ComboScheduleStep[],
+  direction: MoveDirection,
 ): { from: ComboScheduleStep; to: ComboScheduleStep } | null {
+  const fromKind = direction === "bowling_to_karting" ? "bowling" : "karting";
   for (let i = 0; i < schedule.length - 1; i++) {
     const a = schedule[i];
     const b = schedule[i + 1];
-    if (locKind(a) === "bowling" && locKind(b) === "karting") return { from: a, to: b };
+    if (locKind(a) === fromKind && locKind(a) !== locKind(b)) return { from: a, to: b };
   }
   return null;
 }
@@ -133,7 +135,7 @@ export function detectPendingMoves(groups: ComboGroup[], nowMs: number): Pending
     );
     for (const g of active) {
       if (alerted.has(g.key)) continue;
-      const boundary = bowlingBoundary(g.schedule);
+      const boundary = boundaryFor(g.schedule, "bowling_to_karting");
       if (!boundary) continue;
       const { from, to } = boundary;
       if (dead(from) || dead(to) || !from.iso || truthDone(from)) continue;
@@ -145,4 +147,38 @@ export function detectPendingMoves(groups: ComboGroup[], nowMs: number): Pending
   }
 
   return moves;
+}
+
+/**
+ * Re-anchor already-alerted moves to the live board state so a posted card
+ * can be EDITED in place with fresh countdowns: steps re-resolve from the
+ * current schedule (an office reschedule or a manager time shift moves the
+ * card's times too), an "ends in ~Xm" rider flips to "just finished" once
+ * its lane closes, and `settled` turns true when every move's next step is
+ * underway or done — the caller's signal to stop refreshing.
+ */
+export function refreshMoves(
+  moves: PendingMove[],
+  groups: ComboGroup[],
+  nowMs: number,
+): { moves: PendingMove[]; settled: boolean } {
+  let settled = true;
+  const fresh = moves.map((m) => {
+    const g = groups.find((x) => x.key === m.groupKey);
+    const b = g ? boundaryFor(g.schedule, m.direction) : null;
+    const from = b?.from ?? m.from;
+    const to = b?.to ?? m.to;
+    let endingSoon = m.endingSoon;
+    if (endingSoon) {
+      const left = endMs(from) - nowMs;
+      endingSoon =
+        !truthDone(from) && Number.isFinite(left) && left > 0
+          ? { minsLeft: Math.max(1, Math.ceil(left / 60_000)) }
+          : undefined;
+    }
+    const p = stepProgress(to, nowMs);
+    if (!p || p.state === "upcoming") settled = false;
+    return { ...m, from, to, endingSoon };
+  });
+  return { moves: fresh, settled };
 }

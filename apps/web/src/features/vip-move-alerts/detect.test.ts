@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ComboGroup } from "~/features/reservations-admin/combo-board";
 import { etWallMs } from "~/features/reservations-admin/format";
 import type { ComboScheduleStep, Reservation } from "~/features/reservations-admin/types";
-import { detectPendingMoves } from "./detect";
+import { detectPendingMoves, refreshMoves } from "./detect";
 
 /** All times on one fixed evening; nowMs always comes from at(). */
 const at = (iso: string) => etWallMs(iso);
@@ -224,5 +224,40 @@ describe("detectPendingMoves — 5-min bowling combine window", () => {
     );
     const moves = detectPendingMoves([a, bBusy], at(nowIso));
     expect(moves.map((m) => m.groupKey)).toEqual(["dep-a"]);
+  });
+});
+
+describe("refreshMoves — live-card countdown upkeep", () => {
+  const g = mkGroup([
+    bowling({ legStatus: "completed" }),
+    race({ label: "Intermediate Race · Blue", iso: "2026-07-10T23:36:00" }),
+  ]);
+  const [move] = detectPendingMoves([g], at("2026-07-10T22:52:00"));
+
+  it("stays unsettled while the countdown runs", () => {
+    const r = refreshMoves([move], [g], at("2026-07-10T23:00:00"));
+    expect(r.settled).toBe(false);
+    expect(r.moves[0].to.iso).toBe("2026-07-10T23:36:00");
+  });
+
+  it("settles once the next activity's start passes (countdown reached zero)", () => {
+    const r = refreshMoves([move], [g], at("2026-07-10T23:37:00"));
+    expect(r.settled).toBe(true);
+  });
+
+  it("re-anchors to a shifted schedule (office/manager time change)", () => {
+    const shifted = mkGroup([
+      bowling({ legStatus: "completed" }),
+      race({ label: "Intermediate Race · Blue", iso: "2026-07-10T23:48:00" }),
+    ]);
+    const r = refreshMoves([move], [shifted], at("2026-07-10T23:40:00"));
+    expect(r.moves[0].to.iso).toBe("2026-07-10T23:48:00");
+    expect(r.settled).toBe(false);
+  });
+
+  it("drops a rider's endingSoon once their lane actually closes", () => {
+    const rider = { ...move, endingSoon: { minsLeft: 3 } };
+    const r = refreshMoves([rider], [g], at("2026-07-10T23:00:00"));
+    expect(r.moves[0].endingSoon).toBeUndefined();
   });
 });

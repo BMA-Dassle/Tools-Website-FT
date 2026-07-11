@@ -55,7 +55,11 @@ export default function ReservationsBoard({ token }: { token: string }) {
   const [search, setSearch] = useState("");
   const [hideCancelled, setHideCancelled] = useState(true);
   const [hideWalkins, setHideWalkins] = useState(true);
-  const [kindFilter, setKindFilter] = useState<string | null>(null);
+  // ?view=vip deep link (Teams movement cards) opens straight to the ★VIP filter.
+  const [kindFilter, setKindFilter] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("view") === "vip" ? "vip" : null;
+  });
 
   const { reservations, groupEvents, vipReservations, comboMeta, loading, error, reload } =
     useReservationsData(token, date, center);

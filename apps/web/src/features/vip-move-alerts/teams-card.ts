@@ -26,8 +26,11 @@ function nextUpDesc(to: ComboScheduleStep): string {
 
 /** The manager's slack: gap from now to the next step's start. Both sides in
  *  the ET-wall frame (etWallMs) — race heats are naive ET, bowling slots are
- *  offset-aware, and nowMs comes from nowEtWallMs. */
+ *  offset-aware, and nowMs comes from nowEtWallMs. Truth first: once the
+ *  next step is actually underway the countdown is over. */
 function timeToMove(to: ComboScheduleStep, nowMs: number): string {
+  if (to.raceState === "on_track" || to.raceState === "finished") return "Next activity underway";
+  if (to.legStatus === "arrived" || to.legStatus === "completed") return "Next activity underway";
   if (!to.iso) return "Next activity time not set";
   const startMs = etWallMs(to.iso);
   if (Number.isNaN(startMs)) return "Next activity time not set";
@@ -76,6 +79,7 @@ export function buildMoveCard(
   direction: MoveDirection,
   moves: PendingMove[],
   nowMs: number,
+  opts?: { boardUrl?: string | null },
 ): Record<string, unknown> {
   const body: Array<Record<string, unknown>> = [
     {
@@ -160,5 +164,8 @@ export function buildMoveCard(
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     version: "1.4",
     body,
+    actions: opts?.boardUrl
+      ? [{ type: "Action.OpenUrl", title: "Open VIP board", url: opts.boardUrl }]
+      : [],
   };
 }

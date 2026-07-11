@@ -15,6 +15,8 @@ export interface TimeChangeParams {
   newIso: string;
   lane?: string;
   centerLabel: string;
+  /** "Open VIP board" deep link (config vipBoardUrl); omitted when null. */
+  boardUrl?: string | null;
 }
 
 export function timeChangeSummaryText(p: TimeChangeParams): string {
@@ -78,5 +80,8 @@ export function buildTimeChangeCard(p: TimeChangeParams): Record<string, unknown
         wrap: true,
       },
     ],
+    actions: p.boardUrl
+      ? [{ type: "Action.OpenUrl", title: "Open VIP board", url: p.boardUrl }]
+      : [],
   };
 }

@@ -24,6 +24,14 @@ export function vipMoveAlertsEnabled(): boolean {
 /** Owner-mandated line on every card while the feature is in trial. */
 export const BETA_DISCLAIMER = "BETA TESTING, WE DO NOT PROMISE RELIABILITY";
 
+/** Deep link to the reservations admin board pre-filtered to ★VIP — the
+ *  cards' "Open VIP board" button. Server-only (embeds the admin token);
+ *  null when the token env is missing so pure builders just omit the button. */
+export function vipBoardUrl(): string | null {
+  const token = process.env.ADMIN_CAMERA_TOKEN;
+  return token ? `https://headpinz.com/admin/${token}/reservations?view=vip` : null;
+}
+
 /** A step that is done by CLOCK only (no QAMF/Pandora truth signal) waits
  *  this long past its scheduled end before alerting — covers lane-close
  *  webhook lag and Pandora-unresolvable heats without pinging at the exact

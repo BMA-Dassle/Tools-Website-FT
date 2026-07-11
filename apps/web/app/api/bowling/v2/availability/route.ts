@@ -199,6 +199,11 @@ export async function GET(req: NextRequest) {
   // the fine bowling probe passes a small value to scan just one hour.
   const windowMinutesStr = searchParams.get("windowMinutes");
   const windowMinutes = windowMinutesStr ? Math.max(15, parseInt(windowMinutesStr, 10)) : 300;
+  // How close to "now" a today probe may start (minutes). Guest flows keep
+  // the 15-min default; the admin combo time-shift passes 5 so a manager can
+  // pull bowling nearly to now when the races finish early.
+  const leadMinutesStr = searchParams.get("leadMinutes");
+  const leadMinutes = leadMinutesStr ? Math.max(0, parseInt(leadMinutesStr, 10) || 0) : 15;
 
   if (isNaN(centerId) || isNaN(players) || players < 1) {
     console.log(`[avail] EXIT: invalid centerId or players`);
@@ -287,7 +292,7 @@ export async function GET(req: NextRequest) {
       // Only apply the "don't probe past times" filter when we're within
       // operating hours. Before opening, openHour already floors the window.
       if (nowTotalMin >= openHour * 60) {
-        earliestMin = Math.max(earliestMin, nowTotalMin + 15);
+        earliestMin = Math.max(earliestMin, nowTotalMin + leadMinutes);
       }
     }
     // Snap earliestMin UP to next multiple of 15 so QAMF gets clean

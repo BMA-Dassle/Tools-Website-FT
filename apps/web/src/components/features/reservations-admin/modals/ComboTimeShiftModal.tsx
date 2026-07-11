@@ -89,6 +89,9 @@ export default function ComboTimeShiftModal({
           hour: String(parseInt(g("hour") === "24" ? "00" : g("hour"), 10)),
           minute: String(parseInt(g("minute"), 10)),
           windowMinutes: "60",
+          // Managers may pull bowling nearly to now (T−5 rule) — override the
+          // guest-flow 15-min lead floor.
+          leadMinutes: "5",
           webOfferId: String(info.webOfferId),
         });
         const res = await fetch(`/api/bowling/v2/availability?${qs}`, { cache: "no-store" });
