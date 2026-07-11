@@ -116,6 +116,34 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
       facts.depositOrder.tenders[0].amountCents = pay.amountCents;
     }
 
+    // Cancel-awareness of EDITS: an edit-increase splits the group's money
+    // across the original deposit order AND edit top-up payments
+    // (reservation_edit_events is the ledger). Fold completed edit payments
+    // into the tender set so a post-edit cancel refunds them too — without
+    // this the guest is under-refunded by every top-up they ever paid.
+    if (facts.depositOrder) {
+      try {
+        const { listEditEventsByAnchors } = await import("@/lib/reservation-edit-log");
+        const editEvents = await listEditEventsByAnchors(legs.map((l) => l.id));
+        const known = new Set(facts.depositOrder.tenders.map((t) => t.paymentId));
+        for (const ev of editEvents) {
+          if (ev.state !== "completed") continue;
+          for (const paymentId of ev.paymentIds ?? []) {
+            if (known.has(paymentId)) continue;
+            known.add(paymentId);
+            const pay = await fetchPaymentFacts(paymentId);
+            facts.payments[paymentId] = pay;
+            facts.depositOrder.tenders.push({ paymentId, amountCents: pay.amountCents });
+          }
+        }
+      } catch (err) {
+        warnings.push(
+          `Edit-payment lookup failed (${err instanceof Error ? err.message : "error"}) — ` +
+            "verify no edit top-ups are being missed before refunding.",
+        );
+      }
+    }
+
     refundsNeeded = tenderRefundsNeeded(facts);
     const neededCents = refundsNeeded.reduce((s, r) => s + r.amountCents, 0);
     const priorRefundCents = Object.values(facts.payments).reduce((s, p) => s + p.refundedCents, 0);

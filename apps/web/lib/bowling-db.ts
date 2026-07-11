@@ -2631,6 +2631,96 @@ export async function upsertReservationPlayer(
   return rows.length ? rowToPlayer(rows[0] as Record<string, unknown>) : null;
 }
 
+/**
+ * Commit a reservation edit to Neon in one call: replace the priced lines,
+ * update player_count / total_cents / deposit_cents, refresh the pricing
+ * stamp, and true-up the player slot rows (extra slots beyond the new count
+ * are deleted; missing slots are inserted). Called by the reservation-edit
+ * cascade AFTER the Square money steps succeed — Neon mirrors what Square
+ * now holds.
+ */
+export async function updateReservationAfterEdit(
+  reservationId: number,
+  update: {
+    lines: ReservationLine[];
+    playerCount?: number;
+    totalCents: number;
+    depositCents?: number;
+    /** Refreshed booking_metadata.bowling stamp (laneCount changes). */
+    bowlingStamp?: Record<string, unknown>;
+    players?: Array<{
+      slot: number;
+      name?: string | null;
+      shoeSize?: string | null;
+      bumpers?: boolean | null;
+    }>;
+    qamfReservationId?: string;
+    appendNote?: string;
+  },
+): Promise<void> {
+  if (!isDbConfigured()) throw new Error("bowling-db: DATABASE_URL not configured");
+  await ensureBowlingSchema();
+  const q = sql();
+
+  await q`
+    UPDATE bowling_reservations SET
+      total_cents   = ${update.totalCents},
+      deposit_cents = COALESCE(${update.depositCents ?? null}, deposit_cents),
+      player_count  = COALESCE(${update.playerCount ?? null}, player_count),
+      qamf_reservation_id = COALESCE(${update.qamfReservationId ?? null}, qamf_reservation_id),
+      booking_metadata = CASE
+        WHEN ${update.bowlingStamp ? JSON.stringify(update.bowlingStamp) : null}::jsonb IS NULL
+          THEN booking_metadata
+        ELSE COALESCE(booking_metadata, '{}'::jsonb)
+             || jsonb_build_object('bowling', ${update.bowlingStamp ? JSON.stringify(update.bowlingStamp) : null}::jsonb)
+      END,
+      notes = CASE
+        WHEN ${update.appendNote ?? null}::text IS NULL THEN notes
+        ELSE CONCAT_WS(E'\n', NULLIF(notes, ''), ${update.appendNote ?? null}::text)
+      END
+    WHERE id = ${reservationId}
+  `;
+
+  await q`DELETE FROM bowling_reservation_lines WHERE reservation_id = ${reservationId}`;
+  for (const line of update.lines) {
+    await q`
+      INSERT INTO bowling_reservation_lines
+        (reservation_id, square_product_id, label, quantity, unit_price_cents)
+      VALUES
+        (${reservationId}, ${line.squareProductId ?? null}, ${line.label},
+         ${line.quantity}, ${line.unitPriceCents})
+    `;
+  }
+
+  if (update.players) {
+    for (const p of update.players) {
+      await q`
+        INSERT INTO bowling_reservation_players (reservation_id, slot, name, shoe_size, bumpers)
+        VALUES (${reservationId}, ${p.slot}, ${p.name ?? null}, ${p.shoeSize ?? null}, ${p.bumpers ?? null})
+        ON CONFLICT (reservation_id, slot) DO UPDATE SET
+          name = EXCLUDED.name,
+          shoe_size = EXCLUDED.shoe_size,
+          bumpers = EXCLUDED.bumpers,
+          updated_at = NOW()
+      `;
+    }
+    const keepSlots = update.players.map((p) => p.slot);
+    if (update.playerCount != null) {
+      await q`
+        DELETE FROM bowling_reservation_players
+        WHERE reservation_id = ${reservationId}
+          AND slot > ${update.playerCount}
+          AND NOT (slot = ANY(${keepSlots}))
+      `;
+    }
+  } else if (update.playerCount != null) {
+    await q`
+      DELETE FROM bowling_reservation_players
+      WHERE reservation_id = ${reservationId} AND slot > ${update.playerCount}
+    `;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Experience catalog helpers
 // ─────────────────────────────────────────────────────────────────
