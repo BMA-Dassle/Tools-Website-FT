@@ -414,7 +414,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "neon_commit": {
-            await commitNeon(anchor, plan, req, newQamfReservationId, rebuiltOrders);
+            await commitNeon(plan, req, newQamfReservationId, rebuiltOrders);
             stepLog.push({ step: step.kind, ok: true });
             break;
           }
@@ -805,7 +805,6 @@ const rebuildAndSettleDayofOrders = async (
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 const commitNeon = async (
-  anchor: BowlingReservation,
   plan: EditPlan,
   req: ExecuteEditRequest,
   newQamfReservationId?: string,
@@ -819,7 +818,6 @@ const commitNeon = async (
       quantity: l.quantity,
       unitPriceCents: l.unitPriceCents,
     }));
-    const stamp = (anchor.bookingMetadata as { bowling?: Record<string, unknown> })?.bowling;
     await updateReservationAfterEdit(leg.reservationId, {
       lines,
       playerCount: leg.newPlayerCount ?? undefined,
@@ -827,14 +825,17 @@ const commitNeon = async (
       // PRE phase keeps the deposit == day-of total invariant; later phases
       // leave the recorded deposit (already spent) untouched.
       depositCents: plan.phase === "pre" ? leg.newTotalCents : undefined,
-      bowlingStamp:
-        stamp && (leg.newLaneCount != null || leg.newDuration)
-          ? {
-              ...stamp,
-              ...(leg.newLaneCount != null ? { laneCount: leg.newLaneCount } : {}),
-              ...(leg.newDuration ? { durationMultiplier: leg.newDuration.multiplier } : {}),
-            }
-          : undefined,
+      // Self-heal: persist the stamp the plan resolved for THIS leg (stamped
+      // or derived — legacy rows gain booking_metadata.bowling on their first
+      // successful edit). Carry-mode legs resolve nothing and leave the row's
+      // metadata untouched.
+      bowlingStamp: leg.resolvedStamp
+        ? {
+            ...leg.resolvedStamp,
+            ...(leg.newLaneCount != null ? { laneCount: leg.newLaneCount } : {}),
+            ...(leg.newDuration ? { durationMultiplier: leg.newDuration.multiplier } : {}),
+          }
+        : undefined,
       players: req.plan.spec.players?.map((p) => ({
         slot: p.slot,
         name: p.name,

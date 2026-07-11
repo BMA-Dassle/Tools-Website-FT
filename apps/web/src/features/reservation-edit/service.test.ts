@@ -157,6 +157,7 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
       newPlayerCount: 4,
       newLaneCount: 1,
       newDuration: null,
+      resolvedStamp: null,
       removedHeats: null,
       raceAdds: null,
       attractionChanges: null,
@@ -257,6 +258,43 @@ describe("executeEditCascade — PRE increase", () => {
       42,
       expect.objectContaining({ totalCents: 9999, depositCents: 9999 }),
     );
+  });
+
+  it("persists the plan-resolved stamp (self-heal) with the lane override applied", async () => {
+    const base = mkPlan(PRE_INCREASE_STEPS);
+    const plan = {
+      ...base,
+      legs: [
+        {
+          ...base.legs[0],
+          resolvedStamp: {
+            experienceSlug: "fun-4-all",
+            laneCount: 1,
+            durationMultiplier: 1,
+            pricingMode: "per_person" as const,
+          },
+          newLaneCount: 2,
+        },
+      ],
+    };
+    await executeEditCascade(baseReq(plan));
+    expect(vi.mocked(updateReservationAfterEdit)).toHaveBeenCalledWith(
+      42,
+      expect.objectContaining({
+        bowlingStamp: {
+          experienceSlug: "fun-4-all",
+          laneCount: 2,
+          durationMultiplier: 1,
+          pricingMode: "per_person",
+        },
+      }),
+    );
+  });
+
+  it("leaves booking_metadata untouched when the plan resolved no stamp (carry mode)", async () => {
+    await executeEditCascade(baseReq(mkPlan(PRE_INCREASE_STEPS)));
+    const update = vi.mocked(updateReservationAfterEdit).mock.calls[0][1];
+    expect(update.bowlingStamp).toBeUndefined();
   });
 
   it("a failed order PUT finishes the row as failed and keeps the payment ids", async () => {

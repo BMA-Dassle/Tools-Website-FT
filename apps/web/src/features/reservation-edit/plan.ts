@@ -45,6 +45,7 @@ import {
 } from "./reprice";
 import {
   EditGuardError,
+  type BowlingBookedStamp,
   type EditPaymentSource,
   type EditPhase,
   type EditSettlement,
@@ -89,6 +90,13 @@ export interface EditPlanLeg {
   newLaneCount: number | null;
   /** Set on a duration change: the target option (QAMF rebook uses its Time id). */
   newDuration: { optionId: number; qamfOptionId: number; multiplier: number } | null;
+  /**
+   * The BOOKED pricing stamp this plan resolved (stamped or derived) — null on
+   * race legs and carry-mode bowling legs. commitNeon persists it (with the
+   * newLaneCount/newDuration overrides applied), so legacy rows self-heal
+   * their booking_metadata.bowling on the first successful edit.
+   */
+  resolvedStamp: BowlingBookedStamp | null;
   /** Race legs: metadata heats removed / racers added (execution inputs). */
   removedHeats: Array<{ index: number; bmiLineId: string | null; label: string }> | null;
   /**
@@ -812,6 +820,14 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
               multiplier: durationOption.squareMultiplier,
             }
           : null,
+      resolvedStamp: carryPrimary
+        ? null
+        : {
+            experienceSlug: booked.experienceSlug,
+            laneCount: booked.laneCount,
+            durationMultiplier: booked.durationMultiplier,
+            pricingMode: booked.pricingMode,
+          },
       removedHeats: null,
       raceAdds: null,
       attractionChanges,
@@ -828,6 +844,19 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       resolveProduct: resolveRaceProductForCategory,
     });
     warnings.push(...delta.warnings);
+
+    // Legacy rows (booked before heat line-tracking) have no bmiLineId, so a
+    // removal would only fail INSIDE the cascade — after refunds moved. Refuse
+    // at plan time; bmi-sync keeps the execute-time backstop.
+    if (leg.bmiBillId) {
+      const untracked = delta.removedHeats.find((r) => r.bmiLineId == null);
+      if (untracked) {
+        throw new EditGuardError(
+          "bmi_line_unavailable",
+          `"${untracked.label}" was booked before line tracking — remove it via Cancel & Rebook`,
+        );
+      }
+    }
 
     // Apply the delta to the LIVE order lines. Removals match by the Square
     // CATALOG id first (order lines are catalog-linked and Square substitutes
@@ -888,6 +917,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       newPlayerCount: null,
       newLaneCount: null,
       newDuration: null,
+      resolvedStamp: null,
       removedHeats: delta.removedHeats.map((r) => ({
         index: r.index,
         bmiLineId: r.bmiLineId,
@@ -934,6 +964,15 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     for (const index of removeSet) {
       if (!raceHeats[index]) {
         throw new EditGuardError("plan_stale", `heat index ${index} not on the reservation`);
+      }
+      // Same legacy-row refusal as raceLegPlan: no bmiLineId on a billed heat
+      // means the BMI removal can only fail mid-cascade, after refunds moved.
+      if (raceLeg.bmiBillId && raceHeats[index].bmiLineId == null) {
+        throw new EditGuardError(
+          "bmi_line_unavailable",
+          `"${raceHeats[index].racer ?? `heat ${index}`}" was booked before line tracking — ` +
+            "remove it via Cancel & Rebook",
+        );
       }
     }
 
@@ -1098,6 +1137,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         newPlayerCount: null,
         newLaneCount: null,
         newDuration: null,
+        resolvedStamp: null,
         removedHeats: legRemoved,
         raceAdds: null,
         attractionChanges: null,

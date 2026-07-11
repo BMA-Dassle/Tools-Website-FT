@@ -29,7 +29,7 @@ vi.mock("~/features/card-vault", () => ({
 
 import { getBowlingReservation, listCancelGroupReservations } from "@/lib/bowling-db";
 import { buildEditPlan } from "./plan";
-import { EditGuardError } from "./types";
+import { EditGuardError, type HeatMeta } from "./types";
 
 const PRODUCTS = [
   {
@@ -544,5 +544,73 @@ describe("buildEditPlan — duration changes", () => {
     expect(
       await guardCode(() => buildEditPlan({ neonId: 42, spec: { durationOptionId: 99 } })),
     ).toBe("pricing_unresolvable");
+  });
+});
+
+describe("buildEditPlan — race heat removals", () => {
+  const mkHeat = (over: Partial<HeatMeta> = {}): HeatMeta =>
+    ({
+      productId: null,
+      track: "pro",
+      heatId: "2026-08-01T15:00:00",
+      assignedTo: null,
+      bmiPersonId: null,
+      racer: "Ann",
+      ...over,
+    }) as HeatMeta;
+
+  const useRaceRow = (heats: HeatMeta[]) => {
+    const row = mkRow({
+      productKind: "race",
+      bmiBillId: "80000000000000001",
+      bookingMetadata: { heats },
+      lines: [],
+    } as never);
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+  };
+
+  beforeEach(() => {
+    world.order.lines = [{ uid: "u1", name: "Race heat", qty: 2, unit: 2500 }];
+  });
+
+  it("refuses a legacy heat (no bmiLineId) at PLAN time, before any money step", async () => {
+    useRaceRow([mkHeat(), mkHeat({ racer: "Bob" })]);
+    expect(
+      await guardCode(() =>
+        buildEditPlan({ neonId: 42, spec: { racers: { removeHeatIndexes: [0] } } }),
+      ),
+    ).toBe("bmi_line_unavailable");
+  });
+
+  it("plans the removal when the heat carries its bmiLineId", async () => {
+    useRaceRow([
+      mkHeat({ bmiLineId: "60000000000000001" }),
+      mkHeat({ racer: "Bob", bmiLineId: "60000000000000002" }),
+    ]);
+    const plan = await buildEditPlan({
+      neonId: 42,
+      spec: { racers: { removeHeatIndexes: [0] } },
+    });
+    expect(plan.legs[0].removedHeats).toEqual([
+      { index: 0, bmiLineId: "60000000000000001", label: "Race heat" },
+    ]);
+    expect(plan.diffCents).toBeLessThan(0);
+  });
+
+  it("rows without a BMI bill skip the line-tracking guard", async () => {
+    const row = mkRow({
+      productKind: "race",
+      bmiBillId: null,
+      bookingMetadata: { heats: [mkHeat(), mkHeat({ racer: "Bob" })] },
+      lines: [],
+    } as never);
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+    const plan = await buildEditPlan({
+      neonId: 42,
+      spec: { racers: { removeHeatIndexes: [0] } },
+    });
+    expect(plan.legs[0].removedHeats).toEqual([{ index: 0, bmiLineId: null, label: "Race heat" }]);
   });
 });

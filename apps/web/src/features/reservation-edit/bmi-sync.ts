@@ -18,6 +18,7 @@ import { sql } from "@/lib/db";
 import { getBowlingReservation, type BowlingReservation } from "@/lib/bowling-db";
 import { bmiBookingTarget, type RaceTier } from "~/features/booking/service/race-products";
 import { ATTRACTIONS, type LocationKey } from "@/lib/attractions-data";
+import { resolveCenter } from "~/features/cancellation/centers";
 
 import type { EditPlan } from "./plan";
 import type { RaceAddPlan } from "./reprice";
@@ -140,7 +141,9 @@ export const syncBmiRaceEdit = async (params: {
 
   const billId = raceRow.bmiBillId;
   if (!billId) throw new EditGuardError("bmi_line_unavailable", "reservation has no BMI bill");
-  const clientKey = raceRow.centerCode === "naples" ? "headpinznaples" : "headpinzftmyers";
+  // center_code is a mixed namespace (v1 rows: Square location ids) — a raw
+  // compare would hand v1 Naples rows the Fort Myers key.
+  const clientKey = resolveCenter(raceRow.centerCode, raceRow.productKind).bmiClientKey;
 
   const raceLeg = raceLegPlan;
   const heatsMeta = heatsMetaOf(raceRow);
@@ -372,9 +375,13 @@ export const syncBmiAttractionEdit = async (params: {
     if (!config) {
       throw new EditGuardError("bmi_line_unavailable", `unknown attraction slug ${change.slug}`);
     }
-    // Location: HeadPinz building for the row's center; fall back to the
+    // Location: HeadPinz building for the row's center (center_code is a
+    // mixed namespace — resolve, don't raw-compare); fall back to the
     // config's only-products location (e.g. fasttrax-only attractions).
-    let location: LocationKey = anchor.centerCode === "naples" ? "naples" : "headpinz";
+    let location: LocationKey =
+      resolveCenter(anchor.centerCode, anchor.productKind).slug === "naples"
+        ? "naples"
+        : "headpinz";
     if (!config.products.some((p) => p.location === location)) {
       const fallback = config.products[0]?.location;
       if (!fallback) {
