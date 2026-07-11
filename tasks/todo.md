@@ -231,6 +231,12 @@ categories + tier starter category junior (Blue only — juniors don't run Red/M
 
 ## Self-service "edit reservation up to check-in" — SPEC, awaiting approval 2026-06-21
 
+> **2026-07-11:** the admin-side superset of this feature is now fully specced and APPROVED —
+> see [tasks/future/reservation-editing-plan.md](future/reservation-editing-plan.md) (staff edit
+> engine: repricing, refunds both directions, QAMF/BMI sync, card-on-file vault + 72h sweep,
+> EditReservationModal). This self-service spec becomes a thin guest-facing client of that engine
+> once it ships; build the engine first.
+
 **Goal:** let a guest change their booked bowling reservation (food, players, lanes, time)
 any time before check-in; if the change increases the total, charge the difference.
 
