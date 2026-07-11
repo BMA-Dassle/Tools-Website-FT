@@ -1,5 +1,14 @@
 # Fix Existing Reservations for the Edit Engine — Remediation Plan
 
+**Status: BUILT 2026-07-11** (commits `e801091e` PR A hardening, `f1c9606a` PR B backfill).
+The backfill route exists but has **not been run against prod** — follow § Verification
+(dryRun first, spot-check stamps, single-row repair, then batches).
+Implementation notes vs. this doc: `resolveCenter(centerCode, productKind)` returns
+`bmiClientKey` directly (used at bmi-sync clientKey + attraction location); the self-heal
+threads `resolvedStamp` on `EditPlanLeg` and commitNeon persists it on EVERY successful
+bowling-leg edit (not only lane/duration changes); the experience-resolution extraction
+became `experience-resolve.ts` (async dual-namespace loader + pure matcher).
+
 ## Context
 
 Live testing on the Vercel preview showed "a lot of problems with existing reservations." Research confirmed why: the two metadata stamps the edit engine leans on — `booking_metadata.bowling` (pricing mode/lane count/duration) and per-heat `bmiLineId` — were introduced **on this unmerged branch** (PR 0, commit `14e6a43`). **Zero production rows have them.** Every pre-existing reservation takes the legacy-derivation path; where that fails, edits degrade to carry-mode (shoes/roster/attractions only) and player/lane/duration edits are blocked with `pricing_unresolvable`.

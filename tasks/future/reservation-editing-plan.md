@@ -378,8 +378,11 @@ add/remove with $0 re-confirm + Pandora −3 + verify-after; cancel-awareness in
 **Before ANY flag flips on:** run the §13 live smoke checklist top to bottom (Square sandbox +
 QAMF staging). Item 1 (A1) gates MID_DECREASE and POST.
 
-**Next step (2026-07-11, planned + owner-approved decisions):** existing/pre-branch reservations
-lack the PR-0 stamps (`booking_metadata.bowling`, heat `bmiLineId`) — see
-[reservation-metadata-remediation-plan.md](reservation-metadata-remediation-plan.md) for the
-backfill + hardening plan (PR A code fixes, PR B pricing-stamp backfill; legacy heat removals
-refuse cleanly and age out per owner decision).
+**Remediation (2026-07-11, BUILT):** existing/pre-branch reservations lack the PR-0 stamps
+(`booking_metadata.bowling`, heat `bmiLineId`) — the
+[remediation plan](reservation-metadata-remediation-plan.md) landed as two commits: hardening
+(plan-time legacy-heat-removal guard, `resolveCenter` in bmi-sync, stamp self-heal on
+successful edits) and the `POST /api/admin/bowling/backfill-pricing-stamp` backfill
+(dryRun-default, additive jsonb merge, skip-and-report). **The backfill has NOT been run
+against prod yet** — run it dryRun-first on the preview per that doc's Verification section.
+Legacy heat removals refuse cleanly at plan time and age out per owner decision.
