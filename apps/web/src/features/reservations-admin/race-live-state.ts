@@ -15,8 +15,9 @@
  * not a track log: staff call racers to the grid 1-2 heats AHEAD of what's
  * actually running (live 2026-07-10: heat 47 called at 8:07 PM while heat
  * 45 was still on track and 46 hadn't run), so "the watermark passed this
- * heat" must never imply the heat ran. The orphan-session quirk — a
- * session's `actualEnd` never gets stamped (live 2026-07-08: Blue heat 35
+ * heat" must never imply the heat ran — it means the heat was CALLED (calls
+ * are strictly ordered), and it races within ~30 min. The orphan-session
+ * quirk — a session's `actualEnd` never gets stamped (live 2026-07-08: Blue heat 35
  * sat "open" while heats 36-40 finished after it) — is guarded by a later
  * heat's actualStart instead.
  *
@@ -58,9 +59,10 @@ export function trackKeyFromName(name: string | null | undefined): TrackKey | nu
   return m ? (m[1].toLowerCase() as TrackKey) : null;
 }
 
-/** Pandora auto-expires races/current entries ~20 min after the call, so a
- *  watermark older than that no longer means "being called right now". */
-const CALLED_WINDOW_MS = 20 * 60_000;
+/** Racers race within ~30 min of their grid call (owner rule 2026-07-10) —
+ *  a called heat isn't "delayed" inside that window. Past it, the track has
+ *  genuinely stalled and the heat degrades to not_called (amber Delayed). */
+const CALLED_WINDOW_MS = 30 * 60_000;
 
 /**
  * Resolve one heat's live state against its track's session list.
@@ -99,19 +101,26 @@ export function resolveRaceLiveState(args: {
       ? "finished"
       : target.actualStart
         ? "on_track"
-        : isCalledNow(target, watermark, nowMs)
+        : isCalled(target, watermark, nowMs)
           ? "called"
           : "not_called";
   return { sessionId: target.sessionId, heatNumber: target.heatNumber, raceState: state };
 }
 
-/** This session is the track's current call (racers checking in at the grid). */
-function isCalledNow(
+/** This heat has been called to the grid. Calls are strictly ordered per
+ *  track, so a watermark AT or PAST this heat means its call already went
+ *  out — the call runs 1-2 heats ahead of the track, and racers race within
+ *  ~30 min of being called (owner rule 2026-07-10: that's normal operation,
+ *  not a delay). We only know the LATEST call's timestamp; using it for
+ *  passed heats holds "called" slightly longer than 30-min-from-own-call,
+ *  which is fine — any later heat actually STARTING flips this one to
+ *  finished via laterHeatRan before staleness matters. */
+function isCalled(
   target: TrackSession,
   watermark: TrackWatermark | null | undefined,
   nowMs: number,
 ): boolean {
-  if (!watermark || String(watermark.sessionId) !== target.sessionId) return false;
+  if (!watermark || watermark.heatNumber < target.heatNumber) return false;
   const calledMs = Date.parse(watermark.calledAt);
   return Number.isFinite(calledMs) && nowMs - calledMs < CALLED_WINDOW_MS;
 }

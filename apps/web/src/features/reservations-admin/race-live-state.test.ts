@@ -100,15 +100,34 @@ describe("resolveRaceLiveState", () => {
     expect(r?.raceState).toBe("finished");
   });
 
-  it("watermark past an UNRUN heat → not_called, never finished (call-ahead regression)", () => {
+  it("watermark past an UNRUN heat → called, never finished (call-ahead regression)", () => {
     // Live 2026-07-10 8:07 PM: races/current called heat 47 while heat 45 was
     // still racing and 46 had actualStart=null — the grid call runs 1-2 heats
     // ahead of the track. The old watermarkPast inference marked two 8:00 PM
-    // combos Done for heats that hadn't run.
+    // combos Done for heats that hadn't run. Calls are strictly ordered, so a
+    // passed watermark means this heat's call already went out — it's CALLED
+    // (racing within ~30 min of a call is normal), not done and not delayed.
     const watermark: TrackWatermark = {
       sessionId: 54171736,
       heatNumber: 36,
       calledAt: new Date(NOW - 2 * 60_000).toISOString(),
+    };
+    const r = resolveRaceLiveState({
+      heatStartIso: HEAT_ET,
+      sessions: base(),
+      watermark,
+      nowMs: NOW,
+    });
+    expect(r?.raceState).toBe("called");
+  });
+
+  it("watermark past an unrun heat, track stalled >30 min → not_called (real delay)", () => {
+    // The latest call on the WHOLE track is >30 min old and this heat still
+    // hasn't run — that's a genuine delay, not normal call-ahead flow.
+    const watermark: TrackWatermark = {
+      sessionId: 54171736,
+      heatNumber: 36,
+      calledAt: new Date(NOW - 35 * 60_000).toISOString(),
     };
     const r = resolveRaceLiveState({
       heatStartIso: HEAT_ET,
@@ -136,9 +155,9 @@ describe("resolveRaceLiveState", () => {
     expect(r?.raceState).toBe("on_track");
   });
 
-  it("watermark == this session within the 20-min window → called", () => {
+  it("watermark == this session within the 30-min window → called", () => {
     const watermark: TrackWatermark = {
-      sessionId: 54171735, // number per races/current — string-compared
+      sessionId: 54171735, // number per races/current — compared by heatNumber
       heatNumber: 35,
       calledAt: new Date(NOW - 5 * 60_000).toISOString(),
     };
@@ -151,11 +170,11 @@ describe("resolveRaceLiveState", () => {
     expect(r?.raceState).toBe("called");
   });
 
-  it("stale call (>20 min) no longer counts as called", () => {
+  it("stale call (>30 min) no longer counts as called", () => {
     const watermark: TrackWatermark = {
       sessionId: 54171735,
       heatNumber: 35,
-      calledAt: new Date(NOW - 25 * 60_000).toISOString(),
+      calledAt: new Date(NOW - 35 * 60_000).toISOString(),
     };
     const r = resolveRaceLiveState({
       heatStartIso: HEAT_ET,
@@ -265,7 +284,9 @@ describe("raceSettleGate", () => {
       todayEtYmd: TODAY,
     });
     expect(g.eligible).toBe(false);
-    expect(g.reason).toContain("not_called");
+    // Recent call (<30 min) + watermark past ⇒ the heat is CALLED and about
+    // to run — the gate waits for it, it never charges early.
+    expect(g.reason).toContain("heat called");
   });
 
   it("unresolvable heat: waits inside 45m, clock-settles after", () => {
