@@ -163,8 +163,14 @@ export const repriceBowling = (params: {
    * set, the primary line swaps to this product at its live catalog price.
    */
   desiredPrimary?: ProductFacts | null;
+  /**
+   * Carry the primary line UNCHANGED (shoe/roster/attraction-only edits).
+   * Lets legacy rows whose pricing mode can't be resolved still take edits
+   * that never scale the lane line.
+   */
+  carryPrimary?: boolean;
 }): BowlingRepriceResult => {
-  const { booked, lines, spec, shoeCatalog, durationOption, desiredPrimary } = params;
+  const { booked, lines, spec, shoeCatalog, durationOption, desiredPrimary, carryPrimary } = params;
   const warnings: EditWarning[] = [];
 
   if (durationOption && booked.pricingMode !== "per_lane") {
@@ -199,6 +205,19 @@ export const repriceBowling = (params: {
         throw new EditGuardError("pricing_unresolvable", "multiple primary lane lines");
       }
       sawPrimary = true;
+      if (carryPrimary) {
+        // Nothing in this edit scales the lane line — pass it through as
+        // booked (price and quantity untouched, no arithmetic to reconcile).
+        out.push({
+          squareProductId: l.squareProductId,
+          squareCatalogObjectId: l.squareCatalogObjectId,
+          label: l.label,
+          quantity: l.quantity,
+          unitPriceCents: l.unitPriceCents,
+          role: "primary",
+        });
+        continue;
+      }
       const bookedCount = booked.pricingMode === "per_lane" ? booked.laneCount : currentPlayers;
       const perUnit = l.quantity / (bookedCount * booked.durationMultiplier);
       if (!Number.isInteger(perUnit) || perUnit < 1) {
@@ -271,7 +290,7 @@ export const repriceBowling = (params: {
     });
   }
 
-  if (!sawPrimary) {
+  if (!sawPrimary && !carryPrimary) {
     throw new EditGuardError("pricing_unresolvable", "no primary lane line on the reservation");
   }
 
@@ -377,35 +396,62 @@ export interface RaceHeatSlot {
   productId: string | null;
 }
 
+/** A booked/added heat product resolved for a SPECIFIC racer category. */
+export interface ResolvedRaceProduct {
+  /** The BMI product to book for that category (cross-category counterpart). */
+  bmiProductId: string;
+  label: string;
+  priceCents: number;
+  /** Square catalog id — the day-of order lines link to THIS, not our names. */
+  catalogObjectId: string | null;
+}
+
+export interface RaceAddPlan {
+  firstName: string;
+  lastName: string;
+  isNew: boolean;
+  bmiPersonId: string | null;
+  category: "adult" | "junior";
+  heats: Array<{ heatId: string; track: string | null; tier: string | null; bmiProductId: string }>;
+}
+
 export interface RaceRepriceDelta {
   /** Lines the edit ADDS to the day-of order (per added racer, per heat). */
   addedLines: RepricedLine[];
-  /** Metadata heats the edit REMOVES, with their line value + BMI line ref. */
+  /** Metadata heats the edit REMOVES, with their line refs for matching. */
   removedHeats: Array<{
     index: number;
     heat: HeatMeta;
     bmiLineId: string | null;
     label: string;
     unitPriceCents: number;
+    catalogObjectId: string | null;
   }>;
-  /** License lines added for new racers. */
+  /** Per-racer resolved booking plan (bmi-sync executes exactly this). */
+  raceAdds: RaceAddPlan[];
   warnings: EditWarning[];
 }
 
 /**
  * Delta repricer for race rows: each added racer joins every DISTINCT heat
- * slot already on the reservation (same product/track/tier as the roster);
- * removals are by metadata index. Product prices are injected so this module
- * stays pure — plan.ts wires getRaceProductById + the visit-date schedule.
+ * slot already on the reservation; removals are by metadata index. Product
+ * resolution is injected (plan.ts wires the registry + Square catalog map)
+ * and is CATEGORY-AWARE — adding an adult to junior heats resolves the adult
+ * counterpart product (same tier/track/schedule) for pricing AND booking.
  */
 export const repriceRaceDelta = (params: {
   heatsMeta: HeatMeta[];
   add: EditRacerAdd[];
   removeHeatIndexes: number[];
-  /** Resolve a race product's unit price in cents (null = unknown product). */
-  productPriceCents: (productId: string, category: "adult" | "junior") => number | null;
-  /** Resolve the product's display label. */
-  productLabel: (productId: string, category: "adult" | "junior") => string;
+  /**
+   * Resolve the product for a heat slot at the requested category. Returns
+   * null when unknown; a string return is a human-readable refusal reason
+   * (e.g. "juniors can't race the Red track").
+   */
+  resolveProduct: (
+    productId: string,
+    category: "adult" | "junior",
+  ) => ResolvedRaceProduct | string | null;
 }): RaceRepriceDelta => {
   const { heatsMeta, add, removeHeatIndexes } = params;
   const warnings: EditWarning[] = [];
@@ -419,21 +465,32 @@ export const repriceRaceDelta = (params: {
       throw new EditGuardError("plan_stale", `heat index ${index} not on the reservation`);
     }
     const category = heat.category === "junior" ? "junior" : "adult";
-    const price = heat.productId ? params.productPriceCents(heat.productId, category) : null;
-    if (price == null) {
+    const resolved = heat.productId ? params.resolveProduct(heat.productId, category) : null;
+    const product = typeof resolved === "object" && resolved !== null ? resolved : null;
+    if (!product) {
       warnings.push({
         severity: "warning",
         code: "heat_price_unknown",
-        message: `heat ${heat.heatId ?? index} has no resolvable product price; verify the diff`,
+        message: `heat ${heat.heatId ?? index} has no resolvable product; verify the diff`,
       });
     }
     removedHeats.push({
       index,
       heat,
       bmiLineId: heat.bmiLineId ?? null,
-      label: heat.productId ? params.productLabel(heat.productId, category) : "Race heat",
-      unitPriceCents: price ?? 0,
+      label: product?.label ?? "Race heat",
+      unitPriceCents: product?.priceCents ?? 0,
+      catalogObjectId: product?.catalogObjectId ?? null,
     });
+  }
+
+  // Removing EVERY heat with nothing added is a cancellation, not an edit —
+  // the cancel cascade owns refunds/teardown for that.
+  if (removeSet.size > 0 && removeSet.size >= heatsMeta.length && add.length === 0) {
+    throw new EditGuardError(
+      "unsupported_kind",
+      "removing every heat empties the reservation — use the Cancel action instead",
+    );
   }
 
   // Additions — every added racer joins the surviving distinct heat slots.
@@ -457,8 +514,17 @@ export const repriceRaceDelta = (params: {
   }
 
   const addedLines: RepricedLine[] = [];
+  const raceAdds: RaceAddPlan[] = [];
   for (const racer of add) {
     const category = racer.category ?? "adult";
+    const plan: RaceAddPlan = {
+      firstName: racer.firstName,
+      lastName: racer.lastName ?? "",
+      isNew: racer.isNew ?? false,
+      bmiPersonId: racer.bmiPersonId ?? null,
+      category,
+      heats: [],
+    };
     for (const slot of slotByHeatId.values()) {
       if (!slot.productId) {
         throw new EditGuardError(
@@ -466,20 +532,29 @@ export const repriceRaceDelta = (params: {
           `heat ${slot.heatId} has no product id to price the added racer`,
         );
       }
-      const price = params.productPriceCents(slot.productId, category);
-      if (price == null) {
+      const resolved = params.resolveProduct(slot.productId, category);
+      if (typeof resolved === "string") {
+        throw new EditGuardError("pricing_unresolvable", resolved);
+      }
+      if (!resolved) {
         throw new EditGuardError(
           "pricing_unresolvable",
-          `no price for product ${slot.productId} (${category})`,
+          `no ${category} product matches heat ${slot.heatId} — add this racer via the booking flow`,
         );
       }
       addedLines.push({
         squareProductId: null,
-        squareCatalogObjectId: null,
-        label: params.productLabel(slot.productId, category),
+        squareCatalogObjectId: resolved.catalogObjectId,
+        label: resolved.label,
         quantity: 1,
-        unitPriceCents: price,
+        unitPriceCents: resolved.priceCents,
         role: "race",
+      });
+      plan.heats.push({
+        heatId: slot.heatId,
+        track: slot.track,
+        tier: slot.tier,
+        bmiProductId: resolved.bmiProductId,
       });
     }
     if (racer.isNew) {
@@ -492,9 +567,10 @@ export const repriceRaceDelta = (params: {
         role: "license",
       });
     }
+    raceAdds.push(plan);
   }
 
-  return { addedLines, removedHeats, warnings };
+  return { addedLines, removedHeats, raceAdds, warnings };
 };
 
 /* ── Combo reprice (full roster) ──────────────────────────────────────── */

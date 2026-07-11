@@ -16,10 +16,11 @@
 import { stringifyWithRawIds } from "@ft/db";
 import { sql } from "@/lib/db";
 import { getBowlingReservation, type BowlingReservation } from "@/lib/bowling-db";
-import { bmiBookingTarget } from "~/features/booking/service/race-products";
+import { bmiBookingTarget, type RaceTier } from "~/features/booking/service/race-products";
 import { ATTRACTIONS, type LocationKey } from "@/lib/attractions-data";
 
 import type { EditPlan } from "./plan";
+import type { RaceAddPlan } from "./reprice";
 import { EditGuardError, type HeatMeta } from "./types";
 
 const RACE_PANDORA_LOCATION = "LAB52GY480CJF"; // FastTrax (race bills live here)
@@ -163,28 +164,52 @@ export const syncBmiRaceEdit = async (params: {
   }
 
   if (params.mode === "add") {
-    const adds = plan.spec.racers?.add ?? [];
-    if (adds.length === 0) return { detail: "nothing to add" };
-    const removeSet = new Set((raceLeg?.removedHeats ?? []).map((r) => r.index));
-    const surviving = heatsMeta.filter((_, i) => !removeSet.has(i));
-    const slots = new Map<string, HeatMeta>();
-    for (const h of surviving) {
-      if (h.heatId && h.productId && !slots.has(h.heatId)) slots.set(h.heatId, h);
+    // Prefer the plan's resolved per-racer booking plan: plan.ts resolves each
+    // added racer's product PER HEAT at the racer's OWN category (an adult
+    // joining junior heats books the adult counterpart product), so what was
+    // priced is exactly what gets booked. Combo legs don't carry raceAdds —
+    // fall back to joining each surviving slot's own product.
+    let racerPlans: RaceAddPlan[] | null = raceLeg?.raceAdds ?? null;
+    if (!racerPlans) {
+      const specAdds = plan.spec.racers?.add ?? [];
+      if (specAdds.length === 0) return { detail: "nothing to add" };
+      const removeSet = new Set((raceLeg?.removedHeats ?? []).map((r) => r.index));
+      const surviving = heatsMeta.filter((_, i) => !removeSet.has(i));
+      const slots = new Map<string, HeatMeta>();
+      for (const h of surviving) {
+        if (h.heatId && h.productId && !slots.has(h.heatId)) slots.set(h.heatId, h);
+      }
+      if (slots.size === 0) {
+        throw new EditGuardError("pricing_unresolvable", "no surviving heats to join");
+      }
+      racerPlans = specAdds.map((racer) => ({
+        firstName: racer.firstName,
+        lastName: racer.lastName ?? "",
+        isNew: racer.isNew ?? false,
+        bmiPersonId: racer.bmiPersonId ?? null,
+        category: racer.category ?? "adult",
+        heats: [...slots.values()].map((slot) => ({
+          heatId: slot.heatId!,
+          track: slot.track ?? null,
+          tier: slot.tier ?? null,
+          bmiProductId: slot.productId!,
+        })),
+      }));
     }
-    if (slots.size === 0) {
-      throw new EditGuardError("pricing_unresolvable", "no surviving heats to join");
-    }
+    if (racerPlans.length === 0) return { detail: "nothing to add" };
 
     const newHeats: HeatMeta[] = [];
     let booked = 0;
-    for (const racer of adds) {
+    for (const racer of racerPlans) {
       let firstHeat = true;
-      for (const slot of slots.values()) {
-        const withLicense = (racer.isNew ?? false) && firstHeat;
+      for (const heat of racer.heats) {
+        const withLicense = racer.isNew && firstHeat;
         firstHeat = false;
-        const target = bmiBookingTarget(slot.productId!, {
+        const target = bmiBookingTarget(heat.bmiProductId, {
           withLicense,
-          track: slot.track ?? null,
+          category: racer.category,
+          tier: (heat.tier as RaceTier | null) ?? null,
+          track: heat.track ?? null,
         });
 
         const availPayload = JSON.stringify({
@@ -196,7 +221,7 @@ export const syncBmiRaceEdit = async (params: {
           DynamicLines: [],
         });
         const avail = await proxyCall(origin, clientKey, "POST", "availability", availPayload, {
-          date: slot.heatId!.slice(0, 10),
+          date: heat.heatId.slice(0, 10),
         });
         if (avail.status >= 400) throw new Error(`BMI availability ${avail.status}`);
         let proposals: Proposal[] = [];
@@ -209,11 +234,11 @@ export const syncBmiRaceEdit = async (params: {
         } catch {
           throw new Error("BMI availability returned non-JSON");
         }
-        const proposal = findProposalForHeat(proposals, slot.heatId!);
+        const proposal = findProposalForHeat(proposals, heat.heatId);
         if (!proposal) {
           throw new EditGuardError(
             "heat_capacity",
-            `heat ${slot.heatId} has no open spot for the added racer`,
+            `heat ${heat.heatId} has no open spot for the added racer`,
           );
         }
 
@@ -243,13 +268,13 @@ export const syncBmiRaceEdit = async (params: {
         }
         const lineMatch = book.text.match(/"billLineId"\s*:\s*(\d+)/);
         newHeats.push({
-          productId: slot.productId ?? null,
-          track: slot.track ?? null,
-          heatId: slot.heatId ?? null,
+          productId: heat.bmiProductId,
+          track: heat.track,
+          heatId: heat.heatId,
           assignedTo: null,
-          tier: slot.tier ?? null,
-          category: racer.category ?? "adult",
-          bmiPersonId: racer.bmiPersonId ?? null,
+          tier: heat.tier,
+          category: racer.category,
+          bmiPersonId: racer.bmiPersonId,
           racer: racer.firstName,
           bmiLineId: lineMatch ? lineMatch[1] : null,
         });
@@ -260,7 +285,7 @@ export const syncBmiRaceEdit = async (params: {
       if (racer.bmiPersonId) {
         const pBody =
           `{"personId":${racer.bmiPersonId},"orderId":${billId},` +
-          JSON.stringify({ firstName: racer.firstName, lastName: racer.lastName ?? "" }).slice(1);
+          JSON.stringify({ firstName: racer.firstName, lastName: racer.lastName }).slice(1);
         await proxyCall(origin, clientKey, "POST", "person/registerProjectPerson", pBody);
       }
     }
@@ -283,7 +308,7 @@ export const syncBmiRaceEdit = async (params: {
     }
 
     await persistHeatsMeta(raceRow.id, [...heatsMeta, ...newHeats]);
-    return { detail: `booked ${booked} heat line(s) for ${adds.length} racer(s)` };
+    return { detail: `booked ${booked} heat line(s) for ${racerPlans.length} racer(s)` };
   }
 
   // ── mode === "remove" ────────────────────────────────────────────────

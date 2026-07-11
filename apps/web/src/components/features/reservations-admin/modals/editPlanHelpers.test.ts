@@ -63,6 +63,7 @@ const makeLeg = (over: Partial<EditPlanLeg> = {}): EditPlanLeg => ({
   newLaneCount: null,
   newDuration: null,
   removedHeats: null,
+  raceAdds: null,
   attractionChanges: null,
   ...over,
 });

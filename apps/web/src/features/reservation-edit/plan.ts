@@ -25,7 +25,8 @@ import { hasOpenEditEvent } from "@/lib/reservation-edit-log";
 import { fetchGiftCardFacts, sq } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 import { getComboSpecial, type ComboSpecial } from "~/features/combos/combo-specials";
-import { getRaceProductById } from "~/features/booking/service/race-products";
+import { getRaceProductById, _allRaceProducts } from "~/features/booking/service/race-products";
+import { lookupCatalogId } from "~/features/booking/data/square-catalog-map";
 import { isFridayYmd } from "~/features/booking/service/kbf-pricing";
 import { getChargeableCard } from "~/features/card-vault";
 
@@ -38,7 +39,9 @@ import {
   repriceRaceDelta,
   resolveBookedPricing,
   type DurationOptionFacts,
+  type RaceAddPlan,
   type ResolvedBookedPricing,
+  type ResolvedRaceProduct,
 } from "./reprice";
 import {
   EditGuardError,
@@ -88,6 +91,11 @@ export interface EditPlanLeg {
   newDuration: { optionId: number; qamfOptionId: number; multiplier: number } | null;
   /** Race legs: metadata heats removed / racers added (execution inputs). */
   removedHeats: Array<{ index: number; bmiLineId: string | null; label: string }> | null;
+  /**
+   * Race legs: per-racer resolved booking plan for adds — bmi-sync books
+   * EXACTLY these products (cross-category counterparts already resolved).
+   */
+  raceAdds: RaceAddPlan[] | null;
   /** Attraction add-on qty changes (execution inputs for the BMI replace). */
   attractionChanges: Array<{
     index: number;
@@ -124,6 +132,7 @@ export interface EditCurrentState {
     heatId: string | null;
     racer: string | null;
     label: string;
+    category: "adult" | "junior";
     removable: boolean;
   }>;
   /** Hourly rentals: selectable lane-time lengths (empty for non-hourly). */
@@ -318,18 +327,51 @@ const heatsFromMetadata = (row: BowlingReservation): HeatMeta[] => {
   return meta.heats as HeatMeta[];
 };
 
-const raceProductPriceCents = (productId: string, category: "adult" | "junior"): number | null => {
+/**
+ * Resolve the product a heat books at the REQUESTED racer category. Same
+ * category → the heat's own product. Cross-category (adult joining junior
+ * heats or vice versa) → the counterpart product with the same schedule /
+ * tier / track. Carries the Square catalog id — day-of order lines are
+ * catalog-linked and Square substitutes ITS item names, so catalog id is the
+ * only reliable order-line match key.
+ */
+const resolveRaceProductForCategory = (
+  productId: string,
+  category: "adult" | "junior",
+): ResolvedRaceProduct | string | null => {
   const p = getRaceProductById(productId);
   if (!p) return null;
-  // v1: added racers must match the heat product's own category — cross-
-  // category adds need a different product id (book via the wizard instead).
-  if (p.category !== category) return null;
-  return Math.round(p.price * 100);
+  const toResolved = (prod: NonNullable<ReturnType<typeof getRaceProductById>>) => ({
+    bmiProductId: prod.productId,
+    label: prod.name,
+    priceCents: Math.round(prod.price * 100),
+    catalogObjectId: lookupCatalogId(prod.productId),
+  });
+  if (p.category === category) return toResolved(p);
+
+  const singles = _allRaceProducts().filter((c) => !c.packType && !c.trackProducts);
+  const match = (requireRacerType: boolean, requireTrack: boolean) =>
+    singles.find(
+      (c) =>
+        c.category === category &&
+        c.tier === p.tier &&
+        c.schedule === p.schedule &&
+        (!requireRacerType || c.racerType === p.racerType) &&
+        (!requireTrack || p.track == null || c.track === p.track),
+    );
+  const counterpart = match(true, true) ?? match(false, true);
+  if (counterpart) return toResolved(counterpart);
+  if (category === "junior" && p.track && p.track !== "Blue" && p.track !== "Mega") {
+    return `juniors can't race the ${p.track} track — add them via a Blue/Mega heat booking`;
+  }
+  return null;
 };
 
 const raceProductLabel = (productId: string, category: "adult" | "junior"): string => {
-  const p = getRaceProductById(productId);
-  return p ? p.name : `Race product ${productId} (${category})`;
+  const resolved = resolveRaceProductForCategory(productId, category);
+  return typeof resolved === "object" && resolved !== null
+    ? resolved.label
+    : `Race product ${productId} (${category})`;
 };
 
 /* ── The plan builder ─────────────────────────────────────────────────── */
@@ -401,7 +443,13 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
 
   // 3. Current-state block (modal form init) — players/shoes/heats/pricing.
   const { players } = await getReservationPlayersWithShoeAllowance(anchor.id);
-  const centerProducts = await getBowlingSquareProducts(anchor.centerCode);
+  // center_code is a mixed namespace (v1 rows: Square location ids, v2 rows:
+  // slugs) — fetch the catalog under BOTH so legacy rows still resolve.
+  let centerProducts = await getBowlingSquareProducts(anchor.centerCode);
+  const centerSlugForCatalog = resolveCenter(anchor.centerCode, anchor.productKind).slug;
+  if (centerProducts.length === 0 && centerSlugForCatalog !== anchor.centerCode) {
+    centerProducts = await getBowlingSquareProducts(centerSlugForCatalog);
+  }
   const productsById = new Map(centerProducts.map((p) => [p.id, p]));
   const shoeCatalog: ProductFacts[] = centerProducts
     .filter((p) => p.productKind === "addon_shoe")
@@ -457,6 +505,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       label: h.productId
         ? raceProductLabel(h.productId, h.category === "junior" ? "junior" : "adult")
         : "Race heat",
+      category: h.category === "junior" ? ("junior" as const) : ("adult" as const),
       removable: true,
     })),
     durationOptions: [],
@@ -483,13 +532,17 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
 
     // Resolve the experience: needed for the legacy pricing fallback AND for
     // duration options (hourly rentals). Stamp rows resolve by slug; legacy
-    // rows by the primary product.
+    // rows by the primary product — searched in the experience's ITEMS and
+    // its duration-option OVERRIDE products (2h bookings book the override).
     const stamp = (leg.bookingMetadata as { bowling?: { experienceSlug?: string | null } } | null)
       ?.bowling;
     let experience: BowlingExperienceWithDetails | null = null;
     {
       const centerSlug = resolveCenter(leg.centerCode, leg.productKind).slug;
-      const experiences = await getBowlingExperiences(centerSlug);
+      let experiences = await getBowlingExperiences(centerSlug);
+      if (experiences.length === 0 && centerSlug !== leg.centerCode) {
+        experiences = await getBowlingExperiences(leg.centerCode);
+      }
       if (stamp?.experienceSlug) {
         experience = experiences.find((e) => e.slug === stamp.experienceSlug) ?? null;
       }
@@ -499,28 +552,62 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         );
         if (primary?.squareProductId != null) {
           experience =
-            experiences.find((e) =>
-              e.items.some((i) => i.squareProductId === primary.squareProductId),
+            experiences.find(
+              (e) =>
+                e.items.some((i) => i.squareProductId === primary.squareProductId) ||
+                e.durationOptions.some(
+                  (d) => d.overrideSquareProductId === primary.squareProductId,
+                ),
             ) ?? null;
         }
       }
     }
-    const booked: ResolvedBookedPricing = resolveBookedPricing({
-      bookingMetadata: leg.bookingMetadata ?? null,
-      playerCount: legPlayers,
-      lines: stored,
-      experienceKind: experience?.kind ?? null,
-      experienceSlug: experience?.slug ?? null,
-    });
+
+    // Pricing resolution is only REQUIRED when the edit scales the lane line
+    // (players / lanes / duration). Shoe, roster, and attraction edits carry
+    // the primary unchanged, so legacy rows with unresolvable pricing still
+    // take those edits instead of hard-blocking.
+    const scalesPrimary =
+      spec.playerCount != null || spec.laneCount != null || spec.durationOptionId != null;
+    let booked: ResolvedBookedPricing;
+    let carryPrimary = false;
+    try {
+      booked = resolveBookedPricing({
+        bookingMetadata: leg.bookingMetadata ?? null,
+        playerCount: legPlayers,
+        lines: stored,
+        experienceKind: experience?.kind ?? null,
+        experienceSlug: experience?.slug ?? null,
+      });
+    } catch (err) {
+      if (!(err instanceof EditGuardError) || scalesPrimary) throw err;
+      carryPrimary = true;
+      booked = {
+        experienceSlug: experience?.slug ?? null,
+        laneCount: Math.max(1, Math.ceil(legPlayers / 6)),
+        durationMultiplier: 1,
+        pricingMode: "per_person",
+        source: "derived",
+      };
+      warnings.push({
+        severity: "info",
+        code: "pricing_carry",
+        message:
+          "booked pricing mode could not be resolved — the lane line is carried unchanged " +
+          "(player/lane/duration edits are unavailable for this booking)",
+      });
+    }
     if (leg.id === anchor.id) {
-      current.laneCount = booked.laneCount;
-      current.pricingMode = booked.pricingMode;
-      current.durationMultiplier = booked.durationMultiplier;
-      current.durationOptions = (experience?.durationOptions ?? []).map((d) => ({
-        id: d.id,
-        label: d.label,
-        multiplier: d.squareMultiplier,
-      }));
+      current.laneCount = carryPrimary ? null : booked.laneCount;
+      current.pricingMode = carryPrimary ? null : booked.pricingMode;
+      current.durationMultiplier = carryPrimary ? null : booked.durationMultiplier;
+      current.durationOptions = carryPrimary
+        ? []
+        : (experience?.durationOptions ?? []).map((d) => ({
+            id: d.id,
+            label: d.label,
+            multiplier: d.squareMultiplier,
+          }));
     }
 
     // Duration change (hourly): resolve the target option + the primary
@@ -596,6 +683,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       shoeCatalog,
       durationOption,
       desiredPrimary,
+      carryPrimary,
     });
     warnings.push(...reprice.warnings);
 
@@ -725,6 +813,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
             }
           : null,
       removedHeats: null,
+      raceAdds: null,
       attractionChanges,
     };
   };
@@ -736,23 +825,29 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       heatsMeta: legHeats,
       add: spec.racers?.add ?? [],
       removeHeatIndexes: spec.racers?.removeHeatIndexes ?? [],
-      productPriceCents: raceProductPriceCents,
-      productLabel: raceProductLabel,
+      resolveProduct: resolveRaceProductForCategory,
     });
     warnings.push(...delta.warnings);
 
-    // Apply the delta to the LIVE order lines: removals decrement matching
-    // lines by 1 unit each; additions append.
+    // Apply the delta to the LIVE order lines. Removals match by the Square
+    // CATALOG id first (order lines are catalog-linked and Square substitutes
+    // its own item names — registry names never match), then by name; the
+    // decrement uses the MATCHED LINE's unit price, so discounted bookings
+    // refund what was actually charged, not the registry price.
     const newLines: PlanLine[] = (snap?.lines ?? []).map((l) => ({ ...l }));
     for (const removed of delta.removedHeats) {
-      const hit = newLines.find((l) => l.name === removed.label && l.quantity >= 1);
+      const hit = newLines.find(
+        (l) =>
+          l.quantity >= 1 &&
+          ((removed.catalogObjectId && l.catalogObjectId === removed.catalogObjectId) ||
+            l.name === removed.label),
+      );
       if (!hit) {
-        warnings.push({
-          severity: "warning",
-          code: "race_line_unmatched",
-          message: `no order line found for removed heat "${removed.label}" — order money unchanged for it`,
-        });
-        continue;
+        throw new EditGuardError(
+          "pricing_unresolvable",
+          `no order line matches removed heat "${removed.label}" — the order money can't be ` +
+            "derived safely; adjust this one manually in Square",
+        );
       }
       hit.quantity -= 1;
       hit.totalCents = hit.unitPriceCents * hit.quantity;
@@ -760,7 +855,10 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     const survivors = newLines.filter((l) => l.quantity > 0);
     for (const added of delta.addedLines) {
       const existing = survivors.find(
-        (l) => l.name === added.label && l.unitPriceCents === added.unitPriceCents,
+        (l) =>
+          ((added.squareCatalogObjectId && l.catalogObjectId === added.squareCatalogObjectId) ||
+            l.name === added.label) &&
+          l.unitPriceCents === added.unitPriceCents,
       );
       if (existing) {
         existing.quantity += added.quantity;
@@ -795,6 +893,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         bmiLineId: r.bmiLineId,
         label: r.label,
       })),
+      raceAdds: delta.raceAdds.length > 0 ? delta.raceAdds : null,
       attractionChanges: null,
     };
   };
@@ -1000,6 +1099,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         newLaneCount: null,
         newDuration: null,
         removedHeats: legRemoved,
+        raceAdds: null,
         attractionChanges: null,
       });
     }

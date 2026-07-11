@@ -158,6 +158,7 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
       newLaneCount: 1,
       newDuration: null,
       removedHeats: null,
+      raceAdds: null,
       attractionChanges: null,
     },
   ],

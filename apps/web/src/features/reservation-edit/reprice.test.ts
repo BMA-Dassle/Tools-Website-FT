@@ -166,6 +166,21 @@ describe("repriceBowling", () => {
     expect(primary.unitPriceCents).toBe(1999);
   });
 
+  it("carryPrimary passes the lane line through untouched (legacy shoe-only edits)", () => {
+    const r = repriceBowling({
+      booked: { ...perPerson, source: "derived" },
+      currentPlayerCount: 2,
+      lines: [line({ quantity: 3, unitPriceCents: 1750 })], // qty that would NOT reconcile
+      spec: { shoes: { 7: 2 } },
+      shoeCatalog: [SHOES],
+      carryPrimary: true,
+    });
+    const primary = r.lines.find((l) => l.role === "primary")!;
+    expect(primary.quantity).toBe(3);
+    expect(primary.unitPriceCents).toBe(1750);
+    expect(r.lines.find((l) => l.role === "shoe")!.quantity).toBe(2);
+  });
+
   it("per-lane: lanes 1→2 doubles the primary; players don't move it", () => {
     const r = repriceBowling({
       booked: { ...perPerson, pricingMode: "per_lane", experienceSlug: "pizza-bowl" },
@@ -523,51 +538,78 @@ describe("repriceRaceDelta", () => {
       bmiLineId: "L3",
     },
   ];
-  const priceOf = (productId: string, category: "adult" | "junior"): number | null =>
-    productId === "P1" ? (category === "junior" ? 2000 : 2500) : null;
-  const labelOf = (productId: string, category: "adult" | "junior"): string =>
-    `${productId} (${category})`;
+  // Category-aware resolver: P1 is the adult product; the junior counterpart
+  // is a DIFFERENT product (P1J) with its own price + catalog id — mirrors
+  // plan.ts resolveRaceProductForCategory.
+  const resolve = (productId: string, category: "adult" | "junior") =>
+    productId === "P1" || productId === "P1J"
+      ? {
+          bmiProductId: category === "junior" ? "P1J" : "P1",
+          label: `P1 (${category})`,
+          priceCents: category === "junior" ? 2000 : 2500,
+          catalogObjectId: category === "junior" ? "CAT_J" : "CAT_A",
+        }
+      : null;
 
   it("an added racer joins every distinct surviving heat slot", () => {
     const r = repriceRaceDelta({
       heatsMeta: heats,
       add: [{ firstName: "Cam" }],
       removeHeatIndexes: [],
-      productPriceCents: priceOf,
-      productLabel: labelOf,
+      resolveProduct: resolve,
     });
     // Distinct heatIds: 14:00 and 14:30 → 2 heat lines, no license.
     expect(r.addedLines.filter((l) => l.role === "race")).toHaveLength(2);
     expect(r.addedLines.every((l) => l.unitPriceCents === 2500)).toBe(true);
+    expect(r.addedLines.every((l) => l.squareCatalogObjectId === "CAT_A")).toBe(true);
     expect(r.addedLines.some((l) => l.role === "license")).toBe(false);
+    // Booking plan mirrors the priced lines exactly.
+    expect(r.raceAdds).toHaveLength(1);
+    expect(r.raceAdds[0].heats).toHaveLength(2);
+    expect(r.raceAdds[0].heats.every((h) => h.bmiProductId === "P1")).toBe(true);
   });
 
-  it("new racers add a license line; juniors price by category", () => {
+  it("cross-category add resolves the counterpart product for pricing AND booking", () => {
     const r = repriceRaceDelta({
-      heatsMeta: heats,
+      heatsMeta: heats, // adult heats (P1)
       add: [{ firstName: "Kid", category: "junior", isNew: true }],
       removeHeatIndexes: [],
-      productPriceCents: priceOf,
-      productLabel: labelOf,
+      resolveProduct: resolve,
     });
-    expect(
-      r.addedLines.filter((l) => l.role === "race").every((l) => l.unitPriceCents === 2000),
-    ).toBe(true);
+    const raceLines = r.addedLines.filter((l) => l.role === "race");
+    expect(raceLines.every((l) => l.unitPriceCents === 2000)).toBe(true);
+    expect(raceLines.every((l) => l.squareCatalogObjectId === "CAT_J")).toBe(true);
     const license = r.addedLines.find((l) => l.role === "license")!;
     expect(license.unitPriceCents).toBe(499);
+    // bmi-sync books the JUNIOR product, not the heats' adult product.
+    expect(r.raceAdds[0].category).toBe("junior");
+    expect(r.raceAdds[0].heats.every((h) => h.bmiProductId === "P1J")).toBe(true);
   });
 
-  it("removals resolve bmi line refs and prices by index", () => {
+  it("a resolver refusal (string) surfaces as pricing_unresolvable", () => {
+    expect(
+      code(() =>
+        repriceRaceDelta({
+          heatsMeta: heats,
+          add: [{ firstName: "Kid", category: "junior" }],
+          removeHeatIndexes: [],
+          resolveProduct: () => "juniors can't race this track",
+        }),
+      ),
+    ).toBe("pricing_unresolvable");
+  });
+
+  it("removals resolve bmi line refs, prices, and catalog ids by index", () => {
     const r = repriceRaceDelta({
       heatsMeta: heats,
       add: [],
       removeHeatIndexes: [2],
-      productPriceCents: priceOf,
-      productLabel: labelOf,
+      resolveProduct: resolve,
     });
     expect(r.removedHeats).toHaveLength(1);
     expect(r.removedHeats[0].bmiLineId).toBe("L3");
     expect(r.removedHeats[0].unitPriceCents).toBe(2500);
+    expect(r.removedHeats[0].catalogObjectId).toBe("CAT_A");
   });
 
   it("an out-of-range removal index is plan_stale (metadata drifted)", () => {
@@ -577,11 +619,23 @@ describe("repriceRaceDelta", () => {
           heatsMeta: heats,
           add: [],
           removeHeatIndexes: [9],
-          productPriceCents: priceOf,
-          productLabel: labelOf,
+          resolveProduct: resolve,
         }),
       ),
     ).toBe("plan_stale");
+  });
+
+  it("removing every heat with no adds is refused — that's a cancellation", () => {
+    expect(
+      code(() =>
+        repriceRaceDelta({
+          heatsMeta: heats,
+          add: [],
+          removeHeatIndexes: [0, 1, 2],
+          resolveProduct: resolve,
+        }),
+      ),
+    ).toBe("unsupported_kind");
   });
 
   it("adding with no surviving heats is refused", () => {
@@ -591,8 +645,7 @@ describe("repriceRaceDelta", () => {
           heatsMeta: heats.slice(0, 1),
           add: [{ firstName: "Cam" }],
           removeHeatIndexes: [0],
-          productPriceCents: priceOf,
-          productLabel: labelOf,
+          resolveProduct: resolve,
         }),
       ),
     ).toBe("pricing_unresolvable");
@@ -600,13 +653,13 @@ describe("repriceRaceDelta", () => {
 
   it("removing a heat with no resolvable price warns instead of guessing", () => {
     const r = repriceRaceDelta({
-      heatsMeta: [{ ...heats[0], productId: "UNKNOWN" }],
+      heatsMeta: [{ ...heats[0], productId: "UNKNOWN" }, heats[1]],
       add: [],
       removeHeatIndexes: [0],
-      productPriceCents: priceOf,
-      productLabel: labelOf,
+      resolveProduct: resolve,
     });
     expect(r.removedHeats[0].unitPriceCents).toBe(0);
+    expect(r.removedHeats[0].catalogObjectId).toBeNull();
     expect(r.warnings.some((w) => w.code === "heat_price_unknown")).toBe(true);
   });
 });

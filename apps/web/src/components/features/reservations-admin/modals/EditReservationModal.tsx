@@ -322,11 +322,17 @@ export default function EditReservationModal({
         ? f.removeHeatIndexes.filter((i) => i !== index)
         : [...f.removeHeatIndexes, index],
     }));
-  const addRacerRow = () =>
+  const addRacerRow = () => {
+    // Default new racers to the booked heats' category — an all-junior
+    // reservation almost always adds another junior (and vice versa).
+    const cats = new Set((current?.heats ?? []).map((h) => h.category));
+    const defaultCategory: "adult" | "junior" =
+      cats.size === 1 && cats.has("junior") ? "junior" : "adult";
     setForm((f) => ({
       ...f,
-      addRacers: [...f.addRacers, { firstName: "", category: "adult", isNew: false }],
+      addRacers: [...f.addRacers, { firstName: "", category: defaultCategory, isNew: false }],
     }));
+  };
   const patchRacerRow = (
     i: number,
     patch: { firstName?: string; category?: "adult" | "junior"; isNew?: boolean },
