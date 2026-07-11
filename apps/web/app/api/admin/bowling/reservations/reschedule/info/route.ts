@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getReservation } from "@/lib/qamf-bowling";
 import { getBowlingReservation } from "@/lib/bowling-db";
 
+// center_code carries two namespaces (see the board route's BRIDGE note):
+// bowling rows usually store the Square location ID, but combo bowling legs
+// (and race/attraction rows) store the center slug. Map both.
 const CENTER_CODE_TO_QAMF: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
   PPTR5G2N0QXF7: 3148,
+  "fort-myers": 9172,
+  naples: 3148,
 };
 
 /**

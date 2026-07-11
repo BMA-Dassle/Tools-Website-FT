@@ -32,10 +32,13 @@ import { DAILY_SEND_CAP, DEDUP_TTL_S, vipMoveAlertsChatId } from "./config";
 import { detectPendingMoves, type MoveDirection, type PendingMove } from "./detect";
 import { buildMoveCard, moveSummaryText } from "./teams-card";
 
-/** QAMF numeric center ids (mirrors bowling-lane-poll / the admin route). */
+/** QAMF numeric center ids — both center_code namespaces (Square location
+ *  IDs and center slugs; combo bowling legs store the slug). */
 const QAMF_CENTER_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172, // HeadPinz Fort Myers
   PPTR5G2N0QXF7: 3148, // HeadPinz Naples
+  "fort-myers": 9172,
+  naples: 3148,
 };
 
 export interface RunResult {

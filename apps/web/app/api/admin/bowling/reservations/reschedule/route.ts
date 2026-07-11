@@ -22,9 +22,13 @@ const COMBO_SHIFT_WINDOW_MS = 60 * 60_000;
 /** Too late to shift once the party is due on the lane. */
 const COMBO_SHIFT_CUTOFF_MS = 5 * 60_000;
 
+// Both center_code namespaces: Square location IDs (regular bowling rows)
+// AND center slugs (combo bowling legs, race/attraction rows).
 const CENTER_CODE_TO_QAMF: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
   PPTR5G2N0QXF7: 3148,
+  "fort-myers": 9172,
+  naples: 3148,
 };
 
 /**

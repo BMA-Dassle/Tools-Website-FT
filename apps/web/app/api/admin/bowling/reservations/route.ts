@@ -17,10 +17,13 @@ import {
 } from "~/features/reservations-admin/race-live-state.server";
 import { getReservation } from "@/lib/qamf-bowling";
 
-/** QAMF numeric center ids (mirrors bowling-lane-poll). */
+/** QAMF numeric center ids (mirrors bowling-lane-poll) — both center_code
+ *  namespaces (combo bowling legs store the slug, not the Square ID). */
 const QAMF_CENTER_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172, // HeadPinz Fort Myers
   PPTR5G2N0QXF7: 3148, // HeadPinz Naples
+  "fort-myers": 9172,
+  naples: 3148,
 };
 
 // Live BMI heat times (fetchLiveHeats) moved to
