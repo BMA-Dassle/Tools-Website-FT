@@ -73,6 +73,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/refund-alerts",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/bowling-pre-arrival",
       "schedule": "*/2 * * * *"
     },
