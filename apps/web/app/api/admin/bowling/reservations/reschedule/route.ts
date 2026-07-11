@@ -1,17 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  createReservation,
-  deleteReservation,
-  patchReservation,
-  setReservationStatus,
-} from "@/lib/qamf-bowling";
-import {
-  buildQamfMemo,
-  getBowlingReservation,
-  updateReservationReschedule,
-} from "@/lib/bowling-db";
-import { sql } from "@/lib/db";
+import { getBowlingReservation } from "@/lib/bowling-db";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
+import { rescheduleQamfReservation } from "~/features/booking/service/qamf-reschedule";
 import { recordAdminAction } from "~/features/reservations-admin/audit";
 import { centerLabel } from "~/features/reservations-admin/format";
 import { getComboSpecial } from "~/features/combos/combo-specials";
@@ -161,125 +151,29 @@ export async function POST(req: NextRequest) {
     await cancelBmiAttractions(existing.centerCode, existing.attractionBookings);
   }
 
-  // ── Unlink old QAMF ID from Neon BEFORE deleting ───────────────────
-  // QAMF fires a reservation.deleted webhook when we delete below.
-  // The webhook handler looks up Neon by qamf_reservation_id — if the
-  // old ID is still on the row it will cancel + refund the booking.
-  // Clearing the ID first makes the webhook find no matching row → skip.
-  if (existing.qamfReservationId) {
-    try {
-      const q = sql();
-      await q`
-        UPDATE bowling_reservations
-        SET qamf_reservation_id = NULL
-        WHERE id = ${neonId}
-      `;
-    } catch (err) {
-      console.error("[admin/reschedule] failed to clear old qamfId:", err);
-    }
-
-    // ── Delete old QAMF reservation (best-effort) ───────────────────
-    // Revert to Temporary first — QAMF may ignore DELETE on Confirmed
-    // reservations. Temporary releases the lane assignment.
-    try {
-      await setReservationStatus(qamfCenterId, existing.qamfReservationId, "Temporary");
-    } catch (err) {
-      console.warn(
-        `[admin/reschedule] neonId=${neonId} revert old QAMF ${existing.qamfReservationId} to Temporary failed:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-    try {
-      await deleteReservation(qamfCenterId, existing.qamfReservationId);
-      console.log(
-        `[admin/reschedule] neonId=${neonId} deleted old QAMF ${existing.qamfReservationId}`,
-      );
-    } catch (err) {
-      // Non-fatal: hold may have expired or been removed already.
-      console.warn(
-        `[admin/reschedule] neonId=${neonId} delete old QAMF ${existing.qamfReservationId} failed:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
-
-  // ── Build QAMF WebOffer.Options ────────────────────────────────────
-  const qamfOptions: {
-    Game?: { Id: number }[];
-    Time?: { Id: number }[];
-    Unlimited?: { Id: number }[];
-  } = {};
-  if (optionId) {
-    if (optionType === "Time") qamfOptions.Time = [{ Id: optionId }];
-    else if (optionType === "Unlimited") qamfOptions.Unlimited = [{ Id: optionId }];
-    else qamfOptions.Game = [{ Id: optionId }];
-  }
-
-  // ── Create new QAMF reservation ────────────────────────────────────
-  let newQamfId: string;
-  try {
-    const created = await createReservation(qamfCenterId, {
-      BookedAt: bookedAt,
-      Title: `${existing.guestName ?? "Guest"} (${existing.playerCount ?? 1}p)`,
-      Notes: existing.notes,
-      Customer: {
-        Guest: {
-          Name: existing.guestName ?? "Guest",
-          PhoneNumber: existing.guestPhone ?? "",
-          Email: existing.guestEmail ?? "",
-        },
-      },
-      WebOffer: {
-        Id: webOfferId,
-        Options: qamfOptions,
-        Services: ["BookForLater"],
-      },
-      TotalPlayers: existing.playerCount ?? 1,
-    });
-    newQamfId = created.Id;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "QAMF error";
-    console.error("[admin/reschedule] createReservation failed:", msg);
+  // ── Shared QAMF delete->create->confirm core (title/memo preserving,
+  //    double-book guarded) — see ~/features/booking/service/qamf-reschedule.
+  const shift = await rescheduleQamfReservation({
+    neonId,
+    qamfCenterId,
+    existing,
+    bookedAt,
+    webOfferId,
+    optionId,
+    optionType,
+    logTag: "[admin/reschedule]",
+  });
+  if (!shift.ok) {
     await recordAdminAction({
       reservationId: neonId,
       action: "reschedule",
       outcome: "failed",
       detail: { fromBookedAt: existing.bookedAt, toBookedAt: bookedAt },
-      error: msg,
+      error: shift.error,
     });
-    return NextResponse.json(
-      { error: `QAMF failed to create new reservation: ${msg}` },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: shift.error }, { status: shift.httpStatus });
   }
-
-  // ── Confirm — MUST succeed or we fail the whole operation ──────────
-  try {
-    await setReservationStatus(qamfCenterId, newQamfId, "Confirmed");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "QAMF error";
-    console.error("[admin/reschedule] setReservationStatus failed:", msg);
-    // Try to clean up the orphaned temporary reservation
-    try {
-      await deleteReservation(qamfCenterId, newQamfId);
-    } catch {
-      /* best effort */
-    }
-    await recordAdminAction({
-      reservationId: neonId,
-      action: "reschedule",
-      outcome: "failed",
-      detail: { fromBookedAt: existing.bookedAt, toBookedAt: bookedAt },
-      error: msg,
-    });
-    return NextResponse.json(
-      { error: `QAMF failed to confirm new reservation: ${msg}` },
-      { status: 502 },
-    );
-  }
-
-  // ── Update Neon ────────────────────────────────────────────────────
-  await updateReservationReschedule(neonId, bookedAt, newQamfId);
+  const newQamfId = shift.newQamfId;
 
   await recordAdminAction({
     reservationId: neonId,
@@ -294,33 +188,8 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Also reset status to "confirmed" (in case it was arrived / pending)
-  try {
-    const q = sql();
-    await q`
-      UPDATE bowling_reservations
-      SET status = 'confirmed',
-          dayof_order_sent_at = NULL,
-          dayof_order_lane = NULL,
-          dayof_payment_id = NULL,
-          dayof_order_error = NULL
-      WHERE id = ${neonId}
-        -- no status guard: reschedule must override even if webhook raced
-    `;
-  } catch (err) {
-    console.error("[admin/reschedule] status reset failed:", err);
-    // Non-fatal — the core reschedule (QAMF + booked_at) succeeded
-  }
-
-  // ── Restore QAMF memo (shoe status, line items, deposit) ───────────
-  try {
-    const memo = await buildQamfMemo(neonId);
-    if (memo) {
-      await patchReservation(qamfCenterId, newQamfId, { Notes: memo });
-    }
-  } catch (err) {
-    console.warn("[admin/reschedule] memo patch failed:", err instanceof Error ? err.message : err);
-  }
+  // Status reset, day-of clearing, and the title-preserving memo re-patch
+  // all happen inside rescheduleQamfReservation.
 
   let chatAlerted = false;
   if (existing.comboSpecialId) {
