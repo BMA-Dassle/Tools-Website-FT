@@ -42,10 +42,13 @@ describe("syncNoteToBmi", () => {
     });
     // Race projects live under the FastTrax Pandora location; the note is a
     // timestamped APPEND (merge-write preserves existing combo/VIP memos).
+    // billId rides along so the append can escalate to booking/memo when the
+    // Office/Pandora writes silently no-op on converted racing reservations.
     expect(office.appendProjectPrivateNote).toHaveBeenCalledWith({
       centerCode: "fasttrax",
       projectId: "555001",
       note: "[2026-07-06 8:00 PM] Portal note: headsock size XL",
+      billId: BILL_ID,
     });
   });
 

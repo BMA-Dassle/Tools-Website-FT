@@ -174,23 +174,26 @@ export async function bookHeatsOnAdvance(
     const pkg = item.packageId ? getPackage(item.packageId) : null;
     const racerCount = new Set(item.heats.map((h) => h.assignedTo).filter(Boolean)).size || 1;
     const povQty = pkg?.includesPov ? racerCount : item.povQuantity;
-    let wrote = false;
-    if (povQty > 0) {
-      await sellPov(billId, povQty, raceUsesZeroBmiModel(item));
-      wrote = true;
-    }
+    // A failed sellPov must NOT set povSold — that flag is the only retry
+    // gate, so marking it on failure meant the $0 POV line never reached the
+    // bill (and the confirmation page had no POV line to claim codes from).
+    // Trade-off: while sellPov keeps failing, the disclaimer memo below can
+    // re-append on each advance — duplicate memo text is cosmetic; a racer
+    // with no POV is not.
+    const povOk = povQty > 0 ? await sellPov(billId, povQty, raceUsesZeroBmiModel(item)) : true;
+    let wroteMemo = false;
     // Package disclaimer trail (e.g. Ultimate Qualifier qualification terms) so
     // ops sees the acknowledgment at check-in. v1 parity (page.tsx booking/memo).
     if (pkg?.disclaimers?.billMemo) {
       await writeBillMemo(billId, pkg.disclaimers.billMemo);
-      wrote = true;
+      wroteMemo = true;
     }
     // NOTE: the combo VIP memo is NOT written here. BMI's booking/memo is a
     // single OVERWRITING field, and the confirmation page rewrites it once via
     // buildReservationMemo (Express Lane + booking URL + combo note + POV +
     // paid). A separate write here gets clobbered — and surfaced wrong. The
     // combo note (with the assigned bowling lane) is composed there instead.
-    if (wrote) {
+    if (povOk && (povQty > 0 || wroteMemo)) {
       dispatch({
         type: "updateItem",
         id: item.id,

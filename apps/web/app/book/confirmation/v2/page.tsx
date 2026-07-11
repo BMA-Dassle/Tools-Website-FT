@@ -968,24 +968,32 @@ export default function ConfirmationPage() {
             ),
           );
           let povQty = povLine && povLine.quantity > 0 ? povLine.quantity : 0;
-          // Package fallback — the live overview can be gone post-conversion
-          // and the v2 checkout's stored overview is a synthetic summary with
-          // no POV line. Any package with includesPov gets one POV per racer
-          // (unique racers: UQ records one entry per heat, so "Adult 1" twice
-          // is still one camera).
+          // Package/combo fallback — the live overview can be gone
+          // post-conversion and the v2 checkout's stored overview is a
+          // synthetic summary with no POV line. Any package with includesPov
+          // gets one POV per racer (unique racers: UQ records one entry per
+          // heat, so "Adult 1" twice is still one camera). Combo specials
+          // (comboSpecial, e.g. Ultimate VIP) include includedPovPerRacer POV
+          // videos per racer and were missing from this fallback entirely —
+          // with flatCartDisplay their stored overview never names POV, so a
+          // combo racing the post-conversion window claimed 0 codes.
           if (povQty === 0) {
+            const uniqueRacers = new Set(
+              ((bookingRecord?.racers ?? []) as { personId?: string; racerName?: string }[])
+                .map((r) => r.personId || r.racerName)
+                .filter(Boolean),
+            ).size;
+            const povComboId = bookingRecord?.comboSpecial as string | null | undefined;
+            const povCombo = povComboId ? getComboSpecial(povComboId) : null;
             const povPkgId = bookingRecord?.package as string | null | undefined;
             const povPkg = povPkgId
               ? getPackageIgnoreFlag(povPkgId)
               : bookingRecord?.rookiePack === true
                 ? getPackageIgnoreFlag("rookie-pack")
                 : null;
-            if (povPkg?.includesPov) {
-              const uniqueRacers = new Set(
-                ((bookingRecord?.racers ?? []) as { personId?: string; racerName?: string }[])
-                  .map((r) => r.personId || r.racerName)
-                  .filter(Boolean),
-              ).size;
+            if (povCombo && povCombo.includedPovPerRacer > 0) {
+              povQty = Math.max(1, uniqueRacers) * povCombo.includedPovPerRacer;
+            } else if (povPkg?.includesPov) {
               povQty = Math.max(1, uniqueRacers);
             }
           }

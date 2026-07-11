@@ -424,12 +424,16 @@ export async function updateProjectPublicNotes(params: {
       }),
       signal: AbortSignal.timeout(15_000),
     });
-    if (pandoraRes.ok) {
+    // Pandora can 200 with {"success":false} (or even "success":true without
+    // the write landing — see appendProjectPrivateNote) — never trust HTTP
+    // status alone.
+    const pandoraBody = (await pandoraRes.json().catch(() => null)) as { success?: boolean } | null;
+    if (pandoraRes.ok && pandoraBody?.success === true) {
       console.log(`[bmi-office] updated public notes for project ${params.projectId} via Pandora`);
       return;
     }
     console.warn(
-      `[bmi-office] Pandora public-notes update failed (${pandoraRes.status}), falling back to Office API`,
+      `[bmi-office] Pandora public-notes update failed (${pandoraRes.status}, success=${pandoraBody?.success}), falling back to Office API`,
     );
   } catch (err) {
     console.warn(
@@ -568,6 +572,10 @@ export async function appendProjectPrivateNote(params: {
   note: string;
   contractUrl?: string;
   pdfUrl?: string;
+  /** BMI bill/order id (raw 17-digit string — NEVER Number() it). When
+   *  provided, enables the public `booking/memo` fallback — the only write
+   *  path verified to reach CONVERTED racing reservations (see below). */
+  billId?: string;
 }): Promise<boolean> {
   // Private notes are a ROLLING LOG. Pandora /memo/private REPLACES the memo (it
   // does NOT append server-side), so sending just the new line wiped prior
@@ -576,6 +584,15 @@ export async function appendProjectPrivateNote(params: {
   // (Public notes are intentionally replace-only — see updateProjectPublicNotes.)
   // projectId is a string (bmi_reservation_id is TEXT) — JSON.stringify is
   // precision-safe; never Number() it.
+  //
+  // WRITE PATHS (2026-07-10, verified live on racing reservation W49623):
+  // both Pandora /memo/private AND the Office project PUT return success on a
+  // converted racing reservation without the write EVER appearing in the
+  // Booking app or on subsequent reads — silent no-ops. The only path that
+  // demonstrably lands there is the public-booking `booking/memo` endpoint
+  // (the one the booking flow itself uses). So: try Office (works for group
+  // functions), VERIFY by re-reading, and escalate to booking/memo when the
+  // verify fails and we know the billId. Pandora is the last resort.
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
 
@@ -616,8 +633,99 @@ export async function appendProjectPrivateNote(params: {
     params.pdfUrl || null,
   );
 
-  // 3. Primary write: Pandora /memo/private with the FULL merged memo (replace,
-  //    now carrying the accumulated text).
+  // Re-read the private memo and report whether the appended note landed.
+  const noteVisible = async (): Promise<boolean> => {
+    try {
+      const res = await httpsRequest("GET", `/api/${clientKey}/project/${params.projectId}`, headers);
+      if (res.status >= 400) return false;
+      const fresh = JSON.parse(res.body) as { logs?: Array<{ public: boolean; memo: string }> };
+      return (fresh.logs || []).some((l) => !l.public && (l.memo || "").includes(params.note));
+    } catch {
+      return false;
+    }
+  };
+
+  // 3. Primary write: Office API PUT into the private log (create it if none
+  //    exists) — works for group-function projects. VERIFIED by re-read, not
+  //    trusted: on converted racing reservations this PUT 200s and no-ops.
+  try {
+    if (!privateLog) {
+      const createRes = await httpsRequest(
+        "POST",
+        `/api/${clientKey}/projectLog`,
+        headers,
+        JSON.stringify({
+          projectId: params.projectId,
+          public: false,
+          kind: 1,
+          action: 7,
+          memo: mergedMemo,
+        }),
+      );
+      if (createRes.status >= 400) {
+        throw new Error(`Failed to create private log: ${createRes.status}`);
+      }
+    } else {
+      privateLog.memo = mergedMemo;
+      const minimal = toMinimalProject(project, ["logs"]);
+      minimal.logs = logs;
+      const putRes = await httpsRequest(
+        "PUT",
+        `/api/${clientKey}/project`,
+        headers,
+        JSON.stringify(minimal),
+      );
+      if (putRes.status >= 400) {
+        throw new Error(`Failed to update private notes: ${putRes.status}`);
+      }
+    }
+    if (await noteVisible()) {
+      console.log(
+        `[bmi-office] appended private note for project ${params.projectId} via Office API`,
+      );
+      return true;
+    }
+    console.warn(
+      `[bmi-office] Office private-note PUT accepted but note not visible on re-read for project ${params.projectId} — escalating`,
+    );
+  } catch (err) {
+    console.warn(
+      `[bmi-office] Office private-note write failed for project ${params.projectId}, escalating:`,
+      err,
+    );
+  }
+
+  // 4. Escalation: public-booking `booking/memo` with the FULL merged memo —
+  //    the write path the booking flow itself uses, and the only one verified
+  //    to land on converted racing reservations. Needs the bill/order id.
+  //    Mirrors into our Neon reservation notes exactly like the /api/bmi
+  //    proxy does, so the admin Notes tab stays in sync.
+  if (params.billId && /^\d+$/.test(params.billId)) {
+    try {
+      const memoOk = await writeBookingMemo(clientKey, params.billId, mergedMemo);
+      if (memoOk && (await noteVisible())) {
+        try {
+          const { mirrorMemoIntoNotesByBillId } = await import("@/lib/bowling-db");
+          await mirrorMemoIntoNotesByBillId(params.billId, mergedMemo);
+        } catch {
+          /* notes mirror is best-effort, never blocks the BMI write */
+        }
+        console.log(
+          `[bmi-office] appended private note for project ${params.projectId} via booking/memo (bill ${params.billId})`,
+        );
+        return true;
+      }
+      console.warn(
+        `[bmi-office] booking/memo escalation ${memoOk ? "wrote but note not visible on re-read" : "failed"} for bill ${params.billId}`,
+      );
+    } catch (err) {
+      console.warn(`[bmi-office] booking/memo escalation error for bill ${params.billId}:`, err);
+    }
+  }
+
+  // 5. Last resort: Pandora /memo/private. Known to 200 {"success":true}
+  //    without landing (see header comment) — check body.success and treat
+  //    the result as best-effort.
   try {
     const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
     const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/memo/private`, {
@@ -633,52 +741,71 @@ export async function appendProjectPrivateNote(params: {
       }),
       signal: AbortSignal.timeout(15_000),
     });
-    if (pandoraRes.ok) {
-      console.log(`[bmi-office] appended private note for project ${params.projectId} via Pandora`);
+    const pandoraBody = (await pandoraRes.json().catch(() => null)) as { success?: boolean } | null;
+    if (pandoraRes.ok && pandoraBody?.success === true) {
+      console.log(
+        `[bmi-office] appended private note for project ${params.projectId} via Pandora (unverified)`,
+      );
       return true;
     }
     console.warn(
-      `[bmi-office] Pandora private-note write failed (${pandoraRes.status}), falling back to Office API`,
+      `[bmi-office] Pandora private-note fallback failed (${pandoraRes.status}, success=${pandoraBody?.success})`,
     );
   } catch (err) {
-    console.warn("[bmi-office] Pandora private-note write error, falling back to Office API:", err);
+    console.warn("[bmi-office] Pandora private-note fallback error:", err);
   }
+  return false;
+}
 
-  // 4. Fallback: Office API PUT the merged memo into the private log (create it
-  //    if none exists). Reuses the project + logs read in step 1.
-  if (!privateLog) {
-    const createRes = await httpsRequest(
-      "POST",
-      `/api/${clientKey}/projectLog`,
-      headers,
-      JSON.stringify({
-        projectId: params.projectId,
-        public: false,
-        kind: 1,
-        action: 7,
-        memo: mergedMemo,
-      }),
-    );
-    if (createRes.status >= 400) {
-      throw new Error(`Failed to create private log: ${createRes.status}`);
-    }
-  } else {
-    privateLog.memo = mergedMemo;
-    const minimal = toMinimalProject(project, ["logs"]);
-    minimal.logs = logs;
-    const putRes = await httpsRequest(
-      "PUT",
-      `/api/${clientKey}/project`,
-      headers,
-      JSON.stringify(minimal),
-    );
-    if (putRes.status >= 400) {
-      throw new Error(`Failed to update private notes: ${putRes.status}`);
-    }
+// ── Public-booking booking/memo write (server-side) ─────────────────
+
+const BMI_PUBLIC_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
+const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
+const BMI_USERNAME = process.env.BMI_USERNAME || "";
+const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
+const publicTokenCache: Record<string, { token: string; expiry: number }> = {};
+
+async function getPublicBookingToken(clientKey: string): Promise<string> {
+  const cached = publicTokenCache[clientKey];
+  if (cached && Date.now() < cached.expiry - 60_000) return cached.token;
+  const res = await fetch(`${BMI_PUBLIC_API_URL}/auth/${clientKey}/publicbooking`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "BMI-Subscription-Key": BMI_SUB_KEY },
+    body: JSON.stringify({ Username: BMI_USERNAME, Password: BMI_PASSWORD }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`BMI public auth failed: ${res.status}`);
+  const data = await res.json();
+  const token = data.AccessToken || data.accessToken;
+  const expiresIn = parseInt(data.ExpiresIn || data.expiresIn || "3600", 10);
+  publicTokenCache[clientKey] = { token, expiry: Date.now() + expiresIn * 1000 };
+  return token;
+}
+
+/** POST public-booking booking/memo — REPLACES the reservation's booking
+ *  memo (the Booking app "Memo and image" tab). Callers must pass the FULL
+ *  merged text. orderId is raw-injected into the JSON body (17-digit id —
+ *  JSON.stringify would survive, but Number()/parse round-trips would not;
+ *  keep the raw-injection pattern the rest of the codebase uses). */
+async function writeBookingMemo(clientKey: string, billId: string, memo: string): Promise<boolean> {
+  const token = await getPublicBookingToken(clientKey);
+  const res = await fetch(`${BMI_PUBLIC_API_URL}/public-booking/${clientKey}/booking/memo`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "BMI-Subscription-Key": BMI_SUB_KEY,
+      "Content-Type": "application/json",
+      "Accept-Language": "en",
+    },
+    body: `{"orderId":${billId},"memo":${JSON.stringify(memo)}}`,
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    console.warn(`[bmi-office] booking/memo write failed: ${res.status}`);
   }
-
-  console.log(`[bmi-office] appended private note for project ${params.projectId} via Office API`);
-  return true;
+  return res.ok;
 }
 
 // ── Update project product price ───────────────────────────────────

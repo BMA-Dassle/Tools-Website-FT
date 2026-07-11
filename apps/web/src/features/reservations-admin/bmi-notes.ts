@@ -47,10 +47,13 @@ export async function syncNoteToBmi(
     }
     // pandoraStateSlug is the location the project actually lives under
     // (race projects → "fasttrax"), matching appendProjectPrivateNote's maps.
+    // billId enables the booking/memo escalation — on converted racing
+    // reservations the Office/Pandora writes 200-and-no-op (2026-07-10).
     return await appendProjectPrivateNote({
       centerCode: center.pandoraStateSlug,
       projectId: resolved.projectId,
       note: `[${noteTimestamp()}] Portal note: ${note}`,
+      billId: reservation.bmiBillId,
     });
   } catch (err) {
     console.warn(
