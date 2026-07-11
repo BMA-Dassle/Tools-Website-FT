@@ -232,7 +232,13 @@
       "Bash(gh repo *)",
       "Bash(git commit *)",
       "Bash(git --no-pager log -1 --stat --oneline)",
-      "PowerShell($gh = Get-Command gh -ErrorAction SilentlyContinue; if \\($gh\\) { \"gh: $\\($gh.Source\\)\"; gh auth status 2>&1 | Select-Object -First 3 } else { \"gh NOT FOUND\" })"
+      "PowerShell($gh = Get-Command gh -ErrorAction SilentlyContinue; if \\($gh\\) { \"gh: $\\($gh.Source\\)\"; gh auth status 2>&1 | Select-Object -First 3 } else { \"gh NOT FOUND\" })",
+      "PowerShell(npm install)",
+      "PowerShell(npx eslint \"lib/checkin-race-flags.ts\" \"lib/bowling-db.ts\" \"app/api/admin/checkin/route.ts\" \"app/admin/[token]/checkin/CheckInClient.tsx\")",
+      "PowerShell(npm run typecheck)",
+      "PowerShell(npx next build)",
+      "PowerShell(node scripts/a11y-gate.mjs)",
+      "PowerShell(npm test)"
     ],
     "additionalDirectories": [
       "\\tmp"

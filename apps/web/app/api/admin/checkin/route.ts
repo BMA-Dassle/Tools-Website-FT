@@ -8,6 +8,8 @@ import {
   type DepositOverviewRow,
 } from "@/lib/pandora-deposits";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
+import { isVipComboPersonOnDate } from "@/lib/bowling-db";
+import { findBackToBackRace, pickNextTwoHeats, type HeatCandidate } from "@/lib/checkin-race-flags";
 import { ARENA_RESOURCES, HP_FM_LOCATION_ID } from "~/features/arena-tickets/constants";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 
@@ -635,6 +637,27 @@ export async function POST(req: NextRequest) {
   let heatNumber = sessionMatch?.heatNumber ?? null;
   let scheduledStart = sessionMatch?.scheduledStart ?? null;
 
+  // VIP + back-to-back flags — kicked off NOW so they run in parallel with
+  // the headsock/check-in work below and never slow the flash. Both are
+  // fail-open (false/null on any error). VIP badges the green AND yellow
+  // guest cards; back-to-back only applies when actually checking in — its
+  // "next 2 heats" anchor is the heat being checked into.
+  const todayEt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const vipPromise = isVipComboPersonOnDate(personId, todayEt).catch(() => false);
+  const backToBackPromise = currentlyCheckingIn
+    ? findBackToBackRace(req, {
+        sessionId,
+        scheduledStart: sessionMatch?.scheduledStart ?? "",
+        personId,
+        participantId: qrParticipantId,
+      }).catch(() => null)
+    : Promise.resolve(null);
+
   // Move-resilient early scan: a 4-part e-ticket QR whose racer is NOT on the
   // baked session's roster means they were moved to a different heat. Their
   // new heat isn't checking in yet (or we'd have corrected sessionId above), so
@@ -730,12 +753,16 @@ export async function POST(req: NextRequest) {
       pictureUrl: checkinGuest?.pic ?? null,
     };
 
+    const [vip, backToBack] = await Promise.all([vipPromise, backToBackPromise]);
+
     return NextResponse.json({
       success: checkinResult.success,
       guest: guestResponse,
       session: { track, raceType, heatNumber, scheduledStart },
       currentlyCheckingIn,
       headsock,
+      vip,
+      backToBack,
     });
   }
 
@@ -759,6 +786,8 @@ export async function POST(req: NextRequest) {
     },
     currentlyCheckingIn,
     headsock,
+    vip: await vipPromise,
+    backToBack: null,
   });
 }
 
@@ -987,6 +1016,59 @@ export async function GET(req: NextRequest) {
       detail: HEADSOCK_DEPOSIT_KIND_ID
         ? `HEADSOCK_DEPOSIT_KIND_ID=${HEADSOCK_DEPOSIT_KIND_ID}`
         : "HEADSOCK_DEPOSIT_KIND_ID not set — detection disabled",
+    });
+  }
+
+  // 5. Back-to-back pick — next 2 heats across tracks, strict-after anchor
+  {
+    const start = Date.now();
+    const mock: HeatCandidate[] = [
+      {
+        sessionId: "99",
+        track: "red",
+        raceType: "Starter",
+        heatNumber: 5,
+        scheduledStart: "2026-07-10T17:45:00Z",
+      },
+      {
+        sessionId: "100",
+        track: "blue",
+        raceType: "Starter",
+        heatNumber: 10,
+        scheduledStart: "2026-07-10T18:00:00Z",
+      },
+      {
+        sessionId: "200",
+        track: "red",
+        raceType: "Intermediate",
+        heatNumber: 6,
+        scheduledStart: "2026-07-10T18:05:00Z",
+      },
+      {
+        sessionId: "300",
+        track: "mega",
+        raceType: "Pro",
+        heatNumber: 3,
+        scheduledStart: "2026-07-10T18:12:00Z",
+      },
+      {
+        sessionId: "101",
+        track: "blue",
+        raceType: "Starter",
+        heatNumber: 11,
+        scheduledStart: "2026-07-10T18:17:00Z",
+      },
+    ];
+    const picked = pickNextTwoHeats(mock, "100", "2026-07-10T18:00:00Z");
+    const crossTrack =
+      picked.length === 2 && picked[0].sessionId === "200" && picked[1].sessionId === "300";
+    const excludesSelfAndPast = !picked.some((c) => c.sessionId === "100" || c.sessionId === "99");
+    const badAnchorEmpty = pickNextTwoHeats(mock, "100", "").length === 0;
+    tests.push({
+      name: "back-to-back-pick",
+      pass: crossTrack && excludesSelfAndPast && badAnchorEmpty,
+      ms: Date.now() - start,
+      detail: picked.map((c) => `${c.track} #${c.heatNumber}`).join(", ") || "no candidates",
     });
   }
 

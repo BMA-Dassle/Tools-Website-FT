@@ -27,7 +27,18 @@ interface CheckinResponse {
     scheduledStart: string | null;
   } | null;
   nextRaceStatus?: "found" | "none" | "unknown";
+  /** Guest is part of an Ultimate VIP combo reservation today. */
+  vip?: boolean;
+  /** Guest races again within the next 2 heats (any track). */
+  backToBack?: {
+    track: string | null;
+    raceType: string | null;
+    heatNumber: number | null;
+    scheduledStart: string | null;
+  } | null;
 }
+
+const VIP_GOLD = "#d4af37";
 
 // Accent per session kind — race tracks plus HP Arena activities
 // (the stats strip and flash screens are attraction-generic now).
@@ -74,8 +85,11 @@ export default function CheckInClient({ token, version }: Props) {
   });
   const [showSettings, setShowSettings] = useState(false);
 
-  // Test mode
-  const [testMode, setTestMode] = useState(false);
+  // Test mode — ?test=1 opt-in, read at mount like the baud-rate setting
+  const [testMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("test") === "1";
+  });
   const [testInput, setTestInput] = useState("");
   const [debugJson, setDebugJson] = useState<string>("");
   const [showDebug, setShowDebug] = useState(false);
@@ -124,11 +138,6 @@ export default function CheckInClient({ token, version }: Props) {
       clearInterval(iv);
     };
   }, [token]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("test") === "1") setTestMode(true);
-  }, []);
 
   // --------------- Serial Port ---------------
 
@@ -319,6 +328,50 @@ export default function CheckInClient({ token, version }: Props) {
     }, FLASH_DURATION);
   }
 
+  // Preview the back-to-back banner stacked with headsock (no API call) —
+  // the two banners CAN co-occur on a real green check-in.
+  function previewBackToBack() {
+    setLastResult({
+      success: true,
+      guest: { firstName: "PREVIEW", lastName: "BACK-TO-BACK", pictureUrl: null },
+      session: { track: "blue", raceType: "Starter", heatNumber: 4, scheduledStart: null },
+      currentlyCheckingIn: true,
+      headsock: { detected: true, deducted: true, balance: 1 },
+      backToBack: {
+        track: "red",
+        raceType: "Intermediate",
+        heatNumber: 7,
+        scheduledStart: new Date(Date.now() + 12 * 60_000).toISOString(),
+      },
+    });
+    setLastError("");
+    setScanState("result");
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => {
+      setScanState("idle");
+      setLastResult(null);
+    }, FLASH_DURATION);
+  }
+
+  // Preview the VIP badge on the green guest card (no API call).
+  function previewVip() {
+    setLastResult({
+      success: true,
+      guest: { firstName: "PREVIEW", lastName: "VIP", pictureUrl: null },
+      session: { track: "mega", raceType: "Pro", heatNumber: 2, scheduledStart: null },
+      currentlyCheckingIn: true,
+      headsock: { detected: false, deducted: false, balance: 0 },
+      vip: true,
+    });
+    setLastError("");
+    setScanState("result");
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => {
+      setScanState("idle");
+      setLastResult(null);
+    }, FLASH_DURATION);
+  }
+
   // Preview the next-race screens (no API call) — paper-QR scan whose race
   // isn't currently being called.
   function previewNextRace(status: "found" | "none") {
@@ -396,34 +449,50 @@ export default function CheckInClient({ token, version }: Props) {
           if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
         })}
       >
-        {/* Headsock banner — full-width, impossible to miss */}
-        {hasHeadsock && (
-          <div className="absolute top-0 left-0 right-0 bg-amber-400 py-6 sm:py-8 px-6 text-center border-b-4 border-amber-600">
-            <p
-              className="text-black font-black uppercase tracking-wider leading-none"
-              style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
-            >
-              Headsock Due
-            </p>
-            <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
-              Hand guest a headsock
-            </p>
-          </div>
-        )}
+        {/* Top banner stack — headsock and back-to-back CAN fire together on a
+            green check-in, so they stack instead of overlapping. The yellow
+            "not checking in" banner never co-occurs with them (green-path only). */}
+        <div className="absolute top-0 left-0 right-0 flex flex-col">
+          {/* Headsock banner — full-width, impossible to miss */}
+          {hasHeadsock && (
+            <div className="bg-amber-400 py-6 sm:py-8 px-6 text-center border-b-4 border-amber-600">
+              <p
+                className="text-black font-black uppercase tracking-wider leading-none"
+                style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
+              >
+                Headsock Due
+              </p>
+              <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
+                Hand guest a headsock
+              </p>
+            </div>
+          )}
 
-        {/* Warning banner — session not checking in, show their booked session so staff can redirect */}
-        {isWarning && !lastError && lastResult?.guest && (
-          <div className="absolute top-0 left-0 right-0 bg-amber-500 py-4 px-6 text-center">
-            <p className="text-black font-bold text-lg uppercase">Not checking in yet</p>
-            {lastResult.session.track && (
-              <p className="text-black/80 text-base font-semibold mt-1">
-                Their session: {lastResult.session.track} {lastResult.session.raceType}{" "}
-                {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
-                {lastResult.session.scheduledStart && (
+          {/* Back-to-back banner — guest races again within the next 2 heats */}
+          {lastResult?.backToBack && (
+            <div className="bg-sky-400 py-6 sm:py-8 px-6 text-center border-b-4 border-sky-600">
+              <p
+                className="text-black font-black uppercase tracking-wider leading-none"
+                style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
+              >
+                Back-to-Back Race
+              </p>
+              <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
+                Races again:{" "}
+                {[
+                  lastResult.backToBack.track,
+                  lastResult.backToBack.raceType,
+                  lastResult.backToBack.heatNumber
+                    ? `Heat ${lastResult.backToBack.heatNumber}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                {lastResult.backToBack.scheduledStart && (
                   <>
                     {" "}
                     —{" "}
-                    {new Date(lastResult.session.scheduledStart).toLocaleTimeString("en-US", {
+                    {new Date(lastResult.backToBack.scheduledStart).toLocaleTimeString("en-US", {
                       hour: "numeric",
                       minute: "2-digit",
                       timeZone: "America/New_York",
@@ -431,9 +500,33 @@ export default function CheckInClient({ token, version }: Props) {
                   </>
                 )}
               </p>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+
+          {/* Warning banner — session not checking in, show their booked session so staff can redirect */}
+          {isWarning && !lastError && lastResult?.guest && (
+            <div className="bg-amber-500 py-4 px-6 text-center">
+              <p className="text-black font-bold text-lg uppercase">Not checking in yet</p>
+              {lastResult.session.track && (
+                <p className="text-black/80 text-base font-semibold mt-1">
+                  Their session: {lastResult.session.track} {lastResult.session.raceType}{" "}
+                  {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
+                  {lastResult.session.scheduledStart && (
+                    <>
+                      {" "}
+                      —{" "}
+                      {new Date(lastResult.session.scheduledStart).toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                        timeZone: "America/New_York",
+                      })}
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         {lastError ? (
           <>
@@ -502,10 +595,14 @@ export default function CheckInClient({ token, version }: Props) {
           </>
         ) : lastResult?.guest ? (
           <>
-            {/* Guest picture placeholder */}
+            {/* Guest picture placeholder — gold ring for VIPs */}
             <div
-              className="rounded-full border-4 border-white/30 bg-white/10 flex items-center justify-center mb-6 overflow-hidden"
-              style={{ width: 240, height: 240 }}
+              className="rounded-full border-4 bg-white/10 flex items-center justify-center mb-6 overflow-hidden"
+              style={{
+                width: 240,
+                height: 240,
+                borderColor: lastResult.vip ? VIP_GOLD : "rgba(255,255,255,0.3)",
+              }}
             >
               {lastResult.guest.pictureUrl ? (
                 <img
@@ -519,6 +616,16 @@ export default function CheckInClient({ token, version }: Props) {
                 </svg>
               )}
             </div>
+
+            {/* VIP badge — Ultimate VIP combo guest */}
+            {lastResult.vip && (
+              <div
+                className="px-6 py-1.5 rounded-full mb-3 text-black font-black uppercase tracking-widest"
+                style={{ backgroundColor: VIP_GOLD, fontSize: "clamp(18px, 3.5vw, 28px)" }}
+              >
+                ★ VIP
+              </div>
+            )}
 
             {/* Guest name */}
             <p
@@ -811,6 +918,21 @@ export default function CheckInClient({ token, version }: Props) {
               style={{ backgroundColor: WARNING_COLOR }}
             >
               Preview Yellow
+            </button>
+            <button
+              type="button"
+              onClick={previewBackToBack}
+              className="px-3 py-1.5 rounded text-xs font-bold text-black bg-sky-400"
+            >
+              Preview Back-to-Back
+            </button>
+            <button
+              type="button"
+              onClick={previewVip}
+              className="px-3 py-1.5 rounded text-xs font-bold text-black"
+              style={{ backgroundColor: VIP_GOLD }}
+            >
+              Preview VIP
             </button>
             <button
               type="button"

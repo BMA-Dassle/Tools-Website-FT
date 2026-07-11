@@ -1703,6 +1703,43 @@ export async function raceHeatsForPersonsOnDate(opts: {
 }
 
 /**
+ * Is this person part of an Ultimate VIP combo reservation on `date`?
+ * The check-in scanner uses this to badge VIP guests. VIP = any combo leg
+ * (combo_special_id set — 'race-bowl' today) whose race-leg heats include this
+ * bmiPersonId on the given ET date. Same JSONB shape as
+ * raceHeatsForPersonsOnDate; forward-only (heats[].bmiPersonId persisted since
+ * 2026-07-02). Statuses: a combo race leg may already be 'arrived' when the
+ * racer checks into their SECOND race, so exclude only dead rows.
+ * Fail-open: unconfigured DB or query error returns false — a missing badge,
+ * never a blocked check-in.
+ */
+export async function isVipComboPersonOnDate(personId: string, date: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  if (!/^\d+$/.test(personId) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  try {
+    await ensureBowlingSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT 1
+      FROM bowling_reservations r
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(r.booking_metadata->'heats')='array'
+             THEN r.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)
+      WHERE r.combo_special_id IS NOT NULL
+        AND r.product_kind = 'race'
+        AND r.status NOT IN ('cancelled','no_show')
+        AND t.e->>'bmiPersonId' = ${personId}
+        AND left(t.e->>'heatId', 10) = ${date}
+      LIMIT 1
+    `;
+    return rows.length > 0;
+  } catch (e) {
+    console.warn("[bowling-db] isVipComboPersonOnDate failed:", e);
+    return false;
+  }
+}
+
+/**
  * All reservations (kbf/open/race/attraction) belonging to a VERIFIED contact,
  * for the customer account dashboard. Authorization is the contact itself — the
  * caller passes EXACTLY ONE of phone/email (the channel the customer proved via
