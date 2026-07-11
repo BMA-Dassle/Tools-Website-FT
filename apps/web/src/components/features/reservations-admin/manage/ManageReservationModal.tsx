@@ -26,6 +26,7 @@ import ModalShell from "../ModalShell";
 import BowlingResendModal from "../modals/BowlingResendModal";
 import CancelModal from "../modals/CancelModal";
 import CheckInModal from "../modals/CheckInModal";
+import EditReservationModal from "../modals/EditReservationModal";
 import RescheduleModal from "../modals/RescheduleModal";
 import GuestTab from "./GuestTab";
 import HistoryTab from "./HistoryTab";
@@ -67,7 +68,9 @@ export default function ManageReservationModal({
   onToast: (msg: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("Overview");
-  const [action, setAction] = useState<"cancel" | "reschedule" | "checkin" | "resend" | null>(null);
+  const [action, setAction] = useState<
+    "cancel" | "edit" | "reschedule" | "checkin" | "resend" | null
+  >(null);
   const detailState = useReservationDetail(r.id, token);
   const { detail, detailError, detailLoading, refetch } = detailState;
 
@@ -292,6 +295,20 @@ export default function ManageReservationModal({
             </a>
           )}
           <span style={{ flex: 1 }} />
+          {!isCancelled && (
+            <button
+              type="button"
+              onClick={() => setAction("edit")}
+              title="Edit players, lanes, shoes, or racers — price differences charge or refund automatically"
+              style={{
+                ...ACTION_BTN,
+                border: "1px solid rgba(245,158,11,0.4)",
+                color: "#f59e0b",
+              }}
+            >
+              Edit…
+            </button>
+          )}
           {showCancel && (
             <button
               type="button"
@@ -383,6 +400,14 @@ export default function ManageReservationModal({
       {/* ── Stacked action sub-modals (render above the manage modal) ── */}
       {action === "cancel" && (
         <CancelModal
+          reservation={r}
+          token={token}
+          onClose={() => setAction(null)}
+          onDone={mutated}
+        />
+      )}
+      {action === "edit" && (
+        <EditReservationModal
           reservation={r}
           token={token}
           onClose={() => setAction(null)}
