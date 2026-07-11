@@ -77,7 +77,8 @@ export async function fetchTrackSessions(
 
 /** Last-called race per track — the races-current proxy persists every call
  *  it sees to these keys (TTL end of day, warmed every minute by
- *  checkin-alerts). Sanity/fallback layer for the actual* timestamps. */
+ *  checkin-alerts). Powers ONLY the "called" state — the grid call runs 1-2
+ *  heats ahead of the track, so it can never stand in for actual* truth. */
 export async function fetchTrackWatermarks(): Promise<Partial<Record<TrackKey, TrackWatermark>>> {
   const tracks: TrackKey[] = ["blue", "red", "mega"];
   const out: Partial<Record<TrackKey, TrackWatermark>> = {};
