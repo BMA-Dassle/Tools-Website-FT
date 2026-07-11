@@ -9,13 +9,16 @@
  * have. Deliberately timestamps, not a vendor state enum — enums drift
  * (the vt3 `status` lesson, lib/video-match.ts).
  *
- * Fallback + sanity layer: heats run in strict order per track, so the
- * last-called race persisted by the races-current proxy
+ * The last-called race persisted by the races-current proxy
  * (`pandora:last-race:fasttrax:{track}` Redis keys, warmed every minute by
- * checkin-alerts) is a watermark — anything the watermark has passed ran.
- * This also guards the observed data quirk where a session's `actualEnd`
- * never gets stamped (live 2026-07-08: Blue heat 35 sat "open" while heats
- * 36-40 finished after it).
+ * checkin-alerts) powers ONLY the "called" state. It is a check-in call,
+ * not a track log: staff call racers to the grid 1-2 heats AHEAD of what's
+ * actually running (live 2026-07-10: heat 47 called at 8:07 PM while heat
+ * 45 was still on track and 46 hadn't run), so "the watermark passed this
+ * heat" must never imply the heat ran. The orphan-session quirk — a
+ * session's `actualEnd` never gets stamped (live 2026-07-08: Blue heat 35
+ * sat "open" while heats 36-40 finished after it) — is guarded by a later
+ * heat's actualStart instead.
  *
  * Pure derivation only — fetching lives in the admin reservations route.
  */
@@ -84,13 +87,15 @@ export function resolveRaceLiveState(args: {
   if (!target) return null;
 
   // Finished: its own actualEnd, OR a later heat on the track has started
-  // (actualEnd can fail to stamp — the orphan-session quirk), OR the called
-  // watermark has moved past it (covers stale cached sessions missing the
-  // actual* fields entirely).
+  // (actualEnd can fail to stamp — the orphan-session quirk). The called
+  // watermark deliberately does NOT finish a heat: the grid call runs 1-2
+  // heats ahead of the track, so at 8:07 PM on 2026-07-10 the watermark
+  // (heat 47) had "passed" heat 46 while 45 was still racing — the board
+  // marked two 8:00 PM combos Done for a heat that hadn't run, and the
+  // settle gate would have charged them just as early.
   const laterHeatRan = sessions.some((s) => s.heatNumber > target.heatNumber && s.actualStart);
-  const watermarkPast = watermark != null && watermark.heatNumber > target.heatNumber;
   const state: RaceLiveState =
-    target.actualEnd || laterHeatRan || watermarkPast
+    target.actualEnd || laterHeatRan
       ? "finished"
       : target.actualStart
         ? "on_track"

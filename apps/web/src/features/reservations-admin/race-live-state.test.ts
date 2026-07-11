@@ -100,17 +100,40 @@ describe("resolveRaceLiveState", () => {
     expect(r?.raceState).toBe("finished");
   });
 
-  it("watermark past the heat → finished even when actual* fields are absent (stale cache)", () => {
-    const sessions = base();
-    delete sessions[1].actualStart;
-    delete sessions[1].actualEnd;
+  it("watermark past an UNRUN heat → not_called, never finished (call-ahead regression)", () => {
+    // Live 2026-07-10 8:07 PM: races/current called heat 47 while heat 45 was
+    // still racing and 46 had actualStart=null — the grid call runs 1-2 heats
+    // ahead of the track. The old watermarkPast inference marked two 8:00 PM
+    // combos Done for heats that hadn't run.
     const watermark: TrackWatermark = {
       sessionId: 54171736,
       heatNumber: 36,
-      calledAt: "2026-07-08T22:30:00Z",
+      calledAt: new Date(NOW - 2 * 60_000).toISOString(),
     };
-    const r = resolveRaceLiveState({ heatStartIso: HEAT_ET, sessions, watermark, nowMs: NOW });
-    expect(r?.raceState).toBe("finished");
+    const r = resolveRaceLiveState({
+      heatStartIso: HEAT_ET,
+      sessions: base(),
+      watermark,
+      nowMs: NOW,
+    });
+    expect(r?.raceState).toBe("not_called");
+  });
+
+  it("watermark past an ON-TRACK heat → on_track, never finished (call-ahead regression)", () => {
+    // Same night: Blue heat 46 went on track at 8:11 PM with the watermark
+    // already at 47 — the old inference hid a live race behind "finished".
+    const watermark: TrackWatermark = {
+      sessionId: 54171736,
+      heatNumber: 36,
+      calledAt: new Date(NOW - 2 * 60_000).toISOString(),
+    };
+    const r = resolveRaceLiveState({
+      heatStartIso: HEAT_ET,
+      sessions: base({ actualStart: "2026-07-08T21:46:00Z" }),
+      watermark,
+      nowMs: NOW,
+    });
+    expect(r?.raceState).toBe("on_track");
   });
 
   it("watermark == this session within the 20-min window → called", () => {
@@ -225,6 +248,21 @@ describe("raceSettleGate", () => {
       heats: [HEAT_A, HEAT_B],
       sessions: blue(FINISHED_A, {}),
       nowMs: at("2026-07-09T00:16:00Z"),
+    });
+    expect(g.eligible).toBe(false);
+    expect(g.reason).toContain("not_called");
+  });
+
+  it("watermark past an unrun heat does NOT settle it (call-ahead regression)", () => {
+    // 2026-07-10: the grid call moved past heat 46 while it still hadn't run.
+    // The old watermarkPast→finished inference would have charged the bill
+    // ~10-20 min before the race actually happened.
+    const g = raceSettleGate({
+      heats: [HEAT_B],
+      sessionsByTrack: blue(FINISHED_A, {}),
+      watermarks: { blue: { sessionId: 999, heatNumber: 47, calledAt: "2026-07-09T00:10:00Z" } },
+      nowMs: at("2026-07-09T00:16:00Z"), // +52m past scheduled start — grace does not apply, heat resolves
+      todayEtYmd: TODAY,
     });
     expect(g.eligible).toBe(false);
     expect(g.reason).toContain("not_called");
