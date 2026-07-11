@@ -188,6 +188,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
     const paymentIds: string[] = [];
     const refundIds: string[] = [];
+    const rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [];
     let storeCreditGan: string | undefined;
     let newQamfReservationId: string | undefined;
 
@@ -388,13 +389,19 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           case "complete_dayof_order": {
             // Handled as one unit on the first rebuild step; the others no-op.
             if (step.kind !== "rebuild_dayof_order") break;
-            const rebuilt = await rebuildAndSettleDayofOrders(editId, anchor, plan);
-            stepLog.push({ step: step.kind, ok: true, detail: rebuilt.join(",") });
+            if (rebuiltOrders.length > 0) break; // already ran (multi-leg plans emit one trio per leg)
+            const pairs = await rebuildAndSettleDayofOrders(editId, anchor, plan);
+            rebuiltOrders.push(...pairs);
+            stepLog.push({
+              step: step.kind,
+              ok: true,
+              detail: pairs.map((p) => `${p.oldOrderId}→${p.newOrderId}`).join(","),
+            });
             break;
           }
 
           case "neon_commit": {
-            await commitNeon(anchor, plan, req, newQamfReservationId);
+            await commitNeon(anchor, plan, req, newQamfReservationId, rebuiltOrders);
             stepLog.push({ step: step.kind, ok: true });
             break;
           }
@@ -438,6 +445,22 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             break;
 
           case "notify": {
+            if (step.detail === "teams_manager_alert") {
+              // Post-complete: page the managers — QAMF/BMI need manual sync.
+              const { sendPostCompleteEditAlert } = await import("./notify");
+              const sent = await sendPostCompleteEditAlert({
+                reservationId: anchorId,
+                guestName: anchor.guestName ?? "Guest",
+                centerCode: anchor.centerCode,
+                diffCents: plan.diffCents,
+                settlement: plan.settlement,
+                editId,
+                oldOrderIds: rebuiltOrders.map((p) => p.oldOrderId),
+                newOrderIds: rebuiltOrders.map((p) => p.newOrderId),
+              });
+              stepLog.push({ step: step.kind, ok: sent, detail: "teams_manager_alert" });
+              break;
+            }
             await recordAdminAction({
               reservationId: anchorId,
               action: "edit",
@@ -448,7 +471,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 diffCents: plan.diffCents,
                 settlement: plan.settlement,
                 spec: plan.spec,
-                managerAlert: step.detail === "teams_manager_alert" ? true : undefined,
+                rebuiltOrders: rebuiltOrders.length > 0 ? rebuiltOrders : undefined,
               },
             });
             if (req.notifyGuest) {
@@ -662,11 +685,12 @@ const rebuildAndSettleDayofOrders = async (
   editId: string,
   anchor: BowlingReservation,
   plan: EditPlan,
-): Promise<string[]> => {
-  const newOrderIds: string[] = [];
+): Promise<Array<{ oldOrderId: string; newOrderId: string }>> => {
+  const pairs: Array<{ oldOrderId: string; newOrderId: string }> = [];
   let n = 0;
   for (const leg of plan.legs) {
     if (!leg.dayofOrderId || !leg.orderLocationId) continue;
+    const oldOrderId = leg.dayofOrderId;
     // Rebuild with the source order's catalog taxes/discounts.
     const src = await sq("GET", `/orders/${leg.dayofOrderId}`);
     const catalogRefs = (arr: any[] | undefined) =>
@@ -725,11 +749,11 @@ const rebuildAndSettleDayofOrders = async (
       });
       if (!complete.ok) throw new Error(`rebuilt order complete failed (${complete.status})`);
     }
-    newOrderIds.push(newOrderId);
+    pairs.push({ oldOrderId, newOrderId });
     leg.dayofOrderId = newOrderId; // commitNeon persists the swap
     n++;
   }
-  return newOrderIds;
+  return pairs;
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -738,6 +762,7 @@ const commitNeon = async (
   plan: EditPlan,
   req: ExecuteEditRequest,
   newQamfReservationId?: string,
+  rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [],
 ): Promise<void> => {
   for (const leg of plan.legs) {
     if (!leg.newNeonLines) continue; // race legs keep their lines (BMI-driven)
@@ -764,7 +789,7 @@ const commitNeon = async (
         bumpers: p.bumpers ?? null,
       })),
       qamfReservationId: newQamfReservationId,
-      appendNote: `[edit ${new Date().toISOString().slice(0, 16)}Z] ${plan.phase} diff ${(plan.diffCents / 100).toFixed(2)} (${plan.settlement})${plan.phase === "post_complete" ? ` — order rebuilt (was ${plan.legs.map((l) => l.dayofOrderId).join(",")})` : ""}`,
+      appendNote: `[edit ${new Date().toISOString().slice(0, 16)}Z] ${plan.phase} diff ${(plan.diffCents / 100).toFixed(2)} (${plan.settlement})${rebuiltOrders.length > 0 ? ` — order rebuilt (was ${rebuiltOrders.map((p) => p.oldOrderId).join(",")})` : ""}`,
     });
   }
 
