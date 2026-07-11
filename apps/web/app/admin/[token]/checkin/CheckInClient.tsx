@@ -449,50 +449,34 @@ export default function CheckInClient({ token, version }: Props) {
           if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
         })}
       >
-        {/* Top banner stack — headsock and back-to-back CAN fire together on a
-            green check-in, so they stack instead of overlapping. The yellow
-            "not checking in" banner never co-occurs with them (green-path only). */}
-        <div className="absolute top-0 left-0 right-0 flex flex-col">
-          {/* Headsock banner — full-width, impossible to miss */}
-          {hasHeadsock && (
-            <div className="bg-amber-400 py-6 sm:py-8 px-6 text-center border-b-4 border-amber-600">
-              <p
-                className="text-black font-black uppercase tracking-wider leading-none"
-                style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
-              >
-                Headsock Due
-              </p>
-              <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
-                Hand guest a headsock
-              </p>
-            </div>
-          )}
+        {/* Headsock banner — full-width, impossible to miss */}
+        {hasHeadsock && (
+          <div className="absolute top-0 left-0 right-0 bg-amber-400 py-6 sm:py-8 px-6 text-center border-b-4 border-amber-600">
+            <p
+              className="text-black font-black uppercase tracking-wider leading-none"
+              style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
+            >
+              Headsock Due
+            </p>
+            <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
+              Hand guest a headsock
+            </p>
+          </div>
+        )}
 
-          {/* Back-to-back banner — guest races again within the next 2 heats */}
-          {lastResult?.backToBack && (
-            <div className="bg-sky-400 py-6 sm:py-8 px-6 text-center border-b-4 border-sky-600">
-              <p
-                className="text-black font-black uppercase tracking-wider leading-none"
-                style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
-              >
-                Back-to-Back Race
-              </p>
-              <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
-                Races again:{" "}
-                {[
-                  lastResult.backToBack.track,
-                  lastResult.backToBack.raceType,
-                  lastResult.backToBack.heatNumber
-                    ? `Heat ${lastResult.backToBack.heatNumber}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                {lastResult.backToBack.scheduledStart && (
+        {/* Warning banner — session not checking in, show their booked session so staff can redirect */}
+        {isWarning && !lastError && lastResult?.guest && (
+          <div className="absolute top-0 left-0 right-0 bg-amber-500 py-4 px-6 text-center">
+            <p className="text-black font-bold text-lg uppercase">Not checking in yet</p>
+            {lastResult.session.track && (
+              <p className="text-black/80 text-base font-semibold mt-1">
+                Their session: {lastResult.session.track} {lastResult.session.raceType}{" "}
+                {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
+                {lastResult.session.scheduledStart && (
                   <>
                     {" "}
                     —{" "}
-                    {new Date(lastResult.backToBack.scheduledStart).toLocaleTimeString("en-US", {
+                    {new Date(lastResult.session.scheduledStart).toLocaleTimeString("en-US", {
                       hour: "numeric",
                       minute: "2-digit",
                       timeZone: "America/New_York",
@@ -500,33 +484,45 @@ export default function CheckInClient({ token, version }: Props) {
                   </>
                 )}
               </p>
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* Warning banner — session not checking in, show their booked session so staff can redirect */}
-          {isWarning && !lastError && lastResult?.guest && (
-            <div className="bg-amber-500 py-4 px-6 text-center">
-              <p className="text-black font-bold text-lg uppercase">Not checking in yet</p>
-              {lastResult.session.track && (
-                <p className="text-black/80 text-base font-semibold mt-1">
-                  Their session: {lastResult.session.track} {lastResult.session.raceType}{" "}
-                  {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
-                  {lastResult.session.scheduledStart && (
-                    <>
-                      {" "}
-                      —{" "}
-                      {new Date(lastResult.session.scheduledStart).toLocaleTimeString("en-US", {
-                        hour: "numeric",
-                        minute: "2-digit",
-                        timeZone: "America/New_York",
-                      })}
-                    </>
-                  )}
-                </p>
+        {/* Back-to-back banner — bottom-anchored so it never covers the
+            guest photo/name (headsock owns the top). */}
+        {lastResult?.backToBack && (
+          <div className="absolute bottom-0 left-0 right-0 bg-sky-400 py-6 sm:py-8 px-6 text-center border-t-4 border-sky-600">
+            <p
+              className="text-black font-black uppercase tracking-wider leading-none"
+              style={{ fontSize: "clamp(36px, 8vw, 64px)" }}
+            >
+              Back-to-Back Race
+            </p>
+            <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
+              Races again:{" "}
+              {[
+                lastResult.backToBack.track,
+                lastResult.backToBack.raceType,
+                lastResult.backToBack.heatNumber
+                  ? `Heat ${lastResult.backToBack.heatNumber}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              {lastResult.backToBack.scheduledStart && (
+                <>
+                  {" "}
+                  —{" "}
+                  {new Date(lastResult.backToBack.scheduledStart).toLocaleTimeString("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZone: "America/New_York",
+                  })}
+                </>
               )}
-            </div>
-          )}
-        </div>
+            </p>
+          </div>
+        )}
 
         {lastError ? (
           <>
@@ -671,7 +667,9 @@ export default function CheckInClient({ token, version }: Props) {
           </>
         )}
 
-        <p className="absolute bottom-6 text-white/30 text-xs">Tap to dismiss</p>
+        {!lastResult?.backToBack && (
+          <p className="absolute bottom-6 text-white/30 text-xs">Tap to dismiss</p>
+        )}
       </div>
     );
   }

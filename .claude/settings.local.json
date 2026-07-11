@@ -238,7 +238,8 @@
       "PowerShell(npm run typecheck)",
       "PowerShell(npx next build)",
       "PowerShell(node scripts/a11y-gate.mjs)",
-      "PowerShell(npm test)"
+      "PowerShell(npm test)",
+      "PowerShell(npx eslint \"app/admin/[token]/checkin/CheckInClient.tsx\")"
     ],
     "additionalDirectories": [
       "\\tmp"
