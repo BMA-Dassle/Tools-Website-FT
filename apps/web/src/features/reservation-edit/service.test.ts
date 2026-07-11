@@ -437,7 +437,60 @@ describe("executeEditCascade — PRE decrease", () => {
     );
     expect(result.refundIds).toEqual(["RF1"]);
     expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
-      expect.objectContaining({ paymentId: "PAY_DEP", amountCents: 500 }),
+      expect.objectContaining({
+        paymentId: "PAY_DEP",
+        amountCents: 500,
+        // Owner convention — exact reason on every reservation-money refund.
+        reason: "Reservation Deposit",
+        // Deposits can carry guest gift-card tenders; Square can't partially
+        // refund those, so the allocator must hop over them.
+        skipGiftCardTender: true,
+      }),
+    );
+  });
+
+  it("a gift-card-funded deposit tender is skipped and the shortfall fails toward store credit", async () => {
+    vi.mocked(fetchOrderFacts).mockImplementation(async (orderId: string) =>
+      orderId === "DEP1"
+        ? ({
+            id: "DEP1",
+            state: "COMPLETED",
+            version: 1,
+            locationId: "TXBSQN0FEKQ11",
+            tenderCount: 1,
+            netDueCents: 0,
+            totalCents: 5000,
+            tenders: [{ paymentId: "PAY_GC_DEP", amountCents: 5000 }],
+          } as never)
+        : ({
+            id: "O1",
+            state: "OPEN",
+            version: 3,
+            locationId: "TXBSQN0FEKQ11",
+            tenderCount: 0,
+            netDueCents: 5000,
+            totalCents: 5000,
+            tenders: [],
+          } as never),
+    );
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundedCents: 0,
+      skippedGiftCard: true,
+    });
+
+    const steps: EditStep[] = [
+      { kind: "audit_start", fatal: true },
+      { kind: "refund_tender", fatal: true, amountCents: 500 },
+      { kind: "adjust_gift_card_down", fatal: true, target: "GC1", amountCents: 500 },
+      { kind: "neon_commit", fatal: true },
+    ];
+    await expect(
+      executeEditCascade(baseReq(mkPlan(steps, { diffCents: -500, settlement: "card_refund" }))),
+    ).rejects.toThrow(/gift-card tender.*store-credit/);
+    // Nothing was refunded and the ledger row closed as failed.
+    expect(vi.mocked(finishEditEvent)).toHaveBeenCalledWith(
+      "edit-42-a1",
+      expect.objectContaining({ state: "failed" }),
     );
   });
 });

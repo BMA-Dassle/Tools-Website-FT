@@ -112,6 +112,10 @@ export async function fetchPaymentFacts(
     status: p.status ?? "?",
     amountCents: p.amount_money?.amount ?? 0,
     refundedCents: p.refunded_money?.amount ?? 0,
+    // "CARD" | "GIFT_CARD" | "WALLET" | … — gift-card tenders can't be
+    // partially refunded (live finding 2026-07-11), so refund allocators
+    // must know what funded the payment.
+    sourceType: p.source_type ?? undefined,
   };
 }
 

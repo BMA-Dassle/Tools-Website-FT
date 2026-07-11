@@ -74,6 +74,11 @@ export const createEditTopupOrderAndCharge = async (params: {
  * Refund PART of one payment, clamped to its un-refunded remainder — a
  * replayed call refunds only what's still owed (or no-ops). Returns what was
  * actually refunded this call.
+ *
+ * `skipGiftCardTender`: Square refuses partial refunds of gift-card-funded
+ * payments (live finding 2026-07-11). Allocators set this to hop over such
+ * tenders instead of failing mid-cascade; the caller settles the shortfall
+ * elsewhere (store credit) or fails loudly.
  */
 export const refundTenderPartial = async (params: {
   editId: string;
@@ -81,8 +86,12 @@ export const refundTenderPartial = async (params: {
   paymentId: string;
   amountCents: number;
   reason: string;
-}): Promise<{ refundId?: string; refundedCents: number }> => {
+  skipGiftCardTender?: boolean;
+}): Promise<{ refundId?: string; refundedCents: number; skippedGiftCard?: boolean }> => {
   const pay = await fetchPaymentFacts(params.paymentId);
+  if (params.skipGiftCardTender && pay.sourceType === "GIFT_CARD") {
+    return { refundedCents: 0, skippedGiftCard: true };
+  }
   const remaining = pay.amountCents - pay.refundedCents;
   const amount = Math.min(params.amountCents, Math.max(0, remaining));
   if (amount <= 0) return { refundedCents: 0 };

@@ -109,16 +109,14 @@ async function reservationsByPaymentIds(
   return map;
 }
 
-/** Every refund id the cancel cascade has recorded — cheap 60-day window. */
+/** Every refund id our own cascades have recorded — cheap 60-day window.
+ *  Covers BOTH ledgers: reservation_cancel_events (cancel cascade) and
+ *  reservation_edit_events (edit decreases/rebuilds — without these, the
+ *  edit engine's own refunds would be yelled at as Dashboard violations). */
 async function recordedCascadeRefundIds(): Promise<Set<string>> {
   const out = new Set<string>();
   if (!process.env.DATABASE_URL) return out;
-  try {
-    const q = sql();
-    const rows = (await q`
-      SELECT refund_ids FROM reservation_cancel_events
-      WHERE refund_ids IS NOT NULL AND created_at > NOW() - INTERVAL '60 days'
-    `) as Array<{ refund_ids: unknown }>;
+  const collect = (rows: Array<{ refund_ids: unknown }>) => {
     for (const row of rows) {
       let ids: unknown = row.refund_ids;
       if (typeof ids === "string") {
@@ -130,9 +128,29 @@ async function recordedCascadeRefundIds(): Promise<Set<string>> {
       }
       if (Array.isArray(ids)) for (const id of ids) out.add(String(id));
     }
+  };
+  try {
+    const q = sql();
+    collect(
+      (await q`
+        SELECT refund_ids FROM reservation_cancel_events
+        WHERE refund_ids IS NOT NULL AND created_at > NOW() - INTERVAL '60 days'
+      `) as Array<{ refund_ids: unknown }>,
+    );
   } catch (err) {
     // Table may not exist yet in a fresh env — treat as no recorded ids.
     console.warn("[refund-alerts] cancel-events read failed:", err);
+  }
+  try {
+    const q = sql();
+    collect(
+      (await q`
+        SELECT refund_ids FROM reservation_edit_events
+        WHERE refund_ids IS NOT NULL AND created_at > NOW() - INTERVAL '60 days'
+      `) as Array<{ refund_ids: unknown }>,
+    );
+  } catch (err) {
+    console.warn("[refund-alerts] edit-events read failed:", err);
   }
   return out;
 }

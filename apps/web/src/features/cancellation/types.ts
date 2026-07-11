@@ -103,7 +103,14 @@ export interface GatheredFacts {
   /** Keyed by payment id. */
   payments: Record<
     string,
-    { id: string; status: string; amountCents: number; refundedCents: number }
+    {
+      id: string;
+      status: string;
+      amountCents: number;
+      refundedCents: number;
+      /** Square source_type ("CARD" | "GIFT_CARD" | "WALLET" | …). */
+      sourceType?: string;
+    }
   >;
   /** Keyed by order id — every DISTINCT day-of order across the group. */
   dayofOrders: Record<
