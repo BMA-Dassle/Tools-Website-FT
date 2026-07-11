@@ -13,11 +13,9 @@
 
 import {
   getBowlingReservation,
-  getBowlingExperiences,
   getBowlingSquareProducts,
   getReservationPlayersWithShoeAllowance,
   listCancelGroupReservations,
-  type BowlingExperienceWithDetails,
   type BowlingReservation,
   type BowlingSquareProduct,
 } from "@/lib/bowling-db";
@@ -30,6 +28,7 @@ import { lookupCatalogId } from "~/features/booking/data/square-catalog-map";
 import { isFridayYmd } from "~/features/booking/service/kbf-pricing";
 import { getChargeableCard } from "~/features/card-vault";
 
+import { loadExperiencesForCenter, matchExperienceForRow } from "./experience-resolve";
 import { assertEditable, selectPhase, type SquareOrderState } from "./guards";
 import { planHash as hashPlan } from "./hash";
 import {
@@ -544,32 +543,11 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     // its duration-option OVERRIDE products (2h bookings book the override).
     const stamp = (leg.bookingMetadata as { bowling?: { experienceSlug?: string | null } } | null)
       ?.bowling;
-    let experience: BowlingExperienceWithDetails | null = null;
-    {
-      const centerSlug = resolveCenter(leg.centerCode, leg.productKind).slug;
-      let experiences = await getBowlingExperiences(centerSlug);
-      if (experiences.length === 0 && centerSlug !== leg.centerCode) {
-        experiences = await getBowlingExperiences(leg.centerCode);
-      }
-      if (stamp?.experienceSlug) {
-        experience = experiences.find((e) => e.slug === stamp.experienceSlug) ?? null;
-      }
-      if (!experience) {
-        const primary = stored.find(
-          (l) => l.productKind != null && ["kbf", "open", "hourly"].includes(l.productKind),
-        );
-        if (primary?.squareProductId != null) {
-          experience =
-            experiences.find(
-              (e) =>
-                e.items.some((i) => i.squareProductId === primary.squareProductId) ||
-                e.durationOptions.some(
-                  (d) => d.overrideSquareProductId === primary.squareProductId,
-                ),
-            ) ?? null;
-        }
-      }
-    }
+    const experience = matchExperienceForRow({
+      experiences: await loadExperiencesForCenter(leg.centerCode, leg.productKind),
+      stampSlug: stamp?.experienceSlug ?? null,
+      stored,
+    });
 
     // Pricing resolution is only REQUIRED when the edit scales the lane line
     // (players / lanes / duration). Shoe, roster, and attraction edits carry
