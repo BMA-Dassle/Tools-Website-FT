@@ -322,7 +322,7 @@ Rollout per v2 cutover pattern: deploy flag-off → enable for one ops user → 
 
 ## 14. Assumptions to verify (before the dependent PR merges)
 
-- **A1:** Square refunds of gift-card tenders auto-credit the source card, including internal custom-GAN cards (gates PR 11 decreases + PR 12). Fallback: manual `ADJUST_INCREMENT` after refund.
+- **A1: ANSWERED NO (owner live finding, 2026-07-11).** Square does NOT allow partial refunds of gift-card-funded payments (and gift-card refunds are heavily restricted generally). Consequences, all implemented: (a) refunds of reservation money carry the exact reason **"Reservation Deposit"** and the internal GC is always decremented manually (`ADJUST_DECREMENT`) — never via a GC-tender refund; (b) the PRE-decrease allocator skips gift-card-funded deposit tenders (guests can part-pay deposits with their own gift card) and fails loudly toward store-credit settlement when card tenders can't cover the owed amount; (c) the MID-decrease and POST-COMPLETE designs (both refund the internal-GC day-of tender) are INVALID as specced — `RESERVATION_EDIT_V2_MID_DECREASE` / `_POST` must stay OFF until redesigned to refund the guest's card directly + adjust the GC.
 - **A2:** `Card.fingerprint` populated at Square-Version 2024-12-18 (else brand+last4+exp dedupe; worst case = duplicate card the sweep deletes anyway).
 - **A3:** `orders/calculate` tax math matches order-create exactly under our `LOCATION_TAX` scope.
 - **A4:** QAMF `setLanePlayers` doesn't reset lane pricing/state in Conqueror when lists change (staging probe; if it does, player-count changes also take the rebook path).
@@ -344,8 +344,8 @@ gates:
 | --- | --- | --- |
 | `RESERVATION_EDIT_V2` | master switch — PRE-phase bowling/KBF edits (increases via card-on-file / payment link; decreases to card or store credit) + MID increases | smoke items 5–8 (§13) |
 | `RESERVATION_EDIT_V2_RACE` | BMI race-leg add/remove heats (line-level, existing bill) + combo racer edits | smoke item 9 + staging BMI trial |
-| `RESERVATION_EDIT_V2_MID_DECREASE` | mid-session refunds | **Assumption A1 sandbox proof first** |
-| `RESERVATION_EDIT_V2_POST` | post-complete refund→rebuild→repay→complete + Teams manager alert | **A1 proof** + smoke item 11 |
+| `RESERVATION_EDIT_V2_MID_DECREASE` | mid-session refunds | **DO NOT ENABLE — A1 answered NO (2026-07-11); path needs redesign (§14 A1)** |
+| `RESERVATION_EDIT_V2_POST` | post-complete refund→rebuild→repay→complete + Teams manager alert | **DO NOT ENABLE — A1 answered NO (2026-07-11); path needs redesign (§14 A1)** |
 
 **Landed:** PR 0 metadata prep; card vault capture + `card-vault-sweep` cron + PaymentsTab
 status + checkout opt-in + clickwrap fine print (policy v3-2026-07-11); engine pure core

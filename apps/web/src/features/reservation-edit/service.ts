@@ -146,16 +146,20 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
         "BMI-touching edits are not enabled yet (RESERVATION_EDIT_V2_RACE)",
       );
     }
+    // A1 ANSWERED NO (owner live finding 2026-07-11): Square refuses partial
+    // refunds of gift-card-funded payments. Both paths below refund the
+    // internal-GC day-of tender and need a redesign (refund the guest's card
+    // directly + manual ADJUST_DECREMENT) before their flags may EVER turn on.
     if (kinds.has("refund_dayof_payment") && !flag("RESERVATION_EDIT_V2_MID_DECREASE")) {
       throw new EditGuardError(
         "mid_session_unsupported",
-        "mid-session decreases are not enabled yet (RESERVATION_EDIT_V2_MID_DECREASE)",
+        "mid-session decreases need a redesign (Square can't partially refund gift-card tenders)",
       );
     }
     if (kinds.has("refund_dayof_order") && !flag("RESERVATION_EDIT_V2_POST")) {
       throw new EditGuardError(
         "post_complete_ack_required",
-        "post-complete edits are not enabled yet (RESERVATION_EDIT_V2_POST)",
+        "post-complete edits need a redesign (Square can't refund gift-card tenders)",
       );
     }
 
@@ -323,13 +327,16 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
           case "refund_tender": {
             const owed = step.amountCents ?? -plan.diffCents;
-            const refunded = await refundAcrossTenders(editId, anchor, plan, owed, refundIds);
-            if (refunded < owed) {
+            const r = await refundAcrossTenders(editId, anchor, plan, owed, refundIds);
+            if (r.refundedCents < owed) {
               throw new Error(
-                `could only refund ${refunded} of ${owed} cents across known tenders — manual follow-up`,
+                `could only refund ${r.refundedCents} of ${owed} cents across known tenders` +
+                  (r.giftCardTendersSkipped > 0
+                    ? ` (${r.giftCardTendersSkipped} gift-card tender(s) skipped — Square can't partially refund those; re-run this edit with store-credit settlement)`
+                    : " — manual follow-up"),
               );
             }
-            stepLog.push({ step: step.kind, ok: true, detail: `-${refunded}` });
+            stepLog.push({ step: step.kind, ok: true, detail: `-${r.refundedCents}` });
             break;
           }
 
@@ -340,7 +347,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               refundIndex: 90, // reserved namespace for the gift-card tender refund
               paymentId: anchor.dayofPaymentId,
               amountCents: step.amountCents ?? -plan.diffCents,
-              reason: `Reservation edit #${anchorId} — mid-session reduction`,
+              reason: "Reservation Deposit",
             });
             if (r.refundId) refundIds.push(r.refundId);
             stepLog.push({ step: step.kind, ok: true, detail: r.refundId });
@@ -388,7 +395,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 paymentId: tender.paymentId,
                 amountCents: tender.amountCents,
                 baseKey: `${editId}-t${n}`,
-                reason: `Reservation edit #${anchorId} — rebuild after completion`,
+                reason: "Reservation Deposit",
               });
               refundIds.push(r.refundId);
               n++;
@@ -633,7 +640,7 @@ const refundAcrossTenders = async (
   plan: EditPlan,
   owedCents: number,
   refundIds: string[],
-): Promise<number> => {
+): Promise<{ refundedCents: number; giftCardTendersSkipped: number }> => {
   const targets: RefundTarget[] = [];
   const priorEdits = await listEditEventsByAnchors(plan.legIds);
   for (const ev of priorEdits) {
@@ -651,6 +658,7 @@ const refundAcrossTenders = async (
 
   let remaining = owedCents;
   let index = 0;
+  let giftCardTendersSkipped = 0;
   for (const target of targets) {
     if (remaining <= 0) break;
     const r = await refundTenderPartial({
@@ -658,13 +666,19 @@ const refundAcrossTenders = async (
       refundIndex: index,
       paymentId: target.paymentId,
       amountCents: remaining,
-      reason: `Reservation edit #${anchor.id} — price reduction (${target.label})`,
+      // Owner convention (2026-07-11): reservation-money refunds carry this
+      // exact reason so they read consistently in the Square dashboard/exports.
+      reason: "Reservation Deposit",
+      // Guests can fund deposits partly with their own gift card
+      // (authorizeMultiTender) — Square refuses partial refunds of those.
+      skipGiftCardTender: true,
     });
+    if (r.skippedGiftCard) giftCardTendersSkipped++;
     if (r.refundId) refundIds.push(r.refundId);
     remaining -= r.refundedCents;
     index++;
   }
-  return owedCents - remaining;
+  return { refundedCents: owedCents - remaining, giftCardTendersSkipped };
 };
 
 /**

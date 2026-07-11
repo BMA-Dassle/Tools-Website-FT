@@ -1,5 +1,30 @@
 # Lessons Learned
 
+## Square refuses partial refunds of gift-card-funded payments (2026-07-11)
+
+**What happened:** Live testing of reservation-edit decreases surfaced a hard Square rule the
+edit-engine designs had only assumed away (Assumption A1): payments funded by a GIFT CARD cannot
+be partially refunded — and gift-card refunds are heavily restricted in general. The owner's
+operational model is: refund the guest's money on the CARD payment with reason exactly
+**"Reservation Deposit"**, then manually decrement the gift cards involved (`ADJUST_DECREMENT`).
+
+**Rules:**
+
+- NEVER design a money path that partially refunds a gift-card tender (e.g. the internal deposit
+  GC's day-of payment). Refund the guest's card payment instead and keep the GC == order-total
+  invariant with an exact `ADJUST_DECREMENT`. The reservation-edit MID-decrease and
+  POST-COMPLETE paths were specced on GC-tender refunds and must be redesigned before
+  `RESERVATION_EDIT_V2_MID_DECREASE` / `_POST` ever turn on.
+- Deposits can be part-paid with a GUEST's own gift card (`authorizeMultiTender`) — any refund
+  allocator walking deposit tenders must check `sourceType` (`fetchPaymentFacts` exposes it) and
+  skip GIFT_CARD tenders, then fail loudly toward store-credit settlement if card tenders can't
+  cover the owed amount.
+- Refunds of reservation money carry the exact reason **"Reservation Deposit"** (owner
+  convention — consistent dashboard/export reads).
+- Any NEW ledger that records refunds (e.g. `reservation_edit_events`) must be added to the
+  refund-alerts sanctioned set (`recordedCascadeRefundIds`), or the system yells at its own
+  refunds as Dashboard violations. Refund-alerts whitelists by refund ID, not reason.
+
 ## A recovery sweep and a cancel cascade share the SAME state — every writer must close every gate (2026-07-07)
 
 **What happened:** Res 11416/11417 (W48833) was cancelled + refunded through the cascade. The
