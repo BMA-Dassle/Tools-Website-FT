@@ -43,6 +43,7 @@ import {
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
+import { bowlingPricingMode } from "~/features/booking/service/bowling-booked-pricing";
 import {
   KBF_GAMES_PER_SESSION,
   KBF_VIP_PER_GAME_CENTS,
@@ -261,6 +262,13 @@ interface ReserveBody {
   loyaltyAction?: "signup" | "existing";
   /** Add $2.99 booking fee to the day-of order (non-$0 reservations only). */
   bookingFee?: boolean;
+  /**
+   * Booked-pricing stamp inputs (persisted to booking_metadata.bowling so the
+   * reservation-edit repricer knows HOW the primary line was quantified).
+   * pricingMode is derived SERVER-side from kind/experienceSlug — only the
+   * lane/duration facts the server can't derive come from the client.
+   */
+  bookingMeta?: { laneCount?: number; durationMultiplier?: number };
   // ── Attraction add-ons (laser tag / gel blaster booked via BMI) ──
   /** Attraction bookings made during the wizard. Stored on the reservation for tracking. */
   attractionBookings?: Array<{
@@ -1322,17 +1330,39 @@ export async function POST(req: NextRequest) {
         // amount comes from the same evaluate step that logs the redemption).
         promoCode: promoRow && promoSavingsCents > 0 ? promoRow.code : undefined,
         promoSavingsCents: promoRow ? promoSavingsCents : 0,
-        // World Cup VIP Bowling: persist WHICH match at capture (persist-first
-        // rule) so ops/admin can tie the lane window to its fixture.
-        ...(wcFixture
+        // Booked-pricing stamp (persist-first): HOW the primary line was
+        // quantified, so the reservation-edit repricer never guesses. World
+        // Cup VIP Bowling additionally persists WHICH match at capture so
+        // ops/admin can tie the lane window to its fixture.
+        ...(body.bookingMeta || wcFixture
           ? {
               bookingMetadata: {
-                worldCup: {
-                  matchId: wcFixture.id,
-                  round: wcFixture.round,
-                  label: fixtureLabel(wcFixture),
-                  kickoffEt: bookedAt,
-                },
+                ...(body.bookingMeta
+                  ? {
+                      bowling: {
+                        experienceSlug: body.experienceSlug ?? null,
+                        laneCount: Math.max(1, Math.round(body.bookingMeta.laneCount ?? 1)),
+                        durationMultiplier: body.bookingMeta.durationMultiplier ?? 1,
+                        pricingMode:
+                          productKind === "kbf"
+                            ? "per_person"
+                            : bowlingPricingMode({
+                                hourly: body.kind === "hourly",
+                                experienceSlug: body.experienceSlug,
+                              }),
+                      },
+                    }
+                  : {}),
+                ...(wcFixture
+                  ? {
+                      worldCup: {
+                        matchId: wcFixture.id,
+                        round: wcFixture.round,
+                        label: fixtureLabel(wcFixture),
+                        kickoffEt: bookedAt,
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),

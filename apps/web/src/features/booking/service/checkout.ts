@@ -620,6 +620,10 @@ export function raceHeatsMetadata(
       category: h.category ?? product?.category,
       bmiPersonId: member?.bmiPersonId ?? null,
       racer: member?.firstName ?? null,
+      // BMI bill line id (STRING) — lets the edit flow remove THIS heat via
+      // booking/removeItem without a full cancel+rebook. Null for pre-stamp
+      // rows and pack SKUs booked before bookHeat returned a line id.
+      bmiLineId: h.bmiLineId ?? null,
     };
   });
 }

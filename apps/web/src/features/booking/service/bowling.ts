@@ -226,6 +226,9 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
       // fixture/center validation + staff title/banner (bowling-only carts
       // reserve through this route, not unified-reserve).
       ...(item.experienceSlug ? { experienceSlug: item.experienceSlug } : {}),
+      // Booked-pricing stamp inputs — the route derives pricingMode from
+      // kind/slug and persists booking_metadata.bowling for the edit repricer.
+      bookingMeta: { laneCount: item.laneCount, durationMultiplier: item.durationMultiplier },
       rawItems: item.rawItems.length > 0 ? item.rawItems : undefined,
       squareToken: params.cardToken,
       giftCardNonce: params.giftCardNonce ?? undefined,
