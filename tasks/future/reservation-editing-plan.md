@@ -1,6 +1,9 @@
 # Reservation Editing (Booking v2) — Complete Plan with Testing
 
-**Status:** APPROVED 2026-07-11 (owner). Implementation not started — pick up at PR 0 (§12).
+**Status:** APPROVED 2026-07-11 (owner). **BUILT 2026-07-11** on branch
+`claude/reservation-editing-plan-vvh9ee` — all engine phases + card vault + admin modal +
+payment-link page landed (see §16 Implementation status at the bottom for flags, deferred
+items, and the live-smoke gate that must run before any flag flips on).
 **Related:** [tasks/todo.md § Self-service "edit reservation up to check-in"](../todo.md) — that guest-facing
 spec becomes a thin client of this engine once the engine ships (its add-only/re-enter-card constraints
 were interim; the engine supersedes them for admin use).
@@ -331,3 +334,38 @@ Rollout per v2 cutover pattern: deploy flag-off → enable for one ops user → 
 - Start at **PR 0** (§12) — pure metadata prep, zero behavior change, unblocks everything else.
 - Before PR 11/12 merge, run smoke item #1 (Assumption A1: gift-card tender refund auto-credits the source internal-GAN card) in the Square sandbox — the post-complete and mid-decrease designs rest on it.
 - Update `tasks/todo.md` (move this from future → in-flight) when implementation begins.
+
+## 16. Implementation status (2026-07-11, branch claude/reservation-editing-plan-vvh9ee)
+
+**Everything ships FLAG-OFF.** Dry-run (the modal's preview) works with no flags; execution
+gates:
+
+| Flag | Unlocks | Gate before enabling |
+| --- | --- | --- |
+| `RESERVATION_EDIT_V2` | master switch — PRE-phase bowling/KBF edits (increases via card-on-file / payment link; decreases to card or store credit) + MID increases | smoke items 5–8 (§13) |
+| `RESERVATION_EDIT_V2_RACE` | BMI race-leg add/remove heats (line-level, existing bill) + combo racer edits | smoke item 9 + staging BMI trial |
+| `RESERVATION_EDIT_V2_MID_DECREASE` | mid-session refunds | **Assumption A1 sandbox proof first** |
+| `RESERVATION_EDIT_V2_POST` | post-complete refund→rebuild→repay→complete + Teams manager alert | **A1 proof** + smoke item 11 |
+
+**Landed:** PR 0 metadata prep; card vault capture + `card-vault-sweep` cron + PaymentsTab
+status + checkout opt-in + clickwrap fine print (policy v3-2026-07-11); engine pure core
+(guards/reprice/hash, 53 tests); `reservation_edit_events` ledger; `buildEditPlan` dry-run with
+Square `orders/calculate` diffs + planHash seal; executor with Redis lock, in-lock freshness
+re-check, forward recovery, refund allocation (edit top-ups before deposit tenders);
+QAMF `setLanePlayers` sync + availability-guarded lane-count rebook; BMI line-level heat
+add/remove with $0 re-confirm + Pandora −3 + verify-after; cancel-awareness in
+`cancellation/plan.ts`; self-hosted payment-difference page (`/pay/edit/{editId}`, HMAC token,
+24h/1h-before-event expiry, resume-same-attempt semantics); post-complete Teams alert;
+`EditReservationModal` + ManageReservationModal wire-in. ~150 new unit tests.
+
+**Deferred (not built):** PR 13 easy wins (duration change, attraction qty); automatic guest
+confirmation resend after an edit (modal surfaces a "resend manually" reminder); refined combo
+removal matching (combo racer REMOVE falls back to guard refusal when order lines don't match
+exactly); admin "mark permanent" card toggle (data fn `grantPermanentConsent` ships ready).
+
+**Env additions:** `EDIT_PAY_LINK_SECRET` (payment-link HMAC; falls back to ADMIN_CAMERA_TOKEN),
+`EDIT_ALERTS_CHAT_ID` (Teams; falls back to the refund-alerts channel),
+`SQUARE_STORE_CREDIT_DISCOUNT_CATALOG_ID` (already a cancel-path env).
+
+**Before ANY flag flips on:** run the §13 live smoke checklist top to bottom (Square sandbox +
+QAMF staging). Item 1 (A1) gates MID_DECREASE and POST.
