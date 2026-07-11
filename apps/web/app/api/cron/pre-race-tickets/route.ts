@@ -25,6 +25,7 @@ import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 import { verifyCron } from "@/lib/cron-auth";
+import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -312,10 +313,11 @@ function buildSingleSmsBody(
 ): string {
   return [
     `FastTrax e-ticket`,
-    `Session ${sessionName} at ${formatTimeET(member.scheduledStart)}`,
+    `Session ${sessionName} - check-in ${formatTimeET(member.scheduledStart)}`,
     racerLabel(member),
     ``,
     shortUrl,
+    KARTING_CHECKIN_SMS_NOTE,
     SHORT_CTA,
   ].join("\n");
 }
@@ -335,7 +337,7 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
   for (const group of bySession.values()) {
     const first = group[0];
     const heatName = `${first.heatNumber} - ${first.track} ${first.raceType}`;
-    const block = [`Session ${heatName} at ${formatTimeET(first.scheduledStart)}`];
+    const block = [`Session ${heatName} - check-in ${formatTimeET(first.scheduledStart)}`];
     for (const m of group) block.push(`- ${racerLabel(m)}`);
     sessionBlocks.push(block);
   }
@@ -346,6 +348,7 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
   }
   lines.push(``);
   lines.push(shortUrl);
+  lines.push(KARTING_CHECKIN_SMS_NOTE);
   lines.push(SHORT_CTA);
   return lines.join("\n");
 }
@@ -357,13 +360,14 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
  * consistent shape across "1 kid" and "2+ kids" cases.
  */
 function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
-  const heatLabel = `${member.track} Heat ${member.heatNumber} at ${formatTimeET(member.scheduledStart)}`;
+  const heatLabel = `${member.track} Heat ${member.heatNumber} check-in ${formatTimeET(member.scheduledStart)}`;
   return [
     "FastTrax e-ticket for your racer",
     "",
     `- ${member.firstName} - ${heatLabel}`,
     "",
     shortUrl,
+    KARTING_CHECKIN_SMS_NOTE,
     SHORT_CTA,
   ].join("\n");
 }
@@ -380,11 +384,12 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   );
   const lines = ["FastTrax e-tickets for your racers", ""];
   for (const m of sorted) {
-    const heatLabel = `${m.track} Heat ${m.heatNumber} at ${formatTimeET(m.scheduledStart)}`;
+    const heatLabel = `${m.track} Heat ${m.heatNumber} check-in ${formatTimeET(m.scheduledStart)}`;
     lines.push(`- ${m.firstName} - ${heatLabel}`);
   }
   lines.push("");
   lines.push(shortUrl);
+  lines.push(KARTING_CHECKIN_SMS_NOTE);
   lines.push(SHORT_CTA);
   return lines.join("\n");
 }
@@ -407,7 +412,8 @@ function buildEmailHtml(
           <h1 style="margin:0;font-size:26px;letter-spacing:-0.5px">Your E-Ticket</h1>
         </td></tr>
         <tr><td style="padding:26px 28px">
-          <p style="margin:0 0 12px 0;font-size:16px;line-height:1.5">Hey ${firstName} — your <strong>${raceType} race on the ${track} Track</strong> is coming up at <strong>${time}</strong>.</p>
+          <p style="margin:0 0 12px 0;font-size:16px;line-height:1.5">Hey ${firstName} — your <strong>${raceType} race on the ${track} Track</strong> checks in at <strong>${time}</strong> at the Karting desk, 1st Floor.</p>
+          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.5"><strong>${time} is your karting check-in time, not your race time.</strong> Your race begins about 30 minutes after check-in.</p>
           <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Save this email or screenshot your e-ticket. Show the e-ticket screen at check-in — no paper ticket needed.</p>
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View My E-Ticket</a>
@@ -463,6 +469,7 @@ function buildGroupEmailHtml(
         <tr><td style="padding:26px 28px">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">${intro}</p>
           <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
+          <p style="margin:0 0 16px 0;font-size:14px;line-height:1.5;color:#555">${KARTING_CHECKIN_EMAIL_NOTE}</p>
           <p style="margin:0 0 20px 0;font-size:14px;line-height:1.5;color:#555">Save this email or screenshot the e-ticket page. Show the e-ticket screen at check-in — no paper ticket needed.</p>
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View E-Tickets</a>
@@ -520,6 +527,7 @@ function buildMoveEmailHtml(
         <tr><td style="padding:26px 28px">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">Your race assignment changed — here are the latest details.</p>
           <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
+          <p style="margin:0 0 16px 0;font-size:14px;line-height:1.5;color:#555">${KARTING_CHECKIN_EMAIL_NOTE}</p>
           <p style="margin:0 0 20px 0;font-size:14px;line-height:1.5;color:#555">Show the e-ticket screen at check-in — no paper ticket needed.</p>
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View Updated E-Ticket</a>

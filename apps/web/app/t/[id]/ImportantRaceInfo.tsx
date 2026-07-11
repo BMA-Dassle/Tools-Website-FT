@@ -18,7 +18,8 @@ export default function ImportantRaceInfo() {
       </p>
       <ul className="space-y-2 text-white/85 text-[13px] leading-snug">
         <li>
-          The time on your ticket is your <strong className="text-white">check-in cut-off</strong>.
+          The time on your ticket is your{" "}
+          <strong className="text-white">karting check-in cut-off — not your race time</strong>.
           Arrive at the Karting check-in desk on the 1st Floor at least 5 min early. Miss check-in
           and we may not be able to reschedule —{" "}
           <strong className="text-white">missed races are non-refundable</strong>.

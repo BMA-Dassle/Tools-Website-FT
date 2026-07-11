@@ -9,6 +9,8 @@
  * card per member without copying RaceTicket's whole shape.
  */
 
+import { KARTING_CHECKIN_LABEL, KARTING_CHECKIN_SUBLINE } from "@/lib/karting-checkin-copy";
+
 export interface CardDetails {
   firstName: string;
   lastName: string;
@@ -170,7 +172,7 @@ export function CheckingInCard({
             className="text-xs font-bold uppercase tracking-wider mb-1"
             style={{ color: "#ff6b6b" }}
           >
-            Check-In Closes
+            {KARTING_CHECKIN_LABEL}
           </p>
           <p
             className="text-white font-display uppercase tracking-wider leading-none"
@@ -224,10 +226,10 @@ export function PreRaceCard({
   const mins = minutesUntil(details.scheduledStart);
   const startsInText =
     mins <= 0
-      ? "Starting soon"
+      ? "Check-in closing soon"
       : mins < 60
-        ? `Starts in ${mins} min`
-        : `Starts in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+        ? `Check-in closes in ${mins} min`
+        : `Check-in closes in ${Math.floor(mins / 60)}h ${mins % 60}m`;
 
   return (
     <div
@@ -282,7 +284,7 @@ export function PreRaceCard({
 
         <div className="mt-5">
           <p className="text-[#00E2E5]/80 text-xs font-bold uppercase tracking-wider mb-1">
-            Check-In Closes
+            {KARTING_CHECKIN_LABEL}
           </p>
           <p
             className="text-white font-display uppercase tracking-wider leading-none"
@@ -291,6 +293,7 @@ export function PreRaceCard({
             {formatTime(details.scheduledStart)}
           </p>
           <p className="text-white/50 text-xs mt-2">{formatDate(details.scheduledStart)}</p>
+          <p className="text-white/50 text-xs mt-1">{KARTING_CHECKIN_SUBLINE}</p>
         </div>
 
         <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 text-white/60 text-xs leading-relaxed">
@@ -409,7 +412,7 @@ export function InvalidCard({ details }: { details?: CardDetails }) {
           </p>
 
           <p className="text-white/40 text-[11px] uppercase tracking-wider mt-3 mb-1">
-            Check-In Closed
+            Karting Check-In Closed
           </p>
           <p
             className="text-white/55 font-display uppercase tracking-wider leading-none"
@@ -513,6 +516,9 @@ export function MovedCard({ details, movedTo }: { details: CardDetails; movedTo:
           {formatTime(movedTo.scheduledStart)}
         </p>
         <p className="text-white/50 text-xs mt-2">{formatDate(movedTo.scheduledStart)}</p>
+        <p className="text-white/40 text-xs mt-2">
+          Times shown are karting check-in times — your race starts about 30 min after.
+        </p>
 
         <a
           href={`/${movedTo.group ? "g" : "t"}/${movedTo.ticketId}`}
@@ -563,7 +569,7 @@ export function PastCard({ details }: { details: CardDetails }) {
 
         <div className="mt-5">
           <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-1">
-            Check-In Closed
+            Karting Check-In Closed
           </p>
           <p
             className="text-white/60 font-display uppercase tracking-wider leading-none"

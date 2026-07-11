@@ -35,14 +35,15 @@ function racerName(m: { firstName: string; lastName: string }): string {
 }
 
 /** Compact heat label - works for a GroupTicketMember or a ParticipantTicketRef
- *  (both carry heatNumber/track/raceType/scheduledStart). */
+ *  (both carry heatNumber/track/raceType/scheduledStart). "check-in" qualifies
+ *  the time so Was/Now lines can't be read as race start times. */
 export function heatLabelShort(h: {
   heatNumber: number;
   track: string;
   raceType: string;
   scheduledStart: string;
 }): string {
-  return `Heat ${h.heatNumber} ${h.track} ${h.raceType} ${formatTimeET(h.scheduledStart)}`;
+  return `Heat ${h.heatNumber} ${h.track} ${h.raceType} check-in ${formatTimeET(h.scheduledStart)}`;
 }
 
 /**

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 import type { CardDetails } from "./cards";
 import { formatTime, formatDate } from "./cards";
@@ -29,6 +30,36 @@ export default function FullScreenTicket({
 }) {
   const trackLabel = heat.track ? heat.track.replace(/\s+Track$/i, "") : "";
   const isSingle = racers.length === 1;
+
+  // Keep the screen awake while the ticket is shown at the counter.
+  // Web pages can't raise device brightness — preventing auto-dim/sleep
+  // (plus the all-white background) is the closest available behavior.
+  useEffect(() => {
+    let sentinel: WakeLockSentinel | null = null;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        if (!cancelled && document.visibilityState === "visible") {
+          sentinel = (await navigator.wakeLock?.request("screen")) ?? null;
+        }
+      } catch {
+        // Unsupported browser or denied (e.g. low battery) — screen
+        // dims on the device's normal schedule.
+      }
+    };
+    void acquire();
+    // Wake locks auto-release when the tab is backgrounded; re-acquire
+    // when the guest switches back to show the ticket.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void acquire();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      sentinel?.release().catch(() => {});
+    };
+  }, []);
   return (
     <div
       className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center px-6 py-10 overflow-y-auto"
@@ -77,10 +108,12 @@ export default function FullScreenTicket({
 
         {/* Time + date */}
         <div className="mt-6">
+          <p className="text-gray-500 text-xs uppercase tracking-[0.2em] mb-1">Karting Check-In</p>
           <p className="text-black font-bold" style={{ fontSize: "clamp(1.75rem, 6vw, 2.75rem)" }}>
             {formatTime(heat.scheduledStart)}
           </p>
           <p className="text-gray-500 text-base mt-1">{formatDate(heat.scheduledStart)}</p>
+          <p className="text-gray-400 text-xs mt-1">Race starts after check-in</p>
         </div>
 
         {heat.resNumber && (

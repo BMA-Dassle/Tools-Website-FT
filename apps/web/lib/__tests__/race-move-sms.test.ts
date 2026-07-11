@@ -34,7 +34,7 @@ const NON_GSM7 = /[^\x00-\x7F]/;
 describe("heatLabelShort", () => {
   it("formats heat number, track, type, and ET time with a plain space", () => {
     const label = heatLabelShort(NEW_HEAT);
-    expect(label).toMatch(/^Heat 8 Red Pro 3:10 PM$/);
+    expect(label).toMatch(/^Heat 8 Red Pro check-in 3:10 PM$/);
     expect(label).not.toMatch(NON_GSM7);
   });
 });
@@ -43,8 +43,8 @@ describe("buildSingleMoveSmsBody", () => {
   it("names the racer and shows Was/Now on their own lines", () => {
     const body = buildSingleMoveSmsBody(NEW_HEAT, OLD_REF, URL, CTA);
     expect(body).toContain("FastTrax: race time change for Jordan Lee");
-    expect(body).toContain("Was Heat 5 Blue Starter 2:00 PM");
-    expect(body).toContain("Now Heat 8 Red Pro 3:10 PM");
+    expect(body).toContain("Was Heat 5 Blue Starter check-in 2:00 PM");
+    expect(body).toContain("Now Heat 8 Red Pro check-in 3:10 PM");
     expect(body).toContain(URL);
     expect(body).toContain(CTA);
   });
@@ -78,9 +78,9 @@ describe("buildGroupMoveSmsBody", () => {
     );
     expect(body).toContain("FastTrax: race time change");
     expect(body).toContain(
-      "- Jordan Lee: was Heat 5 Blue Starter 2:00 PM, now Heat 8 Red Pro 3:10 PM",
+      "- Jordan Lee: was Heat 5 Blue Starter check-in 2:00 PM, now Heat 8 Red Pro check-in 3:10 PM",
     );
-    expect(body).toContain("- Casey Lee: Heat 6 Blue Starter 2:15 PM");
+    expect(body).toContain("- Casey Lee: Heat 6 Blue Starter check-in 2:15 PM");
     expect(body).not.toMatch(/Casey Lee: was/);
     expect(body).toContain(URL);
     expect(body).toContain(CTA);

@@ -366,6 +366,18 @@ export default function ETicketView({
           </PreRaceCard>
         )}
 
+        {/* Full-screen ticket — big white screen staff can read across
+            the counter. Distinct from the QR fullscreen above. */}
+        {!isPast && !ticket.movedTo && onSession && (
+          <button
+            type="button"
+            onClick={() => setFullScreen(true)}
+            className="mt-4 w-full py-2.5 rounded-xl border border-[#00E2E5]/40 bg-[#00E2E5]/10 text-[#00E2E5] font-bold uppercase tracking-wider text-xs hover:bg-[#00E2E5]/15 active:scale-[0.99] transition-all"
+          >
+            Open Full-Screen Ticket
+          </button>
+        )}
+
         {!isPast && !ticket.movedTo && povCodes.length > 0 && (
           <div className="mt-6">
             <PovVoucherBlock codes={povCodes} cached={povCached} />

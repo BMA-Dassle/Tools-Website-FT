@@ -535,10 +535,9 @@ export default function GroupETicketView({ group, initial }: Props) {
                       </div>
                     );
                   })}
-                  {/* Per-heat full-screen button — TABLED for now.
-                      Component + state preserved so we can re-enable
-                      with a one-line change once the UX is finalized. */}
-                  {false && !isPast && anyOnSession && (
+                  {/* Per-heat full-screen button — big white screen staff
+                      can read across the counter. */}
+                  {!isPast && anyOnSession && (
                     <button
                       type="button"
                       onClick={() => setFullScreenKey(sid)}
