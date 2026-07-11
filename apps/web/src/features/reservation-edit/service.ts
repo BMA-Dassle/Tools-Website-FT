@@ -24,7 +24,6 @@ import {
 } from "@/lib/bowling-db";
 import {
   finishEditEvent,
-  getLatestEditEvent,
   markEditPendingPayment,
   nextEditAttempt,
   recordEditPayment,
