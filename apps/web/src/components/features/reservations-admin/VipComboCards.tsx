@@ -13,6 +13,7 @@
 import { clickableDivProps } from "@/lib/a11y";
 import { cancelActionable } from "~/features/reservations-admin/actionable";
 import { stepProgress, type ComboGroup } from "~/features/reservations-admin/combo-board";
+import { etWallMs } from "~/features/reservations-admin/format";
 import {
   KIND_BADGE,
   KIND_FULL_LABELS,
@@ -24,12 +25,28 @@ import type { Reservation } from "~/features/reservations-admin/types";
 import type { OrderTarget } from "./modals/SquareOrderModal";
 import { NAV_BTN } from "./theme";
 
+/** Change-bowl-time cutoff: the shift is allowed until 5 min before the
+ *  booked bowling start (owner rule, 7/10). Server enforces the same. */
+const TIME_SHIFT_CUTOFF_MS = 5 * 60_000;
+
+/** Ultimate VIP only (owner 7/10): bowling leg still confirmed (lane not
+ *  open), QAMF-linked, and not within 5 min of its start. */
+function timeShiftLeg(g: ComboGroup, nowMs: number): Reservation | null {
+  if (g.comboId !== "race-bowl" || g.inactive) return null;
+  const b = g.bowling;
+  if (!b || b.status !== "confirmed" || !b.qamfReservationId) return null;
+  const startMs = etWallMs(b.bookedAt);
+  if (Number.isNaN(startMs) || nowMs >= startMs - TIME_SHIFT_CUTOFF_MS) return null;
+  return b;
+}
+
 export default function VipComboCards({
   groups,
   nowMs,
   onCancelLeg,
   onViewOrder,
   onOpenReservation,
+  onChangeBowlingTime,
 }: {
   groups: ComboGroup[];
   nowMs: number;
@@ -37,6 +54,8 @@ export default function VipComboCards({
   onViewOrder: (target: OrderTarget) => void;
   /** Card click (anywhere except inner buttons) opens the manage modal on the anchor leg. */
   onOpenReservation?: (r: Reservation) => void;
+  /** Opens the ±1h bowling time-shift modal on the combo's bowling leg. */
+  onChangeBowlingTime?: (leg: Reservation) => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -283,6 +302,26 @@ export default function VipComboCards({
               {/* One button per day-of order — a split combo has two
                   (Racing → FastTrax, Bowling → HeadPinz); pre-split has one. */}
               <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                {onChangeBowlingTime &&
+                  (() => {
+                    const leg = timeShiftLeg(g, nowMs);
+                    return leg ? (
+                      <button
+                        type="button"
+                        onClick={() => onChangeBowlingTime(leg)}
+                        title="Move the bowling slot ±1 hour (races stay put) — alerts the movement chat"
+                        style={{
+                          ...NAV_BTN,
+                          fontSize: "0.72rem",
+                          fontWeight: 600,
+                          color: "#d4af37",
+                          border: "1px solid rgba(212,175,55,0.4)",
+                        }}
+                      >
+                        Change bowl time
+                      </button>
+                    ) : null;
+                  })()}
                 {g.legs.some((l) => cancelActionable(l)) && (
                   <button
                     type="button"

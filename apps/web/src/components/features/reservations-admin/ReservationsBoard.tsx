@@ -34,6 +34,7 @@ import BowlingResendModal from "./modals/BowlingResendModal";
 import CancelModal from "./modals/CancelModal";
 import CheckInModal from "./modals/CheckInModal";
 import ComboScheduleModal, { type ScheduleTarget } from "./modals/ComboScheduleModal";
+import ComboTimeShiftModal from "./modals/ComboTimeShiftModal";
 import ContactModal, { type ContactTarget } from "./modals/ContactModal";
 import RescheduleModal from "./modals/RescheduleModal";
 import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
@@ -65,6 +66,8 @@ export default function ReservationsBoard({ token }: { token: string }) {
   const [resendTarget, setResendTarget] = useState<Reservation | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Reservation | null>(null);
+  // Ultimate VIP combo ±1h bowling time shift (VIP card button).
+  const [comboShiftTarget, setComboShiftTarget] = useState<Reservation | null>(null);
   const [checkinTarget, setCheckinTarget] = useState<Reservation | null>(null);
   // Contact details (phone/email) shown on clicking the guest name — keeps them
   // out of the row so the row stays single-line.
@@ -307,6 +310,19 @@ export default function ReservationsBoard({ token }: { token: string }) {
         />
       )}
 
+      {/* Ultimate VIP bowling time-shift modal */}
+      {comboShiftTarget && (
+        <ComboTimeShiftModal
+          reservation={comboShiftTarget}
+          token={token}
+          onClose={() => setComboShiftTarget(null)}
+          onDone={(msg) => {
+            showToast(`${comboShiftTarget.guestName || "Guest"}: ${msg}`);
+            void reload();
+          }}
+        />
+      )}
+
       {/* Reschedule modal */}
       {rescheduleTarget && (
         <RescheduleModal
@@ -423,6 +439,7 @@ export default function ReservationsBoard({ token }: { token: string }) {
               onCancelLeg={setCancelTarget}
               onViewOrder={setOrderTarget}
               onOpenReservation={openManage}
+              onChangeBowlingTime={setComboShiftTarget}
             />
           )
         ) : displayRows.length === 0 && visibleGroupEvents.length === 0 ? (
