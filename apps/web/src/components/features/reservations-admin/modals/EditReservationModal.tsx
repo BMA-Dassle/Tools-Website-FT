@@ -111,7 +111,9 @@ export default function EditReservationModal({
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [errorCtx, setErrorCtx] = useState<"mount" | "execute">("mount");
   const [offerLink, setOfferLink] = useState(false);
-  const [refreshedNotice, setRefreshedNotice] = useState(false);
+  /** planHash of a quote auto-refreshed after a plan_stale execute — shows
+   *  the "prices refreshed" notice for exactly that quote. */
+  const [refreshedHash, setRefreshedHash] = useState<string | null>(null);
   const [ganCopied, setGanCopied] = useState(false);
   const [idCopied, setIdCopied] = useState(false);
 
@@ -138,11 +140,26 @@ export default function EditReservationModal({
   const requestKey = `${specJson}|${refundDest ?? ""}`;
   const lastKey = useRef<string | null>(null);
 
-  /* ── Mount probe (empty spec — no_changes means "editable") ─────────── */
+  /* ── Dry-run wrapper: cache plan.current so the form stays hydrated
+   *    across no_changes (the hook clears `plan` on every error). ───────── */
+  const requestQuote = useCallback(
+    async (
+      quoteSpec: Parameters<typeof requestPlan>[0],
+      opts?: Parameters<typeof requestPlan>[1],
+    ) => {
+      const r = await requestPlan(quoteSpec, opts);
+      if (r.kind === "plan") setCurrent(r.plan.current);
+      return r;
+    },
+    [requestPlan],
+  );
+
+  /* ── Mount probe (empty spec — no_changes means "editable"). Callers set
+   *    phase "loading" themselves (it is the initial state) so this stays
+   *    free of synchronous setState when run from the mount effect. ─────── */
   const probe = useCallback(
     async (managerOverride: boolean) => {
-      setPhase("loading");
-      const r = await requestPlan({}, { immediate: true, managerOverride });
+      const r = await requestQuote({}, { immediate: true, managerOverride });
       if (r.kind === "superseded") return;
       const outcome = classifyMountOutcome(r);
       if (outcome.kind === "edit") {
@@ -159,22 +176,15 @@ export default function EditReservationModal({
         setPhase("error");
       }
     },
-    [requestPlan],
+    [requestQuote],
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only server probe; every setState happens after the fetch resolves (same idiom as useReservationDetail)
     void probe(false);
     // Mount-only — the modal is keyed by reservation id upstream.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  /* ── Cache plan.current so the form stays hydrated across no_changes ── */
-  useEffect(() => {
-    if (plan) {
-      setCurrent(plan.current);
-      if (planNeedsManagerAck(plan)) setAckRequired(true);
-    }
-  }, [plan]);
 
   /* ── Debounced dry-run on every form / settlement change ─────────────── */
   useEffect(() => {
@@ -186,25 +196,24 @@ export default function EditReservationModal({
     }
     if (lastKey.current === requestKey) return;
     lastKey.current = requestKey;
-    setRefreshedNotice(false);
-    void requestPlan(spec, {
+    void requestQuote(spec, {
       settlement: refundDest ?? undefined,
       managerOverride: ackGiven || undefined,
     });
-  }, [phase, requestKey, specEmpty, spec, refundDest, ackGiven, requestPlan, clearPlan]);
+  }, [phase, requestKey, specEmpty, spec, refundDest, ackGiven, requestQuote, clearPlan]);
 
   /* ── Execute ──────────────────────────────────────────────────────────── */
   const handleExecuteFailure = useCallback(
     async (error: { status: number; code: string; detail: string | null }, diffCents: number) => {
       const action = classifyExecuteFailure(error, diffCents);
       if (action.kind === "refresh_plan") {
-        setRefreshedNotice(true);
         lastKey.current = requestKey;
-        await requestPlan(spec, {
+        const refreshed = await requestQuote(spec, {
           settlement: refundDest ?? undefined,
           managerOverride: ackGiven || undefined,
           immediate: true,
         });
+        if (refreshed.kind === "plan") setRefreshedHash(refreshed.plan.planHash);
         setPhase("edit");
         return;
       }
@@ -218,7 +227,7 @@ export default function EditReservationModal({
       setErrorCtx("execute");
       setPhase("error");
     },
-    [requestKey, requestPlan, spec, refundDest, ackGiven],
+    [requestKey, requestQuote, spec, refundDest, ackGiven],
   );
 
   const runExecute = useCallback(
@@ -239,7 +248,7 @@ export default function EditReservationModal({
       if (source?.kind === "payment_link") {
         // The await_payment_link step is hashed into the plan — reprice with
         // the link source so displayed == executed holds.
-        const pre = await requestPlan(spec, {
+        const pre = await requestQuote(spec, {
           settlement: settlementOpt,
           paymentSource: source,
           managerOverride,
@@ -273,7 +282,7 @@ export default function EditReservationModal({
       acked,
       spec,
       notifyGuest,
-      requestPlan,
+      requestQuote,
       execute,
       handleExecuteFailure,
     ],
@@ -794,7 +803,7 @@ export default function EditReservationModal({
           <div style={SECTION}>
             <div style={SECTION_TITLE}>Price</div>
 
-            {refreshedNotice && (
+            {plan != null && plan.planHash === refreshedHash && (
               <div
                 style={{
                   padding: "0.5rem 0.75rem",
@@ -1232,8 +1241,8 @@ export default function EditReservationModal({
             >
               <div style={{ fontWeight: 700 }}>Manager check required</div>
               <div>
-                This reservation's day-of order is already closed — QAMF and BMI will NOT be updated
-                by an edit. Adjust Conqueror/BMI manually.
+                The day-of order for this reservation is already closed — QAMF and BMI will NOT be
+                updated by an edit. Adjust Conqueror/BMI manually.
               </div>
               <label
                 style={{
@@ -1253,6 +1262,7 @@ export default function EditReservationModal({
                     setAcked(e.target.checked);
                     if (e.target.checked) {
                       setAckGiven(true);
+                      setPhase("loading");
                       void probe(true);
                     }
                   }}
@@ -1326,8 +1336,10 @@ export default function EditReservationModal({
             <button
               type="button"
               onClick={() => {
-                if (errorCtx === "mount") void probe(ackGiven);
-                else {
+                if (errorCtx === "mount") {
+                  setPhase("loading");
+                  void probe(ackGiven);
+                } else {
                   setPhase("edit");
                   void runExecute();
                 }
