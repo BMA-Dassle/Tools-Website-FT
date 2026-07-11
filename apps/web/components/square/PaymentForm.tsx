@@ -110,11 +110,20 @@ interface PaymentFormProps {
    * and calls this callback with the nonce(s) instead of POSTing to
    * /api/square/pay. Lets the caller (e.g. v2 CheckoutStep) control
    * the payment flow via /api/booking/v2/reserve.
+   *
+   * `sourceKind` tags HOW the token was produced — "card" (typed card),
+   * "wallet" (Apple/Google Pay), "saved" (card on file), or "gift_card"
+   * (gift card fully covers, no card token). The server's card-vault
+   * capture keys off it: wallet tokens are NOT storable as cards.
+   * `saveCardConsent` is the card-section opt-in checkbox below (always
+   * false for non-card sources).
    */
   onTokenize?: (params: {
     cardNonce: string | null;
     savedCardId: string | null;
     giftCardNonce: string | null;
+    sourceKind: "card" | "wallet" | "saved" | "gift_card";
+    saveCardConsent: boolean;
   }) => Promise<void>;
 }
 
@@ -182,6 +191,9 @@ export default function PaymentForm({
       : null,
   );
   const [saveCard, setSaveCard] = useState(false);
+  // Card-vault opt-in (tokenize-mode card section only, owner-approved copy).
+  // Unchecked by default; checked ⇒ the captured card is never auto-removed.
+  const [saveCardConsent, setSaveCardConsent] = useState(false);
   const [applePayReady, setApplePayReady] = useState(false);
   const [googlePayReady, setGooglePayReady] = useState(false);
   const cardRef = useRef<SquareCard | null>(null);
@@ -320,6 +332,8 @@ export default function PaymentForm({
           cardNonce: result.token,
           savedCardId: null,
           giftCardNonce: giftCardNonce ?? null,
+          sourceKind: "wallet",
+          saveCardConsent: false,
         });
         return;
       }
@@ -394,7 +408,13 @@ export default function PaymentForm({
       // authorizes the GC alone.
       if (giftCardNonce && remainingCents === 0) {
         if (onTokenize) {
-          await onTokenize({ cardNonce: null, savedCardId: null, giftCardNonce });
+          await onTokenize({
+            cardNonce: null,
+            savedCardId: null,
+            giftCardNonce,
+            sourceKind: "gift_card",
+            saveCardConsent: false,
+          });
           return;
         }
         await processPayment(null, false);
@@ -406,6 +426,8 @@ export default function PaymentForm({
             cardNonce: null,
             savedCardId: selectedCardId,
             giftCardNonce: giftCardNonce ?? null,
+            sourceKind: "saved",
+            saveCardConsent: false,
           });
           return;
         }
@@ -421,6 +443,8 @@ export default function PaymentForm({
             cardNonce: result.token,
             savedCardId: null,
             giftCardNonce: giftCardNonce ?? null,
+            sourceKind: "card",
+            saveCardConsent,
           });
           return;
         }
@@ -535,21 +559,44 @@ export default function PaymentForm({
         )}
       </div>
 
-      {/* Save card checkbox (OTP-verified returning racers only). Hidden
-          when GC fully covers — no card is being entered. */}
-      {allowSaveCard && squareCustomerId && !selectedCardId && remainingCents > 0 && (
+      {/* Card-vault consent (tokenize mode — v2 checkout). Card section only:
+          hidden for saved cards and when a GC fully covers the bill. Unchecked
+          by default; owner-approved copy. */}
+      {onTokenize && !selectedCardId && remainingCents > 0 && (
         <label className="flex items-center gap-3 cursor-pointer group">
           <input
             type="checkbox"
-            checked={saveCard}
-            onChange={(e) => setSaveCard(e.target.checked)}
+            checked={saveCardConsent}
+            onChange={(e) => setSaveCardConsent(e.target.checked)}
             className="w-4 h-4 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
           />
           <span className="text-sm text-white/50 group-hover:text-white/70 transition-colors">
-            Save this card for future visits
+            Save this card to my account for faster checkout
           </span>
         </label>
       )}
+
+      {/* Save card checkbox (OTP-verified returning racers only — the legacy
+          /api/square/pay path; the tokenize path renders the card-vault
+          consent above instead). Hidden when GC fully covers — no card is
+          being entered. */}
+      {!onTokenize &&
+        allowSaveCard &&
+        squareCustomerId &&
+        !selectedCardId &&
+        remainingCents > 0 && (
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={saveCard}
+              onChange={(e) => setSaveCard(e.target.checked)}
+              className="w-4 h-4 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
+            />
+            <span className="text-sm text-white/50 group-hover:text-white/70 transition-colors">
+              Save this card for future visits
+            </span>
+          </label>
+        )}
 
       {/* Error message */}
       {errorMessage && (

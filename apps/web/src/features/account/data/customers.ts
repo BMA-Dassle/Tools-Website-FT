@@ -44,6 +44,7 @@ interface SquareCard {
   exp_month?: number;
   exp_year?: number;
   enabled?: boolean;
+  fingerprint?: string;
 }
 
 /**
@@ -73,6 +74,7 @@ export async function fetchSavedCards(customerId: string): Promise<SavedCard[]> 
         expYear,
         expired: expYear > 0 ? expDate < now : false,
         customerId: c.customer_id || customerId,
+        fingerprint: c.fingerprint,
       };
     });
 }

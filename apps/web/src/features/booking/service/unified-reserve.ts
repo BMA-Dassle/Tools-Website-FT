@@ -10,6 +10,7 @@
 import { randomBytes } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
 import { createDepositAndCharge } from "./deposit";
+import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import {
@@ -95,6 +96,14 @@ export interface UnifiedReserveInput {
   contact: ContactInfo;
   cardSourceId?: string;
   giftCardNonce?: string;
+  /**
+   * How cardSourceId was produced (PaymentForm tag: typed card / wallet /
+   * saved card / gift-card-only). Drives the card-vault silent capture —
+   * wallet tokens are never vaulted as cards.
+   */
+  sourceKind?: PaymentSourceKind;
+  /** Checkout opt-in: "Save this card to my account for faster checkout". */
+  saveCardConsent?: boolean;
   squareCustomerId?: string;
   loyaltyAccountId?: string;
   rewardTierId?: string;
@@ -1481,6 +1490,26 @@ async function unifiedReserveInner(
         );
       }
       throw err;
+    }
+  }
+
+  // ── Card-vault silent capture (plan §7 — NEVER fails the booking) ──
+  // End of the fan-out: every leg's Neon row exists. Quietly keep the deposit
+  // card on file so staff can charge approved edit differences later.
+  // captureCardFromDeposit never throws by contract; belt-and-braces wrap.
+  if (depositResult.depositPaymentId && input.squareCustomerId) {
+    try {
+      await captureCardFromDeposit({
+        squareCustomerId: input.squareCustomerId,
+        paymentId: depositResult.depositPaymentId,
+        reservationId: neonIds[0] ?? null,
+        depositOrderId: depositResult.depositOrderId,
+        baseKey,
+        sourceKind: input.sourceKind,
+        permanentConsent: input.saveCardConsent === true,
+      });
+    } catch (err) {
+      console.error("[unified-reserve] card-vault capture failed (non-fatal):", err);
     }
   }
 

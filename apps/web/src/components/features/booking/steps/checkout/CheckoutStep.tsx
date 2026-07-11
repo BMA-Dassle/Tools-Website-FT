@@ -1069,6 +1069,11 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
       cardNonce: string | null;
       savedCardId: string | null;
       giftCardNonce: string | null;
+      /** PaymentForm source tag — rides to the reserve routes so the server's
+       *  card-vault capture knows whether the token is a storable card. */
+      sourceKind: "card" | "wallet" | "saved" | "gift_card";
+      /** "Save this card to my account for faster checkout" opt-in. */
+      saveCardConsent: boolean;
     }) {
       setPhase({ step: "confirming", bmiBillId });
       try {
@@ -1086,6 +1091,8 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
             contact,
             cardToken: params.cardNonce ?? undefined,
             giftCardNonce: params.giftCardNonce ?? undefined,
+            sourceKind: params.sourceKind,
+            saveCardConsent: params.saveCardConsent,
             squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
             loyaltyAccountId: session.loyalty?.accountId,
             loyaltyAction: session.loyalty
@@ -1150,6 +1157,8 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
             contact,
             cardSourceId: params.savedCardId ?? params.cardNonce ?? undefined,
             giftCardNonce: params.giftCardNonce ?? undefined,
+            sourceKind: params.sourceKind,
+            saveCardConsent: params.saveCardConsent,
             squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
             loyaltyAccountId: session.loyalty?.accountId,
             rewardTierId: session.loyalty?.selectedRewardTier?.id,

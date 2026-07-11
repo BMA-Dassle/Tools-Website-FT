@@ -25,6 +25,32 @@ function orderStateColor(state: string): string {
   return "#ef4444";
 }
 
+/** "Card on file" status line from the card-vault provenance row. */
+function savedCardLine(card: NonNullable<PaymentTimeline["savedCard"]>): {
+  text: string;
+  color: string;
+} {
+  const label = `Card on file: ${(card.brand || "CARD").toUpperCase()} •${card.last4 || "????"}`;
+  if (card.disabledAt) {
+    const removed = new Date(card.disabledAt).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return { text: `${label} — removed ${removed}`, color: "var(--ba-muted)" };
+  }
+  if (card.permanentConsent) {
+    return { text: `${label} — saved permanently (guest opted in)`, color: "#22c55e" };
+  }
+  if (!card.weAdded) {
+    return { text: `${label} — on guest's account (pre-existing)`, color: "#22c55e" };
+  }
+  return {
+    text: `${label} — temporary, auto-removes ~72h after visit`,
+    color: "#f59e0b",
+  };
+}
+
 export default function PaymentsTab({
   payments,
   paymentsError,
@@ -204,6 +230,33 @@ export default function PaymentsTab({
               </div>
             );
           })}
+        </div>
+      )}
+      {payments?.savedCard && (
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: "1px solid var(--ba-border)",
+            fontSize: "0.8rem",
+            display: "flex",
+            gap: 8,
+            alignItems: "baseline",
+          }}
+        >
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: savedCardLine(payments.savedCard).color,
+              flexShrink: 0,
+              alignSelf: "center",
+            }}
+          />
+          <span style={{ color: savedCardLine(payments.savedCard).color, fontWeight: 600 }}>
+            {savedCardLine(payments.savedCard).text}
+          </span>
         </div>
       )}
       {payments && (

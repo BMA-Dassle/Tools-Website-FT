@@ -43,6 +43,7 @@ import {
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
+import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { bowlingPricingMode } from "~/features/booking/service/bowling-booked-pricing";
 import {
   KBF_GAMES_PER_SESSION,
@@ -212,6 +213,14 @@ interface ReserveBody {
   /** Square gift card nonce — optional. Multi-tender: GC covers up to
    *  its balance, squareToken (card/wallet) covers the remainder. */
   giftCardNonce?: string;
+  /**
+   * How squareToken was produced (PaymentForm tag). Drives the card-vault
+   * silent capture — wallet tokens / gift-card-only tenders are never vaulted.
+   */
+  sourceKind?: PaymentSourceKind;
+  /** Checkout opt-in: "Save this card to my account for faster checkout"
+   *  ⇒ the captured card is kept permanently (never auto-disabled). */
+  saveCardConsent?: boolean;
   squareCustomerId?: string;
   locationId?: string;
   notes?: string;
@@ -848,6 +857,9 @@ export async function POST(req: NextRequest) {
   let squareDayofOrderId: string | undefined;
   let squareGiftCardId: string | undefined;
   let squareGiftCardGan: string | undefined;
+  /** Idempotency base for the deposit charge — also seeds the card-vault
+   *  CreateCard key (`cof-${depositBaseKey}`). Set when a deposit is charged. */
+  let depositBaseKey: string | undefined;
   let loyaltyRewardId: string | undefined;
   let rewardDiscountCents = body.rewardDiscountCents ?? 0;
   let depositCents = 0; // actual charged amount (tax-inclusive)
@@ -1238,6 +1250,10 @@ export async function POST(req: NextRequest) {
       const depositNote = `Deposit – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`;
 
       try {
+        // Explicit baseKey (same shape createDepositAndCharge would generate)
+        // so the card-vault capture below can derive its CreateCard key from
+        // the deposit attempt's idempotency seed.
+        depositBaseKey = randomBytes(8).toString("hex");
         const depositResult = await createDepositAndCharge({
           amountCents: chargeCents,
           locationId: squareLocationId,
@@ -1247,6 +1263,7 @@ export async function POST(req: NextRequest) {
           ganPrefix,
           ganSuffix,
           note: depositNote,
+          baseKey: depositBaseKey,
         });
 
         squareDepositOrderId = depositResult.depositOrderId;
@@ -1521,6 +1538,26 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[bowling/v2/reserve] Neon insert failed:", err);
     neonId = 0;
+  }
+
+  // ── Card-vault silent capture (plan §7 — NEVER fails the booking) ──
+  // The reservation row exists; quietly keep the deposit card on file so
+  // staff can charge approved edit differences later. captureCardFromDeposit
+  // never throws by contract; the wrap is belt-and-braces.
+  if (squareDepositPaymentId && resolvedSquareCustomerId && depositBaseKey) {
+    try {
+      await captureCardFromDeposit({
+        squareCustomerId: resolvedSquareCustomerId,
+        paymentId: squareDepositPaymentId,
+        reservationId: neonId || null,
+        depositOrderId: squareDepositOrderId ?? null,
+        baseKey: depositBaseKey,
+        sourceKind: body.sourceKind,
+        permanentConsent: body.saveCardConsent === true,
+      });
+    } catch (err) {
+      console.error("[bowling/v2/reserve] card-vault capture failed (non-fatal):", err);
+    }
   }
 
   // ── Shorten confirmation URL ────────────────────────────────────

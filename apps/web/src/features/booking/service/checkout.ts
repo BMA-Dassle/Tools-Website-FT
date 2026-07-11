@@ -32,6 +32,7 @@ import { bmiAdapter } from "../data/bmi";
 import { registerContact, registerProjectPersons } from "./bmi-register";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import { getService } from "./index";
+import type { PaymentSourceKind } from "~/features/card-vault/types";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -574,6 +575,11 @@ export interface ReserveParams {
   cardSourceId?: string;
   savedCardId?: string;
   giftCardNonce?: string;
+  /** PaymentForm source tag (card/wallet/saved/gift_card) — drives the
+   *  server's card-vault silent capture. */
+  sourceKind?: PaymentSourceKind;
+  /** Checkout opt-in: keep the captured card permanently. */
+  saveCardConsent?: boolean;
   squareCustomerId?: string;
   loyaltyAccountId?: string;
   rewardTierId?: string;
@@ -674,6 +680,10 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
       depositPct: 100,
       cardSourceId: cardSourceId ?? undefined,
       giftCardNonce: params.giftCardNonce ?? undefined,
+      // A saved-card charge is tagged "saved" even if the caller forgot the
+      // tag — the server must never CreateCard from a `ccof:` id blindly.
+      sourceKind: params.savedCardId ? "saved" : params.sourceKind,
+      saveCardConsent: params.saveCardConsent ?? undefined,
       squareCustomerId: params.squareCustomerId ?? undefined,
       ...(params.loyaltyAccountId ? { loyaltyAccountId: params.loyaltyAccountId } : {}),
       ...(params.rewardTierId
@@ -1172,6 +1182,11 @@ export interface ReserveAllParams {
   contact: ContactInfo;
   cardSourceId?: string;
   giftCardNonce?: string;
+  /** PaymentForm source tag (card/wallet/saved/gift_card) — drives the
+   *  server's card-vault silent capture. */
+  sourceKind?: PaymentSourceKind;
+  /** Checkout opt-in: keep the captured card permanently. */
+  saveCardConsent?: boolean;
   squareCustomerId?: string;
   loyaltyAccountId?: string;
   rewardTierId?: string;
@@ -1204,6 +1219,8 @@ export async function reserveAll(params: ReserveAllParams): Promise<ReserveAllRe
       },
       cardSourceId: params.cardSourceId,
       giftCardNonce: params.giftCardNonce,
+      sourceKind: params.sourceKind,
+      saveCardConsent: params.saveCardConsent,
       squareCustomerId: params.squareCustomerId,
       loyaltyAccountId: params.loyaltyAccountId,
       rewardTierId: params.rewardTierId,

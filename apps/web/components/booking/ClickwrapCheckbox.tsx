@@ -93,7 +93,9 @@ export default function ClickwrapCheckbox({
           >
             ↗
           </a>
-          . All reservations are final and subject to this policy.
+          . All reservations are final and subject to this policy. Your payment card may be securely
+          retained by our payment processor to cover approved changes to your reservation, and is
+          removed within 72 hours after your visit unless you choose to save it.
         </span>
       </label>
 
@@ -189,6 +191,17 @@ export default function ClickwrapCheckbox({
                     <li>
                       &middot; Initiating a chargeback without first contacting {brandName} may
                       result in suspension of booking privileges.
+                    </li>
+                  </ul>
+                </div>
+
+                <div>
+                  <p className="text-white/80 font-semibold mb-1">Payment Card Retention</p>
+                  <ul className="space-y-1 ml-3">
+                    <li>
+                      &middot; Your payment card may be securely retained by our payment processor
+                      to cover approved changes to your reservation, and is removed within 72 hours
+                      after your visit unless you choose to save it.
                     </li>
                   </ul>
                 </div>

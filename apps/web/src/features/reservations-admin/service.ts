@@ -25,6 +25,7 @@ import {
   fetchPaymentFacts,
 } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
+import { getCardStatusForReservation } from "~/features/card-vault";
 import { listAdminActions, recordAdminAction, type AdminActionRow } from "./audit";
 import { syncNoteToBmi } from "./bmi-notes";
 
@@ -177,8 +178,23 @@ export interface TimelineNode {
   error?: string;
 }
 
+/** Card-vault provenance for the Payments tab's "Card on file" row. */
+export interface SavedCardStatus {
+  brand: string | null;
+  last4: string | null;
+  /** True = WE silently captured it at booking (auto-removed ~72h after the
+   *  visit); false = the card pre-existed on the customer. */
+  weAdded: boolean;
+  /** True = never auto-removed (guest opted in / admin grant). */
+  permanentConsent: boolean;
+  /** ISO timestamp when the sweep disabled it; null = still on file. */
+  disabledAt: string | null;
+}
+
 export interface PaymentTimeline {
   nodes: TimelineNode[];
+  /** Card-on-file status for this money group; null = no vault record. */
+  savedCard: SavedCardStatus | null;
 }
 
 async function orderNode(
@@ -299,7 +315,25 @@ export async function getPaymentTimeline(neonId: number): Promise<PaymentTimelin
     );
   }
 
-  return { nodes: await Promise.all(tasks) };
+  // Card-vault status (silent capture provenance) — Neon-only read, keyed on
+  // the group's deposit order. Failure never blanks the Square timeline.
+  const savedCardRow = await getCardStatusForReservation(
+    anchor.squareDepositOrderId ?? null,
+    anchor.squareCustomerId ?? null,
+  ).catch(() => null);
+
+  return {
+    nodes: await Promise.all(tasks),
+    savedCard: savedCardRow
+      ? {
+          brand: savedCardRow.cardBrand,
+          last4: savedCardRow.cardLast4,
+          weAdded: savedCardRow.weAdded,
+          permanentConsent: savedCardRow.permanentConsent,
+          disabledAt: savedCardRow.disabledAt,
+        }
+      : null,
+  };
 }
 
 // ── Mutations ───────────────────────────────────────────────────────────────
