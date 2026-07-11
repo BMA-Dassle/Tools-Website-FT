@@ -9,7 +9,13 @@ import {
 } from "@/lib/pandora-deposits";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
 import { isVipComboPersonOnDate } from "@/lib/bowling-db";
-import { findBackToBackRace, pickNextTwoHeats, type HeatCandidate } from "@/lib/checkin-race-flags";
+import {
+  birthdayMatchesToday,
+  fetchIsBirthdayToday,
+  findBackToBackRace,
+  pickNextTwoHeats,
+  type HeatCandidate,
+} from "@/lib/checkin-race-flags";
 import { ARENA_RESOURCES, HP_FM_LOCATION_ID } from "~/features/arena-tickets/constants";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 
@@ -637,11 +643,11 @@ export async function POST(req: NextRequest) {
   let heatNumber = sessionMatch?.heatNumber ?? null;
   let scheduledStart = sessionMatch?.scheduledStart ?? null;
 
-  // VIP + back-to-back flags — kicked off NOW so they run in parallel with
-  // the headsock/check-in work below and never slow the flash. Both are
-  // fail-open (false/null on any error). VIP badges the green AND yellow
-  // guest cards; back-to-back only applies when actually checking in — its
-  // "next 2 heats" anchor is the heat being checked into.
+  // VIP + birthday + back-to-back flags — kicked off NOW so they run in
+  // parallel with the headsock/check-in work below and never slow the flash.
+  // All fail-open (false/null on any error). VIP and birthday badge the green
+  // AND yellow guest cards; back-to-back only applies when actually checking
+  // in — its "next 2 heats" anchor is the heat being checked into.
   const todayEt = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric",
@@ -649,6 +655,7 @@ export async function POST(req: NextRequest) {
     day: "2-digit",
   }).format(new Date());
   const vipPromise = isVipComboPersonOnDate(personId, todayEt).catch(() => false);
+  const birthdayPromise = fetchIsBirthdayToday(personId, todayEt).catch(() => false);
   const backToBackPromise = currentlyCheckingIn
     ? findBackToBackRace(req, {
         sessionId,
@@ -753,7 +760,11 @@ export async function POST(req: NextRequest) {
       pictureUrl: checkinGuest?.pic ?? null,
     };
 
-    const [vip, backToBack] = await Promise.all([vipPromise, backToBackPromise]);
+    const [vip, birthday, backToBack] = await Promise.all([
+      vipPromise,
+      birthdayPromise,
+      backToBackPromise,
+    ]);
 
     return NextResponse.json({
       success: checkinResult.success,
@@ -762,6 +773,7 @@ export async function POST(req: NextRequest) {
       currentlyCheckingIn,
       headsock,
       vip,
+      birthday,
       backToBack,
     });
   }
@@ -787,6 +799,7 @@ export async function POST(req: NextRequest) {
     currentlyCheckingIn,
     headsock,
     vip: await vipPromise,
+    birthday: await birthdayPromise,
     backToBack: null,
   });
 }
@@ -1069,6 +1082,32 @@ export async function GET(req: NextRequest) {
       pass: crossTrack && excludesSelfAndPast && badAnchorEmpty,
       ms: Date.now() - start,
       detail: picked.map((c) => `${c.track} #${c.heatNumber}`).join(", ") || "no candidates",
+    });
+  }
+
+  // 6. Birthday match — month/day compare incl. leap-day fallback
+  {
+    const start = Date.now();
+    const cases = [
+      { born: "1990-07-10", today: "2026-07-10", expect: true }, // exact month/day
+      { born: "1990-07-10T00:00:00", today: "2026-07-10", expect: true }, // datetime birthdate
+      { born: "1990-07-11", today: "2026-07-10", expect: false }, // different day
+      { born: "1990-10-07", today: "2026-07-10", expect: false }, // swapped month/day
+      { born: "2000-02-29", today: "2026-02-28", expect: true }, // leap-day, non-leap year
+      { born: "2000-02-29", today: "2028-02-28", expect: false }, // leap-day, leap year (Feb 29 exists)
+      { born: "2000-02-29", today: "2028-02-29", expect: true }, // leap-day, leap year exact
+      { born: null, today: "2026-07-10", expect: false }, // no birthdate on record
+      { born: "garbage", today: "2026-07-10", expect: false },
+    ];
+    let passed = 0;
+    for (const c of cases) {
+      if (birthdayMatchesToday(c.born, c.today) === c.expect) passed++;
+    }
+    tests.push({
+      name: "birthday-match",
+      pass: passed === cases.length,
+      ms: Date.now() - start,
+      detail: `${passed}/${cases.length} cases passed`,
     });
   }
 

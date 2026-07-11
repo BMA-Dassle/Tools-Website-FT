@@ -29,6 +29,8 @@ interface CheckinResponse {
   nextRaceStatus?: "found" | "none" | "unknown";
   /** Guest is part of an Ultimate VIP combo reservation today. */
   vip?: boolean;
+  /** Today is the guest's birthday (BMI person record). */
+  birthday?: boolean;
   /** Guest races again within the next 2 heats (any track). */
   backToBack?: {
     track: string | null;
@@ -39,6 +41,7 @@ interface CheckinResponse {
 }
 
 const VIP_GOLD = "#d4af37";
+const BIRTHDAY_PINK = "#EC4899";
 
 // Accent per session kind — race tracks plus HP Arena activities
 // (the stats strip and flash screens are attraction-generic now).
@@ -372,6 +375,26 @@ export default function CheckInClient({ token, version }: Props) {
     }, FLASH_DURATION);
   }
 
+  // Preview the birthday badge on the green guest card (no API call).
+  function previewBirthday() {
+    setLastResult({
+      success: true,
+      guest: { firstName: "PREVIEW", lastName: "BIRTHDAY", pictureUrl: null },
+      session: { track: "blue", raceType: "Junior Starter", heatNumber: 3, scheduledStart: null },
+      currentlyCheckingIn: true,
+      headsock: { detected: false, deducted: false, balance: 0 },
+      vip: true,
+      birthday: true,
+    });
+    setLastError("");
+    setScanState("result");
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => {
+      setScanState("idle");
+      setLastResult(null);
+    }, FLASH_DURATION);
+  }
+
   // Preview the next-race screens (no API call) — paper-QR scan whose race
   // isn't currently being called.
   function previewNextRace(status: "found" | "none") {
@@ -591,13 +614,17 @@ export default function CheckInClient({ token, version }: Props) {
           </>
         ) : lastResult?.guest ? (
           <>
-            {/* Guest picture placeholder — gold ring for VIPs */}
+            {/* Guest picture placeholder — gold ring for VIPs, pink for birthdays */}
             <div
               className="rounded-full border-4 bg-white/10 flex items-center justify-center mb-6 overflow-hidden"
               style={{
                 width: 240,
                 height: 240,
-                borderColor: lastResult.vip ? VIP_GOLD : "rgba(255,255,255,0.3)",
+                borderColor: lastResult.vip
+                  ? VIP_GOLD
+                  : lastResult.birthday
+                    ? BIRTHDAY_PINK
+                    : "rgba(255,255,255,0.3)",
               }}
             >
               {lastResult.guest.pictureUrl ? (
@@ -613,13 +640,25 @@ export default function CheckInClient({ token, version }: Props) {
               )}
             </div>
 
-            {/* VIP badge — Ultimate VIP combo guest */}
-            {lastResult.vip && (
-              <div
-                className="px-6 py-1.5 rounded-full mb-3 text-black font-black uppercase tracking-widest"
-                style={{ backgroundColor: VIP_GOLD, fontSize: "clamp(18px, 3.5vw, 28px)" }}
-              >
-                ★ VIP
+            {/* Badge row — VIP (Ultimate VIP combo) + Birthday (BMI birthdate = today) */}
+            {(lastResult.vip || lastResult.birthday) && (
+              <div className="flex gap-3 mb-3">
+                {lastResult.vip && (
+                  <div
+                    className="px-6 py-1.5 rounded-full text-black font-black uppercase tracking-widest"
+                    style={{ backgroundColor: VIP_GOLD, fontSize: "clamp(18px, 3.5vw, 28px)" }}
+                  >
+                    ★ VIP
+                  </div>
+                )}
+                {lastResult.birthday && (
+                  <div
+                    className="px-6 py-1.5 rounded-full text-white font-black uppercase tracking-widest"
+                    style={{ backgroundColor: BIRTHDAY_PINK, fontSize: "clamp(18px, 3.5vw, 28px)" }}
+                  >
+                    🎂 Birthday
+                  </div>
+                )}
               </div>
             )}
 
@@ -931,6 +970,14 @@ export default function CheckInClient({ token, version }: Props) {
               style={{ backgroundColor: VIP_GOLD }}
             >
               Preview VIP
+            </button>
+            <button
+              type="button"
+              onClick={previewBirthday}
+              className="px-3 py-1.5 rounded text-xs font-bold text-white"
+              style={{ backgroundColor: BIRTHDAY_PINK }}
+            >
+              Preview Birthday
             </button>
             <button
               type="button"

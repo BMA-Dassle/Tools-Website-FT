@@ -157,6 +157,49 @@ function rosterHasRacer(
 }
 
 /**
+ * Does `birthdate` (any string starting "YYYY-MM-DD") fall on `todayYmd`'s
+ * month/day? Pure — exported for the check-in self-test. Feb 29 birthdays
+ * match Feb 28 in non-leap years so leap-day guests still get their badge.
+ */
+export function birthdayMatchesToday(
+  birthdate: string | null | undefined,
+  todayYmd: string,
+): boolean {
+  const born = /^(\d{4})-(\d{2})-(\d{2})/.exec(birthdate ?? "");
+  const today = /^(\d{4})-(\d{2})-(\d{2})$/.exec(todayYmd);
+  if (!born || !today) return false;
+  const [, , bMonth, bDay] = born;
+  const [, tYear, tMonth, tDay] = today;
+  if (bMonth === tMonth && bDay === tDay) return true;
+  if (bMonth === "02" && bDay === "29" && tMonth === "02" && tDay === "28") {
+    const y = Number(tYear);
+    const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    return !isLeap;
+  }
+  return false;
+}
+
+/**
+ * Is today (ET) the guest's birthday? Reads the BMI person record via
+ * Pandora (the same GET the waiver check uses — carries `birthdate`).
+ * Fail-open: missing birthdate, timeout, or any error → false.
+ */
+export async function fetchIsBirthdayToday(personId: string, todayYmd: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${PANDORA_BASE}/v2/bmi/person/${FASTTRAX_LOCATION_ID}/${personId}?picture=false&allRelated=false`,
+      { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(4000) },
+    );
+    if (!res.ok) return false;
+    const json = await res.json();
+    const birthdate = json?.data?.birthdate;
+    return typeof birthdate === "string" && birthdayMatchesToday(birthdate, todayYmd);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Is the racer being checked into `sessionId` also on one of the next 2 heats
  * (any track)? Returns that heat's details for the banner, or null.
  */

@@ -239,7 +239,9 @@
       "PowerShell(npx next build)",
       "PowerShell(node scripts/a11y-gate.mjs)",
       "PowerShell(npm test)",
-      "PowerShell(npx eslint \"app/admin/[token]/checkin/CheckInClient.tsx\")"
+      "PowerShell(npx eslint \"app/admin/[token]/checkin/CheckInClient.tsx\")",
+      "PowerShell(npx eslint \"lib/checkin-race-flags.ts\" \"app/api/admin/checkin/route.ts\" \"app/admin/[token]/checkin/CheckInClient.tsx\")",
+      "PowerShell(npx tsc --noEmit)"
     ],
     "additionalDirectories": [
       "\\tmp"
