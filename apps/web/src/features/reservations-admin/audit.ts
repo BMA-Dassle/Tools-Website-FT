@@ -30,7 +30,13 @@ export type AdminActionKind =
   | "checkin"
   | "checkin_method"
   | "notes_edit"
-  | "guest_edit";
+  | "guest_edit"
+  /** Reservation edit (players/lanes/shoes/racers + money) via the edit cascade. */
+  | "edit"
+  /** Staff marked the captured card-on-file permanent (guest consent by phone/desk). */
+  | "card_consent"
+  /** card-vault-sweep disabled a silently captured card on file (72h rule). */
+  | "card_vault_disable";
 
 export interface AdminActionEvent {
   reservationId: number;

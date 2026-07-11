@@ -25,6 +25,10 @@ export async function POST(req: NextRequest) {
       contact: ContactInfo;
       cardSourceId?: string;
       giftCardNonce?: string;
+      /** PaymentForm source tag — drives the card-vault silent capture. */
+      sourceKind?: "card" | "wallet" | "saved" | "gift_card";
+      /** Checkout opt-in: keep the captured card permanently. */
+      saveCardConsent?: boolean;
       squareCustomerId?: string;
       loyaltyAccountId?: string;
       rewardTierId?: string;
@@ -43,6 +47,8 @@ export async function POST(req: NextRequest) {
       contact: body.contact,
       cardSourceId: body.cardSourceId,
       giftCardNonce: body.giftCardNonce,
+      sourceKind: body.sourceKind,
+      saveCardConsent: body.saveCardConsent,
       squareCustomerId: body.squareCustomerId,
       loyaltyAccountId: body.loyaltyAccountId,
       rewardTierId: body.rewardTierId,

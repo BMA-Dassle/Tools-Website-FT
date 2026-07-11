@@ -22,7 +22,8 @@ import { sql, isDbConfigured } from "@/lib/db";
  * that was in effect at the time of acceptance.
  */
 
-export const CURRENT_POLICY_VERSION = "v2-2026-04-30";
+// v3: card-retention fine print added (card-vault, owner-approved 2026-07-11).
+export const CURRENT_POLICY_VERSION = "v3-2026-07-11";
 
 export interface ClickwrapAcceptance {
   /** ISO timestamp of acceptance (client-side, when button clicked). */

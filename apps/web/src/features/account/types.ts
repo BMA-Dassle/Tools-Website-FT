@@ -40,6 +40,8 @@ export interface SavedCard {
   expired: boolean;
   /** Owning Square customer id — set-card only offers cards from the sub's customer. */
   customerId: string;
+  /** Square Card.fingerprint — card-vault dedupe key when populated (A2). */
+  fingerprint?: string;
 }
 
 export interface AccountSubscription {

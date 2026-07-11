@@ -10,6 +10,7 @@
 import { randomBytes } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
 import { createDepositAndCharge } from "./deposit";
+import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import {
@@ -31,6 +32,7 @@ import { getRaceProductById } from "./race-products";
 import { patchHeatSetups } from "./session-setup";
 import { raceUsesZeroBmiModel } from "./race";
 import { buildRaceChargeLines, raceHeatsMetadata } from "./checkout";
+import { bowlingBookedPricingStamp } from "./bowling-booked-pricing";
 import { promoFactor } from "./promo-pricing";
 import { recordRedemption, getDiscountCodeByCode } from "~/features/discount-codes";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
@@ -94,6 +96,14 @@ export interface UnifiedReserveInput {
   contact: ContactInfo;
   cardSourceId?: string;
   giftCardNonce?: string;
+  /**
+   * How cardSourceId was produced (PaymentForm tag: typed card / wallet /
+   * saved card / gift-card-only). Drives the card-vault silent capture —
+   * wallet tokens are never vaulted as cards.
+   */
+  sourceKind?: PaymentSourceKind;
+  /** Checkout opt-in: "Save this card to my account for faster checkout". */
+  saveCardConsent?: boolean;
   squareCustomerId?: string;
   loyaltyAccountId?: string;
   rewardTierId?: string;
@@ -1064,20 +1074,24 @@ async function unifiedReserveInner(
             // (correlated via the shared square_deposit_order_id; each leg
             // settles its own day-of order).
             comboSpecialId: session.comboSpecialId ?? undefined,
-            // World Cup VIP Bowling: persist WHICH match at capture (persist-
-            // first rule) so ops/admin can tie the lane window to its fixture.
-            ...(wcFixture
-              ? {
-                  bookingMetadata: {
+            // Booked-pricing stamp (persist-first): HOW the primary line was
+            // quantified (per-lane vs per-person × durationMultiplier) so the
+            // reservation-edit repricer never has to reverse-engineer it.
+            // World Cup VIP Bowling additionally persists WHICH match at
+            // capture so ops/admin can tie the lane window to its fixture.
+            bookingMetadata: {
+              bowling: bowlingBookedPricingStamp(item),
+              ...(wcFixture
+                ? {
                     worldCup: {
                       matchId: wcFixture.id,
                       round: wcFixture.round,
                       label: fixtureLabel(wcFixture),
                       kickoffEt: item.bookedAt,
                     },
-                  },
-                }
-              : {}),
+                  }
+                : {}),
+            },
           },
           item.lineItems.map((li) => ({
             squareProductId: li.squareProductId,
@@ -1476,6 +1490,26 @@ async function unifiedReserveInner(
         );
       }
       throw err;
+    }
+  }
+
+  // ── Card-vault silent capture (plan §7 — NEVER fails the booking) ──
+  // End of the fan-out: every leg's Neon row exists. Quietly keep the deposit
+  // card on file so staff can charge approved edit differences later.
+  // captureCardFromDeposit never throws by contract; belt-and-braces wrap.
+  if (depositResult.depositPaymentId && input.squareCustomerId) {
+    try {
+      await captureCardFromDeposit({
+        squareCustomerId: input.squareCustomerId,
+        paymentId: depositResult.depositPaymentId,
+        reservationId: neonIds[0] ?? null,
+        depositOrderId: depositResult.depositOrderId,
+        baseKey,
+        sourceKind: input.sourceKind,
+        permanentConsent: input.saveCardConsent === true,
+      });
+    } catch (err) {
+      console.error("[unified-reserve] card-vault capture failed (non-fatal):", err);
     }
   }
 

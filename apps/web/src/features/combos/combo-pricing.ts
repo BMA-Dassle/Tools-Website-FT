@@ -184,21 +184,54 @@ export function comboItemizedLines(session: BookingSession): ComboItemLine[] | n
   const active = activeComboSpecial(session);
   if (!active) return null;
   const { combo, raceItem, racerIds } = active;
+  return comboItemizedLinesForRacers({
+    combo,
+    date: raceItem.date!,
+    racers: racerIds.map((rid) => ({
+      id: rid,
+      isNew: !!session.party.find((p) => p.id === rid)?.isNewRacer,
+    })),
+    appliedPromo: session.appliedPromo,
+  });
+}
+
+/** Racer input for the session-independent itemizer. */
+export interface ComboRacerInput {
+  id: string;
+  /** New racer → carries the license line (returning racers reallocate it). */
+  isNew: boolean;
+}
+
+/**
+ * Session-independent core of comboItemizedLines — itemizes the flat
+ * per-person combo price for an explicit racer list. Shared by the booking
+ * seam above AND the reservation-edit repricer, so an edited combo can never
+ * drift from what booking would have charged for the same roster.
+ */
+export function comboItemizedLinesForRacers(params: {
+  combo: ComboSpecial;
+  date: string;
+  racers: ComboRacerInput[];
+  appliedPromo?: BookingSession["appliedPromo"];
+}): ComboItemLine[] | null {
+  const { combo, date, racers, appliedPromo } = params;
   const split = combo.revenueSplit;
   if (!split || split.length === 0) return null;
+  if (racers.length === 0) return null;
 
-  const weekend = scheduleForDate(raceItem.date!) === "weekend";
+  const weekend = scheduleForDate(date) === "weekend";
   const cents = (l: ComboRevenueLine) => (weekend ? l.weekendCents : l.weekdayCents);
   const byKey = new Map(split.map((l) => [l.key, l] as const));
-  const isNew = (rid: string) => !!session.party.find((p) => p.id === rid)?.isNewRacer;
+  const isNewById = new Map(racers.map((r) => [r.id, r.isNew] as const));
 
   // (lineKey, unitCents) → aggregated quantity.
   const agg = new Map<string, { line: ComboRevenueLine; unitCents: number; qty: number }>();
-  for (const rid of racerIds) {
+  for (const r of racers) {
     const perLineCents = new Map<string, number>();
     for (const l of split) {
       const applies =
-        l.appliesTo === "allRacers" || (l.appliesTo === "newRacersOnly" && isNew(rid));
+        l.appliesTo === "allRacers" ||
+        (l.appliesTo === "newRacersOnly" && (isNewById.get(r.id) ?? false));
       if (applies) {
         perLineCents.set(l.key, (perLineCents.get(l.key) ?? 0) + cents(l));
       } else if (l.reallocateTo) {
@@ -227,8 +260,8 @@ export function comboItemizedLines(session: BookingSession): ComboItemLine[] | n
       // USA250: reduce the price key per line (entity → domain; the combo's
       // date gates the booking-date window). factor is 1 when ineligible.
       const factor = promoFactor(
-        { domain: entityToDomain(e.line.entity), visitDate: raceItem.date },
-        session.appliedPromo,
+        { domain: entityToDomain(e.line.entity), visitDate: date },
+        appliedPromo ?? null,
       );
       const unitCents = factor === 1 ? e.unitCents : Math.round(e.unitCents * factor);
       return {

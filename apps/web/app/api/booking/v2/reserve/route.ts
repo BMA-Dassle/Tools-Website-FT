@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildGanPrefix } from "@/lib/gan";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
+import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { bmiBillIsLive } from "~/features/booking/service/bmi-confirm";
 import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
 import {
@@ -118,6 +119,14 @@ interface ReserveRequest {
   locationId: string;
   cardSourceId?: string;
   giftCardNonce?: string;
+  /**
+   * How cardSourceId was produced (PaymentForm tag: typed card / wallet /
+   * saved card / gift-card-only). Drives the card-vault silent capture —
+   * wallet tokens are never vaulted.
+   */
+  sourceKind?: PaymentSourceKind;
+  /** Checkout opt-in: "Save this card to my account for faster checkout". */
+  saveCardConsent?: boolean;
   squareCustomerId?: string;
   loyaltyAccountId?: string;
   rewardTierId?: string;
@@ -637,6 +646,27 @@ export async function POST(req: NextRequest) {
         { error: "Could not persist reservation. Please retry.", code: "ANCHOR_WRITE_FAILED" },
         { status: 500 },
       );
+    }
+
+    // ── Card-vault silent capture (plan §7 — NEVER fails the booking) ───
+    // The anchor row exists and the deposit is captured; quietly keep the
+    // card on file for later edit charges. Same deterministic baseKey as
+    // every other Square key on this bill, so a retry replays `cof-…`.
+    // captureCardFromDeposit never throws by contract; belt-and-braces wrap.
+    if (depositResult.depositPaymentId && body.squareCustomerId) {
+      try {
+        await captureCardFromDeposit({
+          squareCustomerId: body.squareCustomerId,
+          paymentId: depositResult.depositPaymentId,
+          reservationId: neonId,
+          depositOrderId: depositResult.depositOrderId,
+          baseKey,
+          sourceKind: body.sourceKind,
+          permanentConsent: body.saveCardConsent === true,
+        });
+      } catch (captureErr) {
+        console.error("[v2/reserve] card-vault capture failed (non-fatal):", captureErr);
+      }
     }
 
     // ── Coupon redemption ledger (idempotent, soft-fail) ────────────────

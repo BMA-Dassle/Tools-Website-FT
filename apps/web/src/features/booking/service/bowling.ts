@@ -9,6 +9,7 @@
 import type { BookingService, BookingQuote } from "./index";
 import type { BowlingItem, KbfItem, BookingSession } from "../state/types";
 import type { ContactInfo } from "../types";
+import type { PaymentSourceKind } from "~/features/card-vault/types";
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import { buildKbfExtraSquareLineItems, isFridayYmd } from "./kbf-pricing";
@@ -143,6 +144,11 @@ export interface BowlingReserveParams {
   contact: ContactInfo;
   cardToken?: string;
   giftCardNonce?: string;
+  /** PaymentForm source tag (card/wallet/saved/gift_card) — drives the
+   *  server's card-vault silent capture. */
+  sourceKind?: PaymentSourceKind;
+  /** Checkout opt-in: keep the captured card permanently. */
+  saveCardConsent?: boolean;
   squareCustomerId?: string;
   loyaltyAccountId?: string;
   loyaltyAction?: "signup" | "existing";
@@ -226,9 +232,14 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
       // fixture/center validation + staff title/banner (bowling-only carts
       // reserve through this route, not unified-reserve).
       ...(item.experienceSlug ? { experienceSlug: item.experienceSlug } : {}),
+      // Booked-pricing stamp inputs — the route derives pricingMode from
+      // kind/slug and persists booking_metadata.bowling for the edit repricer.
+      bookingMeta: { laneCount: item.laneCount, durationMultiplier: item.durationMultiplier },
       rawItems: item.rawItems.length > 0 ? item.rawItems : undefined,
       squareToken: params.cardToken,
       giftCardNonce: params.giftCardNonce ?? undefined,
+      sourceKind: params.sourceKind,
+      saveCardConsent: params.saveCardConsent,
       locationId,
       smsOptIn: params.smsOptIn ?? contact.smsOptIn ?? true,
       squareCustomerId: params.squareCustomerId,

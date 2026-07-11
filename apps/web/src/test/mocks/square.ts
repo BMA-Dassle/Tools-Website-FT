@@ -38,6 +38,16 @@ export interface SquareMockHandle {
   onCustomerPatch(customerId?: string): RouteBuilder;
   onCustomerGet(customerId?: string): RouteBuilder;
   onLoyaltyAccountsSearch(): RouteBuilder;
+  /** GET /v2/payments/{id} — payment facts (card-vault capture). */
+  onPaymentGet(paymentId?: string): RouteBuilder;
+  /** POST /v2/payments — CreatePayment (saved-card charges). */
+  onPaymentCreate(): RouteBuilder;
+  /** GET /v2/cards?customer_id=… — ListCards (saved-card dedupe). */
+  onCardsList(): RouteBuilder;
+  /** POST /v2/cards — CreateCard (card-on-file capture). */
+  onCardCreate(): RouteBuilder;
+  /** POST /v2/cards/{id}/disable — DisableCard (card-vault sweep). */
+  onCardDisable(cardId?: string): RouteBuilder;
   reset(): void;
   /** All captured calls across every Square route. */
   allCalls(): Array<{ method: string; url: string; body: unknown }>;
@@ -164,6 +174,40 @@ export function installSquareMock(): SquareMockHandle {
           url === `${SQUARE_BASE}/loyalty/accounts/search` &&
           (init?.method ?? "GET").toUpperCase() === "POST"
         );
+      });
+    },
+    onPaymentGet(paymentId?: string) {
+      return buildRoute(routes, (url, init) => {
+        const isGet = (init?.method ?? "GET").toUpperCase() === "GET";
+        if (!isGet) return false;
+        if (paymentId) return url === `${SQUARE_BASE}/payments/${paymentId}`;
+        return url.startsWith(`${SQUARE_BASE}/payments/`);
+      });
+    },
+    onPaymentCreate() {
+      return buildRoute(routes, (url, init) => {
+        return (
+          url === `${SQUARE_BASE}/payments` && (init?.method ?? "GET").toUpperCase() === "POST"
+        );
+      });
+    },
+    onCardsList() {
+      return buildRoute(routes, (url, init) => {
+        const isGet = (init?.method ?? "GET").toUpperCase() === "GET";
+        return isGet && url.startsWith(`${SQUARE_BASE}/cards?`);
+      });
+    },
+    onCardCreate() {
+      return buildRoute(routes, (url, init) => {
+        return url === `${SQUARE_BASE}/cards` && (init?.method ?? "GET").toUpperCase() === "POST";
+      });
+    },
+    onCardDisable(cardId?: string) {
+      return buildRoute(routes, (url, init) => {
+        const isPost = (init?.method ?? "GET").toUpperCase() === "POST";
+        if (!isPost) return false;
+        if (cardId) return url === `${SQUARE_BASE}/cards/${cardId}/disable`;
+        return url.startsWith(`${SQUARE_BASE}/cards/`) && url.endsWith("/disable");
       });
     },
     reset() {
