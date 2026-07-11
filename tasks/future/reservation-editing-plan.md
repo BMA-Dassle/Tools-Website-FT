@@ -358,10 +358,18 @@ add/remove with $0 re-confirm + Pandora −3 + verify-after; cancel-awareness in
 24h/1h-before-event expiry, resume-same-attempt semantics); post-complete Teams alert;
 `EditReservationModal` + ManageReservationModal wire-in. ~150 new unit tests.
 
-**Deferred (not built):** PR 13 easy wins (duration change, attraction qty); automatic guest
-confirmation resend after an edit (modal surfaces a "resend manually" reminder); refined combo
-removal matching (combo racer REMOVE falls back to guard refusal when order lines don't match
-exactly); admin "mark permanent" card toggle (data fn `grantPermanentConsent` ships ready).
+**Tail items (2026-07-11, second pass — all previously-deferred items now BUILT):**
+- Duration changes (1.5h↔2h hourly): `spec.durationOptionId` — reprice swaps the multiplier /
+  override product, QAMF rebooks with the option's Time id, modal gets a lane-time selector.
+- Attraction add-on quantity edits (PRE only): `spec.attractions` — BMI line replace
+  (removeItem + re-book at the new qty, capacity-guarded) on the add-on's own bill, order line
+  + money through the normal engine, modal qty steppers. Rides RESERVATION_EDIT_V2_RACE.
+- Refined combo racer edits: adds/removes now price through comboItemizedLinesForRacers per
+  entity (never race-product prices); removals classify the racer new/returning by exact
+  line-match against the live orders and must cover whole racers.
+- Auto guest resend after a successful edit (bowling/KBF confirmations, forceResend; race rows
+  still manual).
+- Admin "Keep permanently" card toggle (PaymentsTab → /api/admin/reservations/card-consent).
 
 **Env additions:** `EDIT_PAY_LINK_SECRET` (payment-link HMAC; falls back to ADMIN_CAMERA_TOKEN),
 `EDIT_ALERTS_CHAT_ID` (Teams; falls back to the refund-alerts channel),

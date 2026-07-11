@@ -361,3 +361,188 @@ describe("buildEditPlan — phase gates", () => {
     );
   });
 });
+
+describe("buildEditPlan — attraction quantity changes", () => {
+  const withAttraction = () =>
+    mkRow({
+      attractionBookings: [
+        {
+          slug: "laser-tag",
+          name: "Laser Tag",
+          bmiOrderId: "90000000000000001",
+          bmiBillLineId: "70000000000000007",
+          squareCatalogObjectId: "CAT_LT",
+          quantity: 2,
+          totalPriceDollars: 24,
+          timeSlot: "2026-08-01T15:00:00",
+          timeLabel: "3:00 PM",
+        },
+      ],
+    });
+
+  beforeEach(() => {
+    world.order.lines.push({
+      uid: "u9",
+      catalogObjectId: "CAT_LT",
+      name: "Laser Tag",
+      qty: 2,
+      unit: 1200,
+    });
+    const row = withAttraction();
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+  });
+
+  it("prices a qty increase and orders the BMI replace before money", async () => {
+    const plan = await buildEditPlan({
+      neonId: 42,
+      spec: { attractions: [{ index: 0, quantity: 3 }] },
+    });
+    const base = 2 * 1999 + 2 * 500 + 299;
+    expect(plan.diffCents).toBe(taxed(base + 3 * 1200) - taxed(base + 2 * 1200));
+    const kinds = plan.steps.map((s) => s.kind);
+    expect(kinds).toContain("bmi_attractions");
+    expect(kinds.indexOf("bmi_attractions")).toBeLessThan(kinds.indexOf("charge_topup"));
+    expect(plan.legs[0].attractionChanges).toEqual([
+      expect.objectContaining({ index: 0, newQuantity: 3, oldQuantity: 2, unitPriceCents: 1200 }),
+    ]);
+    expect(plan.current.attractions[0]).toMatchObject({ editable: true, quantity: 2 });
+  });
+
+  it("qty 0 removes the order line entirely", async () => {
+    const plan = await buildEditPlan({
+      neonId: 42,
+      spec: { attractions: [{ index: 0, quantity: 0 }] },
+    });
+    expect(plan.legs[0].newLines.some((l) => l.catalogObjectId === "CAT_LT")).toBe(false);
+    expect(plan.diffCents).toBeLessThan(0);
+  });
+
+  it("refuses add-ons without BMI line ids", async () => {
+    const row = mkRow({
+      attractionBookings: [
+        {
+          slug: "laser-tag",
+          name: "Laser Tag",
+          bmiOrderId: null,
+          bmiBillLineId: null,
+          squareCatalogObjectId: "CAT_LT",
+          quantity: 2,
+          totalPriceDollars: 24,
+          timeSlot: "2026-08-01T15:00:00",
+          timeLabel: "3:00 PM",
+        },
+      ],
+    });
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+    expect(
+      await guardCode(() =>
+        buildEditPlan({ neonId: 42, spec: { attractions: [{ index: 0, quantity: 3 }] } }),
+      ),
+    ).toBe("bmi_line_unavailable");
+  });
+
+  it("unknown index is plan_stale", async () => {
+    expect(
+      await guardCode(() =>
+        buildEditPlan({ neonId: 42, spec: { attractions: [{ index: 5, quantity: 1 }] } }),
+      ),
+    ).toBe("plan_stale");
+  });
+});
+
+describe("buildEditPlan — duration changes", () => {
+  it("swaps the multiplier via the experience's duration options and plans a QAMF rebook", async () => {
+    const { getBowlingExperiences } = await import("@/lib/bowling-db");
+    vi.mocked(getBowlingExperiences).mockResolvedValue([
+      {
+        id: 1,
+        slug: "lane-rental",
+        label: "Lane Rental",
+        kind: "hourly",
+        isVip: false,
+        description: null,
+        sortOrder: 0,
+        isActive: true,
+        daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+        squareModifierListIds: [],
+        insertedAt: "",
+        qamfWebOfferId: 555,
+        qamfOptionType: "Time",
+        qamfOptionId: 71,
+        items: [
+          {
+            id: 10,
+            experienceId: 1,
+            squareProductId: 1,
+            label: "Lane Rental",
+            priceCents: 1999,
+            depositPct: 100,
+            squareCatalogObjectId: "CAT_OPEN",
+            quantity: 1,
+            sortOrder: 0,
+            productKind: "hourly",
+          },
+        ],
+        durationOptions: [
+          {
+            id: 3,
+            experienceId: 1,
+            centerCode: "fort-myers",
+            qamfOptionId: 71,
+            durationMinutes: 90,
+            label: "1.5 Hours",
+            squareMultiplier: 1,
+            sortOrder: 0,
+            overrideSquareProductId: null,
+            overridePriceCents: null,
+            overrideDepositPct: null,
+            overrideCatalogObjectId: null,
+          },
+          {
+            id: 4,
+            experienceId: 1,
+            centerCode: "fort-myers",
+            qamfOptionId: 72,
+            durationMinutes: 120,
+            label: "2 Hours",
+            squareMultiplier: 2,
+            sortOrder: 1,
+            overrideSquareProductId: null,
+            overridePriceCents: null,
+            overrideDepositPct: null,
+            overrideCatalogObjectId: null,
+          },
+        ],
+      },
+    ] as never);
+    const row = mkRow({
+      bookingMetadata: {
+        bowling: {
+          experienceSlug: "lane-rental",
+          laneCount: 2,
+          durationMultiplier: 1,
+          pricingMode: "per_lane",
+        },
+      },
+    });
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+
+    const plan = await buildEditPlan({ neonId: 42, spec: { durationOptionId: 4 } });
+    // Primary 2 → 4 units (2 lanes × multiplier 2).
+    expect(plan.legs[0].newLines.find((l) => l.catalogObjectId === "CAT_OPEN")!.quantity).toBe(4);
+    expect(plan.legs[0].newDuration).toEqual({ optionId: 4, qamfOptionId: 72, multiplier: 2 });
+    expect(plan.current.durationOptions).toHaveLength(2);
+    const kinds = plan.steps.map((s) => s.kind);
+    expect(kinds).toContain("qamf_rebook");
+    expect(kinds.indexOf("qamf_rebook")).toBeLessThan(kinds.indexOf("charge_topup"));
+  });
+
+  it("refuses an option the experience doesn't offer", async () => {
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { durationOptionId: 99 } })),
+    ).toBe("pricing_unresolvable");
+  });
+});

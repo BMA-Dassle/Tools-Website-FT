@@ -339,6 +339,115 @@ describe("repriceBowling", () => {
       ),
     ).toBe("pricing_unresolvable");
   });
+
+  describe("duration changes (hourly)", () => {
+    const hourly = {
+      experienceSlug: "lane-rental",
+      laneCount: 2,
+      durationMultiplier: 1.5,
+      pricingMode: "per_lane" as const,
+      source: "stamp" as const,
+    };
+    const hourlyLine = line({ quantity: 3, productKind: "hourly", label: "Lane Rental" });
+
+    it("swaps the multiplier: 1.5h → 2h scales the primary quantity", () => {
+      const r = repriceBowling({
+        booked: hourly,
+        currentPlayerCount: 8,
+        lines: [hourlyLine],
+        spec: {},
+        shoeCatalog: [],
+        durationOption: {
+          id: 5,
+          label: "2 Hours",
+          squareMultiplier: 2,
+          overrideSquareProductId: null,
+          overridePriceCents: null,
+          overrideCatalogObjectId: null,
+        },
+      });
+      // perUnit = 3 / (2 lanes × 1.5) = 1 → new qty = 1 × 2 lanes × 2 = 4.
+      expect(r.lines.find((l) => l.role === "primary")!.quantity).toBe(4);
+      expect(r.newDurationMultiplier).toBe(2);
+    });
+
+    it("swaps to the override product at its live catalog price", () => {
+      const r = repriceBowling({
+        booked: hourly,
+        currentPlayerCount: 8,
+        lines: [hourlyLine],
+        spec: {},
+        shoeCatalog: [],
+        durationOption: {
+          id: 5,
+          label: "2 Hours",
+          squareMultiplier: 2,
+          overrideSquareProductId: 44,
+          overridePriceCents: 3499,
+          overrideCatalogObjectId: "CAT_2H",
+        },
+        desiredPrimary: {
+          squareProductId: 44,
+          label: "Lane Rental 2H",
+          priceCents: 3499,
+          squareCatalogObjectId: "CAT_2H",
+          productKind: "hourly",
+        },
+      });
+      const primary = r.lines.find((l) => l.role === "primary")!;
+      expect(primary.squareProductId).toBe(44);
+      expect(primary.unitPriceCents).toBe(3499);
+      expect(primary.quantity).toBe(4);
+    });
+
+    it("warns when a discounted booked price is dropped by the product swap", () => {
+      const r = repriceBowling({
+        booked: hourly,
+        currentPlayerCount: 8,
+        lines: [line({ quantity: 3, productKind: "hourly", unitPriceCents: 1499 })],
+        spec: {},
+        shoeCatalog: [],
+        durationOption: {
+          id: 5,
+          label: "2 Hours",
+          squareMultiplier: 2,
+          overrideSquareProductId: 44,
+          overridePriceCents: 3499,
+          overrideCatalogObjectId: "CAT_2H",
+        },
+        desiredPrimary: {
+          squareProductId: 44,
+          label: "Lane Rental 2H",
+          priceCents: 3499,
+          squareCatalogObjectId: "CAT_2H",
+          productKind: "hourly",
+        },
+      });
+      expect(r.warnings.some((w) => w.code === "price_hold_dropped")).toBe(true);
+    });
+
+    it("refuses duration options on per-person experiences", () => {
+      expect(
+        code(() =>
+          repriceBowling({
+            booked: perPerson,
+            currentPlayerCount: 2,
+            lines: [line({ quantity: 2 })],
+            spec: {},
+            shoeCatalog: [],
+            durationOption: {
+              id: 5,
+              label: "2 Hours",
+              squareMultiplier: 2,
+              overrideSquareProductId: null,
+              overridePriceCents: null,
+              overrideCatalogObjectId: null,
+            },
+          }),
+        ),
+      ).toBe("pricing_unresolvable");
+    });
+  });
 });
 
 describe("repriceKbfExtras", () => {

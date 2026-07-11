@@ -61,7 +61,9 @@ const makeLeg = (over: Partial<EditPlanLeg> = {}): EditPlanLeg => ({
   newNeonLines: null,
   newPlayerCount: 5,
   newLaneCount: null,
+  newDuration: null,
   removedHeats: null,
+  attractionChanges: null,
   ...over,
 });
 
@@ -79,6 +81,9 @@ const makeCurrent = (over: Partial<EditCurrentState> = {}): EditCurrentState => 
     { slot: 2, name: "Bob", shoeSize: null, bumpers: true },
   ],
   heats: [],
+  durationOptions: [],
+  durationMultiplier: null,
+  attractions: [],
   ...over,
 });
 

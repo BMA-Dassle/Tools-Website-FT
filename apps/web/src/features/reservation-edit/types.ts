@@ -56,6 +56,13 @@ export interface EditSpec {
   playerCount?: number;
   /** Bowling per-lane experiences: explicit lane count. */
   laneCount?: number;
+  /**
+   * Hourly rentals: switch the lane-time length. Value is a
+   * bowling_experience_duration_options.id for the booked experience; the
+   * reprice swaps the primary line's multiplier (and override product when
+   * the option defines one) and QAMF rebooks with the option's Time id.
+   */
+  durationOptionId?: number;
   /** Desired shoe quantities keyed by bowling_square_products.id. */
   shoes?: Record<number, number>;
   /** Full desired roster (names/shoes/bumpers). */
@@ -72,6 +79,12 @@ export interface EditSpec {
      */
     removeHeatIndexes?: number[];
   };
+  /**
+   * Attraction add-on quantity changes (bowling rows), identified by index
+   * into attraction_bookings. quantity 0 removes the add-on. PRE phase only —
+   * BMI replaces the booked line (removeItem + re-book at the new quantity).
+   */
+  attractions?: Array<{ index: number; quantity: number }>;
 }
 
 export type EditGuardCode =
@@ -111,6 +124,7 @@ export type EditStepKind =
   | "qamf_memo"
   | "bmi_add_heats"
   | "bmi_remove_lines"
+  | "bmi_attractions"
   | "charge_topup"
   | "await_payment_link"
   | "load_gift_card"

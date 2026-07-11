@@ -7,7 +7,7 @@
  * read live from Square, ids are copyable, and a node-level error never
  * blanks the rest of the timeline.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { dollars, ganDisplay } from "~/features/reservations-admin/format";
 import type { PaymentTimeline, TimelineNode } from "~/features/reservations-admin/service";
 import { Card, CopyId } from "./ui";
@@ -57,18 +57,51 @@ export default function PaymentsTab({
   paymentsLoading,
   loadPayments,
   onCopied,
+  neonId,
+  token,
 }: {
   payments: PaymentTimeline | null;
   paymentsError: string | null;
   paymentsLoading: boolean;
   loadPayments: () => Promise<void>;
   onCopied: (msg: string) => void;
+  /** Enable the "keep card permanently" action (admin consent grant). */
+  neonId?: number;
+  token?: string;
 }) {
+  const [consentBusy, setConsentBusy] = useState(false);
+
   // Lazy fetch on first activation.
   useEffect(() => {
     if (!payments && !paymentsLoading && !paymentsError) void loadPayments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const grantConsent = async (): Promise<void> => {
+    if (!neonId || !token || consentBusy) return;
+    setConsentBusy(true);
+    try {
+      const res = await fetch(
+        `/api/admin/reservations/card-consent?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ neonId }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        onCopied(`Could not mark permanent (${data.error ?? res.status})`);
+        return;
+      }
+      onCopied("Card marked permanent — it will never auto-remove");
+      await loadPayments();
+    } catch {
+      onCopied("Could not mark permanent (network error)");
+    } finally {
+      setConsentBusy(false);
+    }
+  };
 
   return (
     <Card title="Payment timeline — live from Square">
@@ -257,6 +290,29 @@ export default function PaymentsTab({
           <span style={{ color: savedCardLine(payments.savedCard).color, fontWeight: 600 }}>
             {savedCardLine(payments.savedCard).text}
           </span>
+          {neonId != null &&
+            token &&
+            payments.savedCard.weAdded &&
+            !payments.savedCard.permanentConsent &&
+            !payments.savedCard.disabledAt && (
+              <button
+                type="button"
+                disabled={consentBusy}
+                onClick={() => void grantConsent()}
+                title="Guest agreed (phone/desk) to keep their card on file — skips the 72h auto-removal"
+                style={{
+                  background: "var(--ba-input-bg)",
+                  border: "1px solid var(--ba-input-border)",
+                  borderRadius: 6,
+                  color: "var(--ba-muted)",
+                  padding: "2px 8px",
+                  fontSize: "0.72rem",
+                  cursor: consentBusy ? "wait" : "pointer",
+                }}
+              >
+                {consentBusy ? "Saving…" : "Keep permanently"}
+              </button>
+            )}
         </div>
       )}
       {payments && (

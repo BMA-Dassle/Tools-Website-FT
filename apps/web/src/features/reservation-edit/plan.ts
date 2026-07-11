@@ -37,6 +37,7 @@ import {
   repriceKbfExtras,
   repriceRaceDelta,
   resolveBookedPricing,
+  type DurationOptionFacts,
   type ResolvedBookedPricing,
 } from "./reprice";
 import {
@@ -83,8 +84,21 @@ export interface EditPlanLeg {
   newNeonLines: RepricedLine[] | null;
   newPlayerCount: number | null;
   newLaneCount: number | null;
+  /** Set on a duration change: the target option (QAMF rebook uses its Time id). */
+  newDuration: { optionId: number; qamfOptionId: number; multiplier: number } | null;
   /** Race legs: metadata heats removed / racers added (execution inputs). */
   removedHeats: Array<{ index: number; bmiLineId: string | null; label: string }> | null;
+  /** Attraction add-on qty changes (execution inputs for the BMI replace). */
+  attractionChanges: Array<{
+    index: number;
+    slug: string;
+    name: string;
+    newQuantity: number;
+    oldQuantity: number;
+    unitPriceCents: number;
+    bmiOrderId: string | null;
+    bmiBillLineId: string | null;
+  }> | null;
 }
 
 /** Current editable values — initializes the modal form on an empty dry-run. */
@@ -111,6 +125,20 @@ export interface EditCurrentState {
     racer: string | null;
     label: string;
     removable: boolean;
+  }>;
+  /** Hourly rentals: selectable lane-time lengths (empty for non-hourly). */
+  durationOptions: Array<{ id: number; label: string; multiplier: number }>;
+  /** The booked multiplier — identifies the current duration option. */
+  durationMultiplier: number | null;
+  /** Attraction add-ons on the row (index-addressed for spec.attractions). */
+  attractions: Array<{
+    index: number;
+    name: string;
+    quantity: number;
+    unitPriceCents: number;
+    timeLabel: string;
+    /** BMI line ids present → editable; missing → display-only. */
+    editable: boolean;
   }>;
 }
 
@@ -431,6 +459,16 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         : "Race heat",
       removable: true,
     })),
+    durationOptions: [],
+    durationMultiplier: null,
+    attractions: (anchor.attractionBookings ?? []).map((a, index) => ({
+      index,
+      name: a.name,
+      quantity: a.quantity,
+      unitPriceCents: a.quantity > 0 ? Math.round((a.totalPriceDollars * 100) / a.quantity) : 0,
+      timeLabel: a.timeLabel,
+      editable: !!(a.bmiOrderId && a.bmiBillLineId),
+    })),
   };
 
   // 4. Reprice per leg → desired order lines.
@@ -443,20 +481,28 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   ): Promise<EditPlanLeg> => {
     const snap = legSnapshots.get(leg.id) ?? null;
 
-    // Resolve booked pricing (stamp first, legacy experience fallback).
+    // Resolve the experience: needed for the legacy pricing fallback AND for
+    // duration options (hourly rentals). Stamp rows resolve by slug; legacy
+    // rows by the primary product.
+    const stamp = (leg.bookingMetadata as { bowling?: { experienceSlug?: string | null } } | null)
+      ?.bowling;
     let experience: BowlingExperienceWithDetails | null = null;
-    const stampMissing = !(leg.bookingMetadata as { bowling?: unknown } | undefined)?.bowling;
-    if (stampMissing) {
-      const primary = stored.find(
-        (l) => l.productKind != null && ["kbf", "open", "hourly"].includes(l.productKind),
-      );
-      if (primary?.squareProductId != null) {
-        const centerSlug = resolveCenter(leg.centerCode, leg.productKind).slug;
-        const experiences = await getBowlingExperiences(centerSlug);
-        experience =
-          experiences.find((e) =>
-            e.items.some((i) => i.squareProductId === primary.squareProductId),
-          ) ?? null;
+    {
+      const centerSlug = resolveCenter(leg.centerCode, leg.productKind).slug;
+      const experiences = await getBowlingExperiences(centerSlug);
+      if (stamp?.experienceSlug) {
+        experience = experiences.find((e) => e.slug === stamp.experienceSlug) ?? null;
+      }
+      if (!experience) {
+        const primary = stored.find(
+          (l) => l.productKind != null && ["kbf", "open", "hourly"].includes(l.productKind),
+        );
+        if (primary?.squareProductId != null) {
+          experience =
+            experiences.find((e) =>
+              e.items.some((i) => i.squareProductId === primary.squareProductId),
+            ) ?? null;
+        }
       }
     }
     const booked: ResolvedBookedPricing = resolveBookedPricing({
@@ -469,6 +515,74 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     if (leg.id === anchor.id) {
       current.laneCount = booked.laneCount;
       current.pricingMode = booked.pricingMode;
+      current.durationMultiplier = booked.durationMultiplier;
+      current.durationOptions = (experience?.durationOptions ?? []).map((d) => ({
+        id: d.id,
+        label: d.label,
+        multiplier: d.squareMultiplier,
+      }));
+    }
+
+    // Duration change (hourly): resolve the target option + the primary
+    // product it books (base item or the option's override product).
+    let durationOption: DurationOptionFacts | null = null;
+    let desiredPrimary: ProductFacts | null = null;
+    if (spec.durationOptionId != null) {
+      const opt = experience?.durationOptions.find((d) => d.id === spec.durationOptionId);
+      if (!opt) {
+        throw new EditGuardError(
+          "pricing_unresolvable",
+          `duration option ${spec.durationOptionId} is not offered by this experience`,
+        );
+      }
+      durationOption = {
+        id: opt.id,
+        label: opt.label,
+        squareMultiplier: opt.squareMultiplier,
+        overrideSquareProductId: opt.overrideSquareProductId,
+        overridePriceCents: opt.overridePriceCents,
+        overrideCatalogObjectId: opt.overrideCatalogObjectId,
+      };
+      const storedPrimary = stored.find(
+        (l) => l.productKind != null && ["kbf", "open", "hourly"].includes(l.productKind),
+      );
+      if (opt.overrideSquareProductId != null) {
+        const p = productsById.get(opt.overrideSquareProductId);
+        desiredPrimary = p
+          ? {
+              squareProductId: p.id,
+              label: p.label,
+              priceCents: p.priceCents,
+              squareCatalogObjectId: p.squareCatalogObjectId,
+              productKind: p.productKind,
+            }
+          : {
+              squareProductId: opt.overrideSquareProductId,
+              label: opt.label,
+              priceCents: opt.overridePriceCents ?? 0,
+              squareCatalogObjectId: opt.overrideCatalogObjectId,
+              productKind: "hourly",
+            };
+      } else {
+        // Base pricing: the experience's primary item.
+        const baseItem = experience?.items.find((i) =>
+          ["kbf", "open", "hourly"].includes(i.productKind),
+        );
+        if (baseItem) {
+          desiredPrimary = {
+            squareProductId: baseItem.squareProductId,
+            label: baseItem.label,
+            priceCents: baseItem.priceCents,
+            squareCatalogObjectId: baseItem.squareCatalogObjectId,
+            productKind: baseItem.productKind as ProductFacts["productKind"],
+          };
+        }
+      }
+      // Same product as booked → no swap; the multiplier does the work and a
+      // discounted booked price is preserved.
+      if (desiredPrimary && storedPrimary?.squareProductId === desiredPrimary.squareProductId) {
+        desiredPrimary = null;
+      }
     }
 
     // KBF roster money: rebuild the extras from the shared builder when the
@@ -480,6 +594,8 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       lines: stored,
       spec: { playerCount: spec.playerCount, laneCount: spec.laneCount, shoes: spec.shoes },
       shoeCatalog,
+      durationOption,
+      desiredPrimary,
     });
     warnings.push(...reprice.warnings);
 
@@ -506,12 +622,78 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     const neonLabels = new Set(repricedLines.map((l) => l.label));
     const storedCatalogIds = new Set(stored.map((l) => l.squareCatalogObjectId).filter(Boolean));
     const storedLabels = new Set(stored.map((l) => l.label));
-    const newLines = mergeDesiredWithOrder(repricedLines, snap, (line) => {
+    let newLines = mergeDesiredWithOrder(repricedLines, snap, (line) => {
       const byCatalog = line.catalogObjectId
         ? neonCatalogIds.has(line.catalogObjectId) || storedCatalogIds.has(line.catalogObjectId)
         : false;
       return byCatalog || neonLabels.has(line.name) || storedLabels.has(line.name);
     });
+
+    // Attraction add-on qty changes: the lines live only on the ORDER (the
+    // Neon record is the attraction_bookings JSONB), so they're adjusted on
+    // the merged carryover set. BMI replace happens at execute time.
+    let attractionChanges: EditPlanLeg["attractionChanges"] = null;
+    if ((spec.attractions?.length ?? 0) > 0 && leg.id === anchor.id) {
+      attractionChanges = [];
+      for (const change of spec.attractions ?? []) {
+        const booking = (anchor.attractionBookings ?? [])[change.index];
+        if (!booking) {
+          throw new EditGuardError(
+            "plan_stale",
+            `attraction index ${change.index} not on the reservation`,
+          );
+        }
+        if (!Number.isInteger(change.quantity) || change.quantity < 0) {
+          throw new EditGuardError("pricing_unresolvable", "invalid attraction quantity");
+        }
+        if (change.quantity === booking.quantity) continue;
+        if (!booking.bmiOrderId || !booking.bmiBillLineId) {
+          throw new EditGuardError(
+            "bmi_line_unavailable",
+            `"${booking.name}" has no BMI line ids — adjust it manually`,
+          );
+        }
+        const unit =
+          booking.quantity > 0
+            ? Math.round((booking.totalPriceDollars * 100) / booking.quantity)
+            : 0;
+        const hit = newLines.find(
+          (l) =>
+            (booking.squareCatalogObjectId &&
+              l.catalogObjectId === booking.squareCatalogObjectId) ||
+            l.name === booking.name,
+        );
+        if (change.quantity === 0) {
+          if (hit) {
+            newLines = newLines.filter((l) => l !== hit);
+          }
+        } else if (hit) {
+          hit.quantity = change.quantity;
+          hit.totalCents = hit.unitPriceCents * hit.quantity;
+        } else {
+          newLines.push({
+            uid: null,
+            catalogObjectId: booking.squareCatalogObjectId,
+            name: booking.name,
+            quantity: change.quantity,
+            unitPriceCents: unit,
+            totalCents: unit * change.quantity,
+            note: null,
+          });
+        }
+        attractionChanges.push({
+          index: change.index,
+          slug: booking.slug,
+          name: booking.name,
+          newQuantity: change.quantity,
+          oldQuantity: booking.quantity,
+          unitPriceCents: unit,
+          bmiOrderId: booking.bmiOrderId,
+          bmiBillLineId: booking.bmiBillLineId,
+        });
+      }
+      if (attractionChanges.length === 0) attractionChanges = null;
+    }
 
     const newTotal = snap
       ? await calculateOrderTotal(snap.locationId, newLines, snap.taxes, snap.discounts)
@@ -532,7 +714,18 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       newNeonLines: repricedLines,
       newPlayerCount: reprice.newPlayerCount,
       newLaneCount: reprice.newLaneCount,
+      newDuration:
+        durationOption && durationOption.squareMultiplier !== booked.durationMultiplier
+          ? {
+              optionId: durationOption.id,
+              qamfOptionId:
+                experience?.durationOptions.find((d) => d.id === durationOption.id)?.qamfOptionId ??
+                0,
+              multiplier: durationOption.squareMultiplier,
+            }
+          : null,
       removedHeats: null,
+      attractionChanges,
     };
   };
 
@@ -596,21 +789,27 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       newNeonLines: null,
       newPlayerCount: null,
       newLaneCount: null,
+      newDuration: null,
       removedHeats: delta.removedHeats.map((r) => ({
         index: r.index,
         bmiLineId: r.bmiLineId,
         label: r.label,
       })),
+      attractionChanges: null,
     };
   };
 
   if (isCombo) {
-    // Combo v1: racer add/remove only, delta-applied per entity order.
+    // Combo: racer add/remove only. Per-person revenue-split lines live on
+    // BOTH entity orders, so adds/removes apply comboItemizedLinesForRacers
+    // deltas per entity — never race-product prices.
     if (
       spec.playerCount != null ||
       spec.laneCount != null ||
       spec.shoes != null ||
-      spec.kbf != null
+      spec.kbf != null ||
+      spec.durationOptionId != null ||
+      spec.attractions != null
     ) {
       throw new EditGuardError(
         "unsupported_kind",
@@ -621,21 +820,188 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       group.find((g) => g.comboSpecialId)?.comboSpecialId ?? "",
     );
     if (!combo) throw new EditGuardError("unsupported_kind", "unknown combo special");
-    if (changesRaceHeats && (spec.racers?.add?.length ?? 0) > 0) {
-      // Validate the roster math via the shared seam (throws on empty/no split).
-      repriceComboRacers({
-        combo,
-        date: (anchor.bookedAt ?? "").slice(0, 10),
-        racers: (spec.racers?.add ?? []).map((r, i) => ({
-          id: `add-${i}`,
-          isNew: r.isNew ?? false,
-        })),
-      });
+
+    const raceLeg = group.find((g) => g.productKind === "race") ?? anchor;
+    const comboDate =
+      heatsFromMetadata(raceLeg)
+        .map((h) => h.heatId)
+        .filter((s): s is string => !!s)
+        .sort()[0]
+        ?.slice(0, 10) ?? (raceLeg.bookedAt ?? "").slice(0, 10);
+
+    // The race leg still drives BMI heat add/remove refs.
+    const raceHeats = heatsFromMetadata(raceLeg);
+    const removeSet = new Set(spec.racers?.removeHeatIndexes ?? []);
+    for (const index of removeSet) {
+      if (!raceHeats[index]) {
+        throw new EditGuardError("plan_stale", `heat index ${index} not on the reservation`);
+      }
     }
-    // v1 combo planning uses the race-delta mechanics per leg (per-person
-    // combo lines live on both orders; PR 10 refines removal matching).
+
+    // Removals must cover WHOLE racers — combo pricing is per person.
+    const racerKey = (h: HeatMeta): string => h.bmiPersonId ?? h.assignedTo ?? h.racer ?? "?";
+    const removedRacers = new Set<string>();
+    for (const index of removeSet) removedRacers.add(racerKey(raceHeats[index]));
+    for (const [index, h] of raceHeats.entries()) {
+      if (removedRacers.has(racerKey(h)) && !removeSet.has(index)) {
+        throw new EditGuardError(
+          "unsupported_kind",
+          `combo removals are per racer — select ALL of ${h.racer ?? "the racer"}'s heats`,
+        );
+      }
+    }
+
+    // Per-racer delta lines from the shared booking seam. Removed racers are
+    // classified new/returning by whichever classification's lines exactly
+    // match the live orders (a new racer's split carries the license line; a
+    // returning racer's reallocates it — the unit cents differ).
+    const addDelta =
+      (spec.racers?.add?.length ?? 0) > 0
+        ? repriceComboRacers({
+            combo,
+            date: comboDate,
+            racers: (spec.racers?.add ?? []).map((r, i) => ({
+              id: `add-${i}`,
+              isNew: r.isNew ?? false,
+            })),
+          })
+        : null;
+
+    const legEntity = (leg: BowlingReservation): string =>
+      leg.productKind === "race" || leg.productKind === "attraction"
+        ? "fasttrax-fm"
+        : "headpinz-fm";
+
+    // Build mutable copies of every leg's live lines up front so removal
+    // matching can consume across entities atomically.
+    const legLines = new Map<number, PlanLine[]>();
     for (const leg of group) {
-      legs.push(await raceLegPlan(leg));
+      const snap = legSnapshots.get(leg.id) ?? null;
+      legLines.set(
+        leg.id,
+        (snap?.lines ?? []).map((l) => ({ ...l })),
+      );
+    }
+    const linesForEntity = (entity: string): PlanLine[][] =>
+      group.filter((g) => legEntity(g) === entity).map((g) => legLines.get(g.id) ?? []);
+
+    const tryDecrement = (
+      entity: string,
+      catalogId: string | null,
+      unitCents: number,
+      qty: number,
+      apply: boolean,
+    ): boolean => {
+      let remaining = qty;
+      for (const lines of linesForEntity(entity)) {
+        for (const l of lines) {
+          if (remaining <= 0) break;
+          const catalogMatch = catalogId ? l.catalogObjectId === catalogId : true;
+          if (catalogMatch && l.unitPriceCents === unitCents && l.quantity >= 1) {
+            const take = Math.min(remaining, l.quantity);
+            if (apply) {
+              l.quantity -= take;
+              l.totalCents = l.unitPriceCents * l.quantity;
+            }
+            remaining -= take;
+          }
+        }
+      }
+      return remaining <= 0;
+    };
+
+    for (const key of removedRacers) {
+      const heat = raceHeats.find((h) => racerKey(h) === key);
+      const label = heat?.racer ?? key;
+      let matched = false;
+      for (const isNew of [true, false]) {
+        const delta = repriceComboRacers({
+          combo,
+          date: comboDate,
+          racers: [{ id: key, isNew }],
+        });
+        const fits = delta.byEntity.every((e) =>
+          e.lines.every((l) =>
+            tryDecrement(e.entity, l.squareCatalogObjectId, l.unitPriceCents, l.quantity, false),
+          ),
+        );
+        if (fits) {
+          for (const e of delta.byEntity) {
+            for (const l of e.lines) {
+              tryDecrement(e.entity, l.squareCatalogObjectId, l.unitPriceCents, l.quantity, true);
+            }
+          }
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        throw new EditGuardError(
+          "unsupported_kind",
+          `the live orders don't carry matchable combo lines for ${label} — handle this one manually in Square`,
+        );
+      }
+    }
+
+    if (addDelta) {
+      for (const e of addDelta.byEntity) {
+        const targetLeg = group.find((g) => legEntity(g) === e.entity);
+        if (!targetLeg) {
+          throw new EditGuardError(
+            "unsupported_kind",
+            `no ${e.entity} order in this money group for the added racer's lines`,
+          );
+        }
+        const lines = legLines.get(targetLeg.id)!;
+        for (const l of e.lines) {
+          const existing = lines.find(
+            (x) =>
+              x.catalogObjectId === l.squareCatalogObjectId &&
+              x.unitPriceCents === l.unitPriceCents,
+          );
+          if (existing) {
+            existing.quantity += l.quantity;
+            existing.totalCents = existing.unitPriceCents * existing.quantity;
+          } else {
+            lines.push(toPlanLine(l, null));
+          }
+        }
+      }
+    }
+
+    for (const leg of group) {
+      const snap = legSnapshots.get(leg.id) ?? null;
+      const survivors = (legLines.get(leg.id) ?? []).filter((l) => l.quantity > 0);
+      const newTotal = snap
+        ? await calculateOrderTotal(snap.locationId, survivors, snap.taxes, snap.discounts)
+        : survivors.reduce((s, l) => s + l.totalCents, 0);
+      const legRemoved =
+        leg.id === raceLeg.id
+          ? [...removeSet].map((index) => ({
+              index,
+              bmiLineId: raceHeats[index]?.bmiLineId ?? null,
+              label: raceHeats[index]?.racer ?? `heat ${index}`,
+            }))
+          : null;
+      legs.push({
+        reservationId: leg.id,
+        productKind: leg.productKind,
+        dayofOrderId: leg.squareDayofOrderId ?? null,
+        orderState: snap?.state ?? null,
+        orderVersion: snap?.version ?? null,
+        orderLocationId: snap?.locationId ?? null,
+        phase: legPhase(leg),
+        oldLines: snap?.lines ?? [],
+        newLines: survivors,
+        oldTotalCents: snap?.totalCents ?? 0,
+        newTotalCents: newTotal,
+        newNeonLines: null,
+        newPlayerCount: null,
+        newLaneCount: null,
+        newDuration: null,
+        removedHeats: legRemoved,
+        attractionChanges: null,
+      });
     }
   } else if (anchor.productKind === "race" || anchor.productKind === "attraction") {
     legs.push(await raceLegPlan(anchor));
@@ -693,17 +1059,42 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     (l) =>
       l.newLaneCount != null && current.laneCount != null && l.newLaneCount !== current.laneCount,
   );
+  const durationChanged = legs.some((l) => l.newDuration != null);
+  const attractionsChanged = legs.some((l) => (l.attractionChanges?.length ?? 0) > 0);
   const playersChanged =
     legs.some((l) => l.newPlayerCount != null && l.newPlayerCount !== current.playerCount) ||
     (spec.players?.length ?? 0) > 0;
 
+  if (durationChanged && phase !== "pre") {
+    // The lane block's length is a physical booking — only changeable before
+    // anyone is on the lanes (same rule as lane-count changes).
+    throw new EditGuardError("lane_change_mid_session", "duration changes are pre-check-in only");
+  }
+  if (attractionsChanged && phase !== "pre") {
+    // The BMI attraction line replace assumes an unopened session.
+    throw new EditGuardError("mid_session_unsupported", "attraction changes are pre-check-in only");
+  }
+
+  // A combo group can be anchored from either leg — resolve the QAMF/BMI
+  // capabilities across the WHOLE money group, not just the clicked row.
+  const groupQamfId =
+    anchor.qamfReservationId ?? group.find((g) => g.qamfReservationId)?.qamfReservationId;
+  const groupBmiBillId = anchor.bmiBillId ?? group.find((g) => g.bmiBillId)?.bmiBillId;
+
   if (phase === "pre") {
     // External capacity FIRST (fatal) — never charge for capacity we can't get.
-    if (lanesChanged && anchor.qamfReservationId) {
-      steps.push({ kind: "qamf_rebook", fatal: true, target: anchor.qamfReservationId });
+    // Duration changes rebook too: QAMF has no time-length mutation, and the
+    // new Time option id only applies on a fresh reservation.
+    if ((lanesChanged || durationChanged) && groupQamfId) {
+      steps.push({ kind: "qamf_rebook", fatal: true, target: groupQamfId });
     }
-    if (changesRaceHeats && (spec.racers?.add?.length ?? 0) > 0 && anchor.bmiBillId) {
-      steps.push({ kind: "bmi_add_heats", fatal: true, target: anchor.bmiBillId });
+    if (changesRaceHeats && (spec.racers?.add?.length ?? 0) > 0 && groupBmiBillId) {
+      steps.push({ kind: "bmi_add_heats", fatal: true, target: groupBmiBillId });
+    }
+    if (attractionsChanged) {
+      // Capacity + entitlement replace on the attraction's own BMI bill —
+      // fatal and BEFORE money (an increase must actually have slot space).
+      steps.push({ kind: "bmi_attractions", fatal: true });
     }
     if (diffCents > 0) {
       steps.push({ kind: "charge_topup", fatal: true, amountCents: diffCents });
@@ -741,12 +1132,12 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
     }
     steps.push({ kind: "neon_commit", fatal: true });
-    if (changesRaceHeats && (spec.racers?.removeHeatIndexes?.length ?? 0) > 0 && anchor.bmiBillId) {
-      steps.push({ kind: "bmi_remove_lines", fatal: false, target: anchor.bmiBillId });
+    if (changesRaceHeats && (spec.racers?.removeHeatIndexes?.length ?? 0) > 0 && groupBmiBillId) {
+      steps.push({ kind: "bmi_remove_lines", fatal: false, target: groupBmiBillId });
     }
-    if ((playersChanged || lanesChanged) && anchor.qamfReservationId) {
-      steps.push({ kind: "qamf_set_players", fatal: false, target: anchor.qamfReservationId });
-      steps.push({ kind: "qamf_memo", fatal: false, target: anchor.qamfReservationId });
+    if ((playersChanged || lanesChanged || (isCombo && changesRaceHeats)) && groupQamfId) {
+      steps.push({ kind: "qamf_set_players", fatal: false, target: groupQamfId });
+      steps.push({ kind: "qamf_memo", fatal: false, target: groupQamfId });
     }
   } else if (phase === "mid") {
     if (diffCents > 0) {
@@ -853,6 +1244,8 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     !legs.some(legLinesChanged) &&
     !playersChanged &&
     !lanesChanged &&
+    !durationChanged &&
+    !attractionsChanged &&
     !changesRaceHeats;
   if (noChanges) throw new EditGuardError("no_changes");
 

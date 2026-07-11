@@ -15,8 +15,9 @@
 
 import { stringifyWithRawIds } from "@ft/db";
 import { sql } from "@/lib/db";
-import type { BowlingReservation } from "@/lib/bowling-db";
+import { getBowlingReservation, type BowlingReservation } from "@/lib/bowling-db";
 import { bmiBookingTarget } from "~/features/booking/service/race-products";
+import { ATTRACTIONS, type LocationKey } from "@/lib/attractions-data";
 
 import type { EditPlan } from "./plan";
 import { EditGuardError, type HeatMeta } from "./types";
@@ -66,8 +67,8 @@ const proxyCall = async (
   return { status: res.status, text: await res.text() };
 };
 
-const heatsMetaOf = (anchor: BowlingReservation): HeatMeta[] => {
-  const meta = anchor.bookingMetadata as { heats?: unknown } | undefined;
+const heatsMetaOf = (row: BowlingReservation): HeatMeta[] => {
+  const meta = row.bookingMetadata as { heats?: unknown } | undefined;
   return meta && Array.isArray(meta.heats) ? (meta.heats as HeatMeta[]) : [];
 };
 
@@ -124,12 +125,24 @@ export const syncBmiRaceEdit = async (params: {
   origin: string;
 }): Promise<BmiSyncResult> => {
   const { anchor, plan, origin } = params;
-  const billId = anchor.bmiBillId;
-  if (!billId) throw new EditGuardError("bmi_line_unavailable", "reservation has no BMI bill");
-  const clientKey = anchor.centerCode === "naples" ? "headpinznaples" : "headpinzftmyers";
 
-  const raceLeg = plan.legs.find((l) => l.reservationId === anchor.id);
-  const heatsMeta = heatsMetaOf(anchor);
+  // Combos can be anchored from the BOWLING leg — the BMI bill and its heat
+  // metadata live on the race leg, so resolve that leg's row.
+  const raceLegPlan =
+    plan.legs.find((l) => l.productKind === "race") ??
+    plan.legs.find((l) => l.reservationId === anchor.id) ??
+    plan.legs[0];
+  const raceRow =
+    raceLegPlan.reservationId === anchor.id
+      ? anchor
+      : ((await getBowlingReservation(raceLegPlan.reservationId)) ?? anchor);
+
+  const billId = raceRow.bmiBillId;
+  if (!billId) throw new EditGuardError("bmi_line_unavailable", "reservation has no BMI bill");
+  const clientKey = raceRow.centerCode === "naples" ? "headpinznaples" : "headpinzftmyers";
+
+  const raceLeg = raceLegPlan;
+  const heatsMeta = heatsMetaOf(raceRow);
 
   // ── Re-fetch the live bill BEFORE mutating (auto-cancel-pending lesson) ──
   const overviewBefore = await proxyCall(origin, clientKey, "GET", `order/${billId}/overview`);
@@ -269,7 +282,7 @@ export const syncBmiRaceEdit = async (params: {
       );
     }
 
-    await persistHeatsMeta(anchor.id, [...heatsMeta, ...newHeats]);
+    await persistHeatsMeta(raceRow.id, [...heatsMeta, ...newHeats]);
     return { detail: `booked ${booked} heat line(s) for ${adds.length} racer(s)` };
   }
 
@@ -297,6 +310,188 @@ export const syncBmiRaceEdit = async (params: {
   await reconfirmBill(origin, clientKey, billId);
 
   const keep = heatsMeta.filter((_, i) => !removed.some((r) => r.index === i));
-  await persistHeatsMeta(anchor.id, keep);
+  await persistHeatsMeta(raceRow.id, keep);
   return { detail: `removed ${removedCount} heat line(s)` };
+};
+
+/* ── Attraction add-on quantity edits ─────────────────────────────────── */
+
+/**
+ * Replace an attraction add-on's BMI line at a new quantity: removeItem the
+ * booked line, then (for qty > 0) re-book the SAME slot at the new quantity
+ * onto the same bill, verify availability first, and $0 re-confirm. The Neon
+ * attraction_bookings JSONB is updated with the new quantity/total/line id.
+ *
+ * PRE phase only (plan.ts guards); gated behind RESERVATION_EDIT_V2_RACE
+ * with the other BMI-touching edits.
+ */
+export const syncBmiAttractionEdit = async (params: {
+  editId: string;
+  anchor: BowlingReservation;
+  plan: EditPlan;
+  origin: string;
+}): Promise<BmiSyncResult> => {
+  const { anchor, plan, origin } = params;
+  const changes = plan.legs.flatMap((l) => l.attractionChanges ?? []);
+  if (changes.length === 0) return { detail: "nothing to change" };
+
+  const bookings = [...(anchor.attractionBookings ?? [])];
+  let applied = 0;
+
+  for (const change of changes) {
+    const booking = bookings[change.index];
+    if (!booking || !change.bmiOrderId || !change.bmiBillLineId) {
+      throw new EditGuardError("bmi_line_unavailable", `attraction ${change.name} has no BMI ids`);
+    }
+    const config = ATTRACTIONS[change.slug];
+    if (!config) {
+      throw new EditGuardError("bmi_line_unavailable", `unknown attraction slug ${change.slug}`);
+    }
+    // Location: HeadPinz building for the row's center; fall back to the
+    // config's only-products location (e.g. fasttrax-only attractions).
+    let location: LocationKey = anchor.centerCode === "naples" ? "naples" : "headpinz";
+    if (!config.products.some((p) => p.location === location)) {
+      const fallback = config.products[0]?.location;
+      if (!fallback) {
+        throw new EditGuardError("bmi_line_unavailable", `${change.slug} has no products`);
+      }
+      location = fallback;
+    }
+    const product = config.products.find((p) => p.location === location);
+    const pageId = config.pageIds[location];
+    if (!product || !pageId) {
+      throw new EditGuardError(
+        "bmi_line_unavailable",
+        `${change.slug} has no product/page at ${location}`,
+      );
+    }
+    const clientKey = config.clientKeys?.[location] ?? "headpinzftmyers";
+    const billId = change.bmiOrderId;
+
+    // For INCREASES verify the slot still has room BEFORE touching the booked
+    // line — never strand the guest with fewer spots than they started with.
+    let proposal: Proposal | null = null;
+    if (change.newQuantity > 0) {
+      const availPayload = JSON.stringify({
+        ProductId: Number(product.productId),
+        PageId: Number(pageId),
+        Quantity: change.newQuantity,
+        OrderId: null,
+        PersonId: null,
+        DynamicLines: [],
+      });
+      const avail = await proxyCall(origin, clientKey, "POST", "availability", availPayload, {
+        date: booking.timeSlot.slice(0, 10),
+      });
+      if (avail.status >= 400) throw new Error(`BMI availability ${avail.status}`);
+      let proposals: Proposal[] = [];
+      try {
+        const parsed = JSON.parse(avail.text) as { proposals?: Proposal[]; Proposals?: Proposal[] };
+        proposals = parsed.proposals ?? parsed.Proposals ?? [];
+      } catch {
+        throw new Error("BMI availability returned non-JSON");
+      }
+      proposal = findProposalForHeat(proposals, booking.timeSlot);
+      if (!proposal) {
+        // The CURRENT line still holds its spots — availability may show the
+        // slot as full because of them. Accept when the target quantity does
+        // not exceed the booked quantity (pure decrease-with-rebook).
+        if (change.newQuantity > change.oldQuantity) {
+          throw new EditGuardError(
+            "heat_capacity",
+            `${change.name} at ${booking.timeLabel} has no room for ${change.newQuantity}`,
+          );
+        }
+      }
+    }
+
+    // Remove the booked line…
+    const removeBody = stringifyWithRawIds(
+      {},
+      { rawIds: { orderId: billId, billLineId: change.bmiBillLineId } },
+    );
+    const removed = await proxyCall(origin, clientKey, "POST", "booking/removeItem", removeBody);
+    if (removed.status >= 400) {
+      throw new Error(`BMI removeItem ${removed.status} for attraction line`);
+    }
+
+    // …and re-book at the new quantity (skip at 0 = full removal).
+    let newLineId: string | null = null;
+    if (change.newQuantity > 0) {
+      if (!proposal) {
+        // Re-probe now that the old line released its spots.
+        const availPayload = JSON.stringify({
+          ProductId: Number(product.productId),
+          PageId: Number(pageId),
+          Quantity: change.newQuantity,
+          OrderId: null,
+          PersonId: null,
+          DynamicLines: [],
+        });
+        const avail = await proxyCall(origin, clientKey, "POST", "availability", availPayload, {
+          date: booking.timeSlot.slice(0, 10),
+        });
+        try {
+          const parsed = JSON.parse(avail.text) as {
+            proposals?: Proposal[];
+            Proposals?: Proposal[];
+          };
+          proposal = findProposalForHeat(
+            parsed.proposals ?? parsed.Proposals ?? [],
+            booking.timeSlot,
+          );
+        } catch {
+          proposal = null;
+        }
+      }
+      if (!proposal) {
+        throw new Error(
+          `attraction slot ${booking.timeSlot} vanished after removing the old line — ` +
+            `re-book ${change.name} manually (guest entitlement reduced!)`,
+        );
+      }
+      const bookPayload: Record<string, unknown> = {
+        productId: String(product.productId),
+        quantity: change.newQuantity,
+        resourceId: Number(proposal.blocks[0]?.block?.resourceId) || -1,
+        proposal: {
+          blocks: proposal.blocks.map((pb) => ({
+            productLineIds: pb.productLineIds || [],
+            block: { ...pb.block, resourceId: Number(pb.block?.resourceId) || -1 },
+          })),
+          productLineId: proposal.productLineId ?? null,
+        },
+      };
+      const book = await proxyCall(
+        origin,
+        clientKey,
+        "POST",
+        "booking/book",
+        stringifyWithRawIds(bookPayload, { rawIds: { orderId: billId } }),
+      );
+      if (book.status >= 400) {
+        throw new Error(`BMI booking/book ${book.status}: ${book.text.slice(0, 120)}`);
+      }
+      newLineId = book.text.match(/"billLineId"\s*:\s*(\d+)/)?.[1] ?? null;
+    }
+
+    await reconfirmBill(origin, clientKey, billId);
+
+    bookings[change.index] = {
+      ...booking,
+      quantity: change.newQuantity,
+      totalPriceDollars: (change.unitPriceCents * change.newQuantity) / 100,
+      bmiBillLineId: newLineId,
+    };
+    applied++;
+  }
+
+  // Persist the updated add-on record (quantity/total/line ids).
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET attraction_bookings = ${JSON.stringify(bookings.filter((b) => b.quantity > 0))}::jsonb
+    WHERE id = ${anchor.id}
+  `;
+  return { detail: `${applied} attraction line(s) replaced` };
 };

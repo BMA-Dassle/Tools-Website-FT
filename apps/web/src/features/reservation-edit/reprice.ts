@@ -115,7 +115,21 @@ export interface BowlingRepriceResult {
   lines: RepricedLine[];
   newPlayerCount: number;
   newLaneCount: number;
+  /** Differs from booked.durationMultiplier only on a duration change. */
+  newDurationMultiplier: number;
   warnings: EditWarning[];
+}
+
+/** A resolved bowling_experience_duration_options row (hourly rentals). */
+export interface DurationOptionFacts {
+  id: number;
+  label: string;
+  squareMultiplier: number;
+  /** When set, the primary line books THIS product instead of the base one. */
+  overrideSquareProductId: number | null;
+  overridePriceCents: number | null;
+  overrideCatalogObjectId: string | null;
+  overrideLabel?: string | null;
 }
 
 const heldPrice = (l: StoredLine): { unit: number; held: boolean } => {
@@ -141,9 +155,25 @@ export const repriceBowling = (params: {
   spec: Pick<EditSpec, "playerCount" | "laneCount" | "shoes">;
   /** Catalog facts for shoe products that may be ADDED. */
   shoeCatalog: ProductFacts[];
+  /** Resolved duration option when spec.durationOptionId is set (hourly). */
+  durationOption?: DurationOptionFacts | null;
+  /**
+   * The DESIRED primary product after a duration change (resolved by the
+   * caller from the experience's base item or the option's override). When
+   * set, the primary line swaps to this product at its live catalog price.
+   */
+  desiredPrimary?: ProductFacts | null;
 }): BowlingRepriceResult => {
-  const { booked, lines, spec, shoeCatalog } = params;
+  const { booked, lines, spec, shoeCatalog, durationOption, desiredPrimary } = params;
   const warnings: EditWarning[] = [];
+
+  if (durationOption && booked.pricingMode !== "per_lane") {
+    throw new EditGuardError(
+      "pricing_unresolvable",
+      "duration options only apply to per-lane (hourly) experiences",
+    );
+  }
+  const newMultiplier = durationOption?.squareMultiplier ?? booked.durationMultiplier;
 
   const currentPlayers = Math.max(1, params.currentPlayerCount);
   const newPlayers = Math.max(1, spec.playerCount ?? currentPlayers);
@@ -178,7 +208,32 @@ export const repriceBowling = (params: {
         );
       }
       const newCount = booked.pricingMode === "per_lane" ? newLanes : newPlayers;
-      const qty = perUnit * newCount * booked.durationMultiplier;
+      const qty = perUnit * newCount * newMultiplier;
+
+      if (desiredPrimary) {
+        // Duration change: the primary line SWAPS to the resolved product
+        // (base item or the option's override) at its live catalog price —
+        // there is no "held" price to preserve for a product the guest is
+        // newly choosing.
+        const wasHeld = l.catalogPriceCents != null && l.catalogPriceCents !== l.unitPriceCents;
+        if (wasHeld) {
+          warnings.push({
+            severity: "warning",
+            code: "price_hold_dropped",
+            message: `"${l.label}" had a discounted price — the new duration books at the live catalog price`,
+          });
+        }
+        out.push({
+          squareProductId: desiredPrimary.squareProductId,
+          squareCatalogObjectId: desiredPrimary.squareCatalogObjectId,
+          label: desiredPrimary.label,
+          quantity: qty,
+          unitPriceCents: desiredPrimary.priceCents,
+          role: "primary",
+        });
+        continue;
+      }
+
       const { unit, held } = heldPrice(l);
       if (held) {
         warnings.push({
@@ -276,7 +331,13 @@ export const repriceBowling = (params: {
     // Dropped shoe lines simply don't reappear (qty 0 or omitted id).
   }
 
-  return { lines: out, newPlayerCount: newPlayers, newLaneCount: newLanes, warnings };
+  return {
+    lines: out,
+    newPlayerCount: newPlayers,
+    newLaneCount: newLanes,
+    newDurationMultiplier: newMultiplier,
+    warnings,
+  };
 };
 
 /* ── KBF extras reprice ───────────────────────────────────────────────── */

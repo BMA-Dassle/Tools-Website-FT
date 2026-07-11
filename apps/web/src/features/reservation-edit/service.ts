@@ -136,12 +136,14 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
     // ── Sub-flag gates for steps the plan may carry ────────────────────
     const kinds = new Set(plan.steps.map((s) => s.kind));
     if (
-      (kinds.has("bmi_add_heats") || kinds.has("bmi_remove_lines")) &&
+      (kinds.has("bmi_add_heats") ||
+        kinds.has("bmi_remove_lines") ||
+        kinds.has("bmi_attractions")) &&
       !flag("RESERVATION_EDIT_V2_RACE")
     ) {
       throw new EditGuardError(
         "bmi_line_unavailable",
-        "race-leg edits are not enabled yet (RESERVATION_EDIT_V2_RACE)",
+        "BMI-touching edits are not enabled yet (RESERVATION_EDIT_V2_RACE)",
       );
     }
     if (kinds.has("refund_dayof_payment") && !flag("RESERVATION_EDIT_V2_MID_DECREASE")) {
@@ -251,6 +253,18 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               anchor,
               plan,
               mode: step.kind === "bmi_add_heats" ? "add" : "remove",
+              origin: req.origin,
+            });
+            stepLog.push({ step: step.kind, ok: true, detail: res.detail });
+            break;
+          }
+
+          case "bmi_attractions": {
+            const { syncBmiAttractionEdit } = await import("./bmi-sync");
+            const res = await syncBmiAttractionEdit({
+              editId,
+              anchor,
+              plan,
               origin: req.origin,
             });
             stepLog.push({ step: step.kind, ok: true, detail: res.detail });
@@ -407,7 +421,9 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
           case "qamf_set_players": {
             try {
-              const target = newQamfReservationId ?? anchor.qamfReservationId;
+              // step.target carries the money group's QAMF id (a combo's
+              // bowling leg when the modal was opened from the race leg).
+              const target = newQamfReservationId ?? step.target ?? anchor.qamfReservationId;
               if (!target) break;
               const { players } = await getReservationPlayersWithShoeAllowance(anchorId);
               const roster = playersToQamfRoster(
@@ -474,12 +490,39 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               },
             });
             if (req.notifyGuest) {
-              warnings.push({
-                severity: "info",
-                code: "resend_manual",
-                message:
-                  "Resend the updated confirmation from the Resend action (auto-send lands later)",
-              });
+              // Bowling/KBF: resend the confirmation with the updated details
+              // (same delegation as the admin Resend action — forceResend
+              // bypasses dedup). Best-effort; race/attraction confirmations
+              // have no equivalent route yet → staff resend manually.
+              if (anchor.productKind === "open" || anchor.productKind === "kbf") {
+                try {
+                  const res = await fetch(`${req.origin}/api/notifications/bowling-confirmation`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                      neonId: anchorId,
+                      smsOptIn: true,
+                      channel: "both",
+                      forceResend: true,
+                    }),
+                  });
+                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                  stepLog.push({ step: "notify_guest", ok: true, detail: "confirmation resent" });
+                } catch (e) {
+                  warnings.push({
+                    severity: "info",
+                    code: "resend_manual",
+                    message: `Auto-resend failed (${e instanceof Error ? e.message : "error"}) — use the Resend action`,
+                  });
+                  stepLog.push({ step: "notify_guest", ok: false });
+                }
+              } else {
+                warnings.push({
+                  severity: "info",
+                  code: "resend_manual",
+                  message: "Resend the updated confirmation from the Resend action",
+                });
+              }
             }
             stepLog.push({ step: step.kind, ok: true });
             break;
@@ -555,14 +598,19 @@ const runQamfRebook = async (
       "cannot resolve the QAMF web offer for a lane-count rebook (no experience stamp)",
     );
   }
+  // Duration change: the new lane-time length is a QAMF Time option — it only
+  // applies on the freshly created reservation.
+  const newDuration = primaryLeg.newDuration;
   return rebookQamfForLaneChange({
     neonId: anchor.id,
     qamfCenterId: center.qamfCenterId,
     qamfReservationId: anchor.qamfReservationId,
     bookedAt: anchor.bookedAt,
     webOfferId: exp.qamfWebOfferId,
-    optionId: exp.qamfOptionId ?? undefined,
-    optionType: (exp.qamfOptionType as "Game" | "Time" | "Unlimited" | null) ?? undefined,
+    optionId: newDuration?.qamfOptionId || (exp.qamfOptionId ?? undefined),
+    optionType: newDuration
+      ? "Time"
+      : ((exp.qamfOptionType as "Game" | "Time" | "Unlimited" | null) ?? undefined),
     newPlayerCount: primaryLeg.newPlayerCount ?? anchor.playerCount ?? 1,
     existing: {
       guestName: anchor.guestName,
@@ -780,7 +828,13 @@ const commitNeon = async (
       // leave the recorded deposit (already spent) untouched.
       depositCents: plan.phase === "pre" ? leg.newTotalCents : undefined,
       bowlingStamp:
-        stamp && leg.newLaneCount != null ? { ...stamp, laneCount: leg.newLaneCount } : undefined,
+        stamp && (leg.newLaneCount != null || leg.newDuration)
+          ? {
+              ...stamp,
+              ...(leg.newLaneCount != null ? { laneCount: leg.newLaneCount } : {}),
+              ...(leg.newDuration ? { durationMultiplier: leg.newDuration.multiplier } : {}),
+            }
+          : undefined,
       players: req.plan.spec.players?.map((p) => ({
         slot: p.slot,
         name: p.name,

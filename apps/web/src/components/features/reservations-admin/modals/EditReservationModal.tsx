@@ -622,6 +622,93 @@ export default function EditReservationModal({
                 </>
               )}
 
+              {current && current.attractions.length > 0 && (
+                <>
+                  <div style={{ ...SECTION_TITLE, marginTop: 12 }}>Attraction add-ons</div>
+                  {current.attractions.map((a) => {
+                    const qty = form.attractions?.[a.index] ?? a.quantity;
+                    const setQty = (next: number) =>
+                      setForm((f) => ({
+                        ...f,
+                        attractions: { ...(f.attractions ?? {}), [a.index]: Math.max(0, next) },
+                      }));
+                    return (
+                      <div
+                        key={a.index}
+                        style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}
+                      >
+                        <button
+                          type="button"
+                          style={STEP_BTN}
+                          disabled={busy || !a.editable}
+                          onClick={() => setQty(qty - 1)}
+                        >
+                          −
+                        </button>
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            fontSize: "0.95rem",
+                            minWidth: 24,
+                            textAlign: "center",
+                          }}
+                        >
+                          {qty}
+                        </span>
+                        <button
+                          type="button"
+                          style={STEP_BTN}
+                          disabled={busy || !a.editable}
+                          onClick={() => setQty(qty + 1)}
+                        >
+                          +
+                        </button>
+                        <span style={{ fontSize: "0.75rem" }}>
+                          {a.name}{" "}
+                          <span style={{ color: "var(--ba-muted)" }}>
+                            {a.timeLabel}
+                            {a.editable ? "" : " — not editable here (no BMI line ids)"}
+                          </span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {current && current.durationOptions.length > 0 && (
+                <>
+                  <div style={{ ...SECTION_TITLE, marginTop: 12 }}>Lane time</div>
+                  <select
+                    aria-label="Lane time length"
+                    disabled={busy}
+                    value={
+                      form.durationOptionId ??
+                      current.durationOptions.find(
+                        (d) => d.multiplier === current.durationMultiplier,
+                      )?.id ??
+                      ""
+                    }
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        durationOptionId: e.target.value ? Number(e.target.value) : null,
+                      }))
+                    }
+                    style={{ ...SMALL_INPUT, width: 140 }}
+                  >
+                    {current.durationOptions.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: "0.68rem", color: "var(--ba-muted)", marginTop: 4 }}>
+                    Changing lane time rebooks the QAMF reservation at the same start.
+                  </div>
+                </>
+              )}
+
               {current ? (
                 current.shoeCatalog.length > 0 && (
                   <>

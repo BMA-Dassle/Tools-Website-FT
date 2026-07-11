@@ -386,6 +386,8 @@ export default function ManageReservationModal({
                 paymentsLoading={detailState.paymentsLoading}
                 loadPayments={detailState.loadPayments}
                 onCopied={onToast}
+                neonId={r.id}
+                token={token}
               />
             )}
             {tab === "Guest" && (

@@ -186,6 +186,8 @@ export interface PlayerOverride {
 export interface EditFormState {
   playerCount: number | null;
   laneCount: number | null;
+  /** Hourly rentals: selected bowling_experience_duration_options.id. */
+  durationOptionId: number | null;
   /** Desired qty overrides keyed by bowling_square_products.id. */
   shoes: Record<number, number> | null;
   /** Roster field overrides keyed by 1-based slot. */
@@ -193,16 +195,20 @@ export interface EditFormState {
   playersTouched: boolean;
   removeHeatIndexes: number[];
   addRacers: AddRacerRow[];
+  /** Attraction add-on qty overrides keyed by attraction_bookings index. */
+  attractions: Record<number, number> | null;
 }
 
 export const emptyForm = (): EditFormState => ({
   playerCount: null,
   laneCount: null,
+  durationOptionId: null,
   shoes: null,
   players: {},
   playersTouched: false,
   removeHeatIndexes: [],
   addRacers: [],
+  attractions: null,
 });
 
 /**
@@ -222,6 +228,25 @@ export const buildSpec = (
   }
   if (form.laneCount != null && form.laneCount !== (current?.laneCount ?? form.laneCount)) {
     spec.laneCount = form.laneCount;
+  }
+  if (form.durationOptionId != null && current) {
+    // Only send a REAL change — the picked option's multiplier differing from
+    // the booked one is what identifies "changed" (the current option has no
+    // stored id, only its multiplier).
+    const picked = current.durationOptions.find((d) => d.id === form.durationOptionId);
+    if (picked && picked.multiplier !== (current.durationMultiplier ?? picked.multiplier)) {
+      spec.durationOptionId = form.durationOptionId;
+    }
+  }
+
+  if (form.attractions && current) {
+    const changes = Object.entries(form.attractions)
+      .map(([k, qty]) => ({ index: Number(k), quantity: qty }))
+      .filter((c) => {
+        const cur = current.attractions.find((a) => a.index === c.index);
+        return cur != null && cur.editable && c.quantity !== cur.quantity;
+      });
+    if (changes.length > 0) spec.attractions = changes;
   }
 
   if (form.shoes && current) {
