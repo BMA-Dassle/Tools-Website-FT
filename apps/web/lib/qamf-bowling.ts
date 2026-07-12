@@ -417,3 +417,29 @@ export async function setLanePlayers(
     centerId,
   });
 }
+
+/**
+ * DELETE /centers/{centerId}/reservations/{reservationId}/lanes/{laneId}/players/{playerId}
+ *
+ * Removes ONE player from a lane's lineup — the only way to DECREASE a
+ * reservation's player count via the API (the players PUT above is
+ * same-count-only). Per the bowling-reservations v1.2 spec (owner-supplied
+ * 2026-07-11): works on reservations whose lanes haven't opened yet (no
+ * check-in required — booked-for-later reservations qualify); Time
+ * reservations keep their duration, Game reservations shrink theirs. 409s
+ * when Conqueror considers the reservation paid (`ReservationAlreadyPaid`)
+ * or the cart mixes price keys (`DifferentPriceKeyInTheCart`).
+ */
+export async function deleteLanePlayer(
+  centerId: number,
+  reservationId: string,
+  laneId: string,
+  playerId: string | number,
+): Promise<void> {
+  await call({
+    method: "DELETE",
+    path: `/centers/${centerId}/reservations/${reservationId}/lanes/${laneId}/players/${playerId}`,
+    errLabel: `deleteLanePlayer(${reservationId},${laneId},${playerId})`,
+    centerId,
+  });
+}
