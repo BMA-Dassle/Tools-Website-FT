@@ -73,6 +73,8 @@ describe("syncQamfPlayers — decrease via per-player DELETE", () => {
     });
 
     expect(r).toEqual({ lanesUpdated: 1, playersRemoved: 1 });
+    // GETs run under api-version 1.2 — the pinned version omits Player.Id.
+    expect(vi.mocked(getReservation)).toHaveBeenCalledWith(9172, "X158469", "1.2");
     // End of the lineup dies first — Bob (Id 222).
     expect(vi.mocked(deleteLanePlayer)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(deleteLanePlayer)).toHaveBeenCalledWith(9172, "X158469", "L1", 222);

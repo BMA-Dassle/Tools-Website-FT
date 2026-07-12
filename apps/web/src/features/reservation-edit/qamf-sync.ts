@@ -52,7 +52,10 @@ export const syncQamfPlayers = async (params: {
   players: QamfPlayerInput[];
   guestName: string;
 }): Promise<{ lanesUpdated: number; playersRemoved: number }> => {
-  let live = await getReservation(params.qamfCenterId, params.qamfReservationId);
+  // api-version "1.2" — the pinned version's schema omits Player.Id, and
+  // without ids the per-player DELETE has nothing to address (probed live
+  // 2026-07-11: same reservation returns ids under 1.2, none under the pin).
+  let live = await getReservation(params.qamfCenterId, params.qamfReservationId, "1.2");
   let lanes = live.Lanes ?? [];
   if (lanes.length === 0) return { lanesUpdated: 0, playersRemoved: 0 };
 
@@ -82,7 +85,7 @@ export const syncQamfPlayers = async (params: {
       );
     }
     // Fresh state: the roster PUT below must match the new per-lane counts.
-    live = await getReservation(params.qamfCenterId, params.qamfReservationId);
+    live = await getReservation(params.qamfCenterId, params.qamfReservationId, "1.2");
     lanes = live.Lanes ?? [];
   }
 

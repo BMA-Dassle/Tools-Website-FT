@@ -129,10 +129,14 @@ export interface NewReservationInput {
 /*  Internal request helper                                           */
 /* ------------------------------------------------------------------ */
 
-function commonHeaders(token: string, subscriptionKey: string): Record<string, string> {
+function commonHeaders(
+  token: string,
+  subscriptionKey: string,
+  apiVersion: string = API_VERSION,
+): Record<string, string> {
   const h: Record<string, string> = {
     authorization: `Bearer ${token}`,
-    "api-version": API_VERSION,
+    "api-version": apiVersion,
     "content-type": "application/json",
   };
   if (subscriptionKey) h["Ocp-Apim-Subscription-Key"] = subscriptionKey;
@@ -145,12 +149,20 @@ async function call<T>(opts: {
   body?: unknown;
   errLabel: string;
   centerId?: number;
+  /**
+   * Per-call api-version override. Versioning is per-REQUEST (header), so
+   * one endpoint can run a newer spec while everything else stays pinned.
+   * Probed live 2026-07-11: the pinned date-string serves the v1.0-era
+   * schema (Player has NO Id); "1.2" serves spec v1.2 (Player.Id present,
+   * per-player DELETE available); "1.3" 412s until Conqueror >= 15.13.
+   */
+  apiVersion?: string;
 }): Promise<T> {
   const res = await qamfAuthedFetch(
     (token, subKey) =>
       fetch(`${BASE}${opts.path}`, {
         method: opts.method,
-        headers: commonHeaders(token, subKey),
+        headers: commonHeaders(token, subKey, opts.apiVersion),
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         cache: "no-store",
       }),
@@ -264,12 +276,16 @@ export async function createReservation(
 export async function getReservation(
   centerId: number,
   reservationId: string,
+  /** Pass "1.2" when the caller needs Player.Id (absent from the pinned
+   *  version's schema); existing callers default to the pinned version. */
+  apiVersion?: string,
 ): Promise<Reservation> {
   return call({
     method: "GET",
     path: `/centers/${centerId}/reservations/${reservationId}`,
     errLabel: `getReservation(${centerId},${reservationId})`,
     centerId,
+    apiVersion,
   });
 }
 
@@ -423,8 +439,9 @@ export async function setLanePlayers(
  *
  * Removes ONE player from a lane's lineup — the only way to DECREASE a
  * reservation's player count via the API (the players PUT above is
- * same-count-only). Per the bowling-reservations v1.2 spec (owner-supplied
- * 2026-07-11): works on reservations whose lanes haven't opened yet (no
+ * same-count-only). Spec v1.2 (owner-supplied 2026-07-11), so this call
+ * pins `api-version: 1.2` — the playerId only exists in that version's
+ * GET schema. Works on reservations whose lanes haven't opened yet (no
  * check-in required — booked-for-later reservations qualify); Time
  * reservations keep their duration, Game reservations shrink theirs. 409s
  * when Conqueror considers the reservation paid (`ReservationAlreadyPaid`)
@@ -441,5 +458,6 @@ export async function deleteLanePlayer(
     path: `/centers/${centerId}/reservations/${reservationId}/lanes/${laneId}/players/${playerId}`,
     errLabel: `deleteLanePlayer(${reservationId},${laneId},${playerId})`,
     centerId,
+    apiVersion: "1.2",
   });
 }
