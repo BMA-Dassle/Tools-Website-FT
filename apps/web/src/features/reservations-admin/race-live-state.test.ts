@@ -17,11 +17,13 @@ import {
 const NOW = Date.parse("2026-07-08T23:08:00.000Z");
 
 function session(p: Partial<TrackSession> & { heatNumber: number }): TrackSession {
-  const hh = String(13 + Math.floor((p.heatNumber * 12) / 60)).padStart(2, "0");
-  const mm = String((p.heatNumber * 12) % 60).padStart(2, "0");
+  // 12-min grid anchored so heat 35 falls at 21:24Z — bulk-created sessions
+  // have schedule order matching heat-number order (only staff INSERTS break
+  // that, covered by the dedicated fixture below).
+  const start = new Date(Date.parse("2026-07-08T14:24:00.000Z") + p.heatNumber * 12 * 60_000);
   return {
     sessionId: `5417${1700 + p.heatNumber}`,
-    scheduledStart: `2026-07-08T${hh}:${mm}:00.000Z`,
+    scheduledStart: start.toISOString(),
     actualStart: null,
     actualEnd: null,
     ...p,
@@ -157,7 +159,7 @@ describe("resolveRaceLiveState", () => {
 
   it("watermark == this session within the 30-min window → called", () => {
     const watermark: TrackWatermark = {
-      sessionId: 54171735, // number per races/current — compared by heatNumber
+      sessionId: 54171735, // number per races/current — resolved in the list as a string
       heatNumber: 35,
       calledAt: new Date(NOW - 5 * 60_000).toISOString(),
     };
@@ -188,6 +190,117 @@ describe("resolveRaceLiveState", () => {
   it("no signals at all → not_called (the delayed-heat case)", () => {
     const r = resolveRaceLiveState({ heatStartIso: HEAT_ET, sessions: base(), nowMs: NOW });
     expect(r?.raceState).toBe("not_called");
+  });
+
+  describe("staff-inserted session (creation-order heatNumber, live 2026-07-11)", () => {
+    // "76 - Blue Junior Starter" was inserted at 7:06 PM between heats 51 and
+    // 52 and got the day-max number. Once it ran (7:41 PM), number-ordered
+    // laterHeatRan flipped every unrun Blue heat — including the 10:36 PM
+    // Intermediate (heat 69) — to "finished" on the board, and the settle
+    // gate would have charged those bills hours early. Ordering must follow
+    // scheduledStart, never heatNumber. Times below are the real payload
+    // (July = EDT = UTC-4; now = 7:44 PM ET).
+    const INSERTED_NOW = Date.parse("2026-07-11T23:44:00Z");
+    const inserted = (p?: { calledWm?: boolean }): TrackSession[] => [
+      {
+        sessionId: "53945185",
+        scheduledStart: "2026-07-11T22:59:00Z", // 6:59 PM ET, heat 51
+        heatNumber: 51,
+        actualStart: "2026-07-11T23:31:00Z",
+        actualEnd: "2026-07-11T23:39:00Z",
+      },
+      {
+        sessionId: "54604200",
+        scheduledStart: "2026-07-11T23:06:00Z", // 7:06 PM ET — the insert
+        heatNumber: 76,
+        actualStart: "2026-07-11T23:41:00Z",
+        actualEnd: null,
+      },
+      {
+        sessionId: "53945187",
+        scheduledStart: "2026-07-11T23:13:00Z", // 7:13 PM ET, heat 52, unrun
+        heatNumber: 52,
+        actualStart: null,
+        actualEnd: null,
+      },
+      {
+        sessionId: "53945221",
+        scheduledStart: "2026-07-12T02:36:00Z", // 10:36 PM ET, heat 69, unrun
+        heatNumber: 69,
+        actualStart: null,
+        actualEnd: null,
+      },
+    ];
+
+    it("its run never finishes a later-scheduled unrun heat (the 10:36 PM Done bug)", () => {
+      const r = resolveRaceLiveState({
+        heatStartIso: "2026-07-11T22:36:00",
+        sessions: inserted(),
+        nowMs: INSERTED_NOW,
+      });
+      expect(r).toMatchObject({ heatNumber: 69, raceState: "not_called" });
+    });
+
+    it("nor the next regular heat right behind it", () => {
+      // Heat 52 (7:13 PM) is scheduled AFTER the insert (7:06 PM) — the
+      // insert running says nothing about 52.
+      const r = resolveRaceLiveState({
+        heatStartIso: "2026-07-11T19:13:00",
+        sessions: inserted(),
+        nowMs: INSERTED_NOW,
+      });
+      expect(r).toMatchObject({ heatNumber: 52, raceState: "not_called" });
+    });
+
+    it("but a heat scheduled BEFORE the insert is finished by its run (orphan guard intact)", () => {
+      // Strip heat 51's own actualEnd — the insert (7:06 PM) starting still
+      // proves the 6:59 PM heat is over.
+      const sessions = inserted();
+      sessions[0] = { ...sessions[0], actualEnd: null };
+      const r = resolveRaceLiveState({
+        heatStartIso: "2026-07-11T18:59:00",
+        sessions,
+        nowMs: INSERTED_NOW,
+      });
+      expect(r).toMatchObject({ heatNumber: 51, raceState: "finished" });
+    });
+
+    it("a watermark ON the insert does not mark later-scheduled heats called", () => {
+      // The 7:06 PM insert's call (heat 76) went out — that says nothing
+      // about the 10:36 PM heat 69. Number order would have said "called".
+      const watermark: TrackWatermark = {
+        sessionId: 54604200,
+        heatNumber: 76,
+        calledAt: new Date(INSERTED_NOW - 4 * 60_000).toISOString(),
+      };
+      const r = resolveRaceLiveState({
+        heatStartIso: "2026-07-11T22:36:00",
+        sessions: inserted(),
+        watermark,
+        nowMs: INSERTED_NOW,
+      });
+      expect(r?.raceState).toBe("not_called");
+    });
+
+    it("a watermark on the insert DOES mark earlier-scheduled heats called", () => {
+      // Calls are strictly schedule-ordered: the 7:06 PM insert being called
+      // means the unrun 6:59 PM heat's call already went out.
+      const sessions = inserted();
+      sessions[0] = { ...sessions[0], actualStart: null, actualEnd: null };
+      sessions[1] = { ...sessions[1], actualStart: null };
+      const watermark: TrackWatermark = {
+        sessionId: 54604200,
+        heatNumber: 76,
+        calledAt: new Date(INSERTED_NOW - 4 * 60_000).toISOString(),
+      };
+      const r = resolveRaceLiveState({
+        heatStartIso: "2026-07-11T18:59:00",
+        sessions,
+        watermark,
+        nowMs: INSERTED_NOW,
+      });
+      expect(r?.raceState).toBe("called");
+    });
   });
 });
 

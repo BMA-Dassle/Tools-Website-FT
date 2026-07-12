@@ -24,6 +24,28 @@ operational model is: refund the guest's money on the CARD payment with reason e
 - Any NEW ledger that records refunds (e.g. `reservation_edit_events`) must be added to the
   refund-alerts sanctioned set (`recordedCascadeRefundIds`), or the system yells at its own
   refunds as Dashboard violations. Refund-alerts whitelists by refund ID, not reason.
+## Pandora heatNumber is CREATION-order, not schedule-order — never order heats by it (2026-07-11)
+
+**What happened:** Staff inserted an extra Blue session mid-day ("76 - Blue Junior Starter",
+7:06 PM, between heats 51 and 52) and Pandora assigned it the day-max heat number. The moment
+it went on track (7:41 PM), `resolveRaceLiveState`'s orphan guard (`laterHeatRan`: "a
+later-numbered heat has actualStart ⇒ this heat finished") flipped EVERY unrun Blue heat to
+"finished" — the VIP combo board showed 10:36/11:00 PM Intermediates as "✓ Done" at 7:44 PM,
+and `raceSettleGate` (same resolver) would have counted those heats delivered and charged the
+bills hours before the races ran.
+
+**Rules:**
+
+- `heatNumber` identifies a session and labels it for display; it says NOTHING about schedule
+  position. Bulk-created days are coincidentally monotonic — a single staff insert breaks it.
+- Any "earlier/later heat" reasoning must compare `scheduledStart` in the ET-wall frame
+  (`etWallMs`). Fixed in `race-live-state.ts` for both `laterHeatRan` and `isCalled` (the
+  watermark session is resolved by id and compared on scheduledStart; heatNumber only as a
+  fallback when the watermark's session isn't in the list).
+- Inserted sessions also come from a different id range (54604200 vs the day's 53945xxx bulk
+  block) — a tell when eyeballing payloads, never a contract.
+- Test fixtures that generate sessions must keep schedule order internally consistent with any
+  overridden times, or they mask exactly this class of bug (the old generator did).
 
 ## A recovery sweep and a cancel cascade share the SAME state — every writer must close every gate (2026-07-07)
 

@@ -21,6 +21,14 @@
  * sat "open" while heats 36-40 finished after it) — is guarded by a later
  * heat's actualStart instead.
  *
+ * Heat NUMBERS are creation-order, not schedule-order: a staff-inserted
+ * session gets the day-max number regardless of its slot (live 2026-07-11:
+ * "76 - Blue Junior Starter" scheduled 7:06 PM between heats 51 and 52; once
+ * it ran, number-ordered laterHeatRan flipped every unrun Blue heat — even
+ * 10:36/11:00 PM Intermediates — to "finished" on the board, and would have
+ * settled their bills early). ALL ordering here compares scheduledStart in
+ * the ET-wall frame; heatNumber is display/identity only.
+ *
  * Pure derivation only — fetching lives in the admin reservations route.
  */
 import { etWallMs } from "./format";
@@ -88,20 +96,28 @@ export function resolveRaceLiveState(args: {
   const target = sessions.find((s) => minuteOf(etWallMs(s.scheduledStart)) === heatMinute);
   if (!target) return null;
 
-  // Finished: its own actualEnd, OR a later heat on the track has started
-  // (actualEnd can fail to stamp — the orphan-session quirk). The called
-  // watermark deliberately does NOT finish a heat: the grid call runs 1-2
-  // heats ahead of the track, so at 8:07 PM on 2026-07-10 the watermark
-  // (heat 47) had "passed" heat 46 while 45 was still racing — the board
-  // marked two 8:00 PM combos Done for a heat that hadn't run, and the
+  // Finished: its own actualEnd, OR a later-SCHEDULED heat on the track has
+  // started (actualEnd can fail to stamp — the orphan-session quirk).
+  // Schedule order, never heatNumber order: a staff-inserted session carries
+  // the day-max number (heat 76 at 7:06 PM, live 2026-07-11), so a number
+  // comparison finishes every unrun heat on the track the moment it runs.
+  // The called watermark deliberately does NOT finish a heat: the grid call
+  // runs 1-2 heats ahead of the track, so at 8:07 PM on 2026-07-10 the
+  // watermark (heat 47) had "passed" heat 46 while 45 was still racing — the
+  // board marked two 8:00 PM combos Done for a heat that hadn't run, and the
   // settle gate would have charged them just as early.
-  const laterHeatRan = sessions.some((s) => s.heatNumber > target.heatNumber && s.actualStart);
+  const targetStartMs = etWallMs(target.scheduledStart);
+  const laterHeatRan = sessions.some(
+    // NaN scheduledStart compares false — an unparseable session never
+    // finishes anything.
+    (s) => s.actualStart && etWallMs(s.scheduledStart) > targetStartMs,
+  );
   const state: RaceLiveState =
     target.actualEnd || laterHeatRan
       ? "finished"
       : target.actualStart
         ? "on_track"
-        : isCalled(target, watermark, nowMs)
+        : isCalled(target, sessions, watermark, nowMs)
           ? "called"
           : "not_called";
   return { sessionId: target.sessionId, heatNumber: target.heatNumber, raceState: state };
@@ -111,18 +127,28 @@ export function resolveRaceLiveState(args: {
  *  track, so a watermark AT or PAST this heat means its call already went
  *  out — the call runs 1-2 heats ahead of the track, and racers race within
  *  ~30 min of being called (owner rule 2026-07-10: that's normal operation,
- *  not a delay). We only know the LATEST call's timestamp; using it for
- *  passed heats holds "called" slightly longer than 30-min-from-own-call,
- *  which is fine — any later heat actually STARTING flips this one to
- *  finished via laterHeatRan before staleness matters. */
+ *  not a delay). "Past" is SCHEDULE order: the watermark's own session is
+ *  looked up in the track list by id and compared on scheduledStart —
+ *  heatNumber order breaks on staff-inserted sessions (day-max number in a
+ *  mid-day slot), which would mark every unrun heat called. heatNumber is
+ *  the fallback only when the watermark's session isn't in the list (stale
+ *  cache / cross-day call). We only know the LATEST call's timestamp; using
+ *  it for passed heats holds "called" slightly longer than
+ *  30-min-from-own-call, which is fine — any later heat actually STARTING
+ *  flips this one to finished via laterHeatRan before staleness matters. */
 function isCalled(
   target: TrackSession,
+  sessions: TrackSession[],
   watermark: TrackWatermark | null | undefined,
   nowMs: number,
 ): boolean {
-  if (!watermark || watermark.heatNumber < target.heatNumber) return false;
+  if (!watermark) return false;
   const calledMs = Date.parse(watermark.calledAt);
-  return Number.isFinite(calledMs) && nowMs - calledMs < CALLED_WINDOW_MS;
+  if (!Number.isFinite(calledMs) || nowMs - calledMs >= CALLED_WINDOW_MS) return false;
+  // sessionId is number per races/current, string per the sessions list.
+  const wmSession = sessions.find((s) => s.sessionId === String(watermark.sessionId));
+  if (wmSession) return etWallMs(wmSession.scheduledStart) >= etWallMs(target.scheduledStart);
+  return watermark.heatNumber >= target.heatNumber;
 }
 
 /** ET-wall ms → whole minutes (null on unparseable input). */
