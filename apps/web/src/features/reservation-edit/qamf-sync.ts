@@ -63,10 +63,18 @@ export const syncQamfPlayers = async (params: {
   const liveTotal = lanes.reduce((s, l) => s + (l.Players?.length ?? 0), 0);
 
   // ── DECREASE: delete the excess players, then re-read live state ─────
+  // KNOWN VENDOR BUG (probed live 2026-07-11): the per-player DELETE
+  // returns a bare 500 at our centers on EVERY valid input — including a
+  // pristine 1.2-created Temporary reservation with a stable, re-verified
+  // player id. Escalated to QubicaAMF. Until fixed, a delete failure falls
+  // back to the names+title sync below (Conqueror keeps the old count) and
+  // this function throws AFTER syncing so staff get a precise warning.
   let playersRemoved = 0;
+  let countShortfall = 0;
+  let deleteFailure: string | null = null;
   if (liveTotal > desired) {
     let toRemove = liveTotal - desired;
-    for (const lane of [...lanes].reverse()) {
+    outer: for (const lane of [...lanes].reverse()) {
       if (toRemove === 0) break;
       const laneId = lane.Id;
       if (!laneId) continue;
@@ -74,19 +82,23 @@ export const syncQamfPlayers = async (params: {
       for (let i = candidates.length - 1; i >= 0 && toRemove > 0; i--) {
         const victim = candidates[i];
         if (victim.Id == null) continue; // not addressable — try another seat
-        await deleteLanePlayer(params.qamfCenterId, params.qamfReservationId, laneId, victim.Id);
+        try {
+          await deleteLanePlayer(params.qamfCenterId, params.qamfReservationId, laneId, victim.Id);
+        } catch (e) {
+          // Vendor 500 — stop hammering; sync what we can.
+          deleteFailure = e instanceof Error ? e.message : String(e);
+          break outer;
+        }
         playersRemoved++;
         toRemove--;
       }
     }
-    if (toRemove > 0) {
-      throw new Error(
-        `QAMF player decrease incomplete — ${toRemove} player(s) had no addressable id`,
-      );
+    countShortfall = toRemove;
+    if (playersRemoved > 0) {
+      // Fresh state: the roster PUT below must match the new per-lane counts.
+      live = await getReservation(params.qamfCenterId, params.qamfReservationId, "1.2");
+      lanes = live.Lanes ?? [];
     }
-    // Fresh state: the roster PUT below must match the new per-lane counts.
-    live = await getReservation(params.qamfCenterId, params.qamfReservationId, "1.2");
-    lanes = live.Lanes ?? [];
   }
 
   // ── Same-count roster PUT per lane (names/shoes/bumpers) ─────────────
@@ -132,6 +144,18 @@ export const syncQamfPlayers = async (params: {
     Title: `${baseTitle} (${desired}p)`,
     ...(live.Notes ? { Notes: live.Notes } : {}),
   });
+
+  // Names + Title ARE synced at this point — the throw only makes the count
+  // gap loud (surfaces as the modal's Conqueror warning).
+  if (countShortfall > 0) {
+    throw new Error(
+      `QAMF still shows ${countShortfall} extra bowler(s)` +
+        (deleteFailure
+          ? ` — the player DELETE failed (${deleteFailure.slice(0, 160)})`
+          : " — no addressable player ids") +
+        `; names and "(${desired}p)" title are synced — adjust the bowler count in Conqueror manually`,
+    );
+  }
 
   return { lanesUpdated: updated, playersRemoved };
 };

@@ -131,7 +131,40 @@ describe("syncQamfPlayers — decrease via per-player DELETE", () => {
     expect(lane2.map((p: { Name: string }) => p.Name)).toEqual(["Cara"]);
   });
 
-  it("skips players without an addressable id and throws if the decrease can't complete", async () => {
+  it("a failing DELETE (vendor 500) still syncs names + title, then throws the count warning", async () => {
+    vi.mocked(getReservation).mockResolvedValue(
+      futureReservation([
+        {
+          Id: "L1",
+          Status: "Confirmed",
+          Players: [qamfPlayer("Ann", 111), qamfPlayer("Bob", 222)],
+        },
+      ]) as never,
+    );
+    vi.mocked(deleteLanePlayer).mockRejectedValue(
+      new Error("qamf-bowling deleteLanePlayer(X158469,L1,222) failed: 500 "),
+    );
+
+    await expect(
+      syncQamfPlayers({
+        qamfCenterId: 9172,
+        qamfReservationId: "X158469",
+        players: [{ name: "Ann" }],
+        guestName: "Ann Guest",
+      }),
+    ).rejects.toThrow(/still shows 1 extra bowler.*adjust the bowler count in Conqueror/);
+
+    // Best-available sync happened anyway: same-count names + "(1p)" title.
+    const sent = vi.mocked(setLanePlayers).mock.calls[0][3];
+    expect(sent.map((p: { Name: string }) => p.Name)).toEqual(["Ann", "Bowler 2"]);
+    expect(vi.mocked(patchReservation)).toHaveBeenCalledWith(
+      9172,
+      "X158469",
+      expect.objectContaining({ Title: "Ann Guest (1p)" }),
+    );
+  });
+
+  it("players without addressable ids also fall back to names + title, then warn", async () => {
     vi.mocked(getReservation).mockResolvedValue(
       futureReservation([
         {
@@ -149,8 +182,14 @@ describe("syncQamfPlayers — decrease via per-player DELETE", () => {
         players: [{ name: "Ann" }],
         guestName: "Ann Guest",
       }),
-    ).rejects.toThrow(/decrease incomplete/);
-    expect(vi.mocked(setLanePlayers)).not.toHaveBeenCalled();
+    ).rejects.toThrow(/no addressable player ids.*adjust the bowler count in Conqueror/);
+    expect(vi.mocked(deleteLanePlayer)).not.toHaveBeenCalled();
+    expect(vi.mocked(setLanePlayers)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(patchReservation)).toHaveBeenCalledWith(
+      9172,
+      "X158469",
+      expect.objectContaining({ Title: "Ann Guest (1p)" }),
+    );
   });
 
   it("no deletes on a same-count roster sync (names/shoes only)", async () => {
