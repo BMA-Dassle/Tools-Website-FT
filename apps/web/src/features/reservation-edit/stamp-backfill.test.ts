@@ -41,6 +41,7 @@ vi.mock("@/lib/bowling-db", () => ({
   getBowlingExperiences: vi.fn(async () => EXPERIENCES),
 }));
 
+import { getBowlingSquareProducts } from "@/lib/bowling-db";
 import { runStampBackfill } from "./stamp-backfill";
 
 const PRODUCTS = [
@@ -297,6 +298,15 @@ describe("runStampBackfill — pagination (skips must not pin the window)", () =
 
     const exhausted = await runStampBackfill({ dryRun: true, limit: 200, neonId: null });
     expect(exhausted.nextBeforeId).toBeNull();
+  });
+
+  it("resolves products INCLUDING inactive ones (deactivated-product rows must still derive)", async () => {
+    db.state.scan = [scanRow()];
+    db.state.linesByRes[42] = [line(1, 4, "Fun 4 All")];
+
+    await runStampBackfill({ dryRun: true, limit: 200, neonId: null });
+
+    expect(vi.mocked(getBowlingSquareProducts)).toHaveBeenCalledWith("fort-myers", undefined, true);
   });
 
   it("reports the zero-line population instead of scanning it", async () => {

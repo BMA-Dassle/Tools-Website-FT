@@ -1,5 +1,21 @@
 # Open Tasks
 
+## Reservation-edit: VIP rows blocked from scaling edits (two primary-kind lines) — 2026-07-11
+
+VIP experiences (`vip-fri-sun`, `pizza-bowl-vip`, `fun-4-all-vip`, world-cup variants) bundle
+"VIP Chips & Salsa" (product 109, kind `open`) alongside the lane product — so these rows have
+TWO primary-kind lines. `resolveBookedPricing` throws "found 2" (no stamp; backfill skips them)
+and `repriceBowling` hard-refuses at edit time ("multiple primary lane lines"). VIP rows fall
+to carry mode: shoes/roster/food edits work; player/lane/duration edits refuse. ~30 upcoming
+rows affected as of 2026-07-11.
+
+Fix needs a design decision, not a hack: either (a) reclassify chips & salsa as `addon_food`
+in the catalog (check the VIP booking flow doesn't key on kind `open`, and decide whether it
+scales with lane count on edits — the experience bundles it per lane), or (b) teach
+reprice/derivation a designated-primary rule (e.g. the experience's duration-override family)
+and scale bundled secondaries × laneCount per the original §4 spec. Until then the clean
+refusal stands.
+
 ## Resadmin VIP race-truth (board stops clock-guessing race Done) — MERGED TO MAIN 2026-07-08
 
 Problem: VIP combo cards mark a race step "✓ Done" purely off the clock

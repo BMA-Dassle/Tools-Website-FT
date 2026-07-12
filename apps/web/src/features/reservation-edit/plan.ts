@@ -452,14 +452,17 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   const { players } = await getReservationPlayersWithShoeAllowance(anchor.id);
   // center_code is a mixed namespace (v1 rows: Square location ids, v2 rows:
   // slugs) — fetch the catalog under BOTH so legacy rows still resolve.
-  let centerProducts = await getBowlingSquareProducts(anchor.centerCode);
+  // INACTIVE products are included so rows booked under a since-deactivated
+  // product (World Cup VIP switchover) still resolve their kind; only the
+  // shoe catalog offered for NEW lines filters to active.
+  let centerProducts = await getBowlingSquareProducts(anchor.centerCode, undefined, true);
   const centerSlugForCatalog = resolveCenter(anchor.centerCode, anchor.productKind).slug;
   if (centerProducts.length === 0 && centerSlugForCatalog !== anchor.centerCode) {
-    centerProducts = await getBowlingSquareProducts(centerSlugForCatalog);
+    centerProducts = await getBowlingSquareProducts(centerSlugForCatalog, undefined, true);
   }
   const productsById = new Map(centerProducts.map((p) => [p.id, p]));
   const shoeCatalog: ProductFacts[] = centerProducts
-    .filter((p) => p.productKind === "addon_shoe")
+    .filter((p) => p.isActive && p.productKind === "addon_shoe")
     .map((p) => ({
       squareProductId: p.id,
       label: p.label,
