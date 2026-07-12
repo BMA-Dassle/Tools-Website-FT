@@ -12,14 +12,18 @@ const db = vi.hoisted(() => {
     queries: [] as Array<{ text: string; values: unknown[] }>,
     scan: [] as unknown[],
     linesByRes: {} as Record<number, unknown[]>,
+    zeroLineCount: 0,
   };
   const tag = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("$?");
     state.queries.push({ text, values });
-    if (text.includes("FROM bowling_reservation_lines")) {
+    if (text.includes("SELECT square_product_id")) {
       return Promise.resolve(state.linesByRes[values[0] as number] ?? []);
     }
-    if (/^\s*SELECT/.test(text) && text.includes("FROM bowling_reservations")) {
+    if (text.includes("COUNT(*)")) {
+      return Promise.resolve([{ n: state.zeroLineCount }]);
+    }
+    if (/^\s*SELECT id, center_code/.test(text)) {
       return Promise.resolve(state.scan);
     }
     return Promise.resolve([]);
@@ -116,6 +120,7 @@ beforeEach(() => {
   db.state.queries = [];
   db.state.scan = [];
   db.state.linesByRes = {};
+  db.state.zeroLineCount = 0;
   vi.clearAllMocks();
 });
 
@@ -265,5 +270,41 @@ describe("runStampBackfill — write discipline", () => {
     const scan = db.state.queries.find((q) => q.text.includes("FROM bowling_reservations"));
     expect(scan?.text).toContain("WHERE id = $?");
     expect(scan?.values[0]).toBe(42);
+  });
+});
+
+describe("runStampBackfill — pagination (skips must not pin the window)", () => {
+  it("excludes zero-line rows in SQL, orders by id DESC, and threads beforeId", async () => {
+    db.state.scan = [scanRow()];
+    db.state.linesByRes[42] = [line(1, 4, "Fun 4 All")];
+
+    await runStampBackfill({ dryRun: true, limit: 200, neonId: null, beforeId: 99 });
+
+    const scan = db.state.queries.find((q) => /^\s*SELECT id, center_code/.test(q.text));
+    expect(scan?.text).toContain("EXISTS");
+    expect(scan?.text).toContain("id < $?");
+    expect(scan?.text).toContain("ORDER BY id DESC");
+    expect(scan?.values).toContain(99);
+  });
+
+  it("hands back a cursor while the batch is full, null once exhausted", async () => {
+    db.state.scan = [scanRow({ id: 43 }), scanRow({ id: 42 })];
+    db.state.linesByRes[43] = [line(1, 4, "Fun 4 All")];
+    db.state.linesByRes[42] = [line(1, 4, "Fun 4 All")];
+
+    const full = await runStampBackfill({ dryRun: true, limit: 2, neonId: null });
+    expect(full.nextBeforeId).toBe(42);
+
+    const exhausted = await runStampBackfill({ dryRun: true, limit: 200, neonId: null });
+    expect(exhausted.nextBeforeId).toBeNull();
+  });
+
+  it("reports the zero-line population instead of scanning it", async () => {
+    db.state.zeroLineCount = 4709;
+    db.state.scan = [scanRow()];
+    db.state.linesByRes[42] = [line(1, 4, "Fun 4 All")];
+
+    const r = await runStampBackfill({ dryRun: true, limit: 200, neonId: null });
+    expect(r.zeroLineRows).toBe(4709);
   });
 });

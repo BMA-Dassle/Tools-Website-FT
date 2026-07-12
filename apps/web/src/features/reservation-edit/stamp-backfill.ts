@@ -49,6 +49,15 @@ export interface StampBackfillResult {
     stamp: BowlingBookedStamp;
   }>;
   skipped: Array<{ neonId: number; reason: string }>;
+  /**
+   * Keyset cursor: pass as `beforeId` on the next call. null = the scan is
+   * exhausted. Without this, permanently-skipped rows pin the batch window
+   * and repeated runs re-scan the same rows forever.
+   */
+  nextBeforeId: number | null;
+  /** Rows with NO priced lines (admin/POS/league placeholders) — excluded
+   *  from the scan entirely; they have no money model to stamp. */
+  zeroLineRows: number;
 }
 
 /**
@@ -85,11 +94,20 @@ export const runStampBackfill = async (params: {
   dryRun: boolean;
   limit: number;
   neonId: number | null;
+  /** Keyset cursor from the previous call's nextBeforeId. */
+  beforeId?: number | null;
 }): Promise<StampBackfillResult> => {
   if (!isDbConfigured()) throw new Error("stamp-backfill: DATABASE_URL not configured");
   await ensureBowlingSchema();
   const q = sql();
+  const beforeId = params.beforeId ?? null;
 
+  // Batch scan notes:
+  //  - Zero-line rows (league/admin/POS placeholders — 4.7k in prod, some
+  //    dated YEARS out) can never stamp; they'd pin a booked_at-ordered
+  //    window forever. Exclude them in SQL and report the count instead.
+  //  - ORDER BY id DESC (creation order, newest first) + keyset `beforeId`
+  //    so rows that skip (ambiguous pricing) can't pin the window either.
   const rows = (params.neonId != null
     ? await q`
           SELECT id, center_code, product_kind, player_count, guest_name, booked_at
@@ -101,13 +119,32 @@ export const runStampBackfill = async (params: {
         `
     : await q`
           SELECT id, center_code, product_kind, player_count, guest_name, booked_at
-          FROM bowling_reservations
+          FROM bowling_reservations r
           WHERE product_kind IN ('open', 'kbf')
             AND status != 'cancelled'
             AND booking_metadata -> 'bowling' IS NULL
-          ORDER BY booked_at DESC
+            AND EXISTS (
+              SELECT 1 FROM bowling_reservation_lines l WHERE l.reservation_id = r.id
+            )
+            AND (${beforeId}::bigint IS NULL OR id < ${beforeId})
+          ORDER BY id DESC
           LIMIT ${params.limit}
         `) as unknown as ScanRow[];
+
+  let zeroLineRows = 0;
+  if (params.neonId == null) {
+    const counted = (await q`
+      SELECT COUNT(*)::int AS n
+      FROM bowling_reservations r
+      WHERE product_kind IN ('open', 'kbf')
+        AND status != 'cancelled'
+        AND booking_metadata -> 'bowling' IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM bowling_reservation_lines l WHERE l.reservation_id = r.id
+        )
+    `) as unknown as Array<{ n: number }>;
+    zeroLineRows = counted[0]?.n ?? 0;
+  }
 
   // One catalog/experience fetch per distinct center, not per row.
   const productCache = new Map<string, Map<number, BowlingSquareProduct>>();
@@ -188,5 +225,17 @@ export const runStampBackfill = async (params: {
     }
   }
 
-  return { dryRun: params.dryRun, scanned: rows.length, stamped, skipped };
+  return {
+    dryRun: params.dryRun,
+    scanned: rows.length,
+    stamped,
+    skipped,
+    // A full batch means there may be more — hand back the cursor. A short
+    // batch means the scan is exhausted.
+    nextBeforeId:
+      params.neonId == null && rows.length === params.limit
+        ? (rows[rows.length - 1]?.id ?? null)
+        : null,
+    zeroLineRows,
+  };
 };

@@ -241,7 +241,14 @@
       "PowerShell(npm test)",
       "PowerShell(npx eslint \"app/admin/[token]/checkin/CheckInClient.tsx\")",
       "PowerShell(npx eslint \"lib/checkin-race-flags.ts\" \"app/api/admin/checkin/route.ts\" \"app/admin/[token]/checkin/CheckInClient.tsx\")",
-      "PowerShell(npx tsc --noEmit)"
+      "PowerShell(npx tsc --noEmit)",
+      "PowerShell(cd C:\\\\git\\\\Tools-Website-FT\\\\apps\\\\web; \\(Select-String -Path \"app\\\\api\\\\cron\\\\card-vault-sweep\\\\route.ts\",\"app\\\\api\\\\edit-payments\\\\`[editId`]\\\\route.ts\",\"app\\\\pay\\\\edit\\\\`[editId`]\\\\page.tsx\",\"app\\\\api\\\\admin\\\\reservations\\\\edit\\\\route.ts\",\"app\\\\api\\\\admin\\\\reservations\\\\card-consent\\\\route.ts\",\"app\\\\api\\\\admin\\\\bowling\\\\backfill-pricing-stamp\\\\route.ts\" -Pattern 'process\\\\.env\\\\.\\(\\\\w+\\)' -AllMatches -ErrorAction SilentlyContinue | ForEach-Object { $_.Matches | ForEach-Object { $_.Groups[1].Value } }\\) | Sort-Object -Unique)",
+      "PowerShell(\\(Get-Content C:\\\\git\\\\Tools-Website-FT\\\\tasks\\\\lessons.md -TotalCount 30\\))",
+      "PowerShell(npm run typecheck 2>&1)",
+      "PowerShell($msg = \\(Get-Content \"$env:TEMP\\\\commit-msg.txt\" -Raw\\); [IO.File]::WriteAllText\\(\"$env:TEMP\\\\commit-msg-nobom.txt\", $msg, \\(New-Object System.Text.UTF8Encoding\\($false\\)\\)\\); git commit --amend -F \"$env:TEMP\\\\commit-msg-nobom.txt\"; git log --oneline -1; git push -u origin fix/reservation-edit-gc-refund-constraint 2>&1 | Select-Object -Last 3)",
+      "PowerShell([Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; foreach \\($u in @\\(\"https://www.fasttraxent.com/\", \"https://fasttraxent.com/\", \"https://www.headpinz.com/\"\\)\\) { try { $r = Invoke-WebRequest -Uri $u -Method Get -TimeoutSec 30 -UseBasicParsing; Write-Output \"$u -> $\\($r.StatusCode\\)\" } catch { Write-Output \"$u -> ERR: $\\($_.Exception.Message\\)\" } })",
+      "PowerShell([Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $token = \\(\\(Get-Content C:\\\\git\\\\Tools-Website-FT\\\\apps\\\\web\\\\.env.local | Select-String '^ADMIN_CAMERA_TOKEN='\\).ToString\\(\\).Split\\('=',2\\)[1]\\).Trim\\(\\); try { $r = Invoke-WebRequest -Uri \"https://fasttraxent.com/api/admin/sms-quota?token=$token\" -Method Get -TimeoutSec 30 -UseBasicParsing; Write-Output \"sms-quota with local token -> $\\($r.StatusCode\\)\" } catch { Write-Output \"sms-quota with local token -> $\\($_.Exception.Response.StatusCode.value__\\)\" })",
+      "PowerShell(node \"C:\\\\Users\\\\ALEX~1.TRE\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-Tools-Website-FT\\\\536cb1c0-6a8e-4613-b188-0cbecb2e5a43\\\\scratchpad\\\\stamp-count.mjs\")"
     ],
     "additionalDirectories": [
       "\\tmp"
