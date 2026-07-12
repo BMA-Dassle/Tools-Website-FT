@@ -12,7 +12,7 @@ vi.mock("~/features/cancellation/square-actions", () => ({
 }));
 
 import { fetchPaymentFacts, sq } from "~/features/cancellation/square-actions";
-import { refundTenderPartial } from "./square-actions";
+import { fetchRefundFacts, refundTenderPartial } from "./square-actions";
 
 const payment = (over: Record<string, unknown> = {}) => ({
   id: "PAY1",
@@ -84,18 +84,34 @@ describe("refundTenderPartial", () => {
     expect(vi.mocked(sq)).not.toHaveBeenCalled();
   });
 
-  it("skips a gift-card-funded payment when skipGiftCardTender is set", async () => {
+  it("skips a gift-card payment when the ask would be a PARTIAL refund", async () => {
     vi.mocked(fetchPaymentFacts).mockResolvedValue(payment({ sourceType: "GIFT_CARD" }) as never);
     const r = await refundTenderPartial({
       editId: "edit-42-a1",
       refundIndex: 3,
       paymentId: "PAY_GC",
-      amountCents: 500,
+      amountCents: 500, // < 5000 remaining → partial → Square would refuse
       reason: "Reservation Deposit",
       skipGiftCardTender: true,
     });
     expect(r).toEqual({ refundedCents: 0, skippedGiftCard: true });
     expect(vi.mocked(sq)).not.toHaveBeenCalled();
+  });
+
+  it("a FULL-remainder ask on a gift-card payment proceeds (full GC refunds are legal)", async () => {
+    vi.mocked(fetchPaymentFacts).mockResolvedValue(
+      payment({ sourceType: "GIFT_CARD", amountCents: 5000, refundedCents: 0 }) as never,
+    );
+    const r = await refundTenderPartial({
+      editId: "edit-42-a1",
+      refundIndex: 3,
+      paymentId: "PAY_GC",
+      amountCents: 5000, // covers the whole remainder → full refund
+      reason: "Reservation Deposit",
+      skipGiftCardTender: true,
+    });
+    expect(r).toEqual({ refundId: "RF1", refundedCents: 5000 });
+    expect(vi.mocked(sq)).toHaveBeenCalled();
   });
 
   it("still refunds a gift-card payment when the caller did NOT opt into skipping", async () => {
@@ -112,5 +128,33 @@ describe("refundTenderPartial", () => {
     });
     expect(r.refundedCents).toBe(500);
     expect(vi.mocked(sq)).toHaveBeenCalled();
+  });
+});
+
+describe("fetchRefundFacts", () => {
+  it("parses payment id, amount, and status", async () => {
+    vi.mocked(sq).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: {
+        refund: {
+          id: "RF9",
+          payment_id: "PAY1",
+          amount_money: { amount: 300, currency: "USD" },
+          status: "COMPLETED",
+        },
+      },
+    } as never);
+    await expect(fetchRefundFacts("RF9")).resolves.toEqual({
+      paymentId: "PAY1",
+      amountCents: 300,
+      status: "COMPLETED",
+    });
+    expect(vi.mocked(sq)).toHaveBeenCalledWith("GET", "/refunds/RF9");
+  });
+
+  it("throws on a missing refund", async () => {
+    vi.mocked(sq).mockResolvedValue({ ok: false, status: 404, json: {} } as never);
+    await expect(fetchRefundFacts("RF_NOPE")).rejects.toThrow(/refund RF_NOPE fetch/);
   });
 });

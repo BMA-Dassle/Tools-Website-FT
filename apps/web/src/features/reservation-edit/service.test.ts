@@ -25,6 +25,7 @@ vi.mock("@/lib/reservation-edit-log", () => ({
   startEditEvent: vi.fn(async () => {}),
   finishEditEvent: vi.fn(async () => {}),
   recordEditPayment: vi.fn(async () => {}),
+  recordEditRefund: vi.fn(async () => {}),
   markEditPendingPayment: vi.fn(async () => {}),
   listEditEventsByAnchors: vi.fn(async () => []),
   getLatestEditEvent: vi.fn(async () => null),
@@ -55,6 +56,7 @@ vi.mock("~/features/cancellation/square-actions", () => ({
 vi.mock("./square-actions", () => ({
   createEditTopupOrderAndCharge: vi.fn(async () => ({ orderId: "TOP1", paymentId: "PAY_TOP" })),
   refundTenderPartial: vi.fn(async () => ({ refundId: "RF1", refundedCents: 500 })),
+  fetchRefundFacts: vi.fn(async () => ({ paymentId: "?", amountCents: 0, status: "COMPLETED" })),
   adjustGiftCardDown: vi.fn(async () => 500),
   updateDayofOrderLines: vi.fn(async () => ({ totalCents: 9999, version: 4 })),
   chargeDayofOrder: vi.fn(async () => ({ paymentId: "PAY_MID" })),
@@ -74,14 +76,18 @@ import redis from "@/lib/redis";
 import { getBowlingReservation, updateReservationAfterEdit } from "@/lib/bowling-db";
 import {
   finishEditEvent,
+  listEditEventsByAnchors,
   markEditPendingPayment,
+  nextEditAttempt,
   recordEditPayment,
+  recordEditRefund,
   startEditEvent,
 } from "@/lib/reservation-edit-log";
 import { loadGiftCard } from "@/lib/square-gift-card";
-import { fetchOrderFacts } from "~/features/cancellation/square-actions";
+import { fetchOrderFacts, fetchPaymentFacts } from "~/features/cancellation/square-actions";
 import {
   createEditTopupOrderAndCharge,
+  fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
 } from "./square-actions";
@@ -398,7 +404,7 @@ describe("executeEditCascade — locks and gates", () => {
 });
 
 describe("executeEditCascade — PRE decrease", () => {
-  it("refunds before decrementing the gift card and records refund ids", async () => {
+  const depositFacts = (tenders: Array<{ paymentId: string; amountCents: number }>) => {
     vi.mocked(fetchOrderFacts).mockImplementation(async (orderId: string) =>
       orderId === "DEP1"
         ? ({
@@ -406,10 +412,10 @@ describe("executeEditCascade — PRE decrease", () => {
             state: "COMPLETED",
             version: 1,
             locationId: "TXBSQN0FEKQ11",
-            tenderCount: 1,
+            tenderCount: tenders.length,
             netDueCents: 0,
             totalCents: 5000,
-            tenders: [{ paymentId: "PAY_DEP", amountCents: 5000 }],
+            tenders,
           } as never)
         : ({
             id: "O1",
@@ -422,18 +428,30 @@ describe("executeEditCascade — PRE decrease", () => {
             tenders: [],
           } as never),
     );
+  };
+
+  const DECREASE_STEPS: EditStep[] = [
+    { kind: "audit_start", fatal: true },
+    { kind: "refund_tender", fatal: true, amountCents: 500 },
+    { kind: "adjust_gift_card_down", fatal: true, target: "GC1", amountCents: 500 },
+    { kind: "update_dayof_order", fatal: true, target: "O1", amountCents: -500 },
+    { kind: "neon_commit", fatal: true },
+    { kind: "notify", fatal: false },
+  ];
+
+  it("refunds before decrementing the gift card and records refund ids", async () => {
+    depositFacts([{ paymentId: "PAY_DEP", amountCents: 5000 }]);
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_DEP",
+      status: "COMPLETED",
+      amountCents: 5000,
+      refundedCents: 0,
+      sourceType: "CARD",
+    } as never);
     vi.mocked(refundTenderPartial).mockResolvedValueOnce({ refundId: "RF1", refundedCents: 500 });
 
-    const steps: EditStep[] = [
-      { kind: "audit_start", fatal: true },
-      { kind: "refund_tender", fatal: true, amountCents: 500 },
-      { kind: "adjust_gift_card_down", fatal: true, target: "GC1", amountCents: 500 },
-      { kind: "update_dayof_order", fatal: true, target: "O1", amountCents: -500 },
-      { kind: "neon_commit", fatal: true },
-      { kind: "notify", fatal: false },
-    ];
     const result = await executeEditCascade(
-      baseReq(mkPlan(steps, { diffCents: -500, settlement: "card_refund" })),
+      baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
     );
     expect(result.refundIds).toEqual(["RF1"]);
     expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
@@ -442,55 +460,68 @@ describe("executeEditCascade — PRE decrease", () => {
         amountCents: 500,
         // Owner convention — exact reason on every reservation-money refund.
         reason: "Reservation Deposit",
-        // Deposits can carry guest gift-card tenders; Square can't partially
-        // refund those, so the allocator must hop over them.
         skipGiftCardTender: true,
       }),
     );
+    // Forward recovery: the refund id was persisted the moment it landed.
+    expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF1");
   });
 
-  it("a gift-card-funded deposit tender is skipped and the shortfall fails toward store credit", async () => {
-    vi.mocked(fetchOrderFacts).mockImplementation(async (orderId: string) =>
-      orderId === "DEP1"
-        ? ({
-            id: "DEP1",
-            state: "COMPLETED",
-            version: 1,
-            locationId: "TXBSQN0FEKQ11",
-            tenderCount: 1,
-            netDueCents: 0,
-            totalCents: 5000,
-            tenders: [{ paymentId: "PAY_GC_DEP", amountCents: 5000 }],
-          } as never)
-        : ({
-            id: "O1",
-            state: "OPEN",
-            version: 3,
-            locationId: "TXBSQN0FEKQ11",
-            tenderCount: 0,
-            netDueCents: 5000,
-            totalCents: 5000,
-            tenders: [],
-          } as never),
-    );
-    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+  it("a gift-card-funded deposit tender fails PRE-FLIGHT — before any money moves", async () => {
+    depositFacts([{ paymentId: "PAY_GC_DEP", amountCents: 5000 }]);
+    // Owed 500 < remaining 5000 → the refund would be PARTIAL → uncoverable.
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_GC_DEP",
+      status: "COMPLETED",
+      amountCents: 5000,
       refundedCents: 0,
-      skippedGiftCard: true,
-    });
+      sourceType: "GIFT_CARD",
+    } as never);
 
-    const steps: EditStep[] = [
-      { kind: "audit_start", fatal: true },
-      { kind: "refund_tender", fatal: true, amountCents: 500 },
-      { kind: "adjust_gift_card_down", fatal: true, target: "GC1", amountCents: 500 },
-      { kind: "neon_commit", fatal: true },
-    ];
     await expect(
-      executeEditCascade(baseReq(mkPlan(steps, { diffCents: -500, settlement: "card_refund" }))),
-    ).rejects.toThrow(/gift-card tender.*store-credit/);
-    // Nothing was refunded and the ledger row closed as failed.
+      executeEditCascade(
+        baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
+      ),
+    ).rejects.toThrow(/gift-card tender.*NO money was refunded.*store-credit/);
+    // The pre-flight plan refused BEFORE issuing a single refund.
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
     expect(vi.mocked(finishEditEvent)).toHaveBeenCalledWith(
       "edit-42-a1",
       expect.objectContaining({ state: "failed" }),
     );
+  });
+
+  it("nets refunds stranded by a prior failed attempt out of the owed amount", async () => {
+    depositFacts([{ paymentId: "PAY_DEP", amountCents: 5000 }]);
+    vi.mocked(nextEditAttempt).mockResolvedValueOnce(2);
+    vi.mocked(listEditEventsByAnchors).mockResolvedValueOnce([
+      { editId: "edit-42-a1", state: "failed", paymentIds: [], refundIds: ["RF_OLD"] },
+    ] as never);
+    vi.mocked(fetchRefundFacts).mockResolvedValueOnce({
+      paymentId: "PAY_DEP",
+      amountCents: 300,
+      status: "COMPLETED",
+    });
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_DEP",
+      status: "COMPLETED",
+      amountCents: 5000,
+      refundedCents: 300,
+      sourceType: "CARD",
+    } as never);
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({ refundId: "RF2", refundedCents: 200 });
+
+    const result = await executeEditCascade(
+      baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
+    );
+    // Only the 200 not already returned by the stranded refund moves now.
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: "PAY_DEP", amountCents: 200 }),
+    );
+    // The stranded refund is absorbed into THIS event so later decreases
+    // stop netting it.
+    expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a2", "RF_OLD");
+    expect(result.refundIds).toEqual(expect.arrayContaining(["RF_OLD", "RF2"]));
   });
 });

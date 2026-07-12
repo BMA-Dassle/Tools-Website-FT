@@ -75,10 +75,11 @@ export const createEditTopupOrderAndCharge = async (params: {
  * replayed call refunds only what's still owed (or no-ops). Returns what was
  * actually refunded this call.
  *
- * `skipGiftCardTender`: Square refuses partial refunds of gift-card-funded
- * payments (live finding 2026-07-11). Allocators set this to hop over such
- * tenders instead of failing mid-cascade; the caller settles the shortfall
- * elsewhere (store credit) or fails loudly.
+ * `skipGiftCardTender`: Square refuses PARTIAL refunds of gift-card-funded
+ * payments (live finding 2026-07-11) — full refunds are fine. Allocators set
+ * this to hop over a GC tender when the ask would be partial, instead of
+ * failing mid-cascade; the caller settles the shortfall elsewhere (store
+ * credit) or fails loudly.
  */
 export const refundTenderPartial = async (params: {
   editId: string;
@@ -89,10 +90,16 @@ export const refundTenderPartial = async (params: {
   skipGiftCardTender?: boolean;
 }): Promise<{ refundId?: string; refundedCents: number; skippedGiftCard?: boolean }> => {
   const pay = await fetchPaymentFacts(params.paymentId);
-  if (params.skipGiftCardTender && pay.sourceType === "GIFT_CARD") {
+  const remaining = pay.amountCents - pay.refundedCents;
+  if (
+    params.skipGiftCardTender &&
+    pay.sourceType === "GIFT_CARD" &&
+    params.amountCents < remaining
+  ) {
+    // The ask covers only PART of this gift-card payment — Square would
+    // refuse it. A full-remainder ask proceeds (full GC refunds are legal).
     return { refundedCents: 0, skippedGiftCard: true };
   }
-  const remaining = pay.amountCents - pay.refundedCents;
   const amount = Math.min(params.amountCents, Math.max(0, remaining));
   if (amount <= 0) return { refundedCents: 0 };
   const r = await sq("POST", "/refunds", {
@@ -103,6 +110,24 @@ export const refundTenderPartial = async (params: {
   });
   if (!r.ok || !r.json?.refund) throw err(`partial refund of ${params.paymentId}`, r);
   return { refundId: r.json.refund.id, refundedCents: amount };
+};
+
+/**
+ * Facts about one refund — used to NET refunds recorded by prior failed /
+ * crashed attempts out of what a retry still owes (without this, a retry
+ * restarts from the full owed amount and over-refunds later tenders).
+ */
+export const fetchRefundFacts = async (
+  refundId: string,
+): Promise<{ paymentId: string; amountCents: number; status: string }> => {
+  const r = await sq("GET", `/refunds/${refundId}`);
+  if (!r.ok || !r.json?.refund) throw err(`refund ${refundId} fetch`, r);
+  const refund = r.json.refund;
+  return {
+    paymentId: refund.payment_id ?? "",
+    amountCents: refund.amount_money?.amount ?? 0,
+    status: refund.status ?? "?",
+  };
 };
 
 /* ── Gift-card exact adjust-down ──────────────────────────────────────── */

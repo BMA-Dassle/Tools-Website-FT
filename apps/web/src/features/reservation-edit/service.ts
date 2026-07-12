@@ -27,6 +27,7 @@ import {
   markEditPendingPayment,
   nextEditAttempt,
   recordEditPayment,
+  recordEditRefund,
   startEditEvent,
   listEditEventsByAnchors,
 } from "@/lib/reservation-edit-log";
@@ -34,7 +35,12 @@ import { getLatestCancelEvent } from "@/lib/reservation-cancel-log";
 import { loadGiftCard, mintDigitalGiftCard, refundSquarePayment } from "@/lib/square-gift-card";
 import redis from "@/lib/redis";
 import { recordAdminAction } from "~/features/reservations-admin/audit";
-import { fetchGiftCardFacts, fetchOrderFacts, sq } from "~/features/cancellation/square-actions";
+import {
+  fetchGiftCardFacts,
+  fetchOrderFacts,
+  fetchPaymentFacts,
+  sq,
+} from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 
 import type { EditPlan, EditPlanLeg, PlanLine } from "./plan";
@@ -42,6 +48,7 @@ import {
   adjustGiftCardDown,
   chargeDayofOrder,
   createEditTopupOrderAndCharge,
+  fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
 } from "./square-actions";
@@ -327,13 +334,13 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
           case "refund_tender": {
             const owed = step.amountCents ?? -plan.diffCents;
+            // Capacity shortfalls throw INSIDE refundAcrossTenders before any
+            // money moves; landing here under-refunded means a clamp race —
+            // issued refunds are recorded, so a re-run nets them and heals.
             const r = await refundAcrossTenders(editId, anchor, plan, owed, refundIds);
             if (r.refundedCents < owed) {
               throw new Error(
-                `could only refund ${r.refundedCents} of ${owed} cents across known tenders` +
-                  (r.giftCardTendersSkipped > 0
-                    ? ` (${r.giftCardTendersSkipped} gift-card tender(s) skipped — Square can't partially refund those; re-run this edit with store-credit settlement)`
-                    : " — manual follow-up"),
+                `refunded ${r.refundedCents} of ${owed} cents — issued refunds are recorded; re-run this edit to settle the remainder`,
               );
             }
             stepLog.push({ step: step.kind, ok: true, detail: `-${r.refundedCents}` });
@@ -349,7 +356,10 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               amountCents: step.amountCents ?? -plan.diffCents,
               reason: "Reservation Deposit",
             });
-            if (r.refundId) refundIds.push(r.refundId);
+            if (r.refundId) {
+              refundIds.push(r.refundId);
+              await recordEditRefund(editId, r.refundId);
+            }
             stepLog.push({ step: step.kind, ok: true, detail: r.refundId });
             break;
           }
@@ -398,6 +408,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 reason: "Reservation Deposit",
               });
               refundIds.push(r.refundId);
+              await recordEditRefund(editId, r.refundId);
               n++;
             }
             stepLog.push({ step: step.kind, ok: true, detail: `${n} tender(s) refunded` });
@@ -633,6 +644,16 @@ const runQamfRebook = async (
  * Refund `owedCents` across the money group's payments — prior edit top-ups
  * first (newest first: undo edits before touching the original deposit), then
  * the deposit order's tenders in order.
+ *
+ * Money rules (live finding 2026-07-11 + verify pass):
+ *  1. NET stranded refunds first — refunds recorded by non-completed attempts
+ *     (crashed / failed / this attempt's own resume) already returned money
+ *     against this same order value; without netting, a retry restarts from
+ *     the full owed amount and over-refunds later tenders.
+ *  2. Pre-flight capacity check — plan every refund amount BEFORE any money
+ *     moves. Square refuses PARTIAL refunds of gift-card-funded tenders
+ *     (full is fine), so a mid-flight shortfall would strand a partial card
+ *     refund and a store-credit re-run would double-compensate the guest.
  */
 const refundAcrossTenders = async (
   editId: string,
@@ -642,8 +663,8 @@ const refundAcrossTenders = async (
   refundIds: string[],
 ): Promise<{ refundedCents: number; giftCardTendersSkipped: number }> => {
   const targets: RefundTarget[] = [];
-  const priorEdits = await listEditEventsByAnchors(plan.legIds);
-  for (const ev of priorEdits) {
+  const events = await listEditEventsByAnchors(plan.legIds);
+  for (const ev of events) {
     if (ev.state !== "completed") continue;
     for (const pid of [...(ev.paymentIds ?? [])].reverse()) {
       targets.push({ paymentId: pid, label: `edit ${ev.editId}` });
@@ -655,30 +676,85 @@ const refundAcrossTenders = async (
       targets.push({ paymentId: t.paymentId, label: "deposit" });
     }
   }
+  const targetIds = new Set(targets.map((t) => t.paymentId));
 
-  let remaining = owedCents;
-  let index = 0;
+  // 1. Stranded-refund netting. A completed event's refunds are already
+  //    settled (its order/Neon changes committed) — only refunds that no
+  //    completed event has absorbed count as stranded.
+  const absorbedIds = new Set(
+    events.filter((e) => e.state === "completed").flatMap((e) => e.refundIds ?? []),
+  );
+  const strandedIds = [
+    ...new Set(events.filter((e) => e.state !== "completed").flatMap((e) => e.refundIds ?? [])),
+  ].filter((id) => !absorbedIds.has(id));
+  let strandedCents = 0;
+  for (const rid of strandedIds) {
+    const f = await fetchRefundFacts(rid);
+    if (f.status === "FAILED" || f.status === "REJECTED") continue;
+    if (!targetIds.has(f.paymentId)) continue;
+    strandedCents += f.amountCents;
+    // Absorb the stranded refund into THIS event so completion accounts for
+    // it and later decreases stop netting it.
+    if (!refundIds.includes(rid)) refundIds.push(rid);
+    await recordEditRefund(editId, rid);
+  }
+  const owed = Math.max(0, owedCents - strandedCents);
+
+  // 2. Pre-flight plan — no Square mutation until the whole amount is known
+  //    coverable.
+  const planned: Array<{ paymentId: string; amountCents: number }> = [];
   let giftCardTendersSkipped = 0;
+  let toCover = owed;
   for (const target of targets) {
-    if (remaining <= 0) break;
+    if (toCover <= 0) break;
+    const pay = await fetchPaymentFacts(target.paymentId);
+    const tenderRemaining = pay.amountCents - pay.refundedCents;
+    if (tenderRemaining <= 0) continue;
+    if (pay.sourceType === "GIFT_CARD" && toCover < tenderRemaining) {
+      // Guests can fund deposits partly with their own gift card
+      // (authorizeMultiTender); Square refuses partial refunds of those.
+      giftCardTendersSkipped++;
+      continue;
+    }
+    const amount = Math.min(toCover, tenderRemaining);
+    planned.push({ paymentId: target.paymentId, amountCents: amount });
+    toCover -= amount;
+  }
+  if (toCover > 0) {
+    throw new Error(
+      `cannot refund ${owed} of ${owedCents} cents: refundable tenders cover only ${owed - toCover}` +
+        (giftCardTendersSkipped > 0
+          ? ` (${giftCardTendersSkipped} gift-card tender(s) skipped — Square refuses partial gift-card refunds)`
+          : "") +
+        ` — NO money was refunded; re-run this edit with store-credit settlement`,
+    );
+  }
+
+  // 3. Execute. The key index starts past refunds already recorded on THIS
+  //    event so a same-attempt resume never reuses a burned key with a new
+  //    body.
+  let index = (events.find((e) => e.editId === editId)?.refundIds ?? []).length;
+  let refunded = 0;
+  for (const p of planned) {
     const r = await refundTenderPartial({
       editId,
       refundIndex: index,
-      paymentId: target.paymentId,
-      amountCents: remaining,
+      paymentId: p.paymentId,
+      amountCents: p.amountCents,
       // Owner convention (2026-07-11): reservation-money refunds carry this
       // exact reason so they read consistently in the Square dashboard/exports.
       reason: "Reservation Deposit",
-      // Guests can fund deposits partly with their own gift card
-      // (authorizeMultiTender) — Square refuses partial refunds of those.
       skipGiftCardTender: true,
     });
     if (r.skippedGiftCard) giftCardTendersSkipped++;
-    if (r.refundId) refundIds.push(r.refundId);
-    remaining -= r.refundedCents;
+    if (r.refundId) {
+      refundIds.push(r.refundId);
+      await recordEditRefund(editId, r.refundId);
+    }
+    refunded += r.refundedCents;
     index++;
   }
-  return { refundedCents: owedCents - remaining, giftCardTendersSkipped };
+  return { refundedCents: strandedCents + refunded, giftCardTendersSkipped };
 };
 
 /**

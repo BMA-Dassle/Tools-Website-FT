@@ -174,6 +174,24 @@ export async function recordEditPayment(editId: string, paymentId: string): Prom
   `;
 }
 
+/**
+ * Persist a refund id IMMEDIATELY after the refund lands — same forward-
+ * recovery doctrine as recordEditPayment. Also what lets refund-alerts
+ * recognize the refund as ours (it whitelists by recorded id) and what lets
+ * a retry NET the stranded refund out of the amount still owed.
+ */
+export async function recordEditRefund(editId: string, refundId: string): Promise<void> {
+  if (!isDbConfigured()) throw new Error("reservation-edit-log: DATABASE_URL not configured");
+  await ensureSchema();
+  const q = sql();
+  await q`
+    UPDATE reservation_edit_events
+    SET refund_ids = array_append(COALESCE(refund_ids, '{}'), ${refundId})
+    WHERE edit_id = ${editId}
+      AND NOT (${refundId} = ANY(COALESCE(refund_ids, '{}')))
+  `;
+}
+
 /** Flip a started row to pending_payment (self-hosted payment-link edits). */
 export async function markEditPendingPayment(editId: string): Promise<void> {
   if (!isDbConfigured()) return;
