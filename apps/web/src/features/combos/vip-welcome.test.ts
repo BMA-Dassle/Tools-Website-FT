@@ -1,0 +1,148 @@
+import { describe, expect, it } from "vitest";
+
+import { getComboSpecial } from "./combo-specials";
+import { buildVipEmailFields, buildVipSmsBody, vipEmailSubject } from "./vip-welcome";
+
+const raceBowl = getComboSpecial("race-bowl")!;
+
+describe("vipEmailSubject", () => {
+  it("welcomes by combo name and keeps the reservation number searchable", () => {
+    expect(vipEmailSubject(raceBowl, "12345")).toBe(
+      "Welcome to the Ultimate VIP Experience — Booking #12345",
+    );
+  });
+});
+
+describe("buildVipEmailFields — itinerary", () => {
+  it("renders real schedule lines, numbered and in the given (time-sorted) order", () => {
+    const { itineraryHtml } = buildVipEmailFields(raceBowl, {
+      scheduleLines: [
+        "Starter Race · 2:00 PM",
+        "VIP Bowling · 2:45 PM - 4:15 PM",
+        "Intermediate Race · 4:30 PM",
+      ],
+    });
+    const starter = itineraryHtml.indexOf("Starter Race · 2:00 PM");
+    const bowl = itineraryHtml.indexOf("VIP Bowling · 2:45 PM");
+    const inter = itineraryHtml.indexOf("Intermediate Race · 4:30 PM");
+    expect(starter).toBeGreaterThan(-1);
+    expect(bowl).toBeGreaterThan(starter);
+    expect(inter).toBeGreaterThan(bowl);
+    // Step blurbs attach by keyword to the real product lines.
+    expect(itineraryHtml).toContain("Qualify here to unlock your Intermediate race.");
+    expect(itineraryHtml).toContain("semi-private VIP lane at the HeadPinz bowling center");
+    expect(itineraryHtml).toContain("Come back faster.");
+  });
+
+  it("falls back to registry legs (no times) when no schedule lines are provided", () => {
+    const { itineraryHtml } = buildVipEmailFields(raceBowl);
+    const starter = itineraryHtml.indexOf("Starter Race");
+    const bowl = itineraryHtml.indexOf("VIP Bowling");
+    const inter = itineraryHtml.indexOf("Intermediate Race");
+    expect(starter).toBeGreaterThan(-1);
+    expect(bowl).toBeGreaterThan(starter);
+    expect(inter).toBeGreaterThan(bowl);
+    expect(itineraryHtml).toContain("1.5 hours");
+  });
+
+  it("uses fallbackComponents order for a races-first (reordered) booking", () => {
+    const { itineraryHtml } = buildVipEmailFields(raceBowl, { reordered: true });
+    const starter = itineraryHtml.indexOf("Starter Race");
+    const inter = itineraryHtml.indexOf("Intermediate Race");
+    const bowl = itineraryHtml.indexOf("VIP Bowling");
+    expect(starter).toBeGreaterThan(-1);
+    expect(inter).toBeGreaterThan(starter);
+    expect(bowl).toBeGreaterThan(inter);
+  });
+
+  it("includes the qualify fallback note", () => {
+    const { itineraryHtml } = buildVipEmailFields(raceBowl);
+    expect(itineraryHtml).toContain("we'll convert your Intermediate");
+  });
+});
+
+describe("buildVipEmailFields — perks, tagline, duration", () => {
+  it("lists every registry perk", () => {
+    const { perksHtml } = buildVipEmailFields(raceBowl);
+    for (const perk of raceBowl.perks!) {
+      expect(perksHtml).toContain(perk.replace(/&/g, "&amp;"));
+    }
+  });
+
+  it("tagline reflects the included license + POV and the full-prepay model", () => {
+    const { tagline } = buildVipEmailFields(raceBowl);
+    expect(tagline).toContain("Racing license");
+    expect(tagline).toContain("POV race video");
+    expect(tagline).toContain("paid in full");
+  });
+
+  it("duration label renders the approx sign as an HTML entity", () => {
+    const { durationLabel } = buildVipEmailFields(raceBowl);
+    expect(durationLabel).toBe("&asymp; 3-Hour Experience");
+    expect(durationLabel).not.toMatch(/≈/);
+  });
+
+  it("customer copy has no emoji and says bowling center, never alley", () => {
+    const fields = buildVipEmailFields(raceBowl, {
+      scheduleLines: ["Starter Race · 2:00 PM", "VIP Bowling · 2:45 PM"],
+    });
+    const all = [fields.tagline, fields.itineraryHtml, fields.perksHtml].join(" ");
+    expect(all.toLowerCase()).not.toContain("alley");
+    // Emoji live outside the basic multilingual plane — surrogate pairs.
+    expect(all).not.toMatch(/[\uD800-\uDFFF]/);
+  });
+});
+
+describe("buildVipSmsBody", () => {
+  const base = {
+    brandName: "FastTrax",
+    comboName: raceBowl.name,
+    dateTime: "Sat Jul 11, 2:00 PM",
+    cta: "View, waiver + POV codes",
+    shortConfirm: "https://fasttraxent.com/s/abcd1234",
+  };
+
+  it("composes the VIP body and stays within one GSM-7 segment", () => {
+    const body = buildVipSmsBody(base);
+    expect(body).toBe(
+      "FastTrax: Your Ultimate VIP Experience is booked for Sat Jul 11, 2:00 PM. " +
+        "View, waiver + POV codes: https://fasttraxent.com/s/abcd1234 See you soon!",
+    );
+    expect(body!.length).toBeLessThanOrEqual(160);
+    expect(body).not.toMatch(/[^\x00-\x7F]/);
+  });
+
+  it("never ends with the URL — trailing text keeps iOS from splitting the link into its own preview bubble", () => {
+    const body = buildVipSmsBody(base);
+    expect(body).not.toMatch(/https?:\/\/\S+$/);
+  });
+
+  it("survives worst-case realistic inputs within budget", () => {
+    const body = buildVipSmsBody({
+      ...base,
+      dateTime: "Wed Sep 30, 10:00 PM",
+      shortConfirm: "https://fasttraxent.com/s/abcdefgh",
+    });
+    expect(body).not.toBeNull();
+    expect(body!.length).toBeLessThanOrEqual(160);
+  });
+
+  it("returns null when over the 160-char budget so the route falls back", () => {
+    const body = buildVipSmsBody({
+      ...base,
+      shortConfirm:
+        "https://fasttraxent.com/book/confirmation/v2?billId=12345678901234567&sig=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    });
+    expect(body).toBeNull();
+  });
+
+  it("returns null on any non-ASCII character", () => {
+    const body = buildVipSmsBody({ ...base, dateTime: "Sat Jul 11 — 2:00 PM" });
+    expect(body).toBeNull();
+  });
+
+  it("omits the link clause when no short link was minted", () => {
+    const body = buildVipSmsBody({ ...base, shortConfirm: "" });
+    expect(body).toBe("FastTrax: Your Ultimate VIP Experience is booked for Sat Jul 11, 2:00 PM.");
+  });
+});

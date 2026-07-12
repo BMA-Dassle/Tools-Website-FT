@@ -1143,6 +1143,14 @@ export default function ConfirmationPage() {
               // already accepts a `packageId` field — see
               // app/api/notifications/booking-confirmation/route.ts:161.
               packageId: (bookingRecord?.package as string | null | undefined) ?? undefined,
+              // Combo special (Ultimate VIP): the route resolves the registry
+              // entry server-side and swaps in the VIP welcome email/SMS.
+              // comboReorder = races-first fallback booking, so the itinerary
+              // copy matches the order the visit actually runs.
+              comboSpecialId:
+                (bookingRecord?.comboSpecial as string | null | undefined) ?? undefined,
+              comboReorder:
+                (bookingRecord?.comboReorder as boolean | undefined) === true ? true : undefined,
             }),
           }).catch(() => {});
         }

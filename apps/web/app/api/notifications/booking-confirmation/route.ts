@@ -8,6 +8,12 @@ import {
   signedConfirmationUrl,
   verifyBillSignature as verifyBillSignatureShared,
 } from "@/lib/booking-confirmation-link";
+import { getComboSpecial } from "~/features/combos/combo-specials";
+import {
+  buildVipEmailFields,
+  buildVipSmsBody,
+  vipEmailSubject,
+} from "~/features/combos/vip-welcome";
 
 // Re-export so any existing importer of this route's signature verifier keeps
 // working after the helpers moved to lib/booking-confirmation-link.
@@ -24,16 +30,20 @@ const VOX_FROM_FASTTRAX = "+12394819666";
 const VOX_FROM_HEADPINZ = "+12393022155";
 const VOX_FROM_NAPLES = "+12394553755";
 
-// ── Email template (loaded once at startup) ─────────────────────────────────
+// ── Email templates (loaded once, cached per name) ──────────────────────────
 
-let emailTemplate: string | null = null;
+type EmailTemplateName = "booking-confirmation-waiver" | "vip-welcome";
 
-function getEmailTemplate(): string {
-  if (!emailTemplate) {
-    const templatePath = join(process.cwd(), "emails", "booking-confirmation-waiver.html");
-    emailTemplate = readFileSync(templatePath, "utf-8");
+const emailTemplates = new Map<EmailTemplateName, string>();
+
+function getEmailTemplate(name: EmailTemplateName = "booking-confirmation-waiver"): string {
+  let template = emailTemplates.get(name);
+  if (!template) {
+    const templatePath = join(process.cwd(), "emails", `${name}.html`);
+    template = readFileSync(templatePath, "utf-8");
+    emailTemplates.set(name, template);
   }
-  return emailTemplate;
+  return template;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -193,6 +203,8 @@ export async function POST(req: NextRequest) {
       rookiePack,
       packageId,
       confirmationV2,
+      comboSpecialId,
+      comboReorder,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
     // Rookie Pack hint — adds a one-liner pointing at the
@@ -397,9 +409,29 @@ export async function POST(req: NextRequest) {
       return all.some((n) => /race|kart|(blue|red|mega).*track/i.test(String(n)));
     })();
 
+    // Combo-special (VIP) welcome branch — resolved once so the email
+    // subject, template, and SMS body can never disagree. Any lookup or
+    // template failure degrades to the exact generic path; non-combo
+    // bookings only ever execute this one falsy check.
+    let vipCombo =
+      typeof comboSpecialId === "string" && comboSpecialId ? getComboSpecial(comboSpecialId) : null;
+
     // ── Send email ────────────────────────────────────────────────────────
     try {
-      let html = getEmailTemplate();
+      let html: string;
+      if (vipCombo) {
+        try {
+          html = getEmailTemplate("vip-welcome");
+        } catch (err) {
+          // A missing/unreadable VIP template must never kill a confirmation.
+          // Null the combo so subject + SMS revert consistently too.
+          console.error("[booking-confirmation] vip-welcome template failed, using generic:", err);
+          vipCombo = null;
+          html = getEmailTemplate();
+        }
+      } else {
+        html = getEmailTemplate();
+      }
 
       // Simple ^[Placeholder]$ replacements
       html = html
@@ -408,6 +440,27 @@ export async function POST(req: NextRequest) {
         .replace(/\^\[ReservationDate\]\$/g, reservationDate || "")
         .replace(/\^\[ReservationTime\]\$/g, reservationTime || "")
         .replace(/\^\[ReservationSchedule\]\$/g, reservationSchedule || "");
+
+      // VIP-only placeholders (no-ops on the generic template). The itinerary
+      // reuses the page's merged, time-sorted schedule lines — real booked
+      // times, "VIP Bowling" leg included — falling back to registry legs.
+      if (vipCombo) {
+        const vipFields = buildVipEmailFields(vipCombo, {
+          reordered: comboReorder === true,
+          scheduleLines: String(reservationSchedule || "").split(/<br\s*\/?>/i),
+        });
+        const vipFirstName = firstName || String(reservationName || "").split(" ")[0] || "Racer";
+        html = html
+          .replace(/\^\[ComboName\]\$/g, vipFields.comboName)
+          .replace(
+            / &middot; \^\[ComboDuration\]\$/g,
+            vipFields.durationLabel ? ` &middot; ${vipFields.durationLabel}` : "",
+          )
+          .replace(/\^\[ComboTagline\]\$/g, vipFields.tagline)
+          .replace(/\^\[VipFirstName\]\$/g, vipFirstName)
+          .replace(/\^VipItinerary\(\)\$/g, vipFields.itineraryHtml)
+          .replace(/\^VipPerks\(\)\$/g, vipFields.perksHtml);
+      }
 
       // Generate QR code from reservation code
       let qrHtml = "";
@@ -629,7 +682,9 @@ export async function POST(req: NextRequest) {
 
       results.email = await sendEmail(
         email,
-        `${brandName} Booking Confirmed — #${reservationNumber}`,
+        vipCombo
+          ? vipEmailSubject(vipCombo, String(reservationNumber))
+          : `${brandName} Booking Confirmed — #${reservationNumber}`,
         html,
         isHeadPinzBrand ? "HeadPinz Entertainment" : undefined,
       );
@@ -701,9 +756,29 @@ export async function POST(req: NextRequest) {
           // racers asked for this so the SMS preview tells them they
           // bypass Guest Services without needing to open the link.
           const brandPrefix = isExpressLane ? `${brandName} Express Lane` : brandName;
-          const smsBody = shortConfirm
-            ? `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm}`
-            : `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}.`;
+          // VIP combo: name the product in the one SMS the guest gets. The
+          // builder returns null if the body would ever exceed one GSM-7
+          // segment (or contain non-ASCII), falling back to the standard body.
+          const vipSmsBody = vipCombo
+            ? buildVipSmsBody({
+                brandName: brandPrefix,
+                comboName: vipCombo.name,
+                dateTime,
+                cta,
+                shortConfirm,
+              })
+            : null;
+          // "See you soon!" trailer AFTER the link: iOS strips a message-final
+          // URL into its own preview bubble, so the confirmation read as two
+          // separate texts (owner 2026-07-11). Text after the link keeps it
+          // one bubble — same pattern as the pre-race e-ticket SMS. Worst case
+          // stays single-segment: ~46 chars of fixed copy + brand (≤22) +
+          // date/time (≤20) + cta (≤24) + short link (≤35) ≈ 147 GSM-7 chars.
+          const smsBody =
+            vipSmsBody ??
+            (shortConfirm
+              ? `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm} See you soon!`
+              : `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}.`);
 
           const smsFrom =
             location === "naples"
@@ -736,6 +811,7 @@ export async function POST(req: NextRequest) {
         smsSent: results.sms,
         povCodes: codes.length > 0 ? codes : null,
         isNewRacer: !!isNewRacer,
+        comboSpecialId: vipCombo?.id ?? null,
         sentAt: new Date().toISOString(),
       };
       await redis.set(notifKey, JSON.stringify(log), "EX", 90 * 24 * 60 * 60);
