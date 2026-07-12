@@ -14,9 +14,15 @@ import { runStampBackfill } from "~/features/reservation-edit/stamp-backfill";
  *
  * Body (optional):
  *   { dryRun?: boolean,   — default TRUE: report proposed stamps, write nothing
- *     limit?: number,     — batch size, default 200 (newest rows first)
+ *     limit?: number,     — batch size, default 200 (newest-created rows first)
+ *     beforeId?: number,  — keyset cursor: previous response's nextBeforeId
  *     neonId?: number }   — single-row mode for spot repairs
  */
+
+// Batches walk up to `limit` rows with per-row line loads — well past the
+// default function budget.
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
@@ -28,6 +34,7 @@ export async function POST(req: NextRequest) {
     dryRun?: boolean;
     limit?: number;
     neonId?: number;
+    beforeId?: number;
   };
 
   if (!isDbConfigured()) {
@@ -41,6 +48,7 @@ export async function POST(req: NextRequest) {
         ? Math.min(body.limit, 1000)
         : 200,
     neonId: typeof body.neonId === "number" ? body.neonId : null,
+    beforeId: typeof body.beforeId === "number" ? body.beforeId : null,
   });
 
   return NextResponse.json({ ok: true, ...result });
