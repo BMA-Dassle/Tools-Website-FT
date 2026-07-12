@@ -154,11 +154,13 @@ export const runStampBackfill = async (params: {
     const cached = productCache.get(row.center_code);
     if (cached) return cached;
     // Dual-namespace probe (same as buildEditPlan): raw center_code first,
-    // then the resolved slug for legacy Square-location-id rows.
-    let products = await getBowlingSquareProducts(row.center_code);
+    // then the resolved slug for legacy Square-location-id rows. Include
+    // INACTIVE products — rows booked under a since-deactivated product
+    // (e.g. the World Cup VIP switchover) must still resolve their kind.
+    let products = await getBowlingSquareProducts(row.center_code, undefined, true);
     const slug = resolveCenter(row.center_code, row.product_kind).slug;
     if (products.length === 0 && slug !== row.center_code) {
-      products = await getBowlingSquareProducts(slug);
+      products = await getBowlingSquareProducts(slug, undefined, true);
     }
     const byId = new Map(products.map((p) => [p.id, p]));
     productCache.set(row.center_code, byId);
