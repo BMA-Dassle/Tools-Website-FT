@@ -166,6 +166,11 @@ export function vipEmailSubject(combo: ComboSpecial, reservationNumber: string):
  * strict single-segment GSM-7 policy (>160 chars or any non-ASCII char) so
  * the route falls back to the standard body — the VIP SMS is provably never
  * multi-segment (see booking-confirmation/route.ts single-segment comment).
+ *
+ * The link is followed by a short trailer ("See you soon!") — iOS strips a
+ * message-final URL into its own preview bubble, which reads as two separate
+ * texts (owner 2026-07-11). Text after the link keeps everything in one
+ * bubble; same pattern as the pre-race e-ticket SMS.
  */
 export function buildVipSmsBody(args: {
   brandName: string;
@@ -176,7 +181,7 @@ export function buildVipSmsBody(args: {
 }): string | null {
   const { brandName, comboName, dateTime, cta, shortConfirm } = args;
   const body = shortConfirm
-    ? `${brandName}: Your ${comboName} is booked for ${dateTime}. ${cta}: ${shortConfirm}`
+    ? `${brandName}: Your ${comboName} is booked for ${dateTime}. ${cta}: ${shortConfirm} See you soon!`
     : `${brandName}: Your ${comboName} is booked for ${dateTime}.`;
   if (body.length > 160 || NON_GSM7_RE.test(body)) return null;
   return body;

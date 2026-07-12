@@ -106,10 +106,15 @@ describe("buildVipSmsBody", () => {
     const body = buildVipSmsBody(base);
     expect(body).toBe(
       "FastTrax: Your Ultimate VIP Experience is booked for Sat Jul 11, 2:00 PM. " +
-        "View, waiver + POV codes: https://fasttraxent.com/s/abcd1234",
+        "View, waiver + POV codes: https://fasttraxent.com/s/abcd1234 See you soon!",
     );
     expect(body!.length).toBeLessThanOrEqual(160);
     expect(body).not.toMatch(/[^\x00-\x7F]/);
+  });
+
+  it("never ends with the URL — trailing text keeps iOS from splitting the link into its own preview bubble", () => {
+    const body = buildVipSmsBody(base);
+    expect(body).not.toMatch(/https?:\/\/\S+$/);
   });
 
   it("survives worst-case realistic inputs within budget", () => {

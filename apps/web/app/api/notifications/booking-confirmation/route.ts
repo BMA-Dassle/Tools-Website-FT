@@ -768,10 +768,16 @@ export async function POST(req: NextRequest) {
                 shortConfirm,
               })
             : null;
+          // "See you soon!" trailer AFTER the link: iOS strips a message-final
+          // URL into its own preview bubble, so the confirmation read as two
+          // separate texts (owner 2026-07-11). Text after the link keeps it
+          // one bubble — same pattern as the pre-race e-ticket SMS. Worst case
+          // stays single-segment: ~46 chars of fixed copy + brand (≤22) +
+          // date/time (≤20) + cta (≤24) + short link (≤35) ≈ 147 GSM-7 chars.
           const smsBody =
             vipSmsBody ??
             (shortConfirm
-              ? `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm}`
+              ? `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}. ${cta}: ${shortConfirm} See you soon!`
               : `${brandPrefix}: Booking #${reservationNumber} for ${dateTime}.`);
 
           const smsFrom =
