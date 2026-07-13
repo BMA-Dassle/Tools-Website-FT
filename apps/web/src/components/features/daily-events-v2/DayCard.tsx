@@ -1,0 +1,262 @@
+"use client";
+
+/**
+ * Daily Events v2 — banded day section card (owner-approved hybrid,
+ * 2026-07-13): v1's day-group structure kept verbatim (band header,
+ * two-line rows, contract-stage/waiver left stripes, PaymentCell), with
+ * the band gaining a right-side summary: events · persons · risk counts ·
+ * collected/expected. Used by BOTH the Day view (one card) and the Week
+ * view (seven cards) — one component, two zoom levels.
+ */
+import { clickableDivProps } from "@/lib/a11y";
+import { fmtEventTime } from "~/features/daily-events/format";
+import {
+  getWaiverBarColor,
+  getWaiverStatus,
+  isDepositRequested,
+  isPendingSignedContract,
+  isSendContract,
+} from "~/features/daily-events/logic";
+import type {
+  Reservation,
+  WaiverThresholds,
+  WebsitePaymentInfo,
+} from "~/features/daily-events/types";
+import { DualBadge, PaymentCell } from "../daily-events/badges";
+import { WAIVER_TEXT_COLORS } from "../daily-events/EventRow";
+import { MONO_V2 } from "./theme";
+
+export interface DaySummary {
+  events: number;
+  persons: number;
+  collectedCents: number;
+  expectedCents: number;
+  waiverRisk: number;
+  needsContract: number;
+}
+
+export function summarizeDay(
+  reservations: Reservation[],
+  websitePayments: Map<string, WebsitePaymentInfo>,
+  thresholds: WaiverThresholds,
+): DaySummary {
+  const sum: DaySummary = {
+    events: reservations.length,
+    persons: 0,
+    collectedCents: 0,
+    expectedCents: 0,
+    waiverRisk: 0,
+    needsContract: 0,
+  };
+  for (const r of reservations) {
+    sum.persons += r.persons || 0;
+    const wp = websitePayments.get(r.number || r.id);
+    if (wp) {
+      sum.expectedCents += wp.totalCents;
+      sum.collectedCents += wp.isFullyPaid ? wp.totalCents : wp.depositPaidCents;
+    }
+    if (getWaiverStatus(r, thresholds)?.color === "red") sum.waiverRisk++;
+    if (isSendContract(r.state) || isPendingSignedContract(r.state)) sum.needsContract++;
+  }
+  return sum;
+}
+
+function fmtUsd(cents: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(cents / 100);
+}
+
+export default function DayCard({
+  label,
+  isToday,
+  reservations,
+  websitePayments,
+  waiverThresholds,
+  onOpen,
+  onOpenDay,
+}: {
+  /** Band label, e.g. "Wed, Jul 15" or "Tuesday, July 14". */
+  label: string;
+  isToday: boolean;
+  reservations: Reservation[];
+  websitePayments: Map<string, WebsitePaymentInfo>;
+  waiverThresholds: WaiverThresholds;
+  onOpen: (r: Reservation) => void;
+  /** Week view: clicking the band zooms into that day. */
+  onOpenDay?: () => void;
+}) {
+  const sum = summarizeDay(reservations, websitePayments, waiverThresholds);
+  const risks: string[] = [];
+  if (sum.needsContract > 0) {
+    risks.push(`${sum.needsContract} need${sum.needsContract === 1 ? "s" : ""} contract`);
+  }
+  if (sum.waiverRisk > 0) risks.push(`${sum.waiverRisk} waiver risk`);
+
+  return (
+    <div
+      style={{
+        backgroundColor: "var(--ba-bg2)",
+        border: `1px solid ${isToday ? "rgba(0,226,229,0.55)" : "var(--ba-border)"}`,
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
+      {/* Band header */}
+      <div
+        {...(onOpenDay ? clickableDivProps(onOpenDay, `Open ${label}`) : {})}
+        style={{
+          backgroundColor: "var(--ba-muted2)",
+          padding: "9px 16px",
+          display: "flex",
+          alignItems: "baseline",
+          gap: 12,
+          cursor: onOpenDay ? "pointer" : undefined,
+        }}
+      >
+        <b style={{ fontSize: "0.9rem", color: isToday ? "#00E2E5" : "var(--ba-fg)" }}>
+          {label}
+          {isToday ? " — Today" : ""}
+        </b>
+        <span
+          style={{
+            marginLeft: "auto",
+            fontSize: "0.75rem",
+            color: "var(--ba-muted)",
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {sum.events === 0 ? (
+            "no group functions"
+          ) : (
+            <>
+              {sum.events} event{sum.events === 1 ? "" : "s"} · {sum.persons} persons
+              {risks.length > 0 && <span style={{ color: "#f59e0b" }}> ({risks.join(", ")})</span>}
+              {sum.expectedCents > 0 && (
+                <span style={{ fontFamily: MONO_V2, marginLeft: 12 }}>
+                  <span style={{ color: sum.collectedCents > 0 ? "#22c55e" : "var(--ba-muted)" }}>
+                    {fmtUsd(sum.collectedCents)}
+                  </span>{" "}
+                  / {fmtUsd(sum.expectedCents)}
+                </span>
+              )}
+            </>
+          )}
+        </span>
+      </div>
+
+      {/* Rows */}
+      {reservations.map((r) => {
+        const isClickable = !r._isDayPlannerBlock;
+        const waiver = getWaiverStatus(r, waiverThresholds);
+        const stripe = isDepositRequested(r.state)
+          ? "#f97316"
+          : isSendContract(r.state)
+            ? "#6366f1"
+            : isPendingSignedContract(r.state)
+              ? "#a855f7"
+              : getWaiverBarColor(r, waiverThresholds);
+        const wp = websitePayments.get(r.number || r.id);
+        return (
+          <div
+            key={r.id}
+            {...(isClickable
+              ? clickableDivProps(() => onOpen(r), `Open event ${r.number || r.id}`)
+              : {})}
+            className={isClickable ? "ba-row" : undefined}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              padding: "12px 16px",
+              borderTop: "1px solid var(--ba-border)",
+              cursor: isClickable ? "pointer" : undefined,
+              position: "relative",
+              transition: "background-color 0.12s",
+            }}
+          >
+            {stripe && (
+              <span
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 3,
+                  backgroundColor: stripe,
+                }}
+              />
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
+                <span
+                  style={{
+                    fontFamily: MONO_V2,
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: "var(--ba-muted)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {r.number || r.id.slice(0, 12)}
+                </span>
+                <span
+                  style={{
+                    fontWeight: 650,
+                    fontSize: "0.9rem",
+                    color: "var(--ba-fg)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {r.name || "—"}
+                </span>
+                {r.isMultiLocation && <DualBadge compact otherLocationName={r.otherLocationName} />}
+              </div>
+              <div
+                style={{
+                  fontSize: "0.78rem",
+                  color: "var(--ba-muted)",
+                  marginTop: 1,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {r.personName || "Unknown"}
+                <span style={{ margin: "0 0.375rem" }}>&middot;</span>
+                {waiver ? (
+                  <span style={{ color: WAIVER_TEXT_COLORS[waiver.color] }}>
+                    {waiver.registered} / {r.persons} registered
+                  </span>
+                ) : (
+                  <>
+                    {r.persons || 0}
+                    {r.capacity ? ` / ${r.capacity}` : ""} persons
+                  </>
+                )}
+                {r.when && (
+                  <span
+                    style={{ marginLeft: "0.375rem", fontFamily: MONO_V2, fontSize: "0.75rem" }}
+                  >
+                    {fmtEventTime(r.when)}
+                  </span>
+                )}
+                {r.responsible && (
+                  <>
+                    <span style={{ margin: "0 0.375rem" }}>&middot;</span>
+                    {r.responsible}
+                  </>
+                )}
+              </div>
+            </div>
+            <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
