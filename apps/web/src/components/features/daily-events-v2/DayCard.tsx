@@ -112,6 +112,8 @@ export default function DayCard({
           display: "flex",
           alignItems: "baseline",
           gap: 12,
+          rowGap: 2,
+          flexWrap: "wrap",
           cursor: onOpenDay ? "pointer" : undefined,
         }}
       >
@@ -125,7 +127,7 @@ export default function DayCard({
             fontSize: "0.75rem",
             color: "var(--ba-muted)",
             fontVariantNumeric: "tabular-nums",
-            whiteSpace: "nowrap",
+            textAlign: "right",
           }}
         >
           {sum.events === 0 ? (
@@ -169,7 +171,9 @@ export default function DayCard({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 16,
+              gap: 12,
+              rowGap: 6,
+              flexWrap: "wrap",
               padding: "12px 16px",
               borderTop: "1px solid var(--ba-border)",
               cursor: isClickable ? "pointer" : undefined,
@@ -189,7 +193,7 @@ export default function DayCard({
                 }}
               />
             )}
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: "1 1 240px", minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
                 <span
                   style={{
@@ -253,7 +257,10 @@ export default function DayCard({
                 )}
               </div>
             </div>
-            <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} />
+            {/* On narrow screens the cell wraps to its own right-aligned line */}
+            <div style={{ marginLeft: "auto" }}>
+              <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} />
+            </div>
           </div>
         );
       })}

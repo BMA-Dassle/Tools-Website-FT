@@ -245,7 +245,16 @@ export function PaymentCell({
         flexShrink: 0,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.375rem",
+          rowGap: 4,
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+        }}
+      >
         {wp && isLegacyPaidQuote(wp) && <LegacyPill />}
         {pill === "paid" && <PaidPill />}
         {pill === "deposit" && <DepositPill />}
