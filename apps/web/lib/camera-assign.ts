@@ -241,6 +241,46 @@ export async function getAssignmentAtTime(
 }
 
 /**
+ * All assignments eligible for a video created at `atIso`, OLDEST
+ * first: assignedAt ≤ at AND at − assignedAt ≤ MAX_ASSIGNMENT_AGE_MS
+ * (the same staleness gate getAssignmentAtTime applies to the newest
+ * entry, here enforced per-entry via the range minimum).
+ *
+ * The matcher walks this list front-to-back and takes the earliest
+ * assignment that doesn't already hold a video, so multiple videos
+ * from one camera pair to multiple assignments IN ORDER — the newest-
+ * only lookup above sent every lagging video to the latest scan,
+ * which stole the next racer's slot whenever a heat went un-scanned
+ * or VT3 surfaced the first video late.
+ */
+export async function listAssignmentsAtTime(
+  systemNumber: string,
+  atIso: string,
+): Promise<CameraHistoryEntry[]> {
+  try {
+    const atMs = new Date(atIso).getTime();
+    if (!Number.isFinite(atMs)) return [];
+    const raws = await redis.zrangebyscore(
+      historyKey(systemNumber),
+      atMs - MAX_ASSIGNMENT_AGE_MS,
+      atMs,
+    );
+    if (!raws || raws.length === 0) return [];
+    const out: CameraHistoryEntry[] = [];
+    for (const raw of raws) {
+      try {
+        out.push(JSON.parse(raw) as CameraHistoryEntry);
+      } catch {
+        // skip malformed
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Load all camera assignments for one session.
  */
 export async function listAssignmentsForSession(

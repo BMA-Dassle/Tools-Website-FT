@@ -1,17 +1,23 @@
 /**
  * QAMF (Conqueror) sync for reservation edits.
  *
- * QAMF has NO player-count / lane-count / time mutation API (probed live
- * 2026-07-10; patchReservation mutates Title/Notes/Status only), so:
- *   - player-only changes are a TRUE PATCH: PUT each lane's player list
- *     (setLanePlayers) + re-PATCH the Title (Title is REQUIRED in the body —
- *     a Notes-only PATCH 400s) with the new "(Np)" count;
+ * Player-count semantics (bowling-reservations v1.2 spec, owner-supplied
+ * 2026-07-11):
+ *   - DECREASE: per-player DELETE removes specific players — valid on
+ *     reservations that haven't happened yet (lanes un-opened; no check-in
+ *     required). The lane-players PUT is SAME-COUNT-ONLY (live 409:
+ *     "Requested updated players are 1, but actual players are 2"), so the
+ *     deletes come first, then the PUT syncs names onto the surviving seats.
+ *   - Names/shoes/bumpers: PUT each lane's player list (setLanePlayers) +
+ *     re-PATCH the Title (Title is REQUIRED in the body — a Notes-only
+ *     PATCH 400s) with the new "(Np)" count.
  *   - lane-count changes REBOOK: availability-check the same bookedAt for the
  *     new TotalPlayers (fatal guard — never charge for lanes we can't get),
  *     then delete→verify→create→confirm via rescheduleQamfReservation.
  */
 
 import {
+  deleteLanePlayer,
   getReservation,
   patchReservation,
   searchAvailability,
@@ -32,33 +38,97 @@ export interface QamfPlayerInput {
 }
 
 /**
- * Push the desired roster to every lane on the reservation and refresh the
- * Title's player count. Players are distributed across lanes round-robin in
- * slot order (matching the wizard's fill order); Conqueror staff re-seat on
- * the desk as needed — the roster NAMES are what matter.
+ * Push the desired roster to the reservation and refresh the Title's player
+ * count. A DECREASE deletes the excess players first (per-player DELETE —
+ * end of the lineup, last lane first; the PUT right after rewrites the
+ * surviving seats' names, so which seats die doesn't matter), then every
+ * lane receives EXACTLY as many entries as it holds (the PUT refuses count
+ * changes). Valid while lanes are un-opened — i.e. reservations that
+ * haven't happened yet, the PRE-phase edit window.
  */
 export const syncQamfPlayers = async (params: {
   qamfCenterId: number;
   qamfReservationId: string;
   players: QamfPlayerInput[];
   guestName: string;
-}): Promise<{ lanesUpdated: number }> => {
-  const live = await getReservation(params.qamfCenterId, params.qamfReservationId);
-  const lanes = live.Lanes ?? [];
-  if (lanes.length === 0) return { lanesUpdated: 0 };
+}): Promise<{ lanesUpdated: number; playersRemoved: number }> => {
+  // api-version "1.2" — the pinned version's schema omits Player.Id, and
+  // without ids the per-player DELETE has nothing to address (probed live
+  // 2026-07-11: same reservation returns ids under 1.2, none under the pin).
+  let live = await getReservation(params.qamfCenterId, params.qamfReservationId, "1.2");
+  let lanes = live.Lanes ?? [];
+  if (lanes.length === 0) return { lanesUpdated: 0, playersRemoved: 0 };
 
-  const perLane = Math.ceil(params.players.length / lanes.length);
+  const desired = params.players.length;
+  const liveTotal = lanes.reduce((s, l) => s + (l.Players?.length ?? 0), 0);
+
+  // ── DECREASE: delete the excess players, then re-read live state ─────
+  // KNOWN VENDOR BUG (probed live 2026-07-11): the per-player DELETE
+  // returns a bare 500 at our centers on EVERY valid input — including a
+  // pristine 1.2-created Temporary reservation with a stable, re-verified
+  // player id. Escalated to QubicaAMF. Until fixed, a delete failure falls
+  // back to the names+title sync below (Conqueror keeps the old count) and
+  // this function throws AFTER syncing so staff get a precise warning.
+  let playersRemoved = 0;
+  let countShortfall = 0;
+  let deleteFailure: string | null = null;
+  if (liveTotal > desired) {
+    let toRemove = liveTotal - desired;
+    outer: for (const lane of [...lanes].reverse()) {
+      if (toRemove === 0) break;
+      const laneId = lane.Id;
+      if (!laneId) continue;
+      const candidates = lane.Players ?? [];
+      for (let i = candidates.length - 1; i >= 0 && toRemove > 0; i--) {
+        const victim = candidates[i];
+        if (victim.Id == null) continue; // not addressable — try another seat
+        try {
+          await deleteLanePlayer(params.qamfCenterId, params.qamfReservationId, laneId, victim.Id);
+        } catch (e) {
+          // Vendor 500 — stop hammering; sync what we can.
+          deleteFailure = e instanceof Error ? e.message : String(e);
+          break outer;
+        }
+        playersRemoved++;
+        toRemove--;
+      }
+    }
+    countShortfall = toRemove;
+    if (playersRemoved > 0) {
+      // Fresh state: the roster PUT below must match the new per-lane counts.
+      live = await getReservation(params.qamfCenterId, params.qamfReservationId, "1.2");
+      lanes = live.Lanes ?? [];
+    }
+  }
+
+  // ── Same-count roster PUT per lane (names/shoes/bumpers) ─────────────
+  // Real roster names first (wizard fill order); "Bowler N" placeholders
+  // fill any remaining seats.
+  const fallbackPerLane = Math.max(1, Math.ceil(desired / Math.max(1, lanes.length)));
   let updated = 0;
-  for (let i = 0; i < lanes.length; i++) {
-    const lane = lanes[i] as { Id?: string; LaneNumber?: number };
+  let next = 0; // index into the desired roster
+  let seat = 0; // global seat counter for placeholder names
+  for (const lane of lanes) {
     const laneId = lane.Id ?? String(lane.LaneNumber ?? "");
     if (!laneId) continue;
-    const slice = params.players.slice(i * perLane, (i + 1) * perLane);
+    const seatCount = Array.isArray(lane.Players) ? lane.Players.length : fallbackPerLane;
+    if (seatCount === 0) continue;
+    const assigned: QamfPlayerInput[] = [];
+    for (let s = 0; s < seatCount; s++) {
+      seat++;
+      const p = params.players[next];
+      if (p) {
+        assigned.push(p);
+        next++;
+      } else {
+        assigned.push({ name: `Bowler ${seat}` });
+      }
+    }
     await setLanePlayers(
       params.qamfCenterId,
       params.qamfReservationId,
       laneId,
-      slice.map((p) => ({
+      assigned.map((p) => ({
         Name: p.name?.trim() || "Bowler",
         ...(p.shoeSize ? { ShoeSize: p.shoeSize } : {}),
         ActivateBumpers: p.bumpers ?? false,
@@ -71,11 +141,23 @@ export const syncQamfPlayers = async (params: {
   // Notes-only PATCH 400s. We preserve the live Notes verbatim).
   const baseTitle = (live.Title ?? params.guestName).replace(/\s*\(\d+p\)\s*$/, "").trim();
   await patchReservation(params.qamfCenterId, params.qamfReservationId, {
-    Title: `${baseTitle} (${params.players.length}p)`,
+    Title: `${baseTitle} (${desired}p)`,
     ...(live.Notes ? { Notes: live.Notes } : {}),
   });
 
-  return { lanesUpdated: updated };
+  // Names + Title ARE synced at this point — the throw only makes the count
+  // gap loud (surfaces as the modal's Conqueror warning).
+  if (countShortfall > 0) {
+    throw new Error(
+      `QAMF still shows ${countShortfall} extra bowler(s)` +
+        (deleteFailure
+          ? ` — the player DELETE failed (${deleteFailure.slice(0, 160)})`
+          : " — no addressable player ids") +
+        `; names and "(${desired}p)" title are synced — adjust the bowler count in Conqueror manually`,
+    );
+  }
+
+  return { lanesUpdated: updated, playersRemoved };
 };
 
 /** Convert bowling_reservation_players rows to the QAMF roster shape. */

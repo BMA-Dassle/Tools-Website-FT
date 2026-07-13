@@ -86,6 +86,24 @@ type VideoRow = {
    *  the racer (minor with no usable own contact). Drives a small
    *  "↻ guardian" chip alongside the sms/email status. */
   viaGuardian?: boolean;
+  /** Review-hold context on unmatched rows — set when the matcher
+   *  held this video because every eligible assignment on its camera
+   *  already had a video (usually: the next racer's heat never got
+   *  scanned). `suggested` is the newest eligible assignment's
+   *  snapshot — the best contact lead staff have. */
+  reason?: "duplicate-assignment";
+  existingVideoCode?: string;
+  suggested?: {
+    sessionId: string | number;
+    personId: string | number;
+    firstName: string;
+    lastName: string;
+    heatNumber?: number;
+    track?: string;
+    sessionName?: string;
+    phone?: string;
+    email?: string;
+  };
 };
 
 type ListResponse = {
@@ -522,9 +540,18 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       </span>
                     )}
                     {isUnmatched ? (
-                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                        unmatched
-                      </span>
+                      e.reason === "duplicate-assignment" ? (
+                        <span
+                          className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300"
+                          title={`Held for review — ${e.suggested ? `${e.suggested.firstName} ${e.suggested.lastName}'s` : "the last scanned racer's"} slot already has video ${e.existingVideoCode || "?"}. This capture is probably the NEXT racer (camera not re-scanned). Send manually.`}
+                        >
+                          ⚠ needs review
+                        </span>
+                      ) : (
+                        <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                          unmatched
+                        </span>
+                      )
                     ) : e.pendingNotify ? (
                       <span
                         className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
@@ -574,9 +601,19 @@ export default function VideoAdminClient({ token }: { token: string }) {
                 </div>
                 <div className="font-semibold text-white mb-1">
                   {isUnmatched ? (
-                    <span className="text-white/40 italic font-normal">
-                      (no racer — assign manually)
-                    </span>
+                    e.suggested ? (
+                      <span
+                        className="text-amber-300/80 italic font-normal"
+                        title="Not confirmed — the newest scan on this camera. The video likely belongs to whoever raced after them."
+                      >
+                        after {e.suggested.firstName} {e.suggested.lastName}
+                        {e.suggested.heatNumber ? ` · Heat ${e.suggested.heatNumber}` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-white/40 italic font-normal">
+                        (no racer — assign manually)
+                      </span>
+                    )
                   ) : (
                     <>
                       {e.firstName} {e.lastName}
@@ -692,7 +729,17 @@ export default function VideoAdminClient({ token }: { token: string }) {
                       </td>
                       <td className="px-3 py-2">
                         {isUnmatched ? (
-                          <span className="text-white/30 italic">(no racer)</span>
+                          e.suggested ? (
+                            <span
+                              className="text-amber-300/80 italic"
+                              title="Not confirmed — the newest scan on this camera. The video likely belongs to whoever raced after them."
+                            >
+                              after {e.suggested.firstName} {e.suggested.lastName}
+                              {e.suggested.heatNumber ? ` · Heat ${e.suggested.heatNumber}` : ""}
+                            </span>
+                          ) : (
+                            <span className="text-white/30 italic">(no racer)</span>
+                          )
                         ) : (
                           <>
                             {e.firstName} {e.lastName}
@@ -738,9 +785,18 @@ export default function VideoAdminClient({ token }: { token: string }) {
                             </span>
                           )}
                           {isUnmatched ? (
-                            <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                              unmatched
-                            </span>
+                            e.reason === "duplicate-assignment" ? (
+                              <span
+                                className="text-xs uppercase px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300"
+                                title={`Held for review — ${e.suggested ? `${e.suggested.firstName} ${e.suggested.lastName}'s` : "the last scanned racer's"} slot already has video ${e.existingVideoCode || "?"}. This capture is probably the NEXT racer (camera not re-scanned). Send manually.`}
+                              >
+                                ⚠ needs review
+                              </span>
+                            ) : (
+                              <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                                unmatched
+                              </span>
+                            )
                           ) : e.pendingNotify ? (
                             <span
                               className="text-xs uppercase px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300"
@@ -863,8 +919,13 @@ function ResendModal({
   onSuccess: (msg: string) => void;
 }) {
   const isUnmatched = !entry.matched || !entry.sessionId || !entry.personId;
-  const defaultPhone = entry.phone || entry.mobilePhone || entry.homePhone || "";
-  const defaultEmail = entry.email || "";
+  // Held-duplicate rows carry the newest assignment's contact as a
+  // suggested lead — prefill it, but the banner below tells staff to
+  // confirm the recipient (the video usually belongs to whoever raced
+  // AFTER the suggested racer).
+  const defaultPhone =
+    entry.phone || entry.mobilePhone || entry.homePhone || entry.suggested?.phone || "";
+  const defaultEmail = entry.email || entry.suggested?.email || "";
 
   // Default channel: if one channel already succeeded, default to
   // the OTHER one. Otherwise default SMS.
@@ -874,9 +935,14 @@ function ResendModal({
     return "sms";
   }, [entry]);
 
-  // Unmatched videos need optional name fields for the greeting
-  const [firstName, setFirstName] = useState(isUnmatched ? "" : entry.firstName);
-  const [lastName, setLastName] = useState(isUnmatched ? "" : entry.lastName);
+  // Unmatched videos need optional name fields for the greeting —
+  // seeded from the suggested racer on held-duplicate rows.
+  const [firstName, setFirstName] = useState(
+    isUnmatched ? entry.suggested?.firstName || "" : entry.firstName,
+  );
+  const [lastName, setLastName] = useState(
+    isUnmatched ? entry.suggested?.lastName || "" : entry.lastName,
+  );
 
   const previewText = `FastTrax — your race video is ready!\n\n${(isUnmatched ? firstName.trim() : entry.firstName) || "Hey there"}, your ${entry.track ? `${entry.track.replace(" Track", "")} Track` : "race"}${entry.heatNumber ? ` Heat ${entry.heatNumber}` : ""} video is live.\n\nWatch + share: ${entry.customerUrl.includes("?") ? `${entry.customerUrl}&referrer=receipt` : `${entry.customerUrl}?referrer=receipt`}`;
 
@@ -887,14 +953,27 @@ function ResendModal({
       defaultChannel={defaultChannel}
       originalPhone={defaultPhone || null}
       originalEmail={defaultEmail || null}
-      forceNew={isUnmatched}
+      forceNew={isUnmatched && !entry.suggested}
       onClose={onClose}
       alertBanner={
         isUnmatched ? (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 mb-3 text-xs text-amber-200">
-            This video has no racer on file (no camera-assign scan, or the assignment window
-            expired). Type the racer&apos;s phone and/or email to send directly.
-          </div>
+          entry.reason === "duplicate-assignment" ? (
+            <div className="rounded-lg border border-purple-500/40 bg-purple-500/10 px-3 py-2.5 mb-3 text-xs text-purple-200">
+              Held for review —{" "}
+              {entry.suggested
+                ? `${entry.suggested.firstName} ${entry.suggested.lastName}`
+                : "the last scanned racer"}{" "}
+              already has video {entry.existingVideoCode || "?"} on this camera, so this capture
+              likely belongs to whoever raced AFTER them (camera wasn&apos;t re-scanned). The
+              prefilled contact is the suggested racer&apos;s — confirm the recipient before
+              sending.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 mb-3 text-xs text-amber-200">
+              This video has no racer on file (no camera-assign scan, or the assignment window
+              expired). Type the racer&apos;s phone and/or email to send directly.
+            </div>
+          )
         ) : undefined
       }
       contextSection={

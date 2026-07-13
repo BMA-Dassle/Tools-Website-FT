@@ -242,6 +242,31 @@ export interface UnmatchedVideo {
   purchased?: boolean;
   purchaseType?: string;
   unlockedAt?: string;
+  /** Why this video sits in the review bucket. Absent (legacy records
+   *  included) = plain "no assignment at capture time".
+   *  "duplicate-assignment" = every eligible assignment for this
+   *  camera already holds a different video, so auto-sending would
+   *  either text the wrong racer or overwrite a correct match — held
+   *  for staff to send manually instead. */
+  reason?: "duplicate-assignment";
+  /** The videoCode already saved on the slot this video would have
+   *  taken. Gives staff the "which video got there first" context. */
+  existingVideoCode?: string;
+  /** Snapshot of the newest eligible assignment — who staff should
+   *  probably contact. In the usual failure mode (next racer's heat
+   *  never got scanned) this is the PREVIOUS racer, and the held
+   *  video belongs to whoever raced after them. */
+  suggested?: {
+    sessionId: string | number;
+    personId: string | number;
+    firstName: string;
+    lastName: string;
+    heatNumber?: number;
+    track?: string;
+    sessionName?: string;
+    phone?: string;
+    email?: string;
+  };
 }
 
 /**
@@ -335,11 +360,24 @@ export async function patchUnmatchedOverlay(
  * Persist a match. Writes both the primary record and a by-code
  * sentinel so the cron skips this video on subsequent runs.
  *
- * `setIfAbsent` protects against the pathological case where two
- * concurrent cron runs try to match the same video — only the first
- * succeeds.
+ * Two NX guards, two distinct outcomes:
+ *   "already-processed"    — the by-code sentinel exists: another
+ *                            path (cron vs webhook) claimed this
+ *                            VIDEO first. Caller exits cleanly.
+ *   "duplicate-assignment" — the racer's (sessionId, personId) slot
+ *                            already holds a DIFFERENT video. Before
+ *                            this guard, the second video silently
+ *                            overwrote the first (2026-07-12
+ *                            incident: un-scanned next racer's video
+ *                            replaced the previous racer's real one).
+ *                            Caller advances to the next unfilled
+ *                            assignment or holds for review.
+ * A same-code re-save (sentinel TTL'd out while overlay updates kept
+ * the record alive) keeps the old plain-overwrite behavior.
  */
-export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
+export type SaveVideoMatchOutcome = "saved" | "already-processed" | "duplicate-assignment";
+
+export async function saveVideoMatch(m: VideoMatch): Promise<SaveVideoMatchOutcome> {
   const sentinel = seenVideoKey(m.videoCode);
   const ok = await redis.set(
     sentinel,
@@ -348,8 +386,34 @@ export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
     TTL_SECONDS,
     "NX",
   );
-  if (!ok) return false; // someone else matched this video first
-  await redis.set(matchKey(m.sessionId, m.personId), JSON.stringify(m), "EX", TTL_SECONDS);
+  if (!ok) return "already-processed"; // someone else matched this video first
+  const slotOk = await redis.set(
+    matchKey(m.sessionId, m.personId),
+    JSON.stringify(m),
+    "EX",
+    TTL_SECONDS,
+    "NX",
+  );
+  if (!slotOk) {
+    let existingCode: string | undefined;
+    try {
+      const raw = await redis.get(matchKey(m.sessionId, m.personId));
+      existingCode = raw ? (JSON.parse(raw) as VideoMatch).videoCode : undefined;
+    } catch {
+      /* unparseable — treat as same-code overwrite below */
+    }
+    if (existingCode && existingCode !== m.videoCode) {
+      // Slot taken by a different video. Roll the sentinel back so a
+      // later event for THIS code re-runs the walk (and so a manual
+      // send from the admin can still create its record) — a sentinel
+      // pointing at a slot we don't own would cross-contaminate
+      // getMatchByVideoCode lookups.
+      await redis.del(sentinel).catch(() => void 0);
+      return "duplicate-assignment";
+    }
+    // Same code (or unreadable record) — status-quo overwrite.
+    await redis.set(matchKey(m.sessionId, m.personId), JSON.stringify(m), "EX", TTL_SECONDS);
+  }
   // Index into the time-ordered match log for the admin UI.
   // Score = matchedAt epoch ms; member = `${sessionId}:${personId}` (the
   // primary key of the match record). Trim aggressively so the log
@@ -364,12 +428,12 @@ export async function saveVideoMatch(m: VideoMatch): Promise<boolean> {
   // Drop any unmatched-bucket record so the admin's matched + unmatched
   // views stay mutually exclusive (no double-listing of the same video).
   await removeUnmatchedVideo(m.videoCode).catch(() => void 0);
-  return true;
+  return "saved";
 }
 
 /**
  * Update an already-persisted match record (no sentinel re-check).
- * Use after `saveVideoMatch` returned true, to patch in notify
+ * Use after `saveVideoMatch` returned "saved", to patch in notify
  * outcomes (notifySmsOk / notifyEmailOk) without tripping the NX guard.
  */
 export async function updateVideoMatch(m: VideoMatch): Promise<void> {
