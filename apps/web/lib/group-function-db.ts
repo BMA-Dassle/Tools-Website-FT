@@ -606,6 +606,33 @@ export async function getQuotesStuckForBmiSettlement(opts?: {
   return rows as GroupFunctionQuote[];
 }
 
+/**
+ * Quotes that were settled at the POS (square_settled_order_id set) but still
+ * carry a day-of order id — candidates for cancelling the superseded OPEN
+ * day-of order in Square. Already-CANCELED orders are filtered by the caller
+ * via a live Square read (no marker column; the read is the truth).
+ */
+export async function listSettledQuotesWithDayofOrder(opts?: {
+  windowDays?: number;
+  limit?: number;
+}): Promise<GroupFunctionQuote[]> {
+  await ensureGfSchema();
+  const q = sql();
+  const windowDays = opts?.windowDays ?? 180;
+  const limit = opts?.limit ?? 200;
+  const rows = await q`
+    SELECT * FROM group_function_quotes
+    WHERE status = 'completed'
+      AND square_settled_order_id IS NOT NULL
+      AND square_dayof_order_id IS NOT NULL
+      AND event_date >= NOW() - (${windowDays} || ' days')::interval
+      AND event_date <= NOW() + (${windowDays} || ' days')::interval
+    ORDER BY event_date DESC
+    LIMIT ${limit}
+  `;
+  return rows as GroupFunctionQuote[];
+}
+
 // ── Updates ─────────────────────────────────────────────────────────
 
 // ── Targeted update helpers ──────────────────────────────────────────

@@ -682,6 +682,7 @@ const AUDIT_EVENT_LABELS: Record<string, string> = {
   dayof_order_reconciled: "Day-of order reconciled",
   cancelled_from_bmi: "Cancelled (reservation removed in BMI)",
   square_settled_completed: "Closed — paid directly in Square",
+  dayof_order_cancelled: "Website day-of order cancelled (superseded by POS check)",
   winback_incentive_issued: "Win-back incentive issued",
   legacy_winback_ingested: "Legacy win-back ingested",
   pdf_generated: "Signed PDF generated",

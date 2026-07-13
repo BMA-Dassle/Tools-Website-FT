@@ -25,6 +25,7 @@ import type {
   SquareTimelineNode,
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
+import { isLegacyPaidQuote } from "../../badges";
 import DetailSection from "../DetailSection";
 import { BLUE_LINK_BTN, GREEN_LINK_BTN, InfoItem, TH, TH_R, td } from "../ui";
 
@@ -212,6 +213,25 @@ export default function PaymentsTab({
           />
           {wp.savedCardOnFile && <InfoItem label="Card on file" value="Yes" />}
         </div>
+
+        {isLegacyPaidQuote(wp) && (
+          <div
+            style={{
+              backgroundColor: "rgba(168,85,247,0.1)",
+              border: "1px solid rgba(168,85,247,0.35)",
+              borderRadius: 8,
+              padding: "8px 12px",
+              fontSize: "0.8rem",
+              color: "#c084fc",
+              marginTop: 12,
+            }}
+          >
+            <strong>Legacy event</strong> — money was collected in the old PandaDoc/BMI flow, so
+            there&rsquo;s no website payment rail to auto-close it. Close it out directly in Square
+            at the POS (ticket name &ldquo;BMI {"{event #}"}&rdquo;); the auto-close sweep then
+            marks it completed and cancels the unused website day-of order.
+          </div>
+        )}
 
         {balanceError && (
           <div

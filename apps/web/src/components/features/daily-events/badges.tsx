@@ -142,6 +142,63 @@ export function UnpaidPill({ quoteStatus }: { quoteStatus?: string }) {
 }
 
 /**
+ * Legacy-paid quote: money was collected in the old PandaDoc/BMI flow (prior
+ * payments / comped deposit), NOT through our Square deposit→gift-card rail —
+ * so the website can't auto-close it; staff ring it up directly in Square.
+ * Signal: no real Square deposit payment while legacy/prior money exists.
+ */
+export function isLegacyPaidQuote(wp: {
+  isFullyPaid: boolean;
+  depositPaidCents: number;
+  payments?: Array<{ type: string }>;
+  priorPayments?: Array<unknown>;
+}): boolean {
+  if (wp.isFullyPaid) return false; // already closed — no action needed
+  const hasSquareDeposit = (wp.payments ?? []).some((p) => p.type === "deposit");
+  if (hasSquareDeposit) return false;
+  return (wp.priorPayments ?? []).length > 0 || wp.depositPaidCents > 0;
+}
+
+/** Purple "LEGACY" pill — old-flow money; close-out happens at the Square POS. */
+export function LegacyPill() {
+  return (
+    <span
+      title="Paid via the legacy PandaDoc/BMI flow — no website payment rail. Close this event out directly in Square at the POS (ticket name 'BMI <event #>'); the auto-close sweep will then mark it completed and cancel the unused website day-of order."
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        padding: "0.125rem 0.375rem",
+        borderRadius: 9999,
+        backgroundColor: "rgba(168,85,247,0.18)",
+        color: "#c084fc",
+        fontSize: "10px",
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        cursor: "help",
+      }}
+    >
+      LEGACY
+      <span
+        style={{
+          fontSize: "9px",
+          border: "1px solid rgba(192,132,252,0.6)",
+          borderRadius: "50%",
+          width: 11,
+          height: 11,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          lineHeight: 1,
+        }}
+      >
+        ?
+      </span>
+    </span>
+  );
+}
+
+/**
  * Which payment pill a website quote earns. Deposit is judged on money
  * actually collected (depositPaidCents), not the status string — statuses
  * like balance_link_sent are deposit-paid too.
@@ -189,6 +246,7 @@ export function PaymentCell({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+        {wp && isLegacyPaidQuote(wp) && <LegacyPill />}
         {pill === "paid" && <PaidPill />}
         {pill === "deposit" && <DepositPill />}
         {pill === "unpaid" && <UnpaidPill quoteStatus={wp?.status} />}
