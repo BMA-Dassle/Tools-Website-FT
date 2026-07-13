@@ -97,6 +97,13 @@ type ListEntry =
       purchased?: boolean;
       purchaseType?: string;
       unlockedAt?: string;
+      // Review-hold context — set when the matcher held this video
+      // because every eligible assignment already had a video
+      // (reason: "duplicate-assignment"). `suggested` is the newest
+      // eligible assignment's snapshot so staff have a contact lead.
+      reason?: UnmatchedVideo["reason"];
+      existingVideoCode?: string;
+      suggested?: UnmatchedVideo["suggested"];
     };
 
 export async function GET(req: NextRequest) {
@@ -216,6 +223,9 @@ export async function GET(req: NextRequest) {
         purchased: u.purchased,
         purchaseType: u.purchaseType,
         unlockedAt: u.unlockedAt,
+        reason: u.reason,
+        existingVideoCode: u.existingVideoCode,
+        suggested: u.suggested,
       }));
     }
 
@@ -243,7 +253,16 @@ export async function GET(req: NextRequest) {
             ]
               .join(" ")
               .toLowerCase()
-          : [e.systemNumber, String(e.cameraNumber ?? ""), e.videoCode].join(" ").toLowerCase();
+          : [
+              e.systemNumber,
+              String(e.cameraNumber ?? ""),
+              e.videoCode,
+              // Held-duplicate rows carry a suggested racer — make
+              // them findable by that name.
+              e.suggested ? `${e.suggested.firstName} ${e.suggested.lastName}` : "",
+            ]
+              .join(" ")
+              .toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;

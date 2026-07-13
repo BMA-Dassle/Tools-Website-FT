@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { getAssignmentAtTime, type CameraAssignment } from "@/lib/camera-assign";
-import { getMatchByVideoCode, isVideoReadyForNotify, type VideoMatch } from "@/lib/video-match";
+import {
+  getMatchByVideoCode,
+  getVideoForRacer,
+  isVideoReadyForNotify,
+  type VideoMatch,
+} from "@/lib/video-match";
 import { logShadowDecision, type ShadowDecision } from "@/lib/vt3-shadow-log";
 import { verifyCron } from "@/lib/cron-auth";
 
@@ -281,6 +286,24 @@ async function classifyEvent(evt: QueuedEvent): Promise<{
         assignmentFound,
         notes: `no racer assigned to system ${evt.systemName} at ${evt.createdAt}`,
       };
+    }
+    // Duplicate-slot check — the matcher holds a video for review when
+    // the assignment's (sessionId, personId) already carries a
+    // different videoCode. Single-candidate approximation of the
+    // production walk (good enough for observability); read-only.
+    if (assignment) {
+      const occupant = await getVideoForRacer(assignment.sessionId, assignment.personId).catch(
+        () => null,
+      );
+      if (occupant && occupant.videoCode !== evt.videoCode) {
+        return {
+          ...base,
+          decision: "held-duplicate-assignment",
+          matchExisted,
+          assignmentFound,
+          notes: `${assignment.firstName} ${assignment.lastName}'s slot already holds ${occupant.videoCode} — matcher would divert to the review bucket`,
+        };
+      }
     }
     if (isReady) {
       return {

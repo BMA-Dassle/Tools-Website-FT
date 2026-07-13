@@ -25,6 +25,7 @@ import { sql, isDbConfigured } from "@/lib/db";
 
 export type ShadowDecision =
   | "skip-no-assignment" // unassigned camera → cron would skip too
+  | "held-duplicate-assignment" // assignment's slot already holds another video → held for review
   | "save-and-notify" // first sighting + ready → cron would save+notify
   | "save-pending" // first sighting + not ready → cron would save with pendingNotify
   | "fire-deferred-notify" // pending match becomes ready → cron would notify on this tick
