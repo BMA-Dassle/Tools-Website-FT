@@ -10,8 +10,9 @@
  *
  * New: a Day ⇄ Week toggle (Week = seven day-cards for the Wed–Tue period
  * containing the anchor date, replacing the Last/Current/Next tabs), a
- * needs-attention strip that turns exceptions into sentences, per-day
- * money/risk summaries in the band, and Bahnschrift type.
+ * needs-attention strip that turns exceptions into sentences, and per-day
+ * money/risk summaries in the band — skinned with the employee portal's
+ * design system (navy gradient, blue primary, Poppins; see ./theme.ts).
  */
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_CSS, baThemeCss } from "~/components/features/reservations-admin/theme";
@@ -31,7 +32,7 @@ import { Spinner } from "../daily-events/badges";
 import DailyEventModal from "../daily-events/DailyEventModal";
 import { DE_CSS } from "../daily-events/theme";
 import DayCard from "./DayCard";
-import { MONO_V2, SANS_V2 } from "./theme";
+import { BLUE_V2, SANS_V2, V2_SKIN_CSS } from "./theme";
 
 type ViewMode = "day" | "week";
 
@@ -132,12 +133,15 @@ function buildAttention(
   return [...money, ...contracts, ...waivers].slice(0, 6);
 }
 
+// Portal button idiom: outline (border + transparent) at rest, solid
+// primary-blue with white text when selected (shadcn default/outline pair).
 const NAV_A: React.CSSProperties = {
   color: "var(--ba-muted)",
-  border: "1px solid var(--ba-border)",
-  borderRadius: 7,
-  padding: "3px 10px",
+  border: "1px solid var(--ba-input-border)",
+  borderRadius: 8,
+  padding: "4px 12px",
   fontSize: "0.8rem",
+  fontWeight: 500,
   backgroundColor: "transparent",
   cursor: "pointer",
   whiteSpace: "nowrap",
@@ -146,16 +150,18 @@ const NAV_A: React.CSSProperties = {
 
 const NAV_ON: React.CSSProperties = {
   ...NAV_A,
-  color: "#0a1120",
-  backgroundColor: "#00E2E5",
-  border: "1px solid #00E2E5",
-  fontWeight: 700,
+  color: "#ffffff",
+  backgroundColor: BLUE_V2,
+  border: `1px solid ${BLUE_V2}`,
+  fontWeight: 600,
 };
 
 const NAV_LOC_ON: React.CSSProperties = {
   ...NAV_A,
   color: "var(--ba-fg)",
-  border: "1px solid var(--ba-muted)",
+  backgroundColor: "var(--ba-hover)",
+  border: "1px solid var(--ba-input-border)",
+  fontWeight: 600,
 };
 
 export default function DailyEventsBoardV2({ token }: { token: string }) {
@@ -305,18 +311,17 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
     setPendingEvent(null);
   }
 
-  const themeStyle = baThemeCss(theme) + BOARD_CSS + DE_CSS;
+  const themeStyle = baThemeCss(theme) + BOARD_CSS + DE_CSS + V2_SKIN_CSS;
 
   return (
     <div
       data-ba-theme={theme}
+      className="v2-skin"
       style={{
         minHeight: "100vh",
-        backgroundColor: "var(--ba-bg)",
         color: "var(--ba-fg)",
         padding: "1rem",
         fontFamily: SANS_V2,
-        letterSpacing: "0.01em",
       }}
     >
       {/* eslint-disable-next-line react/no-danger -- theme CSS variables */}
@@ -333,7 +338,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
             marginBottom: 18,
           }}
         >
-          <h1 style={{ fontSize: "1.35rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
           {!loading && (
             <span style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
               {LOCATIONS.find((l) => l.id === locationId)?.label} · {totals.events} event
@@ -391,8 +396,9 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
               style={{
                 ...NAV_A,
                 colorScheme: theme,
-                fontFamily: MONO_V2,
-                fontSize: "0.75rem",
+                color: "var(--ba-fg)",
+                backgroundColor: "var(--ba-input-bg)",
+                fontSize: "0.78rem",
               }}
             />
             <span style={{ width: 8 }} />
@@ -413,12 +419,14 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
           </span>
         </div>
 
-        {/* ── Needs attention ── */}
+        {/* ── Needs attention — the portal's amber note-box idiom ── */}
         {!loading && attention.length > 0 && (
           <div
             style={{
-              borderLeft: "2px solid #f0a63c",
-              padding: "2px 0 2px 16px",
+              backgroundColor: "rgba(245,158,11,0.1)",
+              border: "1px solid rgba(245,158,11,0.3)",
+              borderRadius: 8,
+              padding: "10px 14px",
               display: "flex",
               flexDirection: "column",
               gap: 7,
@@ -428,10 +436,10 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
             <span
               style={{
                 fontSize: "0.7rem",
-                fontWeight: 700,
-                letterSpacing: "0.12em",
+                fontWeight: 600,
+                letterSpacing: "0.08em",
                 textTransform: "uppercase",
-                color: "#f0a63c",
+                color: "#fbbf24",
               }}
             >
               Needs attention · {attention.length}
@@ -452,7 +460,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
                   fontFamily: "inherit",
                 }}
               >
-                <b style={{ fontWeight: 650 }}>{a.head}</b>
+                <b style={{ fontWeight: 600 }}>{a.head}</b>
                 <span style={{ color: "var(--ba-muted)" }}>{a.tail}</span>
               </button>
             ))}

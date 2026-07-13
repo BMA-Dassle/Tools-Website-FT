@@ -24,7 +24,7 @@ import type {
 } from "~/features/daily-events/types";
 import { DualBadge, PaymentCell } from "../daily-events/badges";
 import { WAIVER_TEXT_COLORS } from "../daily-events/EventRow";
-import { MONO_V2 } from "./theme";
+import { BLUE_SOFT_V2, MONO_V2 } from "./theme";
 
 export interface DaySummary {
   events: number;
@@ -98,9 +98,10 @@ export default function DayCard({
     <div
       style={{
         backgroundColor: "var(--ba-bg2)",
-        border: `1px solid ${isToday ? "rgba(0,226,229,0.55)" : "var(--ba-border)"}`,
-        borderRadius: 12,
+        border: `1px solid ${isToday ? "rgba(59,130,246,0.55)" : "var(--ba-border)"}`,
+        borderRadius: 8,
         overflow: "hidden",
+        boxShadow: "0 1px 3px var(--ba-shadow)",
       }}
     >
       {/* Band header */}
@@ -117,7 +118,7 @@ export default function DayCard({
           cursor: onOpenDay ? "pointer" : undefined,
         }}
       >
-        <b style={{ fontSize: "0.9rem", color: isToday ? "#00E2E5" : "var(--ba-fg)" }}>
+        <b style={{ fontSize: "0.9rem", color: isToday ? BLUE_SOFT_V2 : "var(--ba-fg)" }}>
           {label}
           {isToday ? " — Today" : ""}
         </b>
@@ -208,7 +209,7 @@ export default function DayCard({
                 </span>
                 <span
                   style={{
-                    fontWeight: 650,
+                    fontWeight: 600,
                     fontSize: "0.9rem",
                     color: "var(--ba-fg)",
                     whiteSpace: "nowrap",
