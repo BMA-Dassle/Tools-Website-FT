@@ -112,6 +112,49 @@ export function DepositPill() {
   );
 }
 
+/** Red "UNPAID" pill — website quote exists but nothing collected yet. */
+export function UnpaidPill({ quoteStatus }: { quoteStatus?: string }) {
+  return (
+    <span
+      title={
+        quoteStatus
+          ? `Website quote is "${quoteStatus.replace(/_/g, " ")}" — nothing collected yet`
+          : "Nothing collected yet"
+      }
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "0.125rem 0.375rem",
+        borderRadius: 9999,
+        backgroundColor: "rgba(239,68,68,0.18)",
+        color: "#f87171",
+        fontSize: "10px",
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      UNPAID
+    </span>
+  );
+}
+
+/**
+ * Which payment pill a website quote earns. Deposit is judged on money
+ * actually collected (depositPaidCents), not the status string — statuses
+ * like balance_link_sent are deposit-paid too.
+ */
+export function paymentPillFor(wp: {
+  isFullyPaid: boolean;
+  depositPaidCents: number;
+  status: string;
+}): "paid" | "deposit" | "unpaid" | null {
+  if (wp.isFullyPaid) return "paid";
+  if (wp.depositPaidCents > 0) return "deposit";
+  if (wp.status.includes("cancel")) return null;
+  return "unpaid";
+}
+
 /** Rotating border-circle loading spinner (portal animate-spin). */
 export function Spinner({ size = 32 }: { size?: number }) {
   return (

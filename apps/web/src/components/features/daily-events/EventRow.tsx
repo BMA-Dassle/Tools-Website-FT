@@ -20,7 +20,7 @@ import type {
   WaiverThresholds,
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
-import { DepositPill, DualBadge, PaidPill, StateBadge } from "./badges";
+import { DepositPill, DualBadge, PaidPill, paymentPillFor, StateBadge, UnpaidPill } from "./badges";
 
 /** Waiver registration text colors — Tailwind *-400 shades (portal text-red-400 etc.). */
 export const WAIVER_TEXT_COLORS: Record<"red" | "yellow" | "green", string> = {
@@ -114,8 +114,9 @@ export default function EventRow({
             flexShrink: 0,
           }}
         >
-          {wp?.isFullyPaid && <PaidPill />}
-          {wp && wp.status === "deposit_paid" && !wp.isFullyPaid && <DepositPill />}
+          {wp && paymentPillFor(wp) === "paid" && <PaidPill />}
+          {wp && paymentPillFor(wp) === "deposit" && <DepositPill />}
+          {wp && paymentPillFor(wp) === "unpaid" && <UnpaidPill quoteStatus={wp.status} />}
           <StateBadge state={r.state} />
         </div>
       </div>
@@ -187,12 +188,14 @@ export default function EventRow({
                 fontSize: "0.75rem",
                 fontVariantNumeric: "tabular-nums",
                 fontWeight: 500,
-                color: "var(--ba-fg)",
-                width: 56,
-                textAlign: "right",
+                whiteSpace: "nowrap",
               }}
             >
-              {fmtCurrency(totalCents / 100)}
+              <span style={{ color: paidCents > 0 ? "#22c55e" : "var(--ba-muted)" }}>
+                {fmtCurrency(paidCents / 100)}
+              </span>
+              <span style={{ color: "var(--ba-muted)", margin: "0 2px" }}>/</span>
+              <span style={{ color: "var(--ba-muted)" }}>{fmtCurrency(totalCents / 100)}</span>
             </span>
           </div>
         )}
@@ -312,7 +315,9 @@ export function WeekEventRow({
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexShrink: 0 }}>
-        {wp?.isFullyPaid ? <PaidPill /> : wp?.status === "deposit_paid" ? <DepositPill /> : null}
+        {wp && paymentPillFor(wp) === "paid" && <PaidPill />}
+        {wp && paymentPillFor(wp) === "deposit" && <DepositPill />}
+        {wp && paymentPillFor(wp) === "unpaid" && <UnpaidPill quoteStatus={wp.status} />}
         <StateBadge state={r.state} />
       </div>
     </div>

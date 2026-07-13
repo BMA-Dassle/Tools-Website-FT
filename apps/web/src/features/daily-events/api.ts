@@ -11,6 +11,7 @@ import type {
   ReservationsResponse,
   WebsitePaymentInfo,
   ContractHistoryEntry,
+  SquareTimelineNode,
   EventMetadata,
 } from "./types";
 
@@ -133,6 +134,18 @@ export async function getPayment(
 
 export function clearPaymentCache(): void {
   paymentCache.clear();
+}
+
+// ── Live Square timeline (Payments tab, lazy-loaded) ─────────────────
+
+export async function fetchSquareTimeline(
+  token: string,
+  projectId: string,
+): Promise<SquareTimelineNode[]> {
+  const data = await getJson<{ data: SquareTimelineNode[] }>(
+    `${BASE}/square-timeline?token=${encodeURIComponent(token)}&projectId=${encodeURIComponent(projectId)}`,
+  );
+  return Array.isArray(data.data) ? data.data : [];
 }
 
 // ── Contract history (Contract tab timeline, lazy-loaded) ────────────

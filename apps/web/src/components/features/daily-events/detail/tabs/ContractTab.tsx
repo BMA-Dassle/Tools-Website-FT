@@ -156,9 +156,9 @@ export default function ContractTab({
                 target="_blank"
                 rel="noopener noreferrer"
                 style={BLUE_LINK_BTN}
-                title="The live contract page the guest sees — always the latest version"
+                title="The live contract page — after signing, this is what the guest uses as their confirmation. Always the latest version."
               >
-                Latest Contract ↗
+                Guest Confirmation ↗
               </a>
             )}
             {contract.signedPdfUrl && (
@@ -167,8 +167,9 @@ export default function ContractTab({
                 target="_blank"
                 rel="noopener noreferrer"
                 style={BLUE_LINK_BTN}
+                title="PDF of the most recently signed contract"
               >
-                Signed PDF ↗
+                Latest Signed Contract ↗
               </a>
             )}
             {contract.payUrl && (
@@ -177,9 +178,9 @@ export default function ContractTab({
                 target="_blank"
                 rel="noopener noreferrer"
                 style={GREEN_LINK_BTN}
-                title="Guest-facing balance payment page"
+                title="Guest-facing page to pay the remaining balance"
               >
-                Payment Flow ↗
+                Pay Balance ↗
               </a>
             )}
             {contract.balancePaymentLinkUrl && (
@@ -248,7 +249,7 @@ export default function ContractTab({
                         rel="noopener noreferrer"
                         style={{ fontSize: "0.75rem", color: "#60a5fa", textDecoration: "none" }}
                       >
-                        View PDF ↗
+                        Prior Signed Contract ↗
                       </a>
                     )}
                   </div>

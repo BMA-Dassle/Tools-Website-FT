@@ -180,6 +180,28 @@ export interface EventContract {
   guestEmail: string | null;
 }
 
+// ── Live Square timeline (Payments tab — reservations-admin idiom) ───
+
+export interface SquareTimelineNode {
+  kind: "deposit" | "funding_gift_card" | "balance" | "dayof_order" | "settled_order";
+  label: string;
+  order?: {
+    id: string;
+    state: string;
+    totalCents: number;
+    netDueCents: number;
+    tenders: Array<{
+      paymentId: string;
+      amountCents: number;
+      status?: string;
+      refundedCents?: number;
+    }>;
+  };
+  giftCard?: { id: string; gan: string; state: string; balanceCents: number };
+  /** Node-level failure — the rest of the timeline still renders. */
+  error?: string;
+}
+
 // ── Contract history timeline (audit log + versions + milestones) ────
 
 export interface ContractHistoryEntry {

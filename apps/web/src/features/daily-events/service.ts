@@ -3,8 +3,14 @@ import {
   getAuditLog,
   getContractVersions,
   getGfQuoteByReservationId,
+  parseGiftCardIds,
 } from "@/lib/group-function-db";
 import { formatPaymentDetail, formatPaymentSummary } from "@/lib/portal-format";
+import {
+  fetchGiftCardFacts,
+  fetchOrderFacts,
+  fetchPaymentFacts,
+} from "~/features/cancellation/square-actions";
 import {
   LOCATION_TO_CLIENT_KEY,
   SHARED_FM_LOCATIONS,
@@ -40,6 +46,7 @@ import type {
   EventContract,
   ContractHistoryEntry,
   EventMetadata,
+  SquareTimelineNode,
   WebsitePaymentInfo,
 } from "./types";
 
@@ -767,7 +774,7 @@ export async function getContractHistory(projectId: string): Promise<ContractHis
     entries.push({
       at: isoStamp(p.archivedAt),
       kind: "pdf_archived",
-      label: "Prior signed PDF archived",
+      label: "Prior signed contract archived (superseded by a re-sign)",
       detail: p.reason || null,
       pdfUrl: p.url || null,
     });
@@ -815,6 +822,103 @@ export async function getContractHistory(projectId: string): Promise<ContractHis
     }
   }
   return collapsed;
+}
+
+// ── Live Square timeline (Payments tab — reservations-admin idiom) ───
+//
+// Same node shape and fetchers as the reservations board's payment timeline
+// (features/cancellation/square-actions), keyed on the quote's Square ids:
+// deposit order → funding gift card (live balance) → balance order →
+// day-of / settled orders. Each node fails independently.
+
+async function squareOrderNode(
+  kind: SquareTimelineNode["kind"],
+  label: string,
+  orderId: string,
+  withPayments: boolean,
+): Promise<SquareTimelineNode> {
+  try {
+    const facts = await fetchOrderFacts(orderId);
+    let tenders: NonNullable<SquareTimelineNode["order"]>["tenders"] = facts.tenders;
+    if (withPayments) {
+      tenders = await Promise.all(
+        facts.tenders.map(async (t) => {
+          try {
+            const p = await fetchPaymentFacts(t.paymentId);
+            return { ...t, status: p.status, refundedCents: p.refundedCents };
+          } catch {
+            return t;
+          }
+        }),
+      );
+    }
+    return {
+      kind,
+      label,
+      order: {
+        id: facts.id,
+        state: facts.state,
+        totalCents: facts.totalCents,
+        netDueCents: facts.netDueCents,
+        tenders,
+      },
+    };
+  } catch (err) {
+    return { kind, label, error: err instanceof Error ? err.message : "order fetch failed" };
+  }
+}
+
+export async function getSquareTimeline(projectId: string): Promise<SquareTimelineNode[]> {
+  const quote = await getGfQuoteByReservationId(projectId);
+  if (!quote) return [];
+
+  const tasks: Promise<SquareTimelineNode>[] = [];
+  const seenOrders = new Set<string>();
+  const order = (
+    kind: SquareTimelineNode["kind"],
+    label: string,
+    id: string | null,
+    withPayments = false,
+  ) => {
+    if (!id || seenOrders.has(id)) return;
+    seenOrders.add(id);
+    tasks.push(squareOrderNode(kind, label, id, withPayments));
+  };
+
+  order("deposit", "Deposit charge", quote.square_deposit_order_id, true);
+
+  // square_gift_card_id can be a bare id or a JSON array (multi-card quotes)
+  const giftCardIds = parseGiftCardIds(quote.square_gift_card_id);
+  giftCardIds.forEach((gcId, idx) => {
+    const label =
+      giftCardIds.length > 1
+        ? `Funding gift card ${idx + 1} of ${giftCardIds.length} (deposit loaded here, redeemed day-of)`
+        : "Funding gift card (deposit loaded here, redeemed day-of)";
+    tasks.push(
+      (async (): Promise<SquareTimelineNode> => {
+        try {
+          const gc = await fetchGiftCardFacts(gcId);
+          return {
+            kind: "funding_gift_card",
+            label,
+            giftCard: { id: gc.id, gan: gc.gan, state: gc.state, balanceCents: gc.balanceCents },
+          };
+        } catch (err) {
+          return {
+            kind: "funding_gift_card",
+            label,
+            error: err instanceof Error ? err.message : "gift card fetch failed",
+          };
+        }
+      })(),
+    );
+  });
+
+  order("balance", "Balance charge", quote.square_balance_order_id, true);
+  order("dayof_order", "Day-of order", quote.square_dayof_order_id);
+  order("settled_order", "Settled order (paid directly in Square)", quote.square_settled_order_id);
+
+  return Promise.all(tasks);
 }
 
 // ── Website payments (replaces the portal→website /api/portal/payments hop) ──

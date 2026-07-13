@@ -1,11 +1,20 @@
 "use client";
 
 /**
- * Payments tab — the website payment flow (deposit → balance → paid) from
- * group_function_quotes, followed by BMI's own payment rows. Website money
- * is the source of truth for group functions (the BMI balance is unreliable
- * — same reason the board overlays website payments on the list).
+ * Payments tab.
+ *
+ * Events WITH a website quote (booked on our site, or PandaDoc-started and
+ * converted here): website money is the record — summary grid, a live
+ * Square timeline (deposit charge → funding gift card w/ live balance →
+ * balance charge → day-of order, reservations-admin idiom), and any prior
+ * PandaDoc/BMI payments carried on the quote. BMI's own payment rows are
+ * HIDDEN — they're mirror noise for these events.
+ *
+ * Events WITHOUT a quote (pure PandaDoc/BMI, never touched our site): the
+ * BMI payments table is the only record, so it shows.
  */
+import { useEffect, useState } from "react";
+import { fetchSquareTimeline } from "~/features/daily-events/api";
 import { fmtCurrency, fmtEventDateTime } from "~/features/daily-events/format";
 import { isInternalPayMethod } from "~/features/daily-events/logic";
 import { safe } from "~/features/daily-events/print-html";
@@ -13,135 +22,130 @@ import type {
   EventContract,
   Payment,
   ReservationDetail,
+  SquareTimelineNode,
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
 import DetailSection from "../DetailSection";
 import { BLUE_LINK_BTN, GREEN_LINK_BTN, InfoItem, TH, TH_R, td } from "../ui";
 
-const ENTRY_LABEL: Record<string, string> = {
-  deposit: "Deposit",
-  balance: "Balance",
-  legacy: "Legacy",
+const NODE_COLORS: Record<SquareTimelineNode["kind"], string> = {
+  deposit: "#22c55e",
+  funding_gift_card: "#d4af37",
+  balance: "#10b981",
+  dayof_order: "#f59e0b",
+  settled_order: "#3b82f6",
 };
+
+function orderStateColor(state: string): string {
+  if (state === "COMPLETED") return "#22c55e";
+  if (state === "OPEN") return "#3b82f6";
+  return "#ef4444";
+}
+
+function ganDisplay(gan: string): string {
+  return gan.length > 4 ? `…${gan.slice(-4)}` : gan;
+}
+
+/** Mono id with click-to-copy (flashes a check — no toast plumbing here). */
+function CopyableId({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title={`${value} — click to copy`}
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+      style={{
+        background: "var(--ba-input-bg)",
+        border: "1px solid var(--ba-input-border)",
+        borderRadius: 5,
+        color: copied ? "#22c55e" : "var(--ba-muted)",
+        padding: "1px 6px",
+        fontSize: "0.68rem",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        cursor: "pointer",
+      }}
+    >
+      {copied ? "✓ copied" : `${value.slice(0, 10)}…`}
+    </button>
+  );
+}
 
 export default function PaymentsTab({
   detail,
   websitePayment,
   contract,
+  token,
+  projectId,
 }: {
   detail: ReservationDetail;
   websitePayment: WebsitePaymentInfo | null;
   contract: EventContract | null;
+  token: string;
+  projectId: string;
 }) {
   const wp = websitePayment;
-  const entries = wp?.payments || [];
   const prior = wp?.priorPayments || [];
   const bmiPayments = (detail.payments || []).filter(
     (pay) => !isInternalPayMethod(safe(pay.payMethodName)),
   );
   const balanceLink = wp?.balancePaymentLinkUrl || contract?.balancePaymentLinkUrl || null;
-  const showFlowLinks = !!(contract?.payUrl || balanceLink);
   const balanceError =
     wp && !wp.isFullyPaid && wp.balanceLastError
       ? { message: wp.balanceLastError, attempts: wp.balanceChargeAttempts || 0 }
       : null;
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Website payment flow summary */}
-      {wp ? (
-        <DetailSection id="website-payments" title="Website Payment Flow">
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-              columnGap: 16,
-              rowGap: 8,
-              marginBottom: entries.length > 0 || showFlowLinks ? 14 : 0,
-            }}
-          >
-            <InfoItem label="Status" value={wp.status.replace(/_/g, " ")} />
-            <InfoItem label="Total" value={fmtCurrency(wp.totalCents / 100)} />
-            {wp.depositDueCents != null && (
-              <InfoItem label="Deposit due" value={fmtCurrency(wp.depositDueCents / 100)} />
-            )}
-            <InfoItem label="Deposit paid" value={fmtCurrency(wp.depositPaidCents / 100)} />
-            <InfoItem
-              label="Balance remaining"
-              value={
-                wp.isFullyPaid && wp.balanceRemainingCents <= 0
-                  ? "Paid in full"
-                  : fmtCurrency(wp.balanceRemainingCents / 100)
-              }
-            />
-            {wp.savedCardOnFile && <InfoItem label="Card on file" value="Yes" />}
-            {(wp.giftCardGans || []).length > 0 && (
-              <InfoItem label="Gift card" value={(wp.giftCardGans || []).join(", ")} />
-            )}
-          </div>
+  // Live Square timeline — lazy on tab mount, only for quote-backed events.
+  const [timeline, setTimeline] = useState<SquareTimelineNode[] | null>(null);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!wp) return;
+    let cancelled = false;
+    fetchSquareTimeline(token, projectId)
+      .then((t) => {
+        if (!cancelled) setTimeline(t);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setTimelineError(err instanceof Error ? err.message : "Failed to read Square");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wp, token, projectId]);
 
-          {balanceError && (
-            <div
-              style={{
-                backgroundColor: "rgba(234,179,8,0.12)",
-                border: "1px solid rgba(234,179,8,0.35)",
-                borderRadius: 8,
-                padding: "8px 12px",
-                fontSize: "0.8rem",
-                color: "#facc15",
-                marginBottom: 14,
-              }}
-            >
-              Balance charge failing ({balanceError.attempts} attempt
-              {balanceError.attempts === 1 ? "" : "s"}): {balanceError.message}
+  // ── No website quote: BMI is the only record ──
+  if (!wp) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        <DetailSection id="payments" title="BMI Payments">
+          {bmiPayments.length === 0 ? (
+            <div style={{ fontSize: "0.85rem", color: "var(--ba-muted)" }}>
+              No payments recorded. This event has no website quote — it lives entirely in
+              BMI/PandaDoc.
             </div>
-          )}
-
-          {entries.length > 0 && (
+          ) : (
             <div style={{ overflowX: "auto", margin: "0 -16px" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th style={TH}>Payment</th>
                     <th style={TH}>Method</th>
-                    <th style={TH}>Paid</th>
-                    <th style={TH}>Square payment</th>
                     <th style={TH_R}>Amount</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map((p, i) => (
-                    <tr key={p.squarePaymentId || i}>
-                      <td style={td(i, { fontWeight: 600 })}>{ENTRY_LABEL[p.type] || p.type}</td>
-                      <td style={td(i)}>{p.method}</td>
-                      <td style={td(i, { whiteSpace: "nowrap" })}>
-                        {p.paidAt ? fmtEventDateTime(p.paidAt) : "—"}
-                      </td>
-                      <td
-                        style={td(i, {
-                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                          fontSize: "0.75rem",
-                          color: "var(--ba-muted)",
-                          wordBreak: "break-all",
-                        })}
-                      >
-                        {p.squarePaymentId || "—"}
+                  {bmiPayments.map((pay: Payment, i: number) => (
+                    <tr key={safe(pay.id) || i}>
+                      <td style={td(i)}>
+                        {safe(pay.payMethodName) || `Method ${safe(pay.payMethodId)}`}
                       </td>
                       <td style={td(i, { textAlign: "right", fontWeight: 500 })}>
-                        {fmtCurrency(p.amountCents / 100)}
-                      </td>
-                    </tr>
-                  ))}
-                  {prior.map((p, i) => (
-                    <tr key={`prior-${i}`}>
-                      <td style={td(entries.length + i, { fontWeight: 600 })}>Prior (BMI)</td>
-                      <td style={td(entries.length + i)}>{p.source}</td>
-                      <td style={td(entries.length + i, { whiteSpace: "nowrap" })}>
-                        {p.paidAt ? fmtEventDateTime(p.paidAt) : "—"}
-                      </td>
-                      <td style={td(entries.length + i, { color: "var(--ba-muted)" })}>—</td>
-                      <td style={td(entries.length + i, { textAlign: "right", fontWeight: 500 })}>
-                        {fmtCurrency(p.amountCents / 100)}
+                        {fmtCurrency(pay.amount || 0)}
                       </td>
                     </tr>
                   ))}
@@ -149,62 +153,243 @@ export default function PaymentsTab({
               </table>
             </div>
           )}
+        </DetailSection>
+      </div>
+    );
+  }
 
-          {showFlowLinks && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
-              {contract?.payUrl && (
-                <a
-                  href={contract.payUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={GREEN_LINK_BTN}
-                  title="Guest-facing balance payment page"
-                >
-                  Payment Flow ↗
-                </a>
-              )}
-              {balanceLink && (
-                <a
-                  href={balanceLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={BLUE_LINK_BTN}
-                  title="Square-hosted balance payment link sent to the guest"
-                >
-                  Square Balance Link ↗
-                </a>
-              )}
-            </div>
+  // ── Website quote: our money is the record (BMI rows hidden) ──
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <DetailSection id="website-payments" title="Payment Status">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            columnGap: 16,
+            rowGap: 8,
+          }}
+        >
+          <InfoItem label="Status" value={wp.status.replace(/_/g, " ")} />
+          <InfoItem label="Total" value={fmtCurrency(wp.totalCents / 100)} />
+          {wp.depositDueCents != null && (
+            <InfoItem label="Deposit due" value={fmtCurrency(wp.depositDueCents / 100)} />
           )}
-        </DetailSection>
-      ) : (
-        <DetailSection id="website-payments" title="Website Payment Flow">
-          <div style={{ fontSize: "0.85rem", color: "var(--ba-muted)" }}>
-            No website quote for this event — it was booked and paid outside the group-function flow
-            (BMI payments below are the record).
-          </div>
-        </DetailSection>
-      )}
+          <InfoItem label="Deposit paid" value={fmtCurrency(wp.depositPaidCents / 100)} />
+          <InfoItem
+            label="Balance remaining"
+            value={
+              wp.isFullyPaid && wp.balanceRemainingCents <= 0
+                ? "Paid in full"
+                : fmtCurrency(wp.balanceRemainingCents / 100)
+            }
+          />
+          {wp.savedCardOnFile && <InfoItem label="Card on file" value="Yes" />}
+        </div>
 
-      {/* BMI payments (filtered — hide BMI internal methods) */}
-      {bmiPayments.length > 0 && (
-        <DetailSection id="payments" title="BMI Payments">
+        {balanceError && (
+          <div
+            style={{
+              backgroundColor: "rgba(234,179,8,0.12)",
+              border: "1px solid rgba(234,179,8,0.35)",
+              borderRadius: 8,
+              padding: "8px 12px",
+              fontSize: "0.8rem",
+              color: "#facc15",
+              marginTop: 12,
+            }}
+          >
+            Balance charge failing ({balanceError.attempts} attempt
+            {balanceError.attempts === 1 ? "" : "s"}): {balanceError.message}
+          </div>
+        )}
+
+        {(contract?.payUrl || balanceLink) && wp.balanceRemainingCents > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+            {contract?.payUrl && (
+              <a
+                href={contract.payUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={GREEN_LINK_BTN}
+                title="Guest-facing page to pay the remaining balance"
+              >
+                Pay Balance ↗
+              </a>
+            )}
+            {balanceLink && (
+              <a
+                href={balanceLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={BLUE_LINK_BTN}
+                title="Square-hosted balance payment link sent to the guest"
+              >
+                Square Balance Link ↗
+              </a>
+            )}
+          </div>
+        )}
+      </DetailSection>
+
+      {/* Live Square timeline (reservations-admin idiom) */}
+      <DetailSection id="square-timeline" title="Payment timeline — live from Square">
+        {!timeline && !timelineError && (
+          <div style={{ fontSize: "0.82rem", color: "var(--ba-muted)" }}>Reading Square…</div>
+        )}
+        {timelineError && (
+          <div style={{ fontSize: "0.8rem", color: "#ef4444" }}>{timelineError}</div>
+        )}
+        {timeline && timeline.length === 0 && (
+          <div style={{ fontSize: "0.82rem", color: "var(--ba-muted)" }}>
+            No Square activity yet — nothing has been charged on this quote.
+          </div>
+        )}
+        {timeline && timeline.length > 0 && (
+          <div>
+            {timeline.map((n, i) => {
+              const dot = NODE_COLORS[n.kind];
+              const last = i === timeline.length - 1;
+              return (
+                <div key={i} style={{ display: "flex", gap: 12 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        backgroundColor: n.error ? "#ef4444" : dot,
+                        marginTop: 5,
+                        flexShrink: 0,
+                      }}
+                    />
+                    {!last && (
+                      <span style={{ width: 1, flex: 1, backgroundColor: "var(--ba-border)" }} />
+                    )}
+                  </div>
+                  <div style={{ paddingBottom: last ? 0 : 16, minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "baseline",
+                        flexWrap: "wrap",
+                        fontSize: "0.85rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {n.label}
+                      {n.order && (
+                        <>
+                          <span
+                            style={{
+                              fontSize: "0.62rem",
+                              fontWeight: 700,
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                              color: orderStateColor(n.order.state),
+                              backgroundColor: `${orderStateColor(n.order.state)}20`,
+                              border: `1px solid ${orderStateColor(n.order.state)}40`,
+                            }}
+                          >
+                            {n.order.state}
+                          </span>
+                          <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                            {fmtCurrency(n.order.totalCents / 100)}
+                          </span>
+                          {n.order.netDueCents > 0 && (
+                            <span style={{ color: "#f59e0b", fontSize: "0.75rem" }}>
+                              {fmtCurrency(n.order.netDueCents / 100)} due
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {n.giftCard && (
+                        <>
+                          <span
+                            style={{
+                              fontSize: "0.62rem",
+                              fontWeight: 700,
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                              color: n.giftCard.state === "ACTIVE" ? "#22c55e" : "var(--ba-muted)",
+                              border: "1px solid var(--ba-border)",
+                            }}
+                          >
+                            {n.giftCard.state}
+                          </span>
+                          <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                            {fmtCurrency(n.giftCard.balanceCents / 100)} balance
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 6,
+                        flexWrap: "wrap",
+                        marginTop: 4,
+                        alignItems: "center",
+                      }}
+                    >
+                      {n.order && <CopyableId value={n.order.id} />}
+                      {n.giftCard?.gan && (
+                        <span style={{ fontSize: "0.72rem", color: "var(--ba-muted)" }}>
+                          GC {ganDisplay(n.giftCard.gan)} <CopyableId value={n.giftCard.gan} />
+                        </span>
+                      )}
+                      {n.order?.tenders.map((t) => (
+                        <span
+                          key={t.paymentId}
+                          style={{ fontSize: "0.72rem", color: "var(--ba-muted)" }}
+                        >
+                          {fmtCurrency(t.amountCents / 100)} tender
+                          {t.status ? ` · ${t.status}` : ""}
+                          {t.refundedCents ? (
+                            <span style={{ color: "#ef4444" }}>
+                              {" "}
+                              · {fmtCurrency(t.refundedCents / 100)} refunded
+                            </span>
+                          ) : null}{" "}
+                          <CopyableId value={t.paymentId} />
+                        </span>
+                      ))}
+                    </div>
+                    {n.error && (
+                      <div style={{ marginTop: 4, fontSize: "0.72rem", color: "#ef4444" }}>
+                        Couldn&rsquo;t read this from Square: {n.error}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DetailSection>
+
+      {/* Prior PandaDoc/BMI money carried onto the quote (conversions) */}
+      {prior.length > 0 && (
+        <DetailSection id="prior-payments" title="Prior Payments (before website conversion)">
           <div style={{ overflowX: "auto", margin: "0 -16px" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={TH}>Method</th>
+                  <th style={TH}>Source</th>
+                  <th style={TH}>Paid</th>
                   <th style={TH_R}>Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {bmiPayments.map((pay: Payment, i: number) => (
-                  <tr key={safe(pay.id) || i}>
-                    <td style={td(i)}>
-                      {safe(pay.payMethodName) || `Method ${safe(pay.payMethodId)}`}
+                {prior.map((p, i) => (
+                  <tr key={i}>
+                    <td style={td(i)}>PandaDoc / BMI</td>
+                    <td style={td(i, { whiteSpace: "nowrap" })}>
+                      {p.paidAt ? fmtEventDateTime(p.paidAt) : "—"}
                     </td>
                     <td style={td(i, { textAlign: "right", fontWeight: 500 })}>
-                      {fmtCurrency(pay.amount || 0)}
+                      {fmtCurrency(p.amountCents / 100)}
                     </td>
                   </tr>
                 ))}
