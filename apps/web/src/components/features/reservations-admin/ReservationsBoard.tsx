@@ -16,8 +16,10 @@ import {
   buildComboScheduleIndex,
   mergeComboRows,
 } from "~/features/reservations-admin/combo-board";
-import type { ComboMergeInfo } from "~/features/reservations-admin/types";
+import type { ComboMergeInfo, GroupEvent } from "~/features/reservations-admin/types";
 import { CENTER_SLUGS } from "~/features/reservations-admin/constants";
+import { fetchDayReservations } from "~/features/daily-events/api";
+import DailyEventModal from "../daily-events/DailyEventModal";
 import { nowEtWallMs, todayET } from "~/features/reservations-admin/format";
 import {
   useBoardTheme,
@@ -86,6 +88,45 @@ export default function ReservationsBoard({ token }: { token: string }) {
     (Reservation & { comboMerge?: ComboMergeInfo }) | null
   >(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Daily-events detail modal (Overview·Schedule·Payments·Guest·Notes·Contract)
+  // for group-function rows. Quotes don't store the BMI projectId, so resolve
+  // it from that day's daily-events board by event number, trying the center's
+  // BMI locations in order (FM group events can live on HP FM or FastTrax).
+  const [dailyEvent, setDailyEvent] = useState<{ projectId: string; locationId: number } | null>(
+    null,
+  );
+  const [resolvingEventId, setResolvingEventId] = useState<number | null>(null);
+
+  async function openEventDetail(ge: GroupEvent) {
+    if (resolvingEventId != null) return;
+    setResolvingEventId(ge.id);
+    try {
+      const candidates =
+        ge.centerCode === "PPTR5G2N0QXF7"
+          ? [332145]
+          : ge.centerCode === "LAB52GY480CJF"
+            ? [467486, 332160]
+            : [332160, 467486];
+      const wanted = ge.eventNumber.replace(/^#/, "").toLowerCase();
+      for (const locationId of candidates) {
+        // Group events on the board are already scoped to the selected date.
+        const data = await fetchDayReservations(token, date, locationId);
+        const match = (data.reservations || []).find(
+          (r) => (r.number || "").replace(/^#/, "").toLowerCase() === wanted,
+        );
+        if (match) {
+          setDailyEvent({ projectId: match.id, locationId });
+          return;
+        }
+      }
+      setToast(`Couldn't find event #${ge.eventNumber} on the daily-events board`);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to open event detail");
+    } finally {
+      setResolvingEventId(null);
+    }
+  }
 
   // Client-side search + cancelled filter + kind filter
   const filtered = useMemo(() => {
@@ -368,6 +409,19 @@ export default function ReservationsBoard({ token }: { token: string }) {
         <SquareOrderModal target={orderTarget} token={token} onClose={() => setOrderTarget(null)} />
       )}
 
+      {/* Daily-events detail modal — full group-function drill-down
+          (Overview · Schedule · Payments · Guest · Notes · Contract). */}
+      {dailyEvent && (
+        <DailyEventModal
+          token={token}
+          projectId={dailyEvent.projectId}
+          locationId={dailyEvent.locationId}
+          ids={[dailyEvent.projectId]}
+          onNavigate={() => {}}
+          onClose={() => setDailyEvent(null)}
+        />
+      )}
+
       {/* Manage Reservation modal — full-page, opened from any row/card.
           key remounts it per reservation so its fetched detail never leaks
           between bookings. */}
@@ -452,7 +506,12 @@ export default function ReservationsBoard({ token }: { token: string }) {
           </div>
         ) : (
           <>
-            <GroupEventsSection events={visibleGroupEvents} onViewOrder={setOrderTarget} />
+            <GroupEventsSection
+              events={visibleGroupEvents}
+              onViewOrder={setOrderTarget}
+              onViewEvent={openEventDetail}
+              resolvingEventId={resolvingEventId}
+            />
             <BoardCardList
               rows={displayRows}
               comboScheduleFor={comboScheduleFor}

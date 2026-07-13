@@ -1,5 +1,5 @@
-import { Poppins } from "next/font/google";
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import DailyEventsBoardV2 from "~/components/features/daily-events-v2/DailyEventsBoardV2";
 
 /**
@@ -18,14 +18,6 @@ import DailyEventsBoardV2 from "~/components/features/daily-events-v2/DailyEvent
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// The portal's sans face (its tailwind font-sans). Exposed as --font-v2 for
-// SANS_V2 in the v2 theme; self-hosted by next/font, no Google request.
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-v2",
-});
-
 type Props = { params: Promise<{ token: string }> };
 
 export default async function Page({ params }: Props) {
@@ -34,7 +26,7 @@ export default async function Page({ params }: Props) {
   if (!expected || token !== expected) notFound();
 
   return (
-    <div className={poppins.variable}>
+    <div className={adminPoppins.variable}>
       <DailyEventsBoardV2 token={token} />
     </div>
   );

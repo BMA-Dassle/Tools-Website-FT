@@ -35,6 +35,7 @@ import GuestTab from "./tabs/GuestTab";
 import NotesTab from "./tabs/NotesTab";
 import OverviewTab from "./tabs/OverviewTab";
 import PaymentsTab from "./tabs/PaymentsTab";
+import ScheduleTab from "./tabs/ScheduleTab";
 import { BLUE_LINK_BTN, GREEN_LINK_BTN } from "./ui";
 
 /** Portal detail-header badge — deliberately fewer rules than the list badge. */
@@ -47,7 +48,7 @@ function getStateBadge(state: string): BadgePalette {
   return BADGE_PALETTES.muted;
 }
 
-const TABS = ["Overview", "Payments", "Guest", "Notes", "Contract"] as const;
+const TABS = ["Overview", "Schedule", "Payments", "Guest", "Notes", "Contract"] as const;
 type Tab = (typeof TABS)[number];
 
 const PRINT_BTN: React.CSSProperties = {
@@ -306,7 +307,7 @@ export default function DailyEventDetail({
                 style={{
                   background: "none",
                   border: "none",
-                  borderBottom: tab === t ? "2px solid #00E2E5" : "2px solid transparent",
+                  borderBottom: tab === t ? "2px solid #3b82f6" : "2px solid transparent",
                   color: tab === t ? "var(--ba-fg)" : "var(--ba-muted)",
                   padding: "8px 13px",
                   fontSize: "0.82rem",
@@ -358,6 +359,7 @@ export default function DailyEventDetail({
               onFoodOutTimeChange={setFoodOutTime}
             />
           )}
+          {tab === "Schedule" && <ScheduleTab detail={detail} />}
           {tab === "Payments" && (
             <PaymentsTab
               detail={detail}

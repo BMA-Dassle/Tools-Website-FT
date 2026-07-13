@@ -32,7 +32,7 @@ import { Spinner } from "../daily-events/badges";
 import DailyEventModal from "../daily-events/DailyEventModal";
 import { DE_CSS } from "../daily-events/theme";
 import DayCard from "./DayCard";
-import { BLUE_V2, SANS_V2, V2_SKIN_CSS } from "./theme";
+import { ADMIN_SANS, PORTAL_BLUE, PORTAL_SKIN_CSS } from "~/components/features/admin-skin/theme";
 
 type ViewMode = "day" | "week";
 
@@ -44,9 +44,20 @@ interface DayData {
 interface AttentionItem {
   key: string;
   reservation: Reservation;
-  head: string;
-  tail: string;
+  kind: "money" | "contract" | "waiver";
+  name: string;
+  /** Muted context: when · contact. */
+  meta: string;
+  /** Right-aligned figure: open $ / "send contract" / "3/40 waivers". */
+  right: string;
+  amountCents?: number;
 }
+
+const ATTENTION_DOT: Record<AttentionItem["kind"], string> = {
+  money: "#f87171",
+  contract: "#818cf8",
+  waiver: "#fbbf24",
+};
 
 /** Reflect board state in the URL — best-effort, mirrors v1's ?event=. */
 function setUrlParams(params: Record<string, string | null>) {
@@ -73,9 +84,9 @@ function shiftDate(dateStr: string, days: number): string {
 }
 
 /**
- * Exceptions → sentences, most urgent first: unpaid/unsigned money, quotes
- * stuck before send, red waiver registration. Capped so the strip stays a
- * strip.
+ * Exceptions → compact rows, most urgent first: unpaid/unsigned money,
+ * quotes stuck before send, red waiver registration. The UI collapses long
+ * lists behind a "Show all" expander, so no cap here.
  */
 function buildAttention(
   days: DayData[],
@@ -93,7 +104,8 @@ function buildAttention(
         date === today
           ? `today ${fmtEventTime(r.when)}`.trim()
           : formatDisplayDate(date) + (r.when ? ` ${fmtEventTime(r.when)}` : "");
-      const contact = r.personName ? ` Contact ${r.personName}.` : "";
+      const meta = r.personName ? `${when} · ${r.personName}` : when;
+      const name = r.name || `#${r.number}`;
 
       const wp = payments.get(r.number || r.id);
       if (
@@ -107,15 +119,20 @@ function buildAttention(
         money.push({
           key: `money-${r.id}`,
           reservation: r,
-          head: `${r.name || `#${r.number}`} (${when}) is ${unsigned ? "unsigned and unpaid" : "unpaid"}`,
-          tail: ` — ${fmtUsd(wp.totalCents)} open.${contact}`,
+          kind: "money",
+          name,
+          meta: unsigned ? `${meta} · unsigned` : meta,
+          right: `${fmtUsd(wp.totalCents)} open`,
+          amountCents: wp.totalCents,
         });
       } else if (isSendContract(r.state)) {
         contracts.push({
           key: `send-${r.id}`,
           reservation: r,
-          head: `${r.name || `#${r.number}`} (${when}) still needs its contract sent`,
-          tail: `.${contact}`,
+          kind: "contract",
+          name,
+          meta,
+          right: "send contract",
         });
       }
 
@@ -124,14 +141,19 @@ function buildAttention(
         waivers.push({
           key: `waiver-${r.id}`,
           reservation: r,
-          head: `${r.name || `#${r.number}`} (${when}) has ${waiver.registered} of ${r.persons} waivers`,
-          tail: " — send the waiver reminder.",
+          kind: "waiver",
+          name,
+          meta,
+          right: `${waiver.registered}/${r.persons} waivers`,
         });
       }
     }
   }
-  return [...money, ...contracts, ...waivers].slice(0, 6);
+  return [...money, ...contracts, ...waivers];
 }
+
+/** How many attention rows show before the "Show all" expander. */
+const ATTENTION_COLLAPSED = 4;
 
 // Portal button idiom: outline (border + transparent) at rest, solid
 // primary-blue with white text when selected (shadcn default/outline pair).
@@ -151,8 +173,8 @@ const NAV_A: React.CSSProperties = {
 const NAV_ON: React.CSSProperties = {
   ...NAV_A,
   color: "#ffffff",
-  backgroundColor: BLUE_V2,
-  border: `1px solid ${BLUE_V2}`,
+  backgroundColor: PORTAL_BLUE,
+  border: `1px solid ${PORTAL_BLUE}`,
   fontWeight: 600,
 };
 
@@ -174,11 +196,14 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
   const [date, setDate] = useState<string>(todayET);
   const [view, setView] = useState<ViewMode>("day");
   const [locationId, setLocationId] = useState<number>(332160);
+  // Cancelled events are hidden by default (owner request); ?cancelled=1 shows.
+  const [showCancelled, setShowCancelled] = useState(false);
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const d = sp.get("date");
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setDate(d);
     if (sp.get("view") === "week") setView("week");
+    if (sp.get("cancelled") === "1") setShowCancelled(true);
     const raw = sp.get("location");
     const n = raw ? parseInt(raw, 10) : NaN;
     if (LOCATIONS.some((l) => l.id === n)) setLocationId(n);
@@ -250,18 +275,38 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
       .catch(() => {});
   }, [token, days]);
 
+  // Hide-cancelled filter feeds EVERYTHING downstream: cards, summaries,
+  // attention, totals, and modal prev/next navigation.
+  const { visibleDays, cancelledCount } = useMemo(() => {
+    let cancelled = 0;
+    const filtered = days.map((d) => ({
+      date: d.date,
+      reservations: d.reservations.filter((r) => {
+        const isCancelled = (r.state || "").toLowerCase().includes("cancel");
+        if (isCancelled) cancelled++;
+        return showCancelled || !isCancelled;
+      }),
+    }));
+    return { visibleDays: filtered, cancelledCount: cancelled };
+  }, [days, showCancelled]);
+
   const attention = useMemo(
-    () => buildAttention(days, websitePayments, today),
-    [days, websitePayments, today],
+    () => buildAttention(visibleDays, websitePayments, today),
+    [visibleDays, websitePayments, today],
+  );
+  const [attentionExpanded, setAttentionExpanded] = useState(false);
+  const attentionOpenCents = useMemo(
+    () => attention.reduce((s, a) => s + (a.amountCents || 0), 0),
+    [attention],
   );
 
   const totals = useMemo(() => {
-    const all = days.flatMap((d) => d.reservations);
+    const all = visibleDays.flatMap((d) => d.reservations);
     return {
       events: all.length,
       persons: all.reduce((s, r) => s + (r.persons || 0), 0),
     };
-  }, [days]);
+  }, [visibleDays]);
 
   // ── Navigation ──
   function go(next: { date?: string; view?: ViewMode; location?: number }) {
@@ -285,8 +330,11 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [modalIds, setModalIds] = useState<string[]>([]);
   const visibleIds = useMemo(
-    () => days.flatMap((d) => d.reservations.filter((r) => !r._isDayPlannerBlock).map((r) => r.id)),
-    [days],
+    () =>
+      visibleDays.flatMap((d) =>
+        d.reservations.filter((r) => !r._isDayPlannerBlock).map((r) => r.id),
+      ),
+    [visibleDays],
   );
 
   function openDetail(r: Reservation) {
@@ -311,17 +359,17 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
     setPendingEvent(null);
   }
 
-  const themeStyle = baThemeCss(theme) + BOARD_CSS + DE_CSS + V2_SKIN_CSS;
+  const themeStyle = baThemeCss(theme) + BOARD_CSS + DE_CSS + PORTAL_SKIN_CSS;
 
   return (
     <div
       data-ba-theme={theme}
-      className="v2-skin"
+      className="portal-skin"
       style={{
         minHeight: "100vh",
         color: "var(--ba-fg)",
         padding: "1rem",
-        fontFamily: SANS_V2,
+        fontFamily: ADMIN_SANS,
       }}
     >
       {/* eslint-disable-next-line react/no-danger -- theme CSS variables */}
@@ -413,6 +461,24 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
               </button>
             ))}
             <span style={{ width: 8 }} />
+            {cancelledCount > 0 && (
+              <button
+                type="button"
+                title={
+                  showCancelled
+                    ? "Hide cancelled events"
+                    : `${cancelledCount} cancelled event${cancelledCount === 1 ? "" : "s"} hidden — click to show`
+                }
+                style={showCancelled ? NAV_LOC_ON : NAV_A}
+                onClick={() => {
+                  const next = !showCancelled;
+                  setShowCancelled(next);
+                  setUrlParams({ cancelled: next ? "1" : null });
+                }}
+              >
+                Cancelled · {cancelledCount}
+              </button>
+            )}
             <a href={`/admin/${token}/daily-events`} style={{ ...NAV_A, textDecoration: "none" }}>
               v1 board
             </a>
@@ -433,18 +499,33 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
               marginBottom: 22,
             }}
           >
-            <span
-              style={{
-                fontSize: "0.7rem",
-                fontWeight: 600,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "#fbbf24",
-              }}
-            >
-              Needs attention · {attention.length}
+            <span style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: "0.7rem",
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#fbbf24",
+                }}
+              >
+                Needs attention · {attention.length}
+              </span>
+              {attentionOpenCents > 0 && (
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    color: "#fbbf24",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {fmtUsd(attentionOpenCents)} open
+                </span>
+              )}
             </span>
-            {attention.map((a) => (
+            {(attentionExpanded ? attention : attention.slice(0, ATTENTION_COLLAPSED)).map((a) => (
               <button
                 key={a.key}
                 type="button"
@@ -455,15 +536,63 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
                   padding: 0,
                   textAlign: "left",
                   color: "var(--ba-fg)",
-                  fontSize: "0.85rem",
+                  fontSize: "0.84rem",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  width: "100%",
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    backgroundColor: ATTENTION_DOT[a.kind],
+                    flexShrink: 0,
+                    alignSelf: "center",
+                  }}
+                />
+                <b style={{ fontWeight: 600 }}>{a.name}</b>
+                <span style={{ color: "var(--ba-muted)", fontSize: "0.78rem" }}>{a.meta}</span>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontWeight: 600,
+                    fontSize: "0.8rem",
+                    color: a.kind === "money" ? "#fbbf24" : "var(--ba-muted)",
+                    fontVariantNumeric: "tabular-nums",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {a.right}
+                </span>
+              </button>
+            ))}
+            {attention.length > ATTENTION_COLLAPSED && (
+              <button
+                type="button"
+                onClick={() => setAttentionExpanded(!attentionExpanded)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  textAlign: "left",
+                  color: "#fbbf24",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
                   cursor: "pointer",
                   fontFamily: "inherit",
                 }}
               >
-                <b style={{ fontWeight: 600 }}>{a.head}</b>
-                <span style={{ color: "var(--ba-muted)" }}>{a.tail}</span>
+                {attentionExpanded
+                  ? "Show less"
+                  : `Show all ${attention.length} (${attention.length - ATTENTION_COLLAPSED} more)`}
               </button>
-            ))}
+            )}
           </div>
         )}
 
@@ -489,7 +618,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
         )}
         {!loading && !error && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {days.map((d) =>
+            {visibleDays.map((d) =>
               view === "day" && d.reservations.length === 0 ? (
                 <div
                   key={d.date}

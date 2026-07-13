@@ -5,27 +5,18 @@
  * schedules, and products (service charges split out). Content lifted
  * unchanged from the pre-tab DailyEventDetail body.
  */
-import {
-  eventDateOf,
-  fmtCurrency,
-  fmtEventDateTime,
-  fmtEventTime,
-} from "~/features/daily-events/format";
+import { eventDateOf, fmtCurrency, fmtEventDateTime } from "~/features/daily-events/format";
 import { isServiceChargeProduct } from "~/features/daily-events/logic";
 import {
   isDepositPaidViaWebsite,
   isFullyPaidViaWebsite,
   safe,
 } from "~/features/daily-events/print-html";
-import type {
-  ReservationDetail,
-  Schedule,
-  WebsitePaymentInfo,
-} from "~/features/daily-events/types";
+import type { ReservationDetail, WebsitePaymentInfo } from "~/features/daily-events/types";
 import { PaidPill } from "../../badges";
 import DetailSection from "../DetailSection";
 import EventMetadataPanel from "../EventMetadataPanel";
-import { InfoItem, ProductRows, TH, TH_R, td } from "../ui";
+import { InfoItem, ProductRows, TH, TH_R } from "../ui";
 
 export default function OverviewTab({
   detail,
@@ -211,35 +202,8 @@ export default function OverviewTab({
         />
       )}
 
-      {/* Schedules */}
-      {Array.isArray(detail.schedules) && detail.schedules.length > 0 && (
-        <DetailSection id="schedules" title="Schedules">
-          <div style={{ overflowX: "auto", margin: "0 -16px" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th style={TH}>Start</th>
-                  <th style={TH}>Stop</th>
-                  <th style={TH}>Resource</th>
-                  <th style={TH}>Products</th>
-                  <th style={TH_R}>Persons</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.schedules.map((s: Schedule, i: number) => (
-                  <tr key={safe(s.id) || i}>
-                    <td style={td(i, { whiteSpace: "nowrap" })}>{fmtEventTime(safe(s.start))}</td>
-                    <td style={td(i, { whiteSpace: "nowrap" })}>{fmtEventTime(safe(s.stop))}</td>
-                    <td style={td(i)}>{safe(s.resourceName)}</td>
-                    <td style={td(i, { color: "var(--ba-muted)" })}>{safe(s.productLines)}</td>
-                    <td style={td(i, { textAlign: "right" })}>{safe(s.persons)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DetailSection>
-      )}
+      {/* Schedules live on their own tab (ScheduleTab) — big events carry
+          dozens of lane/track lines and drowned the Overview. */}
 
       {/* Products (split out service charges / gratuity) */}
       {regularProducts.length > 0 && (

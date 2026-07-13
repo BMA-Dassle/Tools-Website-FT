@@ -22,9 +22,9 @@ import type {
   WaiverThresholds,
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
+import { ADMIN_MONO, PORTAL_BLUE_SOFT } from "~/components/features/admin-skin/theme";
 import { DualBadge, PaymentCell } from "../daily-events/badges";
 import { WAIVER_TEXT_COLORS } from "../daily-events/EventRow";
-import { BLUE_SOFT_V2, MONO_V2 } from "./theme";
 
 export interface DaySummary {
   events: number;
@@ -118,7 +118,7 @@ export default function DayCard({
           cursor: onOpenDay ? "pointer" : undefined,
         }}
       >
-        <b style={{ fontSize: "0.9rem", color: isToday ? BLUE_SOFT_V2 : "var(--ba-fg)" }}>
+        <b style={{ fontSize: "0.9rem", color: isToday ? PORTAL_BLUE_SOFT : "var(--ba-fg)" }}>
           {label}
           {isToday ? " — Today" : ""}
         </b>
@@ -138,7 +138,7 @@ export default function DayCard({
               {sum.events} event{sum.events === 1 ? "" : "s"} · {sum.persons} persons
               {risks.length > 0 && <span style={{ color: "#f59e0b" }}> ({risks.join(", ")})</span>}
               {sum.expectedCents > 0 && (
-                <span style={{ fontFamily: MONO_V2, marginLeft: 12 }}>
+                <span style={{ fontFamily: ADMIN_MONO, marginLeft: 12 }}>
                   <span style={{ color: sum.collectedCents > 0 ? "#22c55e" : "var(--ba-muted)" }}>
                     {fmtUsd(sum.collectedCents)}
                   </span>{" "}
@@ -198,7 +198,7 @@ export default function DayCard({
               <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
                 <span
                   style={{
-                    fontFamily: MONO_V2,
+                    fontFamily: ADMIN_MONO,
                     fontSize: "0.72rem",
                     fontWeight: 700,
                     color: "var(--ba-muted)",
@@ -245,7 +245,7 @@ export default function DayCard({
                 )}
                 {r.when && (
                   <span
-                    style={{ marginLeft: "0.375rem", fontFamily: MONO_V2, fontSize: "0.75rem" }}
+                    style={{ marginLeft: "0.375rem", fontFamily: ADMIN_MONO, fontSize: "0.75rem" }}
                   >
                     {fmtEventTime(r.when)}
                   </span>

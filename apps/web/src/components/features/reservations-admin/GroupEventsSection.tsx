@@ -11,9 +11,14 @@ import type { OrderTarget } from "./modals/SquareOrderModal";
 export default function GroupEventsSection({
   events,
   onViewOrder,
+  onViewEvent,
+  resolvingEventId,
 }: {
   events: GroupEvent[];
   onViewOrder: (target: OrderTarget) => void;
+  /** Opens the daily-events detail modal (resolved by event number). */
+  onViewEvent: (ge: GroupEvent) => void;
+  resolvingEventId: number | null;
 }) {
   if (events.length === 0) return null;
   return (
@@ -184,57 +189,73 @@ export default function GroupEventsSection({
               </div>
 
               {/* Actions — right edge */}
-              {(ge.contractShortId || ge.squareDayofOrderId) && (
-                <span
+              <span
+                style={{
+                  marginLeft: "auto",
+                  display: "flex",
+                  gap: 12,
+                  flexShrink: 0,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => onViewEvent(ge)}
+                  disabled={resolvingEventId != null}
                   style={{
-                    marginLeft: "auto",
-                    display: "flex",
-                    gap: 12,
-                    flexShrink: 0,
+                    background: "none",
+                    border: "none",
+                    cursor: resolvingEventId != null ? "wait" : "pointer",
+                    padding: 0,
+                    fontSize: 11,
+                    color: "#22d3ee",
+                    fontWeight: 600,
+                    textDecoration: "underline",
+                    textDecorationColor: "rgba(34,211,238,0.3)",
                   }}
                 >
-                  {ge.contractShortId && (
-                    <a
-                      href={`/contract/${ge.contractShortId}`}
-                      target="_blank"
-                      rel="noopener"
-                      style={{
-                        fontSize: 11,
-                        color: "#22d3ee",
-                        textDecoration: "none",
-                        fontWeight: 600,
-                      }}
-                    >
-                      View Contract
-                    </a>
-                  )}
-                  {ge.squareDayofOrderId && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onViewOrder({
-                          guestName: ge.eventName,
-                          squareDayofOrderId: ge.squareDayofOrderId,
-                          rewardDiscountCents: 0,
-                        })
-                      }
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        padding: 0,
-                        fontSize: 11,
-                        color: "#22d3ee",
-                        fontWeight: 600,
-                        textDecoration: "underline",
-                        textDecorationColor: "rgba(34,211,238,0.3)",
-                      }}
-                    >
-                      View Square Order
-                    </button>
-                  )}
-                </span>
-              )}
+                  {resolvingEventId === ge.id ? "Opening…" : "Event Details"}
+                </button>
+                {ge.contractShortId && (
+                  <a
+                    href={`/contract/${ge.contractShortId}`}
+                    target="_blank"
+                    rel="noopener"
+                    style={{
+                      fontSize: 11,
+                      color: "#22d3ee",
+                      textDecoration: "none",
+                      fontWeight: 600,
+                    }}
+                  >
+                    View Contract
+                  </a>
+                )}
+                {ge.squareDayofOrderId && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onViewOrder({
+                        guestName: ge.eventName,
+                        squareDayofOrderId: ge.squareDayofOrderId,
+                        rewardDiscountCents: 0,
+                      })
+                    }
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontSize: 11,
+                      color: "#22d3ee",
+                      fontWeight: 600,
+                      textDecoration: "underline",
+                      textDecorationColor: "rgba(34,211,238,0.3)",
+                    }}
+                  >
+                    View Square Order
+                  </button>
+                )}
+              </span>
             </div>
           );
         })}
