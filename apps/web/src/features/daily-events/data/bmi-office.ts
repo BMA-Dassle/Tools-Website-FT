@@ -28,8 +28,9 @@ import type { MetadataLookups, LiveReservation } from "../types";
  * they parse with JSON.parse.
  */
 
+// Same env + baked defaults as lib/bmi-office-actions.ts (proven in prod).
 const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
-const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "";
+const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "JGMxbjFlbGxv";
 const SMS_VERSION = "6251006 202511051229";
 
 /**
