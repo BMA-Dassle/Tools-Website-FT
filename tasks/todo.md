@@ -151,11 +151,11 @@ ON, no flags (owner call 7/3)**; the guest card is branded **HeadPinz FastTrax G
 - [x] 82 feature unit tests green; tsc + eslint parity with main; each step committed green
 - [x] Dry-run exercises on prod rows (all shapes + a live combo; partial-redemption block
       verified on a real tonight-combo) · owner previewed the modal on Vercel preview
-- [ ] **Run `npx tsx scripts/store-credit-probe.mts --live`** (owner: prod Square $1 probe)
-      → exit 0 ⇒ set `STORE_CREDIT_STRATEGY=purchase`, else leave comp default.
-      Comp path wants a "HeadPinz FastTrax Gift Card" catalog discount + env
-      `SQUARE_STORE_CREDIT_DISCOUNT_CATALOG_ID` for honest GL (falls back to survey discount
-      with a loud warn).
+- [x] **Probe ran 7/13 — VERDICT: PURCHASE** (gift-card tender accepted on a GIFT_CARD-line
+      sale; full sequence verified, probe objects cleaned up). Code default flipped to
+      "purchase" on main (0b99d15a) — no env needed; `STORE_CREDIT_STRATEGY=comp` is the
+      explicit fallback. If comp is ever re-enabled, create the dedicated catalog discount +
+      `SQUARE_STORE_CREDIT_DISCOUNT_CATALOG_ID` (else it books against the survey discount).
 - [ ] Post-deploy live smoke: race gift-card cancel e2e (GAN redeemable online, sweep
       dry-runs skip the -4, day-of order CANCELED) · admin refund + idempotent re-run ·
       combo both outcomes · tendered-day-of refusal
