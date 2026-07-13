@@ -68,14 +68,19 @@ export function personDisplayName(p: { firstName?: string; name?: string }): str
   return `${p.firstName || ""} ${p.name || ""}`.trim();
 }
 
-/** YYYY-MM-DD event date for the metadata API, from a BMI `when` string. */
+/**
+ * YYYY-MM-DD event date for the metadata API, from a BMI `when` string.
+ *
+ * PORTAL-EXACT keying — local parse → UTC date (ReservationDetailPage.tsx
+ * ~1036), which rolls evening events (>= 8 PM EDT) onto the NEXT calendar
+ * day. Looks wrong, but every existing event_metadata row (including the
+ * migrated portal rows) is keyed this way, and the BMI note sync reads the
+ * same table — "fixing" it to the wall date would orphan every evening
+ * event's saved food-out time. Do not change without rekeying the table.
+ */
 export function eventDateOf(when: string | undefined | null): string {
   if (!when) return "";
-  const m = /^(\d{4}-\d{2}-\d{2})/.exec(when);
-  if (m) return m[1];
-  try {
-    return new Date(when).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  } catch {
-    return "";
-  }
+  const d = new Date(when);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().substring(0, 10);
 }

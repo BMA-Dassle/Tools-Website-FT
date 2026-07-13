@@ -11,11 +11,15 @@ import type { Reservation, StateFilter, ViewType, WaiverThresholds } from "./typ
 
 // ── Waiver status (portal lines 45-78) ───────────────────────────────
 
+export function hasWaiverResourceKeyword(names: string[]): boolean {
+  return names.some((rn) => WAIVER_RESOURCE_KEYWORDS.some((kw) => rn.toLowerCase().includes(kw)));
+}
+
 export function isWaiverEvent(r: Reservation): boolean {
   if ((r.state || "").toLowerCase().includes("waiver")) return true;
   const names: string[] = Array.isArray(r.allResourceNames) ? [...r.allResourceNames] : [];
   if (!names.length && r.resourceName) names.push(r.resourceName);
-  return names.some((rn) => WAIVER_RESOURCE_KEYWORDS.some((kw) => rn.toLowerCase().includes(kw)));
+  return hasWaiverResourceKeyword(names);
 }
 
 export interface WaiverStatus {

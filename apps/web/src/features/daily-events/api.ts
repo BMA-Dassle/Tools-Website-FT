@@ -79,21 +79,34 @@ export async function getPaymentsBulk(
   }
 
   if (uncachedIds.length > 0) {
-    try {
-      const resp = await getJson<{ results: Record<string, WebsitePaymentInfo> }>(
-        `${BASE}/payments?token=${encodeURIComponent(token)}&bmiCodes=${encodeURIComponent(uncachedIds.join(","))}`,
-      );
-      for (const [id, info] of Object.entries(resp.results || {})) {
-        paymentCache.set(id, info);
-        const displayKey = displayKeyById.get(id);
-        if (displayKey) map.set(displayKey, info);
-      }
-      for (const id of uncachedIds) {
-        if (!paymentCache.has(id)) paymentCache.set(id, null);
-      }
-    } catch {
-      // API errored — silently degrade (portal parity)
+    // Chunk below the server's MAX_CODES cap (60) — a busy week can exceed
+    // it, and ids the server silently truncated must never be
+    // negative-cached as "no payment".
+    const CHUNK = 50;
+    const chunks: string[][] = [];
+    for (let i = 0; i < uncachedIds.length; i += CHUNK) {
+      chunks.push(uncachedIds.slice(i, i + CHUNK));
     }
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        try {
+          const resp = await getJson<{ results: Record<string, WebsitePaymentInfo> }>(
+            `${BASE}/payments?token=${encodeURIComponent(token)}&bmiCodes=${encodeURIComponent(chunk.join(","))}`,
+          );
+          for (const [id, info] of Object.entries(resp.results || {})) {
+            paymentCache.set(id, info);
+            const displayKey = displayKeyById.get(id);
+            if (displayKey) map.set(displayKey, info);
+          }
+          // Only ids this chunk actually asked about may be negative-cached
+          for (const id of chunk) {
+            if (!paymentCache.has(id)) paymentCache.set(id, null);
+          }
+        } catch {
+          // chunk errored — silently degrade, leave its ids uncached (portal parity)
+        }
+      }),
+    );
   }
 
   return map;

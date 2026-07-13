@@ -5,9 +5,9 @@ import {
   LOCATION_TO_CLIENT_KEY,
   SHARED_FM_LOCATIONS,
   LOCATION_NAMES,
-  WAIVER_RESOURCE_KEYWORDS,
   PORTAL_SEPARATOR,
 } from "./constants";
+import { isWaiverEvent, hasWaiverResourceKeyword } from "./logic";
 import {
   officeGet,
   officePut,
@@ -200,9 +200,12 @@ export async function listDailyEvents(
           clientKey,
           `dayPlanner?${otherResourceParams}&from=${date}&till=${date}&showAll=true`,
         );
-        // The portal read `otherDayPlanner?.projects` — cover both response
-        // shapes (top-level map or reservations.projects array) so DUAL
-        // detection works regardless of which one this tenant returns.
+        // The portal read `otherDayPlanner?.projects` (kept below). We also
+        // count projects with an actual SCHEDULE at the other location —
+        // dayPlanner returns schedule-less projects regardless of the
+        // resourceIds filter (that's why the phase-2 backfill exists), so
+        // counting reservations.projects wholesale would DUAL-badge
+        // single-location events that merely appear in both queries.
         const topLevel = otherDayPlanner?.projects;
         if (Array.isArray(topLevel)) {
           for (const p of topLevel as DpProject[]) {
@@ -211,8 +214,15 @@ export async function listDailyEvents(
         } else if (topLevel && typeof topLevel === "object") {
           for (const projId of Object.keys(topLevel)) otherLocationReservationIds.add(projId);
         }
-        for (const p of otherDayPlanner?.reservations?.projects || []) {
-          if (p && p.id !== undefined) otherLocationReservationIds.add(String(p.id));
+        const otherResourceIdSet = new Set(otherResourceIds);
+        for (const sched of otherDayPlanner?.reservations?.projectSchedules || []) {
+          if (
+            sched.projectId !== undefined &&
+            sched.resourceId !== undefined &&
+            otherResourceIdSet.has(String(sched.resourceId))
+          ) {
+            otherLocationReservationIds.add(String(sched.projectId));
+          }
         }
       }
     } catch (err) {
@@ -364,21 +374,10 @@ export async function listDailyEvents(
 
   // Registered person counts for waiver events (portal phases 1+2, verbatim —
   // unbounded parallel project GETs, exactly as the portal fires them).
-  const hasWaiverKeyword = (names: string[]) =>
-    names.some((rn) => WAIVER_RESOURCE_KEYWORDS.some((kw) => rn.toLowerCase().includes(kw)));
-
-  const isWaiverFromDayPlanner = (r: Reservation) => {
-    if ((r.state || "").toLowerCase().includes("waiver")) return true;
-    const names: string[] = Array.isArray(r.allResourceNames) ? [...r.allResourceNames] : [];
-    if (!names.length && r.resourceName) names.push(r.resourceName);
-    return hasWaiverKeyword(names);
-  };
-
-  const knownWaiverEvents = reservations.filter(isWaiverFromDayPlanner);
+  const knownWaiverEvents = reservations.filter(isWaiverEvent);
   const unknownEvents = reservations.filter(
     (r) =>
-      !isWaiverFromDayPlanner(r) &&
-      (!Array.isArray(r.allResourceNames) || r.allResourceNames.length === 0),
+      !isWaiverEvent(r) && (!Array.isArray(r.allResourceNames) || r.allResourceNames.length === 0),
   );
 
   const allToFetch = [...knownWaiverEvents, ...unknownEvents];
@@ -420,7 +419,7 @@ export async function listDailyEvents(
         r.allResourceNames = d.scheduleResourceNames;
       }
 
-      const isWaiver = isWaiverFromDayPlanner(r) || hasWaiverKeyword(d.scheduleResourceNames);
+      const isWaiver = isWaiverEvent(r) || hasWaiverResourceKeyword(d.scheduleResourceNames);
       if (isWaiver) {
         r.registeredPersons = d.registeredCount;
       }
@@ -800,14 +799,27 @@ export async function syncBmiNotes(
   const privateLog = logs.find((l) => l.public === false && l.kind === 1);
 
   if (privateLog) {
-    let existingMemo = (privateLog.memo as string) || "";
+    const fullMemo = (privateLog.memo as string) || "";
 
-    const sepIdx = existingMemo.indexOf(PORTAL_SEPARATOR);
+    // Strip the old Portal Staff section (replace-section, portal parity) —
+    // but PRESERVE the website's own "── FastTrax Web ──" audit section if
+    // it was appended AFTER the separator (appendProjectPrivateNote appends
+    // at the memo end, so it can land there; the portal's writer blindly
+    // truncated it away — a destructive interaction we must not reproduce
+    // now that both writers live in this codebase).
+    let existingMemo = fullMemo;
+    let preservedTail = "";
+    const sepIdx = fullMemo.indexOf(PORTAL_SEPARATOR);
     if (sepIdx !== -1) {
-      existingMemo = existingMemo.substring(0, sepIdx);
+      existingMemo = fullMemo.substring(0, sepIdx);
+      const afterSep = fullMemo.substring(sepIdx + PORTAL_SEPARATOR.length);
+      const ftIdx = afterSep.indexOf("── FastTrax Web ──");
+      if (ftIdx !== -1) {
+        preservedTail = "\n\n" + afterSep.substring(ftIdx).trimEnd();
+      }
     }
 
-    const newMemo = existingMemo.trimEnd() + PORTAL_SEPARATOR + portalSection;
+    const newMemo = existingMemo.trimEnd() + PORTAL_SEPARATOR + portalSection + preservedTail;
 
     // PUT projectLog with the full log object (the portal's exact call).
     // serializeWithRawIds re-emits the parsed string ids as raw numeric
