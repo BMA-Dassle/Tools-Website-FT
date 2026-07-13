@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPortal } from "@/lib/portal-auth";
-import { getPaymentsBulkByCodes } from "~/features/daily-events/service";
+import { getPaymentDetailByCode, getPaymentsBulkByCodes } from "~/features/daily-events/service";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +37,9 @@ export async function GET(req: NextRequest) {
     }
 
     if (bmiCode) {
-      const results = await getPaymentsBulkByCodes([bmiCode.trim()]);
-      return NextResponse.json({ success: true, result: results[bmiCode.trim()] || null });
+      // Detail view — richer shape (payment entries, balance link, attempts)
+      const result = await getPaymentDetailByCode(bmiCode.trim());
+      return NextResponse.json({ success: true, result });
     }
 
     return NextResponse.json(

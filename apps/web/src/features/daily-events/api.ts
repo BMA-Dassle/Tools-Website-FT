@@ -10,6 +10,7 @@ import type {
   ReservationDetail,
   ReservationsResponse,
   WebsitePaymentInfo,
+  ContractHistoryEntry,
   EventMetadata,
 } from "./types";
 
@@ -132,6 +133,18 @@ export async function getPayment(
 
 export function clearPaymentCache(): void {
   paymentCache.clear();
+}
+
+// ── Contract history (Contract tab timeline, lazy-loaded) ────────────
+
+export async function fetchContractHistory(
+  token: string,
+  projectId: string,
+): Promise<ContractHistoryEntry[]> {
+  const data = await getJson<{ data: ContractHistoryEntry[] }>(
+    `${BASE}/contract-history?token=${encodeURIComponent(token)}&projectId=${encodeURIComponent(projectId)}`,
+  );
+  return Array.isArray(data.data) ? data.data : [];
 }
 
 // ── Event metadata (portal EventMetadataPanel fetches) ───────────────

@@ -123,6 +123,23 @@ export interface ReservationDetail {
 
 // ── Website payment overlay (portal WebsitePaymentInfo, verbatim) ────
 
+/** One collected payment on the quote (Square deposit/balance charge). */
+export interface WebsitePaymentEntry {
+  type: "deposit" | "balance" | "legacy";
+  amountCents: number;
+  method: string;
+  squarePaymentId: string | null;
+  squareOrderId?: string | null;
+  paidAt: string | null;
+}
+
+/** Payment recorded before the website flow existed (BMI legacy import). */
+export interface WebsitePriorPayment {
+  amountCents: number;
+  source: string;
+  paidAt: string | null;
+}
+
 export interface WebsitePaymentInfo {
   bmiCode: string;
   venue: string;
@@ -131,6 +148,19 @@ export interface WebsitePaymentInfo {
   totalCents: number;
   depositPaidCents: number;
   balanceRemainingCents: number;
+  // Present on every response (formatPaymentSummary emits them); optional so
+  // stale cache entries and the narrow bulk path stay assignable.
+  payments?: WebsitePaymentEntry[];
+  priorPayments?: WebsitePriorPayment[];
+  giftCardGans?: string[];
+  savedCardOnFile?: boolean;
+  // Single-code detail lookups only (formatPaymentDetail).
+  depositDueCents?: number;
+  balancePaymentLinkUrl?: string | null;
+  depositAttempts?: number;
+  depositLastError?: string | null;
+  balanceChargeAttempts?: number;
+  balanceLastError?: string | null;
 }
 
 // ── Website-native contract info (replaces PandaDoc) ─────────────────
@@ -141,7 +171,32 @@ export interface EventContract {
   quoteStatus: string;
   signedPdfUrl: string | null;
   contractUrl: string | null;
+  /** Guest-facing self-hosted balance payment flow (/contract/{id}/pay). */
+  payUrl: string | null;
   balancePaymentLinkUrl: string | null;
+  sentAt: string | null;
+  signedAt: string | null;
+  guestName: string | null;
+  guestEmail: string | null;
+}
+
+// ── Contract history timeline (audit log + versions + milestones) ────
+
+export interface ContractHistoryEntry {
+  /** ISO timestamp (zoned) the entry occurred. */
+  at: string;
+  /** Raw event key — audit event name, "version", "milestone:*", "pdf_archived". */
+  kind: string;
+  /** Humanized one-line label. */
+  label: string;
+  /** Optional extra line — change list, error message, reason. */
+  detail?: string | null;
+  /** Who did it (email), when known. */
+  actor?: string | null;
+  /** Link to an archived signed PDF (pdf_archived entries). */
+  pdfUrl?: string | null;
+  /** Collapsed repeat count (consecutive guest views). */
+  count?: number;
 }
 
 // ── Food-out event metadata (portal event-metadata contract) ─────────

@@ -1,6 +1,10 @@
 import { serializeWithRawIds } from "@ft/db";
-import { getGfQuoteByReservationId } from "@/lib/group-function-db";
-import { formatPaymentSummary } from "@/lib/portal-format";
+import {
+  getAuditLog,
+  getContractVersions,
+  getGfQuoteByReservationId,
+} from "@/lib/group-function-db";
+import { formatPaymentDetail, formatPaymentSummary } from "@/lib/portal-format";
 import {
   LOCATION_TO_CLIENT_KEY,
   SHARED_FM_LOCATIONS,
@@ -34,6 +38,7 @@ import type {
   Person,
   ProjectLog,
   EventContract,
+  ContractHistoryEntry,
   EventMetadata,
   WebsitePaymentInfo,
 } from "./types";
@@ -645,7 +650,12 @@ async function getContractForProject(projectId: string): Promise<EventContract |
       quoteStatus: quote.status,
       signedPdfUrl: quote.signed_pdf_url || null,
       contractUrl: shortId ? `/contract/${shortId}` : null,
+      payUrl: shortId ? `/contract/${shortId}/pay` : null,
       balancePaymentLinkUrl: quote.balance_payment_link_url || null,
+      sentAt: quote.contract_sent_at || null,
+      signedAt: quote.contract_signed_at || null,
+      guestName: `${quote.guest_first_name || ""} ${quote.guest_last_name || ""}`.trim() || null,
+      guestEmail: quote.guest_email || null,
     };
   } catch (err) {
     console.warn("[daily-events] contract lookup failed:", err);
@@ -653,11 +663,176 @@ async function getContractForProject(projectId: string): Promise<EventContract |
   }
 }
 
+// ── Contract history (audit log + versions + pdf archive + milestones) ──
+
+/** Audit events humanized for the timeline. Unknown keys fall back to Title Case. */
+const AUDIT_EVENT_LABELS: Record<string, string> = {
+  page_view: "Guest viewed contract",
+  balance_pay_view: "Guest viewed balance payment page",
+  signed: "Contract signed",
+  resigned: "Contract re-signed",
+  reprice_charged: "Re-price difference charged",
+  reprice_charge_failed: "Re-price charge FAILED",
+  reprice_refund_owed: "Re-price refund owed to guest",
+  postpaid_approved: "Postpaid request approved",
+  postpaid_denied: "Postpaid request denied",
+  dayof_order_reconciled: "Day-of order reconciled",
+  cancelled_from_bmi: "Cancelled (reservation removed in BMI)",
+  square_settled_completed: "Closed — paid directly in Square",
+  winback_incentive_issued: "Win-back incentive issued",
+  legacy_winback_ingested: "Legacy win-back ingested",
+  pdf_generated: "Signed PDF generated",
+  pdf_generation_failed: "Signed PDF generation failed",
+  "7day_waiver_sent": "7-day waiver reminder sent",
+  "96hr_reminder_sent": "96-hour balance reminder sent",
+  "re-signed": "Contract re-signed",
+};
+
+function humanizeAuditEvent(event: string): string {
+  if (AUDIT_EVENT_LABELS[event]) return AUDIT_EVENT_LABELS[event];
+  // Reminder-cron idempotency gates: "rem_<rule>[:n]" → "Reminder sent — <rule>"
+  if (event.startsWith("rem_")) {
+    return `Reminder sent — ${event.slice(4).replace(/:\d+$/, "").replace(/_/g, " ")}`;
+  }
+  const words = event.replace(/[_:]/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Pull a short human detail line out of an audit entry's metadata. */
+function auditDetail(metadata: Record<string, unknown>): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const parts: string[] = [];
+  if (typeof metadata.reason === "string" && metadata.reason) parts.push(metadata.reason);
+  if (typeof metadata.error === "string" && metadata.error) parts.push(metadata.error);
+  if (typeof metadata.signatureType === "string" && metadata.signatureType) {
+    parts.push(`signature: ${metadata.signatureType}`);
+  }
+  if (typeof metadata.amountCents === "number") {
+    parts.push(`$${(metadata.amountCents / 100).toFixed(2)}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Neon returns TIMESTAMPTZ columns as Date objects (typed string) — normalize. */
+function isoStamp(v: unknown): string {
+  if (v instanceof Date) return v.toISOString();
+  return typeof v === "string" ? v : "";
+}
+
+export async function getContractHistory(projectId: string): Promise<ContractHistoryEntry[]> {
+  const quote = await getGfQuoteByReservationId(projectId);
+  if (!quote) return [];
+
+  const [auditLog, versions] = await Promise.all([
+    getAuditLog(quote.id).catch(() => []),
+    getContractVersions(quote.id).catch(() => []),
+  ]);
+
+  const entries: ContractHistoryEntry[] = [];
+
+  // Audit trail (immutable ledger — signs, views, charges, approvals, reminders)
+  for (const a of auditLog) {
+    entries.push({
+      at: isoStamp(a.created_at),
+      kind: a.event,
+      label: humanizeAuditEvent(a.event),
+      detail: auditDetail(a.metadata),
+      actor: a.actor_email || null,
+    });
+  }
+
+  // Contract versions (v1 = initial terms; later = revisions with field diffs)
+  const auditKinds = new Set(auditLog.map((a) => a.event));
+  for (const v of versions) {
+    entries.push({
+      at: isoStamp(v.created_at),
+      kind: "version",
+      label:
+        v.version_number === 1
+          ? "Contract created (v1)"
+          : `Contract revised (v${v.version_number})`,
+      detail: v.changes && v.changes.length > 0 ? v.changes.join("; ") : null,
+    });
+  }
+
+  // Archived signed PDFs (each re-sign banks the prior signed copy)
+  const pdfHistory = (quote.signed_pdf_history ?? []) as Array<{
+    url?: string;
+    signedAt?: string | null;
+    archivedAt?: string;
+    reason?: string;
+  }>;
+  for (const p of pdfHistory) {
+    if (!p.archivedAt) continue;
+    entries.push({
+      at: isoStamp(p.archivedAt),
+      kind: "pdf_archived",
+      label: "Prior signed PDF archived",
+      detail: p.reason || null,
+      pdfUrl: p.url || null,
+    });
+  }
+
+  // Quote milestones NOT covered by the audit ledger (the row is their record)
+  const milestone = (at: string | null, kind: string, label: string, detail?: string | null) => {
+    const stamp = isoStamp(at);
+    if (stamp)
+      entries.push({ at: stamp, kind: `milestone:${kind}`, label, detail: detail ?? null });
+  };
+  milestone(quote.created_at, "created", "Quote created");
+  milestone(quote.contract_sent_at, "sent", `Contract sent to ${quote.guest_email || "guest"}`);
+  // "signed" milestone only when the audit ledger missed it (pre-ledger rows)
+  if (!auditKinds.has("signed") && !auditKinds.has("resigned")) {
+    milestone(quote.contract_signed_at, "signed", "Contract signed");
+  }
+  milestone(quote.deposit_paid_at, "deposit_paid", "Deposit paid");
+  milestone(quote.balance_link_sent_at, "balance_link_sent", "Balance payment link sent");
+  milestone(quote.balance_paid_at, "balance_paid", "Balance paid");
+  milestone(
+    quote.balance_declined_at,
+    "balance_declined",
+    "Balance charge declined",
+    [quote.balance_decline_code, quote.balance_decline_message].filter(Boolean).join(" — ") || null,
+  );
+  milestone(quote.dayof_paid_at, "dayof_paid", "Day-of charges settled");
+
+  // Chronological, then collapse consecutive guest views on the same day.
+  // Date.parse, not string compare — column formats differ across sources.
+  const ts = (e: ContractHistoryEntry) => {
+    const t = Date.parse(e.at);
+    return Number.isNaN(t) ? 0 : t;
+  };
+  entries.sort((a, b) => ts(a) - ts(b));
+  const collapsed: ContractHistoryEntry[] = [];
+  for (const e of entries) {
+    const prev = collapsed[collapsed.length - 1];
+    const isView = e.kind === "page_view" || e.kind === "balance_pay_view";
+    if (prev && isView && prev.kind === e.kind && prev.at.slice(0, 10) === e.at.slice(0, 10)) {
+      prev.count = (prev.count || 1) + 1;
+      prev.at = e.at; // keep the latest view time of the run
+    } else {
+      collapsed.push({ ...e });
+    }
+  }
+  return collapsed;
+}
+
 // ── Website payments (replaces the portal→website /api/portal/payments hop) ──
 //
 // The UI keys its payment map by projectId (group_function_quotes stores the
 // BMI projectId in bmi_reservation_id — the portal translated its short codes
 // to the same ids via its sales_prospects table before calling us).
+
+/** Single-code lookup with the richer detail shape (payment entries, link, attempts). */
+export async function getPaymentDetailByCode(code: string): Promise<WebsitePaymentInfo | null> {
+  try {
+    const quote = await getGfQuoteByReservationId(code);
+    if (!quote) return null;
+    return formatPaymentDetail(quote) as unknown as WebsitePaymentInfo;
+  } catch {
+    return null;
+  }
+}
 
 export async function getPaymentsBulkByCodes(
   codes: string[],
