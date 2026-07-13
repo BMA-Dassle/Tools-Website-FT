@@ -7,7 +7,9 @@
  * emerald-500/20 + emerald-400). Consumed by both the list rows/cards and
  * the detail modal — do NOT rename these exports.
  */
+import { fmtCurrency } from "~/features/daily-events/format";
 import { getStateBadgePalette } from "~/features/daily-events/logic";
+import type { WebsitePaymentInfo } from "~/features/daily-events/types";
 
 /** Reservation state pill (portal Badge + getStateBadgeVariant). */
 export function StateBadge({ state }: { state: string }) {
@@ -153,6 +155,87 @@ export function paymentPillFor(wp: {
   if (wp.depositPaidCents > 0) return "deposit";
   if (wp.status.includes("cancel")) return null;
   return "unpaid";
+}
+
+/**
+ * Right-aligned payment block for list rows — ONE consistent cell shared by
+ * the day list and the weekly sections: payment pill + state badge on the
+ * first line, progress bar + "collected / total" on the second. Fixed bar
+ * width and tabular numerals keep rows vertically aligned.
+ */
+export function PaymentCell({
+  wp,
+  state,
+  fallbackBalance,
+}: {
+  wp?: WebsitePaymentInfo;
+  state: string;
+  /** BMI balance shown muted when the event has no website quote. */
+  fallbackBalance?: number;
+}) {
+  const pill = wp ? paymentPillFor(wp) : null;
+  const totalCents = wp?.totalCents || 0;
+  const paidCents = wp ? (wp.isFullyPaid ? wp.totalCents : wp.depositPaidCents) : 0;
+  const paidPct = totalCents > 0 ? Math.min(100, Math.round((paidCents / totalCents) * 100)) : 0;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-end",
+        gap: 5,
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+        {pill === "paid" && <PaidPill />}
+        {pill === "deposit" && <DepositPill />}
+        {pill === "unpaid" && <UnpaidPill quoteStatus={wp?.status} />}
+        <StateBadge state={state} />
+      </div>
+      {wp && totalCents > 0 ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <div
+            title={`${fmtCurrency(paidCents / 100)} collected of ${fmtCurrency(totalCents / 100)}`}
+            style={{
+              width: 72,
+              height: 6,
+              backgroundColor: "var(--ba-muted2)",
+              borderRadius: 9999,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                borderRadius: 9999,
+                width: `${paidPct}%`,
+                backgroundColor:
+                  paidPct >= 100 ? "#22c55e" : paidPct > 0 ? "#10b981" : "var(--ba-muted2)",
+              }}
+            />
+          </div>
+          <span
+            style={{
+              fontSize: "0.72rem",
+              fontVariantNumeric: "tabular-nums",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span style={{ color: paidCents > 0 ? "#22c55e" : "var(--ba-muted)" }}>
+              {fmtCurrency(paidCents / 100)}
+            </span>
+            <span style={{ color: "var(--ba-muted)" }}> / {fmtCurrency(totalCents / 100)}</span>
+          </span>
+        </div>
+      ) : !wp && fallbackBalance ? (
+        <span style={{ fontSize: "0.72rem", color: "var(--ba-muted)" }}>
+          {fmtCurrency(fallbackBalance)}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 /** Rotating border-circle loading spinner (portal animate-spin). */

@@ -7,14 +7,14 @@
  * wording (the shared DualBadge atom renders the shorter "DUAL").
  */
 import { clickableDivProps } from "@/lib/a11y";
-import { fmtCurrency, fmtEventTime } from "~/features/daily-events/format";
+import { fmtEventTime } from "~/features/daily-events/format";
 import { getWaiverBarColor, getWaiverStatus } from "~/features/daily-events/logic";
 import type {
   Reservation,
   WaiverThresholds,
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
-import { DepositPill, PaidPill, paymentPillFor, StateBadge, UnpaidPill } from "./badges";
+import { PaymentCell } from "./badges";
 import { WAIVER_TEXT_COLORS } from "./EventRow";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
@@ -129,66 +129,7 @@ export default function EventCard({
             )}
           </div>
         </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            flexShrink: 0,
-          }}
-        >
-          <StateBadge state={r.state} />
-          {wp ? (
-            <div
-              style={{
-                marginTop: 4,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "flex-end",
-                gap: 2,
-              }}
-            >
-              {paymentPillFor(wp) === "paid" && <PaidPill />}
-              {paymentPillFor(wp) === "deposit" && <DepositPill />}
-              {paymentPillFor(wp) === "unpaid" && <UnpaidPill quoteStatus={wp.status} />}
-              {wp.totalCents > 0 && (
-                <span
-                  style={{
-                    fontSize: "0.7rem",
-                    fontVariantNumeric: "tabular-nums",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <span
-                    style={{
-                      color:
-                        (wp.isFullyPaid ? wp.totalCents : wp.depositPaidCents) > 0
-                          ? "#22c55e"
-                          : "var(--ba-muted)",
-                    }}
-                  >
-                    {fmtCurrency((wp.isFullyPaid ? wp.totalCents : wp.depositPaidCents) / 100)}
-                  </span>
-                  <span style={{ color: "var(--ba-muted)" }}>
-                    {" "}
-                    / {fmtCurrency(wp.totalCents / 100)}
-                  </span>
-                </span>
-              )}
-            </div>
-          ) : r.balance ? (
-            <span
-              style={{
-                fontSize: "0.75rem",
-                fontWeight: 500,
-                color: "var(--ba-muted)",
-                marginTop: 4,
-              }}
-            >
-              {fmtCurrency(r.balance)}
-            </span>
-          ) : null}
-        </div>
+        <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} />
       </div>
       <div
         style={{

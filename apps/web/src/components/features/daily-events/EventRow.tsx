@@ -5,9 +5,13 @@
  * weekly-section row variant (portal weekly JSX, lines ~862-957). Faithful
  * port minus the party/labor assignment display + unassign buttons, which
  * were dropped per owner directive.
+ *
+ * Both variants render the SAME right-aligned PaymentCell (pill + state,
+ * bar + collected/total) so the day list and weekly sections read
+ * identically.
  */
 import { clickableDivProps } from "@/lib/a11y";
-import { fmtCurrency, fmtEventTime } from "~/features/daily-events/format";
+import { fmtEventTime } from "~/features/daily-events/format";
 import {
   getWaiverBarColor,
   getWaiverStatus,
@@ -20,7 +24,7 @@ import type {
   WaiverThresholds,
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
-import { DepositPill, DualBadge, PaidPill, paymentPillFor, StateBadge, UnpaidPill } from "./badges";
+import { DualBadge, PaymentCell } from "./badges";
 
 /** Waiver registration text colors — Tailwind *-400 shades (portal text-red-400 etc.). */
 export const WAIVER_TEXT_COLORS: Record<"red" | "yellow" | "green", string> = {
@@ -48,9 +52,6 @@ export default function EventRow({
   const waiver = getWaiverStatus(r, waiverThresholds);
   const barColor = getWaiverBarColor(r, waiverThresholds);
   const wp = websitePayments.get(r.number || r.id);
-  const totalCents = wp?.totalCents || 0;
-  const paidCents = wp ? (wp.isFullyPaid ? wp.totalCents : wp.depositPaidCents) : 0;
-  const paidPct = totalCents > 0 ? Math.min(100, Math.round((paidCents / totalCents) * 100)) : 0;
 
   return (
     <div
@@ -77,140 +78,75 @@ export default function EventRow({
         />
       )}
 
-      {/* Row 1: Number, Name, Badges, State, Payment pills */}
-      <div
-        style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}
-      >
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            color: "var(--ba-muted)",
-            flexShrink: 0,
-          }}
-        >
-          {r.number || r.id.slice(0, 12)}
-        </span>
-        {r.isMultiLocation && <DualBadge otherLocationName={r.otherLocationName} />}
-        <span
-          style={{
-            fontSize: "0.875rem",
-            fontWeight: 500,
-            color: "var(--ba-fg)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {r.name || "—"}
-        </span>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.375rem",
-            marginLeft: "auto",
-            flexShrink: 0,
-          }}
-        >
-          {wp && paymentPillFor(wp) === "paid" && <PaidPill />}
-          {wp && paymentPillFor(wp) === "deposit" && <DepositPill />}
-          {wp && paymentPillFor(wp) === "unpaid" && <UnpaidPill quoteStatus={wp.status} />}
-          <StateBadge state={r.state} />
-        </div>
-      </div>
-
-      {/* Row 2: Contact, Persons, Time, Staff, Payment progress */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        <div
-          style={{
-            fontSize: "0.75rem",
-            color: "var(--ba-muted)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {r.personName || "Unknown"}
-          <span style={{ margin: "0 0.375rem" }}>&middot;</span>
-          {waiver ? (
-            <span style={{ color: WAIVER_TEXT_COLORS[waiver.color] }}>
-              {waiver.registered}/{r.persons} registered
-            </span>
-          ) : (
-            <>
-              {r.persons || 0}
-              {r.capacity ? ` / ${r.capacity}` : ""} persons
-            </>
-          )}
-          {r.when && <span style={{ marginLeft: "0.375rem" }}>{fmtEventTime(r.when)}</span>}
-          {r.responsible && (
-            <>
-              <span style={{ margin: "0 0.375rem" }}>&middot;</span>
-              {r.responsible}
-            </>
-          )}
-        </div>
-        {totalCents > 0 && (
+      <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        {/* Left: name line + info line */}
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
               display: "flex",
               alignItems: "center",
               gap: "0.5rem",
-              marginLeft: "auto",
-              flexShrink: 0,
+              marginBottom: "0.25rem",
             }}
           >
-            <div
-              title={`${fmtCurrency(paidCents / 100)} / ${fmtCurrency(totalCents / 100)}`}
-              style={{
-                width: 80,
-                height: 8,
-                backgroundColor: "var(--ba-muted2)",
-                borderRadius: 9999,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  height: "100%",
-                  borderRadius: 9999,
-                  transition: "width 0.2s",
-                  width: `${paidPct}%`,
-                  backgroundColor:
-                    paidPct >= 100 ? "#22c55e" : paidPct > 0 ? "#10b981" : "var(--ba-muted2)",
-                }}
-              />
-            </div>
             <span
               style={{
+                fontFamily: MONO,
                 fontSize: "0.75rem",
-                fontVariantNumeric: "tabular-nums",
+                fontWeight: 700,
+                color: "var(--ba-muted)",
+                flexShrink: 0,
+              }}
+            >
+              {r.number || r.id.slice(0, 12)}
+            </span>
+            {r.isMultiLocation && <DualBadge otherLocationName={r.otherLocationName} />}
+            <span
+              style={{
+                fontSize: "0.875rem",
                 fontWeight: 500,
+                color: "var(--ba-fg)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              <span style={{ color: paidCents > 0 ? "#22c55e" : "var(--ba-muted)" }}>
-                {fmtCurrency(paidCents / 100)}
-              </span>
-              <span style={{ color: "var(--ba-muted)", margin: "0 2px" }}>/</span>
-              <span style={{ color: "var(--ba-muted)" }}>{fmtCurrency(totalCents / 100)}</span>
+              {r.name || "—"}
             </span>
           </div>
-        )}
-        {!totalCents && r.balance ? (
-          <span
+          <div
             style={{
               fontSize: "0.75rem",
               color: "var(--ba-muted)",
-              marginLeft: "auto",
-              flexShrink: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
-            {fmtCurrency(r.balance)}
-          </span>
-        ) : null}
+            {r.personName || "Unknown"}
+            <span style={{ margin: "0 0.375rem" }}>&middot;</span>
+            {waiver ? (
+              <span style={{ color: WAIVER_TEXT_COLORS[waiver.color] }}>
+                {waiver.registered}/{r.persons} registered
+              </span>
+            ) : (
+              <>
+                {r.persons || 0}
+                {r.capacity ? ` / ${r.capacity}` : ""} persons
+              </>
+            )}
+            {r.when && <span style={{ marginLeft: "0.375rem" }}>{fmtEventTime(r.when)}</span>}
+            {r.responsible && (
+              <>
+                <span style={{ margin: "0 0.375rem" }}>&middot;</span>
+                {r.responsible}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Right: payment pill + state, bar + collected/total */}
+        <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} />
       </div>
     </div>
   );
@@ -219,7 +155,7 @@ export default function EventRow({
 /**
  * Weekly-section row: contract-stage left border (deposit-requested orange /
  * send-contract indigo / pending-signed purple) takes precedence over the
- * waiver bar; inline payment text from websitePayments.
+ * waiver bar; same PaymentCell as the day list.
  */
 export function WeekEventRow({
   r,
@@ -297,29 +233,9 @@ export function WeekEventRow({
             </>
           )}
           {r.when && <span style={{ marginLeft: "0.5rem" }}>{fmtEventTime(r.when)}</span>}
-          {wp?.isFullyPaid ? (
-            <span style={{ marginLeft: "0.5rem", color: "#4ade80" }}>
-              {fmtCurrency(wp.totalCents / 100)} paid
-            </span>
-          ) : wp && wp.depositPaidCents > 0 ? (
-            <span style={{ marginLeft: "0.5rem", color: "#34d399" }}>
-              {fmtCurrency(wp.depositPaidCents / 100)} deposit
-              {wp.balanceRemainingCents > 0 && (
-                <span style={{ color: "var(--ba-muted)" }}>
-                  {" "}
-                  / {fmtCurrency(wp.balanceRemainingCents / 100)} due
-                </span>
-              )}
-            </span>
-          ) : null}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexShrink: 0 }}>
-        {wp && paymentPillFor(wp) === "paid" && <PaidPill />}
-        {wp && paymentPillFor(wp) === "deposit" && <DepositPill />}
-        {wp && paymentPillFor(wp) === "unpaid" && <UnpaidPill quoteStatus={wp.status} />}
-        <StateBadge state={r.state} />
-      </div>
+      <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} />
     </div>
   );
 }
