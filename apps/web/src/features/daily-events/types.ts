@@ -190,6 +190,8 @@ export interface SquareTimelineNode {
     state: string;
     totalCents: number;
     netDueCents: number;
+    /** Order contents — line items then service charges (qty empty). */
+    lineItems: Array<{ name: string; qty: string; totalCents: number }>;
     tenders: Array<{
       paymentId: string;
       amountCents: number;

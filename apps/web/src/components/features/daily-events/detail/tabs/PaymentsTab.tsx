@@ -46,6 +46,32 @@ function ganDisplay(gan: string): string {
   return gan.length > 4 ? `…${gan.slice(-4)}` : gan;
 }
 
+// Square Dashboard deep links (seller must be signed in; a stale format just
+// lands on the dashboard list, never errors).
+const sqOrderUrl = (id: string) => `https://app.squareup.com/dashboard/orders/overview/${id}`;
+const sqPaymentUrl = (id: string) => `https://app.squareup.com/dashboard/sales/transactions/${id}`;
+const SQ_GIFT_CARDS_URL = "https://app.squareup.com/dashboard/gift-cards";
+
+function SquareLink({ href, title }: { href: string; title: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      style={{
+        fontSize: "0.7rem",
+        fontWeight: 700,
+        color: "#60a5fa",
+        textDecoration: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      Square ↗
+    </a>
+  );
+}
+
 /** Mono id with click-to-copy (flashes a check — no toast plumbing here). */
 function CopyableId({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -324,19 +350,71 @@ export default function PaymentsTab({
                         </>
                       )}
                     </div>
+                    {/* Order contents */}
+                    {n.order && n.order.lineItems.length > 0 && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 2,
+                          maxWidth: 480,
+                        }}
+                      >
+                        {n.order.lineItems.map((li, j) => (
+                          <div
+                            key={j}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              fontSize: "0.75rem",
+                              color: "var(--ba-muted)",
+                            }}
+                          >
+                            <span
+                              style={{
+                                minWidth: 0,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {li.qty && li.qty !== "1" ? `${li.qty} × ` : ""}
+                              {li.name}
+                            </span>
+                            <span style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                              {fmtCurrency(li.totalCents / 100)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div
                       style={{
                         display: "flex",
-                        gap: 6,
+                        gap: 8,
                         flexWrap: "wrap",
                         marginTop: 4,
                         alignItems: "center",
                       }}
                     >
-                      {n.order && <CopyableId value={n.order.id} />}
+                      {n.order && (
+                        <>
+                          <CopyableId value={n.order.id} />
+                          <SquareLink
+                            href={sqOrderUrl(n.order.id)}
+                            title="Open this order in the Square Dashboard"
+                          />
+                        </>
+                      )}
                       {n.giftCard?.gan && (
                         <span style={{ fontSize: "0.72rem", color: "var(--ba-muted)" }}>
-                          GC {ganDisplay(n.giftCard.gan)} <CopyableId value={n.giftCard.gan} />
+                          GC {ganDisplay(n.giftCard.gan)} <CopyableId value={n.giftCard.gan} />{" "}
+                          <SquareLink
+                            href={SQ_GIFT_CARDS_URL}
+                            title="Open Square gift cards — paste the copied GAN to find this card"
+                          />
                         </span>
                       )}
                       {n.order?.tenders.map((t) => (
@@ -352,7 +430,11 @@ export default function PaymentsTab({
                               · {fmtCurrency(t.refundedCents / 100)} refunded
                             </span>
                           ) : null}{" "}
-                          <CopyableId value={t.paymentId} />
+                          <CopyableId value={t.paymentId} />{" "}
+                          <SquareLink
+                            href={sqPaymentUrl(t.paymentId)}
+                            title="Open this payment in the Square Dashboard"
+                          />
                         </span>
                       ))}
                     </div>

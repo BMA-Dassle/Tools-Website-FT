@@ -6,11 +6,7 @@ import {
   parseGiftCardIds,
 } from "@/lib/group-function-db";
 import { formatPaymentDetail, formatPaymentSummary } from "@/lib/portal-format";
-import {
-  fetchGiftCardFacts,
-  fetchOrderFacts,
-  fetchPaymentFacts,
-} from "~/features/cancellation/square-actions";
+import { fetchGiftCardFacts, fetchPaymentFacts, sq } from "~/features/cancellation/square-actions";
 import {
   LOCATION_TO_CLIENT_KEY,
   SHARED_FM_LOCATIONS,
@@ -831,6 +827,21 @@ export async function getContractHistory(projectId: string): Promise<ContractHis
 // deposit order → funding gift card (live balance) → balance order →
 // day-of / settled orders. Each node fails independently.
 
+interface SquareOrderPayload {
+  id: string;
+  state?: string;
+  total_money?: { amount?: number };
+  net_amount_due_money?: { amount?: number };
+  tenders?: Array<{ payment_id?: string; amount_money?: { amount?: number } }>;
+  line_items?: Array<{
+    name?: string;
+    variation_name?: string;
+    quantity?: string;
+    total_money?: { amount?: number };
+  }>;
+  service_charges?: Array<{ name?: string; total_money?: { amount?: number } }>;
+}
+
 async function squareOrderNode(
   kind: SquareTimelineNode["kind"],
   label: string,
@@ -838,11 +849,33 @@ async function squareOrderNode(
   withPayments: boolean,
 ): Promise<SquareTimelineNode> {
   try {
-    const facts = await fetchOrderFacts(orderId);
-    let tenders: NonNullable<SquareTimelineNode["order"]>["tenders"] = facts.tenders;
+    // Own order read (not fetchOrderFacts) — the timeline also shows the
+    // order CONTENTS, which the cancellation-cascade fact reader drops.
+    const r = await sq("GET", `/orders/${orderId}`);
+    if (!r.ok || !r.json?.order) {
+      throw new Error(`order fetch failed (${r.status})`);
+    }
+    const o = r.json.order as SquareOrderPayload;
+
+    const lineItems = (o.line_items ?? []).map((li) => ({
+      name: [li.name, li.variation_name].filter(Boolean).join(" — ") || "Item",
+      qty: li.quantity ?? "1",
+      totalCents: li.total_money?.amount ?? 0,
+    }));
+    for (const sc of o.service_charges ?? []) {
+      lineItems.push({
+        name: sc.name || "Service charge",
+        qty: "",
+        totalCents: sc.total_money?.amount ?? 0,
+      });
+    }
+
+    let tenders: NonNullable<SquareTimelineNode["order"]>["tenders"] = (o.tenders ?? [])
+      .map((t) => ({ paymentId: t.payment_id ?? "", amountCents: t.amount_money?.amount ?? 0 }))
+      .filter((t) => t.paymentId);
     if (withPayments) {
       tenders = await Promise.all(
-        facts.tenders.map(async (t) => {
+        tenders.map(async (t) => {
           try {
             const p = await fetchPaymentFacts(t.paymentId);
             return { ...t, status: p.status, refundedCents: p.refundedCents };
@@ -852,14 +885,16 @@ async function squareOrderNode(
         }),
       );
     }
+
     return {
       kind,
       label,
       order: {
-        id: facts.id,
-        state: facts.state,
-        totalCents: facts.totalCents,
-        netDueCents: facts.netDueCents,
+        id: o.id,
+        state: o.state ?? "?",
+        totalCents: o.total_money?.amount ?? 0,
+        netDueCents: o.net_amount_due_money?.amount ?? 0,
+        lineItems,
         tenders,
       },
     };
