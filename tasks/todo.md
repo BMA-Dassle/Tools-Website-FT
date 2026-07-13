@@ -486,3 +486,32 @@ Convert HPFM/HPN booking to v2 with center-scoped offering order on `/book/v2`.
 - **Fix:** Use `generateMetadata` in `/book` pages that reads the `x-brand` header (set by middleware) to return HeadPinz or FastTrax metadata dynamically
 - **Files:** `app/layout.tsx`, `app/book/[attraction]/page.tsx`, `app/book/race/page.tsx`, `middleware.ts`
 - **Google result example:** `headpinz.com/book/gel-blaster` shows "Indoor Go-Kart Racing & Entertainment | Fort Myers, FL" and "63000 sq ft of high-performance electric go-kart racing..."
+
+## Daily Events admin (ported from employee portal) — BUILT 2026-07-12, feat/daily-events-admin
+
+Ports portal.headpinz.com/management/operations/daily-events (group event ops board + detail)
+into this repo at `/admin/{token}/daily-events` (+ `/admin/embed/daily-events` HMAC embed).
+Feature at `src/features/daily-events/` + `src/components/features/daily-events/`; routes at
+`app/api/admin/daily-events/{reservations,reservations/[projectId],payments,event-metadata}`.
+Owner directive honored: upstream BMI calls are byte-faithful ports of the portal's (only
+deviations: parseWithRawIds response parsing per the precision hard rule; resource mappings +
+waiver thresholds frozen from a 2026-07-12 portal-DB export into constants.ts; payments read
+`group_function_quotes` directly by projectId instead of the portal→website proxy hop).
+Dropped per owner: party assignments, PandaDoc (replaced by native ContractSection).
+`event_metadata` re-homed to website Neon (portal-verbatim DDL) — run
+`scripts/migrate-daily-event-metadata.mjs` once at cutover (PORTAL_DATABASE_URL + DATABASE_URL).
+
+**Remaining before staff cutover:**
+- [ ] Owner live pass: page vs portal side-by-side (same date/location), detail modal, print
+      outputs, food-out manual save on a REAL event (verifies the BMI private-note sync write —
+      left untested on purpose; sync no-op path + Neon cycle verified with a synthetic id).
+- [ ] Portal repo (separate PR): add `daily-events` to embed TOOL_PATHS, swap its page for the
+      iframe, retire its party-assignment note writer (two writers would alternate the
+      "----- Portal Staff -----" section), keep TV dashboard (still reads portal event_metadata).
+- [ ] Run the event_metadata backfill at cutover.
+- [ ] Env check on Vercel: ANTHROPIC_API_KEY or VERCEL_AI_GATEWAY_KEY must be present for
+      food-out AI extraction (graceful "AI extraction failed" fallback otherwise).
+
+**Cleanup candidate discovered:** `lib/bmi-office-actions.ts` `fetchProject`/`fetchPersonsByIds`
+parse BMI payloads with plain JSON.parse — latent 17-digit precision hazard for OTHER callers
+(this feature deliberately does not reuse them). Fix in its own PR.

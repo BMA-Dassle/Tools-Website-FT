@@ -1713,3 +1713,24 @@ Forward fix: `unified-reserve.ts` finalTitle now prefixes `VIP Exp. ` when the l
 a `comboSpecialId`. Existing today/future legs remediated via
 `scripts/_vip-qamf-title-prefix.mts` (dry-run default, `--live`; idempotent — skips
 titles already starting with `VIP Exp.`). 13 legs patched (today → 7/8).
+
+## Porting a page ≠ redesigning its data layer (2026-07-12)
+
+**Correction:** While planning the Daily Events port from the employee portal, I designed
+"improvements" into the data layer — collapsing the portal's two dayPlanner calls into one,
+replacing its 7 parallel per-day week fetches with a ranged endpoint, making AI extraction
+server-authoritative. Owner corrected mid-build: "make sure we are not changing any API calls —
+we should just be moving UI essentially."
+
+**Why:** A port's value is that the moved page behaves EXACTLY like the original against the
+same upstream systems. Every "smarter" call pattern is an unvalidated behavior change hiding
+inside a supposedly mechanical move — if the new page disagrees with the old one, nobody can
+tell whether the data changed or the port broke it. Optimizations belong in their own PR after
+the port is verified live.
+
+**How to apply:** When a task is "move/port/recreate X", treat upstream call patterns
+(endpoints, params, sequencing, batching) as part of the spec, byte-faithful. Only deviate for
+(a) hard repo rules that don't alter the wire requests (e.g. parseWithRawIds response parsing),
+(b) dependencies that physically don't exist in the target (portal-DB reads → frozen constants),
+and call out every such deviation explicitly in the plan. Ask "is this port allowed to change
+behavior?" BEFORE designing, not after.
