@@ -53,10 +53,11 @@ export async function middleware(request: NextRequest) {
     // invalidate all outstanding URLs.
     //
     // Supported tools:
-    //   /admin/embed/bowling    — reservation management
-    //   /admin/embed/e-tickets  — e-ticket delivery log + resend
-    //   /admin/embed/videos     — video match log + resend
-    const EMBED_TOOLS = new Set(["bowling", "e-tickets", "videos"]);
+    //   /admin/embed/bowling      — reservation management
+    //   /admin/embed/e-tickets    — e-ticket delivery log + resend
+    //   /admin/embed/videos       — video match log + resend
+    //   /admin/embed/daily-events — group event day board + detail
+    const EMBED_TOOLS = new Set(["bowling", "e-tickets", "videos", "daily-events"]);
     const embedMatch = pathname.match(/^\/admin\/embed\/([a-z-]+)$/);
     if (embedMatch && EMBED_TOOLS.has(embedMatch[1])) {
       const embedSecret = process.env.ADMIN_EMBED_SECRET || "";

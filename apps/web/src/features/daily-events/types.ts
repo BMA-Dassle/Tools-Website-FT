@@ -1,0 +1,201 @@
+/**
+ * Daily Events — types ported from the employee portal
+ * (src/services/smsTimingService.ts + websitePaymentService.ts), plus the
+ * website-native additions (contract info, food-out metadata).
+ *
+ * All BMI identifiers are STRINGS end-to-end — they are 17-digit ids that
+ * exceed Number.MAX_SAFE_INTEGER (see @ft/db raw-ids).
+ */
+
+// ── Reservation list (portal Reservation, verbatim shape) ────────────
+
+export interface Reservation {
+  id: string;
+  number: string;
+  kindId?: string;
+  kind: string;
+  name: string;
+  personName: string;
+  personId?: string;
+  persons: number;
+  when: string;
+  stop?: string;
+  state: string;
+  stateId?: string;
+  responsible: string;
+  balance: number;
+  validUntil?: string;
+  resourceId?: string;
+  resourceName?: string;
+  allResourceNames?: string[];
+  capacity?: number;
+  registeredPersons?: number;
+  products?: string | null;
+  _isDayPlannerBlock: boolean;
+  isMultiLocation?: boolean;
+  otherLocationName?: string;
+}
+
+export interface ReservationsResponse {
+  reservations: Reservation[];
+  source: string;
+  clientKey: string;
+  note?: string;
+}
+
+// ── Reservation detail (portal ReservationDetail, verbatim shape) ────
+
+export interface Schedule {
+  id: string;
+  projectId: string;
+  resourceId: string;
+  resourceName: string;
+  resourceKind?: string;
+  productLines?: string;
+  persons: number;
+  start: string;
+  stop: string;
+  isExclusive?: boolean;
+  productIds?: string[];
+}
+
+export interface Product {
+  id: string;
+  productId: string;
+  projectId: string;
+  totalPrice: number;
+  quantity: number;
+  isVisible?: boolean;
+  productName?: string;
+  nameOverride?: string;
+}
+
+export interface Payment {
+  id?: string;
+  amount: number;
+  payMethodId: string;
+  projectId: string;
+  payMethodName?: string;
+}
+
+export interface Person {
+  id?: string;
+  personId?: string;
+  firstName?: string;
+  name?: string;
+  birthDate?: string;
+  email?: string;
+  mobile?: string;
+  phone?: string;
+  addresses?: Array<{ email?: string; mobile?: string; phone?: string; city?: string }>;
+}
+
+export interface ProjectLog {
+  id?: string;
+  memo?: string;
+  action?: string;
+  updated?: string;
+  updatedBy?: string;
+  isPublic?: boolean;
+}
+
+export interface ReservationDetail {
+  id: string;
+  number?: string;
+  name?: string;
+  when?: string;
+  state?: string;
+  kind?: string;
+  persons?: number;
+  responsible?: string;
+  validUntil?: string;
+  creationDate?: string;
+  balance?: number;
+  schedules: Schedule[];
+  products: Product[];
+  payments: Payment[];
+  persons_list?: Person[];
+  contactPerson?: Person | null;
+  logs?: ProjectLog[];
+  /** Website-native contract info (replaces the portal's PandaDoc section). */
+  contract?: EventContract | null;
+}
+
+// ── Website payment overlay (portal WebsitePaymentInfo, verbatim) ────
+
+export interface WebsitePaymentInfo {
+  bmiCode: string;
+  venue: string;
+  status: string;
+  isFullyPaid: boolean;
+  totalCents: number;
+  depositPaidCents: number;
+  balanceRemainingCents: number;
+}
+
+// ── Website-native contract info (replaces PandaDoc) ─────────────────
+
+export interface EventContract {
+  shortId: string | null;
+  status: string | null;
+  quoteStatus: string;
+  signedPdfUrl: string | null;
+  contractUrl: string | null;
+  balancePaymentLinkUrl: string | null;
+}
+
+// ── Food-out event metadata (portal event-metadata contract) ─────────
+
+export interface EventMetadata {
+  foodOutTime: string | null;
+  foodOutSource: "ai" | "manual" | null;
+  foodOutConfidence: string | null;
+  foodOutReasoning: string | null;
+  metadata: Record<string, unknown>;
+  updatedAt: string | null;
+}
+
+// ── Server-side lookup blobs (portal MetadataLookups / LiveReservation) ──
+
+export interface MetadataLookups {
+  resourceNames: Record<string, string>;
+  productNames: Record<string, string>;
+  payMethodNames: Record<string, string>;
+  stateNames: Record<string, string>;
+  kindNames: Record<string, string>;
+  userNames: Record<string, string>;
+}
+
+export interface LiveReservation {
+  id: string;
+  clientKey: string;
+  personInfo: string;
+  responsible: string;
+  referenceNumber: string;
+  state: string;
+  date: string;
+  persons: number;
+  products: string | null;
+  totalValue: number;
+  payments: number;
+  balance: number;
+}
+
+// ── UI state unions (portal DailyEventsPage) ─────────────────────────
+
+export type ViewType = "group" | "online";
+
+export type StateFilter =
+  | "all"
+  | "confirmed"
+  | "send_contract"
+  | "pending_signed"
+  | "deposit_requested"
+  | "cancelled";
+
+export type WeekTabKey = "last" | "current" | "next";
+
+export interface WaiverThresholds {
+  red: number;
+  yellow: number;
+}
