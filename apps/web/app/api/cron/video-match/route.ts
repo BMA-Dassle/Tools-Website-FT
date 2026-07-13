@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { listRecentVideos, setVideoDisabled, linkCustomerEmail, type Vt3Video } from "@/lib/vt3";
-import { getAssignmentAtTime } from "@/lib/camera-assign";
+import { matchVideoToAssignment } from "@/lib/video-event-processor";
 import {
-  saveVideoMatch,
   updateVideoMatch,
   getMatchByVideoCode,
   getLastSeenVideoId,
@@ -29,11 +28,16 @@ import { verifyCron } from "@/lib/cron-auth";
  *   2. Trim to ones newer than `vt3:last-seen-id`. First run processes
  *      up to 50 most-recent; subsequent runs only process the delta.
  *   3. For each, skip if already matched (sentinel key).
- *   4. Look up the camera-history sorted set at the video's
- *      `created_at` timestamp — returns the assignment that was live
- *      for this camera at capture time. Critical for multi-heat days
- *      where the same kart runs two or three different racers.
- *   5. If an assignment is found, persist the match
+ *   4. Match via the shared matchVideoToAssignment helper: walk the
+ *      camera-history entries scanned at-or-before the video's
+ *      `created_at` OLDEST-first and take the earliest assignment
+ *      that doesn't already hold a video — multiple videos from one
+ *      camera pair to multiple assignments in order. Critical for
+ *      multi-heat days where the same kart runs two or three
+ *      different racers. If every eligible assignment already has a
+ *      video, the record is HELD in the review bucket (no SMS) for
+ *      manual send from the videos admin.
+ *   5. On a match, persist it
  *      (video-match:{sessionId}:{personId} + video-match:by-code
  *      sentinel).
  *   6. Always advance `vt3:last-seen-id` to the highest id we saw, even
@@ -183,6 +187,7 @@ export async function GET(req: NextRequest) {
   let skippedNoAssignment = 0;
   let skippedOld = 0;
   let skippedNotReady = 0; // match row exists + still waiting on VT3
+  let heldDuplicate = 0; // every eligible assignment already has a video — held for review
   let savedPending = 0; // NEW match, saved with pendingNotify=true
   let deferredSent = 0; // pending match turned ready, notify fired on this tick
   let matched = 0; // new match + immediate notify (VT3 already ready)
@@ -220,6 +225,18 @@ export async function GET(req: NextRequest) {
       listRecentVideos({ siteId, limit: 500 }),
       getLastSeenVideoId(),
     ]);
+
+    // VT3 returns id:desc (newest first). Process oldest-first so two
+    // videos from the same camera arriving in one batch pair to
+    // assignments IN ORDER — iterating newest-first would hand the
+    // LATER video the earlier unfilled slot. The rest of the loop is
+    // order-independent (overlay pass is per-item, highestId is a max).
+    videos.sort((a, b) => {
+      const at = new Date(a.created_at).getTime();
+      const bt = new Date(b.created_at).getTime();
+      if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at - bt;
+      return a.id - b.id;
+    });
 
     // Only advance lastSeenId past videos we actually finished with
     // (either matched, ready-but-no-assignment, or fatal error). Videos
@@ -500,14 +517,12 @@ export async function GET(req: NextRequest) {
       }
 
       // -----------------------------------------------------------------
-      // PATH 2: no existing record. Try to match by camera + save. If VT3
-      // isn't ready, save with pendingNotify=true (admin sees the row
-      // now, racer gets the SMS once VT3 transitions). If ready, notify
-      // immediately.
+      // PATH 2: no existing record. Match via the shared helper (earliest
+      // unfilled assignment, oldest-first — see matchVideoToAssignment in
+      // lib/video-event-processor.ts) + save. If VT3 isn't ready, save
+      // with pendingNotify=true (admin sees the row now, racer gets the
+      // SMS once VT3 transitions). If ready, notify immediately.
       // -----------------------------------------------------------------
-      //
-      // Key the match on video.camera (NFC-scanned hardware id). Fallback
-      // to video.system.name for legacy records stored that way.
       const cameraKey = v.camera != null ? String(v.camera) : "";
       const systemFallbackKey = v.system?.name || "";
       if (!cameraKey && !systemFallbackKey) {
@@ -515,94 +530,54 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Time-aware: who was this camera assigned to when the video was
-      // captured?
-      let assignment = cameraKey ? await getAssignmentAtTime(cameraKey, v.created_at) : null;
-      if (!assignment && systemFallbackKey) {
-        assignment = await getAssignmentAtTime(systemFallbackKey, v.created_at);
-      }
-      if (!assignment) {
-        if (v.id > highestId) highestId = v.id;
-        skippedNoAssignment++;
-        continue;
-      }
-
-      // Resolve block state BEFORE we save — saved records get the
-      // block mirror populated from the start, and we know whether to
-      // call VT3 disable or to fire notify.
-      const blockState = await getBlockState({
-        sessionId: assignment.sessionId,
-        personId: assignment.personId,
-        videoCode: v.code,
-      });
-
-      if (dryRun) {
-        matches.push({
-          videoCode: v.code,
-          systemNumber: systemFallbackKey,
-          cameraNumber: v.camera,
-          racer: `${assignment.firstName} ${assignment.lastName}`,
-          sessionId: assignment.sessionId,
-        });
-        if (blockState.blocked) skippedBlocked++;
-        else if (notReady) savedPending++;
-        else matched++;
-        continue;
-      }
-
       try {
-        const matchRecord: VideoMatch = {
-          sessionId: assignment.sessionId,
-          personId: assignment.personId,
-          firstName: assignment.firstName,
-          lastName: assignment.lastName,
-          systemNumber: systemFallbackKey,
-          cameraNumber: v.camera,
-          videoId: v.id,
-          videoCode: v.code,
-          customerUrl: `https://vt3.io/?code=${v.code}`,
-          thumbnailUrl: v.thumbnailUrl,
-          capturedAt: v.created_at,
-          duration: v.duration,
-          matchedAt: new Date().toISOString(),
-          sessionName: assignment.sessionName,
-          scheduledStart: assignment.scheduledStart,
-          track: assignment.track,
-          raceType: assignment.raceType,
-          heatNumber: assignment.heatNumber,
-          email: assignment.email,
-          phone: assignment.phone,
-          mobilePhone: assignment.mobilePhone,
-          homePhone: assignment.homePhone,
-          acceptSmsCommercial: assignment.acceptSmsCommercial,
-          // Guardian fallback for minors — snapshotted from the
-          // camera-history entry. Used by notifyVideoReady when the
-          // racer's own contact is missing / opted out.
-          guardian: assignment.guardian ?? undefined,
-          // Blocked matches are NOT pendingNotify — we never intend to
-          // notify until they're explicitly unblocked. Keeps the admin
-          // UI's "pending upload" chip honest.
-          pendingNotify: notReady && !blockState.blocked,
-          videoStatus: v.status,
-          sampleUploadTime: v.sampleUploadTime ?? undefined,
-          uploadTime: v.uploadTime ?? undefined,
-          blocked: blockState.blocked || undefined,
-          blockLevel: blockState.level,
-          blockReason: blockState.reason,
-          blockedAt: blockState.blocked ? blockState.blockedAt : undefined,
-          ...overlay,
-        };
-        const saved = await saveVideoMatch(matchRecord);
-        if (!saved) {
+        const attempt = await matchVideoToAssignment(v, {
+          source: "cron",
+          ready: !notReady,
+          dryRun,
+        });
+
+        if (attempt.outcome === "no-assignment") {
+          // Unmatched record written by the helper — surfaces in the
+          // admin's "all videos for the day" view for manual send.
+          if (v.id > highestId) highestId = v.id;
+          skippedNoAssignment++;
+          continue;
+        }
+        if (attempt.outcome === "held-duplicate") {
+          // Review record written by the helper. Advance the cursor —
+          // the divert is deterministic, no point re-holding every tick.
+          if (v.id > highestId) highestId = v.id;
+          heldDuplicate++;
+          continue;
+        }
+        if (attempt.outcome === "already-processed") {
           skippedAlreadyMatched++;
           continue;
         }
+
+        const { record: matchRecord, blockState } = attempt;
+
+        if (dryRun) {
+          matches.push({
+            videoCode: v.code,
+            systemNumber: systemFallbackKey,
+            cameraNumber: v.camera,
+            racer: `${matchRecord.firstName} ${matchRecord.lastName}`,
+            sessionId: matchRecord.sessionId,
+          });
+          if (blockState.blocked) skippedBlocked++;
+          else if (notReady) savedPending++;
+          else matched++;
+          continue;
+        }
+
         matches.push({
           videoCode: v.code,
           systemNumber: systemFallbackKey,
           cameraNumber: v.camera,
-          racer: `${assignment.firstName} ${assignment.lastName}`,
-          sessionId: assignment.sessionId,
+          racer: `${matchRecord.firstName} ${matchRecord.lastName}`,
+          sessionId: matchRecord.sessionId,
         });
 
         if (blockState.blocked) {
@@ -667,7 +642,12 @@ export async function GET(req: NextRequest) {
       candidates: fetched,
       sent: matched + deferredSent + unblockedAndSent,
       skipped:
-        skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady + skippedBlocked,
+        skippedAlreadyMatched +
+        skippedNoAssignment +
+        skippedOld +
+        skippedNotReady +
+        skippedBlocked +
+        heldDuplicate,
       errors,
     });
 
@@ -691,6 +671,7 @@ export async function GET(req: NextRequest) {
         skippedAlreadyMatched,
         skippedNoAssignment,
         skippedNotReady,
+        heldDuplicate,
         errors,
         matches,
       },
@@ -708,7 +689,8 @@ export async function GET(req: NextRequest) {
         : req.headers.get("user-agent") || "unknown",
       candidates: fetched,
       sent: matched,
-      skipped: skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady,
+      skipped:
+        skippedAlreadyMatched + skippedNoAssignment + skippedOld + skippedNotReady + heldDuplicate,
       errors,
       fatalError: err instanceof Error ? err.message : "cron error",
     });

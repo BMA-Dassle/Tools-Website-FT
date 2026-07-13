@@ -429,6 +429,8 @@ export async function POST(req: NextRequest) {
     // unmatched list on next refresh. saveVideoMatch uses a
     // video-match:by-code NX sentinel so even if the cron resolves the
     // same code a minute later, it won't override the manual send.
+    // (Held-for-review videos carry no sentinel, so this always creates
+    // the record; the outcome string is intentionally ignored.)
     await saveVideoMatch(match).catch(() => void 0);
   } else {
     await updateVideoMatch(match).catch(() => void 0);
