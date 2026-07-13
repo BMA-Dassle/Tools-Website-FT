@@ -4,17 +4,16 @@
  * isInternalDepositGan) into a NEW customer-facing DIGITAL card with a
  * SQUARE-GENERATED GAN, loaded with exactly the deposit balance.
  *
- * Two strategies, selected by env STORE_CREDIT_STRATEGY and decided by the
- * live probe (scripts/store-credit-probe.mts) BEFORE this ships to guests:
+ * Two strategies, selected by env STORE_CREDIT_STRATEGY:
  *
- *  "purchase" (owner-preferred) — a real sale: order with a GIFT_CARD line
- *    item, PAID by the internal deposit card, then the new card ACTIVATEd
- *    against that order/line item. The internal card hits $0 through the
- *    sale itself — books cleanly as gift-card revenue funded by the deposit.
- *    RISK the probe checks: Square may reject gift-card tenders on gift-card
- *    purchases.
+ *  "purchase" (DEFAULT; owner-preferred; live probe scripts/store-credit-probe.mts
+ *    returned VERDICT: PURCHASE on 2026-07-13) — a real sale: order with a
+ *    GIFT_CARD line item, PAID by the internal deposit card, then the new card
+ *    ACTIVATEd against that order/line item. The internal card hits $0 through
+ *    the sale itself — books cleanly as gift-card revenue funded by the
+ *    deposit. No discount involved.
  *
- *  "comp" (default fallback; prod-proven by survey rewards / winback) —
+ *  "comp" (fallback, STORE_CREDIT_STRATEGY=comp; prod-proven by survey rewards / winback) —
  *    mintDigitalGiftCard's merchant-comp Order+Discount pattern mints the new
  *    card, then the internal card is drained via ADJUST_DECREMENT
  *    (PURCHASE_WAS_REFUNDED). Needs a dedicated catalog discount
@@ -41,7 +40,7 @@ export interface StoreCreditResult {
 }
 
 export function storeCreditStrategy(): StoreCreditStrategy {
-  return process.env.STORE_CREDIT_STRATEGY === "purchase" ? "purchase" : "comp";
+  return process.env.STORE_CREDIT_STRATEGY === "comp" ? "comp" : "purchase";
 }
 
 const SURVEY_DISCOUNT_FALLBACK = "37C3SN4245TUCN3RF7XMNKPU";

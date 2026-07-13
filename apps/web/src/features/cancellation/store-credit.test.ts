@@ -121,12 +121,12 @@ afterEach(() => {
 });
 
 describe("strategy selection", () => {
-  it("defaults to comp; purchase only when explicitly set", () => {
-    expect(storeCreditStrategy()).toBe("comp");
-    process.env.STORE_CREDIT_STRATEGY = "purchase";
+  it("defaults to purchase (probe-verified 2026-07-13); comp only when explicitly set", () => {
     expect(storeCreditStrategy()).toBe("purchase");
-    process.env.STORE_CREDIT_STRATEGY = "banana";
+    process.env.STORE_CREDIT_STRATEGY = "comp";
     expect(storeCreditStrategy()).toBe("comp");
+    process.env.STORE_CREDIT_STRATEGY = "banana";
+    expect(storeCreditStrategy()).toBe("purchase");
   });
 });
 
@@ -178,6 +178,10 @@ describe("purchase strategy", () => {
 });
 
 describe("comp strategy", () => {
+  beforeEach(() => {
+    process.env.STORE_CREDIT_STRATEGY = "comp";
+  });
+
   it("mints via the comp pattern, persists, then FATALLY drains the internal card", async () => {
     mockSquare({});
     const res = await issueStoreCredit(baseParams);
@@ -226,6 +230,7 @@ describe("resume with a previously persisted card", () => {
   });
 
   it("falls through to a fresh mint when the persisted card is unusable", async () => {
+    process.env.STORE_CREDIT_STRATEGY = "comp";
     mockSquare({ newCardState: "PENDING" });
     // existing card (gftc:old) reads PENDING → replacement via comp mint.
     // The fresh mint's verification reads gftc:new — override its state back
