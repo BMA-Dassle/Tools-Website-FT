@@ -213,6 +213,18 @@ export async function GET(req: NextRequest) {
         codes.push(code);
       }
 
+      // A short claim means the pool ran dry MID-BOOKING — the guest paid
+      // for POV and got fewer (or zero) codes, and nothing downstream
+      // surfaces it (confirmation page / memo / email all gate on
+      // codes.length > 0). Log loudly so it's findable in Vercel logs;
+      // the pov-pool-alert cron is the proactive signal. (2026-07-09
+      // exhaustion went 30h unnoticed because this path was silent.)
+      if (codes.length < qty) {
+        console.error(
+          `[pov-codes] POOL SHORT on claim: bill=${billId} wanted=${qty} issued=${codes.length} — import codes and backfill this bill`,
+        );
+      }
+
       return NextResponse.json({ codes, claimed: codes.length });
     }
 
