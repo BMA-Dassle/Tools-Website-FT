@@ -25,6 +25,7 @@ vi.mock("@/lib/db", () => {
 
 import {
   getAttractionReservationsAwaitingDayofPay,
+  getCheckedInOrdersToComplete,
   getRaceReservationsAwaitingDayofPay,
 } from "./bowling-db";
 
@@ -63,5 +64,31 @@ describe("day-of settlement candidate queries — bowling-shared-order guard", (
     const q = findSelect("attraction");
     expect(q).toContain("NOT EXISTS");
     expect(q).toContain("b.product_kind IN ('open', 'kbf')");
+  });
+});
+
+describe("order-complete candidate query — combo bowling legs included", () => {
+  // Combo bowling legs pay at lane-open like regular bowling, but were excluded
+  // from the complete sweep waiting on an "own settle flow" that never existed —
+  // 45 paid legs sat OPEN until the portal's 2026-07-08 manual sweep. The
+  // exclusion must stay gone; unpaid legs are protected downstream by
+  // completeOrder's state=OPEN + $0-due re-check.
+  it("does NOT exclude combo_special_id rows", async () => {
+    await getCheckedInOrdersToComplete();
+    const q = queries.find(
+      (s) => s.trimStart().startsWith("SELECT") && s.includes("dayof_order_completed_at IS NULL"),
+    );
+    expect(q, "getCheckedInOrdersToComplete SELECT was issued").toBeTruthy();
+    expect(q!).not.toContain("combo_special_id");
+  });
+
+  it("keeps the lane-open + session-over gates", async () => {
+    await getCheckedInOrdersToComplete();
+    const q = queries.find(
+      (s) => s.trimStart().startsWith("SELECT") && s.includes("dayof_order_completed_at IS NULL"),
+    );
+    expect(q!).toContain("dayof_order_sent_at IS NOT NULL OR checkin_method IS NOT NULL");
+    expect(q!).toContain("product_kind IN ('open', 'kbf')");
+    expect(q!).toContain("INTERVAL '3 hours'");
   });
 });
