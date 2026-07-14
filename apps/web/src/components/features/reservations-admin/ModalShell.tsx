@@ -55,13 +55,19 @@ export default function ModalShell({
 
   // Lock the page behind the modal — without this the board (and, in the
   // portal iframe, the page itself) kept its scrollbar under the overlay,
-  // stacking two or three scroll layers (owner 2026-07-13). Nested modals
-  // compose: each mount saves the previous value and restores it on close.
+  // stacking two or three scroll layers (owner 2026-07-13). BOTH body and
+  // html: the viewport scrollbar belongs to <html>, and body-only hiding
+  // doesn't propagate when html establishes its own overflow context.
+  // Nested modals compose: each mount saves the previous values and
+  // restores them on close.
   useEffect(() => {
-    const prev = document.body.style.overflow;
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = prev;
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevHtml;
     };
   }, []);
 
