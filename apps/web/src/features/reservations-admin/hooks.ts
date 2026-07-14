@@ -8,18 +8,26 @@ import { useCallback, useEffect, useState } from "react";
 import type { ComboMeta, GroupEvent, Reservation } from "./types";
 
 /**
- * Theme: "dark" (default) or "light" — set via URL ?theme= or portal
- * postMessage. Portal sends { type: "portal.theme", value: "light" | "dark" }
- * targeted to the FastTrax origin. Also fires on iframe onLoad.
- * Keeps the LAZY initializer (reads window.location once, SSR-guarded) so
- * there is no dark-flash on a ?theme=light load.
+ * Theme: "dark" (default) or "light" — set via URL ?theme= at load, then
+ * kept live by the portal via postMessage, either shape:
+ *   { type: "portal.theme", value: "light" | "dark" }        (legacy sync)
+ *   { type: "<tool>-control", theme: "light" | "dark", ... } (2026-07-14)
+ * The lazy initializer avoids a dark flash on ?theme=light, and the mount
+ * effect re-reads the param — the initializer alone didn't reliably
+ * survive App Router hydration (?theme=light boards stayed dark).
  */
 export function useBoardTheme(): "dark" | "light" {
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
-    if (typeof window === "undefined") return "dark";
+  // Hydration-safe: dark on BOTH server and client first render, URL param
+  // applied post-mount as a real state change. The old lazy window-reading
+  // initializer made client state "light" while the server HTML said dark —
+  // React logs "won't be patched up" and keeps the dark attribute forever,
+  // because the later URL re-read was a state no-op (2026-07-14).
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    return p.get("theme") === "light" ? "light" : "dark";
-  });
+    if (p.get("theme") === "light") setTheme("light");
+  }, []);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -29,6 +37,13 @@ export function useBoardTheme(): "dark" | "light" {
         (e.data.value === "dark" || e.data.value === "light")
       ) {
         setTheme(e.data.value);
+      }
+      if (
+        typeof e.data?.type === "string" &&
+        e.data.type.endsWith("-control") &&
+        (e.data.theme === "dark" || e.data.theme === "light")
+      ) {
+        setTheme(e.data.theme);
       }
     }
     window.addEventListener("message", onMessage);
