@@ -124,7 +124,7 @@ export default function DailyEventModal({
       </div>
 
       {/* ── Scrollable content ── */}
-      <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+      <div className="ba-scroll" style={{ flex: 1, overflowY: "auto", padding: 24 }}>
         <DailyEventDetail
           key={projectId}
           token={token}

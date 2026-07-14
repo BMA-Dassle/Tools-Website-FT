@@ -36,6 +36,18 @@ export const BOARD_CSS = `
     @media (prefers-reduced-motion: reduce) { .ba-row .ba-row-hint { transition: none; } }
     .ba-gerow { background-color: var(--ba-bg2); }
     .ba-gerow:hover, .ba-gerow:focus-visible { background-color: var(--ba-hover); }
+    /* Fat, grabbable modal scrollbar (owner 2026-07-13 — the default was
+       too thin to hit). Firefox gets the default-width themed bar. */
+    .ba-scroll { scrollbar-color: var(--ba-input-border) transparent; }
+    .ba-scroll::-webkit-scrollbar { width: 14px; }
+    .ba-scroll::-webkit-scrollbar-track { background: transparent; }
+    .ba-scroll::-webkit-scrollbar-thumb {
+      background-color: var(--ba-input-border);
+      border-radius: 8px;
+      border: 3px solid var(--ba-modal-bg);
+      min-height: 48px;
+    }
+    .ba-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--ba-muted); }
   `;
 
 export const INPUT_STYLE: CSSProperties = {

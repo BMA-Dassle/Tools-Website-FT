@@ -81,6 +81,7 @@ export default function ModalShell({
       {...modalBackdropProps(onClose)}
     >
       <div
+        className="ba-scroll"
         style={{
           width: "100%",
           height: full ? "100%" : undefined,

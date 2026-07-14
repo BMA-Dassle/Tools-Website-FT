@@ -355,7 +355,7 @@ export default function ManageReservationModal({
       </div>
 
       {/* ── Tab body ── */}
-      <div style={{ overflowY: "auto", flex: 1, padding: "14px 18px 24px" }}>
+      <div className="ba-scroll" style={{ overflowY: "auto", flex: 1, padding: "14px 18px 24px" }}>
         {detailLoading && !detail && (
           <div style={{ color: "var(--ba-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
             Loading details…
