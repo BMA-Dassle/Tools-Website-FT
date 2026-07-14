@@ -38,6 +38,8 @@ type ViewMode = "day" | "week";
 interface DayData {
   date: string;
   reservations: Reservation[];
+  /** False while this date's fetch is still in flight (progressive render). */
+  loaded: boolean;
 }
 
 interface AttentionItem {
@@ -240,68 +242,67 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
   }, [view, date]);
 
   const [days, setDays] = useState<DayData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [websitePayments, setWebsitePayments] = useState<Map<string, WebsitePaymentInfo>>(
     new Map(),
   );
 
   // Fetch every date in scope (Day = 1 call, Week = 7 parallel — v1's own
-  // weekly pattern). Group functions only; v1 keeps the online view.
+  // weekly pattern), rendering PROGRESSIVELY: each day-card paints the
+  // moment its date lands, and that day's payment pills start loading
+  // immediately — no Promise.all barrier holding the whole board on the
+  // slowest BMI call (perf pass 2026-07-13). Group functions only; v1
+  // keeps the online view.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     setError(null);
+    setDays(scopeDates.map((date) => ({ date, reservations: [], loaded: false })));
+    setWebsitePayments(new Map());
 
-    Promise.all(
-      scopeDates.map((day) =>
-        fetchDayReservations(token, day, locationId)
-          .then((data) => ({
-            date: day,
-            reservations: applyViewTypeFilter(data.reservations || [], "group"),
-          }))
-          .catch((err: unknown) => {
-            if (scopeDates.length === 1) throw err;
-            return { date: day, reservations: [] as Reservation[] };
-          }),
-      ),
-    )
-      .then((results) => {
-        if (!cancelled) setDays(results);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load events");
-          setDays([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    for (const day of scopeDates) {
+      fetchDayReservations(token, day, locationId)
+        .then((data) => {
+          if (cancelled) return;
+          const reservations = applyViewTypeFilter(data.reservations || [], "group");
+          setDays((prev) =>
+            prev.map((d) => (d.date === day ? { date: day, reservations, loaded: true } : d)),
+          );
+          if (reservations.length > 0) {
+            getPaymentsBulk(token, reservations)
+              .then((m) => {
+                if (!cancelled) setWebsitePayments((prev) => new Map([...prev, ...m]));
+              })
+              .catch(() => {});
+          }
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          // Single-day scope surfaces the failure; a week keeps rendering
+          // the other six and marks this date loaded-empty.
+          setDays((prev) =>
+            prev.map((d) => (d.date === day ? { date: day, reservations: [], loaded: true } : d)),
+          );
+          if (scopeDates.length === 1) {
+            setError(err instanceof Error ? err.message : "Failed to load events");
+          }
+        });
+    }
 
     return () => {
       cancelled = true;
     };
   }, [token, locationId, scopeDates]);
 
-  // Payment overlay for everything in scope.
-  useEffect(() => {
-    const all = days.flatMap((d) => d.reservations);
-    if (all.length === 0) {
-      setWebsitePayments(new Map());
-      return;
-    }
-    getPaymentsBulk(token, all)
-      .then(setWebsitePayments)
-      .catch(() => {});
-  }, [token, days]);
+  const allLoaded = days.length > 0 && days.every((d) => d.loaded);
+  // Full-page spinner only before the FIRST day lands.
+  const loading = days.length === 0 || days.every((d) => !d.loaded);
 
   // Hide-cancelled filter feeds EVERYTHING downstream: cards, summaries,
   // attention, totals, and modal prev/next navigation.
   const { visibleDays, cancelledCount } = useMemo(() => {
     let cancelled = 0;
     const filtered = days.map((d) => ({
-      date: d.date,
+      ...d,
       reservations: d.reservations.filter((r) => {
         const isCancelled = (r.state || "").toLowerCase().includes("cancel");
         if (isCancelled) cancelled++;
@@ -383,7 +384,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
       return id ? { id, tab: sp.get("tab") } : null;
     },
   );
-  if (pendingEvent != null && !loading) {
+  if (pendingEvent != null && allLoaded) {
     setSelectedEventId(pendingEvent.id);
     setModalTab(pendingEvent.tab ?? undefined);
     setModalIds(visibleIds.includes(pendingEvent.id) ? visibleIds : []);
@@ -423,7 +424,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
           }}
         >
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
-          {!loading && (
+          {allLoaded && (
             <span style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
               {LOCATIONS.find((l) => l.id === locationId)?.label} · {totals.events} event
               {totals.events === 1 ? "" : "s"} · {totals.persons} people
@@ -650,7 +651,25 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
         {!loading && !error && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {visibleDays.map((d) =>
-              view === "day" && d.reservations.length === 0 ? (
+              !d.loaded ? (
+                // Still in flight — hold the day's slot so nothing jumps.
+                <div
+                  key={d.date}
+                  style={{
+                    backgroundColor: "var(--ba-bg2)",
+                    border: "1px solid var(--ba-border)",
+                    borderRadius: 8,
+                    padding: "9px 16px",
+                    color: "var(--ba-muted)",
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  <b style={{ color: "var(--ba-fg)", fontSize: "0.9rem" }}>
+                    {view === "day" ? fmtDateLabelLong(d.date) : formatDisplayDate(d.date)}
+                  </b>
+                  <span style={{ marginLeft: 12 }}>loading…</span>
+                </div>
+              ) : view === "day" && d.reservations.length === 0 ? (
                 <div
                   key={d.date}
                   style={{ textAlign: "center", padding: "3rem 0", color: "var(--ba-muted)" }}

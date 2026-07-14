@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPortal } from "@/lib/portal-auth";
+import redis from "@/lib/redis";
 import { listQuerySchema } from "~/features/daily-events/schemas";
 import { listDailyEvents } from "~/features/daily-events/service";
 import { OfficeApiError } from "~/features/daily-events/data/bmi-office";
 
 export const dynamic = "force-dynamic";
+
+// Short-TTL cache: each date is otherwise a live BMI liveReservations call
+// plus a project GET per waiver event, refetched on every board visit and
+// Day⇄Week toggle. 45s keeps the shared staff board snappy without going
+// operationally stale. Redis outage is non-fatal — falls through to BMI.
+const CACHE_TTL_SECONDS = 45;
 
 /**
  * GET /api/admin/daily-events/reservations?token=...&locationId=332160&date=YYYY-MM-DD
@@ -26,13 +33,27 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const cacheKey = `de:res:${parsed.data.locationId}:${parsed.data.date}:${parsed.data.includeAll === "true" ? 1 : 0}`;
   try {
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (typeof cached === "string" && cached) {
+      return new NextResponse(cached, {
+        status: 200,
+        headers: { "content-type": "application/json", "x-de-cache": "hit" },
+      });
+    }
+
     const data = await listDailyEvents(
       parsed.data.locationId,
       parsed.data.date,
       parsed.data.includeAll === "true",
     );
-    return NextResponse.json({ success: true, data });
+    const body = JSON.stringify({ success: true, data });
+    redis.setex(cacheKey, CACHE_TTL_SECONDS, body).catch(() => {});
+    return new NextResponse(body, {
+      status: 200,
+      headers: { "content-type": "application/json", "x-de-cache": "miss" },
+    });
   } catch (error) {
     console.error("[daily-events] reservations error:", error);
     if (error instanceof OfficeApiError) {
