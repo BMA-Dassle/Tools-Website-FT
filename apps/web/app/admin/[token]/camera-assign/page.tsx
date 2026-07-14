@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import CameraAssignClient from "./CameraAssignClient";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 
 /**
  * Camera-assignment front-desk tool.
@@ -28,5 +29,9 @@ export default async function Page({ params }: Props) {
   const sha = process.env.VERCEL_GIT_COMMIT_SHA || "";
   const version = sha ? sha.slice(0, 7) : "dev";
 
-  return <CameraAssignClient token={token} version={version} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <CameraAssignClient token={token} version={version} />
+    </div>
+  );
 }

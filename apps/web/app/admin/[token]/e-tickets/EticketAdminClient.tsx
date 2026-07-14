@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SmsLogEntry } from "@/lib/sms-log";
 import AdminResendModal from "@/components/admin/AdminResendModal";
+import {
+  ADMIN_SANS,
+  PORTAL_BLUE,
+  PORTAL_BLUE_SOFT,
+  PORTAL_DARK,
+} from "~/components/features/admin-skin/theme";
 
 type EnrichedLogEntry = SmsLogEntry & {
   racerNames: string[];
@@ -260,8 +266,14 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
  *  yellow vs. green is the success state. */
 function StatusLegend() {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 mb-3 text-xs">
-      <p className="text-white/40 uppercase tracking-wider text-[10px] font-semibold mb-1.5">
+    <div
+      className="rounded-lg px-3 py-2 mb-3 text-xs"
+      style={{ backgroundColor: PORTAL_DARK.card, border: `1px solid ${PORTAL_DARK.border}` }}
+    >
+      <p
+        className="uppercase tracking-wider text-[10px] font-semibold mb-1.5"
+        style={{ color: PORTAL_DARK.muted }}
+      >
         Status colors
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-white/70">
@@ -440,11 +452,26 @@ export default function EticketAdminClient({ token }: { token: string }) {
   }, [loadQuota]);
 
   return (
-    <div className="min-h-screen bg-[#0a1128] text-white">
+    <div
+      className="min-h-screen"
+      style={{
+        fontFamily: ADMIN_SANS,
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+      }}
+    >
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
         <header className="mb-3 sm:mb-5">
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">E-Ticket Admin</h1>
-          <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
+          <h1
+            className="font-bold uppercase tracking-wider"
+            style={{ fontSize: "1.5rem", fontWeight: 700 }}
+          >
+            E-Ticket Admin
+          </h1>
+          <p
+            className="text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block"
+            style={{ color: PORTAL_DARK.muted }}
+          >
             Audit and resend SMS e-tickets. Entries below are ordered newest first.
           </p>
         </header>
@@ -454,7 +481,7 @@ export default function EticketAdminClient({ token }: { token: string }) {
             Provides the one-click "Vox is back, push pending" button. */}
         {quota && (quota.queueSize > 0 || quota.exhausted) && (
           <div
-            className={`mb-3 sm:mb-4 rounded-xl border p-3 sm:p-4 ${
+            className={`mb-3 sm:mb-4 rounded-lg border p-3 sm:p-4 ${
               quota.exhausted
                 ? "border-amber-500/40 bg-amber-500/10"
                 : "border-emerald-500/30 bg-emerald-500/5"
@@ -481,7 +508,8 @@ export default function EticketAdminClient({ token }: { token: string }) {
                       {quota.status?.status ? (
                         <>
                           {" "}
-                          · status <code className="text-white/60">{quota.status.status}</code>
+                          · status{" "}
+                          <code style={{ color: PORTAL_DARK.muted }}>{quota.status.status}</code>
                         </>
                       ) : null}
                       . Sweep cron will retry on its own once the 1-hour TTL elapses.
@@ -501,7 +529,8 @@ export default function EticketAdminClient({ token }: { token: string }) {
                 type="button"
                 onClick={clearAndDrain}
                 disabled={quotaBusy}
-                className="shrink-0 px-4 py-2 rounded-lg font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                className="shrink-0 px-4 py-2 rounded-lg font-semibold text-sm text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ backgroundColor: PORTAL_BLUE }}
               >
                 {quotaBusy
                   ? "Sending…"
@@ -515,68 +544,104 @@ export default function EticketAdminClient({ token }: { token: string }) {
 
         {/* Filter bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+          <label className="flex flex-col gap-1 text-xs" style={{ color: PORTAL_DARK.muted }}>
             Date
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+              className="px-2 py-1.5 text-sm"
+              style={{
+                backgroundColor: PORTAL_DARK.inputBg,
+                border: `1px solid ${PORTAL_DARK.inputBorder}`,
+                borderRadius: 8,
+                color: PORTAL_DARK.fg,
+              }}
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+          <label className="flex flex-col gap-1 text-xs" style={{ color: PORTAL_DARK.muted }}>
             Source
             <select
               value={source}
               onChange={(e) => setSource(e.target.value as typeof source)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+              className="px-2 py-1.5 text-sm"
+              style={{
+                backgroundColor: PORTAL_DARK.inputBg,
+                border: `1px solid ${PORTAL_DARK.inputBorder}`,
+                borderRadius: 8,
+                color: PORTAL_DARK.fg,
+              }}
             >
-              <option value="" style={{ backgroundColor: "#0a1128" }}>
+              <option value="" style={{ backgroundColor: PORTAL_DARK.inputBg }}>
                 All e-tickets
               </option>
-              <option value="pre-race-cron" style={{ backgroundColor: "#0a1128" }}>
+              <option value="pre-race-cron" style={{ backgroundColor: PORTAL_DARK.inputBg }}>
                 eTicket (2hr ahead)
               </option>
-              <option value="checkin-cron" style={{ backgroundColor: "#0a1128" }}>
+              <option value="checkin-cron" style={{ backgroundColor: PORTAL_DARK.inputBg }}>
                 check-in (live)
               </option>
-              <option value="arena-pre-cron" style={{ backgroundColor: "#0a1128" }}>
+              <option value="arena-pre-cron" style={{ backgroundColor: PORTAL_DARK.inputBg }}>
                 HP Arena (2hr ahead)
               </option>
-              <option value="arena-checkin-cron" style={{ backgroundColor: "#0a1128" }}>
+              <option value="arena-checkin-cron" style={{ backgroundColor: PORTAL_DARK.inputBg }}>
                 HP Arena check-in (live)
               </option>
-              <option value="admin-resend" style={{ backgroundColor: "#0a1128" }}>
+              <option value="admin-resend" style={{ backgroundColor: PORTAL_DARK.inputBg }}>
                 admin resends
               </option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-white/60 col-span-2">
+          <label
+            className="flex flex-col gap-1 text-xs col-span-2"
+            style={{ color: PORTAL_DARK.muted }}
+          >
             Search (racer name, phone digits, shortCode)
             <input
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="e.g. racer name  or  2399863727"
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white placeholder:text-white/30"
+              className="px-2 py-1.5 text-sm placeholder:text-[#98a2b3]/60"
+              style={{
+                backgroundColor: PORTAL_DARK.inputBg,
+                border: `1px solid ${PORTAL_DARK.inputBorder}`,
+                borderRadius: 8,
+                color: PORTAL_DARK.fg,
+              }}
             />
           </label>
         </div>
 
         {/* Summary line */}
-        <div className="flex items-center justify-between mb-2 text-xs text-white/50">
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs"
+          style={{ color: PORTAL_DARK.muted }}
+        >
           <span>
             {loading ? "Loading…" : `${total} match${total === 1 ? "" : "es"}`}
             {error && <span className="ml-2 text-red-400">· {error}</span>}
           </span>
-          <button type="button" onClick={load} className="text-[#00E2E5] hover:underline">
+          <button
+            type="button"
+            onClick={load}
+            className="hover:underline"
+            style={{ color: PORTAL_BLUE_SOFT }}
+          >
             Refresh
           </button>
         </div>
 
         {/* Results — desktop table (md+) / mobile cards (<md) */}
         {entries.length === 0 && !loading && (
-          <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-8">
+          <div
+            className="rounded-lg text-center py-8"
+            style={{
+              backgroundColor: PORTAL_DARK.card,
+              border: `1px solid ${PORTAL_DARK.border}`,
+              color: PORTAL_DARK.muted,
+            }}
+          >
             No SMS log entries match.
           </div>
         )}
@@ -602,8 +667,16 @@ export default function EticketAdminClient({ token }: { token: string }) {
                     ? "border-emerald-400/40 bg-emerald-500/10"
                     : noConsent
                       ? "border-red-400/40 bg-red-500/10"
-                      : "border-white/10 bg-white/[0.02]"
+                      : ""
                 }`}
+                style={
+                  flashHere || noConsent
+                    ? undefined
+                    : {
+                        backgroundColor: PORTAL_DARK.card,
+                        border: `1px solid ${PORTAL_DARK.border}`,
+                      }
+                }
               >
                 {/* Top row: time + source chip. Opened-chip moved
                     down into the consolidated status-pills row so
@@ -654,7 +727,8 @@ export default function EticketAdminClient({ token }: { token: string }) {
                   type="button"
                   onClick={() => setResendTarget(e)}
                   disabled={!e.shortCode || !e.body}
-                  className="w-full mt-3 py-2 rounded bg-[#00E2E5] text-[#000418] font-semibold text-sm hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full mt-3 py-2 text-white font-semibold text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: PORTAL_BLUE, borderRadius: 8 }}
                 >
                   Resend
                 </button>
@@ -664,10 +738,16 @@ export default function EticketAdminClient({ token }: { token: string }) {
         </div>
 
         {/* Desktop table (md+) */}
-        <div className="hidden md:block rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
+        <div
+          className="hidden md:block rounded-lg overflow-hidden"
+          style={{ backgroundColor: PORTAL_DARK.card, border: `1px solid ${PORTAL_DARK.border}` }}
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-white/5 text-xs uppercase text-white/50">
+              <thead
+                className="text-xs uppercase"
+                style={{ backgroundColor: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
+              >
                 <tr>
                   <th className="text-left px-3 py-2">Time (ET)</th>
                   <th className="text-left px-3 py-2">Source</th>
@@ -687,7 +767,8 @@ export default function EticketAdminClient({ token }: { token: string }) {
                   return (
                     <tr
                       key={`${e.ts}-${e.phone}-${e.shortCode ?? ""}`}
-                      className={`border-t border-white/5 ${flashHere ? "bg-emerald-500/10" : noConsent ? "bg-red-500/5" : ""}`}
+                      className={`${flashHere ? "bg-emerald-500/10" : noConsent ? "bg-red-500/5" : ""}`}
+                      style={{ borderTop: `1px solid ${PORTAL_DARK.border}` }}
                     >
                       <td className="px-3 py-2 whitespace-nowrap text-white/70">
                         {formatEt(e.ts)}
@@ -727,7 +808,8 @@ export default function EticketAdminClient({ token }: { token: string }) {
                           type="button"
                           onClick={() => setResendTarget(e)}
                           disabled={!e.shortCode || !e.body}
-                          className="text-xs px-2 py-1 rounded bg-[#00E2E5] text-[#000418] font-semibold hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="text-xs px-2 py-1 text-white font-semibold hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{ backgroundColor: PORTAL_BLUE, borderRadius: 8 }}
                         >
                           Resend
                         </button>

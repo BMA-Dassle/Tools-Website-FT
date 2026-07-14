@@ -44,7 +44,7 @@ export default function CenterPicker({ value, onChange }: CenterPickerProps) {
             onClick={() => onChange(c.code)}
             style={{
               ...BASE_BTN,
-              backgroundColor: active ? "#004AAD" : "transparent",
+              backgroundColor: active ? "#3b82f6" : "transparent",
               color: active ? "#fff" : "#374151",
             }}
           >

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import CameraAssignClient from "../CameraAssignClient";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 
 /**
  * Track-scoped camera-assignment tool — one kiosk per track.
@@ -27,5 +28,9 @@ export default async function Page({ params }: Props) {
   const trackSlug = track.toLowerCase();
   if (!VALID_TRACKS.includes(trackSlug as (typeof VALID_TRACKS)[number])) notFound();
 
-  return <CameraAssignClient token={token} track={trackSlug} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <CameraAssignClient token={token} track={trackSlug} />
+    </div>
+  );
 }

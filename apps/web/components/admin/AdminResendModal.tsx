@@ -139,8 +139,8 @@ export default function AdminResendModal({
       <div
         className="relative w-full max-w-lg rounded-xl"
         style={{
-          backgroundColor: "#0a1128",
-          border: "1.78px solid rgba(255,255,255,0.1)",
+          backgroundColor: "#19273e",
+          border: "1px solid #323e53",
           maxHeight: "calc(100dvh - 1.5rem)",
           overflowY: "auto",
         }}
@@ -178,7 +178,7 @@ export default function AdminResendModal({
                     onClick={() => setChannel(c)}
                     className={`text-xs uppercase tracking-wider font-semibold px-3 py-1.5 rounded border transition-colors ${
                       channel === c
-                        ? "bg-[#00E2E5] border-[#00E2E5] text-[#000418]"
+                        ? "bg-[#3b82f6] border-[#3b82f6] text-white"
                         : "border-white/15 bg-white/[0.02] text-white/70 hover:bg-white/10"
                     }`}
                   >
@@ -204,7 +204,7 @@ export default function AdminResendModal({
                       value="same"
                       checked={phoneMode === "same"}
                       onChange={() => setPhoneMode("same")}
-                      className="accent-[#00E2E5]"
+                      className="accent-[#3b82f6]"
                     />
                     <span>
                       Same number <span className="font-mono text-white/60">{originalPhone}</span>
@@ -219,7 +219,7 @@ export default function AdminResendModal({
                       value="new"
                       checked={phoneMode === "new"}
                       onChange={() => setPhoneMode("new")}
-                      className="accent-[#00E2E5]"
+                      className="accent-[#3b82f6]"
                     />
                     Different number
                   </span>
@@ -258,7 +258,7 @@ export default function AdminResendModal({
                       value="same"
                       checked={emailMode === "same"}
                       onChange={() => setEmailMode("same")}
-                      className="accent-[#00E2E5]"
+                      className="accent-[#3b82f6]"
                     />
                     <span>
                       Same email <span className="text-white/60">{originalEmail}</span>
@@ -273,7 +273,7 @@ export default function AdminResendModal({
                       value="new"
                       checked={emailMode === "new"}
                       onChange={() => setEmailMode("new")}
-                      className="accent-[#00E2E5]"
+                      className="accent-[#3b82f6]"
                     />
                     Different email
                   </span>
@@ -321,7 +321,7 @@ export default function AdminResendModal({
               type="button"
               onClick={submit}
               disabled={sendDisabled}
-              className="text-sm px-5 py-3 sm:py-2 rounded bg-[#00E2E5] text-[#000418] font-bold hover:bg-white disabled:opacity-50"
+              className="text-sm px-5 py-3 sm:py-2 rounded bg-[#3b82f6] text-white font-bold hover:bg-[#2563eb] disabled:opacity-50"
             >
               {sending ? "Sending…" : "Send"}
             </button>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { modalBackdropProps } from "@/lib/a11y";
+import { ADMIN_SANS, PORTAL_DARK } from "~/components/features/admin-skin/theme";
 
 /**
  * Video resend admin — mirrors the SMS admin (/admin/{token}/e-tickets)
@@ -148,6 +149,24 @@ const PILL_AMBER = "bg-amber-500/20 text-amber-300";
 const PILL_RED = "bg-red-500/20 text-red-300";
 const PILL_GREY = "bg-white/10 text-white/50";
 
+// Portal-skin tokens (see ~/components/features/admin-skin/theme). Tailwind's
+// JIT needs literal hex in class strings, so arbitrary-value classes below
+// mirror the same constants:
+//   #3b82f6 = PORTAL_BLUE (primary buttons) · #60a5fa = PORTAL_BLUE_SOFT
+//   (links) · #19273e = PORTAL_DARK.card · #323e53 = PORTAL_DARK.border ·
+//   #98a2b3 = PORTAL_DARK.muted · #3c4b66 = PORTAL_DARK.inputBorder
+const INPUT_STYLE: React.CSSProperties = {
+  backgroundColor: PORTAL_DARK.inputBg,
+  border: `1px solid ${PORTAL_DARK.inputBorder}`,
+  borderRadius: 8,
+  color: PORTAL_DARK.fg,
+};
+const CARD_STYLE: React.CSSProperties = {
+  backgroundColor: PORTAL_DARK.card,
+  borderColor: PORTAL_DARK.border,
+  borderRadius: 8,
+};
+
 /** Translate the raw VT3 status into a short, racer-/staff-friendly
  *  label for the pending-notify chip. Previously the chip always said
  *  "pending upload" regardless of state, which read as a bug to ops
@@ -274,26 +293,26 @@ function emailPill(e: VideoRow): React.ReactNode {
  *  convention to learn. */
 function VideoStatusLegend() {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 mb-3 text-xs">
-      <p className="text-white/40 uppercase tracking-wider text-[10px] font-semibold mb-1.5">
+    <div className="rounded-lg border px-3 py-2 mb-3 text-xs" style={CARD_STYLE}>
+      <p className="text-[#98a2b3] uppercase tracking-wider text-[10px] font-semibold mb-1.5">
         Status colors
       </p>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-white/70">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[#98a2b3]">
         <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_AMBER}`}>sms sent</span>
-          <span className="text-white/50">accepted, no carrier confirm</span>
+          <span className="text-[#98a2b3]">accepted, no carrier confirm</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_OK}`}>sms delivered ✓</span>
-          <span className="text-white/50">handset receipt confirmed</span>
+          <span className="text-[#98a2b3]">handset receipt confirmed</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_RED}`}>sms rejected ✗</span>
-          <span className="text-white/50">carrier blocked</span>
+          <span className="text-[#98a2b3]">carrier blocked</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className={`${PILL_BASE} ${PILL_OK}`}>👁 opened</span>
-          <span className="text-white/50">recipient opened video</span>
+          <span className="text-[#98a2b3]">recipient opened video</span>
         </span>
       </div>
     </div>
@@ -410,91 +429,104 @@ export default function VideoAdminClient({ token }: { token: string }) {
   );
 
   return (
-    <div className="min-h-screen bg-[#0a1128] text-white">
+    <div
+      className="min-h-screen"
+      style={{
+        fontFamily: ADMIN_SANS,
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+      }}
+    >
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
         <header className="mb-3 sm:mb-5">
-          <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider">Video Admin</h1>
-          <p className="text-white/50 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
+          <h1 className="uppercase tracking-wider" style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+            Video Admin
+          </h1>
+          <p className="text-[#98a2b3] text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">
             Matched race videos from vt3.io. Resend via SMS or email with optional overrides.
           </p>
         </header>
 
         {/* Filter bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+          <label className="flex flex-col gap-1 text-xs text-[#98a2b3]">
             Date
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+              className="px-2 py-1.5 text-sm"
+              style={INPUT_STYLE}
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+          <label className="flex flex-col gap-1 text-xs text-[#98a2b3]">
             Show
             <select
               value={show}
               onChange={(e) => setShow(e.target.value as typeof show)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+              className="px-2 py-1.5 text-sm"
+              style={INPUT_STYLE}
             >
-              <option value="all" style={{ backgroundColor: "#0a1128" }}>
+              <option value="all" style={{ backgroundColor: PORTAL_DARK.card }}>
                 All videos
               </option>
-              <option value="matched" style={{ backgroundColor: "#0a1128" }}>
+              <option value="matched" style={{ backgroundColor: PORTAL_DARK.card }}>
                 Matched only
               </option>
-              <option value="unmatched" style={{ backgroundColor: "#0a1128" }}>
+              <option value="unmatched" style={{ backgroundColor: PORTAL_DARK.card }}>
                 Unmatched only
               </option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+          <label className="flex flex-col gap-1 text-xs text-[#98a2b3]">
             Notify status
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as typeof status)}
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+              className="px-2 py-1.5 text-sm"
+              style={INPUT_STYLE}
             >
-              <option value="" style={{ backgroundColor: "#0a1128" }}>
+              <option value="" style={{ backgroundColor: PORTAL_DARK.card }}>
                 All
               </option>
-              <option value="notified" style={{ backgroundColor: "#0a1128" }}>
+              <option value="notified" style={{ backgroundColor: PORTAL_DARK.card }}>
                 notified
               </option>
-              <option value="unnotified" style={{ backgroundColor: "#0a1128" }}>
+              <option value="unnotified" style={{ backgroundColor: PORTAL_DARK.card }}>
                 unnotified
               </option>
-              <option value="failed" style={{ backgroundColor: "#0a1128" }}>
+              <option value="failed" style={{ backgroundColor: PORTAL_DARK.card }}>
                 had failures
               </option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-white/60">
+          <label className="flex flex-col gap-1 text-xs text-[#98a2b3]">
             Search
             <input
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="name  913  ABC123"
-              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white placeholder:text-white/30"
+              className="px-2 py-1.5 text-sm placeholder:text-white/30"
+              style={INPUT_STYLE}
             />
           </label>
         </div>
 
         {/* Summary line */}
-        <div className="flex items-center justify-between mb-2 text-xs text-white/50">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs text-[#98a2b3]">
           <span>
             {loading ? "Loading…" : `${total} match${total === 1 ? "" : "es"}`}
             {error && <span className="ml-2 text-red-400">· {error}</span>}
           </span>
-          <button type="button" onClick={load} className="text-[#00E2E5] hover:underline">
+          <button type="button" onClick={load} className="text-[#60a5fa] hover:underline">
             Refresh
           </button>
         </div>
 
         {/* Empty state */}
         {entries.length === 0 && !loading && (
-          <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-8">
+          <div className="rounded-lg border text-center text-[#98a2b3] py-8" style={CARD_STYLE}>
             No video matches for this date.
           </div>
         )}
@@ -519,11 +551,12 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     ? "border-emerald-400/40 bg-emerald-500/10"
                     : isUnmatched
                       ? "border-amber-500/30 bg-amber-500/[0.04]"
-                      : "border-white/10 bg-white/[0.02]"
+                      : ""
                 }`}
+                style={flashHere || isUnmatched ? undefined : CARD_STYLE}
               >
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-white/50 text-xs">
+                  <span className="text-[#98a2b3] text-xs">
                     {isUnmatched ? `Captured ${formatEt(e.capturedAt)}` : formatEt(e.matchedAt)}
                   </span>
                   <div className="flex items-center gap-1 flex-wrap justify-end">
@@ -610,7 +643,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                         {e.suggested.heatNumber ? ` · Heat ${e.suggested.heatNumber}` : ""}
                       </span>
                     ) : (
-                      <span className="text-white/40 italic font-normal">
+                      <span className="text-[#98a2b3] italic font-normal">
                         (no racer — assign manually)
                       </span>
                     )
@@ -621,29 +654,29 @@ export default function VideoAdminClient({ token }: { token: string }) {
                   )}
                 </div>
                 {!isUnmatched && (e.track || e.heatNumber) && (
-                  <div className="text-xs text-white/60 mb-1">
+                  <div className="text-xs text-[#98a2b3] mb-1">
                     {e.track && e.heatNumber
                       ? `${e.track.replace(" Track", "")} · Heat ${e.heatNumber}`
                       : ""}
-                    {e.raceType && <span className="text-white/40 ml-1">· {e.raceType}</span>}
+                    {e.raceType && <span className="text-[#98a2b3] ml-1">· {e.raceType}</span>}
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-2 mt-2 text-xs">
-                  <span className="text-white/70">
+                  <span className="text-[#98a2b3]">
                     System{" "}
                     <span className="font-mono text-emerald-300">{e.systemNumber || "—"}</span>
                     {e.cameraNumber != null && (
                       <>
-                        <span className="text-white/30 mx-1">·</span>
+                        <span className="text-[#98a2b3] mx-1">·</span>
                         Camera <span className="font-mono text-amber-300">{e.cameraNumber}</span>
                       </>
                     )}
-                    <span className="text-white/30 mx-1">·</span>
+                    <span className="text-[#98a2b3] mx-1">·</span>
                     <a
                       href={e.customerUrl}
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="text-[#00E2E5] hover:underline font-mono"
+                      className="text-[#60a5fa] hover:underline font-mono"
                     >
                       {e.videoCode}
                     </a>
@@ -657,7 +690,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     className={`flex-1 py-2 rounded font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
                       isUnmatched
                         ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                        : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                        : "bg-[#3b82f6] text-white hover:bg-[#60a5fa]"
                     }`}
                     title={e.blocked ? "Unblock first to resend" : undefined}
                   >
@@ -671,7 +704,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                     className={`px-3 py-2 rounded font-semibold text-sm border transition-colors disabled:opacity-50 ${
                       e.blocked
                         ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
-                        : "border-white/15 text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
+                        : "border-[#3c4b66] text-[#98a2b3] hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
                     }`}
                   >
                     {blockBusy === e.videoCode ? "Working…" : e.blocked ? "Unblock" : "Block"}
@@ -683,10 +716,13 @@ export default function VideoAdminClient({ token }: { token: string }) {
         </div>
 
         {/* Desktop table */}
-        <div className="hidden md:block rounded-lg border border-white/10 bg-white/[0.02] overflow-hidden">
+        <div className="hidden md:block rounded-lg border overflow-hidden" style={CARD_STYLE}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-white/5 text-xs uppercase text-white/50">
+              <thead
+                className="text-xs uppercase text-[#98a2b3]"
+                style={{ backgroundColor: PORTAL_DARK.muted2 }}
+              >
                 <tr>
                   <th className="text-left px-3 py-2">Matched</th>
                   <th className="text-left px-3 py-2">Racer</th>
@@ -716,11 +752,11 @@ export default function VideoAdminClient({ token }: { token: string }) {
                   return (
                     <tr
                       key={rowKey(e)}
-                      className={`border-t border-white/5 ${
+                      className={`border-t border-[#323e53] ${
                         flashHere ? "bg-emerald-500/10" : isUnmatched ? "bg-amber-500/[0.04]" : ""
                       }`}
                     >
-                      <td className="px-3 py-2 whitespace-nowrap text-white/70">
+                      <td className="px-3 py-2 whitespace-nowrap text-[#98a2b3]">
                         {isUnmatched ? (
                           <span className="text-amber-300/70">{formatEt(e.capturedAt)}</span>
                         ) : (
@@ -738,7 +774,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                               {e.suggested.heatNumber ? ` · Heat ${e.suggested.heatNumber}` : ""}
                             </span>
                           ) : (
-                            <span className="text-white/30 italic">(no racer)</span>
+                            <span className="text-[#98a2b3] italic">(no racer)</span>
                           )
                         ) : (
                           <>
@@ -746,12 +782,12 @@ export default function VideoAdminClient({ token }: { token: string }) {
                           </>
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-white/70">
+                      <td className="px-3 py-2 whitespace-nowrap text-[#98a2b3]">
                         {!isUnmatched && e.track && e.heatNumber
                           ? `${e.track.replace(" Track", "")} · Heat ${e.heatNumber}`
                           : ""}
                         {!isUnmatched && e.raceType && (
-                          <span className="text-white/40 ml-1">· {e.raceType}</span>
+                          <span className="text-[#98a2b3] ml-1">· {e.raceType}</span>
                         )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-emerald-300">
@@ -765,7 +801,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                           href={e.customerUrl}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="text-[#00E2E5] hover:underline font-mono text-xs"
+                          className="text-[#60a5fa] hover:underline font-mono text-xs"
                         >
                           {e.videoCode}
                         </a>
@@ -853,7 +889,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                             className={`text-xs px-2 py-1 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
                               isUnmatched
                                 ? "bg-amber-400 text-[#000418] hover:bg-amber-300"
-                                : "bg-[#00E2E5] text-[#000418] hover:bg-white"
+                                : "bg-[#3b82f6] text-white hover:bg-[#60a5fa]"
                             }`}
                             title={e.blocked ? "Unblock first to resend" : undefined}
                           >
@@ -867,7 +903,7 @@ export default function VideoAdminClient({ token }: { token: string }) {
                             className={`text-xs px-2 py-1 rounded font-semibold border transition-colors disabled:opacity-50 ${
                               e.blocked
                                 ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
-                                : "border-white/15 text-white/60 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
+                                : "border-[#3c4b66] text-[#98a2b3] hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300"
                             }`}
                           >
                             {blockBusy === e.videoCode
@@ -978,7 +1014,7 @@ function ResendModal({
       }
       contextSection={
         <>
-          <div className="text-xs text-white/50 mb-3 space-y-0.5">
+          <div className="text-xs text-[#98a2b3] mb-3 space-y-0.5">
             {!isUnmatched && (
               <>
                 <div>
@@ -1013,7 +1049,7 @@ function ResendModal({
                 href={entry.customerUrl}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="text-[#00E2E5] hover:underline font-mono"
+                className="text-[#60a5fa] hover:underline font-mono"
               >
                 {entry.videoCode}
               </a>
@@ -1046,24 +1082,26 @@ function ResendModal({
           </div>
           {isUnmatched && (
             <div className="grid grid-cols-2 gap-2 mb-3">
-              <label className="flex flex-col gap-1 text-xs text-white/60">
+              <label className="flex flex-col gap-1 text-xs text-[#98a2b3]">
                 First name (optional)
                 <input
                   type="text"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   placeholder="Alice"
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                  className="px-2 py-1.5 text-sm"
+                  style={INPUT_STYLE}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs text-white/60">
+              <label className="flex flex-col gap-1 text-xs text-[#98a2b3]">
                 Last name (optional)
                 <input
                   type="text"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
                   placeholder="Smith"
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                  className="px-2 py-1.5 text-sm"
+                  style={INPUT_STYLE}
                 />
               </label>
             </div>

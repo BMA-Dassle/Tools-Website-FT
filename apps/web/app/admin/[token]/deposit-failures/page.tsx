@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import DepositFailuresClient from "./DepositFailuresClient";
 
 /**
@@ -26,5 +27,9 @@ export default async function Page({ params }: Props) {
     (!!cameraToken && token === cameraToken) || (!!legacyToken && token === legacyToken);
   if (!tokenOk) notFound();
 
-  return <DepositFailuresClient token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <DepositFailuresClient token={token} />
+    </div>
+  );
 }

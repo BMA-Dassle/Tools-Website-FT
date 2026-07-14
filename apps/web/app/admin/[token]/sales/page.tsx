@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import SalesAdminClient from "./SalesAdminClient";
 
 /**
@@ -28,5 +29,9 @@ export default async function Page({ params }: Props) {
     (!!cameraToken && token === cameraToken) || (!!legacyToken && token === legacyToken);
   if (!tokenOk) notFound();
 
-  return <SalesAdminClient token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <SalesAdminClient token={token} />
+    </div>
+  );
 }

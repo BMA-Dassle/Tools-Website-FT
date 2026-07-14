@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import KbfAdminClient from "./KbfAdminClient";
 
 /**
@@ -24,5 +25,9 @@ export default async function Page({ params, searchParams }: Props) {
   const rawCenter = sp.center;
   const initialCenterParam = Array.isArray(rawCenter) ? rawCenter[0] : rawCenter;
 
-  return <KbfAdminClient token={token} initialCenterParam={initialCenterParam ?? null} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <KbfAdminClient token={token} initialCenterParam={initialCenterParam ?? null} />
+    </div>
+  );
 }

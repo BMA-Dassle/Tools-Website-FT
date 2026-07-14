@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import GroupApprovalsClient from "./GroupApprovalsClient";
 
 export const dynamic = "force-dynamic";
@@ -11,5 +12,9 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  return <GroupApprovalsClient token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <GroupApprovalsClient token={token} />
+    </div>
+  );
 }

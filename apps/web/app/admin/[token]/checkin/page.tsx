@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import CheckInClient from "./CheckInClient";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,5 +15,9 @@ export default async function Page({ params }: Props) {
   const sha = process.env.VERCEL_GIT_COMMIT_SHA || "";
   const version = sha ? sha.slice(0, 7) : "dev";
 
-  return <CheckInClient token={token} version={version} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <CheckInClient token={token} version={version} />
+    </div>
+  );
 }

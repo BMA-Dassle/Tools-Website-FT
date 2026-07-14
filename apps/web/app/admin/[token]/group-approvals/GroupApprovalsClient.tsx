@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ADMIN_SANS, PORTAL_DARK } from "~/components/features/admin-skin/theme";
 
 interface PendingQuote {
   id: number;
@@ -156,18 +157,31 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200 px-3 py-4 sm:px-6 sm:py-6">
+    <div
+      className="min-h-screen px-3 py-4 sm:px-6 sm:py-6"
+      style={{
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+        fontFamily: ADMIN_SANS,
+      }}
+    >
       <div className="max-w-3xl mx-auto">
-        <h1 className="text-xl sm:text-2xl font-bold mb-0.5">Pending Approvals</h1>
-        <p className="text-slate-400 text-xs sm:text-sm mb-4">
+        <h1 className="font-bold mb-0.5" style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+          Pending Approvals
+        </h1>
+        <p className="text-xs sm:text-sm mb-4" style={{ color: PORTAL_DARK.muted }}>
           Post-paid group events awaiting management approval
         </p>
 
-        {loading && <p className="text-slate-400 text-sm">Loading...</p>}
+        {loading && (
+          <p className="text-sm" style={{ color: PORTAL_DARK.muted }}>
+            Loading...
+          </p>
+        )}
         {error && <p className="text-red-400 text-sm">Error: {error}</p>}
 
         {!loading && quotes.length === 0 && (
-          <div className="text-center py-12 text-slate-500">
+          <div className="text-center py-12" style={{ color: PORTAL_DARK.muted }}>
             <p className="text-base mb-1">No pending approvals</p>
             <p className="text-xs">Post-paid events will appear here when submitted</p>
           </div>
@@ -189,22 +203,29 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
           {quotes.map((q) => (
             <div
               key={q.id}
-              className="rounded-xl border border-white/10 bg-slate-800/50 overflow-hidden"
+              className="overflow-hidden"
+              style={{
+                borderRadius: 8,
+                border: `1px solid ${PORTAL_DARK.border}`,
+                backgroundColor: PORTAL_DARK.card,
+              }}
             >
               {/* Header tile — event name + total */}
               <div className="px-4 pt-4 pb-3 sm:flex sm:justify-between sm:items-start">
                 <div className="mb-2 sm:mb-0">
                   <div className="text-base sm:text-lg font-bold leading-tight">{q.eventName}</div>
-                  <div className="text-slate-400 text-xs mt-1">
+                  <div className="text-xs mt-1" style={{ color: PORTAL_DARK.muted }}>
                     #{q.eventNumber} · {q.centerName}
                   </div>
-                  <div className="text-slate-400 text-xs">{q.eventDateDisplay || q.eventDate}</div>
+                  <div className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                    {q.eventDateDisplay || q.eventDate}
+                  </div>
                 </div>
                 <div className="flex sm:flex-col items-baseline sm:items-end gap-2 sm:gap-0">
                   <span className="text-xl sm:text-2xl font-bold text-amber-400">
                     {dollars(q.totalCents)}
                   </span>
-                  <span className="text-slate-500 text-[10px] sm:text-xs">
+                  <span className="text-[10px] sm:text-xs" style={{ color: PORTAL_DARK.muted }}>
                     {timeAgo(q.createdAt)}
                   </span>
                 </div>
@@ -213,50 +234,80 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
               {/* Guest + Planner — stacks on mobile */}
               <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1">
+                  <div
+                    className="text-[10px] uppercase tracking-wider font-semibold mb-1"
+                    style={{ color: PORTAL_DARK.muted }}
+                  >
                     Guest
                   </div>
                   <div className="font-semibold text-sm">{q.guestName}</div>
-                  <div className="text-slate-400 text-xs truncate">{q.guestEmail}</div>
-                  {q.guestPhone && <div className="text-slate-400 text-xs">{q.guestPhone}</div>}
+                  <div className="text-xs truncate" style={{ color: PORTAL_DARK.muted }}>
+                    {q.guestEmail}
+                  </div>
+                  {q.guestPhone && (
+                    <div className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                      {q.guestPhone}
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1">
+                  <div
+                    className="text-[10px] uppercase tracking-wider font-semibold mb-1"
+                    style={{ color: PORTAL_DARK.muted }}
+                  >
                     Planner
                   </div>
                   <div className="font-semibold text-sm">{q.plannerName || "—"}</div>
                   {q.plannerEmail && (
-                    <div className="text-slate-400 text-xs truncate">{q.plannerEmail}</div>
+                    <div className="text-xs truncate" style={{ color: PORTAL_DARK.muted }}>
+                      {q.plannerEmail}
+                    </div>
                   )}
-                  {q.plannerPhone && <div className="text-slate-400 text-xs">{q.plannerPhone}</div>}
+                  {q.plannerPhone && (
+                    <div className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                      {q.plannerPhone}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Line items */}
               {q.lineItems && q.lineItems.length > 0 && (
                 <div className="px-4 pb-3">
-                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1.5">
+                  <div
+                    className="text-[10px] uppercase tracking-wider font-semibold mb-1.5"
+                    style={{ color: PORTAL_DARK.muted }}
+                  >
                     Products
                   </div>
                   <div className="space-y-1">
                     {q.lineItems.map((item, i) => (
                       <div
                         key={i}
-                        className="flex justify-between text-xs border-b border-white/5 pb-1"
+                        className="flex justify-between text-xs pb-1"
+                        style={{ borderBottom: `1px solid ${PORTAL_DARK.border}` }}
                       >
                         <span className="truncate mr-2">{item.name}</span>
-                        <span className="flex gap-3 shrink-0 text-slate-400">
+                        <span className="flex gap-3 shrink-0" style={{ color: PORTAL_DARK.muted }}>
                           <span>x{item.qty}</span>
-                          <span className="font-mono text-slate-300 w-16 text-right">
+                          <span
+                            className="font-mono w-16 text-right"
+                            style={{ color: PORTAL_DARK.fg }}
+                          >
                             ${item.total.toFixed(2)}
                           </span>
                         </span>
                       </div>
                     ))}
                   </div>
-                  <div className="flex justify-end gap-4 mt-2 text-xs text-slate-400">
+                  <div
+                    className="flex justify-end gap-4 mt-2 text-xs"
+                    style={{ color: PORTAL_DARK.muted }}
+                  >
                     <span>Tax: {dollars(q.taxCents)}</span>
-                    <span className="font-bold text-slate-200">Total: {dollars(q.totalCents)}</span>
+                    <span className="font-bold" style={{ color: PORTAL_DARK.fg }}>
+                      Total: {dollars(q.totalCents)}
+                    </span>
                   </div>
                 </div>
               )}
@@ -264,10 +315,16 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
               {/* Notes */}
               {q.notes && (
                 <div className="px-4 pb-3">
-                  <div className="text-slate-500 text-[10px] uppercase tracking-wider font-semibold mb-1">
+                  <div
+                    className="text-[10px] uppercase tracking-wider font-semibold mb-1"
+                    style={{ color: PORTAL_DARK.muted }}
+                  >
                     Notes
                   </div>
-                  <div className="text-slate-400 text-xs whitespace-pre-wrap leading-relaxed">
+                  <div
+                    className="text-xs whitespace-pre-wrap leading-relaxed"
+                    style={{ color: PORTAL_DARK.muted }}
+                  >
                     {q.notes}
                   </div>
                 </div>
@@ -303,7 +360,8 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                       if (e.key === "Enter") void handleDeny(q);
                     }}
                     ref={(el) => el?.focus()}
-                    className="w-full px-3 py-2 rounded-lg border border-red-500/40 bg-red-500/5 text-slate-200 text-sm outline-none focus:border-red-400"
+                    className="w-full px-3 py-2 rounded-lg border border-red-500/40 bg-red-500/5 text-sm outline-none focus:border-red-400"
+                    style={{ color: PORTAL_DARK.fg }}
                   />
                 </div>
               )}
@@ -317,7 +375,8 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                     onChange={(e) => setApprovalMemo(e.target.value)}
                     rows={2}
                     ref={(el) => el?.focus()}
-                    className="w-full px-3 py-2 rounded-lg border border-amber-500/40 bg-amber-500/5 text-slate-200 text-sm outline-none focus:border-amber-400"
+                    className="w-full px-3 py-2 rounded-lg border border-amber-500/40 bg-amber-500/5 text-sm outline-none focus:border-amber-400"
+                    style={{ color: PORTAL_DARK.fg }}
                   />
                 </div>
               )}
@@ -331,7 +390,8 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                         setDenyingId(null);
                         setDenyReason("");
                       }}
-                      className="px-4 py-2 rounded-lg border border-white/15 text-slate-400 text-sm font-semibold hover:bg-white/5 transition-colors"
+                      className="px-4 py-2 rounded-lg border text-sm font-semibold hover:bg-white/5 transition-colors"
+                      style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted }}
                     >
                       Cancel
                     </button>
@@ -350,7 +410,8 @@ export default function GroupApprovalsClient({ token }: { token: string }) {
                         setApprovingId(null);
                         setApprovalMemo("");
                       }}
-                      className="px-4 py-2 rounded-lg border border-white/15 text-slate-400 text-sm font-semibold hover:bg-white/5 transition-colors"
+                      className="px-4 py-2 rounded-lg border text-sm font-semibold hover:bg-white/5 transition-colors"
+                      style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted }}
                     >
                       Cancel
                     </button>

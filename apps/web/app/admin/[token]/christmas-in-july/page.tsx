@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
 import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import ChristmasRsvpsClient from "./ChristmasRsvpsClient";
 
 /**
@@ -40,5 +41,9 @@ export default async function Page({ params }: Props) {
   // Newest first.
   rows.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 
-  return <ChristmasRsvpsClient rows={rows} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <ChristmasRsvpsClient rows={rows} />
+    </div>
+  );
 }

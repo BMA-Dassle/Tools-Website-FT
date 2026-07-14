@@ -5,6 +5,7 @@ import CenterPicker, { CENTERS } from "@/components/admin/bowling/CenterPicker";
 import AdminBowlerList from "@/components/admin/bowling/AdminBowlerList";
 import type { AdminBowlerSelection } from "@/components/admin/bowling/BowlerEditor";
 import { isKbfBookableDate } from "@/lib/kbf-schedule";
+import { ADMIN_SANS, PORTAL_BLUE } from "~/components/features/admin-skin/theme";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ function resolveCenterParam(param: string | null): string | null {
   return match ? match.code : null;
 }
 
-const BLUE = "#004AAD";
+const BLUE = PORTAL_BLUE;
 
 /** "3 PM", "11 AM" */
 function formatHour(h: number): string {
@@ -602,267 +603,105 @@ export default function KbfAdminClient({
   return (
     <div
       style={{
-        maxWidth: 1100,
-        margin: "0 auto",
-        padding: "16px 20px",
-        fontFamily: "Arial, sans-serif",
+        minHeight: "100vh",
+        background: "#ffffff",
+        color: "#14223b",
+        fontFamily: ADMIN_SANS,
       }}
     >
-      {/* ── Header row: title + search + center picker ──────────── */}
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 16,
-          flexWrap: "wrap",
+          maxWidth: 1100,
+          margin: "0 auto",
+          padding: "16px 20px",
         }}
       >
-        <h1
-          style={{
-            margin: 0,
-            fontSize: 18,
-            fontWeight: 700,
-            color: "#fff",
-            whiteSpace: "nowrap",
-            flexShrink: 0,
-          }}
-        >
-          KBF Admin
-        </h1>
-        <div style={{ display: "flex", flex: 1, gap: 8, minWidth: 200 }}>
-          <input
-            ref={searchRef}
-            type="text"
-            placeholder="Name, email, or phone..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && doSearch()}
-            disabled={phase === "searching" || phase === "submitting"}
-            style={{
-              flex: 1,
-              padding: "8px 12px",
-              fontSize: 14,
-              border: "1px solid #d1d5db",
-              borderRadius: 8,
-              outline: "none",
-              minWidth: 0,
-            }}
-          />
-          <button
-            onClick={doSearch}
-            disabled={phase === "searching" || phase === "submitting" || !query.trim()}
-            style={{
-              padding: "8px 16px",
-              fontSize: 14,
-              fontWeight: 600,
-              backgroundColor: BLUE,
-              color: "#fff",
-              border: "none",
-              borderRadius: 8,
-              cursor: phase === "searching" ? "wait" : "pointer",
-              opacity: !query.trim() ? 0.5 : 1,
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-            }}
-          >
-            {phase === "searching" ? "..." : "Search"}
-          </button>
-        </div>
-        <div style={{ flexShrink: 0 }}>
-          <CenterPicker value={centerCode} onChange={setCenterCode} />
-        </div>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div
-          style={{
-            padding: "10px 14px",
-            marginBottom: 12,
-            backgroundColor: "#fef2f2",
-            border: "1px solid #fecaca",
-            borderRadius: 8,
-            color: "#991b1b",
-            fontSize: 13,
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {/* Search results list — pick an account */}
-      {passes.length > 0 && !selectedPass && (
-        <div style={{ marginBottom: 12 }}>
-          <div
-            style={{
-              marginBottom: 6,
-              fontSize: 12,
-              fontWeight: 700,
-              color: "#6b7280",
-              textTransform: "uppercase",
-              letterSpacing: 1,
-            }}
-          >
-            {passes.length} result{passes.length !== 1 ? "s" : ""}
-          </div>
-          <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
-            {passes.map((p) => {
-              const kids = p.members.filter((m) => m.relation === "kid");
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => selectPass(p, redeemedToday)}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    padding: "10px 14px",
-                    textAlign: "left",
-                    backgroundColor: "#fff",
-                    border: "none",
-                    borderBottom: "1px solid #e5e7eb",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                    <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>
-                      {p.firstName} {p.lastName}
-                    </span>
-                    <span
-                      style={{
-                        padding: "1px 6px",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        backgroundColor: p.fpass ? "#dbeafe" : "#f0fdf4",
-                        color: p.fpass ? "#1d4ed8" : "#166534",
-                        borderRadius: 999,
-                      }}
-                    >
-                      {p.centerName.replace("HeadPinz ", "")} {p.fpass ? "FBF" : "KBF"}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>
-                    {p.email}
-                    {p.phone && <> &middot; {p.phone}</>} &middot; {kids.length} kid
-                    {kids.length !== 1 ? "s" : ""}
-                    {kids.length > 0 && (
-                      <span style={{ color: "#9ca3af" }}>
-                        {" "}
-                        ({kids.map((k) => k.firstName).join(", ")})
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Selected account header */}
-      {selectedPass && (
+        {/* ── Header row: title + search + center picker ──────────── */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            padding: "8px 14px",
-            marginBottom: 12,
-            backgroundColor: "#f9fafb",
-            border: "1px solid #e5e7eb",
-            borderRadius: 8,
+            gap: 12,
+            marginBottom: 16,
+            flexWrap: "wrap",
           }}
         >
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-              <span style={{ fontWeight: 700, fontSize: 15, color: "#1a1a1a" }}>
-                {selectedPass.firstName} {selectedPass.lastName}
-              </span>
-              <span
-                style={{
-                  padding: "1px 6px",
-                  fontSize: 10,
-                  fontWeight: 700,
-                  backgroundColor: selectedPass.fpass ? "#dbeafe" : "#f0fdf4",
-                  color: selectedPass.fpass ? "#1d4ed8" : "#166534",
-                  borderRadius: 999,
-                }}
-              >
-                {selectedPass.centerName.replace("HeadPinz ", "")}{" "}
-                {selectedPass.fpass ? "FBF" : "KBF"}
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>
-              {selectedPass.email}
-              {selectedPass.phone && <> &middot; {selectedPass.phone}</>}
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              cancelHold();
-              setSelectedPass(null);
-              setBowlers([]);
-              setPhase("idle");
-              setStep(1);
-              setMode("bowl-now");
-            }}
+          <h1
             style={{
-              padding: "4px 10px",
-              fontSize: 12,
-              fontWeight: 600,
-              backgroundColor: "#fff",
-              color: "#6b7280",
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              cursor: "pointer",
+              margin: 0,
+              fontSize: "1.5rem",
+              fontWeight: 700,
+              color: "#14223b",
+              whiteSpace: "nowrap",
               flexShrink: 0,
             }}
           >
-            Change
-          </button>
+            KBF Admin
+          </h1>
+          <div style={{ display: "flex", flex: 1, gap: 8, minWidth: 200 }}>
+            <input
+              ref={searchRef}
+              type="text"
+              placeholder="Name, email, or phone..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doSearch()}
+              disabled={phase === "searching" || phase === "submitting"}
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                fontSize: 14,
+                border: "1px solid #d1d5db",
+                borderRadius: 8,
+                outline: "none",
+                minWidth: 0,
+              }}
+            />
+            <button
+              onClick={doSearch}
+              disabled={phase === "searching" || phase === "submitting" || !query.trim()}
+              style={{
+                padding: "8px 16px",
+                fontSize: 14,
+                fontWeight: 600,
+                backgroundColor: BLUE,
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                cursor: phase === "searching" ? "wait" : "pointer",
+                opacity: !query.trim() ? 0.5 : 1,
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              {phase === "searching" ? "..." : "Search"}
+            </button>
+          </div>
+          <div style={{ flexShrink: 0 }}>
+            <CenterPicker value={centerCode} onChange={setCenterCode} />
+          </div>
         </div>
-      )}
 
-      {/* ── STEP 1: Bowlers + action buttons ──────────────────────── */}
-      {step === 1 &&
-        selectedPass &&
-        bowlers.length > 0 &&
-        (phase === "ready" || phase === "error" || phase === "hold" || phase === "submitting") && (
-          <>
-            {/* Phone collection */}
-            {!selectedPass.phone && (
-              <div
-                style={{
-                  padding: "8px 14px",
-                  marginBottom: 12,
-                  backgroundColor: "#fffbeb",
-                  border: "1px solid #fde68a",
-                  borderRadius: 8,
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>
-                  Phone number required
-                </div>
-                <input
-                  type="tel"
-                  placeholder="(239) 555-1234"
-                  value={enteredPhone}
-                  onChange={(e) => setEnteredPhone(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    fontSize: 14,
-                    border: "1px solid #d1d5db",
-                    borderRadius: 6,
-                    outline: "none",
-                    boxSizing: "border-box",
-                    backgroundColor: "#fff",
-                    color: "#1a1a1a",
-                  }}
-                />
-              </div>
-            )}
+        {/* Error */}
+        {error && (
+          <div
+            style={{
+              padding: "10px 14px",
+              marginBottom: 12,
+              backgroundColor: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 8,
+              color: "#991b1b",
+              fontSize: 13,
+            }}
+          >
+            {error}
+          </div>
+        )}
 
+        {/* Search results list — pick an account */}
+        {passes.length > 0 && !selectedPass && (
+          <div style={{ marginBottom: 12 }}>
             <div
               style={{
                 marginBottom: 6,
@@ -873,597 +712,807 @@ export default function KbfAdminClient({
                 letterSpacing: 1,
               }}
             >
-              Bowlers ({selectedCount} selected)
+              {passes.length} result{passes.length !== 1 ? "s" : ""}
             </div>
-            <AdminBowlerList
-              bowlers={bowlers}
-              onChange={setBowlers}
-              disabled={phase === "hold" || phase === "submitting"}
-            />
-
-            {!hasKid && selectedCount > 0 && (
-              <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>
-                At least one kid must be selected for KBF.
-              </div>
-            )}
-
-            {!hasPhone && selectedCount > 0 && hasKid && (
-              <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>
-                Enter a phone number above to continue.
-              </div>
-            )}
-
-            {/* Future reservation warning + cancel/reschedule */}
-            {passFutureRez && (
-              <div
-                style={{
-                  padding: "10px 14px",
-                  marginTop: 10,
-                  backgroundColor: "#fef3c7",
-                  border: "1px solid #fde68a",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  color: "#92400e",
-                }}
-              >
-                <div style={{ marginBottom: 8 }}>
-                  Existing reservation for{" "}
-                  <strong>
-                    {new Date(passFutureRez.bookedAt).toLocaleString("en-US", {
-                      timeZone: "America/New_York",
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </strong>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
+              {passes.map((p) => {
+                const kids = p.members.filter((m) => m.relation === "kid");
+                return (
                   <button
-                    onClick={() => handleCancelExisting(passFutureRez.reservationId)}
-                    disabled={cancellingRez}
+                    key={p.id}
+                    onClick={() => selectPass(p, redeemedToday)}
                     style={{
-                      padding: "6px 14px",
-                      fontSize: 12,
-                      fontWeight: 600,
+                      display: "block",
+                      width: "100%",
+                      padding: "10px 14px",
+                      textAlign: "left",
                       backgroundColor: "#fff",
-                      color: "#dc2626",
-                      border: "1px solid #fca5a5",
-                      borderRadius: 6,
-                      cursor: cancellingRez ? "wait" : "pointer",
-                    }}
-                  >
-                    {cancellingRez ? "Cancelling..." : "Cancel"}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Bowl Now hold state — show assigned lane + confirm */}
-            {phase === "hold" && mode === "bowl-now" && holdQamfId && holdLaneNumber && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: "16px 20px",
-                  backgroundColor: "#f0fdf4",
-                  border: "2px solid #22c55e",
-                  borderRadius: 10,
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: 18, fontWeight: 800, color: "#166534", marginBottom: 4 }}>
-                  Lane {holdLaneNumber} assigned
-                </div>
-                <div style={{ fontSize: 13, color: "#15803d", marginBottom: 12 }}>
-                  Temp hold active — confirm to open the lane
-                </div>
-                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                  <button
-                    onClick={() => {
-                      cancelHold();
-                      setPhase("ready");
-                    }}
-                    style={{
-                      padding: "10px 24px",
-                      fontSize: 14,
-                      fontWeight: 600,
-                      backgroundColor: "#fff",
-                      color: "#6b7280",
-                      border: "1px solid #d1d5db",
-                      borderRadius: 8,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleBowlNowConfirm}
-                    style={{
-                      padding: "10px 32px",
-                      fontSize: 15,
-                      fontWeight: 700,
-                      backgroundColor: "#22c55e",
-                      color: "#fff",
                       border: "none",
-                      borderRadius: 8,
+                      borderBottom: "1px solid #e5e7eb",
                       cursor: "pointer",
                     }}
                   >
-                    Open Lane {holdLaneNumber}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Action buttons (only when no hold active) */}
-            {(phase === "ready" || phase === "error") && (
-              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                <button
-                  onClick={handleBowlNowHold}
-                  disabled={!canAdvance || holdLoading}
-                  style={{
-                    flex: 1,
-                    padding: "14px 0",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    backgroundColor: canAdvance ? "#22c55e" : "#d1d5db",
-                    color: canAdvance ? "#fff" : "#9ca3af",
-                    border: "none",
-                    borderRadius: 10,
-                    cursor: canAdvance && !holdLoading ? "pointer" : "not-allowed",
-                  }}
-                >
-                  {holdLoading && mode === "bowl-now" ? "Getting lane..." : "🎳 Bowl Now"}
-                </button>
-                <button
-                  onClick={() => {
-                    setMode("book-lane");
-                    setStep(2);
-                  }}
-                  disabled={!canAdvance || !!passFutureRez}
-                  style={{
-                    flex: 1,
-                    padding: "14px 0",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    backgroundColor: canAdvance && !passFutureRez ? BLUE : "#d1d5db",
-                    color: canAdvance && !passFutureRez ? "#fff" : "#9ca3af",
-                    border: "none",
-                    borderRadius: 10,
-                    cursor: canAdvance && !passFutureRez ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Book Lane →
-                </button>
-              </div>
-            )}
-          </>
-        )}
-
-      {/* ── STEP 2: Book Lane calendar ────────────────────────────── */}
-      {step === 2 &&
-        mode === "book-lane" &&
-        (phase === "ready" || phase === "error" || phase === "hold" || phase === "submitting") && (
-          <>
-            {/* Back + summary bar */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-              <button
-                onClick={() => {
-                  cancelHold();
-                  setStep(1);
-                  setPhase("ready");
-                  setMode("bowl-now");
-                  setSelectedDate("");
-                  setSelectedHour(null);
-                  setSelectedMinute(null);
-                }}
-                disabled={phase === "submitting"}
-                style={{
-                  padding: "6px 12px",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  backgroundColor: "transparent",
-                  color: "#9ca3af",
-                  border: "1px solid #6b7280",
-                  borderRadius: 6,
-                  cursor: phase === "submitting" ? "not-allowed" : "pointer",
-                  flexShrink: 0,
-                }}
-              >
-                ← Back
-              </button>
-              <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Book Lane</span>
-              <span style={{ fontSize: 13, color: "#9ca3af" }}>
-                {selectedCount} bowler{selectedCount !== 1 ? "s" : ""}
-              </span>
-            </div>
-
-            {/* Book Lane: two-column layout — calendar left, times right */}
-            <div
-              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 12 }}
-            >
-              {/* Left column: calendar */}
-              <div>
-                {/* Month navigation */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 8,
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      if (calMonth === 0) {
-                        setCalMonth(11);
-                        setCalYear((y) => y - 1);
-                      } else setCalMonth((m) => m - 1);
-                    }}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      fontSize: 18,
-                      fontWeight: 700,
-                      backgroundColor: "transparent",
-                      color: "#fff",
-                      border: "1px solid #6b7280",
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    ‹
-                  </button>
-                  <span style={{ fontWeight: 700, fontSize: 15, color: "#fff" }}>
-                    {new Date(calYear, calMonth).toLocaleString("default", {
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (calMonth === 11) {
-                        setCalMonth(0);
-                        setCalYear((y) => y + 1);
-                      } else setCalMonth((m) => m + 1);
-                    }}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      fontSize: 18,
-                      fontWeight: 700,
-                      backgroundColor: "transparent",
-                      color: "#fff",
-                      border: "1px solid #6b7280",
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    ›
-                  </button>
-                </div>
-
-                {/* Day-of-week headers */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(7, 1fr)",
-                    textAlign: "center",
-                    marginBottom: 2,
-                  }}
-                >
-                  {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-                    <div
-                      key={i}
-                      style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", padding: "4px 0" }}
-                    >
-                      {d}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Calendar grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
-                  {calCells.map((day, i) => {
-                    if (day == null) return <div key={i} />;
-                    const ymd = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                    const bookable = isKbfBookableDate(ymd);
-                    const isPast = ymd < calToday;
-                    const isSelected = ymd === selectedDate;
-                    const isTodayCell = ymd === calToday;
-
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => {
-                          if (!bookable || isPast) return;
-                          // Cancel hold when changing date
-                          cancelHold();
-                          setSelectedDate(ymd);
-                          setSelectedHour(null);
-                          setSelectedMinute(null);
-                          setPhase("ready");
-                          fetchAvailability(ymd);
-                        }}
-                        disabled={!bookable || isPast}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                      <span style={{ fontWeight: 700, fontSize: 14, color: "#14223b" }}>
+                        {p.firstName} {p.lastName}
+                      </span>
+                      <span
                         style={{
-                          padding: "8px 0",
-                          fontSize: 13,
-                          fontWeight: isSelected ? 700 : isTodayCell ? 600 : 400,
-                          backgroundColor: isSelected ? BLUE : "transparent",
-                          color: isSelected ? "#fff" : !bookable || isPast ? "#6b728050" : "#fff",
-                          border:
-                            isTodayCell && !isSelected
-                              ? `1px solid ${BLUE}`
-                              : "1px solid transparent",
-                          borderRadius: 6,
-                          cursor: bookable && !isPast ? "pointer" : "default",
+                          padding: "1px 6px",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          backgroundColor: p.fpass ? "#dbeafe" : "#f0fdf4",
+                          color: p.fpass ? "#1d4ed8" : "#166534",
+                          borderRadius: 999,
                         }}
                       >
-                        {day}
-                      </button>
-                    );
-                  })}
+                        {p.centerName.replace("HeadPinz ", "")} {p.fpass ? "FBF" : "KBF"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      {p.email}
+                      {p.phone && <> &middot; {p.phone}</>} &middot; {kids.length} kid
+                      {kids.length !== 1 ? "s" : ""}
+                      {kids.length > 0 && (
+                        <span style={{ color: "#9ca3af" }}>
+                          {" "}
+                          ({kids.map((k) => k.firstName).join(", ")})
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Selected account header */}
+        {selectedPass && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 14px",
+              marginBottom: 12,
+              backgroundColor: "#f9fafb",
+              border: "1px solid #e5e7eb",
+              borderRadius: 8,
+            }}
+          >
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                <span style={{ fontWeight: 700, fontSize: 15, color: "#14223b" }}>
+                  {selectedPass.firstName} {selectedPass.lastName}
+                </span>
+                <span
+                  style={{
+                    padding: "1px 6px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    backgroundColor: selectedPass.fpass ? "#dbeafe" : "#f0fdf4",
+                    color: selectedPass.fpass ? "#1d4ed8" : "#166534",
+                    borderRadius: 999,
+                  }}
+                >
+                  {selectedPass.centerName.replace("HeadPinz ", "")}{" "}
+                  {selectedPass.fpass ? "FBF" : "KBF"}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                {selectedPass.email}
+                {selectedPass.phone && <> &middot; {selectedPass.phone}</>}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                cancelHold();
+                setSelectedPass(null);
+                setBowlers([]);
+                setPhase("idle");
+                setStep(1);
+                setMode("bowl-now");
+              }}
+              style={{
+                padding: "4px 10px",
+                fontSize: 12,
+                fontWeight: 600,
+                backgroundColor: "#fff",
+                color: "#6b7280",
+                border: "1px solid #d1d5db",
+                borderRadius: 6,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Change
+            </button>
+          </div>
+        )}
+
+        {/* ── STEP 1: Bowlers + action buttons ──────────────────────── */}
+        {step === 1 &&
+          selectedPass &&
+          bowlers.length > 0 &&
+          (phase === "ready" ||
+            phase === "error" ||
+            phase === "hold" ||
+            phase === "submitting") && (
+            <>
+              {/* Phone collection */}
+              {!selectedPass.phone && (
+                <div
+                  style={{
+                    padding: "8px 14px",
+                    marginBottom: 12,
+                    backgroundColor: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>
+                    Phone number required
+                  </div>
+                  <input
+                    type="tel"
+                    placeholder="(239) 555-1234"
+                    value={enteredPhone}
+                    onChange={(e) => setEnteredPhone(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      fontSize: 14,
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      outline: "none",
+                      boxSizing: "border-box",
+                      backgroundColor: "#fff",
+                      color: "#14223b",
+                    }}
+                  />
+                </div>
+              )}
+
+              <div
+                style={{
+                  marginBottom: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#6b7280",
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                }}
+              >
+                Bowlers ({selectedCount} selected)
+              </div>
+              <AdminBowlerList
+                bowlers={bowlers}
+                onChange={setBowlers}
+                disabled={phase === "hold" || phase === "submitting"}
+              />
+
+              {!hasKid && selectedCount > 0 && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>
+                  At least one kid must be selected for KBF.
+                </div>
+              )}
+
+              {!hasPhone && selectedCount > 0 && hasKid && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#dc2626" }}>
+                  Enter a phone number above to continue.
+                </div>
+              )}
+
+              {/* Future reservation warning + cancel/reschedule */}
+              {passFutureRez && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    marginTop: 10,
+                    backgroundColor: "#fef3c7",
+                    border: "1px solid #fde68a",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    color: "#92400e",
+                  }}
+                >
+                  <div style={{ marginBottom: 8 }}>
+                    Existing reservation for{" "}
+                    <strong>
+                      {new Date(passFutureRez.bookedAt).toLocaleString("en-US", {
+                        timeZone: "America/New_York",
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => handleCancelExisting(passFutureRez.reservationId)}
+                      disabled={cancellingRez}
+                      style={{
+                        padding: "6px 14px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        backgroundColor: "#fff",
+                        color: "#dc2626",
+                        border: "1px solid #fca5a5",
+                        borderRadius: 6,
+                        cursor: cancellingRez ? "wait" : "pointer",
+                      }}
+                    >
+                      {cancellingRez ? "Cancelling..." : "Cancel"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Bowl Now hold state — show assigned lane + confirm */}
+              {phase === "hold" && mode === "bowl-now" && holdQamfId && holdLaneNumber && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "16px 20px",
+                    backgroundColor: "#f0fdf4",
+                    border: "2px solid #22c55e",
+                    borderRadius: 10,
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#166534", marginBottom: 4 }}>
+                    Lane {holdLaneNumber} assigned
+                  </div>
+                  <div style={{ fontSize: 13, color: "#15803d", marginBottom: 12 }}>
+                    Temp hold active — confirm to open the lane
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      justifyContent: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      onClick={() => {
+                        cancelHold();
+                        setPhase("ready");
+                      }}
+                      style={{
+                        padding: "10px 24px",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        backgroundColor: "#fff",
+                        color: "#6b7280",
+                        border: "1px solid #d1d5db",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleBowlNowConfirm}
+                      style={{
+                        padding: "10px 32px",
+                        fontSize: 15,
+                        fontWeight: 700,
+                        backgroundColor: "#22c55e",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Open Lane {holdLaneNumber}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons (only when no hold active) */}
+              {(phase === "ready" || phase === "error") && (
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button
+                    onClick={handleBowlNowHold}
+                    disabled={!canAdvance || holdLoading}
+                    style={{
+                      flex: 1,
+                      padding: "14px 0",
+                      fontSize: 14,
+                      fontWeight: 700,
+                      backgroundColor: canAdvance ? "#22c55e" : "#d1d5db",
+                      color: canAdvance ? "#fff" : "#9ca3af",
+                      border: "none",
+                      borderRadius: 10,
+                      cursor: canAdvance && !holdLoading ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    {holdLoading && mode === "bowl-now" ? "Getting lane..." : "🎳 Bowl Now"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMode("book-lane");
+                      setStep(2);
+                    }}
+                    disabled={!canAdvance || !!passFutureRez}
+                    style={{
+                      flex: 1,
+                      padding: "14px 0",
+                      fontSize: 14,
+                      fontWeight: 700,
+                      backgroundColor: canAdvance && !passFutureRez ? BLUE : "#d1d5db",
+                      color: canAdvance && !passFutureRez ? "#fff" : "#9ca3af",
+                      border: "none",
+                      borderRadius: 10,
+                      cursor: canAdvance && !passFutureRez ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    Book Lane →
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+        {/* ── STEP 2: Book Lane calendar ────────────────────────────── */}
+        {step === 2 &&
+          mode === "book-lane" &&
+          (phase === "ready" ||
+            phase === "error" ||
+            phase === "hold" ||
+            phase === "submitting") && (
+            <>
+              {/* Back + summary bar */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    cancelHold();
+                    setStep(1);
+                    setPhase("ready");
+                    setMode("bowl-now");
+                    setSelectedDate("");
+                    setSelectedHour(null);
+                    setSelectedMinute(null);
+                  }}
+                  disabled={phase === "submitting"}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    backgroundColor: "#fff",
+                    color: "#14223b",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    cursor: phase === "submitting" ? "not-allowed" : "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  ← Back
+                </button>
+                <span style={{ fontSize: 15, fontWeight: 700, color: "#14223b" }}>Book Lane</span>
+                <span style={{ fontSize: 13, color: "#6b7280" }}>
+                  {selectedCount} bowler{selectedCount !== 1 ? "s" : ""}
+                </span>
+              </div>
+
+              {/* Book Lane: two-column layout — calendar left, times right */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: 24,
+                  marginBottom: 12,
+                }}
+              >
+                {/* Left column: calendar */}
+                <div>
+                  {/* Month navigation */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <button
+                      onClick={() => {
+                        if (calMonth === 0) {
+                          setCalMonth(11);
+                          setCalYear((y) => y - 1);
+                        } else setCalMonth((m) => m - 1);
+                      }}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        fontSize: 18,
+                        fontWeight: 700,
+                        backgroundColor: "#fff",
+                        color: "#14223b",
+                        border: "1px solid #d1d5db",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      ‹
+                    </button>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: "#14223b" }}>
+                      {new Date(calYear, calMonth).toLocaleString("default", {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (calMonth === 11) {
+                          setCalMonth(0);
+                          setCalYear((y) => y + 1);
+                        } else setCalMonth((m) => m + 1);
+                      }}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        fontSize: 18,
+                        fontWeight: 700,
+                        backgroundColor: "#fff",
+                        color: "#14223b",
+                        border: "1px solid #d1d5db",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      ›
+                    </button>
+                  </div>
+
+                  {/* Day-of-week headers */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(7, 1fr)",
+                      textAlign: "center",
+                      marginBottom: 2,
+                    }}
+                  >
+                    {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#9ca3af",
+                          padding: "4px 0",
+                        }}
+                      >
+                        {d}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Calendar grid */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+                    {calCells.map((day, i) => {
+                      if (day == null) return <div key={i} />;
+                      const ymd = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                      const bookable = isKbfBookableDate(ymd);
+                      const isPast = ymd < calToday;
+                      const isSelected = ymd === selectedDate;
+                      const isTodayCell = ymd === calToday;
+
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            if (!bookable || isPast) return;
+                            // Cancel hold when changing date
+                            cancelHold();
+                            setSelectedDate(ymd);
+                            setSelectedHour(null);
+                            setSelectedMinute(null);
+                            setPhase("ready");
+                            fetchAvailability(ymd);
+                          }}
+                          disabled={!bookable || isPast}
+                          style={{
+                            padding: "8px 0",
+                            fontSize: 13,
+                            fontWeight: isSelected ? 700 : isTodayCell ? 600 : 400,
+                            backgroundColor: isSelected ? BLUE : "transparent",
+                            color: isSelected
+                              ? "#fff"
+                              : !bookable || isPast
+                                ? "#9ca3af"
+                                : "#14223b",
+                            border:
+                              isTodayCell && !isSelected
+                                ? `1px solid ${BLUE}`
+                                : "1px solid transparent",
+                            borderRadius: 6,
+                            cursor: bookable && !isPast ? "pointer" : "default",
+                          }}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Right column: time selection */}
+                <div>
+                  {!selectedDate && (
+                    <div
+                      style={{
+                        fontSize: 14,
+                        color: "#6b7280",
+                        paddingTop: 40,
+                        textAlign: "center",
+                      }}
+                    >
+                      Select a date to see available times
+                    </div>
+                  )}
+
+                  {selectedDate && slotsLoading && (
+                    <div style={{ fontSize: 13, color: "#9ca3af", paddingTop: 8 }}>
+                      Loading available times…
+                    </div>
+                  )}
+
+                  {selectedDate && !slotsLoading && availableHours.length === 0 && (
+                    <div style={{ fontSize: 13, color: "#f87171", paddingTop: 8 }}>
+                      No available start times for this date.
+                    </div>
+                  )}
+
+                  {/* Hour chips */}
+                  {selectedDate && !slotsLoading && availableHours.length > 0 && (
+                    <div>
+                      <div
+                        style={{
+                          marginBottom: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#6b7280",
+                          textTransform: "uppercase",
+                          letterSpacing: 1,
+                        }}
+                      >
+                        Start Time
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {availableHours.map((h) => (
+                          <button
+                            key={h}
+                            onClick={() => {
+                              // Cancel hold when changing hour
+                              cancelHold();
+                              setSelectedHour(h);
+                              setSelectedMinute(null);
+                              setPhase("ready");
+                            }}
+                            style={{
+                              minWidth: 60,
+                              padding: "8px 12px",
+                              fontSize: 13,
+                              fontWeight: selectedHour === h ? 700 : 400,
+                              backgroundColor: selectedHour === h ? BLUE : "#fff",
+                              color: selectedHour === h ? "#fff" : "#374151",
+                              border: `1px solid ${selectedHour === h ? BLUE : "#d1d5db"}`,
+                              borderRadius: 8,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {formatHour(h)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Minute chips */}
+                  {selectedHour !== null && availableMinutes.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <div
+                        style={{
+                          marginBottom: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#6b7280",
+                          textTransform: "uppercase",
+                          letterSpacing: 1,
+                        }}
+                      >
+                        Minutes
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {availableMinutes.map((m) => {
+                          const isHeld = selectedMinute === m && holdQamfId;
+                          return (
+                            <button
+                              key={m}
+                              onClick={() => handleMinuteSelected(m)}
+                              disabled={holdLoading}
+                              style={{
+                                minWidth: 52,
+                                padding: "8px 12px",
+                                fontSize: 13,
+                                fontWeight: selectedMinute === m ? 700 : 400,
+                                backgroundColor: isHeld
+                                  ? "#22c55e"
+                                  : selectedMinute === m
+                                    ? BLUE
+                                    : "#fff",
+                                color: selectedMinute === m ? "#fff" : "#374151",
+                                border: `1px solid ${isHeld ? "#22c55e" : selectedMinute === m ? BLUE : "#d1d5db"}`,
+                                borderRadius: 8,
+                                cursor: holdLoading ? "wait" : "pointer",
+                              }}
+                            >
+                              :{String(m).padStart(2, "0")}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Hold loading indicator */}
+                  {holdLoading && mode === "book-lane" && (
+                    <div style={{ marginTop: 12, fontSize: 12, color: "#9ca3af" }}>
+                      Holding time slot…
+                    </div>
+                  )}
+
+                  {/* Hold active indicator */}
+                  {isHolding && (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        padding: "8px 12px",
+                        backgroundColor: "#f0fdf4",
+                        border: "1px solid #bbf7d0",
+                        borderRadius: 8,
+                        fontSize: 12,
+                        color: "#166534",
+                        fontWeight: 600,
+                      }}
+                    >
+                      ✓ Time slot held — 10 min expiry
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Right column: time selection */}
-              <div>
-                {!selectedDate && (
-                  <div
-                    style={{ fontSize: 14, color: "#6b7280", paddingTop: 40, textAlign: "center" }}
-                  >
-                    Select a date to see available times
-                  </div>
-                )}
+              {/* Confirm / submit button */}
+              {
+                <button
+                  onClick={handleBookLaneConfirm}
+                  disabled={!canConfirmBookLane && !bookLaneBusy}
+                  style={{
+                    width: "100%",
+                    padding: "14px 0",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    backgroundColor: canConfirmBookLane ? BLUE : "#d1d5db",
+                    color: canConfirmBookLane ? "#fff" : "#9ca3af",
+                    border: "none",
+                    borderRadius: 10,
+                    cursor: canConfirmBookLane ? "pointer" : "not-allowed",
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  {bookLaneBusy
+                    ? "Booking..."
+                    : canConfirmBookLane && selectedHour !== null && selectedMinute !== null
+                      ? `Confirm: ${selectedDate} at ${formatHourMinute(selectedHour, selectedMinute)}`
+                      : "Select date & time"}
+                </button>
+              }
+            </>
+          )}
 
-                {selectedDate && slotsLoading && (
-                  <div style={{ fontSize: 13, color: "#9ca3af", paddingTop: 8 }}>
-                    Loading available times…
-                  </div>
-                )}
-
-                {selectedDate && !slotsLoading && availableHours.length === 0 && (
-                  <div style={{ fontSize: 13, color: "#f87171", paddingTop: 8 }}>
-                    No available start times for this date.
-                  </div>
-                )}
-
-                {/* Hour chips */}
-                {selectedDate && !slotsLoading && availableHours.length > 0 && (
-                  <div>
-                    <div
-                      style={{
-                        marginBottom: 6,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: "#6b7280",
-                        textTransform: "uppercase",
-                        letterSpacing: 1,
-                      }}
-                    >
-                      Start Time
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {availableHours.map((h) => (
-                        <button
-                          key={h}
-                          onClick={() => {
-                            // Cancel hold when changing hour
-                            cancelHold();
-                            setSelectedHour(h);
-                            setSelectedMinute(null);
-                            setPhase("ready");
-                          }}
-                          style={{
-                            minWidth: 60,
-                            padding: "8px 12px",
-                            fontSize: 13,
-                            fontWeight: selectedHour === h ? 700 : 400,
-                            backgroundColor: selectedHour === h ? BLUE : "#fff",
-                            color: selectedHour === h ? "#fff" : "#374151",
-                            border: `1px solid ${selectedHour === h ? BLUE : "#d1d5db"}`,
-                            borderRadius: 8,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {formatHour(h)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Minute chips */}
-                {selectedHour !== null && availableMinutes.length > 0 && (
-                  <div style={{ marginTop: 16 }}>
-                    <div
-                      style={{
-                        marginBottom: 6,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: "#6b7280",
-                        textTransform: "uppercase",
-                        letterSpacing: 1,
-                      }}
-                    >
-                      Minutes
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {availableMinutes.map((m) => {
-                        const isHeld = selectedMinute === m && holdQamfId;
-                        return (
-                          <button
-                            key={m}
-                            onClick={() => handleMinuteSelected(m)}
-                            disabled={holdLoading}
-                            style={{
-                              minWidth: 52,
-                              padding: "8px 12px",
-                              fontSize: 13,
-                              fontWeight: selectedMinute === m ? 700 : 400,
-                              backgroundColor: isHeld
-                                ? "#22c55e"
-                                : selectedMinute === m
-                                  ? BLUE
-                                  : "#fff",
-                              color: selectedMinute === m ? "#fff" : "#374151",
-                              border: `1px solid ${isHeld ? "#22c55e" : selectedMinute === m ? BLUE : "#d1d5db"}`,
-                              borderRadius: 8,
-                              cursor: holdLoading ? "wait" : "pointer",
-                            }}
-                          >
-                            :{String(m).padStart(2, "0")}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Hold loading indicator */}
-                {holdLoading && mode === "book-lane" && (
-                  <div style={{ marginTop: 12, fontSize: 12, color: "#9ca3af" }}>
-                    Holding time slot…
-                  </div>
-                )}
-
-                {/* Hold active indicator */}
-                {isHolding && (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: "8px 12px",
-                      backgroundColor: "#f0fdf4",
-                      border: "1px solid #bbf7d0",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      color: "#166534",
-                      fontWeight: 600,
-                    }}
-                  >
-                    ✓ Time slot held — 10 min expiry
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Confirm / submit button */}
-            {
-              <button
-                onClick={handleBookLaneConfirm}
-                disabled={!canConfirmBookLane && !bookLaneBusy}
+        {/* Progress / result */}
+        {(phase === "submitting" ||
+          phase === "done" ||
+          (phase === "error" && progress.length > 0)) && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "14px 16px",
+              backgroundColor:
+                phase === "done" ? "#f0fdf4" : phase === "error" ? "#fef2f2" : "#f9fafb",
+              border: `1px solid ${phase === "done" ? "#bbf7d0" : phase === "error" ? "#fecaca" : "#e5e7eb"}`,
+              borderRadius: 8,
+            }}
+          >
+            {progress.map((msg, i) => (
+              <div
+                key={i}
                 style={{
-                  width: "100%",
-                  padding: "14px 0",
-                  fontSize: 15,
-                  fontWeight: 700,
-                  backgroundColor: canConfirmBookLane ? BLUE : "#d1d5db",
-                  color: canConfirmBookLane ? "#fff" : "#9ca3af",
-                  border: "none",
-                  borderRadius: 10,
-                  cursor: canConfirmBookLane ? "pointer" : "not-allowed",
-                  letterSpacing: 0.5,
+                  fontSize: 13,
+                  color: i === progress.length - 1 && phase === "done" ? "#166534" : "#374151",
+                  fontWeight: i === progress.length - 1 ? 700 : 400,
+                  marginBottom: i < progress.length - 1 ? 4 : 0,
                 }}
               >
-                {bookLaneBusy
-                  ? "Booking..."
-                  : canConfirmBookLane && selectedHour !== null && selectedMinute !== null
-                    ? `Confirm: ${selectedDate} at ${formatHourMinute(selectedHour, selectedMinute)}`
-                    : "Select date & time"}
-              </button>
-            }
-          </>
+                {i < progress.length - 1
+                  ? "✓ "
+                  : phase === "submitting"
+                    ? "⏳ "
+                    : phase === "done"
+                      ? "✓ "
+                      : "✗ "}
+                {msg}
+              </div>
+            ))}
+          </div>
         )}
 
-      {/* Progress / result */}
-      {(phase === "submitting" ||
-        phase === "done" ||
-        (phase === "error" && progress.length > 0)) && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: "14px 16px",
-            backgroundColor:
-              phase === "done" ? "#f0fdf4" : phase === "error" ? "#fef2f2" : "#f9fafb",
-            border: `1px solid ${phase === "done" ? "#bbf7d0" : phase === "error" ? "#fecaca" : "#e5e7eb"}`,
-            borderRadius: 8,
-          }}
-        >
-          {progress.map((msg, i) => (
-            <div
-              key={i}
-              style={{
-                fontSize: 13,
-                color: i === progress.length - 1 && phase === "done" ? "#166534" : "#374151",
-                fontWeight: i === progress.length - 1 ? 700 : 400,
-                marginBottom: i < progress.length - 1 ? 4 : 0,
-              }}
-            >
-              {i < progress.length - 1
-                ? "✓ "
-                : phase === "submitting"
-                  ? "⏳ "
-                  : phase === "done"
-                    ? "✓ "
-                    : "✗ "}
-              {msg}
+        {/* Bowl Now done: shoe charge warning */}
+        {phase === "done" && mode === "bowl-now" && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "16px 20px",
+              backgroundColor: "#dc2626",
+              border: "3px solid #fca5a5",
+              borderRadius: 10,
+              textAlign: "center",
+              animation: "shoeWarn 1s ease-in-out 3",
+            }}
+          >
+            <style>{`@keyframes shoeWarn { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); box-shadow: 0 0 24px rgba(220,38,38,.6); } }`}</style>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 6 }}>
+              👟 CHARGE FOR SHOES 👟
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Bowl Now done: shoe charge warning */}
-      {phase === "done" && mode === "bowl-now" && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: "16px 20px",
-            backgroundColor: "#dc2626",
-            border: "3px solid #fca5a5",
-            borderRadius: 10,
-            textAlign: "center",
-            animation: "shoeWarn 1s ease-in-out 3",
-          }}
-        >
-          <style>{`@keyframes shoeWarn { 0%,100% { transform: scale(1); } 50% { transform: scale(1.03); box-shadow: 0 0 24px rgba(220,38,38,.6); } }`}</style>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 6 }}>
-            👟 CHARGE FOR SHOES 👟
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#fee2e2", lineHeight: 1.4 }}>
+              Return to Conqueror and ring up shoe rentals now.
+              <br />
+              KBF does NOT include shoes — they must be paid for.
+            </div>
           </div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#fee2e2", lineHeight: 1.4 }}>
-            Return to Conqueror and ring up shoe rentals now.
-            <br />
-            KBF does NOT include shoes — they must be paid for.
-          </div>
-        </div>
-      )}
+        )}
 
-      {/* Done: reset */}
-      {phase === "done" && (
-        <button
-          onClick={handleReset}
-          style={{
-            marginTop: 10,
-            width: "100%",
-            padding: "12px 0",
-            fontSize: 14,
-            fontWeight: 600,
-            backgroundColor: "#fff",
-            color: BLUE,
-            border: `1px solid ${BLUE}`,
-            borderRadius: 8,
-            cursor: "pointer",
-          }}
-        >
-          New Lookup
-        </button>
-      )}
+        {/* Done: reset */}
+        {phase === "done" && (
+          <button
+            onClick={handleReset}
+            style={{
+              marginTop: 10,
+              width: "100%",
+              padding: "12px 0",
+              fontSize: 14,
+              fontWeight: 600,
+              backgroundColor: "#fff",
+              color: BLUE,
+              border: `1px solid ${BLUE}`,
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+          >
+            New Lookup
+          </button>
+        )}
+      </div>
     </div>
   );
 }

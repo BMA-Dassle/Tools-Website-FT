@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import ReservationsBoard from "~/components/features/reservations-admin/ReservationsBoard";
 
 /**
@@ -20,5 +21,9 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  return <ReservationsBoard token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <ReservationsBoard token={token} />
+    </div>
+  );
 }

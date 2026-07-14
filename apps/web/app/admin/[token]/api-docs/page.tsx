@@ -4,6 +4,14 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import "swagger-ui-react/swagger-ui.css";
 
+import { adminPoppins } from "~/components/features/admin-skin/font";
+import {
+  ADMIN_MONO,
+  ADMIN_SANS,
+  PORTAL_BLUE_SOFT,
+  PORTAL_DARK,
+} from "~/components/features/admin-skin/theme";
+
 const SwaggerUI = dynamic(() => import("swagger-ui-react"), { ssr: false });
 
 /**
@@ -29,44 +37,80 @@ export default function AdminApiDocsPage() {
   const [apiKey, setApiKey] = useState("");
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="bg-[#050b1d] text-white px-6 py-4 flex items-center justify-between flex-wrap gap-3 border-b border-white/10">
+    <div
+      className={`${adminPoppins.variable} min-h-screen`}
+      style={{
+        fontFamily: ADMIN_SANS,
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+      }}
+    >
+      <div
+        className="px-4 sm:px-6 py-4 flex items-center justify-between flex-wrap gap-3"
+        style={{
+          backgroundColor: PORTAL_DARK.card,
+          borderBottom: `1px solid ${PORTAL_DARK.border}`,
+        }}
+      >
         <div>
-          <h1 className="text-lg font-extrabold tracking-tight">
+          <h1 className="tracking-tight" style={{ fontSize: "1.5rem", fontWeight: 700 }}>
             FastTrax Admin API
-            <span className="ml-2 text-xs font-normal text-cyan-400 uppercase tracking-wider">
+            <span
+              className="ml-2 text-xs font-normal uppercase tracking-wider"
+              style={{ color: PORTAL_BLUE_SOFT }}
+            >
               v1.1 · OpenAPI 3.0
             </span>
           </h1>
-          <p className="text-white/45 text-xs mt-0.5">
+          <p className="text-xs mt-0.5" style={{ color: PORTAL_DARK.muted }}>
             Sales reporting · Videos pipeline · E-Tickets log. Auth via{" "}
-            <code className="text-cyan-400">x-api-key</code> header.
+            <code style={{ fontFamily: ADMIN_MONO, color: PORTAL_BLUE_SOFT }}>x-api-key</code>{" "}
+            header.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="Paste API key for Try-It-Out"
-            className="px-3 py-1.5 text-xs bg-white/5 border border-white/15 rounded-lg text-white placeholder-white/30 focus:outline-none focus:border-cyan-400/50 w-72"
+            className="px-3 py-1.5 text-xs w-72 max-w-full placeholder:text-[#98a2b3]/60 focus:outline-none focus:ring-1 focus:ring-[#60a5fa]"
+            style={{
+              backgroundColor: PORTAL_DARK.inputBg,
+              border: `1px solid ${PORTAL_DARK.inputBorder}`,
+              borderRadius: 8,
+              color: PORTAL_DARK.fg,
+            }}
           />
         </div>
       </div>
-      <SwaggerUI
-        url="/api/admin/sales/openapi.json"
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        requestInterceptor={
-          ((req: any) => {
-            if (apiKey.trim()) {
-              req.headers["x-api-key"] = apiKey.trim();
+      <div className="p-3 sm:p-6">
+        {/* Swagger UI ships light-themed CSS — keep it on a white card so the
+            third-party content stays readable against the portal navy. */}
+        <div
+          style={{
+            backgroundColor: "#ffffff",
+            border: `1px solid ${PORTAL_DARK.border}`,
+            borderRadius: 8,
+            overflowX: "auto",
+          }}
+        >
+          <SwaggerUI
+            url="/api/admin/sales/openapi.json"
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            requestInterceptor={
+              ((req: any) => {
+                if (apiKey.trim()) {
+                  req.headers["x-api-key"] = apiKey.trim();
+                }
+                return req;
+              }) as unknown as never
             }
-            return req;
-          }) as unknown as never
-        }
-        tryItOutEnabled
-        deepLinking
-      />
+            tryItOutEnabled
+            deepLinking
+          />
+        </div>
+      </div>
     </div>
   );
 }

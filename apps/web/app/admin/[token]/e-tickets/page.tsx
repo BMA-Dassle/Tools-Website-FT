@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import EticketAdminClient from "./EticketAdminClient";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 
 /**
  * E-ticket admin page for front-desk staff.
@@ -31,5 +32,9 @@ export default async function Page({ params }: Props) {
     (!!cameraToken && token === cameraToken) || (!!legacyToken && token === legacyToken);
   if (!tokenOk) notFound();
 
-  return <EticketAdminClient token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <EticketAdminClient token={token} />
+    </div>
+  );
 }

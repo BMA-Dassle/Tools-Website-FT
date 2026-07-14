@@ -19,6 +19,7 @@ import {
 import type { ComboMergeInfo, GroupEvent } from "~/features/reservations-admin/types";
 import { CENTER_SLUGS } from "~/features/reservations-admin/constants";
 import { fetchDayReservations } from "~/features/daily-events/api";
+import { ADMIN_SANS, PORTAL_SKIN_CSS } from "~/components/features/admin-skin/theme";
 import DailyEventModal from "../daily-events/DailyEventModal";
 import { nowEtWallMs, todayET } from "~/features/reservations-admin/format";
 import {
@@ -295,17 +296,18 @@ export default function ReservationsBoard({ token }: { token: string }) {
   // Theme palette — CSS variable approach avoids touching 137 inline styles.
   // The <style> block sets variables on [data-theme], and key surface colors
   // reference them. Accent colors (status badges, pills) stay hardcoded
-  // since they work on both backgrounds.
-  const themeStyle = baThemeCss(theme) + BOARD_CSS;
+  // since they work on both backgrounds. PORTAL_SKIN_CSS re-tokens both
+  // themes to the employee portal's palette (navy gradient / white).
+  const themeStyle = baThemeCss(theme) + BOARD_CSS + PORTAL_SKIN_CSS;
 
   return (
     <div
       data-ba-theme={theme}
+      className="portal-skin"
       style={{
         minHeight: "100vh",
-        backgroundColor: "var(--ba-bg)",
         color: "var(--ba-fg)",
-        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontFamily: ADMIN_SANS,
         padding: "1rem",
       }}
     >

@@ -2,6 +2,21 @@
 
 import { useMemo, useState } from "react";
 
+import {
+  ADMIN_SANS,
+  PORTAL_BLUE,
+  PORTAL_BLUE_SOFT,
+  PORTAL_DARK,
+} from "~/components/features/admin-skin/theme";
+
+/** Portal-skin shared inline styles (style-only re-skin, 2026-07-13). */
+const cardStyle = {
+  backgroundColor: PORTAL_DARK.card,
+  border: `1px solid ${PORTAL_DARK.border}`,
+  borderRadius: 8,
+} as const;
+const mutedText = { color: PORTAL_DARK.muted } as const;
+
 export type RosterRow = {
   name: string;
   email: string;
@@ -189,12 +204,19 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   }
 
   const chip = (label: string, value: number, color: string, total?: number) => (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
+    <div className="p-4 text-center" style={cardStyle}>
       <div className="text-2xl font-bold" style={{ color }}>
         {value}
-        {total != null && <span className="text-base font-medium text-white/40"> / {total}</span>}
+        {total != null && (
+          <span className="text-base font-medium" style={mutedText}>
+            {" "}
+            / {total}
+          </span>
+        )}
       </div>
-      <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
+      <div className="text-xs uppercase tracking-wide" style={mutedText}>
+        {label}
+      </div>
     </div>
   );
 
@@ -202,11 +224,26 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
     <button
       type="button"
       onClick={() => setFilter(key)}
-      className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-        filter === key
-          ? "bg-white text-[#0a1120]"
-          : "border border-white/20 text-white/70 hover:bg-white/10"
+      className={`px-4 py-1.5 text-sm transition-colors ${
+        filter === key ? "" : "hover:bg-[#22345e]"
       }`}
+      style={
+        filter === key
+          ? {
+              backgroundColor: PORTAL_BLUE,
+              border: `1px solid ${PORTAL_BLUE}`,
+              borderRadius: 8,
+              color: "#ffffff",
+              fontWeight: 600,
+            }
+          : {
+              backgroundColor: "transparent",
+              border: `1px solid ${PORTAL_DARK.border}`,
+              borderRadius: 8,
+              color: PORTAL_DARK.muted,
+              fontWeight: 500,
+            }
+      }
     >
       {label}
     </button>
@@ -224,7 +261,8 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
       >
         {label}
         <span
-          className={`text-[9px] leading-none ${sort.key === key ? "text-white" : "text-white/25"}`}
+          className="text-[9px] leading-none"
+          style={{ color: sort.key === key ? PORTAL_DARK.fg : PORTAL_DARK.muted }}
         >
           {sort.key === key ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
         </span>
@@ -233,14 +271,24 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
   );
 
   return (
-    <div className="min-h-screen bg-[#0a1120] px-4 py-8 text-white print:bg-white print:p-0 print:text-black">
+    <div
+      className="hn-root min-h-screen px-4 py-8 print:p-0"
+      style={{
+        fontFamily: ADMIN_SANS,
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+      }}
+    >
       <div className="mx-auto max-w-6xl print:hidden">
         <div className="mb-1 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl uppercase tracking-widest">
+            <h1
+              className="uppercase tracking-widest"
+              style={{ fontSize: "1.5rem", fontWeight: 700 }}
+            >
               Healthcare Network Team Day
             </h1>
-            <p className="mt-1 text-sm text-white/50">
+            <p className="mt-1 text-sm" style={mutedText}>
               Friday, June 19 · 9 AM – 2 PM · HeadPinz Fort Myers
             </p>
           </div>
@@ -248,14 +296,24 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
             <button
               type="button"
               onClick={() => window.print()}
-              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10"
+              className="rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#22345e]"
+              style={{
+                backgroundColor: PORTAL_DARK.card,
+                border: `1px solid ${PORTAL_DARK.border}`,
+                color: PORTAL_DARK.fg,
+              }}
             >
               Print / PDF
             </button>
             <button
               type="button"
               onClick={exportCsv}
-              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10"
+              className="rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#22345e]"
+              style={{
+                backgroundColor: PORTAL_DARK.card,
+                border: `1px solid ${PORTAL_DARK.border}`,
+                color: PORTAL_DARK.fg,
+              }}
             >
               Export CSV
             </button>
@@ -263,10 +321,10 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
         </div>
 
         <div className="my-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {chip("RSVPs", counts.total, "#ffffff")}
+          {chip("RSVPs", counts.total, PORTAL_DARK.fg)}
           {chip("Checked in", counts.checkedIn, "#4ade80")}
-          {chip("Attraction · in", counts.rezCheckedIn, "#22d3ee", counts.rezTotal)}
-          {chip("Racing", counts.racingIn, "#60a5fa", counts.racing)}
+          {chip("Attraction · in", counts.rezCheckedIn, PORTAL_BLUE, counts.rezTotal)}
+          {chip("Racing", counts.racingIn, PORTAL_BLUE_SOFT, counts.racing)}
           {chip("Gel + Laser", counts.gelLaserIn, "#c084fc", counts.gelLaser)}
           {chip("Conflicts", counts.conflicts, "#f87171")}
         </div>
@@ -278,7 +336,12 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name / email / phone…"
-            className="w-full max-w-xs rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/40"
+            className="w-full max-w-xs rounded-lg px-3 py-2 text-sm outline-none placeholder:text-[#98a2b3]/60 focus:ring-1 focus:ring-[#60a5fa]"
+            style={{
+              backgroundColor: PORTAL_DARK.inputBg,
+              border: `1px solid ${PORTAL_DARK.inputBorder}`,
+              color: PORTAL_DARK.fg,
+            }}
           />
           <div className="flex flex-wrap gap-1.5">
             {filterBtn("all", `All (${counts.total})`)}
@@ -289,54 +352,61 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
             )}
             {filterBtn("conflicts", `Conflicts (${counts.conflicts})`)}
           </div>
-          <span className="ml-auto text-sm text-white/50">{sorted.length} shown</span>
+          <span className="ml-auto text-sm" style={mutedText}>
+            {sorted.length} shown
+          </span>
         </div>
 
         {/* Mobile: stacked tiles (no sideways scroll) */}
         <div className="space-y-3 md:hidden">
           {sorted.map((r) => (
-            <div key={r.email} className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <div key={r.email} className="p-4" style={cardStyle}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="font-semibold text-white">{r.name}</div>
-                  <div className="truncate text-xs text-white/40">{r.email}</div>
+                  <div className="font-semibold">{r.name}</div>
+                  <div className="truncate text-xs" style={mutedText}>
+                    {r.email}
+                  </div>
                 </div>
                 {r.checkedIn ? (
                   <span className="shrink-0 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-semibold text-green-300">
                     ✓ In
                   </span>
                 ) : (
-                  <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-xs font-medium text-white/50">
+                  <span
+                    className="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{ backgroundColor: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
+                  >
                     Not yet
                   </span>
                 )}
               </div>
               <div className="mt-3 space-y-1 text-sm">
                 <div className="flex justify-between gap-3">
-                  <span className="text-white/50">Phone</span>
+                  <span style={mutedText}>Phone</span>
                   <span className="text-right text-white/90">{fmtPhone(r.phone) || "—"}</span>
                 </div>
                 {r.racing && (
                   <div className="flex justify-between gap-3">
-                    <span className="text-white/50">Racing</span>
+                    <span style={mutedText}>Racing</span>
                     <span className="text-right text-white/90">{r.racing}</span>
                   </div>
                 )}
                 {r.gelBlaster && (
                   <div className="flex justify-between gap-3">
-                    <span className="text-white/50">Gel Blaster</span>
+                    <span style={mutedText}>Gel Blaster</span>
                     <span className="text-right text-white/90">{r.gelBlaster}</span>
                   </div>
                 )}
                 {r.laserTag && (
                   <div className="flex justify-between gap-3">
-                    <span className="text-white/50">Laser Tag</span>
+                    <span style={mutedText}>Laser Tag</span>
                     <span className="text-right text-white/90">{r.laserTag}</span>
                   </div>
                 )}
                 {r.freeflow && (
                   <div className="flex justify-between gap-3">
-                    <span className="text-white/50">Free-flow</span>
+                    <span style={mutedText}>Free-flow</span>
                     <span className="text-right text-white/70">{r.freeflow}</span>
                   </div>
                 )}
@@ -348,24 +418,32 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
                     {r.conflictResolution ? `→ ${r.conflictResolution}` : "unresolved"}
                   </div>
                   {r.conflictStayWith && (
-                    <div className="mt-0.5 text-white/50">stay with: {r.conflictStayWith}</div>
+                    <div className="mt-0.5" style={mutedText}>
+                      stay with: {r.conflictStayWith}
+                    </div>
                   )}
                 </div>
               )}
             </div>
           ))}
           {sorted.length === 0 && (
-            <p className="rounded-xl border border-white/10 bg-white/5 p-6 text-center text-white/40">
+            <p className="p-6 text-center" style={{ ...cardStyle, color: PORTAL_DARK.muted }}>
               No guests match.
             </p>
           )}
         </div>
 
         {/* Tablet/desktop: full table */}
-        <div className="hidden overflow-x-auto rounded-lg border border-white/10 md:block">
+        <div
+          className="hidden overflow-x-auto rounded-lg md:block"
+          style={{ backgroundColor: PORTAL_DARK.card, border: `1px solid ${PORTAL_DARK.border}` }}
+        >
           <table className="w-full min-w-[760px] border-collapse text-sm">
             <thead>
-              <tr className="bg-white/5 text-left text-xs uppercase tracking-wide text-white/50">
+              <tr
+                className="text-left text-xs uppercase tracking-wide"
+                style={{ backgroundColor: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
+              >
                 {sortTh("name", "Name")}
                 {sortTh("phone", "Phone")}
                 {sortTh("racing", "Racing")}
@@ -378,10 +456,16 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
             </thead>
             <tbody>
               {sorted.map((r) => (
-                <tr key={r.email} className="border-t border-white/10 align-top">
+                <tr
+                  key={r.email}
+                  className="border-t align-top"
+                  style={{ borderColor: PORTAL_DARK.border }}
+                >
                   <td className="px-3 py-2">
-                    <div className="font-medium text-white">{r.name}</div>
-                    <div className="text-xs text-white/40">{r.email}</div>
+                    <div className="font-medium">{r.name}</div>
+                    <div className="text-xs" style={mutedText}>
+                      {r.email}
+                    </div>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-white/80">
                     {fmtPhone(r.phone) || "—"}
@@ -391,14 +475,19 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
                     {r.gelBlaster || "—"}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-white/80">{r.laserTag || "—"}</td>
-                  <td className="px-3 py-2 text-xs text-white/50">{r.freeflow || "—"}</td>
+                  <td className="px-3 py-2 text-xs" style={mutedText}>
+                    {r.freeflow || "—"}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {r.checkedIn ? (
                       <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-semibold text-green-300">
                         ✓ Checked in
                       </span>
                     ) : (
-                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs font-medium text-white/50">
+                      <span
+                        className="rounded-full px-2 py-0.5 text-xs font-medium"
+                        style={{ backgroundColor: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
+                      >
                         Not yet
                       </span>
                     )}
@@ -410,7 +499,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
                         {r.conflictResolution ? (
                           <div className="text-white/80">→ {r.conflictResolution}</div>
                         ) : (
-                          <div className="text-white/40">unresolved</div>
+                          <div style={mutedText}>unresolved</div>
                         )}
                         {r.conflictStayWith && (
                           <div className="mt-0.5 text-white/50">
@@ -419,14 +508,14 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
                         )}
                       </>
                     ) : (
-                      <span className="text-white/30">—</span>
+                      <span style={mutedText}>—</span>
                     )}
                   </td>
                 </tr>
               ))}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-white/40">
+                  <td colSpan={8} className="px-3 py-8 text-center" style={mutedText}>
                     No guests match.
                   </td>
                 </tr>
@@ -435,7 +524,7 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
           </table>
         </div>
 
-        <p className="mt-3 text-xs text-white/40">
+        <p className="mt-3 text-xs" style={mutedText}>
           &ldquo;Checked in&rdquo; = guest completed the confirm/check-in flow. Reload to refresh.
         </p>
       </div>
@@ -446,6 +535,9 @@ export default function HealthnetRosterClient({ rows }: { rows: RosterRow[] }) {
         <style>{`
           @media print {
             @page { margin: 0.5in; }
+            /* Inline portal-skin styles on the root would otherwise win over
+               the old print:bg-white/print:text-black utilities. */
+            .hn-root { background: #fff !important; color: #000 !important; }
             .hn-print table { width: 100%; border-collapse: collapse; }
             .hn-print th, .hn-print td {
               border: 1px solid #999; padding: 4px 6px; text-align: left;

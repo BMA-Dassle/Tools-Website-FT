@@ -3,6 +3,16 @@
 import { useMemo, useState } from "react";
 import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
 
+import { ADMIN_SANS, PORTAL_BLUE, PORTAL_DARK } from "~/components/features/admin-skin/theme";
+
+/** Portal-skin shared inline styles (style-only re-skin, 2026-07-13). */
+const cardStyle = {
+  backgroundColor: PORTAL_DARK.card,
+  border: `1px solid ${PORTAL_DARK.border}`,
+  borderRadius: 8,
+} as const;
+const mutedText = { color: PORTAL_DARK.muted } as const;
+
 const CENTERS = [
   { id: "all", label: "All centers" },
   { id: "fort-myers", label: "Fort Myers" },
@@ -101,17 +111,32 @@ export default function ChristmasRsvpsClient({ rows }: { rows: GroupEventRsvp[] 
   }
 
   return (
-    <div className="min-h-screen bg-[#0a1120] px-4 py-8 text-white">
+    <div
+      className="min-h-screen px-4 py-8"
+      style={{
+        fontFamily: ADMIN_SANS,
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+      }}
+    >
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="font-display text-2xl uppercase tracking-widest">Christmas in July</h1>
-            <p className="mt-1 text-sm text-white/50">RSVPs &amp; booked races</p>
+            <h1
+              className="uppercase tracking-widest"
+              style={{ fontSize: "1.5rem", fontWeight: 700 }}
+            >
+              Christmas in July
+            </h1>
+            <p className="mt-1 text-sm" style={mutedText}>
+              RSVPs &amp; booked races
+            </p>
           </div>
           <button
             onClick={exportCsv}
             disabled={filtered.length === 0}
-            className="rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10 disabled:opacity-40"
+            className="rounded-lg px-4 py-2 text-sm hover:opacity-90 disabled:opacity-40"
+            style={{ backgroundColor: PORTAL_BLUE, color: "#ffffff", fontWeight: 600 }}
           >
             Export CSV
           </button>
@@ -124,24 +149,41 @@ export default function ChristmasRsvpsClient({ rows }: { rows: GroupEventRsvp[] 
             { label: "Total headcount", value: counts.heads },
             { label: "Booked a race", value: counts.racers },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <div key={s.label} className="p-4" style={cardStyle}>
               <p className="text-2xl font-bold">{s.value}</p>
-              <p className="text-xs text-white/50">{s.label}</p>
+              <p className="text-xs" style={mutedText}>
+                {s.label}
+              </p>
             </div>
           ))}
         </div>
 
         {/* Center filter */}
-        <div className="mb-4 flex gap-2">
+        <div className="mb-4 flex flex-wrap gap-2">
           {CENTERS.map((c) => (
             <button
               key={c.id}
               onClick={() => setCenter(c.id)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                center === c.id
-                  ? "bg-white text-[#0a1120]"
-                  : "border border-white/20 text-white/70 hover:bg-white/10"
+              className={`px-4 py-1.5 text-sm transition-colors ${
+                center === c.id ? "" : "hover:bg-[#22345e]"
               }`}
+              style={
+                center === c.id
+                  ? {
+                      backgroundColor: PORTAL_BLUE,
+                      border: `1px solid ${PORTAL_BLUE}`,
+                      borderRadius: 8,
+                      color: "#ffffff",
+                      fontWeight: 600,
+                    }
+                  : {
+                      backgroundColor: "transparent",
+                      border: `1px solid ${PORTAL_DARK.border}`,
+                      borderRadius: 8,
+                      color: PORTAL_DARK.muted,
+                      fontWeight: 500,
+                    }
+              }
             >
               {c.label}
             </button>
@@ -149,9 +191,15 @@ export default function ChristmasRsvpsClient({ rows }: { rows: GroupEventRsvp[] 
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto rounded-xl border border-white/10">
+        <div
+          className="overflow-x-auto rounded-lg"
+          style={{ backgroundColor: PORTAL_DARK.card, border: `1px solid ${PORTAL_DARK.border}` }}
+        >
           <table className="w-full text-left text-sm">
-            <thead className="bg-white/5 text-xs uppercase tracking-wider text-white/50">
+            <thead
+              className="text-xs uppercase tracking-wider"
+              style={{ backgroundColor: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
+            >
               <tr>
                 <th className="px-3 py-2">Name</th>
                 <th className="px-3 py-2">Company</th>
@@ -166,7 +214,7 @@ export default function ChristmasRsvpsClient({ rows }: { rows: GroupEventRsvp[] 
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-white/40">
+                  <td colSpan={8} className="px-3 py-8 text-center" style={mutedText}>
                     No RSVPs yet.
                   </td>
                 </tr>
@@ -174,12 +222,16 @@ export default function ChristmasRsvpsClient({ rows }: { rows: GroupEventRsvp[] 
                 filtered.map((r) => {
                   const race = raceFor(r);
                   return (
-                    <tr key={r.email} className="border-t border-white/5 hover:bg-white/5">
+                    <tr
+                      key={r.email}
+                      className="border-t hover:bg-[#22345e]"
+                      style={{ borderColor: PORTAL_DARK.border }}
+                    >
                       <td className="px-3 py-2 font-medium">{r.name}</td>
                       <td className="px-3 py-2 text-white/70">{r.company || "—"}</td>
                       <td className="px-3 py-2 text-white/70">
                         <div>{r.email}</div>
-                        {r.phone && <div className="text-white/40">{fmtPhone(r.phone)}</div>}
+                        {r.phone && <div style={mutedText}>{fmtPhone(r.phone)}</div>}
                       </td>
                       <td className="px-3 py-2 text-white/70">
                         {CENTER_LABEL[r.location ?? ""] ?? "—"}
@@ -189,11 +241,15 @@ export default function ChristmasRsvpsClient({ rows }: { rows: GroupEventRsvp[] 
                         {race ? (
                           <span className="font-medium text-emerald-300">{race}</span>
                         ) : (
-                          <span className="text-white/30">—</span>
+                          <span style={mutedText}>—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-white/50">{r.smsConsent ? "Yes" : "No"}</td>
-                      <td className="px-3 py-2 text-white/40">{fmtWhen(r.updatedAt)}</td>
+                      <td className="px-3 py-2" style={mutedText}>
+                        {r.smsConsent ? "Yes" : "No"}
+                      </td>
+                      <td className="px-3 py-2" style={mutedText}>
+                        {fmtWhen(r.updatedAt)}
+                      </td>
                     </tr>
                   );
                 })

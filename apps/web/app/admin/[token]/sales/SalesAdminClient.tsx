@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import {
+  ADMIN_SANS,
+  PORTAL_BLUE,
+  PORTAL_BLUE_SOFT,
+  PORTAL_DARK,
+} from "~/components/features/admin-skin/theme";
+
 /**
  * Sales dashboard for web reservations.
  *
@@ -350,10 +357,11 @@ export default function SalesAdminClient({ token }: { token: string }) {
 
   return (
     <div
-      className="min-h-screen text-white"
+      className="min-h-screen"
       style={{
-        background:
-          "radial-gradient(ellipse at top, rgba(0,226,229,0.06) 0%, transparent 50%), #050b1d",
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+        fontFamily: ADMIN_SANS,
       }}
     >
       <div className="max-w-7xl mx-auto p-3 sm:p-6">
@@ -361,18 +369,27 @@ export default function SalesAdminClient({ token }: { token: string }) {
           <div className="flex items-baseline gap-3 mb-1.5">
             <span
               className="text-xs font-bold uppercase tracking-[0.3em]"
-              style={{ color: ACCENTS.cyan.fg }}
+              style={{ color: PORTAL_BLUE_SOFT }}
             >
               FastTrax · Admin
             </span>
-            <span className="text-[10px] uppercase tracking-wider text-white/30 hidden sm:inline">
+            <span
+              className="text-[10px] uppercase tracking-wider hidden sm:inline"
+              style={{ color: PORTAL_DARK.muted }}
+            >
               Web Reservations Dashboard
             </span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+          <h1
+            className="tracking-tight"
+            style={{ fontSize: "1.5rem", fontWeight: 700, color: PORTAL_DARK.fg }}
+          >
             Sales Overview
           </h1>
-          <p className="text-white/45 text-xs sm:text-sm mt-1 hidden sm:block">
+          <p
+            className="text-xs sm:text-sm mt-1 hidden sm:block"
+            style={{ color: PORTAL_DARK.muted }}
+          >
             Volume, product mix, and SMS pipeline health — confirmed bookings only.
           </p>
         </header>
@@ -391,19 +408,22 @@ export default function SalesAdminClient({ token }: { token: string }) {
                 type="button"
                 onClick={() => selectPreset(p.k)}
                 aria-pressed={active}
-                className="px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors"
+                className="px-3 py-1.5 text-xs border transition-colors"
                 style={
                   active
                     ? {
-                        background: ACCENTS.cyan.glow,
-                        color: ACCENTS.cyan.fg,
-                        borderColor: ACCENTS.cyan.border,
-                        boxShadow: `0 0 10px ${ACCENTS.cyan.glow}`,
+                        background: PORTAL_BLUE,
+                        color: "#ffffff",
+                        borderColor: PORTAL_BLUE,
+                        borderRadius: 8,
+                        fontWeight: 600,
                       }
                     : {
-                        background: "rgba(255,255,255,0.02)",
-                        color: "rgba(255,255,255,0.7)",
-                        borderColor: "rgba(255,255,255,0.15)",
+                        background: "transparent",
+                        color: PORTAL_DARK.muted,
+                        borderColor: PORTAL_DARK.inputBorder,
+                        borderRadius: 8,
+                        fontWeight: 600,
                       }
                 }
               >
@@ -413,22 +433,42 @@ export default function SalesAdminClient({ token }: { token: string }) {
           })}
           {preset === "custom" && (
             <>
-              <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
+              <label
+                className="flex flex-col gap-1 text-[10px] uppercase tracking-wider font-semibold"
+                style={{ color: PORTAL_DARK.muted }}
+              >
                 From
                 <input
                   type="date"
                   value={from}
                   onChange={(e) => setFrom(e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
+                  className="px-3 py-2 text-sm focus:outline-none"
+                  style={{
+                    background: PORTAL_DARK.inputBg,
+                    border: `1px solid ${PORTAL_DARK.inputBorder}`,
+                    borderRadius: 8,
+                    color: PORTAL_DARK.fg,
+                    colorScheme: "dark",
+                  }}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-white/50 font-semibold">
+              <label
+                className="flex flex-col gap-1 text-[10px] uppercase tracking-wider font-semibold"
+                style={{ color: PORTAL_DARK.muted }}
+              >
                 To
                 <input
                   type="date"
                   value={to}
                   onChange={(e) => setTo(e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-400/40 focus:outline-none"
+                  className="px-3 py-2 text-sm focus:outline-none"
+                  style={{
+                    background: PORTAL_DARK.inputBg,
+                    border: `1px solid ${PORTAL_DARK.inputBorder}`,
+                    borderRadius: 8,
+                    color: PORTAL_DARK.fg,
+                    colorScheme: "dark",
+                  }}
                 />
               </label>
             </>
@@ -436,10 +476,12 @@ export default function SalesAdminClient({ token }: { token: string }) {
           <button
             type="button"
             onClick={load}
-            className="ml-auto px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full text-[#000418] transition-all hover:scale-105"
+            className="ml-auto px-4 py-1.5 text-xs uppercase tracking-wider transition-all"
             style={{
-              background: `linear-gradient(135deg, ${ACCENTS.cyan.fg} 0%, #38f0f3 100%)`,
-              boxShadow: `0 0 12px ${ACCENTS.cyan.glow}`,
+              background: PORTAL_BLUE,
+              color: "#ffffff",
+              borderRadius: 8,
+              fontWeight: 600,
             }}
           >
             Refresh
@@ -447,7 +489,7 @@ export default function SalesAdminClient({ token }: { token: string }) {
         </div>
 
         {/* Status line */}
-        <div className="mb-4 text-xs text-white/50">
+        <div className="mb-4 text-xs" style={{ color: PORTAL_DARK.muted }}>
           {loading ? (
             "Loading…"
           ) : error ? (
@@ -460,7 +502,15 @@ export default function SalesAdminClient({ token }: { token: string }) {
         </div>
 
         {data && data.totals.reservations === 0 && !loading && (
-          <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-12 text-sm">
+          <div
+            className="text-center py-12 text-sm"
+            style={{
+              background: PORTAL_DARK.card,
+              border: `1px solid ${PORTAL_DARK.border}`,
+              borderRadius: 8,
+              color: PORTAL_DARK.muted,
+            }}
+          >
             No web reservations in this range yet.
           </div>
         )}
@@ -561,11 +611,22 @@ export default function SalesAdminClient({ token }: { token: string }) {
                           <button
                             type="button"
                             onClick={() => setCombineFamilies((v) => !v)}
-                            className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${
+                            className="text-[10px] uppercase tracking-wider px-2.5 py-1 border transition-colors"
+                            style={
                               combineFamilies
-                                ? "bg-cyan-500/20 text-cyan-200 border-cyan-400/40 hover:bg-cyan-500/30"
-                                : "bg-white/5 text-white/55 border-white/15 hover:bg-white/10"
-                            }`}
+                                ? {
+                                    background: PORTAL_BLUE,
+                                    color: "#ffffff",
+                                    borderColor: PORTAL_BLUE,
+                                    borderRadius: 8,
+                                  }
+                                : {
+                                    background: "transparent",
+                                    color: PORTAL_DARK.muted,
+                                    borderColor: PORTAL_DARK.inputBorder,
+                                    borderRadius: 8,
+                                  }
+                            }
                             aria-pressed={combineFamilies}
                             title={
                               combineFamilies
@@ -725,8 +786,18 @@ export default function SalesAdminClient({ token }: { token: string }) {
 
                 {/* By race type */}
                 {data.videos.byRaceType.length > 0 && (
-                  <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
-                    <div className="text-xs uppercase tracking-wider text-white/55 mb-2.5">
+                  <div
+                    className="p-4"
+                    style={{
+                      background: PORTAL_DARK.card,
+                      border: `1px solid ${PORTAL_DARK.border}`,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      className="text-xs uppercase tracking-wider mb-2.5"
+                      style={{ color: PORTAL_DARK.muted }}
+                    >
                       By race type
                     </div>
                     <table className="w-full text-xs">
@@ -746,7 +817,10 @@ export default function SalesAdminClient({ token }: { token: string }) {
                             <td className="py-1.5 text-right font-mono text-white/80">
                               {r.purchased}
                             </td>
-                            <td className="py-1.5 text-right font-mono text-[#00E2E5]">
+                            <td
+                              className="py-1.5 text-right font-mono"
+                              style={{ color: PORTAL_BLUE_SOFT }}
+                            >
                               {r.purchaseRate}%
                             </td>
                           </tr>
@@ -761,7 +835,14 @@ export default function SalesAdminClient({ token }: { token: string }) {
             {/* ── Per-day timeline ── */}
             {data.byDay.length > 1 && (
               <Section title="Daily volume" icon="📈">
-                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <div
+                  className="p-4"
+                  style={{
+                    background: PORTAL_DARK.card,
+                    border: `1px solid ${PORTAL_DARK.border}`,
+                    borderRadius: 8,
+                  }}
+                >
                   <div
                     className="flex items-end gap-2 overflow-x-auto pb-1"
                     style={{ minHeight: 130 }}
@@ -864,7 +945,14 @@ export default function SalesAdminClient({ token }: { token: string }) {
                       a quiet Sunday doesn't disappear next to a peak
                       Saturday. Hovering a bar shows the breakdown. */}
                     {data.sms.byDay.length > 0 && (
-                      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                      <div
+                        className="p-4 space-y-3"
+                        style={{
+                          background: PORTAL_DARK.card,
+                          border: `1px solid ${PORTAL_DARK.border}`,
+                          borderRadius: 8,
+                        }}
+                      >
                         <div className="flex items-center justify-between gap-3 flex-wrap">
                           <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
                             Daily breakdown
@@ -938,10 +1026,20 @@ export default function SalesAdminClient({ token }: { token: string }) {
                     show the same fields in a scannable vertical layout. */}
             <Section title={`Reservations (${data.entries.length})`} icon="📋">
               {/* Desktop / tablet table */}
-              <div className="hidden md:block rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+              <div
+                className="hidden md:block overflow-hidden"
+                style={{
+                  background: PORTAL_DARK.card,
+                  border: `1px solid ${PORTAL_DARK.border}`,
+                  borderRadius: 8,
+                }}
+              >
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-white/5 text-xs uppercase text-white/50">
+                    <thead
+                      className="text-xs uppercase"
+                      style={{ background: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
+                    >
                       <tr>
                         <th className="text-left px-3 py-2">Time</th>
                         <th className="text-left px-3 py-2">Type</th>
@@ -1027,7 +1125,12 @@ export default function SalesAdminClient({ token }: { token: string }) {
                   return (
                     <div
                       key={`${e.billId ?? i}-${e.ts}`}
-                      className="rounded-lg border border-white/10 bg-white/[0.02] p-3"
+                      className="p-3"
+                      style={{
+                        background: PORTAL_DARK.card,
+                        border: `1px solid ${PORTAL_DARK.border}`,
+                        borderRadius: 8,
+                      }}
                     >
                       {/* Top row: bill # · time · type pill */}
                       <div className="flex items-center justify-between gap-2 mb-2">
@@ -1128,7 +1231,9 @@ function pctText(num: number, denom: number): string {
 // amber = packages, emerald = ok / delivered, purple = POV / video,
 // blue = informational, red = issues.
 const ACCENTS = {
-  cyan: { fg: "#00E2E5", glow: "rgba(0,226,229,0.18)", border: "rgba(0,226,229,0.35)" },
+  // Brand-accent "cyan" slot re-pointed to the portal blue per the admin
+  // skin (owner directive 2026-07-13). Semantic accents below are unchanged.
+  cyan: { fg: PORTAL_BLUE_SOFT, glow: "rgba(96,165,250,0.18)", border: "rgba(96,165,250,0.35)" },
   coral: { fg: "#fd5b56", glow: "rgba(253,91,86,0.18)", border: "rgba(253,91,86,0.35)" },
   amber: { fg: "#fbbf24", glow: "rgba(251,191,36,0.18)", border: "rgba(251,191,36,0.35)" },
   emerald: { fg: "#34d399", glow: "rgba(52,211,153,0.18)", border: "rgba(52,211,153,0.35)" },
@@ -1159,31 +1264,53 @@ function Card({
   const c = ACCENTS[accent];
   return (
     <div
-      className="rounded-xl px-4 py-3.5 transition-colors"
+      className="px-4 py-3.5 transition-colors"
       style={{
-        background: `linear-gradient(135deg, ${c.glow} 0%, rgba(255,255,255,0.02) 70%)`,
+        background: `linear-gradient(135deg, ${c.glow} 0%, ${PORTAL_DARK.card} 70%)`,
         border: `1px solid ${c.border}`,
+        borderRadius: 8,
       }}
     >
       <div className="flex items-start justify-between mb-1.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-white/55">
+        <div
+          className="text-[10px] font-semibold uppercase tracking-wider"
+          style={{ color: PORTAL_DARK.muted }}
+        >
           {label}
         </div>
         {icon && <div className="text-base leading-none opacity-70">{icon}</div>}
       </div>
-      <div className="text-3xl font-extrabold text-white tracking-tight" style={{ color: c.fg }}>
+      <div className="text-3xl font-extrabold tracking-tight" style={{ color: c.fg }}>
         {value}
       </div>
-      {subtle && <div className="text-[11px] text-white/45 mt-1">{subtle}</div>}
+      {subtle && (
+        <div className="text-[11px] mt-1" style={{ color: PORTAL_DARK.muted }}>
+          {subtle}
+        </div>
+      )}
     </div>
   );
 }
 
 function MiniStat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-wider text-white/50 mb-0.5">{label}</div>
-      <div className="text-lg font-bold text-white">{value}</div>
+    <div
+      className="px-3 py-2.5"
+      style={{
+        background: PORTAL_DARK.card,
+        border: `1px solid ${PORTAL_DARK.border}`,
+        borderRadius: 8,
+      }}
+    >
+      <div
+        className="text-[10px] uppercase tracking-wider mb-0.5"
+        style={{ color: PORTAL_DARK.muted }}
+      >
+        {label}
+      </div>
+      <div className="text-lg font-bold" style={{ color: PORTAL_DARK.fg }}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -1204,27 +1331,39 @@ function Tile({
   const c = ACCENTS[accent];
   return (
     <div
-      className="rounded-xl p-4 transition-colors"
+      className="p-4 transition-colors"
       style={{
-        background: `linear-gradient(135deg, ${c.glow} 0%, rgba(255,255,255,0.02) 75%)`,
+        background: `linear-gradient(135deg, ${c.glow} 0%, ${PORTAL_DARK.card} 75%)`,
         border: `1px solid ${c.border}`,
+        borderRadius: 8,
       }}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-1.5">
+      <div
+        className="text-[11px] font-semibold uppercase tracking-wider mb-1.5"
+        style={{ color: PORTAL_DARK.muted }}
+      >
         {title}
       </div>
       <div className="text-3xl font-extrabold tracking-tight" style={{ color: c.fg }}>
         {primary}
         {primarySubtle && (
-          <span className="text-sm font-normal text-white/40 ml-1.5">{primarySubtle}</span>
+          <span className="text-sm font-normal ml-1.5" style={{ color: PORTAL_DARK.muted }}>
+            {primarySubtle}
+          </span>
         )}
       </div>
       {rows && rows.length > 0 && (
         <div className="mt-3 space-y-1 text-xs">
           {rows.map((r, i) => (
-            <div key={i} className="flex justify-between gap-2 text-white/65">
+            <div
+              key={i}
+              className="flex justify-between gap-2"
+              style={{ color: PORTAL_DARK.muted }}
+            >
               <span>{r.label}</span>
-              <span className="font-mono text-white/90">{r.value}</span>
+              <span className="font-mono" style={{ color: PORTAL_DARK.fg }}>
+                {r.value}
+              </span>
             </div>
           ))}
         </div>
@@ -1237,8 +1376,18 @@ function CountList({ title, rows }: { title: string; rows: { name: string; count
   if (rows.length === 0) return null;
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-3">
+    <div
+      className="p-4"
+      style={{
+        background: PORTAL_DARK.card,
+        border: `1px solid ${PORTAL_DARK.border}`,
+        borderRadius: 8,
+      }}
+    >
+      <div
+        className="text-[11px] font-semibold uppercase tracking-wider mb-3"
+        style={{ color: PORTAL_DARK.muted }}
+      >
         {title}
       </div>
       <div className="space-y-2">
@@ -1246,8 +1395,13 @@ function CountList({ title, rows }: { title: string; rows: { name: string; count
           const w = Math.round((r.count / max) * 100);
           return (
             <div key={r.name} className="flex items-center gap-3 text-xs">
-              <div className="flex-1 truncate text-white/80">{r.name}</div>
-              <div className="w-32 h-2 rounded-full bg-white/5 overflow-hidden">
+              <div className="flex-1 truncate" style={{ color: PORTAL_DARK.fg }}>
+                {r.name}
+              </div>
+              <div
+                className="w-32 h-2 rounded-full overflow-hidden"
+                style={{ background: PORTAL_DARK.muted2 }}
+              >
                 <div
                   className="h-full transition-all"
                   style={{

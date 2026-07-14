@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import {
+  ADMIN_SANS,
+  ADMIN_MONO,
+  PORTAL_BLUE,
+  PORTAL_BLUE_SOFT,
+  PORTAL_DARK,
+} from "~/components/features/admin-skin/theme";
 
 // --------------- Types ---------------
 
@@ -718,18 +725,31 @@ export default function CheckInClient({ token, version }: Props) {
   const serialSupported = typeof window !== "undefined" && "serial" in navigator;
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
+    <div
+      className="min-h-screen flex flex-col"
+      style={{
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+        fontFamily: ADMIN_SANS,
+      }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+      <div
+        className="flex items-center justify-between px-6 py-4 border-b"
+        style={{ borderColor: PORTAL_DARK.border, flexWrap: "wrap", gap: 12 }}
+      >
         <div>
-          <h1 className="text-lg font-bold">Check-In</h1>
-          <p className="text-white/40 text-xs">v{version}</p>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>Check-In</h1>
+          <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+            v{version}
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3" style={{ flexWrap: "wrap" }}>
           <button
             type="button"
             onClick={runSelfTest}
-            className="px-3 py-1.5 rounded-lg border border-white/20 text-white/60 text-xs hover:bg-white/5"
+            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+            style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted, borderRadius: 8 }}
           >
             Run Self-Test
           </button>
@@ -737,7 +757,8 @@ export default function CheckInClient({ token, version }: Props) {
             type="button"
             aria-label="Settings"
             onClick={() => setShowSettings(!showSettings)}
-            className="p-2 rounded-lg border border-white/20 text-white/60 hover:bg-white/5"
+            className="p-2 rounded-lg border hover:bg-white/5"
+            style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted, borderRadius: 8 }}
           >
             <svg
               className="w-4 h-4"
@@ -763,21 +784,28 @@ export default function CheckInClient({ token, version }: Props) {
 
       {/* Active sessions — check-in counts */}
       {activeSessions.length > 0 && (
-        <div className="flex gap-3 px-6 py-3 border-b border-white/10 overflow-x-auto">
+        <div
+          className="flex gap-3 px-6 py-3 border-b overflow-x-auto"
+          style={{ borderColor: PORTAL_DARK.border }}
+        >
           {activeSessions.map((s) => {
-            const color = TRACK_COLORS[s.track.toLowerCase()] ?? "#00E2E5";
+            const color = TRACK_COLORS[s.track.toLowerCase()] ?? PORTAL_BLUE;
             return (
               <div
                 key={s.sessionId}
-                className="flex items-center gap-3 rounded-xl px-4 py-2.5 shrink-0"
-                style={{ backgroundColor: `${color}15`, border: `1px solid ${color}40` }}
+                className="flex items-center gap-3 px-4 py-2.5 shrink-0"
+                style={{
+                  backgroundColor: `${color}15`,
+                  border: `1px solid ${color}40`,
+                  borderRadius: 8,
+                }}
               >
                 <div>
                   <p className="text-xs font-bold uppercase" style={{ color }}>
                     {s.track} {s.raceType} {s.heatNumber ? `#${s.heatNumber}` : ""}
                   </p>
                   {s.scheduledStart && (
-                    <p className="text-white/40 text-[10px]">
+                    <p className="text-[10px]" style={{ color: PORTAL_DARK.muted }}>
                       {new Date(s.scheduledStart).toLocaleTimeString("en-US", {
                         hour: "numeric",
                         minute: "2-digit",
@@ -787,11 +815,15 @@ export default function CheckInClient({ token, version }: Props) {
                   )}
                 </div>
                 <div className="text-right">
-                  <p className="text-white font-black text-xl leading-none">
+                  <p className="font-black text-xl leading-none" style={{ color: PORTAL_DARK.fg }}>
                     {s.checkedIn}
-                    <span className="text-white/40 text-sm font-normal">/{s.total}</span>
+                    <span className="text-sm font-normal" style={{ color: PORTAL_DARK.muted }}>
+                      /{s.total}
+                    </span>
                   </p>
-                  <p className="text-white/40 text-[10px] uppercase">checked in</p>
+                  <p className="text-[10px] uppercase" style={{ color: PORTAL_DARK.muted }}>
+                    checked in
+                  </p>
                 </div>
               </div>
             );
@@ -801,9 +833,14 @@ export default function CheckInClient({ token, version }: Props) {
 
       {/* Settings dropdown */}
       {showSettings && (
-        <div className="px-6 py-4 border-b border-white/10 bg-white/5">
-          <p className="block text-white/60 text-xs mb-2">Baud Rate</p>
-          <div className="flex gap-2">
+        <div
+          className="px-6 py-4 border-b"
+          style={{ borderColor: PORTAL_DARK.border, backgroundColor: PORTAL_DARK.card }}
+        >
+          <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+            Baud Rate
+          </p>
+          <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
             {BAUD_RATES.map((rate) => (
               <button
                 key={rate}
@@ -812,17 +849,27 @@ export default function CheckInClient({ token, version }: Props) {
                   setBaudRate(rate);
                   localStorage.setItem("checkin-scanner-baud", String(rate));
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs border ${
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={
                   baudRate === rate
-                    ? "border-cyan-400 bg-cyan-400/20 text-cyan-300"
-                    : "border-white/20 text-white/40 hover:bg-white/5"
-                }`}
+                    ? {
+                        borderColor: PORTAL_BLUE,
+                        backgroundColor: `${PORTAL_BLUE}33`,
+                        color: PORTAL_BLUE_SOFT,
+                        borderRadius: 8,
+                      }
+                    : {
+                        borderColor: PORTAL_DARK.inputBorder,
+                        color: PORTAL_DARK.muted,
+                        borderRadius: 8,
+                      }
+                }
               >
                 {rate}
               </button>
             ))}
           </div>
-          <p className="text-white/30 text-xs mt-2">
+          <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
             Disconnect and reconnect after changing baud rate.
           </p>
         </div>
@@ -833,7 +880,7 @@ export default function CheckInClient({ token, version }: Props) {
         {!serialSupported ? (
           <div className="text-center">
             <p className="text-red-400 text-lg font-bold">Web Serial API Not Available</p>
-            <p className="text-white/40 text-sm mt-2">
+            <p className="text-sm mt-2" style={{ color: PORTAL_DARK.muted }}>
               Use Microsoft Edge or Google Chrome on desktop.
             </p>
           </div>
@@ -842,25 +889,36 @@ export default function CheckInClient({ token, version }: Props) {
             <button
               type="button"
               onClick={requestPort}
-              className="px-8 py-4 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-lg transition-colors"
+              className="px-8 py-4 font-bold text-lg transition-colors"
+              style={{ backgroundColor: PORTAL_BLUE, color: "#ffffff", borderRadius: 8 }}
             >
               Connect Scanner
             </button>
-            <p className="text-white/30 text-sm mt-4">Click to select your serial QR scanner</p>
+            <p className="text-sm mt-4" style={{ color: PORTAL_DARK.muted }}>
+              Click to select your serial QR scanner
+            </p>
           </div>
         ) : connectionState === "connecting" ? (
           <div className="text-center">
-            <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-white/50 text-sm mt-4">Connecting...</p>
+            <div
+              className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto"
+              style={{ borderColor: PORTAL_BLUE, borderTopColor: "transparent" }}
+            />
+            <p className="text-sm mt-4" style={{ color: PORTAL_DARK.muted }}>
+              Connecting...
+            </p>
           </div>
         ) : connectionState === "error" ? (
           <div className="text-center max-w-md">
             <p className="text-red-400 text-lg font-bold">Connection Error</p>
-            <p className="text-white/50 text-sm mt-2">{connectionError}</p>
+            <p className="text-sm mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {connectionError}
+            </p>
             <button
               type="button"
               onClick={requestPort}
-              className="mt-4 px-6 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 text-sm font-medium transition-colors"
+              className="mt-4 px-6 py-2.5 text-sm font-medium transition-colors hover:bg-white/15"
+              style={{ backgroundColor: PORTAL_DARK.card, color: PORTAL_DARK.fg, borderRadius: 8 }}
             >
               Try Again
             </button>
@@ -868,26 +926,33 @@ export default function CheckInClient({ token, version }: Props) {
         ) : (
           /* Ready state */
           <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-6">
+            <div
+              className="flex items-center justify-center gap-2 mb-6"
+              style={{ flexWrap: "wrap" }}
+            >
               <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-emerald-400 text-sm font-medium">Connected — {portName}</span>
               <button
                 type="button"
                 onClick={disconnect}
-                className="text-white/30 text-xs underline ml-2 hover:text-white/50"
+                className="text-xs underline ml-2"
+                style={{ color: PORTAL_DARK.muted }}
               >
                 Disconnect
               </button>
             </div>
             <p
-              className="text-white/20 font-bold uppercase tracking-widest"
-              style={{ fontSize: "clamp(24px, 5vw, 40px)" }}
+              className="font-bold uppercase tracking-widest"
+              style={{ fontSize: "clamp(24px, 5vw, 40px)", color: PORTAL_DARK.muted }}
             >
               Waiting for scan...
             </p>
             {scanState === "processing" && (
               <div className="mt-6">
-                <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto" />
+                <div
+                  className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto"
+                  style={{ borderColor: PORTAL_BLUE, borderTopColor: "transparent" }}
+                />
               </div>
             )}
           </div>
@@ -896,13 +961,16 @@ export default function CheckInClient({ token, version }: Props) {
 
       {/* Test mode panel */}
       {testMode && (
-        <div className="border-t border-white/10 bg-white/5 px-6 py-4">
+        <div
+          className="border-t px-6 py-4"
+          style={{ borderColor: PORTAL_DARK.border, backgroundColor: PORTAL_DARK.card }}
+        >
           <div className="flex items-center justify-between mb-3">
             <p className="text-amber-400 text-xs font-bold uppercase tracking-wider">Test Mode</p>
           </div>
 
           {/* Manual scan input */}
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2 mb-3" style={{ flexWrap: "wrap" }}>
             <input
               type="text"
               value={testInput}
@@ -911,12 +979,20 @@ export default function CheckInClient({ token, version }: Props) {
                 if (e.key === "Enter") handleTestScan();
               }}
               placeholder="FT:personId:sessionId"
-              className="flex-1 px-3 py-2 rounded-lg bg-black/50 border border-white/20 text-white text-sm placeholder-white/20 focus:outline-none focus:border-cyan-400"
+              className="flex-1 px-3 py-2 text-sm placeholder-white/30 focus:outline-none focus:border-blue-400"
+              style={{
+                minWidth: 180,
+                backgroundColor: PORTAL_DARK.inputBg,
+                border: `1px solid ${PORTAL_DARK.inputBorder}`,
+                color: PORTAL_DARK.fg,
+                borderRadius: 8,
+              }}
             />
             <button
               type="button"
               onClick={handleTestScan}
-              className="px-4 py-2 rounded-lg bg-cyan-500 text-black font-bold text-sm"
+              className="px-4 py-2 font-bold text-sm"
+              style={{ backgroundColor: PORTAL_BLUE, color: "#ffffff", borderRadius: 8 }}
             >
               Simulate Scan
             </button>
@@ -1003,12 +1079,21 @@ export default function CheckInClient({ token, version }: Props) {
               <button
                 type="button"
                 onClick={() => setShowDebug(!showDebug)}
-                className="text-white/40 text-xs underline"
+                className="text-xs underline"
+                style={{ color: PORTAL_DARK.muted }}
               >
                 {showDebug ? "Hide" : "Show"} Debug JSON
               </button>
               {showDebug && (
-                <pre className="mt-2 p-3 rounded-lg bg-black/50 text-white/60 text-xs overflow-auto max-h-48">
+                <pre
+                  className="mt-2 p-3 text-xs overflow-auto max-h-48"
+                  style={{
+                    backgroundColor: PORTAL_DARK.inputBg,
+                    color: PORTAL_DARK.muted,
+                    borderRadius: 8,
+                    fontFamily: ADMIN_MONO,
+                  }}
+                >
                   {debugJson}
                 </pre>
               )}
@@ -1023,9 +1108,19 @@ export default function CheckInClient({ token, version }: Props) {
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center px-6"
           {...modalBackdropProps(() => setShowSelfTest(false))}
         >
-          <div className="bg-[#1A1A1A] rounded-2xl p-6 max-w-md w-full">
+          <div
+            className="p-6 max-w-md w-full"
+            style={{
+              backgroundColor: PORTAL_DARK.card,
+              border: `1px solid ${PORTAL_DARK.border}`,
+              borderRadius: 8,
+              fontFamily: ADMIN_SANS,
+            }}
+          >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-white font-bold text-lg">Self-Test Results</h2>
+              <h2 className="font-bold text-lg" style={{ color: PORTAL_DARK.fg }}>
+                Self-Test Results
+              </h2>
               <span
                 className={`px-2 py-1 rounded text-xs font-bold ${
                   selfTestResult.allPassed
@@ -1043,10 +1138,19 @@ export default function CheckInClient({ token, version }: Props) {
                     {t.pass ? "✓" : "✗"}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <span className="text-white/80 font-mono text-xs">{t.name}</span>
-                    <span className="text-white/30 text-xs ml-2">{t.ms}ms</span>
+                    <span
+                      className="text-xs"
+                      style={{ color: PORTAL_DARK.fg, fontFamily: ADMIN_MONO }}
+                    >
+                      {t.name}
+                    </span>
+                    <span className="text-xs ml-2" style={{ color: PORTAL_DARK.muted }}>
+                      {t.ms}ms
+                    </span>
                     {t.detail && (
-                      <p className="text-white/40 text-xs mt-0.5 truncate">{t.detail}</p>
+                      <p className="text-xs mt-0.5 truncate" style={{ color: PORTAL_DARK.muted }}>
+                        {t.detail}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1055,7 +1159,12 @@ export default function CheckInClient({ token, version }: Props) {
             <button
               type="button"
               onClick={() => setShowSelfTest(false)}
-              className="mt-4 w-full py-2 rounded-lg bg-white/10 text-white/60 text-sm hover:bg-white/15"
+              className="mt-4 w-full py-2 text-sm hover:bg-white/15"
+              style={{
+                backgroundColor: PORTAL_DARK.inputBg,
+                color: PORTAL_DARK.fg,
+                borderRadius: 8,
+              }}
             >
               Close
             </button>

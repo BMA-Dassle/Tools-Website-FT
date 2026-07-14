@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import {
+  ADMIN_SANS,
+  PORTAL_BLUE,
+  PORTAL_BLUE_SOFT,
+  PORTAL_DARK,
+} from "~/components/features/admin-skin/theme";
 import type {
   DiscountCodeInput,
   DiscountCodeRow,
@@ -275,25 +281,37 @@ export default function DiscountCodesClient({ token }: { token: string }) {
   }
 
   return (
-    <div style={{ padding: "1.5rem", color: "#e6e6e6", fontFamily: "system-ui, sans-serif" }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: "1.5rem",
+        color: PORTAL_DARK.fg,
+        fontFamily: ADMIN_SANS,
+        background: PORTAL_DARK.bodyGradient,
+      }}
+    >
       <header
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 12,
           marginBottom: "1.25rem",
         }}
       >
-        <h1 style={{ fontSize: "1.5rem", margin: 0, color: "#fff" }}>Discount Codes</h1>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0, color: PORTAL_DARK.fg }}>
+          Discount Codes
+        </h1>
         <button
           onClick={startCreate}
           style={{
-            background: "#22c55e",
-            color: "#0a1628",
+            background: PORTAL_BLUE,
+            color: "#fff",
             padding: "0.5rem 1rem",
             border: 0,
-            borderRadius: 6,
-            fontWeight: 700,
+            borderRadius: 8,
+            fontWeight: 600,
             cursor: "pointer",
           }}
         >
@@ -307,7 +325,7 @@ export default function DiscountCodesClient({ token }: { token: string }) {
             background: "rgba(239,68,68,0.15)",
             border: "1px solid rgba(239,68,68,0.4)",
             padding: "0.6rem 0.9rem",
-            borderRadius: 6,
+            borderRadius: 8,
             marginBottom: "1rem",
             color: "#fca5a5",
           }}
@@ -317,98 +335,102 @@ export default function DiscountCodesClient({ token }: { token: string }) {
       )}
 
       {loading ? (
-        <p style={{ color: "#94a3b8" }}>Loading…</p>
+        <p style={{ color: PORTAL_DARK.muted }}>Loading…</p>
       ) : codes.length === 0 ? (
-        <p style={{ color: "#94a3b8" }}>No codes yet. Click “New code” to create one.</p>
+        <p style={{ color: PORTAL_DARK.muted }}>No codes yet. Click “New code” to create one.</p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #2a3a52" }}>
-              <th style={th}>Code</th>
-              <th style={th}>Discount</th>
-              <th style={th}>Window</th>
-              <th style={th}>Weekdays</th>
-              <th style={th}>Domains</th>
-              <th style={th}>Uses</th>
-              <th style={th}>Square</th>
-              <th style={th}>Status</th>
-              <th style={th} aria-label="Row actions"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {codes.map((c) => (
-              <tr key={c.id} style={{ borderBottom: "1px solid #1a2a44" }}>
-                <td style={td}>
-                  <strong style={{ color: "#fff" }}>{c.code}</strong>
-                  {c.description && (
-                    <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>{c.description}</div>
-                  )}
-                </td>
-                <td style={td}>
-                  {c.mechanic === "percent"
-                    ? `${c.amountPct}% off`
-                    : c.mechanic === "fixed"
-                      ? `$${((c.amountCents ?? 0) / 100).toFixed(2)} off`
-                      : c.mechanic}
-                </td>
-                <td style={{ ...td, fontSize: "0.75rem" }}>
-                  {fmtDate(c.startsAt)} → {fmtDate(c.expiresAt)}
-                </td>
-                <td style={td}>
-                  {c.allowedWeekdays && c.allowedWeekdays.length > 0
-                    ? c.allowedWeekdays.map((n) => WEEKDAYS[n].label).join(" ")
-                    : "Any"}
-                </td>
-                <td style={td}>
-                  {(["bowling", "racing", "attractions"] as const)
-                    .filter((d) => c.scopes[d])
-                    .map((d) => d[0].toUpperCase() + d.slice(1))
-                    .join(", ") || "—"}
-                </td>
-                <td style={td}>
-                  {c.usesCount}
-                  {c.maxUses ? ` / ${c.maxUses}` : ""}
-                </td>
-                <td style={td}>
-                  {c.scopes.bowling ? (
-                    c.squareCatalogId ? (
-                      <span style={{ color: "#22c55e" }}>✓</span>
-                    ) : (
-                      <button
-                        onClick={() => retryProvision(c)}
-                        style={{ ...btnSmall, background: "#f59e0b", color: "#0a1628" }}
-                      >
-                        Retry
-                      </button>
-                    )
-                  ) : (
-                    <span style={{ color: "#94a3b8" }}>—</span>
-                  )}
-                </td>
-                <td style={td}>
-                  {c.active ? (
-                    <span style={{ color: "#22c55e" }}>Active</span>
-                  ) : (
-                    <span style={{ color: "#94a3b8" }}>Inactive</span>
-                  )}
-                </td>
-                <td style={td}>
-                  <button onClick={() => startEdit(c)} style={btnSmall}>
-                    Edit
-                  </button>
-                  {c.active && (
-                    <button
-                      onClick={() => deactivate(c)}
-                      style={{ ...btnSmall, background: "#ef4444", color: "#fff", marginLeft: 6 }}
-                    >
-                      Deactivate
-                    </button>
-                  )}
-                </td>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${PORTAL_DARK.border}` }}>
+                <th style={th}>Code</th>
+                <th style={th}>Discount</th>
+                <th style={th}>Window</th>
+                <th style={th}>Weekdays</th>
+                <th style={th}>Domains</th>
+                <th style={th}>Uses</th>
+                <th style={th}>Square</th>
+                <th style={th}>Status</th>
+                <th style={th} aria-label="Row actions"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {codes.map((c) => (
+                <tr key={c.id} style={{ borderBottom: `1px solid ${PORTAL_DARK.border}` }}>
+                  <td style={td}>
+                    <strong style={{ color: PORTAL_DARK.fg }}>{c.code}</strong>
+                    {c.description && (
+                      <div style={{ color: PORTAL_DARK.muted, fontSize: "0.75rem" }}>
+                        {c.description}
+                      </div>
+                    )}
+                  </td>
+                  <td style={td}>
+                    {c.mechanic === "percent"
+                      ? `${c.amountPct}% off`
+                      : c.mechanic === "fixed"
+                        ? `$${((c.amountCents ?? 0) / 100).toFixed(2)} off`
+                        : c.mechanic}
+                  </td>
+                  <td style={{ ...td, fontSize: "0.75rem" }}>
+                    {fmtDate(c.startsAt)} → {fmtDate(c.expiresAt)}
+                  </td>
+                  <td style={td}>
+                    {c.allowedWeekdays && c.allowedWeekdays.length > 0
+                      ? c.allowedWeekdays.map((n) => WEEKDAYS[n].label).join(" ")
+                      : "Any"}
+                  </td>
+                  <td style={td}>
+                    {(["bowling", "racing", "attractions"] as const)
+                      .filter((d) => c.scopes[d])
+                      .map((d) => d[0].toUpperCase() + d.slice(1))
+                      .join(", ") || "—"}
+                  </td>
+                  <td style={td}>
+                    {c.usesCount}
+                    {c.maxUses ? ` / ${c.maxUses}` : ""}
+                  </td>
+                  <td style={td}>
+                    {c.scopes.bowling ? (
+                      c.squareCatalogId ? (
+                        <span style={{ color: "#22c55e" }}>✓</span>
+                      ) : (
+                        <button
+                          onClick={() => retryProvision(c)}
+                          style={{ ...btnSmall, background: "#f59e0b", color: "#0a1628" }}
+                        >
+                          Retry
+                        </button>
+                      )
+                    ) : (
+                      <span style={{ color: PORTAL_DARK.muted }}>—</span>
+                    )}
+                  </td>
+                  <td style={td}>
+                    {c.active ? (
+                      <span style={{ color: "#22c55e" }}>Active</span>
+                    ) : (
+                      <span style={{ color: PORTAL_DARK.muted }}>Inactive</span>
+                    )}
+                  </td>
+                  <td style={td}>
+                    <button onClick={() => startEdit(c)} style={btnSmall}>
+                      Edit
+                    </button>
+                    {c.active && (
+                      <button
+                        onClick={() => deactivate(c)}
+                        style={{ ...btnSmall, background: "#ef4444", color: "#fff", marginLeft: 6 }}
+                      >
+                        Deactivate
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {draft && (
@@ -492,16 +514,19 @@ function DraftEditor({
           never reach it. */}
       <div
         style={{
-          background: "#0f1f3a",
+          background: PORTAL_DARK.card,
+          border: `1px solid ${PORTAL_DARK.border}`,
           padding: "1.5rem",
           borderRadius: 8,
           width: "min(720px, 92vw)",
           maxHeight: "92vh",
           overflow: "auto",
-          color: "#e6e6e6",
+          color: PORTAL_DARK.fg,
         }}
       >
-        <h2 style={{ marginTop: 0, color: "#fff" }}>{editing ? "Edit" : "New"} discount code</h2>
+        <h2 style={{ marginTop: 0, color: PORTAL_DARK.fg }}>
+          {editing ? "Edit" : "New"} discount code
+        </h2>
 
         <Row label="Code">
           <input
@@ -529,7 +554,7 @@ function DraftEditor({
             placeholder="May Bowling 25%"
             style={input}
           />
-          <div style={{ color: "#94a3b8", fontSize: "0.7rem", marginTop: 4 }}>
+          <div style={{ color: PORTAL_DARK.muted, fontSize: "0.7rem", marginTop: 4 }}>
             Shown on Square reports. Marketing account is appended in parens — e.g. “May Bowling 25%
             (500.02)”. Leave blank to fall back to the description.
           </div>
@@ -569,7 +594,7 @@ function DraftEditor({
               onChange={(e) => update("amountPct", e.target.value)}
               style={input}
             />
-            <span style={{ marginLeft: 8, color: "#94a3b8" }}>%</span>
+            <span style={{ marginLeft: 8, color: PORTAL_DARK.muted }}>%</span>
           </Row>
         )}
         {draft.mechanic === "fixed" && (
@@ -617,7 +642,7 @@ function DraftEditor({
               );
             })}
           </div>
-          <div style={{ color: "#94a3b8", fontSize: "0.75rem", marginTop: 4 }}>
+          <div style={{ color: PORTAL_DARK.muted, fontSize: "0.75rem", marginTop: 4 }}>
             None selected = any weekday.
           </div>
         </Row>
@@ -638,7 +663,7 @@ function DraftEditor({
               );
             })}
           </div>
-          <div style={{ color: "#94a3b8", fontSize: "0.75rem", marginTop: 4 }}>
+          <div style={{ color: PORTAL_DARK.muted, fontSize: "0.75rem", marginTop: 4 }}>
             None selected = both centers.
           </div>
         </Row>
@@ -651,11 +676,11 @@ function DraftEditor({
               <div
                 key={d.key}
                 style={{
-                  border: "1px solid #2a3a52",
-                  borderRadius: 6,
+                  border: `1px solid ${PORTAL_DARK.border}`,
+                  borderRadius: 8,
                   padding: 8,
                   marginBottom: 6,
-                  background: on ? "rgba(34,197,94,0.05)" : undefined,
+                  background: on ? "rgba(59,130,246,0.08)" : undefined,
                 }}
               >
                 <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
@@ -664,7 +689,7 @@ function DraftEditor({
                 </label>
                 {on && (
                   <div style={{ marginTop: 6, paddingLeft: 22 }}>
-                    <div style={{ color: "#94a3b8", fontSize: "0.75rem", marginBottom: 4 }}>
+                    <div style={{ color: PORTAL_DARK.muted, fontSize: "0.75rem", marginBottom: 4 }}>
                       Eligible {d.label.toLowerCase()} products — none selected = all.
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -709,13 +734,13 @@ function DraftEditor({
         </Row>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
-          <button onClick={onCancel} style={{ ...btn, background: "#334155" }}>
+          <button onClick={onCancel} style={{ ...btn, background: PORTAL_DARK.muted2 }}>
             Cancel
           </button>
           <button
             onClick={onSave}
             disabled={saving}
-            style={{ ...btn, background: saving ? "#94a3b8" : "#22c55e", color: "#0a1628" }}
+            style={{ ...btn, background: saving ? PORTAL_DARK.muted : PORTAL_BLUE, color: "#fff" }}
           >
             {saving ? "Saving…" : "Save"}
           </button>
@@ -732,7 +757,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
         style={{
           display: "block",
           fontSize: "0.75rem",
-          color: "#94a3b8",
+          color: PORTAL_DARK.muted,
           textTransform: "uppercase",
           letterSpacing: "0.04em",
           marginBottom: 4,
@@ -752,7 +777,7 @@ function fmtDate(iso: string): string {
 const th: React.CSSProperties = {
   textAlign: "left",
   padding: "0.5rem 0.6rem",
-  color: "#94a3b8",
+  color: PORTAL_DARK.muted,
   fontWeight: 600,
   fontSize: "0.75rem",
   textTransform: "uppercase",
@@ -765,11 +790,11 @@ const td: React.CSSProperties = {
 };
 
 const input: React.CSSProperties = {
-  background: "#0a1628",
-  border: "1px solid #2a3a52",
-  color: "#fff",
+  background: PORTAL_DARK.inputBg,
+  border: `1px solid ${PORTAL_DARK.inputBorder}`,
+  color: PORTAL_DARK.fg,
   padding: "0.4rem 0.6rem",
-  borderRadius: 4,
+  borderRadius: 8,
   width: "100%",
   maxWidth: 400,
 };
@@ -777,7 +802,7 @@ const input: React.CSSProperties = {
 const btn: React.CSSProperties = {
   padding: "0.5rem 1rem",
   border: 0,
-  borderRadius: 4,
+  borderRadius: 8,
   fontWeight: 600,
   cursor: "pointer",
   color: "#fff",
@@ -786,10 +811,10 @@ const btn: React.CSSProperties = {
 const btnSmall: React.CSSProperties = {
   padding: "0.25rem 0.6rem",
   border: 0,
-  borderRadius: 4,
+  borderRadius: 8,
   fontWeight: 600,
   fontSize: "0.75rem",
-  background: "#3b82f6",
+  background: PORTAL_BLUE,
   color: "#fff",
   cursor: "pointer",
 };
@@ -798,9 +823,9 @@ function chip(on: boolean): React.CSSProperties {
   return {
     padding: "0.3rem 0.7rem",
     borderRadius: 999,
-    border: `1px solid ${on ? "#22c55e" : "#334155"}`,
-    background: on ? "rgba(34,197,94,0.15)" : "transparent",
-    color: on ? "#22c55e" : "#cbd5e1",
+    border: `1px solid ${on ? PORTAL_BLUE : PORTAL_DARK.inputBorder}`,
+    background: on ? "rgba(59,130,246,0.15)" : "transparent",
+    color: on ? PORTAL_BLUE_SOFT : "#cbd5e1",
     cursor: "pointer",
     fontSize: "0.75rem",
     fontWeight: 600,

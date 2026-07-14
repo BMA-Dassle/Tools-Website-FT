@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
 import { detectConflicts, conflictAdminLabel } from "@/lib/healthnet-conflicts";
 import type { GroupEventRsvp } from "@/app/api/group-event/rsvp/route";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import HealthnetRosterClient, { type RosterRow } from "./HealthnetRosterClient";
 
 const RESOLUTION_LABELS: Record<string, string> = {
@@ -94,5 +95,9 @@ export default async function Page({ params }: Props) {
 
   rows.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
-  return <HealthnetRosterClient rows={rows} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <HealthnetRosterClient rows={rows} />
+    </div>
+  );
 }

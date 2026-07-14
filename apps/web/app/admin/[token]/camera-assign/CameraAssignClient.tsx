@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { businessDayWeekdayET } from "@/lib/race-business-day";
+import { ADMIN_SANS, PORTAL_DARK } from "~/components/features/admin-skin/theme";
 
 /**
  * Camera-assignment UI.
@@ -193,17 +194,17 @@ function trackChipClasses(trackName: string | undefined, isActive: boolean): str
   if (t.includes("red")) {
     return isActive
       ? "bg-[#E53935] border-[#E53935] text-white"
-      : "border-[#E53935]/45 text-[#ff7171] hover:bg-[#E53935]/10 bg-white/[0.02]";
+      : "border-[#E53935]/45 text-[#ff7171] hover:bg-[#E53935]/10 bg-[#19273e]";
   }
   if (t.includes("mega")) {
     return isActive
       ? "bg-[#8652FF] border-[#8652FF] text-white"
-      : "border-[#8652FF]/45 text-[#c4adff] hover:bg-[#8652FF]/10 bg-white/[0.02]";
+      : "border-[#8652FF]/45 text-[#c4adff] hover:bg-[#8652FF]/10 bg-[#19273e]";
   }
   // default: blue / cyan
   return isActive
-    ? "bg-[#00E2E5] border-[#00E2E5] text-[#000418]"
-    : "border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10 bg-white/[0.02]";
+    ? "bg-[#3b82f6] border-[#3b82f6] text-white"
+    : "border-[#3b82f6]/40 text-[#60a5fa] hover:bg-[#3b82f6]/10 bg-[#19273e]";
 }
 
 /**
@@ -218,8 +219,8 @@ const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string
     {
       slug: "blue",
       label: "Blue",
-      active: "bg-[#00E2E5] border-[#00E2E5] text-[#000418]",
-      idle: "border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10",
+      active: "bg-[#3b82f6] border-[#3b82f6] text-white",
+      idle: "border-[#3b82f6]/40 text-[#60a5fa] hover:bg-[#3b82f6]/10",
     },
     {
       slug: "red",
@@ -1584,14 +1585,21 @@ export default function CameraAssignClient({
   // is enough of a nudge.
 
   return (
-    <div className="min-h-screen bg-[#0a1128] text-white">
+    <div
+      className="min-h-screen"
+      style={{
+        fontFamily: ADMIN_SANS,
+        background: PORTAL_DARK.bodyGradient,
+        color: PORTAL_DARK.fg,
+      }}
+    >
       {/* Build version — bottom-right corner, very small + low-contrast.
           Vercel injects VERCEL_GIT_COMMIT_SHA per deployment so this
           updates automatically. Useful for "what version am I on" when
           debugging mismatched-behavior reports across devices. */}
       {version && (
         <div
-          className="fixed bottom-1 right-1.5 text-[9px] font-mono text-white/20 pointer-events-none select-none z-[9999]"
+          className="fixed bottom-1 right-1.5 text-[9px] font-mono text-[#98a2b3] pointer-events-none select-none z-[9999]"
           aria-label={`Build ${version}`}
         >
           v {version}
@@ -1610,10 +1618,13 @@ export default function CameraAssignClient({
       )}
       <div className="max-w-5xl mx-auto p-3 sm:p-6">
         <header className="mb-2 sm:mb-4">
-          <h1 className="text-lg sm:text-2xl font-bold uppercase tracking-wider">
+          <h1
+            className="font-bold uppercase tracking-wider"
+            style={{ fontSize: "1.5rem", fontWeight: 700 }}
+          >
             Camera Assignment
           </h1>
-          <p className="text-white/50 text-xs mt-0.5 hidden sm:block">
+          <p className="text-[#98a2b3] text-xs mt-0.5 hidden sm:block">
             Scan each camera&apos;s NFC tag to bind it to a racer.
           </p>
         </header>
@@ -1629,8 +1640,8 @@ export default function CameraAssignClient({
                 key={t.slug}
                 type="button"
                 onClick={() => setTrack(isActive ? "" : t.slug)}
-                className={`text-xs uppercase tracking-wider font-semibold px-2.5 sm:px-3 py-1.5 rounded border transition-colors ${
-                  isActive ? t.active : `bg-white/[0.02] ${t.idle}`
+                className={`text-xs uppercase tracking-wider font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg border transition-colors ${
+                  isActive ? t.active : `bg-[#19273e] ${t.idle}`
                 }`}
               >
                 {t.label}
@@ -1655,10 +1666,10 @@ export default function CameraAssignClient({
                     : "Use this phone's NFC radio (tap a tag to assign)"
                 }
                 aria-label={nfcActive ? "Stop NFC scanning" : "Start NFC scanning"}
-                className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
+                className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded-lg border transition-colors inline-flex items-center gap-1 ${
                   nfcActive
-                    ? "bg-[#00E2E5]/20 border-[#00E2E5]/60 text-[#00E2E5] animate-pulse"
-                    : "bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
+                    ? "bg-[#3b82f6]/20 border-[#3b82f6]/60 text-[#60a5fa] animate-pulse"
+                    : "bg-[#19273e] border-[#3c4b66] text-[#98a2b3] hover:bg-[#2d3b53]"
                 }`}
               >
                 <span>📡</span>
@@ -1672,10 +1683,10 @@ export default function CameraAssignClient({
                 isFullscreen ? "Exit fullscreen" : "Hide browser chrome + status bar for kiosk use"
               }
               aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 ${
+              className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded-lg border transition-colors inline-flex items-center gap-1 ${
                 isFullscreen
-                  ? "bg-white/15 border-white/30 text-white"
-                  : "bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
+                  ? "bg-[#2d3b53] border-[#3c4b66] text-white"
+                  : "bg-[#19273e] border-[#3c4b66] text-[#98a2b3] hover:bg-[#2d3b53]"
               }`}
             >
               <span>{isFullscreen ? "🗗" : "⛶"}</span>
@@ -1686,7 +1697,7 @@ export default function CameraAssignClient({
               onClick={openBarcodeModal}
               title="Map physical camera barcodes to camera numbers (1-96)"
               aria-label="Open barcode provisioning"
-              className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded border transition-colors inline-flex items-center gap-1 bg-white/[0.02] border-white/15 text-white/60 hover:bg-white/10"
+              className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded-lg border transition-colors inline-flex items-center gap-1 bg-[#19273e] border-[#3c4b66] text-[#98a2b3] hover:bg-[#2d3b53]"
             >
               <span>🏷</span>
               <span className="hidden sm:inline">BC</span>
@@ -1701,7 +1712,7 @@ export default function CameraAssignClient({
         {track &&
           (() => {
             const pillClass =
-              "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border transition-colors";
+              "shrink-0 text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded-lg border transition-colors";
             return (
               <div
                 className="flex items-stretch flex-wrap gap-1.5 mb-2"
@@ -1730,7 +1741,7 @@ export default function CameraAssignClient({
                   </span>
                 ) : (
                   <span
-                    className={`${pillClass} border-dashed border-white/25 text-white/40 inline-flex items-center gap-1.5`}
+                    className={`${pillClass} border-dashed border-[#3c4b66] text-[#98a2b3] inline-flex items-center gap-1.5`}
                   >
                     <span
                       aria-hidden="true"
@@ -1744,7 +1755,7 @@ export default function CameraAssignClient({
                 <button
                   type="button"
                   onClick={() => setHeatModalOpen(true)}
-                  className={`${pillClass} md:hidden border-[#00E2E5]/40 text-[#00E2E5] hover:bg-[#00E2E5]/10`}
+                  className={`${pillClass} md:hidden border-[#3b82f6]/40 text-[#60a5fa] hover:bg-[#3b82f6]/10`}
                 >
                   Change ▸
                 </button>
@@ -1795,10 +1806,10 @@ export default function CameraAssignClient({
               const statusIcon = s.status === "past" ? "✓" : s.status === "live" ? "●" : "○";
               const statusColor =
                 s.status === "past"
-                  ? "text-white/40"
+                  ? "text-[#98a2b3]"
                   : s.status === "live"
-                    ? "text-[#00E2E5]"
-                    : "text-white/60";
+                    ? "text-[#60a5fa]"
+                    : "text-[#98a2b3]";
               const isFocusTarget = String(s.sessionId) === String(focusSessionId);
               return (
                 <button
@@ -1823,27 +1834,27 @@ export default function CameraAssignClient({
                     void loadSession(String(s.sessionId));
                   }}
                   disabled={isLoaded || !!pickingSid}
-                  className={`w-full flex items-center gap-2 text-left border-t border-white/[0.04] transition-colors disabled:cursor-not-allowed ${
+                  className={`w-full flex items-center gap-2 text-left border-t border-[#323e53] transition-colors disabled:cursor-not-allowed ${
                     bigTouch ? "px-4 py-3.5 text-sm" : "px-3 py-2 text-xs"
                   } ${
                     isPicking
-                      ? "bg-[#00E2E5]/20 border-[#00E2E5]/40"
+                      ? "bg-[#3b82f6]/20 border-[#3b82f6]/40"
                       : isLoaded
-                        ? "bg-[#00E2E5]/15 cursor-default"
+                        ? "bg-[#3b82f6]/15 cursor-default"
                         : pickingSid
                           ? "opacity-40"
                           : s.status === "past"
-                            ? "opacity-60 hover:bg-white/[0.03] hover:opacity-100"
+                            ? "opacity-60 hover:bg-[#22345e] hover:opacity-100"
                             : s.status === "live"
-                              ? "bg-[#00E2E5]/5 hover:bg-[#00E2E5]/10 animate-pulse"
-                              : "hover:bg-white/[0.04]"
+                              ? "bg-[#3b82f6]/5 hover:bg-[#3b82f6]/10 animate-pulse"
+                              : "hover:bg-[#22345e]"
                   }`}
                   title={isLoaded ? "Currently loaded" : `Load Heat ${s.heatNumber}`}
                 >
                   {isPicking ? (
                     <span
                       aria-hidden="true"
-                      className={`${bigTouch ? "w-5 h-5" : "w-4 h-4"} shrink-0 inline-block rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin`}
+                      className={`${bigTouch ? "w-5 h-5" : "w-4 h-4"} shrink-0 inline-block rounded-full border-2 border-[#3b82f6]/30 border-t-[#3b82f6] animate-spin`}
                     />
                   ) : (
                     <span
@@ -1859,18 +1870,18 @@ export default function CameraAssignClient({
                     {fmt(s.scheduledStart)}
                   </span>
                   <span
-                    className={`text-white/50 shrink-0 uppercase tracking-wider ${bigTouch ? "w-20" : "w-14"}`}
+                    className={`text-[#98a2b3] shrink-0 uppercase tracking-wider ${bigTouch ? "w-20" : "w-14"}`}
                   >
                     Heat <span className="text-white font-semibold">{s.heatNumber}</span>
                   </span>
-                  <span className="text-white/60 flex-1 truncate">{s.type}</span>
+                  <span className="text-[#98a2b3] flex-1 truncate">{s.type}</span>
                   <span
-                    className={`tabular-nums px-1.5 py-0.5 rounded shrink-0 ${
+                    className={`tabular-nums px-1.5 py-0.5 rounded-lg shrink-0 ${
                       bigTouch ? "text-sm" : "text-xs"
                     } ${
                       s.assignedCount > 0
                         ? "bg-emerald-500/15 text-emerald-300"
-                        : "bg-white/5 text-white/40"
+                        : "bg-[#2d3b53] text-[#98a2b3]"
                     }`}
                     title={`${s.assignedCount} camera${s.assignedCount === 1 ? "" : "s"} assigned`}
                   >
@@ -1887,21 +1898,21 @@ export default function CameraAssignClient({
                   here. Desktop keeps the inline schedule panel. */}
 
                 {/* Desktop inline panel (md+). */}
-                <div className="hidden md:block mb-3 rounded-lg border border-white/10 bg-white/[0.02]">
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-                    <div className="text-xs text-white/50 uppercase tracking-wider">
+                <div className="hidden md:block mb-3 rounded-lg border border-[#323e53] bg-[#19273e]">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-[#323e53]">
+                    <div className="text-xs text-[#98a2b3] uppercase tracking-wider">
                       {summaryText}
                     </div>
                     {dayLoading && (
                       <span
                         aria-hidden="true"
-                        className="inline-block w-3 h-3 rounded-full border-2 border-white/20 border-t-[#00E2E5] animate-spin"
+                        className="inline-block w-3 h-3 rounded-full border-2 border-[#3c4b66] border-t-[#3b82f6] animate-spin"
                       />
                     )}
                   </div>
                   <div className="max-h-[260px] overflow-y-auto">
                     {daySessions.length === 0 && !dayLoading && (
-                      <div className="text-center text-white/30 text-xs py-6">
+                      <div className="text-center text-[#98a2b3] text-xs py-6">
                         No heats found for this track today.
                       </div>
                     )}
@@ -1921,14 +1932,14 @@ export default function CameraAssignClient({
                   >
                     <div
                       className="relative w-full h-full flex flex-col"
-                      style={{ backgroundColor: "#0a1128" }}
+                      style={{ backgroundColor: "#19273e" }}
                     >
-                      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-[#323e53]">
                         <div>
                           <div className="text-base font-bold uppercase tracking-wider">
                             {track.toUpperCase()} Heats
                           </div>
-                          <div className="text-xs text-white/50 mt-0.5">{summaryText}</div>
+                          <div className="text-xs text-[#98a2b3] mt-0.5">{summaryText}</div>
                         </div>
                         <button
                           type="button"
@@ -1937,7 +1948,7 @@ export default function CameraAssignClient({
                             setPickingSid(null);
                           }}
                           aria-label="Close heat picker"
-                          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+                          className="w-10 h-10 flex items-center justify-center rounded-full bg-[#2d3b53] hover:bg-[#3c4b66] text-white"
                           style={{ fontSize: "22px", lineHeight: 1 }}
                         >
                           &times;
@@ -1945,7 +1956,7 @@ export default function CameraAssignClient({
                       </div>
                       <div className="flex-1 overflow-y-auto">
                         {daySessions.length === 0 && !dayLoading && (
-                          <div className="text-center text-white/30 text-sm py-10">
+                          <div className="text-center text-[#98a2b3] text-sm py-10">
                             No heats found for this track today.
                           </div>
                         )}
@@ -1960,7 +1971,7 @@ export default function CameraAssignClient({
 
         {/* Summary line — session info + counter + reload, mirroring
             SMS admin's "N matches · Refresh" strip */}
-        <div className="flex items-center justify-between gap-2 mb-2 text-xs text-white/50">
+        <div className="flex items-center justify-between gap-2 mb-2 text-xs text-[#98a2b3]">
           <span className="truncate">
             {loading ? (
               "Loading…"
@@ -1969,7 +1980,7 @@ export default function CameraAssignClient({
                 {session.track.replace(" Track", "")} · Heat {session.heatNumber} · {session.type} ·{" "}
                 {formatEt(session.scheduledStart)}
                 <span className="ml-2 text-white/70">
-                  <span className="text-[#00E2E5] font-semibold">{assignedCount}</span> /{" "}
+                  <span className="text-[#60a5fa] font-semibold">{assignedCount}</span> /{" "}
                   {totalCount} assigned
                 </span>
               </>
@@ -1985,7 +1996,7 @@ export default function CameraAssignClient({
                   type="button"
                   onClick={() => void unblockHeat()}
                   disabled={blockBusy}
-                  className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30 disabled:opacity-50"
+                  className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded-lg bg-red-500/20 border border-red-500/50 text-red-200 hover:bg-red-500/30 disabled:opacity-50"
                   title={
                     sessionBlock.reason ? `Blocked: ${sessionBlock.reason}` : "Unblock this heat"
                   }
@@ -2001,7 +2012,7 @@ export default function CameraAssignClient({
                     setBlockReasonOther("");
                   }}
                   disabled={blockBusy}
-                  className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded border border-white/15 text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300 disabled:opacity-50"
+                  className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1 rounded-lg border border-[#3c4b66] text-white/70 hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300 disabled:opacity-50"
                   title="Block all videos from this heat — no SMS/email will send"
                 >
                   Block Heat
@@ -2027,7 +2038,7 @@ export default function CameraAssignClient({
                   void loadSession(undefined, true);
                 }
               }}
-              className="text-[#00E2E5] hover:underline"
+              className="text-[#60a5fa] hover:underline"
             >
               Refresh
             </button>
@@ -2049,8 +2060,8 @@ export default function CameraAssignClient({
 
         {/* Scan input — the one on-brand flourish: sticky cyan slab so
             it's impossible to miss. Kept compact and single-line. */}
-        <div className="sticky top-2 z-10 rounded-lg border border-[#00E2E5]/40 bg-[#00E2E5]/5 p-2.5 mb-3">
-          <label htmlFor="camera-scan-input" className="text-xs text-white/60 block mb-1">
+        <div className="sticky top-2 z-10 rounded-lg border border-[#3b82f6]/40 bg-[#3b82f6]/5 p-2.5 mb-3">
+          <label htmlFor="camera-scan-input" className="text-xs text-[#98a2b3] block mb-1">
             Scan NFC tag (or type camera # and tap Assign)
           </label>
           <div className="flex gap-2">
@@ -2098,10 +2109,10 @@ export default function CameraAssignClient({
               }}
               placeholder={nfcActive ? "📡 Listening — tap an NFC tag…" : "Waiting for scan…"}
               autoComplete="off"
-              className={`flex-1 min-w-0 bg-white/5 rounded px-2 py-2 text-base text-white font-mono placeholder:text-white/30 border transition-colors ${
+              className={`flex-1 min-w-0 bg-[#2d3b53] rounded-lg px-2 py-2 text-base text-white font-mono placeholder:text-[#98a2b3] border transition-colors ${
                 unknownScanFlash
                   ? "border-red-500/80 bg-red-500/15 animate-pulse"
-                  : "border-white/10"
+                  : "border-[#323e53]"
               }`}
             />
             {/* Manual-submit button — iOS's numeric pad has no Enter
@@ -2117,7 +2128,7 @@ export default function CameraAssignClient({
                 void assign(val);
               }}
               disabled={!scanBuffer.trim()}
-              className="shrink-0 px-4 py-2 rounded bg-[#00E2E5] text-[#000418] font-semibold text-sm hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+              className="shrink-0 px-4 py-2 rounded-lg bg-[#3b82f6] text-white font-semibold text-sm hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Assign
             </button>
@@ -2133,12 +2144,12 @@ export default function CameraAssignClient({
         {/* Participants list — matches SMS admin card density */}
         <div className="space-y-2">
           {!track && (
-            <div className="rounded-lg border-2 border-dashed border-[#00E2E5]/40 bg-[#00E2E5]/5 text-center py-10 px-4">
-              <div className="text-[#00E2E5] text-sm font-semibold uppercase tracking-wider mb-1">
+            <div className="rounded-lg border-2 border-dashed border-[#3b82f6]/40 bg-[#3b82f6]/5 text-center py-10 px-4">
+              <div className="text-[#60a5fa] text-sm font-semibold uppercase tracking-wider mb-1">
                 Select a track to start
               </div>
-              <div className="text-white/50 text-xs">
-                Tap <span className="font-semibold text-[#00E2E5]">Blue</span>,{" "}
+              <div className="text-[#98a2b3] text-xs">
+                Tap <span className="font-semibold text-[#60a5fa]">Blue</span>,{" "}
                 <span className="font-semibold text-[#ff7171]">Red</span>, or{" "}
                 <span className="font-semibold text-[#c4adff]">Mega</span> above.
               </div>
@@ -2158,11 +2169,11 @@ export default function CameraAssignClient({
                 : null;
               const loadingLabel = pickingHeat ? `Loading Heat ${pickingHeat}…` : "Loading heat…";
               return (
-                <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center py-10">
-                  <div className="inline-flex items-center gap-2 text-[#00E2E5] text-sm">
+                <div className="rounded-lg border border-[#323e53] bg-[#19273e] text-center py-10">
+                  <div className="inline-flex items-center gap-2 text-[#60a5fa] text-sm">
                     <span
                       aria-hidden="true"
-                      className="inline-block w-4 h-4 rounded-full border-2 border-[#00E2E5]/30 border-t-[#00E2E5] animate-spin"
+                      className="inline-block w-4 h-4 rounded-full border-2 border-[#3b82f6]/30 border-t-[#3b82f6] animate-spin"
                     />
                     {loadingLabel}
                   </div>
@@ -2170,7 +2181,7 @@ export default function CameraAssignClient({
               );
             })()}
           {track && participants.length === 0 && !loading && (
-            <div className="rounded-lg border border-white/10 bg-white/[0.02] text-center text-white/40 py-8">
+            <div className="rounded-lg border border-[#323e53] bg-[#19273e] text-center text-[#98a2b3] py-8">
               No participants.
             </div>
           )}
@@ -2200,10 +2211,10 @@ export default function CameraAssignClient({
                     : isBlocked
                       ? "border-red-500/40 bg-red-500/10"
                       : isActive
-                        ? "border-[#00E2E5]/60 bg-[#00E2E5]/10"
+                        ? "border-[#3b82f6]/60 bg-[#3b82f6]/10"
                         : hasCam
                           ? "border-emerald-500/25 bg-emerald-500/5"
-                          : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                          : "border-[#323e53] bg-[#19273e] hover:bg-[#22345e]"
                 }`}
               >
                 {/* Two-row on mobile, one-row on sm+ (tablets/desktop).
@@ -2219,10 +2230,10 @@ export default function CameraAssignClient({
                         isBlocked
                           ? "text-red-300"
                           : isActive
-                            ? "text-[#00E2E5]"
+                            ? "text-[#60a5fa]"
                             : hasCam
                               ? "text-emerald-400"
-                              : "text-white/40"
+                              : "text-[#98a2b3]"
                       }`}
                     >
                       {i + 1}
@@ -2234,7 +2245,7 @@ export default function CameraAssignClient({
                         </span>
                         {isBlocked && (
                           <span
-                            className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-red-500/25 text-red-200 align-middle"
+                            className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded-lg bg-red-500/25 text-red-200 align-middle"
                             title={
                               p.block?.reason
                                 ? `Blocked: ${p.block.reason}`
@@ -2246,7 +2257,7 @@ export default function CameraAssignClient({
                         )}
                         {personOverride && (
                           <span
-                            className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 align-middle"
+                            className="ml-2 text-[10px] uppercase px-1.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 align-middle"
                             title="Heat is blocked but this racer is released"
                           >
                             released
@@ -2260,7 +2271,7 @@ export default function CameraAssignClient({
                   <div className="flex items-center gap-2 shrink-0 pl-9 sm:pl-0">
                     {hasCam ? (
                       <>
-                        <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                        <span className="text-xs uppercase px-1.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono">
                           cam {p.systemNumber}
                         </span>
                         <button
@@ -2271,7 +2282,7 @@ export default function CameraAssignClient({
                           }}
                           aria-label={`Un-assign camera from ${p.firstName} ${p.lastName}`}
                           title="Un-assign this camera (re-scan to reassign)"
-                          className="text-xs px-1.5 py-0.5 rounded border border-white/15 text-white/50 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
+                          className="text-xs px-1.5 py-0.5 rounded-lg border border-[#3c4b66] text-[#98a2b3] hover:text-amber-300 hover:border-amber-500/40 transition-colors"
                         >
                           redo
                         </button>
@@ -2288,10 +2299,10 @@ export default function CameraAssignClient({
                               : `Block ${p.firstName} ${p.lastName}`
                           }
                           title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
-                          className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                          className={`text-xs px-1.5 py-0.5 rounded-lg border transition-colors disabled:opacity-50 ${
                             isBlocked
                               ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
-                              : "border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
+                              : "border-[#3c4b66] text-[#98a2b3] hover:text-red-300 hover:border-red-500/40"
                           }`}
                         >
                           {isBlocked ? "unblock" : "block"}
@@ -2300,7 +2311,7 @@ export default function CameraAssignClient({
                     ) : (
                       <>
                         {isActive && (
-                          <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-[#00E2E5]/20 text-[#00E2E5]">
+                          <span className="text-xs uppercase px-1.5 py-0.5 rounded-lg bg-[#3b82f6]/20 text-[#60a5fa]">
                             scan next
                           </span>
                         )}
@@ -2317,10 +2328,10 @@ export default function CameraAssignClient({
                               : `Block ${p.firstName} ${p.lastName}`
                           }
                           title={isBlocked ? "Unblock this racer" : "Block this racer's videos"}
-                          className={`text-xs px-1.5 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                          className={`text-xs px-1.5 py-0.5 rounded-lg border transition-colors disabled:opacity-50 ${
                             isBlocked
                               ? "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
-                              : "border-white/10 text-white/40 hover:text-red-300 hover:border-red-500/40"
+                              : "border-[#323e53] text-[#98a2b3] hover:text-red-300 hover:border-red-500/40"
                           }`}
                         >
                           {isBlocked ? "unblock" : "block"}
@@ -2350,9 +2361,9 @@ export default function CameraAssignClient({
           {...modalBackdropProps(() => setPastModalOpen(false))}
         >
           <div
-            className="relative w-full max-w-md rounded-xl mt-10"
+            className="relative w-full max-w-md rounded-lg mt-10"
             style={{
-              backgroundColor: "#0a1128",
+              backgroundColor: "#19273e",
               border: "1.78px solid rgba(255,255,255,0.1)",
               maxHeight: "calc(100dvh - 5rem)",
               overflowY: "auto",
@@ -2362,7 +2373,7 @@ export default function CameraAssignClient({
               type="button"
               onClick={() => setPastModalOpen(false)}
               aria-label="Close"
-              className="absolute top-2 right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+              className="absolute top-2 right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-[#2d3b53] hover:bg-[#3c4b66] text-white"
               style={{ fontSize: "20px", lineHeight: 1 }}
             >
               &times;
@@ -2372,7 +2383,7 @@ export default function CameraAssignClient({
                 Earlier sessions today
               </h3>
               {pastSessions.length === 0 ? (
-                <div className="text-white/40 text-sm py-3">
+                <div className="text-[#98a2b3] text-sm py-3">
                   {pastLoaded ? "No earlier sessions today." : "Loading…"}
                 </div>
               ) : (
@@ -2386,10 +2397,10 @@ export default function CameraAssignClient({
                         void loadSession(String(s.sessionId));
                         setPastModalOpen(false);
                       }}
-                      className="w-full text-left rounded border border-white/10 bg-white/[0.02] hover:bg-white/5 px-3 py-2 text-sm"
+                      className="w-full text-left rounded-lg border border-[#323e53] bg-[#19273e] hover:bg-[#2d3b53] px-3 py-2 text-sm"
                     >
                       <div className="font-semibold text-white truncate">{sessionChipLabel(s)}</div>
-                      <div className="text-xs text-white/50 mt-0.5">
+                      <div className="text-xs text-[#98a2b3] mt-0.5">
                         {formatEt(s.scheduledStart)}
                       </div>
                     </button>
@@ -2414,14 +2425,14 @@ export default function CameraAssignClient({
         >
           <div
             className="relative w-full max-w-2xl mx-auto h-full flex flex-col"
-            style={{ backgroundColor: "#0a1128" }}
+            style={{ backgroundColor: "#19273e" }}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#323e53] shrink-0">
               <div>
                 <div className="text-base font-bold uppercase tracking-wider">
                   🏷 Barcode → Camera
                 </div>
-                <div className="text-xs text-white/50 mt-0.5">
+                <div className="text-xs text-[#98a2b3] mt-0.5">
                   {Object.keys(barcodeMap).length} / 96 mapped
                   {barcodeLoading && " · loading…"}
                 </div>
@@ -2430,7 +2441,7 @@ export default function CameraAssignClient({
                 type="button"
                 onClick={() => setBarcodeModalOpen(false)}
                 aria-label="Close barcode provisioning"
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+                className="w-10 h-10 flex items-center justify-center rounded-full bg-[#2d3b53] hover:bg-[#3c4b66] text-white"
                 style={{ fontSize: "22px", lineHeight: 1 }}
               >
                 &times;
@@ -2438,10 +2449,10 @@ export default function CameraAssignClient({
             </div>
 
             {/* Sticky scan input */}
-            <div className="px-4 py-3 border-b border-white/10 bg-[#0a1128] sticky top-0 z-10 shrink-0">
-              <div className="text-xs text-white/60 mb-1">
+            <div className="px-4 py-3 border-b border-[#323e53] bg-[#19273e] sticky top-0 z-10 shrink-0">
+              <div className="text-xs text-[#98a2b3] mb-1">
                 Scan or type barcode for{" "}
-                <span className="text-[#00E2E5] font-semibold">Camera {barcodeActiveCam}</span>
+                <span className="text-[#60a5fa] font-semibold">Camera {barcodeActiveCam}</span>
               </div>
               <div className="flex gap-2">
                 <input
@@ -2486,7 +2497,7 @@ export default function CameraAssignClient({
                   }}
                   placeholder="Waiting for barcode scan…"
                   autoComplete="off"
-                  className="flex-1 min-w-0 bg-white/5 border border-[#00E2E5]/40 rounded px-3 py-2 text-sm text-white font-mono placeholder:text-white/30"
+                  className="flex-1 min-w-0 bg-[#2d3b53] border border-[#3b82f6]/40 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-[#98a2b3]"
                 />
                 <button
                   type="button"
@@ -2495,7 +2506,7 @@ export default function CameraAssignClient({
                     if (v) void saveBarcode(barcodeActiveCam, v);
                   }}
                   disabled={!barcodeInput.trim()}
-                  className="shrink-0 px-4 py-2 rounded bg-[#00E2E5] text-[#000418] font-semibold text-sm hover:bg-white disabled:opacity-40"
+                  className="shrink-0 px-4 py-2 rounded-lg bg-[#3b82f6] text-white font-semibold text-sm hover:bg-white disabled:opacity-40"
                 >
                   Save
                 </button>
@@ -2540,23 +2551,23 @@ export default function CameraAssignClient({
                         selectThis();
                       }
                     }}
-                    className={`w-full flex items-center gap-2 px-4 py-3 text-sm border-t border-white/[0.04] text-left transition-colors cursor-pointer ${
+                    className={`w-full flex items-center gap-2 px-4 py-3 text-sm border-t border-[#323e53] text-left transition-colors cursor-pointer ${
                       isActive
-                        ? "bg-[#00E2E5]/15 border-y-[#00E2E5]/40"
-                        : "hover:bg-white/[0.03] active:bg-[#00E2E5]/10"
+                        ? "bg-[#3b82f6]/15 border-y-[#3b82f6]/40"
+                        : "hover:bg-[#22345e] active:bg-[#3b82f6]/10"
                     }`}
                     aria-label={`Select camera ${camN} as active scan target`}
                     aria-pressed={isActive}
                   >
                     <span
                       className={`w-16 shrink-0 tabular-nums uppercase tracking-wider ${
-                        isActive ? "text-[#00E2E5] font-bold" : "text-white/70"
+                        isActive ? "text-[#60a5fa] font-bold" : "text-white/70"
                       }`}
                     >
                       Cam {camN}
                     </span>
                     <span
-                      className={`flex-1 truncate font-mono text-xs ${bc ? "text-emerald-300" : "text-white/30"}`}
+                      className={`flex-1 truncate font-mono text-xs ${bc ? "text-emerald-300" : "text-[#98a2b3]"}`}
                     >
                       {bc || "— no barcode —"}
                     </span>
@@ -2567,7 +2578,7 @@ export default function CameraAssignClient({
                           e.stopPropagation();
                           void deleteBarcode(camN);
                         }}
-                        className="shrink-0 text-xs px-2 py-1 rounded border border-white/15 text-white/50 hover:text-red-300 hover:border-red-500/40"
+                        className="shrink-0 text-xs px-2 py-1 rounded-lg border border-[#3c4b66] text-[#98a2b3] hover:text-red-300 hover:border-red-500/40"
                         aria-label={`Clear barcode for camera ${camN}`}
                       >
                         clear
@@ -2603,9 +2614,9 @@ export default function CameraAssignClient({
               {...modalBackdropProps(onClose)}
             >
               <div
-                className="relative w-full max-w-md rounded-xl"
+                className="relative w-full max-w-md rounded-lg"
                 style={{
-                  backgroundColor: "#0a1128",
+                  backgroundColor: "#19273e",
                   border: "1.78px solid rgba(239,68,68,0.4)",
                   maxHeight: "calc(100dvh - 1.5rem)",
                   overflowY: "auto",
@@ -2616,7 +2627,7 @@ export default function CameraAssignClient({
                   onClick={onClose}
                   aria-label="Close"
                   disabled={blockBusy}
-                  className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white disabled:opacity-50"
+                  className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-[#2d3b53] hover:bg-[#3c4b66] text-white disabled:opacity-50"
                   style={{ fontSize: "20px", lineHeight: 1 }}
                 >
                   &times;
@@ -2659,22 +2670,22 @@ export default function CameraAssignClient({
                     <span className="text-red-300 font-semibold"> no SMS or email will send</span>,
                     and the vt3.io link will be disabled.
                   </p>
-                  <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
+                  <label className="flex flex-col gap-1 text-xs text-[#98a2b3] mb-3">
                     Reason
                     <select
                       value={blockReason}
                       onChange={(e) => setBlockReason(e.target.value as BlockReason)}
-                      className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                      className="bg-[#2d3b53] border border-[#323e53] rounded-lg px-2 py-1.5 text-sm text-white"
                     >
                       {BLOCK_REASONS.map((r) => (
-                        <option key={r} value={r} style={{ backgroundColor: "#0a1128" }}>
+                        <option key={r} value={r} style={{ backgroundColor: "#19273e" }}>
                           {r}
                         </option>
                       ))}
                     </select>
                   </label>
                   {blockReason === "Other" && (
-                    <label className="flex flex-col gap-1 text-xs text-white/60 mb-3">
+                    <label className="flex flex-col gap-1 text-xs text-[#98a2b3] mb-3">
                       Describe
                       <input
                         type="text"
@@ -2682,7 +2693,7 @@ export default function CameraAssignClient({
                         onChange={(e) => setBlockReasonOther(e.target.value)}
                         placeholder="Short reason for the block"
                         maxLength={200}
-                        className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+                        className="bg-[#2d3b53] border border-[#323e53] rounded-lg px-2 py-1.5 text-sm text-white"
                       />
                     </label>
                   )}
@@ -2691,7 +2702,7 @@ export default function CameraAssignClient({
                       type="button"
                       onClick={onClose}
                       disabled={blockBusy}
-                      className="text-sm px-4 py-3 sm:py-2 rounded border border-white/20 text-white/70 hover:text-white disabled:opacity-50"
+                      className="text-sm px-4 py-3 sm:py-2 rounded-lg border border-[#3c4b66] text-white/70 hover:text-white disabled:opacity-50"
                     >
                       Cancel
                     </button>
@@ -2699,7 +2710,7 @@ export default function CameraAssignClient({
                       type="button"
                       onClick={onSubmit}
                       disabled={blockBusy || (blockReason === "Other" && !blockReasonOther.trim())}
-                      className="text-sm px-5 py-3 sm:py-2 rounded bg-red-500 text-white font-bold hover:bg-red-400 disabled:opacity-50"
+                      className="text-sm px-5 py-3 sm:py-2 rounded-lg bg-red-500 text-white font-bold hover:bg-red-400 disabled:opacity-50"
                     >
                       {blockBusy ? "Blocking…" : isHeat ? "Block Heat" : "Block Racer"}
                     </button>

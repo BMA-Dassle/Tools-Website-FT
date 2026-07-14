@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import {
+  ADMIN_MONO,
+  ADMIN_SANS,
+  PORTAL_BLUE,
+  PORTAL_BLUE_SOFT,
+  PORTAL_DARK,
+} from "~/components/features/admin-skin/theme";
 
 interface GfQuote {
   id: number;
@@ -163,9 +170,9 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
         maxWidth: 1400,
         margin: "0 auto",
         padding: "1.5rem",
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        color: "#e2e8f0",
-        backgroundColor: "#0f172a",
+        fontFamily: ADMIN_SANS,
+        color: PORTAL_DARK.fg,
+        background: PORTAL_DARK.bodyGradient,
         minHeight: "100vh",
       }}
     >
@@ -202,10 +209,10 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
             onClick={() => setStatusFilter(s)}
             style={{
               padding: "0.25rem 0.75rem",
-              borderRadius: 6,
-              border: `1px solid ${statusFilter === s ? "rgba(34,197,94,0.5)" : "rgba(148,163,184,0.3)"}`,
-              backgroundColor: statusFilter === s ? "rgba(34,197,94,0.15)" : "transparent",
-              color: statusFilter === s ? "#22c55e" : "#94a3b8",
+              borderRadius: 8,
+              border: `1px solid ${statusFilter === s ? PORTAL_BLUE : PORTAL_DARK.border}`,
+              backgroundColor: statusFilter === s ? PORTAL_BLUE : "transparent",
+              color: statusFilter === s ? "#ffffff" : PORTAL_DARK.muted,
               fontSize: "0.75rem",
               fontWeight: 600,
               cursor: "pointer",
@@ -227,10 +234,10 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
           width: "100%",
           maxWidth: 400,
           padding: "0.5rem 0.75rem",
-          borderRadius: 6,
-          border: "1px solid rgba(148,163,184,0.3)",
-          backgroundColor: "rgba(15,23,42,0.8)",
-          color: "#e2e8f0",
+          borderRadius: 8,
+          border: `1px solid ${PORTAL_DARK.inputBorder}`,
+          backgroundColor: PORTAL_DARK.inputBg,
+          color: PORTAL_DARK.fg,
           fontSize: "0.875rem",
           marginBottom: "1rem",
         }}
@@ -242,13 +249,14 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
           style={{
             display: "flex",
             gap: "1.5rem",
+            flexWrap: "wrap",
             fontSize: "0.8rem",
-            color: "#94a3b8",
+            color: PORTAL_DARK.muted,
             marginBottom: "1rem",
           }}
         >
           <span>
-            <strong style={{ color: "#e2e8f0" }}>{filtered.length}</strong> quotes
+            <strong style={{ color: PORTAL_DARK.fg }}>{filtered.length}</strong> quotes
           </span>
           <span>
             Deposits <strong style={{ color: "#22c55e" }}>{dollars(totalDeposits)}</strong>
@@ -259,7 +267,7 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
         </div>
       )}
 
-      {loading && <p style={{ color: "#94a3b8" }}>Loading...</p>}
+      {loading && <p style={{ color: PORTAL_DARK.muted }}>Loading...</p>}
       {error && <p style={{ color: "#ef4444" }}>Error: {error}</p>}
 
       {/* Table */}
@@ -275,8 +283,8 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
             <thead>
               <tr
                 style={{
-                  borderBottom: "1px solid rgba(148,163,184,0.2)",
-                  color: "#94a3b8",
+                  borderBottom: `1px solid ${PORTAL_DARK.border}`,
+                  color: PORTAL_DARK.muted,
                   textTransform: "uppercase",
                   fontSize: "0.65rem",
                   letterSpacing: "0.05em",
@@ -297,19 +305,23 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                 <tr
                   key={q.id}
                   style={{
-                    borderBottom: "1px solid rgba(148,163,184,0.1)",
+                    borderBottom: `1px solid ${PORTAL_DARK.border}`,
                   }}
                 >
                   <td style={{ padding: "0.5rem" }}>
                     <div style={{ fontWeight: 600 }}>{q.eventName}</div>
-                    <div style={{ color: "#94a3b8", fontSize: "0.7rem" }}>
+                    <div style={{ color: PORTAL_DARK.muted, fontSize: "0.7rem" }}>
                       {q.eventDateDisplay || fmtDate(q.eventDate)} · {q.centerName}
                     </div>
-                    <div style={{ color: "#64748b", fontSize: "0.65rem" }}>#{q.eventNumber}</div>
+                    <div style={{ color: PORTAL_DARK.muted, fontSize: "0.65rem" }}>
+                      #{q.eventNumber}
+                    </div>
                   </td>
                   <td style={{ padding: "0.5rem" }}>
                     <div>{q.guestName}</div>
-                    <div style={{ color: "#94a3b8", fontSize: "0.7rem" }}>{q.guestEmail}</div>
+                    <div style={{ color: PORTAL_DARK.muted, fontSize: "0.7rem" }}>
+                      {q.guestEmail}
+                    </div>
                   </td>
                   <td style={{ padding: "0.5rem" }}>
                     <span
@@ -330,7 +342,7 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                       <div
                         style={{
                           fontSize: "0.6rem",
-                          color: "#64748b",
+                          color: PORTAL_DARK.muted,
                           marginTop: 2,
                         }}
                       >
@@ -351,7 +363,7 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                     style={{
                       padding: "0.5rem",
                       textAlign: "right",
-                      color: q.depositPaidAt ? "#22c55e" : "#94a3b8",
+                      color: q.depositPaidAt ? "#22c55e" : PORTAL_DARK.muted,
                     }}
                   >
                     {dollars(q.depositDueCents)}
@@ -368,9 +380,9 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                   <td
                     style={{
                       padding: "0.5rem",
-                      fontFamily: "monospace",
+                      fontFamily: ADMIN_MONO,
                       fontSize: "0.7rem",
-                      color: "#00e2e5",
+                      color: PORTAL_BLUE_SOFT,
                     }}
                   >
                     {q.giftCardGan || "—"}
@@ -440,7 +452,7 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
       )}
 
       {!loading && filtered.length === 0 && (
-        <p style={{ color: "#64748b", textAlign: "center", marginTop: "2rem" }}>
+        <p style={{ color: PORTAL_DARK.muted, textAlign: "center", marginTop: "2rem" }}>
           No group function quotes found.
         </p>
       )}
@@ -461,9 +473,9 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
         >
           <div
             style={{
-              backgroundColor: "#1e293b",
-              borderRadius: 12,
-              border: "1px solid rgba(148,163,184,0.2)",
+              backgroundColor: PORTAL_DARK.card,
+              borderRadius: 8,
+              border: `1px solid ${PORTAL_DARK.border}`,
               maxWidth: 600,
               width: "90%",
               maxHeight: "80vh",
@@ -485,7 +497,7 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
               <button
                 onClick={() => setHistoryQuoteId(null)}
                 style={{
-                  color: "#94a3b8",
+                  color: PORTAL_DARK.muted,
                   fontSize: "1.2rem",
                   cursor: "pointer",
                   background: "none",
@@ -496,10 +508,10 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
               </button>
             </div>
 
-            {versionsLoading && <p style={{ color: "#94a3b8" }}>Loading...</p>}
+            {versionsLoading && <p style={{ color: PORTAL_DARK.muted }}>Loading...</p>}
 
             {!versionsLoading && versions.length === 0 && (
-              <p style={{ color: "#64748b" }}>No version history recorded yet.</p>
+              <p style={{ color: PORTAL_DARK.muted }}>No version history recorded yet.</p>
             )}
 
             {!versionsLoading && versions.length > 0 && (
@@ -510,8 +522,8 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                     style={{
                       padding: "0.75rem",
                       borderRadius: 8,
-                      backgroundColor: "rgba(15,23,42,0.6)",
-                      border: "1px solid rgba(148,163,184,0.1)",
+                      backgroundColor: PORTAL_DARK.muted2,
+                      border: `1px solid ${PORTAL_DARK.border}`,
                     }}
                   >
                     <div
@@ -525,7 +537,7 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                       <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
                         Version {v.versionNumber}
                       </span>
-                      <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                      <span style={{ fontSize: "0.7rem", color: PORTAL_DARK.muted }}>
                         {new Date(v.createdAt).toLocaleString("en-US", {
                           month: "short",
                           day: "numeric",
@@ -541,11 +553,11 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                         {v.diffs.map((d, i) => (
                           <div key={i} style={{ fontSize: "0.75rem" }}>
-                            <span style={{ color: "#94a3b8" }}>{d.label}: </span>
+                            <span style={{ color: PORTAL_DARK.muted }}>{d.label}: </span>
                             <span style={{ color: "#ef4444", textDecoration: "line-through" }}>
                               {d.before}
                             </span>
-                            <span style={{ color: "#64748b" }}> → </span>
+                            <span style={{ color: PORTAL_DARK.muted }}> → </span>
                             <span style={{ color: "#22c55e" }}>{d.after}</span>
                           </div>
                         ))}
@@ -553,13 +565,15 @@ export default function GroupFunctionsClient({ token }: { token: string }) {
                     )}
 
                     {v.diffs.length === 0 && v.changes.length > 0 && (
-                      <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                      <div style={{ fontSize: "0.75rem", color: PORTAL_DARK.muted }}>
                         {v.changes.join(", ")}
                       </div>
                     )}
 
                     {v.diffs.length === 0 && v.changes.length === 0 && (
-                      <div style={{ fontSize: "0.75rem", color: "#64748b" }}>Initial version</div>
+                      <div style={{ fontSize: "0.75rem", color: PORTAL_DARK.muted }}>
+                        Initial version
+                      </div>
                     )}
                   </div>
                 ))}

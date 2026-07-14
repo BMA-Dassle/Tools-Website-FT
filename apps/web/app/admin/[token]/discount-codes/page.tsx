@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import DiscountCodesClient from "./DiscountCodesClient";
 
 /**
@@ -20,5 +21,9 @@ export default async function Page({ params }: Props) {
   const { token } = await params;
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
-  return <DiscountCodesClient token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <DiscountCodesClient token={token} />
+    </div>
+  );
 }

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
 import VideoAdminClient from "./VideoAdminClient";
 
 /**
@@ -20,5 +21,9 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  return <VideoAdminClient token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <VideoAdminClient token={token} />
+    </div>
+  );
 }
