@@ -800,6 +800,30 @@ export async function getContractHistory(projectId: string): Promise<ContractHis
   );
   milestone(quote.dayof_paid_at, "dayof_paid", "Day-of charges settled");
 
+  // Attach the exact PDF each signing produced (owner 2026-07-13): archived
+  // copies pair with earlier signings in chronological order; the quote's
+  // current signed_pdf_url is the latest signing. Zip from the end so the
+  // newest signing always gets the current PDF even if an old archive entry
+  // is missing.
+  const SIGN_KINDS = new Set(["signed", "resigned", "re-signed", "milestone:signed"]);
+  const signEvents = entries
+    .filter((e) => SIGN_KINDS.has(e.kind))
+    .sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0));
+  const pdfTs = (p: { signedAt?: string | null; archivedAt?: string }) => {
+    const t = Date.parse(isoStamp(p.signedAt ?? p.archivedAt ?? null));
+    return Number.isNaN(t) ? 0 : t;
+  };
+  const signedPdfs = pdfHistory
+    .filter((p) => p.url)
+    .sort((a, b) => pdfTs(a) - pdfTs(b))
+    .map((p) => p.url as string);
+  if (quote.signed_pdf_url) signedPdfs.push(quote.signed_pdf_url);
+  for (let i = 0; i < signEvents.length; i++) {
+    const ev = signEvents[signEvents.length - 1 - i];
+    const url = signedPdfs[signedPdfs.length - 1 - i];
+    if (ev && url && !ev.pdfUrl) ev.pdfUrl = url;
+  }
+
   // Chronological, then collapse consecutive guest views on the same day.
   // Date.parse, not string compare — column formats differ across sources.
   const ts = (e: ContractHistoryEntry) => {

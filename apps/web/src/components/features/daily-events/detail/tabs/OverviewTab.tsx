@@ -170,9 +170,6 @@ export default function OverviewTab({
             <InfoItem label="Responsible" value={safe(detail.responsible)} />
           )}
           {detail.kind && <InfoItem label="Type" value={safe(detail.kind)} />}
-          {detail.validUntil && (
-            <InfoItem label="Valid Until" value={fmtEventDateTime(String(detail.validUntil))} />
-          )}
           {detail.creationDate && (
             <InfoItem label="Created" value={fmtEventDateTime(String(detail.creationDate))} />
           )}

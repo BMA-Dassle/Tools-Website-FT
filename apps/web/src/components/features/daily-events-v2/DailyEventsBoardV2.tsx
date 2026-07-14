@@ -22,7 +22,6 @@ import { fmtDateLabelLong, fmtEventTime, todayET } from "~/features/daily-events
 import { useBoardTheme } from "~/features/daily-events/hooks";
 import {
   applyViewTypeFilter,
-  getWaiverStatus,
   isPendingSignedContract,
   isSendContract,
 } from "~/features/daily-events/logic";
@@ -48,7 +47,7 @@ interface AttentionItem {
   name: string;
   /** Muted context: when · contact. */
   meta: string;
-  /** Right-aligned figure: open $ for money, "3/40" for waivers. */
+  /** Right-aligned figure: open $ for money. */
   right: string;
   /** Money item whose contract is also unsigned — gets a second pill. */
   unsigned?: boolean;
@@ -114,9 +113,9 @@ function shiftDate(dateStr: string, days: number): string {
 }
 
 /**
- * Exceptions → compact rows, most urgent first: unpaid/unsigned money,
- * quotes stuck before send, red waiver registration. The UI collapses long
- * lists behind a "Show all" expander, so no cap here.
+ * Exceptions → compact rows, most urgent first: unpaid/unsigned money, then
+ * quotes stuck before send. The UI collapses long lists behind a "Show all"
+ * expander, so no cap here.
  */
 function buildAttention(
   days: DayData[],
@@ -125,7 +124,6 @@ function buildAttention(
 ): AttentionItem[] {
   const money: AttentionItem[] = [];
   const contracts: AttentionItem[] = [];
-  const waivers: AttentionItem[] = [];
 
   for (const { date, reservations } of days) {
     for (const r of reservations) {
@@ -168,21 +166,11 @@ function buildAttention(
         });
       }
 
-      const waiver = getWaiverStatus(r, DEFAULT_WAIVER_THRESHOLDS);
-      if (waiver?.color === "red") {
-        waivers.push({
-          key: `waiver-${r.id}`,
-          reservation: r,
-          kind: "waiver",
-          name,
-          meta,
-          right: `${waiver.registered}/${r.persons}`,
-          targetTab: "Guest",
-        });
-      }
+      // Waiver shortfalls deliberately NOT surfaced here (owner 2026-07-13):
+      // the day-list rows already show red registered-counts and stripes.
     }
   }
-  return [...money, ...contracts, ...waivers];
+  return [...money, ...contracts];
 }
 
 /** How many attention rows show before the "Show all" expander. */

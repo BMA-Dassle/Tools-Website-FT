@@ -249,7 +249,7 @@ export default function ContractTab({
                         rel="noopener noreferrer"
                         style={{ fontSize: "0.75rem", color: "#60a5fa", textDecoration: "none" }}
                       >
-                        Prior Signed Contract ↗
+                        {e.kind === "pdf_archived" ? "Prior Signed Contract ↗" : "Signed PDF ↗"}
                       </a>
                     )}
                   </div>
