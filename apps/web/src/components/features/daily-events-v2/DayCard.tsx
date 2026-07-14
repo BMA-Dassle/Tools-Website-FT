@@ -76,6 +76,7 @@ export default function DayCard({
   onOpen,
   onOpenDay,
   posChecks,
+  pastDate,
 }: {
   /** Band label, e.g. "Wed, Jul 15" or "Tuesday, July 14". */
   label: string;
@@ -88,6 +89,8 @@ export default function DayCard({
   onOpenDay?: () => void;
   /** Quote-less events: POS check totals (cents) or null = checked, none. */
   posChecks?: Map<string, number | null>;
+  /** This card's date is in the past — unpaid rows go red (owner 2026-07-13). */
+  pastDate?: boolean;
 }) {
   const sum = summarizeDay(reservations, websitePayments, waiverThresholds);
   const risks: string[] = [];
@@ -156,14 +159,35 @@ export default function DayCard({
       {reservations.map((r) => {
         const isClickable = !r._isDayPlannerBlock;
         const waiver = getWaiverStatus(r, waiverThresholds);
-        const stripe = isDepositRequested(r.state)
-          ? "#f97316"
-          : isSendContract(r.state)
-            ? "#6366f1"
-            : isPendingSignedContract(r.state)
-              ? "#a855f7"
-              : getWaiverBarColor(r, waiverThresholds);
         const wp = websitePayments.get(r.number || r.id);
+        const key = r.number || r.id;
+        const pos: "pending" | "none" | number | undefined = wp
+          ? undefined
+          : posChecks?.has(key)
+            ? (posChecks.get(key) ?? "none")
+            : posChecks
+              ? "pending"
+              : "none";
+        const cancelled = (r.state || "").toLowerCase().includes("cancel");
+        // Past the event date with money still owed — loud red row (owner
+        // 2026-07-13). Quote: not fully paid. Quote-less: BMI balance open
+        // and Square CONFIRMED there is no POS check ("pending" stays calm).
+        const pastUnpaid =
+          !!pastDate &&
+          !cancelled &&
+          !r._isDayPlannerBlock &&
+          (wp
+            ? !wp.isFullyPaid && !wp.status.includes("cancel")
+            : pos === "none" && (r.balance || 0) > 0);
+        const stripe = pastUnpaid
+          ? "#ef4444"
+          : isDepositRequested(r.state)
+            ? "#f97316"
+            : isSendContract(r.state)
+              ? "#6366f1"
+              : isPendingSignedContract(r.state)
+                ? "#a855f7"
+                : getWaiverBarColor(r, waiverThresholds);
         return (
           <div
             key={r.id}
@@ -182,6 +206,7 @@ export default function DayCard({
               cursor: isClickable ? "pointer" : undefined,
               position: "relative",
               transition: "background-color 0.12s",
+              ...(pastUnpaid ? { backgroundColor: "rgba(239,68,68,0.09)" } : {}),
             }}
           >
             {stripe && (
@@ -265,21 +290,21 @@ export default function DayCard({
             </div>
             {/* On narrow screens the cell wraps to its own right-aligned line */}
             <div style={{ marginLeft: "auto" }}>
-              <PaymentCell
-                wp={wp}
-                state={r.state}
-                fallbackBalance={r.balance}
-                pos={
-                  wp
-                    ? undefined
-                    : posChecks?.has(r.number || r.id)
-                      ? (posChecks.get(r.number || r.id) ?? "none")
-                      : posChecks
-                        ? "pending"
-                        : "none"
-                }
-              />
+              <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} pos={pos} />
             </div>
+            {pastUnpaid && (
+              <div
+                style={{
+                  width: "100%",
+                  color: "#f87171",
+                  fontSize: "0.74rem",
+                  fontWeight: 600,
+                }}
+              >
+                NOT PAID — the event date has passed. If you&rsquo;re seeing this in error, contact
+                IT.
+              </div>
+            )}
           </div>
         );
       })}

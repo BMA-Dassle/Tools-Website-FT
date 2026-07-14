@@ -902,6 +902,7 @@ export default function DailyEventsBoardV2({
                     view === "week" ? () => go({ view: "day", date: g.day.date }) : undefined
                   }
                   posChecks={posChecks}
+                  pastDate={g.day.date < today}
                 />
               ),
             )}
