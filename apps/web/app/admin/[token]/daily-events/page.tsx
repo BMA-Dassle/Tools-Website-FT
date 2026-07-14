@@ -1,25 +1,30 @@
-import { notFound } from "next/navigation";
-import DailyEventsBoard from "~/components/features/daily-events/DailyEventsBoard";
+﻿import { notFound, redirect } from "next/navigation";
 
 /**
- * Admin: Daily Events board.
- *
- * Faithful port of the employee portal's Daily Events page — group
- * functions / online reservations for a date + location, with payment
- * pills, waiver status bars, and the upcoming-group-functions weekly view.
- *
- * URL: /admin/{ADMIN_CAMERA_TOKEN}/daily-events
+ * Daily Events v1 -> v2 redirect (owner 2026-07-13: "ditch daily events v1
+ * from code entirely" - cutover complete, the v1 board is deleted).
+ * Forwards every query param (?date, ?location, ?event, ?tab, ?view,
+ * ?cancelled) so old bookmarks and deep links land unchanged.
  */
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-type Props = { params: Promise<{ token: string }> };
-
-export default async function Page({ params }: Props) {
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { token } = await params;
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  return <DailyEventsBoard token={token} />;
+  const sp = await searchParams;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (typeof v === "string" && v) qs.set(k, v);
+  }
+  const suffix = qs.size > 0 ? `?${qs.toString()}` : "";
+  redirect(`/admin/${token}/daily-events-v2${suffix}`);
 }

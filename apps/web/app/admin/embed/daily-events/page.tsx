@@ -1,18 +1,17 @@
-import { notFound } from "next/navigation";
-import DailyEventsBoard from "~/components/features/daily-events/DailyEventsBoard";
+﻿import { notFound } from "next/navigation";
+import { adminPoppins } from "~/components/features/admin-skin/font";
+import DailyEventsBoardV2 from "~/components/features/daily-events-v2/DailyEventsBoardV2";
 
 /**
- * Daily Events admin — portal embed entry point.
+ * Daily Events - portal embed entry point (SAME URL as the old v1 embed;
+ * v1 is deleted, this now serves the v2 board so the portal iframe keeps
+ * working without a portal-side change).
  *
- * URL: /admin/embed/daily-events?ts=...&sig=...&location=332160&theme=light
- *
- * HMAC auth is validated in middleware.ts (ADMIN_EMBED_SECRET).
- * The static ADMIN_CAMERA_TOKEN never appears in the URL — it's read
- * from env server-side here and passed to the client component, which
- * uses it for API calls. `location`/`date`/`theme` are unsigned
- * initial-state hints (the page itself is already HMAC-gated).
- *
- * frame-ancestors is set in middleware to lock this page to the portal.
+ * URL: /admin/embed/daily-events?ts=...&sig=...&date=...&location=...
+ * HMAC auth in middleware.ts (ADMIN_EMBED_SECRET); ADMIN_CAMERA_TOKEN
+ * stays server-side. Initial-state hints via query params; live control
+ * via postMessage "daily-events-control"; state/height flow back via
+ * "daily-events-state" / "daily-events-resize".
  */
 
 export const dynamic = "force-dynamic";
@@ -22,5 +21,9 @@ export default async function Page() {
   const token = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!token) notFound();
 
-  return <DailyEventsBoard token={token} />;
+  return (
+    <div className={adminPoppins.variable}>
+      <DailyEventsBoardV2 token={token} embedded />
+    </div>
+  );
 }

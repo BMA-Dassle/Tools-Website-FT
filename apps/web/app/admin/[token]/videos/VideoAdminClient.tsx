@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { modalBackdropProps } from "@/lib/a11y";
 import { ADMIN_SANS, PORTAL_DARK } from "~/components/features/admin-skin/theme";
+import { usePortalAutoHeight } from "~/components/features/admin-skin/usePortalAutoHeight";
 
 /**
  * Video resend admin — mirrors the SMS admin (/admin/{token}/e-tickets)
@@ -319,7 +320,14 @@ function VideoStatusLegend() {
   );
 }
 
-export default function VideoAdminClient({ token }: { token: string }) {
+export default function VideoAdminClient({
+  token,
+  embedded,
+}: {
+  token: string;
+  /** Portal iframe mode — posts content height so the iframe auto-sizes. */
+  embedded?: boolean;
+}) {
   const [date, setDate] = useState(todayYmd());
   const [show, setShow] = useState<"all" | "matched" | "unmatched">("all");
   const [status, setStatus] = useState<"" | "notified" | "unnotified" | "failed">("");
@@ -428,9 +436,11 @@ export default function VideoAdminClient({ token }: { token: string }) {
     [token, load],
   );
 
+  usePortalAutoHeight("videos-resize", !!embedded, resendTarget !== null);
+
   return (
     <div
-      className="min-h-screen"
+      className={embedded ? "" : "min-h-screen"}
       style={{
         fontFamily: ADMIN_SANS,
         background: PORTAL_DARK.bodyGradient,

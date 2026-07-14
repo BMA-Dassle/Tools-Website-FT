@@ -23,8 +23,7 @@ import type {
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
 import { ADMIN_MONO, PORTAL_BLUE_SOFT } from "~/components/features/admin-skin/theme";
-import { DualBadge, PaymentCell } from "../daily-events/badges";
-import { WAIVER_TEXT_COLORS } from "../daily-events/EventRow";
+import { DualBadge, PaymentCell, WAIVER_TEXT_COLORS } from "../daily-events/badges";
 
 export interface DaySummary {
   events: number;

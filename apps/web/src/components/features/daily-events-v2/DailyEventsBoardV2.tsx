@@ -37,6 +37,7 @@ import DailyEventModal from "../daily-events/DailyEventModal";
 import { DE_CSS } from "../daily-events/theme";
 import DayCard from "./DayCard";
 import { ADMIN_SANS, PORTAL_BLUE, PORTAL_SKIN_CSS } from "~/components/features/admin-skin/theme";
+import { usePortalAutoHeight } from "~/components/features/admin-skin/usePortalAutoHeight";
 
 type ViewMode = "day" | "week";
 
@@ -455,9 +456,10 @@ export default function DailyEventsBoardV2({
     setPendingEvent(null);
   }
 
-  // Portal-embed URL mirroring: the portal listens for this and updates its
-  // own URL via replaceState, so deep links survive copy/paste and reloads.
-  // Same postMessage channel the theme sync already rides.
+  // Portal-embed state broadcast: URL mirroring PLUS everything the portal
+  // needs to render the header itself (embedded mode hides our whole top
+  // line — heading, Day/Week, Cancelled — to free real estate; owner
+  // 2026-07-13). Same postMessage channel the theme sync already rides.
   useEffect(() => {
     if (!embedded || typeof window === "undefined" || window.parent === window) return;
     window.parent.postMessage(
@@ -469,10 +471,59 @@ export default function DailyEventsBoardV2({
         cancelled: showCancelled ? "1" : null,
         event: selectedEventId,
         tab: selectedEventId ? (modalTab ?? null) : null,
+        // Header payload — render-ready.
+        heading,
+        locationLabel: LOCATIONS.find((l) => l.id === locationId)?.label ?? "",
+        events: allLoaded ? totals.events : null,
+        persons: allLoaded ? totals.persons : null,
+        cancelledCount,
+        loaded: allLoaded,
       },
       "*",
     );
-  }, [embedded, locationId, date, view, showCancelled, selectedEventId, modalTab]);
+  }, [
+    embedded,
+    locationId,
+    date,
+    view,
+    showCancelled,
+    selectedEventId,
+    modalTab,
+    heading,
+    allLoaded,
+    totals,
+    cancelledCount,
+  ]);
+
+  // Portal-embed remote control: the portal's own header buttons drive the
+  // board (Day/Week, Cancelled, date/location pickers, open/close event).
+  useEffect(() => {
+    if (!embedded || typeof window === "undefined") return;
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== "https://portal.headpinz.com") return;
+      const d = e.data as Record<string, unknown> | null;
+      if (!d || d.type !== "daily-events-control") return;
+      if (d.view === "day" || d.view === "week") setView(d.view);
+      if (typeof d.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) setDate(d.date);
+      const loc = Number(d.location);
+      if (LOCATIONS.some((l) => l.id === loc)) setLocationId(loc);
+      if (typeof d.showCancelled === "boolean") setShowCancelled(d.showCancelled);
+      if (d.event === null) {
+        setSelectedEventId(null);
+        setModalTab(undefined);
+        setModalIds([]);
+      } else if (typeof d.event === "string" && d.event) {
+        setSelectedEventId(d.event);
+        setModalTab(typeof d.tab === "string" && d.tab ? d.tab : undefined);
+        setModalIds(visibleIds.includes(d.event) ? visibleIds : []);
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [embedded, visibleIds]);
+
+  // Portal-embed auto-height (see usePortalAutoHeight for the contract).
+  usePortalAutoHeight("daily-events-resize", !!embedded, selectedEventId !== null);
 
   const themeStyle =
     baThemeCss(theme) +
@@ -486,7 +537,9 @@ export default function DailyEventsBoardV2({
       data-ba-theme={theme}
       className="portal-skin"
       style={{
-        minHeight: "100vh",
+        // Embedded: the iframe is sized to our content (daily-events-resize),
+        // so a viewport-relative min-height would feed back and only grow.
+        minHeight: embedded ? undefined : "100vh",
         color: "var(--ba-fg)",
         padding: "1rem",
         fontFamily: ADMIN_SANS,
@@ -496,120 +549,119 @@ export default function DailyEventsBoardV2({
       <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
 
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        {/* ── Top line ── */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            gap: 16,
-            flexWrap: "wrap",
-            marginBottom: 18,
-          }}
-        >
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
-          {anyContent && (
-            <span style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
-              {LOCATIONS.find((l) => l.id === locationId)?.label} · {totals.events} event
-              {totals.events === 1 ? "" : "s"} · {totals.persons} people
-            </span>
-          )}
-          <span
+        {/* ── Top line — embedded mode renders NONE of it: the portal owns
+            the heading, totals, and every control via daily-events-state /
+            daily-events-control (owner 2026-07-13, frees real estate) ── */}
+        {!embedded && (
+          <div
             style={{
-              marginLeft: "auto",
               display: "flex",
-              gap: 6,
-              alignItems: "center",
+              alignItems: "baseline",
+              gap: 16,
               flexWrap: "wrap",
+              marginBottom: 18,
             }}
           >
-            <button
-              type="button"
-              style={view === "day" ? NAV_ON : NAV_A}
-              onClick={() => go({ view: "day" })}
-            >
-              Day
-            </button>
-            <button
-              type="button"
-              style={view === "week" ? NAV_ON : NAV_A}
-              onClick={() => go({ view: "week" })}
-            >
-              Week
-            </button>
-            {!embedded && (
-              <>
-                <span style={{ width: 8 }} />
-                <button
-                  type="button"
-                  aria-label="Previous"
-                  style={NAV_A}
-                  onClick={() => go({ date: shiftDate(date, -step) })}
-                >
-                  ‹
-                </button>
-                <button type="button" style={NAV_A} onClick={() => go({ date: today })}>
-                  {view === "day" ? "Today" : "This week"}
-                </button>
-                <button
-                  type="button"
-                  aria-label="Next"
-                  style={NAV_A}
-                  onClick={() => go({ date: shiftDate(date, step) })}
-                >
-                  ›
-                </button>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => e.target.value && go({ date: e.target.value })}
-                  aria-label="Jump to date"
-                  style={{
-                    ...NAV_A,
-                    colorScheme: theme,
-                    color: "var(--ba-fg)",
-                    backgroundColor: "var(--ba-input-bg)",
-                    fontSize: "0.78rem",
-                  }}
-                />
-                <span style={{ width: 8 }} />
-                {LOCATIONS.map((l) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    style={locationId === l.id ? NAV_LOC_ON : NAV_A}
-                    onClick={() => go({ location: l.id })}
-                  >
-                    {l.short}
-                  </button>
-                ))}
-              </>
+            <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
+            {anyContent && (
+              <span style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
+                {LOCATIONS.find((l) => l.id === locationId)?.label} · {totals.events} event
+                {totals.events === 1 ? "" : "s"} · {totals.persons} people
+              </span>
             )}
-            <span style={{ width: 8 }} />
-            {cancelledCount > 0 && (
+            <span
+              style={{
+                marginLeft: "auto",
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
               <button
                 type="button"
-                title={
-                  showCancelled
-                    ? "Hide cancelled events"
-                    : `${cancelledCount} cancelled event${cancelledCount === 1 ? "" : "s"} hidden — click to show`
-                }
-                style={showCancelled ? NAV_LOC_ON : NAV_A}
-                onClick={() => {
-                  const next = !showCancelled;
-                  setShowCancelled(next);
-                  setUrlParams({ cancelled: next ? "1" : null });
-                }}
+                style={view === "day" ? NAV_ON : NAV_A}
+                onClick={() => go({ view: "day" })}
               >
-                Cancelled · {cancelledCount}
+                Day
               </button>
-            )}
-            {!embedded && (
-              <a href={`/admin/${token}/daily-events`} style={{ ...NAV_A, textDecoration: "none" }}>
-                v1 board
-              </a>
-            )}
-          </span>
-        </div>
+              <button
+                type="button"
+                style={view === "week" ? NAV_ON : NAV_A}
+                onClick={() => go({ view: "week" })}
+              >
+                Week
+              </button>
+              {!embedded && (
+                <>
+                  <span style={{ width: 8 }} />
+                  <button
+                    type="button"
+                    aria-label="Previous"
+                    style={NAV_A}
+                    onClick={() => go({ date: shiftDate(date, -step) })}
+                  >
+                    ‹
+                  </button>
+                  <button type="button" style={NAV_A} onClick={() => go({ date: today })}>
+                    {view === "day" ? "Today" : "This week"}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next"
+                    style={NAV_A}
+                    onClick={() => go({ date: shiftDate(date, step) })}
+                  >
+                    ›
+                  </button>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => e.target.value && go({ date: e.target.value })}
+                    aria-label="Jump to date"
+                    style={{
+                      ...NAV_A,
+                      colorScheme: theme,
+                      color: "var(--ba-fg)",
+                      backgroundColor: "var(--ba-input-bg)",
+                      fontSize: "0.78rem",
+                    }}
+                  />
+                  <span style={{ width: 8 }} />
+                  {LOCATIONS.map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      style={locationId === l.id ? NAV_LOC_ON : NAV_A}
+                      onClick={() => go({ location: l.id })}
+                    >
+                      {l.short}
+                    </button>
+                  ))}
+                </>
+              )}
+              <span style={{ width: 8 }} />
+              {cancelledCount > 0 && (
+                <button
+                  type="button"
+                  title={
+                    showCancelled
+                      ? "Hide cancelled events"
+                      : `${cancelledCount} cancelled event${cancelledCount === 1 ? "" : "s"} hidden — click to show`
+                  }
+                  style={showCancelled ? NAV_LOC_ON : NAV_A}
+                  onClick={() => {
+                    const next = !showCancelled;
+                    setShowCancelled(next);
+                    setUrlParams({ cancelled: next ? "1" : null });
+                  }}
+                >
+                  Cancelled · {cancelledCount}
+                </button>
+              )}
+            </span>
+          </div>
+        )}
 
         {/* ── Needs attention — the portal's amber note-box idiom ── */}
         {SHOW_ATTENTION && anyContent && attention.length > 0 && (

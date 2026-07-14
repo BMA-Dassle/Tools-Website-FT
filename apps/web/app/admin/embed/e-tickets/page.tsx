@@ -24,7 +24,7 @@ export default async function Page() {
 
   return (
     <div className={adminPoppins.variable}>
-      <EticketAdminClient token={token} />
+      <EticketAdminClient token={token} embedded />
     </div>
   );
 }

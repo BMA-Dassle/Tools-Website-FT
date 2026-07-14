@@ -11,6 +11,13 @@ import { fmtCurrency } from "~/features/daily-events/format";
 import { getStateBadgePalette } from "~/features/daily-events/logic";
 import type { WebsitePaymentInfo } from "~/features/daily-events/types";
 
+/** Waiver registered-count text colors (portal waiver-status palette). */
+export const WAIVER_TEXT_COLORS: Record<"red" | "yellow" | "green", string> = {
+  red: "#f87171",
+  yellow: "#facc15",
+  green: "#4ade80",
+};
+
 /** Reservation state pill (portal Badge + getStateBadgeVariant). */
 export function StateBadge({ state }: { state: string }) {
   const palette = getStateBadgePalette(state);

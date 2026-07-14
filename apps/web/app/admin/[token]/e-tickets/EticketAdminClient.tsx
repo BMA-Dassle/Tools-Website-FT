@@ -9,6 +9,7 @@ import {
   PORTAL_BLUE_SOFT,
   PORTAL_DARK,
 } from "~/components/features/admin-skin/theme";
+import { usePortalAutoHeight } from "~/components/features/admin-skin/usePortalAutoHeight";
 
 type EnrichedLogEntry = SmsLogEntry & {
   racerNames: string[];
@@ -347,7 +348,14 @@ type QuotaStatus = {
   queue?: Array<{ phone: string; source: string; queuedAt: string; shortCode?: string }>;
 };
 
-export default function EticketAdminClient({ token }: { token: string }) {
+export default function EticketAdminClient({
+  token,
+  embedded,
+}: {
+  token: string;
+  /** Portal iframe mode — posts content height so the iframe auto-sizes. */
+  embedded?: boolean;
+}) {
   const [date, setDate] = useState(todayYmd());
   const [source, setSource] = useState<
     "" | "pre-race-cron" | "checkin-cron" | "arena-pre-cron" | "arena-checkin-cron" | "admin-resend"
@@ -451,9 +459,11 @@ export default function EticketAdminClient({ token }: { token: string }) {
     return () => clearInterval(id);
   }, [loadQuota]);
 
+  usePortalAutoHeight("e-tickets-resize", !!embedded, resendTarget !== null);
+
   return (
     <div
-      className="min-h-screen"
+      className={embedded ? "" : "min-h-screen"}
       style={{
         fontFamily: ADMIN_SANS,
         background: PORTAL_DARK.bodyGradient,

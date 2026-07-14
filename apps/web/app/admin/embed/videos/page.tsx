@@ -24,7 +24,7 @@ export default async function Page() {
 
   return (
     <div className={adminPoppins.variable}>
-      <VideoAdminClient token={token} />
+      <VideoAdminClient token={token} embedded />
     </div>
   );
 }

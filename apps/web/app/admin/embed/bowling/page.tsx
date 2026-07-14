@@ -24,7 +24,7 @@ export default async function Page() {
 
   return (
     <div className={adminPoppins.variable}>
-      <ReservationsBoard token={token} />
+      <ReservationsBoard token={token} embedded />
     </div>
   );
 }

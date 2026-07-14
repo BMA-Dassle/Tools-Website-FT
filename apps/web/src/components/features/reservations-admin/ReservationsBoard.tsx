@@ -20,6 +20,7 @@ import type { ComboMergeInfo, GroupEvent } from "~/features/reservations-admin/t
 import { CENTER_SLUGS } from "~/features/reservations-admin/constants";
 import { fetchDayReservations } from "~/features/daily-events/api";
 import { ADMIN_SANS, PORTAL_SKIN_CSS } from "~/components/features/admin-skin/theme";
+import { usePortalAutoHeight } from "~/components/features/admin-skin/usePortalAutoHeight";
 import DailyEventModal from "../daily-events/DailyEventModal";
 import { nowEtWallMs, todayET } from "~/features/reservations-admin/format";
 import {
@@ -44,7 +45,14 @@ import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
 import ManageReservationModal from "./manage/ManageReservationModal";
 import { BOARD_CSS, baThemeCss } from "./theme";
 
-export default function ReservationsBoard({ token }: { token: string }) {
+export default function ReservationsBoard({
+  token,
+  embedded,
+}: {
+  token: string;
+  /** Portal iframe mode — posts content height so the iframe auto-sizes. */
+  embedded?: boolean;
+}) {
   const theme = useBoardTheme();
 
   const [date, setDate] = useState(todayET);
@@ -300,12 +308,26 @@ export default function ReservationsBoard({ token }: { token: string }) {
   // themes to the employee portal's palette (navy gradient / white).
   const themeStyle = baThemeCss(theme) + BOARD_CSS + PORTAL_SKIN_CSS;
 
+  const anyModalOpen = Boolean(
+    resendTarget ||
+    cancelTarget ||
+    rescheduleTarget ||
+    comboShiftTarget ||
+    checkinTarget ||
+    contactTarget ||
+    orderTarget ||
+    scheduleTarget ||
+    manageRow ||
+    dailyEvent,
+  );
+  usePortalAutoHeight("bowling-resize", !!embedded, anyModalOpen);
+
   return (
     <div
       data-ba-theme={theme}
       className="portal-skin"
       style={{
-        minHeight: "100vh",
+        minHeight: embedded ? undefined : "100vh",
         color: "var(--ba-fg)",
         fontFamily: ADMIN_SANS,
         padding: "1rem",
