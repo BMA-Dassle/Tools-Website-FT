@@ -48,16 +48,46 @@ interface AttentionItem {
   name: string;
   /** Muted context: when · contact. */
   meta: string;
-  /** Right-aligned figure: open $ / "send contract" / "3/40 waivers". */
+  /** Right-aligned figure: open $ for money, "3/40" for waivers. */
   right: string;
+  /** Money item whose contract is also unsigned — gets a second pill. */
+  unsigned?: boolean;
   amountCents?: number;
+  /** Which detail-modal tab clicking this row lands on. */
+  targetTab: "Payments" | "Contract" | "Guest";
 }
 
-const ATTENTION_DOT: Record<AttentionItem["kind"], string> = {
-  money: "#f87171",
-  contract: "#818cf8",
-  waiver: "#fbbf24",
+/** Issue pills — same visual language as the board's payment pills. */
+const ATTENTION_PILL: Record<
+  AttentionItem["kind"] | "unsigned",
+  { label: string; bg: string; fg: string }
+> = {
+  money: { label: "UNPAID", bg: "rgba(239,68,68,0.18)", fg: "#f87171" },
+  unsigned: { label: "UNSIGNED", bg: "rgba(168,85,247,0.18)", fg: "#c084fc" },
+  contract: { label: "SEND CONTRACT", bg: "rgba(99,102,241,0.18)", fg: "#a5b4fc" },
+  waiver: { label: "WAIVERS", bg: "rgba(245,158,11,0.15)", fg: "#fbbf24" },
 };
+
+function AttentionPill({ kind }: { kind: AttentionItem["kind"] | "unsigned" }) {
+  const p = ATTENTION_PILL[kind];
+  return (
+    <span
+      style={{
+        padding: "1px 7px",
+        borderRadius: 9999,
+        backgroundColor: p.bg,
+        color: p.fg,
+        fontSize: "9px",
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        alignSelf: "center",
+        flexShrink: 0,
+      }}
+    >
+      {p.label}
+    </span>
+  );
+}
 
 /** Reflect board state in the URL — best-effort, mirrors v1's ?event=. */
 function setUrlParams(params: Record<string, string | null>) {
@@ -115,15 +145,16 @@ function buildAttention(
         !wp.status.includes("cancel") &&
         wp.totalCents > 0
       ) {
-        const unsigned = isPendingSignedContract(r.state);
         money.push({
           key: `money-${r.id}`,
           reservation: r,
           kind: "money",
           name,
-          meta: unsigned ? `${meta} · unsigned` : meta,
-          right: `${fmtUsd(wp.totalCents)} open`,
+          meta,
+          right: fmtUsd(wp.totalCents),
+          unsigned: isPendingSignedContract(r.state),
           amountCents: wp.totalCents,
+          targetTab: "Payments",
         });
       } else if (isSendContract(r.state)) {
         contracts.push({
@@ -132,7 +163,8 @@ function buildAttention(
           kind: "contract",
           name,
           meta,
-          right: "send contract",
+          right: "",
+          targetTab: "Contract",
         });
       }
 
@@ -144,7 +176,8 @@ function buildAttention(
           kind: "waiver",
           name,
           meta,
-          right: `${waiver.registered}/${r.persons} waivers`,
+          right: `${waiver.registered}/${r.persons}`,
+          targetTab: "Guest",
         });
       }
     }
@@ -337,8 +370,12 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
     [visibleDays],
   );
 
-  function openDetail(r: Reservation) {
+  // Attention rows deep-link into the tab that fixes the problem
+  // (unpaid → Payments, contract → Contract, waivers → Guest).
+  const [modalTab, setModalTab] = useState<string | undefined>(undefined);
+  function openDetail(r: Reservation, tab?: string) {
     if (r._isDayPlannerBlock) return;
+    setModalTab(tab);
     setSelectedEventId(r.id);
     setModalIds(visibleIds);
     setUrlParams({ event: r.id });
@@ -346,20 +383,31 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
   function closeDetail() {
     setSelectedEventId(null);
     setModalIds([]);
+    setModalTab(undefined);
     setUrlParams({ event: null });
   }
 
-  const [pendingEvent, setPendingEvent] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("event");
-  });
+  const [pendingEvent, setPendingEvent] = useState<{ id: string; tab: string | null } | null>(
+    () => {
+      if (typeof window === "undefined") return null;
+      const sp = new URLSearchParams(window.location.search);
+      const id = sp.get("event");
+      return id ? { id, tab: sp.get("tab") } : null;
+    },
+  );
   if (pendingEvent != null && !loading) {
-    setSelectedEventId(pendingEvent);
-    setModalIds(visibleIds.includes(pendingEvent) ? visibleIds : []);
+    setSelectedEventId(pendingEvent.id);
+    setModalTab(pendingEvent.tab ?? undefined);
+    setModalIds(visibleIds.includes(pendingEvent.id) ? visibleIds : []);
     setPendingEvent(null);
   }
 
-  const themeStyle = baThemeCss(theme) + BOARD_CSS + DE_CSS + PORTAL_SKIN_CSS;
+  const themeStyle =
+    baThemeCss(theme) +
+    BOARD_CSS +
+    DE_CSS +
+    PORTAL_SKIN_CSS +
+    ".de-attn:hover { background-color: rgba(245,158,11,0.09); }";
 
   return (
     <div
@@ -499,41 +547,31 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
               marginBottom: 22,
             }}
           >
-            <span style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "#fbbf24",
-                }}
-              >
-                Needs attention · {attention.length}
-              </span>
-              {attentionOpenCents > 0 && (
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: "0.78rem",
-                    fontWeight: 600,
-                    color: "#fbbf24",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {fmtUsd(attentionOpenCents)} open
-                </span>
-              )}
+            <span
+              style={{
+                fontSize: "0.7rem",
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "#fbbf24",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              Needs attention · {attention.length}
+              {attentionOpenCents > 0 && <> · {fmtUsd(attentionOpenCents)} open</>}
             </span>
             {(attentionExpanded ? attention : attention.slice(0, ATTENTION_COLLAPSED)).map((a) => (
               <button
                 key={a.key}
                 type="button"
-                onClick={() => openDetail(a.reservation)}
+                className="de-attn"
+                onClick={() => openDetail(a.reservation, a.targetTab)}
                 style={{
                   background: "none",
                   border: "none",
-                  padding: 0,
+                  borderRadius: 6,
+                  padding: "3px 6px",
+                  margin: "-3px -6px",
                   textAlign: "left",
                   color: "var(--ba-fg)",
                   fontSize: "0.84rem",
@@ -546,29 +584,34 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
                   width: "100%",
                 }}
               >
-                <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: "50%",
-                    backgroundColor: ATTENTION_DOT[a.kind],
-                    flexShrink: 0,
-                    alignSelf: "center",
-                  }}
-                />
+                <AttentionPill kind={a.kind} />
+                {a.unsigned && <AttentionPill kind="unsigned" />}
                 <b style={{ fontWeight: 600 }}>{a.name}</b>
                 <span style={{ color: "var(--ba-muted)", fontSize: "0.78rem" }}>{a.meta}</span>
                 <span
                   style={{
                     marginLeft: "auto",
-                    fontWeight: 600,
-                    fontSize: "0.8rem",
-                    color: a.kind === "money" ? "#fbbf24" : "var(--ba-muted)",
-                    fontVariantNumeric: "tabular-nums",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 8,
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {a.right}
+                  {a.right && (
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                        color: a.kind === "money" ? "#fbbf24" : "var(--ba-muted)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {a.right}
+                    </span>
+                  )}
+                  <span aria-hidden style={{ color: "var(--ba-muted)", fontSize: "0.8rem" }}>
+                    ›
+                  </span>
                 </span>
               </button>
             ))}
@@ -653,6 +696,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
           token={token}
           projectId={selectedEventId}
           locationId={locationId}
+          initialTab={modalTab}
           ids={modalIds}
           onNavigate={(id: string) => {
             setSelectedEventId(id);

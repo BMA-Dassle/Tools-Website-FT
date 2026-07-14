@@ -21,6 +21,7 @@ export default function DailyEventModal({
   projectId,
   locationId,
   ids,
+  initialTab,
   onNavigate,
   onClose,
 }: {
@@ -29,6 +30,8 @@ export default function DailyEventModal({
   locationId: number;
   /** Visible event ids from the board, in display order (prev/next walk). */
   ids: string[];
+  /** Tab to land on (e.g. "Payments" from an unpaid attention row). */
+  initialTab?: string;
   onNavigate: (id: string) => void;
   onClose: () => void;
 }) {
@@ -124,6 +127,7 @@ export default function DailyEventModal({
           token={token}
           projectId={projectId}
           locationId={locationId}
+          initialTab={initialTab}
         />
       </div>
     </ModalShell>

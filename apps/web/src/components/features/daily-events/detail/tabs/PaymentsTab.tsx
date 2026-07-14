@@ -25,6 +25,9 @@ import type {
   SquareTimelineNode,
   WebsitePaymentInfo,
 } from "~/features/daily-events/types";
+import SquareOrderModal, {
+  type OrderTarget,
+} from "../../../reservations-admin/modals/SquareOrderModal";
 import { isLegacyPaidQuote } from "../../badges";
 import DetailSection from "../DetailSection";
 import { BLUE_LINK_BTN, GREEN_LINK_BTN, InfoItem, TH, TH_R, td } from "../ui";
@@ -129,6 +132,9 @@ export default function PaymentsTab({
   // Live Square timeline — lazy on tab mount, only for quote-backed events.
   const [timeline, setTimeline] = useState<SquareTimelineNode[] | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
+  // Nested order-detail modal (same SquareOrderModal the reservations board
+  // uses) — the timeline stays a summary; line items live in the modal.
+  const [orderTarget, setOrderTarget] = useState<OrderTarget | null>(null);
   useEffect(() => {
     if (!wp) return;
     let cancelled = false;
@@ -370,58 +376,55 @@ export default function PaymentsTab({
                         </>
                       )}
                     </div>
-                    {/* Order contents */}
-                    {n.order && n.order.lineItems.length > 0 && (
-                      <div
-                        style={{
-                          marginTop: 6,
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 2,
-                          maxWidth: 480,
-                        }}
-                      >
-                        {n.order.lineItems.map((li, j) => (
-                          <div
-                            key={j}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: 12,
-                              fontSize: "0.75rem",
-                              color: "var(--ba-muted)",
-                            }}
-                          >
-                            <span
-                              style={{
-                                minWidth: 0,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {li.qty && li.qty !== "1" ? `${li.qty} × ` : ""}
-                              {li.name}
-                            </span>
-                            <span style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
-                              {fmtCurrency(li.totalCents / 100)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {/* One compact meta line — line items live in the nested
+                        order modal, not dumped inline. */}
                     <div
                       style={{
                         display: "flex",
-                        gap: 8,
+                        gap: "4px 12px",
                         flexWrap: "wrap",
                         marginTop: 4,
                         alignItems: "center",
+                        fontSize: "0.75rem",
+                        color: "var(--ba-muted)",
                       }}
                     >
                       {n.order && (
                         <>
-                          <CopyableId value={n.order.id} />
+                          {n.order.lineItems.length > 0 && (
+                            <span>
+                              {n.order.lineItems.length} item
+                              {n.order.lineItems.length === 1 ? "" : "s"}
+                            </span>
+                          )}
+                          {n.order.tenders.map((t) => (
+                            <span key={t.paymentId}>
+                              {fmtCurrency(t.amountCents / 100)} paid
+                              {t.refundedCents ? (
+                                <span style={{ color: "#ef4444" }}>
+                                  {" "}
+                                  · {fmtCurrency(t.refundedCents / 100)} refunded
+                                </span>
+                              ) : null}{" "}
+                              <SquareLink
+                                href={sqPaymentUrl(t.paymentId)}
+                                title="Open this payment in the Square Dashboard"
+                              />
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOrderTarget({
+                                guestName: `${safe(detail.name) || n.label}`,
+                                squareDayofOrderId: n.order?.id ?? null,
+                                rewardDiscountCents: 0,
+                              })
+                            }
+                            style={{ ...BLUE_LINK_BTN, fontSize: "0.72rem" }}
+                          >
+                            Order details
+                          </button>
                           <SquareLink
                             href={sqOrderUrl(n.order.id)}
                             title="Open this order in the Square Dashboard"
@@ -429,7 +432,7 @@ export default function PaymentsTab({
                         </>
                       )}
                       {n.giftCard?.gan && (
-                        <span style={{ fontSize: "0.72rem", color: "var(--ba-muted)" }}>
+                        <span>
                           GC {ganDisplay(n.giftCard.gan)} <CopyableId value={n.giftCard.gan} />{" "}
                           <SquareLink
                             href={SQ_GIFT_CARDS_URL}
@@ -437,26 +440,6 @@ export default function PaymentsTab({
                           />
                         </span>
                       )}
-                      {n.order?.tenders.map((t) => (
-                        <span
-                          key={t.paymentId}
-                          style={{ fontSize: "0.72rem", color: "var(--ba-muted)" }}
-                        >
-                          {fmtCurrency(t.amountCents / 100)} tender
-                          {t.status ? ` · ${t.status}` : ""}
-                          {t.refundedCents ? (
-                            <span style={{ color: "#ef4444" }}>
-                              {" "}
-                              · {fmtCurrency(t.refundedCents / 100)} refunded
-                            </span>
-                          ) : null}{" "}
-                          <CopyableId value={t.paymentId} />{" "}
-                          <SquareLink
-                            href={sqPaymentUrl(t.paymentId)}
-                            title="Open this payment in the Square Dashboard"
-                          />
-                        </span>
-                      ))}
                     </div>
                     {n.error && (
                       <div style={{ marginTop: 4, fontSize: "0.72rem", color: "#ef4444" }}>
@@ -499,6 +482,11 @@ export default function PaymentsTab({
             </table>
           </div>
         </DetailSection>
+      )}
+
+      {/* Nested Square order modal — paints over the event modal. */}
+      {orderTarget && (
+        <SquareOrderModal target={orderTarget} token={token} onClose={() => setOrderTarget(null)} />
       )}
     </div>
   );

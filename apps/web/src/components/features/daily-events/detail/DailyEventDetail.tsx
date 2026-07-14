@@ -69,15 +69,22 @@ export default function DailyEventDetail({
   token,
   projectId,
   locationId,
+  initialTab,
 }: {
   token: string;
   projectId: string;
   locationId: number;
+  /** Land on a specific tab (validated against TABS; defaults to Overview). */
+  initialTab?: string;
 }) {
   const [detail, setDetail] = useState<ReservationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("Overview");
+  const [tab, setTab] = useState<Tab>(
+    initialTab && (TABS as readonly string[]).includes(initialTab)
+      ? (initialTab as Tab)
+      : "Overview",
+  );
 
   // Website payment status (headpinz.com — replaces unreliable BMI balance)
   const [websitePayment, setWebsitePayment] = useState<WebsitePaymentInfo | null>(null);
