@@ -987,6 +987,50 @@ export async function getSquareTimeline(projectId: string): Promise<SquareTimeli
 // BMI projectId in bmi_reservation_id — the portal translated its short codes
 // to the same ids via its sales_prospects table before calling us).
 
+// ── POS settlement pickup for QUOTE-LESS events ─────────────────────
+//
+// Pure PandaDoc/BMI events (no group_function_quotes row) are invisible to
+// the group-square-settled-close cron — found live 2026-07-13 on event 3253:
+// staff rang a proper "BMI 3253" check at the POS and nothing on our side
+// noticed. The detail modal asks here directly instead.
+
+/** BMI location → Square location candidates. FM events can be rung at
+ *  either FM POS (HeadPinz or FastTrax), so both are searched in order. */
+const BMI_TO_SQUARE_LOCATIONS: Record<number, string[]> = {
+  332160: ["TXBSQN0FEKQ11", "LAB52GY480CJF"],
+  467486: ["LAB52GY480CJF", "TXBSQN0FEKQ11"],
+  332145: ["PPTR5G2N0QXF7"],
+};
+
+export interface PosSettlement {
+  orderId: string;
+  ticketName: string;
+  totalCents: number | null;
+  createdAt: string | null;
+  squareLocationId: string;
+}
+
+/** Find a COMPLETED "BMI <event#>" POS check near the event date. */
+export async function getPosSettlementCheck(opts: {
+  eventNumber: string;
+  eventISO: string;
+  bmiLocationId: number;
+}): Promise<PosSettlement | null> {
+  const eventMs = Date.parse(opts.eventISO);
+  if (Number.isNaN(eventMs)) return null;
+  const { findSettlementCheck } = await import("@/lib/square-settled-check");
+  const candidates = BMI_TO_SQUARE_LOCATIONS[opts.bmiLocationId] ?? [];
+  for (const locationId of candidates) {
+    const check = await findSettlementCheck({
+      locationId,
+      eventNumber: opts.eventNumber,
+      eventMs,
+    });
+    if (check) return { ...check, squareLocationId: locationId };
+  }
+  return null;
+}
+
 /** Single-code lookup with the richer detail shape (payment entries, link, attempts). */
 export async function getPaymentDetailByCode(code: string): Promise<WebsitePaymentInfo | null> {
   try {

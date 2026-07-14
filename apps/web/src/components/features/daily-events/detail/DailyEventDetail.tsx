@@ -374,6 +374,7 @@ export default function DailyEventDetail({
               contract={contract}
               token={token}
               projectId={projectId}
+              locationId={locationId}
             />
           )}
           {tab === "Guest" && <GuestTab detail={detail} />}

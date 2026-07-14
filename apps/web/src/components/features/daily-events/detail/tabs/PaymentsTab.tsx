@@ -14,7 +14,11 @@
  * BMI payments table is the only record, so it shows.
  */
 import { useEffect, useState } from "react";
-import { fetchSquareTimeline } from "~/features/daily-events/api";
+import {
+  fetchSettledCheck,
+  fetchSquareTimeline,
+  type PosSettlement,
+} from "~/features/daily-events/api";
 import { fmtCurrency, fmtEventDateTime } from "~/features/daily-events/format";
 import { isInternalPayMethod } from "~/features/daily-events/logic";
 import { safe } from "~/features/daily-events/print-html";
@@ -111,12 +115,14 @@ export default function PaymentsTab({
   contract,
   token,
   projectId,
+  locationId,
 }: {
   detail: ReservationDetail;
   websitePayment: WebsitePaymentInfo | null;
   contract: EventContract | null;
   token: string;
   projectId: string;
+  locationId: number;
 }) {
   const wp = websitePayment;
   const prior = wp?.priorPayments || [];
@@ -152,10 +158,73 @@ export default function PaymentsTab({
     };
   }, [wp, token, projectId]);
 
+  // Quote-less events are invisible to the settled-close cron, so ask Square
+  // directly for a COMPLETED "BMI <event#>" POS check (found live on event
+  // 3253, 2026-07-13 — staff closed it out correctly and nothing noticed).
+  const [posCheck, setPosCheck] = useState<PosSettlement | null | "loading">("loading");
+  useEffect(() => {
+    if (wp || !detail.number || !detail.when) {
+      setPosCheck(null);
+      return;
+    }
+    let cancelled = false;
+    fetchSettledCheck(token, {
+      eventNumber: safe(detail.number),
+      when: String(detail.when),
+      locationId,
+    })
+      .then((c) => {
+        if (!cancelled) setPosCheck(c);
+      })
+      .catch(() => {
+        if (!cancelled) setPosCheck(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wp, token, detail.number, detail.when, locationId]);
+
   // ── No website quote: BMI is the only record ──
   if (!wp) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {/* POS close-out pickup — the venue rang this event on a Square check */}
+        {posCheck === "loading" && (
+          <div style={{ fontSize: "0.8rem", color: "var(--ba-muted)" }}>
+            Checking Square for a POS close-out…
+          </div>
+        )}
+        {posCheck && posCheck !== "loading" && (
+          <div
+            style={{
+              border: "2px solid rgba(34,197,94,0.4)",
+              backgroundColor: "rgba(34,197,94,0.15)",
+              borderRadius: 8,
+              padding: 16,
+              display: "flex",
+              alignItems: "baseline",
+              gap: "4px 12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ color: "#4ade80", fontWeight: 700, fontSize: "1rem" }}>
+              SETTLED AT THE POS
+            </span>
+            <span style={{ fontSize: "0.82rem", color: "var(--ba-fg)" }}>
+              Check &ldquo;{posCheck.ticketName}&rdquo;
+              {posCheck.totalCents != null && <> — {fmtCurrency(posCheck.totalCents / 100)}</>}
+              {posCheck.createdAt && <> · {fmtEventDateTime(posCheck.createdAt)}</>}
+            </span>
+            <SquareLink
+              href={sqOrderUrl(posCheck.orderId)}
+              title="Open this close-out check in the Square Dashboard"
+            />
+            <span style={{ fontSize: "0.72rem", color: "var(--ba-muted)", width: "100%" }}>
+              This event has no website quote, so any BMI balance below won&rsquo;t clear
+              automatically — the Square check is the payment record.
+            </span>
+          </div>
+        )}
         <DetailSection id="payments" title="BMI Payments">
           {bmiPayments.length === 0 ? (
             <div style={{ fontSize: "0.85rem", color: "var(--ba-muted)" }}>

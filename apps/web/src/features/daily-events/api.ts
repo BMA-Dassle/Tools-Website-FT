@@ -148,6 +148,26 @@ export async function fetchSquareTimeline(
   return Array.isArray(data.data) ? data.data : [];
 }
 
+// ── POS settlement pickup for quote-less events (Payments tab) ───────
+
+export interface PosSettlement {
+  orderId: string;
+  ticketName: string;
+  totalCents: number | null;
+  createdAt: string | null;
+  squareLocationId: string;
+}
+
+export async function fetchSettledCheck(
+  token: string,
+  opts: { eventNumber: string; when: string; locationId: number },
+): Promise<PosSettlement | null> {
+  const data = await getJson<{ data: PosSettlement | null }>(
+    `${BASE}/settled-check?token=${encodeURIComponent(token)}&eventNumber=${encodeURIComponent(opts.eventNumber)}&when=${encodeURIComponent(opts.when)}&locationId=${opts.locationId}`,
+  );
+  return data.data ?? null;
+}
+
 // ── Contract history (Contract tab timeline, lazy-loaded) ────────────
 
 export async function fetchContractHistory(
