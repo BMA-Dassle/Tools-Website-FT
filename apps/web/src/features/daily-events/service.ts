@@ -1049,12 +1049,13 @@ export interface LocalDayEvent {
   payment: WebsitePaymentInfo;
 }
 
-/** BMI location → quote center_code SLUGS (group_function_quotes stores
- *  slugs, unlike sales_prospects' Square ids). FM is a shared board — both
- *  FM slugs are included either way; BMI truth re-splits when it lands. */
+/** BMI location → quote center_code SLUG (group_function_quotes stores
+ *  slugs, unlike sales_prospects' Square ids). ONE slug per board — the
+ *  seed only pre-fills payments/fallback, and cross-center bleed made rows
+ *  "half disappear" when BMI truth landed (owner 2026-07-13). */
 const BMI_TO_CENTER_SLUGS: Record<number, string[]> = {
-  332160: ["fort-myers", "fasttrax"],
-  467486: ["fasttrax", "fort-myers"],
+  332160: ["fort-myers"],
+  467486: ["fasttrax"],
   332145: ["naples"],
 };
 

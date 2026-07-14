@@ -45,10 +45,6 @@ interface DayData {
   reservations: Reservation[];
 }
 
-/** Grace window before the provisional Neon paint — inside it, a warm BMI
- *  cache delivers the final board directly and the user sees ONE paint. */
-const PROVISIONAL_AFTER_MS = 400;
-
 interface AttentionItem {
   key: string;
   reservation: Reservation;
@@ -251,44 +247,26 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
     return getDaysInPeriod(period.start, period.end);
   }, [view, date]);
 
-  const [board, setBoard] = useState<{ days: DayData[]; final: boolean } | null>(null);
+  const [board, setBoard] = useState<DayData[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [websitePayments, setWebsitePayments] = useState<Map<string, WebsitePaymentInfo>>(
     new Map(),
   );
 
-  // TWO PAINTS, NEVER MORE (owner 2026-07-13: per-day churn "just sucks").
-  // Everything fetches at once. The daily-events-cache-warm cron keeps BMI
-  // warm for today−1…+13, so the normal case is a SINGLE final paint in
-  // ~0.3s. Only when BMI is genuinely slow (cold distant dates) does the
-  // board paint Neon quotes first — with one "checking BMI" chip up top —
-  // then apply BMI truth once, in one settle. Group functions only; v1
-  // keeps the online view.
+  // ONE PAINT, PERIOD (owner 2026-07-13: any provisional rows that BMI later
+  // corrects read as things "half disappearing"). The board holds a spinner
+  // until BMI truth is in for every date, then paints once — fast, because
+  // the daily-events-cache-warm cron keeps today−1…+13 hot (~0.1s/date).
+  // The Neon fetch runs alongside purely to pre-fill payment pills and as a
+  // fallback if a date's BMI fetch dies. Group functions only; v1 keeps the
+  // online view.
   useEffect(() => {
     let cancelled = false;
     setError(null);
     setBoard(null);
     setWebsitePayments(new Map());
 
-    const startMs = Date.now();
     let localData: Record<string, LocalDayEvent[]> | null = null;
-    let finalDone = false;
-
-    const paintProvisional = () => {
-      if (cancelled || finalDone || localData === null) return;
-      const byDate = localData;
-      setBoard((prev) =>
-        prev?.final
-          ? prev
-          : {
-              days: scopeDates.map((d) => ({
-                date: d,
-                reservations: (byDate[d] ?? []).map((e) => e.reservation),
-              })),
-              final: false,
-            },
-      );
-    };
 
     fetchLocalEvents(token, scopeDates, locationId)
       .then((byDate) => {
@@ -304,14 +282,10 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
           }
           return next;
         });
-        // If BMI already blew past the grace window, paint Neon now.
-        if (Date.now() - startMs > PROVISIONAL_AFTER_MS) paintProvisional();
       })
       .catch(() => {
-        /* local seed failed — the BMI paint carries the render alone */
+        /* payments arrive via getPaymentsBulk after the paint instead */
       });
-
-    const timer = setTimeout(paintProvisional, PROVISIONAL_AFTER_MS);
 
     void Promise.all(
       scopeDates.map((day) =>
@@ -326,13 +300,12 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
       ),
     ).then((results) => {
       if (cancelled) return;
-      finalDone = true;
       const days = results.map((r) => ({
         date: r.day,
         // Total BMI failure for a date → fall back to its Neon rows.
         reservations: r.reservations ?? (localData?.[r.day] ?? []).map((e) => e.reservation),
       }));
-      setBoard({ days, final: true });
+      setBoard(days);
       if (scopeDates.length === 1 && !results[0].ok) {
         setError("BMI lookup failed — showing website events only");
       }
@@ -348,12 +321,11 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
   }, [token, locationId, scopeDates]);
 
-  const days = board?.days ?? [];
-  const allLoaded = board?.final ?? false;
+  const days = board ?? [];
+  const allLoaded = board !== null;
   const anyContent = days.length > 0;
 
   // Hide-cancelled filter feeds EVERYTHING downstream: cards, summaries,
@@ -509,34 +481,9 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
         >
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
           {anyContent && (
-            <span
-              style={{
-                color: "var(--ba-muted)",
-                fontSize: "0.82rem",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 10,
-              }}
-            >
+            <span style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
               {LOCATIONS.find((l) => l.id === locationId)?.label} · {totals.events} event
               {totals.events === 1 ? "" : "s"} · {totals.persons} people
-              {!allLoaded && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <span
-                    className="de-spin"
-                    style={{
-                      width: 10,
-                      height: 10,
-                      border: "2px solid transparent",
-                      borderTopColor: "#60a5fa",
-                      borderBottomColor: "#60a5fa",
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                    }}
-                  />
-                  checking BMI for legacy events
-                </span>
-              )}
             </span>
           )}
           <span
