@@ -322,7 +322,8 @@ async function processQueueItem(
   // re-sent or reset to "Pending Signed Contract" here. Doing so un-confirmed events
   // that were already signed + paid (JW Marriott 8151885: confirmed at re-sign 6/22,
   // then a dispatch pass yanked it back to Pending Signed Contract). Paid events fall
-  // through to the post-sign branch below, which syncs data without touching BMI state.
+  // through to the post-sign branch below, which syncs data and only moves BMI state
+  // when a price change triggers a re-sign request (→ Pending Signed Contract).
   if (existing && existing.contract_sent_at && !existing.deposit_paid_at) {
     const existingProducts = (existing.line_items as unknown[]) || [];
     const pricingUnchanged =
@@ -534,7 +535,12 @@ async function processQueueItem(
 
     if (
       priceChanged &&
-      (existing.status === "deposit_paid" || existing.status === "balance_charged")
+      (existing.status === "deposit_paid" ||
+        existing.status === "balance_charged" ||
+        // Already awaiting re-sign and the price moved AGAIN (sales re-flipped to
+        // "Send Contract" after another product edit): re-notify the guest with the
+        // new total instead of silently syncing — the prior email shows stale money.
+        existing.status === "resign_required")
     ) {
       const q = (await import("@/lib/db")).sql();
       await q`UPDATE group_function_quotes SET status = 'resign_required', updated_at = NOW() WHERE id = ${existing.id}`;
@@ -554,6 +560,31 @@ async function processQueueItem(
         }
       } catch {
         /* non-fatal */
+      }
+
+      // The re-sign request IS a contract send — move the project to "Pending
+      // Signed Contract" like every other send path. Leaving it in "Send Contract"
+      // parked it there until the guest re-signed (resign-settle → Confirmation is
+      // the only other exit) and re-processed it every 2 minutes (Entechus 47106840
+      // + Hayes 54033582, 2026-07-13). Confirmation is NOT touched here, so the
+      // JW Marriott un-confirm bug (2026-06-22) cannot recur: a signed event only
+      // reaches this line because a human already flipped it to "Send Contract".
+      try {
+        const { setProjectState } = await import("@/lib/bmi-office-actions");
+        const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+        if (scanCenter) {
+          await setProjectState({
+            centerCode: center.centerCode,
+            projectId: item.reservationId,
+            stateId: scanCenter.pendingSignedContractStateId,
+            label: "Pending Signed Contract (resign requested)",
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `[group-quote-dispatch] failed to set Pending Signed Contract after resign request for ${item.reservationId}:`,
+          err,
+        );
       }
 
       console.log(
