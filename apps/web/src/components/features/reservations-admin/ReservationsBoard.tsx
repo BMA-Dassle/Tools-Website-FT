@@ -118,20 +118,27 @@ export default function ReservationsBoard({
             ? [467486, 332160]
             : [332160, 467486];
       const wanted = ge.eventNumber.replace(/^#/, "").toLowerCase();
-      for (const locationId of candidates) {
-        // Group events on the board are already scoped to the selected date.
-        const data = await fetchDayReservations(token, date, locationId);
-        const match = (data.reservations || []).find(
-          (r) => (r.number || "").replace(/^#/, "").toLowerCase() === wanted,
-        );
-        if (match) {
-          setDailyEvent({ projectId: match.id, locationId });
-          return;
+      // BMI's business day runs 6 AM → 6 AM: a midnight–6 AM event dated
+      // Jul 15 lives on BMI's Jul 14 board (3420, 2026-07-14) — so try the
+      // board date, then the previous day.
+      const prevDay = new Date(`${date}T12:00:00Z`);
+      prevDay.setUTCDate(prevDay.getUTCDate() - 1);
+      const dates = [date, prevDay.toISOString().slice(0, 10)];
+      for (const day of dates) {
+        for (const locationId of candidates) {
+          const data = await fetchDayReservations(token, day, locationId);
+          const match = (data.reservations || []).find(
+            (r) => (r.number || "").replace(/^#/, "").toLowerCase() === wanted,
+          );
+          if (match) {
+            setDailyEvent({ projectId: match.id, locationId });
+            return;
+          }
         }
       }
-      setToast(`Couldn't find event #${ge.eventNumber} on the daily-events board`);
+      showToast(`Couldn't find event #${ge.eventNumber} on the daily-events board`);
     } catch (e) {
-      setToast(e instanceof Error ? e.message : "Failed to open event detail");
+      showToast(e instanceof Error ? e.message : "Failed to open event detail");
     } finally {
       setResolvingEventId(null);
     }
