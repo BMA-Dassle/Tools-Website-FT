@@ -393,32 +393,8 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
       ? fmtDateLabelLong(date)
       : `Week of ${formatDisplayDate(scopeDates[0])} – ${formatDisplayDate(scopeDates[scopeDates.length - 1])}`;
 
-  // Week view: runs of 2+ consecutive empty days collapse into ONE slim band
-  // ("Wed, Jul 8 – Sun, Jul 12 · no group functions") — five empty bands in
-  // a row told the reader nothing five times (owner 2026-07-13). Only
-  // BMI-CONFIRMED empty days collapse; while a day is still syncing it keeps
-  // its own band (the days are always there — owner, same day).
-  type RenderGroup = { kind: "day"; day: DayData } | { kind: "emptyRun"; days: DayData[] };
-  const renderGroups = useMemo<RenderGroup[]>(() => {
-    if (view !== "week") return visibleDays.map((day) => ({ kind: "day" as const, day }));
-    const groups: RenderGroup[] = [];
-    let run: DayData[] = [];
-    const flush = () => {
-      if (run.length >= 2) groups.push({ kind: "emptyRun", days: run });
-      else for (const day of run) groups.push({ kind: "day", day });
-      run = [];
-    };
-    for (const d of visibleDays) {
-      const settledEmpty = d.loaded && d.reservations.length === 0;
-      if (settledEmpty) run.push(d);
-      else {
-        flush();
-        groups.push({ kind: "day", day: d });
-      }
-    }
-    flush();
-    return groups;
-  }, [view, visibleDays]);
+  // Every date always renders its own band — empty days are NOT combined
+  // (owner 2026-07-13: combining fought the load flow; reversed same day).
 
   // ── Detail modal (v1 mechanics, ?event= deep link) ──
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -717,53 +693,25 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
         )}
         {!error && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {renderGroups.map((g) =>
-              g.kind === "emptyRun" ? (
+            {visibleDays.map((d) =>
+              view === "day" && d.loaded && d.reservations.length === 0 ? (
                 <div
-                  key={g.days[0].date}
-                  style={{
-                    backgroundColor: "var(--ba-bg2)",
-                    border: "1px solid var(--ba-border)",
-                    borderRadius: 8,
-                    padding: "9px 16px",
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 12,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <b style={{ fontSize: "0.9rem", color: "var(--ba-fg)" }}>
-                    {formatDisplayDate(g.days[0].date)} –{" "}
-                    {formatDisplayDate(g.days[g.days.length - 1].date)}
-                  </b>
-                  <span
-                    style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--ba-muted)" }}
-                  >
-                    no group functions
-                  </span>
-                </div>
-              ) : view === "day" && g.day.loaded && g.day.reservations.length === 0 ? (
-                <div
-                  key={g.day.date}
+                  key={d.date}
                   style={{ textAlign: "center", padding: "3rem 0", color: "var(--ba-muted)" }}
                 >
                   No group functions for this date and location.
                 </div>
               ) : (
                 <DayCard
-                  key={g.day.date}
-                  label={
-                    view === "day" ? fmtDateLabelLong(g.day.date) : formatDisplayDate(g.day.date)
-                  }
-                  isToday={g.day.date === today}
-                  reservations={g.day.reservations}
+                  key={d.date}
+                  label={view === "day" ? fmtDateLabelLong(d.date) : formatDisplayDate(d.date)}
+                  isToday={d.date === today}
+                  reservations={d.reservations}
                   websitePayments={websitePayments}
                   waiverThresholds={waiverThresholds}
                   onOpen={openDetail}
-                  onOpenDay={
-                    view === "week" ? () => go({ view: "day", date: g.day.date }) : undefined
-                  }
-                  syncingBmi={!g.day.loaded}
+                  onOpenDay={view === "week" ? () => go({ view: "day", date: d.date }) : undefined}
+                  syncingBmi={!d.loaded}
                 />
               ),
             )}
