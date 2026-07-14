@@ -15,12 +15,11 @@ import { rescheduleQamfReservation } from "~/features/booking/service/qamf-resch
  *
  * Flow:
  *  1. Load existing Neon record
- *  2. Delete old QAMF reservation (best-effort — may have already expired)
- *  3. Create new QAMF reservation at the new time with identical guest/player data
- *  4. Confirm new QAMF reservation — MUST succeed or whole operation fails
- *  5. Update bowling_reservations: booked_at + qamf_reservation_id + status
- *  6. Resend confirmation email + SMS
- *  7. Return { id, bookedAt, qamfReservationId }
+ *  2. Move the QAMF reservation in place (v1.3 lanes PATCH — keeps id,
+ *     title, notes, players); falls back to delete→create→confirm
+ *  3. Update bowling_reservations: booked_at + qamf_reservation_id + status
+ *  4. Resend confirmation email + SMS
+ *  5. Return { id, bookedAt, qamfReservationId }
  *
  * Payment is not touched — Square deposit/day-of orders are unchanged.
  * A reschedule is a time-only change within the same web offer; price stays the same.
@@ -123,8 +122,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     await cancelBmiAttractions(existing.centerCode, existing.attractionBookings);
   }
 
-  // ── Shared QAMF delete->create->confirm core (title/memo preserving,
-  //    double-book guarded) — see ~/features/booking/service/qamf-reschedule.
+  // ── Shared QAMF reschedule core: in-place lanes PATCH first, then the
+  //    delete->create->confirm fallback (title/memo preserving, double-book
+  //    guarded) — see ~/features/booking/service/qamf-reschedule.
   const shift = await rescheduleQamfReservation({
     neonId,
     qamfCenterId,

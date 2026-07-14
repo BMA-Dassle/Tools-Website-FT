@@ -154,7 +154,10 @@ async function call<T>(opts: {
    * one endpoint can run a newer spec while everything else stays pinned.
    * Probed live 2026-07-11: the pinned date-string serves the v1.0-era
    * schema (Player has NO Id); "1.2" serves spec v1.2 (Player.Id present,
-   * per-player DELETE available); "1.3" 412s until Conqueror >= 15.13.
+   * per-player DELETE available). Re-probed 2026-07-14: Conqueror is now
+   * >= 15.13 and "1.3" works — PATCH /reservations/{id}/lanes reschedules
+   * time and changes lanes (target lane must satisfy the web offer's Lane
+   * Groups or it 409s LanesNotCompatible).
    */
   apiVersion?: string;
 }): Promise<T> {
@@ -374,6 +377,42 @@ export async function patchReservation(
     body: fields,
     errLabel: `patchReservation(${reservationId})`,
     centerId,
+  });
+}
+
+/**
+ * PATCH /centers/{centerId}/reservations/{reservationId}/lanes
+ *  — moves a reservation IN PLACE: new StartTime/EndTime reschedules it,
+ *  a new LaneNumber (same times) reassigns the lane. Spec v1.3, live at
+ *  our centers since Conqueror passed 15.13 (verified 2026-07-14), so
+ *  this call pins `api-version: 1.3`.
+ *
+ *  Every lane on the reservation must be passed (same duration — QAMF
+ *  rejects duration changes here). Lane REASSIGNMENT is constrained by
+ *  the web offer's Lane Groups (409 LanesNotCompatible otherwise);
+ *  time moves 409 LanesNotAvailable/WebOfferNotAvailable when the
+ *  target slot can't take the block.
+ *
+ *  TIME FORMAT (probed live 2026-07-14): Conqueror takes the wall-clock
+ *  portion of StartTime/EndTime as CENTER-LOCAL time and IGNORES the UTC
+ *  offset — a Z-rendered 15:30-ET instant landed at 7:30 PM ET. Worse,
+ *  the immediately-following GET echoes the requested instant; Conqueror
+ *  truth only shows up in a later read. ALWAYS send center-local
+ *  wall-clock with the true local offset (see toCenterLocalIso in
+ *  qamf-reschedule.ts) — correct under both interpretations.
+ */
+export async function moveReservationLanes(
+  centerId: number,
+  reservationId: string,
+  lanes: Array<{ Id: string; LaneNumber: number; StartTime: string; EndTime: string }>,
+): Promise<void> {
+  await call({
+    method: "PATCH",
+    path: `/centers/${centerId}/reservations/${reservationId}/lanes`,
+    body: { Lanes: lanes },
+    errLabel: `moveReservationLanes(${reservationId})`,
+    centerId,
+    apiVersion: "1.3",
   });
 }
 
