@@ -34,6 +34,9 @@ export interface Reservation {
   _isDayPlannerBlock: boolean;
   isMultiLocation?: boolean;
   otherLocationName?: string;
+  /** Seeded from our DB (local-first board); replaced by BMI truth when the
+   *  date's background fetch lands. */
+  _provisional?: boolean;
 }
 
 export interface ReservationsResponse {
@@ -154,6 +157,8 @@ export interface WebsitePaymentInfo {
   priorPayments?: WebsitePriorPayment[];
   giftCardGans?: string[];
   savedCardOnFile?: boolean;
+  /** Contract sent or signed — collection is the website's job, not the POS. */
+  contractDispatched?: boolean;
   // Single-code detail lookups only (formatPaymentDetail).
   depositDueCents?: number;
   balancePaymentLinkUrl?: string | null;

@@ -3,6 +3,7 @@ import {
   getAuditLog,
   getContractVersions,
   getGfQuoteByReservationId,
+  listQuotesByEventDates,
   parseGiftCardIds,
 } from "@/lib/group-function-db";
 import { formatPaymentDetail, formatPaymentSummary } from "@/lib/portal-format";
@@ -945,7 +946,19 @@ export async function getSquareTimeline(projectId: string): Promise<SquareTimeli
     tasks.push(squareOrderNode(kind, label, id, withPayments));
   };
 
-  order("deposit", "Deposit charge", quote.square_deposit_order_id, true);
+  // PandaDoc→website conversions comp the deposit (the guest already paid it
+  // in the old flow) and store a "legacy-comp-…" sentinel, not a real Square
+  // order — fetching it just 404s (Florida Painters 3218, 2026-07-13).
+  if (quote.square_deposit_order_id?.startsWith("legacy-comp-")) {
+    tasks.push(
+      Promise.resolve({
+        kind: "deposit" as const,
+        label: "Deposit comped at conversion — covered by the prior PandaDoc payment",
+      }),
+    );
+  } else {
+    order("deposit", "Deposit charge", quote.square_deposit_order_id, true);
+  }
 
   // square_gift_card_id can be a bare id or a JSON array (multi-card quotes)
   const giftCardIds = parseGiftCardIds(quote.square_gift_card_id);
@@ -1008,6 +1021,71 @@ export interface PosSettlement {
   totalCents: number | null;
   createdAt: string | null;
   squareLocationId: string;
+}
+
+// ── Local-first board seed ───────────────────────────────────────────
+//
+// Phase 1 of the board load (owner 2026-07-13): paint every quote-backed
+// event straight from OUR DB — instant — while the per-date BMI fetches run
+// in the background and replace each day with office truth (which also
+// surfaces quote-less/legacy events the DB can't know about).
+
+/** Quote status → a provisional BMI-ish state label for the board badges.
+ *  Replaced by the real BMI state when that date's background fetch lands. */
+const PROVISIONAL_STATE: Record<string, string> = {
+  completed: "Confirmation",
+  balance_charged: "Confirmation",
+  deposit_paid: "Confirmation",
+  balance_link_sent: "Confirmation",
+  contract_sent: "Pending Signed Contract",
+  pending: "Pending Signed Contract",
+  resign_required: "Pending Signed Contract",
+  cancelled: "Cancelled",
+  denied: "Cancelled",
+};
+
+export interface LocalDayEvent {
+  reservation: Reservation;
+  payment: WebsitePaymentInfo;
+}
+
+/** BMI location → quote center_code SLUGS (group_function_quotes stores
+ *  slugs, unlike sales_prospects' Square ids). FM is a shared board — both
+ *  FM slugs are included either way; BMI truth re-splits when it lands. */
+const BMI_TO_CENTER_SLUGS: Record<number, string[]> = {
+  332160: ["fort-myers", "fasttrax"],
+  467486: ["fasttrax", "fort-myers"],
+  332145: ["naples"],
+};
+
+export async function getLocalDayEvents(
+  dates: string[],
+  bmiLocationId: number,
+): Promise<Record<string, LocalDayEvent[]>> {
+  const centerCodes = BMI_TO_CENTER_SLUGS[bmiLocationId] ?? [];
+  const quotes = await listQuotesByEventDates(dates, centerCodes);
+  const out: Record<string, LocalDayEvent[]> = {};
+  for (const q of quotes) {
+    const reservation: Reservation = {
+      id: String(q.bmi_reservation_id),
+      number: q.event_number || "",
+      kind: "Reservation",
+      name: q.event_name || "",
+      personName: `${q.guest_first_name || ""} ${q.guest_last_name || ""}`.trim(),
+      persons: q.guest_count || 0,
+      when: isoStamp(q.event_date),
+      state: PROVISIONAL_STATE[q.status] || q.status,
+      responsible: "",
+      balance: q.balance_cents / 100,
+      _isDayPlannerBlock: false,
+      _provisional: true,
+    };
+    (out[q.event_day] ||= []).push({
+      reservation,
+      payment: formatPaymentSummary(q) as unknown as WebsitePaymentInfo,
+    });
+  }
+  return out;
 }
 
 /** Find a COMPLETED "BMI <event#>" POS check near the event date. */

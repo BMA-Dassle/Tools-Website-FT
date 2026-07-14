@@ -114,15 +114,16 @@ export function DepositPill() {
   );
 }
 
-/** Red "UNPAID" pill — website quote exists but nothing collected yet. */
-export function UnpaidPill({ quoteStatus }: { quoteStatus?: string }) {
+/**
+ * Red "SQUARE CLOSEOUT" pill — this event will be settled at the POS: no
+ * website contract in play, no card on file, no funding gift card. Replaces
+ * the old UNPAID pill (owner 2026-07-13: unpaid-but-website-handled events
+ * were noise — their state badge already says "Pending Signed Contract").
+ */
+export function CloseoutPill() {
   return (
     <span
-      title={
-        quoteStatus
-          ? `Website quote is "${quoteStatus.replace(/_/g, " ")}" — nothing collected yet`
-          : "Nothing collected yet"
-      }
+      title="Square closeout required — no website contract or card on file. Ring it up at the POS (ticket 'BMI <event #>'); the auto-close sweep then marks it completed."
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -134,26 +135,34 @@ export function UnpaidPill({ quoteStatus }: { quoteStatus?: string }) {
         fontSize: "10px",
         fontWeight: 700,
         whiteSpace: "nowrap",
+        cursor: "help",
       }}
     >
-      UNPAID
+      SQUARE CLOSEOUT
     </span>
   );
 }
 
 /**
  * Legacy-paid quote: money was collected in the old PandaDoc/BMI flow (prior
- * payments / comped deposit), NOT through our Square deposit→gift-card rail —
- * so the website can't auto-close it; staff ring it up directly in Square.
- * Signal: no real Square deposit payment while legacy/prior money exists.
+ * payments / comped deposit) AND the website has no payment rail to finish
+ * the job — no funding gift card, no card on file, no Square deposit. Only
+ * then must staff close it out directly in Square at the POS.
+ *
+ * A CONVERTED event (PandaDoc money carried over, deposit comped, but a gift
+ * card was funded / a card saved) is NOT legacy — the normal website
+ * auto-close rail applies (Florida Painters 3218, 2026-07-13).
  */
 export function isLegacyPaidQuote(wp: {
   isFullyPaid: boolean;
   depositPaidCents: number;
   payments?: Array<{ type: string }>;
   priorPayments?: Array<unknown>;
+  giftCardGans?: string[];
+  savedCardOnFile?: boolean;
 }): boolean {
   if (wp.isFullyPaid) return false; // already closed — no action needed
+  if ((wp.giftCardGans ?? []).length > 0 || wp.savedCardOnFile) return false; // website rail exists
   const hasSquareDeposit = (wp.payments ?? []).some((p) => p.type === "deposit");
   if (hasSquareDeposit) return false;
   return (wp.priorPayments ?? []).length > 0 || wp.depositPaidCents > 0;
@@ -201,17 +210,26 @@ export function LegacyPill() {
 /**
  * Which payment pill a website quote earns. Deposit is judged on money
  * actually collected (depositPaidCents), not the status string — statuses
- * like balance_link_sent are deposit-paid too.
+ * like balance_link_sent are deposit-paid too. "closeout" (the red SQUARE
+ * CLOSEOUT pill) only fires when POS settlement is the expected path: no
+ * contract dispatched to the guest and no website payment rail — an unpaid
+ * event whose contract is out for signature is the website's problem, not
+ * the POS's (owner 2026-07-13).
  */
 export function paymentPillFor(wp: {
   isFullyPaid: boolean;
   depositPaidCents: number;
   status: string;
-}): "paid" | "deposit" | "unpaid" | null {
+  giftCardGans?: string[];
+  savedCardOnFile?: boolean;
+  contractDispatched?: boolean;
+}): "paid" | "deposit" | "closeout" | null {
   if (wp.isFullyPaid) return "paid";
   if (wp.depositPaidCents > 0) return "deposit";
   if (wp.status.includes("cancel")) return null;
-  return "unpaid";
+  const hasRail = (wp.giftCardGans ?? []).length > 0 || wp.savedCardOnFile;
+  if (hasRail || wp.contractDispatched) return null;
+  return "closeout";
 }
 
 /**
@@ -234,6 +252,10 @@ export function PaymentCell({
   const totalCents = wp?.totalCents || 0;
   const paidCents = wp ? (wp.isFullyPaid ? wp.totalCents : wp.depositPaidCents) : 0;
   const paidPct = totalCents > 0 ? Math.min(100, Math.round((paidCents / totalCents) * 100)) : 0;
+  // Quote-less BMI event carrying a balance: there is nothing on the website
+  // side at all, so the POS closeout IS the plan — that's the pill's home.
+  const quotelessCloseout =
+    !wp && (fallbackBalance || 0) > 0 && !(state || "").toLowerCase().includes("cancel");
 
   return (
     <div
@@ -258,7 +280,7 @@ export function PaymentCell({
         {wp && isLegacyPaidQuote(wp) && <LegacyPill />}
         {pill === "paid" && <PaidPill />}
         {pill === "deposit" && <DepositPill />}
-        {pill === "unpaid" && <UnpaidPill quoteStatus={wp?.status} />}
+        {(pill === "closeout" || quotelessCloseout) && <CloseoutPill />}
         <StateBadge state={state} />
       </div>
       {wp && totalCents > 0 ? (

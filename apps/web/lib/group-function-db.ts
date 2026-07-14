@@ -607,6 +607,30 @@ export async function getQuotesStuckForBmiSettlement(opts?: {
 }
 
 /**
+ * Quotes for a set of event dates at given centers — the daily-events
+ * board's LOCAL-FIRST phase (owner 2026-07-13): our DB paints instantly
+ * while BMI is checked per date in the background. `event_day` mirrors the
+ * board API's `event_date::date` convention exactly.
+ */
+export async function listQuotesByEventDates(
+  dates: string[],
+  centerCodes: string[],
+): Promise<Array<GroupFunctionQuote & { event_day: string }>> {
+  if (dates.length === 0 || centerCodes.length === 0) return [];
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT *, event_date::date::text AS event_day
+    FROM group_function_quotes
+    WHERE event_date::date = ANY(${dates}::date[])
+      AND center_code = ANY(${centerCodes})
+      AND bmi_reservation_id IS NOT NULL
+    ORDER BY event_date ASC
+  `;
+  return rows as Array<GroupFunctionQuote & { event_day: string }>;
+}
+
+/**
  * Quotes that were settled at the POS (square_settled_order_id set) but still
  * carry a day-of order id — candidates for cancelling the superseded OPEN
  * day-of order in Square. Already-CANCELED orders are filtered by the caller

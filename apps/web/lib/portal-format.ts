@@ -95,6 +95,9 @@ export function formatPaymentSummary(q: GroupFunctionQuote) {
     priorPayments: buildPriorPayments(q),
     giftCardGans: parseGiftCardGans(q.square_gift_card_gan),
     savedCardOnFile: Boolean(q.saved_card_id),
+    // A website contract has been dispatched (or signed) — collection is the
+    // website's job, not a POS closeout (pill logic, owner 2026-07-13).
+    contractDispatched: Boolean(q.contract_sent_at || q.contract_signed_at),
   };
 }
 

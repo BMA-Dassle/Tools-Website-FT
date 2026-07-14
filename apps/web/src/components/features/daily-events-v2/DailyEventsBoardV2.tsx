@@ -16,7 +16,11 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_CSS, baThemeCss } from "~/components/features/reservations-admin/theme";
-import { fetchDayReservations, getPaymentsBulk } from "~/features/daily-events/api";
+import {
+  fetchDayReservations,
+  fetchLocalEvents,
+  getPaymentsBulk,
+} from "~/features/daily-events/api";
 import { DEFAULT_WAIVER_THRESHOLDS, LOCATIONS } from "~/features/daily-events/constants";
 import { fmtDateLabelLong, fmtEventTime, todayET } from "~/features/daily-events/format";
 import { useBoardTheme } from "~/features/daily-events/hooks";
@@ -27,7 +31,7 @@ import {
 } from "~/features/daily-events/logic";
 import type { Reservation, WebsitePaymentInfo } from "~/features/daily-events/types";
 import { formatDisplayDate, getDaysInPeriod, getWeekPeriod } from "~/features/daily-events/week";
-import { Spinner } from "../daily-events/badges";
+
 import DailyEventModal from "../daily-events/DailyEventModal";
 import { DE_CSS } from "../daily-events/theme";
 import DayCard from "./DayCard";
@@ -38,8 +42,10 @@ type ViewMode = "day" | "week";
 interface DayData {
   date: string;
   reservations: Reservation[];
-  /** False while this date's fetch is still in flight (progressive render). */
+  /** False while this date's BMI fetch is still in flight. */
   loaded: boolean;
+  /** Local-DB seed painted (phase 1) — rows are provisional until `loaded`. */
+  localLoaded: boolean;
 }
 
 interface AttentionItem {
@@ -178,6 +184,9 @@ function buildAttention(
 /** How many attention rows show before the "Show all" expander. */
 const ATTENTION_COLLAPSED = 4;
 
+/** Owner 2026-07-13: hidden for now ("I don't like it") — flip to bring back. */
+const SHOW_ATTENTION = false;
+
 // Portal button idiom: outline (border + transparent) at rest, solid
 // primary-blue with white text when selected (shadcn default/outline pair).
 const NAV_A: React.CSSProperties = {
@@ -256,16 +265,55 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    setDays(scopeDates.map((date) => ({ date, reservations: [], loaded: false })));
+    setDays(
+      scopeDates.map((date) => ({ date, reservations: [], loaded: false, localLoaded: false })),
+    );
     setWebsitePayments(new Map());
 
+    // Phase 1 — OUR DB, one fast query: the ENTIRE board paints in one go
+    // from local quotes (owner 2026-07-13: staggered pop-in looked sloppy).
+    // Never overwrites a day BMI already answered for (the cached BMI path
+    // can win the race).
+    fetchLocalEvents(token, scopeDates, locationId)
+      .then((byDate) => {
+        if (cancelled) return;
+        setDays((prev) =>
+          prev.map((d) =>
+            d.loaded
+              ? d
+              : {
+                  ...d,
+                  reservations: (byDate[d.date] ?? []).map((e) => e.reservation),
+                  localLoaded: true,
+                },
+          ),
+        );
+        setWebsitePayments((prev) => {
+          const next = new Map(prev);
+          for (const list of Object.values(byDate)) {
+            for (const e of list) {
+              const key = e.reservation.number || e.reservation.id;
+              if (!next.has(key)) next.set(key, e.payment);
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        /* local seed failed — BMI phase 2 carries the render alone */
+      });
+
+    // Phase 2 — BMI office truth per date (45s server cache): replaces each
+    // day's rows (adding quote-less/legacy events) as it lands. One retry —
+    // a transient failure otherwise strands the provisional local rows.
     for (const day of scopeDates) {
       fetchDayReservations(token, day, locationId)
+        .catch(() => fetchDayReservations(token, day, locationId))
         .then((data) => {
           if (cancelled) return;
           const reservations = applyViewTypeFilter(data.reservations || [], "group");
           setDays((prev) =>
-            prev.map((d) => (d.date === day ? { date: day, reservations, loaded: true } : d)),
+            prev.map((d) => (d.date === day ? { ...d, reservations, loaded: true } : d)),
           );
           if (reservations.length > 0) {
             getPaymentsBulk(token, reservations)
@@ -278,10 +326,8 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
         .catch((err: unknown) => {
           if (cancelled) return;
           // Single-day scope surfaces the failure; a week keeps rendering
-          // the other six and marks this date loaded-empty.
-          setDays((prev) =>
-            prev.map((d) => (d.date === day ? { date: day, reservations: [], loaded: true } : d)),
-          );
+          // the other six (local rows stay up if we have them).
+          setDays((prev) => prev.map((d) => (d.date === day ? { ...d, loaded: true } : d)));
           if (scopeDates.length === 1) {
             setError(err instanceof Error ? err.message : "Failed to load events");
           }
@@ -294,8 +340,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
   }, [token, locationId, scopeDates]);
 
   const allLoaded = days.length > 0 && days.every((d) => d.loaded);
-  // Full-page spinner only before the FIRST day lands.
-  const loading = days.length === 0 || days.every((d) => !d.loaded);
+  const anyContent = days.length > 0;
 
   // Hide-cancelled filter feeds EVERYTHING downstream: cards, summaries,
   // attention, totals, and modal prev/next navigation.
@@ -347,6 +392,33 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
     view === "day"
       ? fmtDateLabelLong(date)
       : `Week of ${formatDisplayDate(scopeDates[0])} – ${formatDisplayDate(scopeDates[scopeDates.length - 1])}`;
+
+  // Week view: runs of 2+ consecutive empty days collapse into ONE slim band
+  // ("Wed, Jul 8 – Sun, Jul 12 · no group functions") — five empty bands in
+  // a row told the reader nothing five times (owner 2026-07-13). Only
+  // BMI-CONFIRMED empty days collapse; while a day is still syncing it keeps
+  // its own band (the days are always there — owner, same day).
+  type RenderGroup = { kind: "day"; day: DayData } | { kind: "emptyRun"; days: DayData[] };
+  const renderGroups = useMemo<RenderGroup[]>(() => {
+    if (view !== "week") return visibleDays.map((day) => ({ kind: "day" as const, day }));
+    const groups: RenderGroup[] = [];
+    let run: DayData[] = [];
+    const flush = () => {
+      if (run.length >= 2) groups.push({ kind: "emptyRun", days: run });
+      else for (const day of run) groups.push({ kind: "day", day });
+      run = [];
+    };
+    for (const d of visibleDays) {
+      const settledEmpty = d.loaded && d.reservations.length === 0;
+      if (settledEmpty) run.push(d);
+      else {
+        flush();
+        groups.push({ kind: "day", day: d });
+      }
+    }
+    flush();
+    return groups;
+  }, [view, visibleDays]);
 
   // ── Detail modal (v1 mechanics, ?event= deep link) ──
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -424,7 +496,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
           }}
         >
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
-          {allLoaded && (
+          {anyContent && (
             <span style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
               {LOCATIONS.find((l) => l.id === locationId)?.label} · {totals.events} event
               {totals.events === 1 ? "" : "s"} · {totals.persons} people
@@ -523,7 +595,7 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
         </div>
 
         {/* ── Needs attention — the portal's amber note-box idiom ── */}
-        {!loading && attention.length > 0 && (
+        {SHOW_ATTENTION && anyContent && attention.length > 0 && (
           <div
             style={{
               backgroundColor: "rgba(245,158,11,0.1)",
@@ -643,49 +715,55 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
             {error}
           </div>
         )}
-        {loading && (
-          <div style={{ display: "flex", justifyContent: "center", padding: "3rem 0" }}>
-            <Spinner size={32} />
-          </div>
-        )}
-        {!loading && !error && (
+        {!error && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {visibleDays.map((d) =>
-              !d.loaded ? (
-                // Still in flight — hold the day's slot so nothing jumps.
+            {renderGroups.map((g) =>
+              g.kind === "emptyRun" ? (
                 <div
-                  key={d.date}
+                  key={g.days[0].date}
                   style={{
                     backgroundColor: "var(--ba-bg2)",
                     border: "1px solid var(--ba-border)",
                     borderRadius: 8,
                     padding: "9px 16px",
-                    color: "var(--ba-muted)",
-                    fontSize: "0.82rem",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 12,
+                    flexWrap: "wrap",
                   }}
                 >
-                  <b style={{ color: "var(--ba-fg)", fontSize: "0.9rem" }}>
-                    {view === "day" ? fmtDateLabelLong(d.date) : formatDisplayDate(d.date)}
+                  <b style={{ fontSize: "0.9rem", color: "var(--ba-fg)" }}>
+                    {formatDisplayDate(g.days[0].date)} –{" "}
+                    {formatDisplayDate(g.days[g.days.length - 1].date)}
                   </b>
-                  <span style={{ marginLeft: 12 }}>loading…</span>
+                  <span
+                    style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--ba-muted)" }}
+                  >
+                    no group functions
+                  </span>
                 </div>
-              ) : view === "day" && d.reservations.length === 0 ? (
+              ) : view === "day" && g.day.loaded && g.day.reservations.length === 0 ? (
                 <div
-                  key={d.date}
+                  key={g.day.date}
                   style={{ textAlign: "center", padding: "3rem 0", color: "var(--ba-muted)" }}
                 >
                   No group functions for this date and location.
                 </div>
               ) : (
                 <DayCard
-                  key={d.date}
-                  label={view === "day" ? fmtDateLabelLong(d.date) : formatDisplayDate(d.date)}
-                  isToday={d.date === today}
-                  reservations={d.reservations}
+                  key={g.day.date}
+                  label={
+                    view === "day" ? fmtDateLabelLong(g.day.date) : formatDisplayDate(g.day.date)
+                  }
+                  isToday={g.day.date === today}
+                  reservations={g.day.reservations}
                   websitePayments={websitePayments}
                   waiverThresholds={waiverThresholds}
                   onOpen={openDetail}
-                  onOpenDay={view === "week" ? () => go({ view: "day", date: d.date }) : undefined}
+                  onOpenDay={
+                    view === "week" ? () => go({ view: "day", date: g.day.date }) : undefined
+                  }
+                  syncingBmi={!g.day.loaded}
                 />
               ),
             )}

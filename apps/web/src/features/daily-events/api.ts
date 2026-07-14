@@ -148,6 +148,24 @@ export async function fetchSquareTimeline(
   return Array.isArray(data.data) ? data.data : [];
 }
 
+// ── Local-first board seed (phase 1 — our DB, no BMI round trip) ─────
+
+export interface LocalDayEvent {
+  reservation: Reservation;
+  payment: WebsitePaymentInfo;
+}
+
+export async function fetchLocalEvents(
+  token: string,
+  dates: string[],
+  locationId: number,
+): Promise<Record<string, LocalDayEvent[]>> {
+  const data = await getJson<{ data: Record<string, LocalDayEvent[]> }>(
+    `${BASE}/local-events?token=${encodeURIComponent(token)}&locationId=${locationId}&dates=${dates.join(",")}`,
+  );
+  return data.data ?? {};
+}
+
 // ── POS settlement pickup for quote-less events (Payments tab) ───────
 
 export interface PosSettlement {
