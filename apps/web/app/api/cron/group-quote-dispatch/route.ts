@@ -152,6 +152,54 @@ async function reconcileDayofOrderSafe(quote: GroupFunctionQuote): Promise<void>
   }
 }
 
+/**
+ * Exit "Send Contract" for a post-payment event and re-notify the guest.
+ *
+ * Owner rule (2026-07-14): flipping a project to "Send Contract" must ALWAYS
+ * produce a send — a paid, unchanged event used to be a silent no-op that left
+ * the project parked and sales thinking the system was broken.
+ *
+ * State move FIRST, email second: if the state move fails we skip the email and
+ * return false, so the next 2-min pass retries — a BMI hiccup can never turn
+ * the cron into a repeating email to the guest. Still awaiting a re-sign →
+ * "Pending Signed Contract"; otherwise back to "Confirmation" (-3), the state
+ * a signed + paid event normally lives in.
+ *
+ * Returns true when the guest was notified.
+ */
+async function exitSendContractWithResend(params: {
+  item: HermesQueueItem;
+  centerCode: string;
+  quote: GroupFunctionQuote;
+  /** "resent" → contract-copy email; "updated" → contract-updated email. */
+  kind: "resent" | "updated";
+}): Promise<boolean> {
+  const scanCenter = CENTERS.find((c) => params.item.center.startsWith(c.hermesCenter));
+  if (!scanCenter) return false;
+  const awaitingResign = params.quote.status === "resign_required";
+  try {
+    const { setProjectState } = await import("@/lib/bmi-office-actions");
+    await setProjectState({
+      centerCode: params.centerCode,
+      projectId: params.item.reservationId,
+      stateId: awaitingResign ? scanCenter.pendingSignedContractStateId : "-3",
+      label: awaitingResign ? "Pending Signed Contract (awaiting re-sign)" : "Confirmation",
+    });
+  } catch (err) {
+    console.warn(
+      `[group-quote-dispatch] resend state move failed for ${params.item.reservationId} — email skipped, will retry:`,
+      err,
+    );
+    return false;
+  }
+  const notify =
+    awaitingResign || params.kind === "updated" ? notifyContractUpdated : notifyContractSent;
+  notify(params.quote).catch((err) =>
+    console.error("[group-quote-dispatch] post-sign resend notify error:", err),
+  );
+  return true;
+}
+
 async function processQueueItem(
   item: HermesQueueItem,
 ): Promise<{ reservationId: string; action: string }> {
@@ -322,8 +370,8 @@ async function processQueueItem(
   // re-sent or reset to "Pending Signed Contract" here. Doing so un-confirmed events
   // that were already signed + paid (JW Marriott 8151885: confirmed at re-sign 6/22,
   // then a dispatch pass yanked it back to Pending Signed Contract). Paid events fall
-  // through to the post-sign branch below, which syncs data and only moves BMI state
-  // when a price change triggers a re-sign request (→ Pending Signed Contract).
+  // through to the post-sign branch below, which syncs data and always exits Send
+  // Contract with a guest notification (re-sign request or contract resend).
   if (existing && existing.contract_sent_at && !existing.deposit_paid_at) {
     const existingProducts = (existing.line_items as unknown[]) || [];
     const pricingUnchanged =
@@ -412,17 +460,23 @@ async function processQueueItem(
     }
   }
 
-  // Post-signing update: data only, preserve gift card.
+  // Post-signing update: data sync, preserve gift card.
   //
-  // CHANGE-GATED. This branch fires on EVERY dispatch pass for any post-deposit
-  // event still in the BMI scan window — and the cron runs every minute. Writing a
-  // contract version + BMI private note + day-of reconcile unconditionally meant a
-  // paid, unchanged event logged a fresh "Contract updated" note every ~60s forever
-  // (Marriott/Pascual 5dc45f97, 2026-06-23: 60+ no-op notes in one hour). We now
-  // diff what BMI sends against what we've stored and only version / sync / note /
-  // reconcile / re-sign when something actually changed. The 60s debounce above
-  // can't catch this alone — it equals the cron period, so scheduler jitter leaks a
-  // run through most minutes.
+  // CHANGE-GATED for versioning/syncing: we diff what BMI sends against what we've
+  // stored and only version / sync / reconcile / re-sign when something actually
+  // changed — writing unconditionally meant a paid, unchanged event logged a fresh
+  // "Contract updated" note every ~60s forever (Marriott/Pascual 5dc45f97,
+  // 2026-06-23: 60+ no-op notes in one hour). The 60s debounce above can't catch
+  // this alone — it equals the cron period, so scheduler jitter leaks a run
+  // through most minutes.
+  //
+  // NOT gated: exiting "Send Contract". Owner rule (2026-07-14): a Send Contract
+  // flip must ALWAYS send. Every pass through this branch ends with the project
+  // moved out of "Send Contract" and the guest notified — price change → re-sign
+  // request (Pending Signed Contract), anything else → contract resend
+  // (Confirmation, or Pending Signed Contract if still awaiting a re-sign). The
+  // state move is the loop-breaker, so it happens BEFORE the email (see
+  // exitSendContractWithResend).
   if (
     existing &&
     (existing.status === "deposit_paid" ||
@@ -487,15 +541,49 @@ async function processQueueItem(
     if (paymentSig(existing.prior_payments) !== paymentSig(item.payments))
       changes.push("prior_payments");
 
-    // Nothing actually changed → this is the runaway no-op pass. Bump only the
-    // debounce timestamp (a targeted UPDATE that does NOT touch updated_at — calling
-    // updateGfQuoteDetails would bump updated_at and make the portal show the event
-    // as freshly edited every minute), then return without versioning, syncing,
-    // noting, reconciling, or re-signing.
+    // Nothing actually changed → sales flipped a paid, unchanged event to "Send
+    // Contract", which is an explicit resend request (owner rule 2026-07-14: a
+    // Send Contract flip must ALWAYS send). Exit the state and resend the
+    // contract link — the state move is what breaks the every-2-min loop, so no
+    // versioning/syncing/reconciling here (nothing changed) and the email only
+    // goes out when the state move succeeds. Bump only the debounce timestamp
+    // (a targeted UPDATE that does NOT touch updated_at — updateGfQuoteDetails
+    // would make the portal show the event as freshly edited).
     if (changes.length === 0) {
       const q = (await import("@/lib/db")).sql();
       await q`UPDATE group_function_quotes SET hermes_last_processed_at = NOW() WHERE id = ${existing.id}`;
-      return { reservationId: item.reservationId, action: "post_sign_nochange" };
+      const fresh = existing.contract_short_id
+        ? await getGfQuoteByShortId(existing.contract_short_id)
+        : null;
+      const sent = fresh
+        ? await exitSendContractWithResend({
+            item,
+            centerCode: center.centerCode,
+            quote: fresh,
+            kind: "resent",
+          })
+        : false;
+      if (sent) {
+        try {
+          const { appendProjectPrivateNote, noteTimestamp } =
+            await import("@/lib/bmi-office-actions");
+          await appendProjectPrivateNote({
+            centerCode: center.centerCode,
+            projectId: item.reservationId,
+            note: `[${noteTimestamp()}] Contract resent to ${existing.guest_email}`,
+            contractUrl: `${center.baseUrl}/contract/${existing.contract_short_id}`,
+          });
+        } catch {
+          /* non-fatal */
+        }
+        console.log(
+          `[group-quote-dispatch] post-sign resend (no changes) for reservation=${item.reservationId}`,
+        );
+      }
+      return {
+        reservationId: item.reservationId,
+        action: sent ? "resent_post_sign" : "post_sign_nochange",
+      };
     }
 
     await createContractVersion({
@@ -533,15 +621,16 @@ async function processQueueItem(
     const reconcileTarget = await getGfQuoteByShortId(existing.contract_short_id!);
     if (reconcileTarget) await reconcileDayofOrderSafe(reconcileTarget);
 
-    if (
+    const resignFlow =
       priceChanged &&
       (existing.status === "deposit_paid" ||
         existing.status === "balance_charged" ||
         // Already awaiting re-sign and the price moved AGAIN (sales re-flipped to
         // "Send Contract" after another product edit): re-notify the guest with the
         // new total instead of silently syncing — the prior email shows stale money.
-        existing.status === "resign_required")
-    ) {
+        existing.status === "resign_required");
+
+    if (resignFlow) {
       const q = (await import("@/lib/db")).sql();
       await q`UPDATE group_function_quotes SET status = 'resign_required', updated_at = NOW() WHERE id = ${existing.id}`;
       firePortalWebhookAsync("document.resign_required", {
@@ -591,6 +680,20 @@ async function processQueueItem(
         `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
           `(was ${existing.total_cents} → now ${totalCents})`,
       );
+    } else {
+      // Non-price change (date, notes, contacts, …) on a paid event: still a
+      // send — exit "Send Contract" and email the guest the updated contract
+      // (owner rule 2026-07-14). Previously this path synced data and left the
+      // project parked with no email, indistinguishable from "stuck".
+      const fresh = await getGfQuoteByShortId(existing.contract_short_id!);
+      if (fresh) {
+        await exitSendContractWithResend({
+          item,
+          centerCode: center.centerCode,
+          quote: fresh,
+          kind: "updated",
+        });
+      }
     }
 
     // Log to BMI private notes
@@ -600,7 +703,7 @@ async function processQueueItem(
       await appendProjectPrivateNote({
         centerCode: center.centerCode,
         projectId: item.reservationId,
-        note: `[${noteTimestamp()}] Contract updated${priceChanged ? " (price changed — resign required)" : ""}`,
+        note: `[${noteTimestamp()}] Contract updated${resignFlow ? " (price changed — resign required)" : " — resent to guest"}`,
         contractUrl,
       });
     } catch {
@@ -613,7 +716,7 @@ async function processQueueItem(
     );
     return {
       reservationId: item.reservationId,
-      action: priceChanged ? "resign_required" : "updated_data",
+      action: resignFlow ? "resign_required" : "updated_resent",
     };
   }
 

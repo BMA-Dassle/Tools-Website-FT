@@ -224,6 +224,20 @@ export async function scanForNewEvents(targetStateIds?: Set<string>): Promise<He
           // Pandora is the primary data source — enriched reservation with location, planner, customer, products
           const pandora = await fetchReservationDetail(center.centerCode, projId);
 
+          // Planner and payments exist ONLY in the Pandora payload. When the call
+          // fails (returns null) the item would go out with the Office-cased name,
+          // an EMPTY planner, and EMPTY payments — the dispatch cron then syncs that
+          // degraded snapshot into Neon and the next healthy pass syncs it back,
+          // ping-ponging contract versions forever (Entechus 47106840: 25 versions
+          // of "Entechus ↔ EntechUs" + planner flips, 2026-07-14). Skip the project
+          // this pass instead; the 2-min cron retries once Pandora recovers.
+          if (!pandora) {
+            console.warn(
+              `[bmi-scan] Pandora detail unavailable for project ${projId} — skipping this pass`,
+            );
+            continue;
+          }
+
           // Resolve brand from Pandora location field
           let isFT = false;
           let centerName =
