@@ -2,18 +2,20 @@
 
 import { useEffect } from "react";
 
-/** Iframe floor — short content (a two-event day) must not collapse the
- *  portal iframe into a sliver (owner 2026-07-13). */
-const MIN_HEIGHT = 700;
-/** Viewport-ish cap while a modal is open — a full-height modal floating in
- *  a 2500px-tall iframe is unusable; the natural height re-posts on close. */
-const MODAL_CAP = 940;
+/** Iframe height while a modal is open: modals are position:fixed (they
+ *  don't contribute to scrollHeight), so the natural height would collapse
+ *  under them on short boards — post a viewport-ish box instead and let
+ *  the modal fill it. The portal's <tool>-modal handler may override. */
+const MODAL_HEIGHT = 940;
 
 /**
- * Portal-embed auto-height: posts the content height to the parent so the
- * portal sizes the iframe to it — the embed's own body never scrolls and
- * the portal page scroll handles everything (no more double scrollbars
- * when a day carries lots of events).
+ * Portal-embed auto-height: posts the ACTUAL content height to the parent
+ * so the portal sizes the iframe to it — the embed's own body never
+ * scrolls and the portal page scroll handles everything. No floor: a
+ * short board posts its real ~300px and the portal shows its own
+ * background below (2026-07-14 — the old 700px floor left a dead navy
+ * band inside the iframe). The embed's html/body go transparent for the
+ * same reason: any sizing seam shows PORTAL background, not ours.
  *
  * Message: postMessage({ type, height }) — the portal listens per tool
  * ("daily-events-resize", "bowling-resize", "e-tickets-resize",
@@ -21,16 +23,26 @@ const MODAL_CAP = 940;
  *
  * Only active when `enabled` AND actually inside an iframe, so shared
  * clients behave identically on their tokened pages. IMPORTANT: the
- * caller's root must NOT be min-height:100vh when embedded — vh feeds back
- * through the iframe height and can only ever grow; use the MIN_HEIGHT
- * floor here instead.
+ * caller's root must NOT be min-height:100vh when embedded — vh feeds
+ * back through the iframe height and can only ever grow.
  */
 export function usePortalAutoHeight(type: string, enabled: boolean, modalOpen: boolean) {
   useEffect(() => {
     if (!enabled || typeof window === "undefined" || window.parent === window) return;
+    const prevBodyBg = document.body.style.background;
+    const prevHtmlBg = document.documentElement.style.background;
+    document.body.style.background = "transparent";
+    document.documentElement.style.background = "transparent";
+    return () => {
+      document.body.style.background = prevBodyBg;
+      document.documentElement.style.background = prevHtmlBg;
+    };
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined" || window.parent === window) return;
     const post = () => {
-      const natural = Math.max(document.documentElement.scrollHeight, MIN_HEIGHT);
-      const height = modalOpen ? Math.min(natural, MODAL_CAP) : natural;
+      const height = modalOpen ? MODAL_HEIGHT : document.documentElement.scrollHeight;
       window.parent.postMessage({ type, height }, "*");
     };
     post();
