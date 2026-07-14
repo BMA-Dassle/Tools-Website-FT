@@ -3,8 +3,11 @@
 /**
  * Group-function event rows on the admin reservations board — horizontal
  * columns (when · event · money · meta · actions). Extracted verbatim from
- * app/admin/[token]/reservations/ReservationsClient.tsx.
+ * app/admin/[token]/reservations/ReservationsClient.tsx. The whole row
+ * opens the daily-events detail modal (owner 2026-07-13 — same affordance
+ * as reservation rows); the contract/order links stop propagation.
  */
+import { clickableDivProps } from "@/lib/a11y";
 import type { GroupEvent } from "~/features/reservations-admin/types";
 import type { OrderTarget } from "./modals/SquareOrderModal";
 
@@ -29,7 +32,7 @@ export default function GroupEventsSection({
           fontWeight: 700,
           textTransform: "uppercase",
           letterSpacing: 1,
-          color: "#22d3ee",
+          color: "#60a5fa",
           marginBottom: 8,
         }}
       >
@@ -50,15 +53,19 @@ export default function GroupEventsSection({
           return (
             <div
               key={ge.id}
+              {...clickableDivProps(() => onViewEvent(ge), `Open event ${ge.eventNumber} details`)}
+              className="ba-gerow"
+              title="Open event details"
               style={{
                 borderRadius: 8,
                 border: `1px solid ${sColor}33`,
-                backgroundColor: "var(--ba-bg2)",
                 padding: "8px 14px",
                 display: "flex",
                 alignItems: "center",
                 gap: 16,
                 flexWrap: "wrap",
+                cursor: resolvingEventId != null ? "wait" : "pointer",
+                transition: "background-color 0.12s",
               }}
             >
               {/* Horizontal columns — spread across the width instead of
@@ -188,41 +195,28 @@ export default function GroupEventsSection({
                 )}
               </div>
 
-              {/* Actions — right edge */}
+              {/* Actions — right edge (row itself opens the event detail) */}
               <span
                 style={{
                   marginLeft: "auto",
                   display: "flex",
                   gap: 12,
                   flexShrink: 0,
+                  alignItems: "center",
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => onViewEvent(ge)}
-                  disabled={resolvingEventId != null}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: resolvingEventId != null ? "wait" : "pointer",
-                    padding: 0,
-                    fontSize: 11,
-                    color: "#22d3ee",
-                    fontWeight: 600,
-                    textDecoration: "underline",
-                    textDecorationColor: "rgba(34,211,238,0.3)",
-                  }}
-                >
-                  {resolvingEventId === ge.id ? "Opening…" : "Event Details"}
-                </button>
+                {resolvingEventId === ge.id && (
+                  <span style={{ fontSize: 11, color: "var(--ba-muted)" }}>Opening…</span>
+                )}
                 {ge.contractShortId && (
                   <a
                     href={`/contract/${ge.contractShortId}`}
                     target="_blank"
                     rel="noopener"
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       fontSize: 11,
-                      color: "#22d3ee",
+                      color: "#60a5fa",
                       textDecoration: "none",
                       fontWeight: 600,
                     }}
@@ -233,23 +227,24 @@ export default function GroupEventsSection({
                 {ge.squareDayofOrderId && (
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={(e) => {
+                      e.stopPropagation();
                       onViewOrder({
                         guestName: ge.eventName,
                         squareDayofOrderId: ge.squareDayofOrderId,
                         rewardDiscountCents: 0,
-                      })
-                    }
+                      });
+                    }}
                     style={{
                       background: "none",
                       border: "none",
                       cursor: "pointer",
                       padding: 0,
                       fontSize: 11,
-                      color: "#22d3ee",
+                      color: "#60a5fa",
                       fontWeight: 600,
                       textDecoration: "underline",
-                      textDecorationColor: "rgba(34,211,238,0.3)",
+                      textDecorationColor: "rgba(96,165,250,0.3)",
                     }}
                   >
                     View Square Order

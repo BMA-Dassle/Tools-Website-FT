@@ -14,6 +14,7 @@
  * `variant="full"` fills the viewport (i.e. the portal iframe) for the
  * manage-reservation modal; the default centers a capped-width panel.
  */
+import { useEffect } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 
@@ -51,6 +52,19 @@ export default function ModalShell({
   panelStyle?: CSSProperties;
 }) {
   const full = variant === "full";
+
+  // Lock the page behind the modal — without this the board (and, in the
+  // portal iframe, the page itself) kept its scrollbar under the overlay,
+  // stacking two or three scroll layers (owner 2026-07-13). Nested modals
+  // compose: each mount saves the previous value and restores it on close.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   return (
     <div
       style={{
