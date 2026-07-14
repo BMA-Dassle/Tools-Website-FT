@@ -10,7 +10,7 @@
  * logic is verbatim from that file (the combo math lives in
  * ~/features/reservations-admin/combo-board.ts with unit tests).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   buildComboGroups,
   buildComboScheduleIndex,
@@ -321,6 +321,14 @@ export default function ReservationsBoard({
     dailyEvent,
   );
   usePortalAutoHeight("bowling-resize", !!embedded, anyModalOpen);
+
+  // Same modal contract as the daily-events embed: the portal locks its
+  // page scroll, sizes the iframe to the visible viewport, and ignores
+  // resize messages while any modal is open.
+  useEffect(() => {
+    if (!embedded || typeof window === "undefined" || window.parent === window) return;
+    window.parent.postMessage({ type: "bowling-modal", open: anyModalOpen }, "*");
+  }, [embedded, anyModalOpen]);
 
   return (
     <div
