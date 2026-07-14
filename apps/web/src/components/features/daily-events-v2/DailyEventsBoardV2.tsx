@@ -455,6 +455,25 @@ export default function DailyEventsBoardV2({
     setPendingEvent(null);
   }
 
+  // Portal-embed URL mirroring: the portal listens for this and updates its
+  // own URL via replaceState, so deep links survive copy/paste and reloads.
+  // Same postMessage channel the theme sync already rides.
+  useEffect(() => {
+    if (!embedded || typeof window === "undefined" || window.parent === window) return;
+    window.parent.postMessage(
+      {
+        type: "daily-events-state",
+        location: String(locationId),
+        date,
+        view,
+        cancelled: showCancelled ? "1" : null,
+        event: selectedEventId,
+        tab: selectedEventId ? (modalTab ?? null) : null,
+      },
+      "*",
+    );
+  }, [embedded, locationId, date, view, showCancelled, selectedEventId, modalTab]);
+
   const themeStyle =
     baThemeCss(theme) +
     BOARD_CSS +
@@ -800,6 +819,7 @@ export default function DailyEventsBoardV2({
           projectId={selectedEventId}
           locationId={locationId}
           initialTab={modalTab}
+          onTabChange={setModalTab}
           ids={modalIds}
           onNavigate={(id: string) => {
             setSelectedEventId(id);

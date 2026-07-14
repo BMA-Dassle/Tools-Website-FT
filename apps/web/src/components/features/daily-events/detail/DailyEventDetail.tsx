@@ -70,12 +70,15 @@ export default function DailyEventDetail({
   projectId,
   locationId,
   initialTab,
+  onTabChange,
 }: {
   token: string;
   projectId: string;
   locationId: number;
   /** Land on a specific tab (validated against TABS; defaults to Overview). */
   initialTab?: string;
+  /** Fires on user tab switches — the portal embed mirrors it into its URL. */
+  onTabChange?: (tab: string) => void;
 }) {
   const [detail, setDetail] = useState<ReservationDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -310,7 +313,10 @@ export default function DailyEventDetail({
               <button
                 key={t}
                 type="button"
-                onClick={() => setTab(t)}
+                onClick={() => {
+                  setTab(t);
+                  onTabChange?.(t);
+                }}
                 style={{
                   background: "none",
                   border: "none",

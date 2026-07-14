@@ -22,6 +22,7 @@ export default function DailyEventModal({
   locationId,
   ids,
   initialTab,
+  onTabChange,
   onNavigate,
   onClose,
 }: {
@@ -32,6 +33,8 @@ export default function DailyEventModal({
   ids: string[];
   /** Tab to land on (e.g. "Payments" from an unpaid attention row). */
   initialTab?: string;
+  /** Fires on user tab switches (portal-embed URL mirroring). */
+  onTabChange?: (tab: string) => void;
   onNavigate: (id: string) => void;
   onClose: () => void;
 }) {
@@ -128,6 +131,7 @@ export default function DailyEventModal({
           projectId={projectId}
           locationId={locationId}
           initialTab={initialTab}
+          onTabChange={onTabChange}
         />
       </div>
     </ModalShell>
