@@ -71,6 +71,23 @@ export default function ModalShell({
     };
   }, []);
 
+  // Portal-embed insurance: the portal resizes the iframe while a modal is
+  // open (content-height → viewport box). Chrome occasionally fails to
+  // re-evaluate custom-scrollbar overflow after such a viewport change
+  // (first-open no-scroll report, 2026-07-14) — force a recalc on resize.
+  useEffect(() => {
+    function onResize() {
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>(".ba-scroll"))) {
+        const prev = el.style.overflowY;
+        el.style.overflowY = "hidden";
+        void el.offsetHeight; // reflow
+        el.style.overflowY = prev || "";
+      }
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   return (
     <div
       style={{

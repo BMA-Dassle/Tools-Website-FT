@@ -26,7 +26,12 @@ const MODAL_HEIGHT = 940;
  * caller's root must NOT be min-height:100vh when embedded — vh feeds
  * back through the iframe height and can only ever grow.
  */
-export function usePortalAutoHeight(type: string, enabled: boolean, modalOpen: boolean) {
+export function usePortalAutoHeight(
+  type: string,
+  enabled: boolean,
+  modalOpen: boolean,
+  onPost?: (height: number) => void,
+) {
   useEffect(() => {
     if (!enabled || typeof window === "undefined" || window.parent === window) return;
     const prevBodyBg = document.body.style.background;
@@ -44,10 +49,12 @@ export function usePortalAutoHeight(type: string, enabled: boolean, modalOpen: b
     const post = () => {
       const height = modalOpen ? MODAL_HEIGHT : document.documentElement.scrollHeight;
       window.parent.postMessage({ type, height }, "*");
+      onPost?.(height);
     };
     post();
     const ro = new ResizeObserver(post);
     ro.observe(document.body);
     return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onPost is a logger
   }, [type, enabled, modalOpen]);
 }

@@ -14,7 +14,7 @@
  * money/risk summaries in the band — skinned with the employee portal's
  * design system (navy gradient, blue primary, Poppins; see ./theme.ts).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BOARD_CSS, baThemeCss } from "~/components/features/reservations-admin/theme";
 import {
   fetchDayReservations,
@@ -561,8 +561,47 @@ export default function DailyEventsBoardV2({
     return () => window.removeEventListener("message", onMessage);
   }, [embedded, visibleIds]);
 
+  // ── Ctrl+Shift+D debug overlay (embedded diagnostics, 2026-07-14) ──
+  // Shows the live message log + viewport/scroller metrics INSIDE the real
+  // portal, where headless repros can't reach.
+  const [debugOn, setDebugOn] = useState(false);
+  const debugLog = useRef<string[]>([]);
+  const [, bumpDebug] = useState(0);
+  const logDebug = (msg: string) => {
+    debugLog.current = [
+      ...debugLog.current.slice(-7),
+      `${new Date().toISOString().slice(11, 19)} ${msg}`,
+    ];
+    bumpDebug((n) => n + 1);
+  };
+  useEffect(() => {
+    if (!embedded) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+        setDebugOn((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [embedded]);
+  const [debugMetrics, setDebugMetrics] = useState("");
+  useEffect(() => {
+    if (!debugOn) return;
+    const id = setInterval(() => {
+      const scrollers = Array.from(document.querySelectorAll<HTMLElement>(".ba-scroll")).map(
+        (s) => `${s.scrollHeight}/${s.clientHeight}${s.scrollHeight > s.clientHeight ? "✓" : "✗"}`,
+      );
+      setDebugMetrics(
+        `vp ${window.innerWidth}×${window.innerHeight} · doc ${document.documentElement.scrollHeight} · scrollers [${scrollers.join(", ")}]`,
+      );
+    }, 800);
+    return () => clearInterval(id);
+  }, [debugOn]);
+
   // Portal-embed auto-height (see usePortalAutoHeight for the contract).
-  usePortalAutoHeight("daily-events-resize", !!embedded, selectedEventId !== null);
+  usePortalAutoHeight("daily-events-resize", !!embedded, selectedEventId !== null, (h) =>
+    logDebug(`resize→${h}`),
+  );
 
   // Modal open/close signal: the portal locks ITS page scroll, sizes the
   // iframe to the visible viewport, scrolls it into view, and ignores
@@ -571,6 +610,8 @@ export default function DailyEventsBoardV2({
   useEffect(() => {
     if (!embedded || typeof window === "undefined" || window.parent === window) return;
     window.parent.postMessage({ type: "daily-events-modal", open: selectedEventId !== null }, "*");
+    logDebug(`modal→${selectedEventId !== null}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- logDebug is a logger
   }, [embedded, selectedEventId]);
 
   const themeStyle =
@@ -929,6 +970,30 @@ export default function DailyEventsBoardV2({
           }}
           onClose={closeDetail}
         />
+      )}
+
+      {/* Ctrl+Shift+D diagnostics (embedded) — message log + live metrics */}
+      {debugOn && (
+        <div
+          style={{
+            position: "fixed",
+            left: 8,
+            bottom: 8,
+            zIndex: 99999,
+            backgroundColor: "rgba(0,0,0,0.85)",
+            color: "#4ade80",
+            font: "11px/1.5 Consolas, monospace",
+            padding: "8px 10px",
+            borderRadius: 6,
+            maxWidth: 480,
+            pointerEvents: "none",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {debugMetrics}
+          {"\n"}
+          {debugLog.current.join("\n")}
+        </div>
       )}
     </div>
   );
