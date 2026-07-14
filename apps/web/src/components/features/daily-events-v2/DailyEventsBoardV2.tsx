@@ -20,6 +20,7 @@ import {
   fetchDayReservations,
   fetchLocalEvents,
   getPaymentsBulk,
+  type LocalDayEvent,
 } from "~/features/daily-events/api";
 import { DEFAULT_WAIVER_THRESHOLDS, LOCATIONS } from "~/features/daily-events/constants";
 import { fmtDateLabelLong, fmtEventTime, todayET } from "~/features/daily-events/format";
@@ -42,11 +43,11 @@ type ViewMode = "day" | "week";
 interface DayData {
   date: string;
   reservations: Reservation[];
-  /** False while this date's BMI fetch is still in flight. */
-  loaded: boolean;
-  /** Local-DB seed painted (phase 1) — rows are provisional until `loaded`. */
-  localLoaded: boolean;
 }
+
+/** Grace window before the provisional Neon paint — inside it, a warm BMI
+ *  cache delivers the final board directly and the user sees ONE paint. */
+const PROVISIONAL_AFTER_MS = 400;
 
 interface AttentionItem {
   key: string;
@@ -250,44 +251,49 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
     return getDaysInPeriod(period.start, period.end);
   }, [view, date]);
 
-  const [days, setDays] = useState<DayData[]>([]);
+  const [board, setBoard] = useState<{ days: DayData[]; final: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [websitePayments, setWebsitePayments] = useState<Map<string, WebsitePaymentInfo>>(
     new Map(),
   );
 
-  // Fetch every date in scope (Day = 1 call, Week = 7 parallel — v1's own
-  // weekly pattern), rendering PROGRESSIVELY: each day-card paints the
-  // moment its date lands, and that day's payment pills start loading
-  // immediately — no Promise.all barrier holding the whole board on the
-  // slowest BMI call (perf pass 2026-07-13). Group functions only; v1
+  // TWO PAINTS, NEVER MORE (owner 2026-07-13: per-day churn "just sucks").
+  // Everything fetches at once. The daily-events-cache-warm cron keeps BMI
+  // warm for today−1…+13, so the normal case is a SINGLE final paint in
+  // ~0.3s. Only when BMI is genuinely slow (cold distant dates) does the
+  // board paint Neon quotes first — with one "checking BMI" chip up top —
+  // then apply BMI truth once, in one settle. Group functions only; v1
   // keeps the online view.
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    setDays(
-      scopeDates.map((date) => ({ date, reservations: [], loaded: false, localLoaded: false })),
-    );
+    setBoard(null);
     setWebsitePayments(new Map());
 
-    // Phase 1 — OUR DB, one fast query: the ENTIRE board paints in one go
-    // from local quotes (owner 2026-07-13: staggered pop-in looked sloppy).
-    // Never overwrites a day BMI already answered for (the cached BMI path
-    // can win the race).
+    const startMs = Date.now();
+    let localData: Record<string, LocalDayEvent[]> | null = null;
+    let finalDone = false;
+
+    const paintProvisional = () => {
+      if (cancelled || finalDone || localData === null) return;
+      const byDate = localData;
+      setBoard((prev) =>
+        prev?.final
+          ? prev
+          : {
+              days: scopeDates.map((d) => ({
+                date: d,
+                reservations: (byDate[d] ?? []).map((e) => e.reservation),
+              })),
+              final: false,
+            },
+      );
+    };
+
     fetchLocalEvents(token, scopeDates, locationId)
       .then((byDate) => {
         if (cancelled) return;
-        setDays((prev) =>
-          prev.map((d) =>
-            d.loaded
-              ? d
-              : {
-                  ...d,
-                  reservations: (byDate[d.date] ?? []).map((e) => e.reservation),
-                  localLoaded: true,
-                },
-          ),
-        );
+        localData = byDate;
         setWebsitePayments((prev) => {
           const next = new Map(prev);
           for (const list of Object.values(byDate)) {
@@ -298,48 +304,56 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
           }
           return next;
         });
+        // If BMI already blew past the grace window, paint Neon now.
+        if (Date.now() - startMs > PROVISIONAL_AFTER_MS) paintProvisional();
       })
       .catch(() => {
-        /* local seed failed — BMI phase 2 carries the render alone */
+        /* local seed failed — the BMI paint carries the render alone */
       });
 
-    // Phase 2 — BMI office truth per date (45s server cache): replaces each
-    // day's rows (adding quote-less/legacy events) as it lands. One retry —
-    // a transient failure otherwise strands the provisional local rows.
-    for (const day of scopeDates) {
-      fetchDayReservations(token, day, locationId)
-        .catch(() => fetchDayReservations(token, day, locationId))
-        .then((data) => {
-          if (cancelled) return;
-          const reservations = applyViewTypeFilter(data.reservations || [], "group");
-          setDays((prev) =>
-            prev.map((d) => (d.date === day ? { ...d, reservations, loaded: true } : d)),
-          );
-          if (reservations.length > 0) {
-            getPaymentsBulk(token, reservations)
-              .then((m) => {
-                if (!cancelled) setWebsitePayments((prev) => new Map([...prev, ...m]));
-              })
-              .catch(() => {});
-          }
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          // Single-day scope surfaces the failure; a week keeps rendering
-          // the other six (local rows stay up if we have them).
-          setDays((prev) => prev.map((d) => (d.date === day ? { ...d, loaded: true } : d)));
-          if (scopeDates.length === 1) {
-            setError(err instanceof Error ? err.message : "Failed to load events");
-          }
-        });
-    }
+    const timer = setTimeout(paintProvisional, PROVISIONAL_AFTER_MS);
+
+    void Promise.all(
+      scopeDates.map((day) =>
+        fetchDayReservations(token, day, locationId)
+          .catch(() => fetchDayReservations(token, day, locationId))
+          .then((data) => ({
+            day,
+            ok: true,
+            reservations: applyViewTypeFilter(data.reservations || [], "group"),
+          }))
+          .catch(() => ({ day, ok: false, reservations: null })),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      finalDone = true;
+      const days = results.map((r) => ({
+        date: r.day,
+        // Total BMI failure for a date → fall back to its Neon rows.
+        reservations: r.reservations ?? (localData?.[r.day] ?? []).map((e) => e.reservation),
+      }));
+      setBoard({ days, final: true });
+      if (scopeDates.length === 1 && !results[0].ok) {
+        setError("BMI lookup failed — showing website events only");
+      }
+      const all = days.flatMap((d) => d.reservations).filter((r) => !r._provisional);
+      if (all.length > 0) {
+        getPaymentsBulk(token, all)
+          .then((m) => {
+            if (!cancelled) setWebsitePayments((prev) => new Map([...prev, ...m]));
+          })
+          .catch(() => {});
+      }
+    });
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [token, locationId, scopeDates]);
 
-  const allLoaded = days.length > 0 && days.every((d) => d.loaded);
+  const days = board?.days ?? [];
+  const allLoaded = board?.final ?? false;
   const anyContent = days.length > 0;
 
   // Hide-cancelled filter feeds EVERYTHING downstream: cards, summaries,
@@ -393,8 +407,30 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
       ? fmtDateLabelLong(date)
       : `Week of ${formatDisplayDate(scopeDates[0])} – ${formatDisplayDate(scopeDates[scopeDates.length - 1])}`;
 
-  // Every date always renders its own band — empty days are NOT combined
-  // (owner 2026-07-13: combining fought the load flow; reversed same day).
+  // Week view: runs of 2+ consecutive empty days combine into one slim band.
+  // Safe again under the two-paint model — the layout settles at most once
+  // (owner 2026-07-13, third ruling: combining is back now that per-day
+  // churn is gone).
+  type RenderGroup = { kind: "day"; day: DayData } | { kind: "emptyRun"; days: DayData[] };
+  const renderGroups = useMemo<RenderGroup[]>(() => {
+    if (view !== "week") return visibleDays.map((day) => ({ kind: "day" as const, day }));
+    const groups: RenderGroup[] = [];
+    let run: DayData[] = [];
+    const flush = () => {
+      if (run.length >= 2) groups.push({ kind: "emptyRun", days: run });
+      else for (const day of run) groups.push({ kind: "day", day });
+      run = [];
+    };
+    for (const d of visibleDays) {
+      if (d.reservations.length === 0) run.push(d);
+      else {
+        flush();
+        groups.push({ kind: "day", day: d });
+      }
+    }
+    flush();
+    return groups;
+  }, [view, visibleDays]);
 
   // ── Detail modal (v1 mechanics, ?event= deep link) ──
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -473,9 +509,34 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
         >
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>{heading}</h1>
           {anyContent && (
-            <span style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>
+            <span
+              style={{
+                color: "var(--ba-muted)",
+                fontSize: "0.82rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
               {LOCATIONS.find((l) => l.id === locationId)?.label} · {totals.events} event
               {totals.events === 1 ? "" : "s"} · {totals.persons} people
+              {!allLoaded && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <span
+                    className="de-spin"
+                    style={{
+                      width: 10,
+                      height: 10,
+                      border: "2px solid transparent",
+                      borderTopColor: "#60a5fa",
+                      borderBottomColor: "#60a5fa",
+                      borderRadius: "50%",
+                      flexShrink: 0,
+                    }}
+                  />
+                  checking BMI for legacy events
+                </span>
+              )}
             </span>
           )}
           <span
@@ -691,27 +752,75 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
             {error}
           </div>
         )}
-        {!error && (
+        {board === null && !error && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              padding: "3rem 0",
+            }}
+          >
+            <span
+              className="de-spin"
+              style={{
+                width: 28,
+                height: 28,
+                border: "2px solid transparent",
+                borderTopColor: "#60a5fa",
+                borderBottomColor: "#60a5fa",
+                borderRadius: "50%",
+              }}
+            />
+          </div>
+        )}
+        {board !== null && !error && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {visibleDays.map((d) =>
-              view === "day" && d.loaded && d.reservations.length === 0 ? (
+            {renderGroups.map((g) =>
+              g.kind === "emptyRun" ? (
                 <div
-                  key={d.date}
+                  key={g.days[0].date}
+                  style={{
+                    backgroundColor: "var(--ba-bg2)",
+                    border: "1px solid var(--ba-border)",
+                    borderRadius: 8,
+                    padding: "9px 16px",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <b style={{ fontSize: "0.9rem", color: "var(--ba-fg)" }}>
+                    {formatDisplayDate(g.days[0].date)} –{" "}
+                    {formatDisplayDate(g.days[g.days.length - 1].date)}
+                  </b>
+                  <span
+                    style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--ba-muted)" }}
+                  >
+                    no group functions
+                  </span>
+                </div>
+              ) : view === "day" && g.day.reservations.length === 0 ? (
+                <div
+                  key={g.day.date}
                   style={{ textAlign: "center", padding: "3rem 0", color: "var(--ba-muted)" }}
                 >
                   No group functions for this date and location.
                 </div>
               ) : (
                 <DayCard
-                  key={d.date}
-                  label={view === "day" ? fmtDateLabelLong(d.date) : formatDisplayDate(d.date)}
-                  isToday={d.date === today}
-                  reservations={d.reservations}
+                  key={g.day.date}
+                  label={
+                    view === "day" ? fmtDateLabelLong(g.day.date) : formatDisplayDate(g.day.date)
+                  }
+                  isToday={g.day.date === today}
+                  reservations={g.day.reservations}
                   websitePayments={websitePayments}
                   waiverThresholds={waiverThresholds}
                   onOpen={openDetail}
-                  onOpenDay={view === "week" ? () => go({ view: "day", date: d.date }) : undefined}
-                  syncingBmi={!d.loaded}
+                  onOpenDay={
+                    view === "week" ? () => go({ view: "day", date: g.day.date }) : undefined
+                  }
                 />
               ),
             )}

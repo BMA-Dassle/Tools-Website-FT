@@ -7,11 +7,12 @@ import { OfficeApiError } from "~/features/daily-events/data/bmi-office";
 
 export const dynamic = "force-dynamic";
 
-// Short-TTL cache: each date is otherwise a live BMI liveReservations call
-// plus a project GET per waiver event, refetched on every board visit and
-// Day⇄Week toggle. 45s keeps the shared staff board snappy without going
-// operationally stale. Redis outage is non-fatal — falls through to BMI.
-const CACHE_TTL_SECONDS = 45;
+// Cache: each date is otherwise a live BMI liveReservations call plus a
+// project GET per waiver event. The daily-events-cache-warm cron re-warms
+// today−1…+13 for all locations every 5 minutes, so the TTL must outlive
+// the cron period; board hits inside that window are ~0.1s. Redis outage
+// is non-fatal — falls through to BMI.
+const CACHE_TTL_SECONDS = 360;
 
 /**
  * GET /api/admin/daily-events/reservations?token=...&locationId=332160&date=YYYY-MM-DD

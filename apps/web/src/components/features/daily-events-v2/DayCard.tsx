@@ -76,7 +76,6 @@ export default function DayCard({
   waiverThresholds,
   onOpen,
   onOpenDay,
-  syncingBmi,
 }: {
   /** Band label, e.g. "Wed, Jul 15" or "Tuesday, July 14". */
   label: string;
@@ -87,9 +86,6 @@ export default function DayCard({
   onOpen: (r: Reservation) => void;
   /** Week view: clicking the band zooms into that day. */
   onOpenDay?: () => void;
-  /** Local rows are up; the BMI check (legacy events, live states) is still
-   *  running — slim footer line under the rows. */
-  syncingBmi?: boolean;
 }) {
   const sum = summarizeDay(reservations, websitePayments, waiverThresholds);
   const risks: string[] = [];
@@ -272,35 +268,6 @@ export default function DayCard({
           </div>
         );
       })}
-
-      {/* BMI truth-check still running for this date */}
-      {syncingBmi && (
-        <div
-          style={{
-            padding: "8px 16px",
-            borderTop: "1px solid var(--ba-border)",
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            color: "var(--ba-muted)",
-            fontSize: "0.72rem",
-          }}
-        >
-          <span
-            className="de-spin"
-            style={{
-              width: 10,
-              height: 10,
-              border: "2px solid transparent",
-              borderTopColor: "#60a5fa",
-              borderBottomColor: "#60a5fa",
-              borderRadius: "50%",
-              flexShrink: 0,
-            }}
-          />
-          loading BMI legacy events…
-        </div>
-      )}
     </div>
   );
 }

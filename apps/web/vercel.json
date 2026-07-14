@@ -163,6 +163,10 @@
     {
       "path": "/api/cron/card-vault-sweep",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/daily-events-cache-warm",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
