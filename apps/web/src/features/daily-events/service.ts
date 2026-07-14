@@ -1067,6 +1067,7 @@ export async function getLocalDayEvents(
   const quotes = await listQuotesByEventDates(dates, centerCodes);
   const out: Record<string, LocalDayEvent[]> = {};
   for (const q of quotes) {
+    if (!isPaymentBearingQuote(q)) continue; // denied = not this event's record
     const reservation: Reservation = {
       id: String(q.bmi_reservation_id),
       number: q.event_number || "",
@@ -1110,11 +1111,22 @@ export async function getPosSettlementCheck(opts: {
   return null;
 }
 
+/**
+ * A DENIED quote is a rejected website attempt, not the event's payment
+ * record — treating it as one made 3237 (POS-settled, then a denied quote
+ * created 20 min later) read as "unpaid" on the board (2026-07-13). Denied
+ * quotes are invisible to every payment surface; the event falls through
+ * to the quote-less path (BMI rows + POS settlement check).
+ */
+function isPaymentBearingQuote(q: { status: string }): boolean {
+  return q.status !== "denied";
+}
+
 /** Single-code lookup with the richer detail shape (payment entries, link, attempts). */
 export async function getPaymentDetailByCode(code: string): Promise<WebsitePaymentInfo | null> {
   try {
     const quote = await getGfQuoteByReservationId(code);
-    if (!quote) return null;
+    if (!quote || !isPaymentBearingQuote(quote)) return null;
     return formatPaymentDetail(quote) as unknown as WebsitePaymentInfo;
   } catch {
     return null;
@@ -1129,7 +1141,9 @@ export async function getPaymentsBulkByCodes(
     codes.map(async (code) => {
       try {
         const quote = await getGfQuoteByReservationId(code);
-        if (quote) results[code] = formatPaymentSummary(quote) as unknown as WebsitePaymentInfo;
+        if (quote && isPaymentBearingQuote(quote)) {
+          results[code] = formatPaymentSummary(quote) as unknown as WebsitePaymentInfo;
+        }
       } catch {
         // per-code failure degrades silently (portal parity)
       }
