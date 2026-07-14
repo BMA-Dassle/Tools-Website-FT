@@ -19,6 +19,7 @@ import { BOARD_CSS, baThemeCss } from "~/components/features/reservations-admin/
 import {
   fetchDayReservations,
   fetchLocalEvents,
+  fetchSettledCheck,
   getPaymentsBulk,
   type LocalDayEvent,
 } from "~/features/daily-events/api";
@@ -261,6 +262,8 @@ export default function DailyEventsBoardV2({
   const [websitePayments, setWebsitePayments] = useState<Map<string, WebsitePaymentInfo>>(
     new Map(),
   );
+  /** Quote-less events → POS check total cents (null = checked, no check). */
+  const [posChecks, setPosChecks] = useState<Map<string, number | null>>(new Map());
 
   // ONE PAINT, PERIOD (owner 2026-07-13: any provisional rows that BMI later
   // corrects read as things "half disappearing"). The board holds a spinner
@@ -274,6 +277,7 @@ export default function DailyEventsBoardV2({
     setError(null);
     setBoard(null);
     setWebsitePayments(new Map());
+    setPosChecks(new Map());
 
     let localData: Record<string, LocalDayEvent[]> | null = null;
 
@@ -322,7 +326,42 @@ export default function DailyEventsBoardV2({
       if (all.length > 0) {
         getPaymentsBulk(token, all)
           .then((m) => {
-            if (!cancelled) setWebsitePayments((prev) => new Map([...prev, ...m]));
+            if (cancelled) return;
+            setWebsitePayments((prev) => new Map([...prev, ...m]));
+            // Quote-less events (no website record anywhere): ask Square for
+            // a "BMI <n>" POS close-out so the board can show PAID instead
+            // of SQUARE CLOSEOUT (owner 2026-07-13; server caches hits 7d).
+            const quoteKeys = new Set<string>(m.keys());
+            if (localData) {
+              for (const list of Object.values(localData)) {
+                for (const e of list) quoteKeys.add(e.reservation.number || e.reservation.id);
+              }
+            }
+            // No balance gate: venues often record the payment in BMI after
+            // the close-out, zeroing the balance (3253 did) — the POS check
+            // is still the PAID signal. Server caches hits 7 days.
+            const candidates = all.filter(
+              (r) =>
+                !r._isDayPlannerBlock &&
+                r.number &&
+                r.when &&
+                !quoteKeys.has(r.number || r.id) &&
+                !(r.state || "").toLowerCase().includes("cancel"),
+            );
+            for (const r of candidates) {
+              fetchSettledCheck(token, { eventNumber: r.number, when: r.when, locationId })
+                .then((chk) => {
+                  if (cancelled) return;
+                  setPosChecks((prev) =>
+                    new Map(prev).set(r.number || r.id, chk ? (chk.totalCents ?? 0) : null),
+                  );
+                })
+                .catch(() => {
+                  if (!cancelled) {
+                    setPosChecks((prev) => new Map(prev).set(r.number || r.id, null));
+                  }
+                });
+            }
           })
           .catch(() => {});
       }
@@ -524,6 +563,15 @@ export default function DailyEventsBoardV2({
 
   // Portal-embed auto-height (see usePortalAutoHeight for the contract).
   usePortalAutoHeight("daily-events-resize", !!embedded, selectedEventId !== null);
+
+  // Modal open/close signal: the portal locks ITS page scroll, sizes the
+  // iframe to the visible viewport, scrolls it into view, and ignores
+  // resize messages while open — kills the modal double-scroll (owner
+  // 2026-07-13; see the daily-events-modal contract).
+  useEffect(() => {
+    if (!embedded || typeof window === "undefined" || window.parent === window) return;
+    window.parent.postMessage({ type: "daily-events-modal", open: selectedEventId !== null }, "*");
+  }, [embedded, selectedEventId]);
 
   const themeStyle =
     baThemeCss(theme) +
@@ -853,6 +901,7 @@ export default function DailyEventsBoardV2({
                   onOpenDay={
                     view === "week" ? () => go({ view: "day", date: g.day.date }) : undefined
                   }
+                  posChecks={posChecks}
                 />
               ),
             )}

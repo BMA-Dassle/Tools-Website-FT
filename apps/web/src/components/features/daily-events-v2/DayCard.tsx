@@ -75,6 +75,7 @@ export default function DayCard({
   waiverThresholds,
   onOpen,
   onOpenDay,
+  posChecks,
 }: {
   /** Band label, e.g. "Wed, Jul 15" or "Tuesday, July 14". */
   label: string;
@@ -85,6 +86,8 @@ export default function DayCard({
   onOpen: (r: Reservation) => void;
   /** Week view: clicking the band zooms into that day. */
   onOpenDay?: () => void;
+  /** Quote-less events: POS check totals (cents) or null = checked, none. */
+  posChecks?: Map<string, number | null>;
 }) {
   const sum = summarizeDay(reservations, websitePayments, waiverThresholds);
   const risks: string[] = [];
@@ -262,7 +265,20 @@ export default function DayCard({
             </div>
             {/* On narrow screens the cell wraps to its own right-aligned line */}
             <div style={{ marginLeft: "auto" }}>
-              <PaymentCell wp={wp} state={r.state} fallbackBalance={r.balance} />
+              <PaymentCell
+                wp={wp}
+                state={r.state}
+                fallbackBalance={r.balance}
+                pos={
+                  wp
+                    ? undefined
+                    : posChecks?.has(r.number || r.id)
+                      ? (posChecks.get(r.number || r.id) ?? "none")
+                      : posChecks
+                        ? "pending"
+                        : "none"
+                }
+              />
             </div>
           </div>
         );

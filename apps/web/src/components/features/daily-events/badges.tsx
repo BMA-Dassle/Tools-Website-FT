@@ -249,20 +249,31 @@ export function PaymentCell({
   wp,
   state,
   fallbackBalance,
+  pos,
 }: {
   wp?: WebsitePaymentInfo;
   state: string;
   /** BMI balance shown muted when the event has no website quote. */
   fallbackBalance?: number;
+  /** Quote-less events: POS settlement status — "pending" while the Square
+   *  check lookup is in flight, "none" when there is no check, or the check
+   *  total in cents when the event WAS rung up at the POS ("BMI <n>"). */
+  pos?: "pending" | "none" | number;
 }) {
   const pill = wp ? paymentPillFor(wp) : null;
   const totalCents = wp?.totalCents || 0;
   const paidCents = wp ? (wp.isFullyPaid ? wp.totalCents : wp.depositPaidCents) : 0;
   const paidPct = totalCents > 0 ? Math.min(100, Math.round((paidCents / totalCents) * 100)) : 0;
-  // Quote-less BMI event carrying a balance: there is nothing on the website
-  // side at all, so the POS closeout IS the plan — that's the pill's home.
+  const posPaidCents = !wp && typeof pos === "number" ? pos : null;
+  // Quote-less BMI event carrying a balance and NO POS check: the closeout
+  // is still owed at the POS — that's the pill's home. While the check
+  // lookup is pending, show neither pill (no flicker swap).
   const quotelessCloseout =
-    !wp && (fallbackBalance || 0) > 0 && !(state || "").toLowerCase().includes("cancel");
+    !wp &&
+    posPaidCents === null &&
+    pos !== "pending" &&
+    (fallbackBalance || 0) > 0 &&
+    !(state || "").toLowerCase().includes("cancel");
 
   return (
     <div
@@ -285,7 +296,7 @@ export function PaymentCell({
         }}
       >
         {wp && isLegacyPaidQuote(wp) && <LegacyPill />}
-        {pill === "paid" && <PaidPill />}
+        {(pill === "paid" || posPaidCents !== null) && <PaidPill />}
         {pill === "deposit" && <DepositPill />}
         {(pill === "closeout" || quotelessCloseout) && <CloseoutPill />}
         <StateBadge state={state} />
