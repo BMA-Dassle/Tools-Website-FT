@@ -17,13 +17,24 @@ import {
   probeAvailability,
   type AvailabilitySlot,
 } from "~/components/features/booking/steps/bowling/availability-client";
-import { bmiAdapter } from "~/features/booking/data/bmi";
+import {
+  bmiAdapter,
+  type BmiAvailabilityResponse,
+  type BmiBlock,
+} from "~/features/booking/data/bmi";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import {
   productsForSchedule,
+  singleRaceProductsOnTrack,
   type RaceCategory,
   type RaceProduct,
+  type RaceTier,
 } from "~/features/booking/service/race-products";
+import {
+  evaluateRaceRestrictions,
+  type RestrictionBlock,
+  type TrackTierBlock,
+} from "~/features/booking/service/race-restriction-rules";
 import type { BookingSession, BowlingItem, PartyMember } from "~/features/booking/state/types";
 import type {
   BowlingExperienceDurationOption,
@@ -47,33 +58,72 @@ const QAMF_CENTER_CODES: Record<number, string> = {
 const NEW_RACER_LEAD_MINUTES = 75;
 
 /**
- * Junior mirror window: the junior heat must start AFTER the adult heat and
- * within this many minutes of it — three 12-min grid slots, so "right after
- * the adult race" stays true while the junior back-to-back rule (13-min gap
- * to another junior session) still has room to dodge. No junior block in the
- * window → the candidate is dropped (greyed start tile), same presentation as
- * any other infeasible chain.
+ * Junior mirror window: the junior heat must start within this many minutes of
+ * the adult heat — three 12-min grid slots, in EITHER direction (owner
+ * 2026-07-14: "juniors can race before, for sure"; up to two slots is the
+ * comfortable norm, the third slot is allowed with a guest-facing warning —
+ * see JUNIOR_MIRROR_COMFORT_MINUTES). The nearest legal slot always wins, so
+ * the far edge is only used when nothing closer works. No legal junior slot
+ * in the window → the candidate is dropped (greyed start tile), same
+ * presentation as any other infeasible chain.
  */
 export const JUNIOR_MIRROR_WINDOW_MINUTES = 36;
 
 /**
- * Earliest junior block strictly after the adult heat, within the mirror
- * window, with room for every junior in the party. Pure — unit-tested
- * directly. `blocksByStart` is that category's best-block-per-start map from
+ * Beyond this many minutes from the adult heat (i.e. the third grid slot),
+ * the schedule card warns the guest about the gap (owner 2026-07-14: "we can
+ * go to three with warning to guest"). Read by ComboSteps' schedule renderer.
+ */
+export const JUNIOR_MIRROR_COMFORT_MINUTES = 24;
+
+/** What `pickJuniorMirror` hands the injected legality predicate per slot. */
+export interface JuniorMirrorSlot<B> {
+  start: string;
+  startMs: number;
+  block: B;
+}
+
+/**
+ * The junior block NEAREST the adult heat (either side, exact-distance tie
+ * prefers after), within the mirror window, with room for every junior in the
+ * party, passing the injected `isSlotAllowed` predicate (restriction rules +
+ * new-racer lead cutoff — injected so this stays pure and unit-testable).
+ * Never the adult heat's own start: on a shared track that's a physical
+ * double-book, and simultaneous parent/junior races aren't a thing we sell.
+ * Join-preference falls out of the restriction engine, not this function — an
+ * occupied joinable session near the adult heat simply passes the predicate
+ * while an empty slot beside another junior session doesn't.
+ * `blocksByStart` is that category's best-block-per-start map from
  * `fetchRaceLegCandidates`.
  */
 export function pickJuniorMirror<B extends { freeSpots: number }>(
   blocksByStart: Map<string, B>,
   adultStartMs: number,
   juniorCount: number,
+  opts?: {
+    windowBeforeMinutes?: number;
+    windowAfterMinutes?: number;
+    isSlotAllowed?: (slot: JuniorMirrorSlot<B>) => boolean;
+  },
 ): (B & { start: string }) | null {
-  const windowEndMs = adultStartMs + JUNIOR_MIRROR_WINDOW_MINUTES * 60_000;
+  const beforeMs = (opts?.windowBeforeMinutes ?? JUNIOR_MIRROR_WINDOW_MINUTES) * 60_000;
+  const afterMs = (opts?.windowAfterMinutes ?? JUNIOR_MIRROR_WINDOW_MINUTES) * 60_000;
   let best: (B & { start: string; startMs: number }) | null = null;
   for (const [start, block] of blocksByStart) {
     const startMs = wallClockMs(start);
-    if (startMs <= adultStartMs || startMs > windowEndMs) continue;
+    if (startMs === adultStartMs) continue;
+    if (startMs < adultStartMs - beforeMs || startMs > adultStartMs + afterMs) continue;
     if (block.freeSpots < juniorCount) continue;
-    if (!best || startMs < best.startMs) best = { ...block, start, startMs };
+    if (opts?.isSlotAllowed && !opts.isSlotAllowed({ start, startMs, block })) continue;
+    if (!best) {
+      best = { ...block, start, startMs };
+      continue;
+    }
+    const dist = Math.abs(startMs - adultStartMs);
+    const bestDist = Math.abs(best.startMs - adultStartMs);
+    if (dist < bestDist || (dist === bestDist && startMs > adultStartMs)) {
+      best = { ...block, start, startMs };
+    }
   }
   if (!best) return null;
   const { startMs: _startMs, ...rest } = best;
@@ -85,6 +135,90 @@ function isTodayEt(ymd: string): boolean {
 }
 
 /* ───────────────────────── race leg candidates ──────────────────────── */
+
+/**
+ * Per-wizard-load availability memo: "date|productId" → the shared fetch.
+ * `fetchComboLegCandidates` creates ONE map per load so the cross-tier
+ * restriction unions (~6 products per track, needed by BOTH race legs) are
+ * fetched once, not once per leg. All cached fetches are quantity 1 — the
+ * union is an occupancy signal, and the leg primaries already fetch at 1.
+ */
+export type RaceAvailabilityCache = Map<string, Promise<BmiAvailabilityResponse>>;
+
+function cachedAvailability(
+  cache: RaceAvailabilityCache,
+  req: { date: string; productId: string; pageId: string },
+): Promise<BmiAvailabilityResponse> {
+  const key = `${req.date}|${req.productId}`;
+  let p = cache.get(key);
+  if (!p) {
+    p = bmiAdapter.getAvailability({
+      date: req.date,
+      productId: req.productId,
+      pageId: req.pageId,
+      quantity: 1,
+    });
+    // A cached rejection is re-awaited by every consumer; swallow the floating
+    // one so a failed union member never surfaces as an unhandled rejection.
+    p.catch(() => {});
+    cache.set(key, p);
+  }
+  return p;
+}
+
+/** Availability proposals → RestrictionBlocks (wallClockMs epoch basis —
+ *  every block AND candidate in one evaluator call must share it). */
+function availabilityToBlocks(av: BmiAvailabilityResponse): RestrictionBlock[] {
+  return (av.proposals ?? [])
+    .map((p) => p.blocks?.[0]?.block)
+    .filter((b): b is BmiBlock => !!b?.start)
+    .map((b) => ({ startMs: wallClockMs(b.start), freeSpots: b.freeSpots, capacity: b.capacity }));
+}
+
+/**
+ * Pure legality-predicate factory for combo leg slots: restriction rules +
+ * the new-racer lead cutoff, per (tier, category). Exported for direct unit
+ * tests (no bmiAdapter mock needed). Union maps degrade in the safe
+ * direction for a PRE-filter: a track missing from `allTierByTrack` (a union
+ * member failed to load) makes `reserveStarterRoomPerClockHour` no-op
+ * (fail-open — the server guard in assertHeatBookable stays authoritative),
+ * while a partial junior union merely sees fewer occupied heats (also open).
+ * `expressEligible` is pinned false: waiverValid is unread in the combo
+ * party, the server guard resolves the same way, and the opening window
+ * (ends 1:24 PM weekday) is out of reach of every combo start grid anyway.
+ */
+export function makeComboRestrictionCheck(args: {
+  tier: string;
+  category: RaceCategory;
+  nowMs: number;
+  leadCutoffMs: number | null;
+  /** Own-tier blocks per track (the candidate category's leg products). */
+  productBlocksByTrack: Map<string, RestrictionBlock[]>;
+  /** All junior tiers merged, per track (categoryTrackBlocks signal). */
+  juniorUnionByTrack?: Map<string, RestrictionBlock[]>;
+  /** All tiers+categories per track; a track maps to undefined when any
+   *  member fetch failed (fail-open for the starter-room rule). */
+  allTierByTrack?: Map<string, TrackTierBlock[] | undefined>;
+}): (slot: { start: string; startMs: number; track: string | null }) => boolean {
+  return ({ start, startMs, track }) => {
+    if (args.leadCutoffMs != null && startMs < args.leadCutoffMs) return false;
+    const verdict = evaluateRaceRestrictions({
+      tier: args.tier as RaceTier,
+      category: args.category,
+      track,
+      candidateStartMs: startMs,
+      candidateStartLocal: start,
+      nowMs: args.nowMs,
+      productBlocks: args.productBlocksByTrack.get(track ?? "") ?? [],
+      categoryTrackBlocks:
+        args.category === "junior" ? args.juniorUnionByTrack?.get(track ?? "") : undefined,
+      trackAllTierBlocks: args.allTierByTrack?.get(track ?? ""),
+      expressEligible: false,
+      isComboBooking: true,
+    });
+    return !verdict.blocked;
+  };
+}
 
 /** What one bookable race-leg start needs per category present in the party. */
 export interface ComboHeatCandidate {
@@ -103,9 +237,10 @@ export interface ComboHeatCandidate {
   /**
    * Per-category booking info for `entriesForPick`-style heat writes.
    * `start`/`stop` are set only when the category races at a DIFFERENT time
-   * than the anchor (the junior mirror — juniors race right after the adult
-   * heat); absent = the category shares the candidate's `start` (current
-   * same-start behavior, always the case for the primary category).
+   * than the anchor (the junior mirror — juniors race on the nearest legal
+   * junior heat, either side of the adult one); absent = the category shares
+   * the candidate's `start` (current same-start behavior, always the case for
+   * the primary category).
    */
   perCategory: Partial<
     Record<
@@ -164,16 +299,21 @@ export async function fetchRaceLegCandidates(args: {
   dateYmd: string;
   tier: string;
   party: PartyMember[];
+  /** Shared per-wizard-load availability memo (see RaceAvailabilityCache). */
+  cache?: RaceAvailabilityCache;
 }): Promise<ComboHeatCandidate[]> {
-  const { dateYmd, tier, party } = args;
+  const { dateYmd, tier, party, cache = new Map() } = args;
   const cats = categoriesInParty(party);
   if (cats.length === 0) return [];
 
   type BlockInfo = { stop: string; freeSpots: number; productId: string; track: string | null };
   // Per category: "start|track" → block (primary enumerates per-track);
-  // plus per category: start → best block across tracks (secondary match).
+  // plus per category: start → best block across tracks (secondary match);
+  // plus per category: track → own-tier RestrictionBlocks (evaluator signal).
   const perCatByStartTrack = new Map<RaceCategory, Map<string, BlockInfo & { start: string }>>();
   const perCatBestByStart = new Map<RaceCategory, Map<string, BlockInfo>>();
+  const perCatBlocksByTrack = new Map<RaceCategory, Map<string, RestrictionBlock[]>>();
+  const legTracksByCategory = new Map<RaceCategory, string[]>();
 
   // All (category × track-product) availability calls fire in PARALLEL — they
   // were serial awaits, which made the start-time grid feel stuck on a blind
@@ -181,21 +321,24 @@ export async function fetchRaceLegCandidates(args: {
   const catResults = await Promise.all(
     cats.map(async ({ category }) => {
       const products = productsForLeg(dateYmd, tier, category);
-      if (products.length === 0) return { category, byStartTrack: null, bestByStart: null };
+      if (products.length === 0)
+        return { category, byStartTrack: null, bestByStart: null, blocksByTrack: null, products };
       const byStartTrack = new Map<string, BlockInfo & { start: string }>();
       const bestByStart = new Map<string, BlockInfo>();
+      const blocksByTrack = new Map<string, RestrictionBlock[]>();
       const availabilities = await Promise.all(
         products.map(async (product) => ({
           product,
-          availability: await bmiAdapter.getAvailability({
+          availability: await cachedAvailability(cache, {
             date: dateYmd,
             productId: product.productId,
             pageId: product.pageId,
-            quantity: 1,
           }),
         })),
       );
       for (const { product, availability } of availabilities) {
+        const track = (product.track as string | null) ?? null;
+        const trackBlocks = blocksByTrack.get(track ?? "") ?? [];
         for (const proposal of availability.proposals ?? []) {
           const block = proposal.blocks?.[0]?.block;
           if (!block?.start) continue;
@@ -203,34 +346,127 @@ export async function fetchRaceLegCandidates(args: {
             stop: block.stop,
             freeSpots: block.freeSpots,
             productId: product.productId,
-            track: (product.track as string | null) ?? null,
+            track,
           };
           byStartTrack.set(`${block.start}|${info.track ?? ""}`, { ...info, start: block.start });
           const prev = bestByStart.get(block.start);
           if (!prev || info.freeSpots > prev.freeSpots) bestByStart.set(block.start, info);
+          trackBlocks.push({
+            startMs: wallClockMs(block.start),
+            freeSpots: block.freeSpots,
+            capacity: block.capacity,
+          });
         }
+        blocksByTrack.set(track ?? "", trackBlocks);
       }
-      return { category, byStartTrack, bestByStart };
+      return { category, byStartTrack, bestByStart, blocksByTrack, products };
     }),
   );
   for (const r of catResults) {
     // No product for this (tier, category, schedule) — e.g. junior Starter on
     // Mega Tuesday doesn't exist → the whole leg is infeasible.
-    if (!r.byStartTrack || !r.bestByStart) return [];
+    if (!r.byStartTrack || !r.bestByStart || !r.blocksByTrack) return [];
     perCatByStartTrack.set(r.category, r.byStartTrack);
     perCatBestByStart.set(r.category, r.bestByStart);
+    perCatBlocksByTrack.set(r.category, r.blocksByTrack);
+    legTracksByCategory.set(r.category, [
+      ...new Set(r.products.map((p) => p.track).filter((t): t is string => !!t)),
+    ]);
+  }
+
+  // Cross-tier occupancy unions for the restriction evaluator — mirrors the
+  // server guard's fan-out (assertHeatBookable). Junior candidates always need
+  // their track's unions (junior back-to-back + starter-room); adult
+  // candidates only when the leg isn't adult Starter (starter-room guards
+  // int/pro — adult Starter has no union-fed rule). Best-effort per product:
+  // junior union degrades open (fewer occupied heats seen); the all-tier union
+  // is dropped for a track when ANY member failed, because a partial union
+  // UNDERCOUNTS Starter room and would false-block — the server guard stays
+  // authoritative either way.
+  const unionTracks = new Set<string>();
+  for (const [category, tracks] of legTracksByCategory) {
+    if (category === "junior" || tier !== "starter") tracks.forEach((t) => unionTracks.add(t));
+  }
+  const juniorUnionByTrack = new Map<string, RestrictionBlock[]>();
+  const allTierByTrack = new Map<string, TrackTierBlock[] | undefined>();
+  if (unionTracks.size > 0) {
+    const schedule = scheduleForDate(dateYmd);
+    await Promise.all(
+      [...unionTracks].map(async (track) => {
+        let unionProducts = singleRaceProductsOnTrack(track, schedule, "existing");
+        if (unionProducts.length === 0)
+          unionProducts = singleRaceProductsOnTrack(track, schedule, "new");
+        const fetched = await Promise.all(
+          unionProducts.map(async (p) => {
+            try {
+              const av = await cachedAvailability(cache, {
+                date: dateYmd,
+                productId: p.productId,
+                pageId: p.pageId,
+              });
+              return { p, blocks: availabilityToBlocks(av) };
+            } catch {
+              return null; // best-effort — see note above
+            }
+          }),
+        );
+        const all: TrackTierBlock[] = [];
+        const junior: RestrictionBlock[] = [];
+        let complete = true;
+        for (const f of fetched) {
+          if (!f) {
+            complete = false;
+            continue;
+          }
+          const adultStarter = f.p.tier === "starter" && f.p.category === "adult";
+          all.push(...f.blocks.map((b) => ({ ...b, adultStarter })));
+          if (f.p.category === "junior") junior.push(...f.blocks);
+        }
+        if (junior.length > 0) juniorUnionByTrack.set(track, junior);
+        allTierByTrack.set(track, complete ? all : undefined);
+      }),
+    );
   }
 
   const anyNewRacer = party.some((m) => m.isNewRacer);
   const leadCutoffMs =
     anyNewRacer && isTodayEt(dateYmd) ? Date.now() + NEW_RACER_LEAD_MINUTES * 60_000 : null;
+  const nowMs = Date.now();
 
   // Primary category drives the (start, track) cards; secondaries must match
-  // the start with capacity on their best track.
+  // the start with capacity on their best track. Every candidate slot —
+  // primary, same-start secondary, and junior mirror — must pass the
+  // restriction rules HERE so the grid never offers a start the hold
+  // (assertHeatBookable) would reject after the fact.
   const [primary, ...rest] = cats;
+  const primaryAllowed = makeComboRestrictionCheck({
+    tier,
+    category: primary.category,
+    nowMs,
+    leadCutoffMs,
+    productBlocksByTrack: perCatBlocksByTrack.get(primary.category)!,
+    juniorUnionByTrack,
+    allTierByTrack,
+  });
+  const juniorAllowed = rest.some((c) => c.category === "junior")
+    ? makeComboRestrictionCheck({
+        tier,
+        category: "junior",
+        nowMs,
+        leadCutoffMs,
+        productBlocksByTrack: perCatBlocksByTrack.get("junior") ?? new Map(),
+        juniorUnionByTrack,
+        allTierByTrack,
+      })
+    : null;
   const candidates: ComboHeatCandidate[] = [];
   for (const base of perCatByStartTrack.get(primary.category)!.values()) {
     if (base.freeSpots < primary.count) continue;
+    if (
+      !primaryAllowed({ start: base.start, startMs: wallClockMs(base.start), track: base.track })
+    ) {
+      continue;
+    }
     const perCategory: ComboHeatCandidate["perCategory"] = {
       [primary.category]: {
         productId: base.productId,
@@ -241,16 +477,21 @@ export async function fetchRaceLegCandidates(args: {
     let ok = true;
     let minFree = base.freeSpots;
     for (const { category, count } of rest) {
-      // Junior mirror (flag-gated): juniors race right AFTER the adult heat
-      // instead of needing a junior block at the SAME start (which never
-      // aligns — junior sessions run their own grid, so mixed parties were
-      // effectively unbookable). `rest` only contains juniors when adults are
-      // the primary category, so `base` is always the adult heat here.
+      // Junior mirror (flag-gated): juniors race right AROUND the adult heat
+      // (nearest slot either side — see pickJuniorMirror) instead of needing a
+      // junior block at the SAME start (which never aligns — junior sessions
+      // run their own grid, so mixed parties were effectively unbookable).
+      // `rest` only contains juniors when adults are the primary category, so
+      // `base` is always the adult heat here.
       if (category === "junior" && comboJuniorMirrorEnabled()) {
         const mirror = pickJuniorMirror(
           perCatBestByStart.get(category)!,
           wallClockMs(base.start),
           count,
+          {
+            isSlotAllowed: (slot) =>
+              juniorAllowed!({ start: slot.start, startMs: slot.startMs, track: slot.block.track }),
+          },
         );
         if (!mirror) {
           ok = false;
@@ -271,6 +512,16 @@ export async function fetchRaceLegCandidates(args: {
         ok = false;
         break;
       }
+      // Legacy same-start path (mirror kill-switch off): the junior share of
+      // the slot still has to clear the junior rules on ITS track.
+      if (
+        category === "junior" &&
+        juniorAllowed &&
+        !juniorAllowed({ start: base.start, startMs: wallClockMs(base.start), track: match.track })
+      ) {
+        ok = false;
+        break;
+      }
       perCategory[category] = {
         productId: match.productId,
         track: match.track,
@@ -279,7 +530,6 @@ export async function fetchRaceLegCandidates(args: {
       minFree = Math.min(minFree, match.freeSpots);
     }
     if (!ok) continue;
-    if (leadCutoffMs != null && wallClockMs(base.start) < leadCutoffMs) continue;
     candidates.push({
       start: base.start,
       stop: base.stop,
@@ -387,11 +637,11 @@ export async function fetchBowlingLegCandidates(args: {
 const ASSUMED_RACE_LEG_MINUTES = 30;
 
 /**
- * Scheduling end of a race-leg candidate: the LAST category's race start (the
- * junior mirror runs after the adult heat) + the flat 30-min leg duration —
- * so the next leg's wait window (bowling maxWaitMinutes, transition buffer)
- * measures from the final race of the leg, not the adult one. Pure —
- * unit-tested directly.
+ * Scheduling end of a race-leg candidate: the LAST category's race start (a
+ * junior mirror may run after the adult heat; a BEFORE-mirror leaves the
+ * adult heat last) + the flat 30-min leg duration — so the next leg's wait
+ * window (bowling maxWaitMinutes, transition buffer) measures from the final
+ * race of the leg. Pure — unit-tested directly.
  */
 export function raceLegEndMs(candidate: ComboHeatCandidate): number {
   const lastStartMs = Math.max(
@@ -419,9 +669,12 @@ export async function fetchComboLegCandidates(args: {
   onLegDone?: (legIndex: number) => void;
 }): Promise<Array<Array<LegCandidate<ComboLegPayload>>>> {
   const { combo, dateYmd, party, centerId, onLegDone } = args;
+  // One availability memo per wizard load: both race legs share the same
+  // cross-tier restriction unions, so each (date, product) is fetched once.
+  const cache: RaceAvailabilityCache = new Map();
   return Promise.all(
     combo.components.map(async (leg, i) => {
-      const candidates = await legCandidates(leg, { combo, dateYmd, party, centerId });
+      const candidates = await legCandidates(leg, { combo, dateYmd, party, centerId, cache });
       onLegDone?.(i);
       return candidates;
     }),
@@ -447,13 +700,20 @@ export function candidatesForOrdering<T>(
 
 async function legCandidates(
   leg: ComboLeg,
-  ctx: { combo: ComboSpecial; dateYmd: string; party: PartyMember[]; centerId: number },
+  ctx: {
+    combo: ComboSpecial;
+    dateYmd: string;
+    party: PartyMember[];
+    centerId: number;
+    cache?: RaceAvailabilityCache;
+  },
 ): Promise<Array<LegCandidate<ComboLegPayload>>> {
   if (leg.kind === "race") {
     const candidates = await fetchRaceLegCandidates({
       dateYmd: ctx.dateYmd,
       tier: leg.tier,
       party: ctx.party,
+      cache: ctx.cache,
     });
     return candidates.map((candidate) => {
       const startMs = wallClockMs(candidate.start);

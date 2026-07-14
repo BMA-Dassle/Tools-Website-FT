@@ -22,7 +22,10 @@ import {
   HEAT_CONFLICT_TOOLTIP,
   packageGapTooltip,
 } from "~/features/booking/service/conflict";
+import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
+import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
+import { useCrossTierBlocks } from "./useCrossTierBlocks";
 
 export interface PackagePick {
   component: PackageRaceComponent;
@@ -36,6 +39,10 @@ interface Props {
   pkg: PackageDefinition;
   date: string;
   racerCount: number;
+  /** The booking step's category (junior packages evaluate the junior rules). */
+  category: "adult" | "junior";
+  /** allReturningHaveWaivers from the step — the opening-heats signal. */
+  expressEligible: boolean;
   onConfirm: (picks: PackagePick[]) => void;
   onCancel: () => void;
 }
@@ -46,6 +53,11 @@ interface TrackedProposal {
   track: string;
   proposal: BmiProposal;
   block: BmiBlock;
+  /** Set when a restriction rule disables (but doesn't hide) this slot — e.g.
+   *  the VIP anchor reserve. Drives the disabled card label + tooltip.
+   *  ("hide"-action rules drop the slot from the grid entirely, same as the
+   *  single-race picker — owner 2026-07-14: "hide just like normal booking".) */
+  restriction?: { cardLabel?: string; reason?: string };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -148,7 +160,15 @@ function SelectedHeats({
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }: Props) {
+export function PackageHeatPicker({
+  pkg,
+  date,
+  racerCount,
+  category,
+  expressEligible,
+  onConfirm,
+  onCancel,
+}: Props) {
   const sortedComponents = useMemo(
     () => [...pkg.races].sort((a, b) => a.sequence - b.sequence),
     [pkg],
@@ -197,27 +217,83 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
 
   const isLoading = queries.some((q) => q.isLoading);
 
-  // Build merged heat grid for all components
+  // Cross-tier occupancy fan-out for the restriction rules (same signal the
+  // single-race grid and the server guard read) — every single-race product on
+  // the grid's tracks, quantity 1 (pure occupancy probe, matches the guard).
+  const crossTierTracks = useMemo(
+    () =>
+      [...new Set(sortedComponents.flatMap((c) => c.tracks.map((t) => t.track)))] as Array<
+        "Red" | "Blue" | "Mega"
+      >,
+    [sortedComponents],
+  );
+  const crossTierBlocks = useCrossTierBlocks({
+    tracks: crossTierTracks,
+    schedule: scheduleForDate(date),
+    racerType: pkg.racerType === "any" ? "existing" : pkg.racerType,
+    date,
+    center: "fort-myers",
+    quantity: 1,
+  });
+
+  // Build merged heat grid for all components, dropping/greying slots the
+  // restriction rules would reject at reserve time (assertHeatBookable): a
+  // pick that can't be booked must never be offered ("hide" action → dropped,
+  // matching how BMI drops genuinely sold-out heats; "disable" → greyed with
+  // the rule's label, e.g. "VIP Reserved").
   const allProposals = useMemo<TrackedProposal[]>(() => {
     const list: TrackedProposal[] = [];
+    const nowMs = Date.now();
     queries.forEach((q, qi) => {
       const fi = fetchItems[qi];
       if (!fi || !q.data?.proposals) return;
+      // This query's own blocks = the candidate tier's occupancy signal.
+      const productBlocks = q.data.proposals
+        .map((p) => p.blocks?.[0]?.block)
+        .filter((b): b is BmiBlock => !!b)
+        .map((b) => ({
+          startMs: parseLocal(b.start).getTime(),
+          freeSpots: b.freeSpots,
+          capacity: b.capacity,
+        }));
+      const trackFailed = crossTierBlocks.failedTracks.has(fi.track);
       for (const p of q.data.proposals) {
         const block = p.blocks?.[0]?.block;
         if (!block) continue;
+        const verdict = evaluateRaceRestrictions({
+          tier: fi.comp.tier,
+          category,
+          track: fi.track,
+          candidateStartMs: parseLocal(block.start).getTime(),
+          candidateStartLocal: block.start,
+          nowMs,
+          productBlocks,
+          // A track with a failed union member passes undefined so union-fed
+          // rules no-op (fail-open pre-filter; the server guard stays
+          // authoritative) instead of false-blocking on partial data.
+          categoryTrackBlocks:
+            category === "junior" && !trackFailed
+              ? crossTierBlocks.juniorByTrack.get(fi.track)
+              : undefined,
+          trackAllTierBlocks: trackFailed ? undefined : crossTierBlocks.allByTrack.get(fi.track),
+          expressEligible,
+        });
+        if (verdict.blocked && verdict.action === "hide") continue;
         list.push({
           component: fi.comp,
           productId: fi.productId,
           track: fi.track,
           proposal: p as BmiProposal,
           block,
+          restriction: verdict.blocked
+            ? { cardLabel: verdict.cardLabel, reason: verdict.reason }
+            : undefined,
         });
       }
     });
     list.sort((a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime());
     return list;
-  }, [queries, fetchItems]);
+  }, [queries, fetchItems, category, expressEligible, crossTierBlocks]);
 
   // Effective min-gap per component. Defaults to the configured value (e.g. the
   // Ultimate Qualifier's 60 min after the Starter), but when NO heat for this
@@ -426,37 +502,44 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
               );
 
               const isLowCap = tp.block.freeSpots < racerCount;
+              // Restriction rule that disables (not hides) this slot — e.g.
+              // the VIP anchor reserve (race-restriction-rules.ts).
+              const isRestricted = !isPicked && !!tp.restriction;
               const isFull = isPicked
                 ? true
-                : isOtherStep || isLowCap || isConflict || isGapViolation || false;
+                : isRestricted || isOtherStep || isLowCap || isConflict || isGapViolation || false;
 
               const statusLabel = isPicked
                 ? "Selected"
-                : isOtherStep
-                  ? "Locked — finish the current step"
-                  : isGapViolation && gapAnchor
-                    ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
-                    : isConflict
-                      ? "Too close to picked heat"
-                      : isLowCap
-                        ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
-                        : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
+                : isRestricted
+                  ? (tp.restriction!.cardLabel ?? "Not available")
+                  : isOtherStep
+                    ? "Locked — finish the current step"
+                    : isGapViolation && gapAnchor
+                      ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+                      : isConflict
+                        ? "Too close to picked heat"
+                        : isLowCap
+                          ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
+                          : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
 
               const statusClass = isPicked
                 ? "text-emerald-300"
-                : isOtherStep || isGapViolation || isConflict
+                : isRestricted || isOtherStep || isGapViolation || isConflict
                   ? "text-amber-400"
                   : isLowCap
                     ? "text-red-400"
                     : spotsLabel(tp.block.freeSpots, tp.block.capacity).text;
 
-              const cardTooltip = isOtherStep
-                ? "Locked — clear a heat above (×) to change it"
-                : isGapViolation && gapAnchor
-                  ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
-                  : isConflict
-                    ? HEAT_CONFLICT_TOOLTIP
-                    : undefined;
+              const cardTooltip = isRestricted
+                ? tp.restriction!.reason
+                : isOtherStep
+                  ? "Locked — clear a heat above (×) to change it"
+                  : isGapViolation && gapAnchor
+                    ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
+                    : isConflict
+                      ? HEAT_CONFLICT_TOOLTIP
+                      : undefined;
 
               const trackTheme = TRACK_CARD[tp.track] ?? TRACK_CARD.Mega;
               const cardClass = isPicked
@@ -500,7 +583,7 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
                       className={`h-full rounded-full ${
                         isLowCap
                           ? "bg-red-500"
-                          : isConflict || isGapViolation || isOtherStep
+                          : isRestricted || isConflict || isGapViolation || isOtherStep
                             ? "bg-amber-400/50"
                             : tp.block.freeSpots / tp.block.capacity <= 0.3
                               ? "bg-amber-400"
@@ -508,7 +591,7 @@ export function PackageHeatPicker({ pkg, date, racerCount, onConfirm, onCancel }
                       }`}
                       style={{
                         width:
-                          isConflict || isGapViolation || isOtherStep
+                          isRestricted || isConflict || isGapViolation || isOtherStep
                             ? "100%"
                             : `${(tp.block.freeSpots / tp.block.capacity) * 100}%`,
                       }}

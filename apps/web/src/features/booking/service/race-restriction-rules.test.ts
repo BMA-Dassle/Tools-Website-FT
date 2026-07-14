@@ -102,6 +102,22 @@ describe("evaluateRaceRestrictions — Mega no back-to-back Pro", () => {
     expect(r.blocked).toBe(true);
   });
 
+  it("allows JOINING an occupied Pro session even with an occupied Pro neighbor", () => {
+    // Candidate 17:36 is itself occupied (a running session with seats) and
+    // 17:24 next door is occupied too — joining adds heads, not sessions.
+    const r = evaluateRaceRestrictions(
+      backToBackCtx({
+        candidateStartMs: ms(17, 36),
+        productBlocks: [
+          ...FULL_DAY_EMPTY.filter((b) => b.startMs !== ms(17, 36)),
+          blk(17, 36, 6),
+          blk(17, 24, 8),
+        ],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
   it("ignores non-Pro tiers for the back-to-back rule", () => {
     // starter + express → neither rule fires
     const r = evaluateRaceRestrictions(
@@ -343,6 +359,61 @@ describe("evaluateRaceRestrictions — Junior no back-to-back (Blue + Mega)", ()
       juniorCtx({ category: "adult", productBlocks: [blk(17, 24, 8)] }),
     );
     expect(r.blocked).toBe(false);
+  });
+
+  it("allows JOINING an occupied Junior session next to another occupied Junior (owner 2026-07-14)", () => {
+    // The live 7/15 case: 13:36 junior starter has open seats, 13:24 next door
+    // is junior-occupied. Joining 13:36 adds heads, not a new session pair.
+    const r = evaluateRaceRestrictions(
+      juniorCtx({
+        track: "Blue",
+        candidateStartMs: ms(13, 36),
+        productBlocks: [blk(13, 36, 5, 7), blk(13, 24, 4, 7)],
+        categoryTrackBlocks: [blk(13, 36, 5, 7), blk(13, 24, 4, 7)],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("join exemption requires OWN-TIER occupancy — cross-tier-only occupancy doesn't count", () => {
+    // Candidate slot occupied only in the category union (another junior tier's
+    // session), empty in the candidate's own productBlocks → still blocked.
+    // (In production such a slot never appears as a candidate — occupied heats
+    // are tier-exclusive — but the evaluator must not treat union occupancy as
+    // a joinable session.)
+    const r = evaluateRaceRestrictions(
+      juniorCtx({
+        track: "Blue",
+        candidateStartMs: ms(13, 36),
+        productBlocks: [blk(13, 36, 7, 7)],
+        categoryTrackBlocks: [blk(13, 36, 4, 7), blk(13, 24, 4, 7)],
+      }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("blue-no-back-to-back-junior");
+  });
+
+  it("a FULL own slot (freeSpots 0) still counts as joining — capacity is the caller's gate", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({
+        track: "Blue",
+        candidateStartMs: ms(13, 36),
+        productBlocks: [blk(13, 36, 0, 7), blk(13, 24, 4, 7)],
+      }),
+    );
+    expect(r.blocked).toBe(false);
+  });
+
+  it("an EMPTY candidate slot next to an occupied Junior still blocks (regression)", () => {
+    const r = evaluateRaceRestrictions(
+      juniorCtx({
+        track: "Blue",
+        candidateStartMs: ms(13, 12),
+        productBlocks: [blk(13, 12, 7, 7), blk(13, 24, 4, 7)],
+      }),
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.ruleId).toBe("blue-no-back-to-back-junior");
   });
 });
 

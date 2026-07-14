@@ -12,7 +12,6 @@ import {
 } from "~/features/booking/data";
 import {
   getRaceProductById,
-  singleRaceProductsOnTrack,
   type RaceProduct,
   type RaceTier,
 } from "~/features/booking/service/race-products";
@@ -22,12 +21,9 @@ import {
   HEAT_CONFLICT_TOOLTIP,
   heatsConflict,
 } from "~/features/booking/service/conflict";
-import {
-  evaluateRaceRestrictions,
-  type RestrictionBlock,
-  type TrackTierBlock,
-} from "~/features/booking/service/race-restriction-rules";
+import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
+import { useCrossTierBlocks } from "./useCrossTierBlocks";
 import { holdPickedHeats } from "~/features/booking/service/race";
 import { RacerSelectorModal } from "./RacerSelectorModal";
 import {
@@ -82,13 +78,6 @@ interface FetchPlanItem {
   productId: string;
   pageId: string;
   track: TrackOrNull;
-}
-
-/** One cross-tier occupancy fetch: a sibling product on the grid's track whose
- *  availability feeds the union the cross-tier restriction rules read. */
-interface CrossTierFetch extends FetchPlanItem {
-  category: Category;
-  adultStarter: boolean;
 }
 
 interface TrackedProposal {
@@ -214,6 +203,15 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       () => (productId ? null : getPackage(item.packageId)),
       [productId, item.packageId],
     );
+
+    // Express-lane eligibility — computed ABOVE the package early-return so
+    // the package grid gets the same opening-heats signal as the single-race
+    // grid. Feeds evaluateRaceRestrictions (expressEligible) + the new-racer
+    // lead cutoff below.
+    const anyNewInCategory = racers.some((r) => r.isNewRacer);
+    const allReturningHaveWaivers =
+      !anyNewInCategory &&
+      session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
     const packageHeatsAlreadyPicked = !!(
       pkg &&
       pkg.races.length > 0 &&
@@ -225,6 +223,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           pkg={pkg}
           date={item.date}
           racerCount={partySize}
+          category={pkg.category !== "any" ? pkg.category : category}
+          expressEligible={allReturningHaveWaivers}
           onConfirm={(picks: PackagePick[]) => {
             const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
               racers.map((r) => ({
@@ -336,79 +336,29 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       })),
     });
 
-    // Cross-tier occupancy fan-out. An occupied heat is tier-exclusive in BMI
-    // availability, so the rules that see past the candidate's own tier
-    // (junior back-to-back + two-per-hour, the adult-Starter room reserve)
-    // need the union of EVERY single-race product's availability on the grid's
-    // track(s). Adult Starter grids skip the fan-out — no cross-tier rule
-    // guards them. Shares query keys with `queries`, so React Query dedupes
-    // the candidate product's own fetch.
-    const crossTierProducts = useMemo<CrossTierFetch[]>(() => {
+    // Cross-tier occupancy fan-out (shared hook — see useCrossTierBlocks). An
+    // occupied heat is tier-exclusive in BMI availability, so the rules that
+    // see past the candidate's own tier (junior back-to-back + two-per-hour,
+    // the adult-Starter room reserve) need the union of EVERY single-race
+    // product's availability on the grid's track(s). Adult Starter grids skip
+    // the fan-out — no cross-tier rule guards them. Shares query keys with
+    // `queries`, so React Query dedupes the candidate product's own fetch.
+    const crossTierTracks = useMemo<Track[]>(() => {
       if (!product) return [];
       if (product.tier === "starter" && category === "adult") return [];
-      const tracks = [...new Set(buildFetchPlan(product).map((f) => f.track))].filter(
+      return [...new Set(buildFetchPlan(product).map((f) => f.track))].filter(
         (t): t is Track => !!t,
-      );
-      return tracks.flatMap((track) =>
-        singleRaceProductsOnTrack(track, product.schedule, product.racerType).map((p) => ({
-          productId: p.productId,
-          pageId: p.pageId,
-          track: track as TrackOrNull,
-          category: p.category as Category,
-          adultStarter: p.tier === "starter" && p.category === "adult",
-        })),
       );
       // `category` is a closure constant (makeHeatPickerComponent), not a dep.
     }, [product]);
-
-    const crossTierQueries = useQueries({
-      queries: crossTierProducts.map(({ productId: pid, pageId }) => ({
-        queryKey: bookingKeys.bmi.availability({
-          center: session.center ?? "fort-myers",
-          date: item.date ?? "",
-          productId: pid,
-        }),
-        queryFn: (): Promise<BmiAvailabilityResponse> =>
-          bmiAdapter.getAvailability({
-            date: item.date!,
-            productId: pid,
-            pageId,
-            quantity: partySize > 0 ? partySize : 1,
-          }),
-        enabled: !!item.date && crossTierProducts.length > 0 && partySize > 0,
-        staleTime: 60_000,
-      })),
+    const crossTierBlocks = useCrossTierBlocks({
+      tracks: crossTierTracks,
+      schedule: product?.schedule ?? "weekday",
+      racerType: product?.racerType ?? "existing",
+      date: item.date ?? null,
+      center: session.center ?? "fort-myers",
+      quantity: partySize > 0 ? partySize : 1,
     });
-
-    // Per-track unions the evaluator reads: every tier + category (tagged with
-    // whether the source product is adult Starter), plus the junior-only
-    // subset the junior back-to-back / per-hour rules read.
-    const crossTierBlocks = useMemo(() => {
-      const allByTrack = new Map<string, TrackTierBlock[]>();
-      const juniorByTrack = new Map<string, RestrictionBlock[]>();
-      crossTierQueries.forEach((q, qi) => {
-        const src = crossTierProducts[qi];
-        if (!src?.track || !q.data?.proposals) return;
-        for (const p of q.data.proposals) {
-          const b = p.blocks?.[0]?.block;
-          if (!b) continue;
-          const rb: RestrictionBlock = {
-            startMs: parseLocal(b.start).getTime(),
-            freeSpots: b.freeSpots,
-            capacity: b.capacity,
-          };
-          const all = allByTrack.get(src.track) ?? [];
-          all.push({ ...rb, adultStarter: src.adultStarter });
-          allByTrack.set(src.track, all);
-          if (src.category === "junior") {
-            const jr = juniorByTrack.get(src.track) ?? [];
-            jr.push(rb);
-            juniorByTrack.set(src.track, jr);
-          }
-        }
-      });
-      return { allByTrack, juniorByTrack };
-    }, [crossTierQueries, crossTierProducts]);
 
     const returningRacers = useMemo(() => racers.filter((r) => !!r.bmiPersonId), [racers]);
     const hasReturning = returningRacers.length > 0;
@@ -484,10 +434,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       track: (h.track as TrackOrNull) ?? null,
     }));
 
-    const anyNewInCategory = racers.some((r) => r.isNewRacer);
-    const allReturningHaveWaivers =
-      !anyNewInCategory &&
-      session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
+    // (anyNewInCategory / allReturningHaveWaivers are computed above the
+    // package early-return so the package grid shares the signal.)
     const leadMinutes = allReturningHaveWaivers ? 0 : NEW_RACER_LEAD_MINUTES;
     const leadCutoffMs = anyNewInCategory ? Date.now() + leadMinutes * 60_000 : 0;
 
@@ -525,9 +473,16 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             candidateStartLocal: block.start,
             nowMs,
             productBlocks: restrictionBlocks,
+            // A track with a failed union member passes undefined so the
+            // union-fed rules no-op (fail-open pre-filter; the server guard
+            // stays authoritative) instead of false-blocking on partial data.
             categoryTrackBlocks:
-              category === "junior" ? crossTierBlocks.juniorByTrack.get(fp.track ?? "") : undefined,
-            trackAllTierBlocks: crossTierBlocks.allByTrack.get(fp.track ?? ""),
+              category === "junior" && !crossTierBlocks.failedTracks.has(fp.track ?? "")
+                ? crossTierBlocks.juniorByTrack.get(fp.track ?? "")
+                : undefined,
+            trackAllTierBlocks: crossTierBlocks.failedTracks.has(fp.track ?? "")
+              ? undefined
+              : crossTierBlocks.allByTrack.get(fp.track ?? ""),
             expressEligible: allReturningHaveWaivers,
           });
           if (verdict.blocked && verdict.action === "hide") continue;

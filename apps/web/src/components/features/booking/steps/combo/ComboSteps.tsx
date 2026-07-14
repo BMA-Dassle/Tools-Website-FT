@@ -12,6 +12,7 @@ import {
   comboBowlingPatch,
   fetchComboLegCandidates,
   holdComboBowling,
+  JUNIOR_MIRROR_COMFORT_MINUTES,
   releaseComboBowlingHold,
   type ComboLegPayload,
 } from "~/features/combos/combo-booking";
@@ -422,18 +423,32 @@ function ScheduleConfirmModal({
                       {entry ? wallClockLabel(entry.startIso) : "—"}
                     </span>
                   </div>
-                  {/* Junior mirror: juniors run their own heat right after the
-                      adult one (different start, junior product's track). */}
+                  {/* Junior mirror: juniors run their own heat right around
+                      the adult one (nearest legal slot either side, junior
+                      product's track). Beyond the comfortable two-slot gap the
+                      line turns amber and spells the gap out (owner
+                      2026-07-14: third slot allowed "with warning to guest"). */}
                   {entry?.payload.kind === "race" &&
-                    entry.payload.candidate.perCategory.junior?.start && (
-                      <p className="mt-1 text-xs" style={{ color: GOLD }}>
-                        {`Juniors race at ${wallClockLabel(entry.payload.candidate.perCategory.junior.start)}${
-                          entry.payload.candidate.perCategory.junior.track
-                            ? ` on ${entry.payload.candidate.perCategory.junior.track}`
-                            : ""
-                        }`}
-                      </p>
-                    )}
+                    entry.payload.candidate.perCategory.junior?.start &&
+                    (() => {
+                      const junior = entry.payload.candidate.perCategory.junior;
+                      const gapMin = Math.round(
+                        Math.abs(wallClockMs(junior.start!) - entry.startMs) / 60_000,
+                      );
+                      const farGap = gapMin > JUNIOR_MIRROR_COMFORT_MINUTES;
+                      const side = wallClockMs(junior.start!) < entry.startMs ? "before" : "after";
+                      return (
+                        <p
+                          className={`mt-1 text-xs${farGap ? " text-amber-300" : ""}`}
+                          style={farGap ? undefined : { color: GOLD }}
+                        >
+                          {`Juniors race at ${wallClockLabel(junior.start!)}${
+                            junior.track ? ` on ${junior.track}` : ""
+                          }`}
+                          {farGap ? ` — ${gapMin} min ${side} the adults' race` : ""}
+                        </p>
+                      );
+                    })()}
                   {options && options.length > 1 && (
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-[11px] uppercase tracking-wider text-white/35">
@@ -670,7 +685,8 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
             tier: tier as RaceHeatAssignment["tier"],
             category,
             // Junior mirror: the category's own start when it differs from the
-            // anchor (juniors race right after the adult heat).
+            // anchor (juniors race on the nearest legal junior heat, either
+            // side of the adult one).
             heatId: cat.start ?? candidate.start,
             bmiLineId: null,
             assignedTo: racer.id,

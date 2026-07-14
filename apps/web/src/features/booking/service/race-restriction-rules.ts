@@ -10,7 +10,9 @@
  * Current rules:
  *  1. mega-no-back-to-back-pro — don't book a Pro Mega session adjacent to an
  *     already-occupied Pro Mega session (kart/staff reconfiguration spacing),
- *     unless the slot starts within 1 hour (last-minute fill). HIDDEN.
+ *     unless the slot starts within 1 hour (last-minute fill) or the pick JOINS
+ *     an already-occupied same-tier session (joining adds heads, not sessions —
+ *     owner 2026-07-14). HIDDEN.
  *  2. opening-heats-express-only — on every race track, the first TWO heats of
  *     the day are reserved for walk-in / express-lane parties (all returning
  *     racers with valid waivers); new racers need time to check in when the
@@ -23,12 +25,14 @@
  *     list). One rule for all tracks since 2026-07-02: every track now runs the
  *     12-min cadence (opens at :24). (Blue ran 15-min — window until :30 — as a
  *     separate -15min rule before the owner moved it to 12-min.)
- *  3. blue/mega-no-back-to-back-junior — no Junior session adjacent to another
- *     occupied Junior session on Blue or Mega (gap 13 both), counted across
- *     EVERY junior tier ("regardless of anything", owner 2026-07-02): a junior
- *     pro neighbor blocks a junior intermediate pick and vice versa (scope
- *     "category" reads `categoryTrackBlocks`). UNCONDITIONAL — no last-minute
- *     override. HIDDEN.
+ *  3. blue/mega-no-back-to-back-junior — no NEW Junior session adjacent to
+ *     another occupied Junior session on Blue or Mega (gap 13 both), counted
+ *     across EVERY junior tier ("regardless of anything", owner 2026-07-02): a
+ *     junior pro neighbor blocks a junior intermediate pick and vice versa
+ *     (scope "category" reads `categoryTrackBlocks`). No last-minute override.
+ *     JOINING an already-occupied same-tier session is exempt (owner
+ *     2026-07-14) — the adjacency already exists; joining adds heads, not a
+ *     new session pair. HIDDEN.
  *  4. mega-junior-two-per-hour — on Mega, at most two Junior races may start in
  *     any center-local clock hour, counted across BOTH junior tiers
  *     (intermediate + pro) — "regardless of type". Reads `categoryTrackBlocks`
@@ -107,7 +111,12 @@ export interface RaceRestrictionRule {
    * "tier" reads `productBlocks` (the candidate's own product only);
    * "category" reads `categoryTrackBlocks` (every same-category heat on the
    * track, tiers merged — falls back to `productBlocks` when the caller can't
-   * supply the union).
+   * supply the union). JOINING an already-occupied session at the candidate's
+   * start is always exempt (checked against `productBlocks` — joins are
+   * necessarily same-tier since occupied heats are tier-exclusive): the
+   * adjacent sessions already exist, so joining creates no new back-to-back
+   * pair. Same join precedent as `reserveStarterRoomPerClockHour` and
+   * `reservedComboAnchorTimes`.
    */
   noAdjacentOccupied?: { gapMinutes: number; scope: "tier" | "category" };
   /**
@@ -483,6 +492,18 @@ function hasOccupiedNeighbor(
   });
 }
 
+/**
+ * Is the candidate's own start already an OCCUPIED session in `blocks`?
+ * Joining an existing session adds heads, not a new session on the schedule —
+ * the blocking constraints that guard the *session grid* (`noAdjacentOccupied`,
+ * `reserveStarterRoomPerClockHour`, `reservedComboAnchorTimes`) all exempt it.
+ * `freeSpots === 0` still counts as joining: whether the party FITS is the
+ * caller's capacity gate, not this module's concern.
+ */
+function joiningOccupiedAt(blocks: RestrictionBlock[], candidateStartMs: number): boolean {
+  return blocks.some((b) => b.startMs === candidateStartMs && b.freeSpots < b.capacity);
+}
+
 /** True when the rule's last-minute override lifts a would-be block. */
 function lastMinuteLift(rule: RaceRestrictionRule, ctx: RestrictionContext): boolean {
   const override = rule.lastMinuteOverrideMinutes;
@@ -524,17 +545,21 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
     if (rule.reservedComboAnchorTimes && ctx.candidateStartLocal) {
       const parts = localClockParts(ctx.candidateStartLocal);
       if (parts && rule.reservedComboAnchorTimes.startMinutes.includes(parts.minutes)) {
-        const joiningOccupied = ctx.productBlocks.some(
-          (b) => b.startMs === ctx.candidateStartMs && b.freeSpots < b.capacity,
-        );
+        const joiningOccupied = joiningOccupiedAt(ctx.productBlocks, ctx.candidateStartMs);
         if (!joiningOccupied && !lastMinuteLift(rule, ctx)) return block(rule);
       }
     }
 
     // Constraint: no back-to-back occupied slot. Scope "tier" sees only the
     // candidate's own product; "category" sees every same-category heat on the
-    // track (tiers merged) when the caller supplied the union.
-    if (rule.noAdjacentOccupied) {
+    // track (tiers merged) when the caller supplied the union. JOINING an
+    // already-occupied session at the candidate's start is exempt (owner
+    // 2026-07-14): the adjacent sessions already exist on the schedule, so
+    // joining one adds heads, not a new back-to-back pair. The join test reads
+    // productBlocks (own tier) regardless of scope — occupied heats are
+    // tier-exclusive in BMI availability, so a slot occupied by ANOTHER tier
+    // never appears as a bookable candidate in this tier at all.
+    if (rule.noAdjacentOccupied && !joiningOccupiedAt(ctx.productBlocks, ctx.candidateStartMs)) {
       const blocks =
         rule.noAdjacentOccupied.scope === "category" && ctx.categoryTrackBlocks?.length
           ? ctx.categoryTrackBlocks
@@ -555,9 +580,7 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
       // Joining an already-running session at the candidate's start consumes no
       // new room — the slot left the Starter pool when its first racer booked
       // — so the reserve never blocks it, even in an hour already under quota.
-      const joiningActiveSession = ctx.trackAllTierBlocks.some(
-        (b) => b.startMs === ctx.candidateStartMs && b.freeSpots < b.capacity,
-      );
+      const joiningActiveSession = joiningOccupiedAt(ctx.trackAllTierBlocks, ctx.candidateStartMs);
       const parts = joiningActiveSession ? null : localClockParts(ctx.candidateStartLocal);
       if (parts) {
         const minutesIntoHour = parts.minutes % 60;

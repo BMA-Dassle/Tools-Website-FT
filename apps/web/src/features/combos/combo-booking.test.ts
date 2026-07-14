@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import type {
+  RestrictionBlock,
+  TrackTierBlock,
+} from "~/features/booking/service/race-restriction-rules";
+
 import {
   JUNIOR_MIRROR_WINDOW_MINUTES,
+  makeComboRestrictionCheck,
   pickJuniorMirror,
   raceLegEndMs,
   type ComboHeatCandidate,
@@ -21,10 +27,10 @@ const block = (freeSpots = 8) => ({
 const blocksAt = (entries: Array<[string, ReturnType<typeof block>]>) =>
   new Map(entries.map(([t, b]) => [iso(t), b]));
 
-describe("pickJuniorMirror — first junior heat right after the adult one", () => {
+describe("pickJuniorMirror — junior heat nearest the adult one (either side)", () => {
   const adultStartMs = wallClockMs(iso("14:00"));
 
-  it("picks the earliest junior block strictly after the adult heat", () => {
+  it("picks the junior block nearest the adult heat", () => {
     const r = pickJuniorMirror(
       blocksAt([
         ["14:24", block()],
@@ -36,7 +42,31 @@ describe("pickJuniorMirror — first junior heat right after the adult one", () 
     expect(r?.start).toBe(iso("14:12"));
   });
 
-  it("never mirrors onto the adult's own start (juniors race AFTER, not alongside)", () => {
+  it("picks a BEFORE slot when it is nearest (owner 2026-07-14: juniors can race before)", () => {
+    const r = pickJuniorMirror(
+      blocksAt([
+        ["13:48", block()],
+        ["14:24", block()],
+      ]),
+      adultStartMs,
+      1,
+    );
+    expect(r?.start).toBe(iso("13:48"));
+  });
+
+  it("exact-distance tie prefers AFTER (keeps the 'right after the adults' default)", () => {
+    const r = pickJuniorMirror(
+      blocksAt([
+        ["13:48", block()],
+        ["14:12", block()],
+      ]),
+      adultStartMs,
+      1,
+    );
+    expect(r?.start).toBe(iso("14:12"));
+  });
+
+  it("never mirrors onto the adult's own start (shared-track double-book hazard)", () => {
     const r = pickJuniorMirror(blocksAt([["14:00", block()]]), adultStartMs, 1);
     expect(r).toBeNull();
   });
@@ -53,17 +83,140 @@ describe("pickJuniorMirror — first junior heat right after the adult one", () 
     expect(r?.start).toBe(iso("14:24"));
   });
 
-  it("window boundary: +36 min is in, the next grid slot is out", () => {
+  it("window boundaries both directions: ±36 min in, the next grid slot out", () => {
     expect(JUNIOR_MIRROR_WINDOW_MINUTES).toBe(36);
     expect(pickJuniorMirror(blocksAt([["14:36", block()]]), adultStartMs, 1)?.start).toBe(
       iso("14:36"),
     );
     expect(pickJuniorMirror(blocksAt([["14:48", block()]]), adultStartMs, 1)).toBeNull();
+    expect(pickJuniorMirror(blocksAt([["13:24", block()]]), adultStartMs, 1)?.start).toBe(
+      iso("13:24"),
+    );
+    expect(pickJuniorMirror(blocksAt([["13:12", block()]]), adultStartMs, 1)).toBeNull();
+  });
+
+  it("a predicate-rejected slot falls through to the next nearest legal one", () => {
+    const r = pickJuniorMirror(
+      blocksAt([
+        ["14:12", block()],
+        ["14:24", block()],
+      ]),
+      adultStartMs,
+      1,
+      { isSlotAllowed: (slot) => slot.start !== iso("14:12") },
+    );
+    expect(r?.start).toBe(iso("14:24"));
+  });
+
+  it("null when the predicate rejects everything in the window", () => {
+    const r = pickJuniorMirror(
+      blocksAt([
+        ["13:48", block()],
+        ["14:12", block()],
+      ]),
+      adultStartMs,
+      1,
+      { isSlotAllowed: () => false },
+    );
+    expect(r).toBeNull();
   });
 
   it("null when no junior block exists in the window", () => {
-    expect(pickJuniorMirror(blocksAt([["13:48", block()]]), adultStartMs, 1)).toBeNull();
+    expect(pickJuniorMirror(blocksAt([["15:00", block()]]), adultStartMs, 1)).toBeNull();
     expect(pickJuniorMirror(new Map(), adultStartMs, 1)).toBeNull();
+  });
+});
+
+describe("makeComboRestrictionCheck — restriction rules + lead cutoff for combo slots", () => {
+  const nowMs = wallClockMs(iso("09:00")); // hours before — no last-minute lifts
+  const rb = (t: string, freeSpots: number, capacity = 10): RestrictionBlock => ({
+    startMs: wallClockMs(iso(t)),
+    freeSpots,
+    capacity,
+  });
+  const tb = (t: string, freeSpots: number, adultStarter = false): TrackTierBlock => ({
+    ...rb(t, freeSpots),
+    adultStarter,
+  });
+  const slot = (t: string) => ({ start: iso(t), startMs: wallClockMs(iso(t)), track: "Blue" });
+
+  it("blocks an intermediate slot whose clock hour has no Starter room left", () => {
+    // 15:12/15:24/15:36 occupied by non-Starter sessions; only 15:48 still
+    // empty besides the candidate → booking 15:00 would leave 1 < 2 room.
+    const check = makeComboRestrictionCheck({
+      tier: "intermediate",
+      category: "adult",
+      nowMs,
+      leadCutoffMs: null,
+      productBlocksByTrack: new Map([["Blue", [rb("15:00", 10)]]]),
+      allTierByTrack: new Map([
+        [
+          "Blue",
+          [tb("15:00", 10), tb("15:12", 0), tb("15:24", 0), tb("15:36", 0), tb("15:48", 10)],
+        ],
+      ]),
+    });
+    expect(check(slot("15:00"))).toBe(false);
+  });
+
+  it("fails OPEN when the all-tier union is missing for the track (undefined)", () => {
+    const check = makeComboRestrictionCheck({
+      tier: "intermediate",
+      category: "adult",
+      nowMs,
+      leadCutoffMs: null,
+      productBlocksByTrack: new Map([["Blue", [rb("15:00", 10)]]]),
+      allTierByTrack: new Map([["Blue", undefined]]),
+    });
+    expect(check(slot("15:00"))).toBe(true);
+  });
+
+  it("enforces the new-racer lead cutoff (a before-mirror can start earlier than the adult heat)", () => {
+    const check = makeComboRestrictionCheck({
+      tier: "starter",
+      category: "junior",
+      nowMs,
+      leadCutoffMs: wallClockMs(iso("14:00")),
+      productBlocksByTrack: new Map([["Blue", []]]),
+    });
+    expect(check(slot("13:48"))).toBe(false);
+    expect(check(slot("14:12"))).toBe(true);
+  });
+
+  it("junior back-to-back: blocks a new session beside an occupied junior, allows joining one", () => {
+    const productBlocksByTrack = new Map([
+      ["Blue", [rb("13:36", 5, 7), rb("13:24", 4, 7), rb("14:12", 7, 7)]],
+    ]);
+    const juniorUnionByTrack = new Map([
+      ["Blue", [rb("13:36", 5, 7), rb("13:24", 4, 7), rb("14:12", 7, 7)]],
+    ]);
+    const check = makeComboRestrictionCheck({
+      tier: "starter",
+      category: "junior",
+      nowMs,
+      leadCutoffMs: null,
+      productBlocksByTrack,
+      juniorUnionByTrack,
+    });
+    // Joining the occupied 13:36 session (occupied neighbor at 13:24) — allowed.
+    expect(check(slot("13:36"))).toBe(true);
+    // A NEW session at 14:12 is fine (nearest occupied junior is 13:36, 36 min).
+    expect(check(slot("14:12"))).toBe(true);
+    // A NEW session at 13:48 sits 12 min from the occupied 13:36 — blocked.
+    expect(check({ start: iso("13:48"), startMs: wallClockMs(iso("13:48")), track: "Blue" })).toBe(
+      false,
+    );
+  });
+
+  it("isComboBooking exempts the VIP anchor reserve (2 PM empty slot stays bookable)", () => {
+    const check = makeComboRestrictionCheck({
+      tier: "starter",
+      category: "adult",
+      nowMs,
+      leadCutoffMs: null,
+      productBlocksByTrack: new Map([["Blue", [rb("14:00", 10)]]]),
+    });
+    expect(check(slot("14:00"))).toBe(true);
   });
 });
 
@@ -101,6 +254,10 @@ describe("raceLegEndMs — leg ends 30 min after its LAST race", () => {
     const c = candidate();
     c.perCategory.junior = { productId: "junior-starter-blue", track: "Blue", freeSpots: 8 };
     expect(raceLegEndMs(c)).toBe(wallClockMs(iso("14:30")));
+  });
+
+  it("a junior mirror BEFORE the adult heat does not move the end (max-of-starts)", () => {
+    expect(raceLegEndMs(candidate(iso("13:48")))).toBe(wallClockMs(iso("14:30")));
   });
 });
 
