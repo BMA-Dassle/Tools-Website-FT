@@ -215,7 +215,15 @@ const NAV_LOC_ON: React.CSSProperties = {
   fontWeight: 600,
 };
 
-export default function DailyEventsBoardV2({ token }: { token: string }) {
+export default function DailyEventsBoardV2({
+  token,
+  embedded,
+}: {
+  token: string;
+  /** Portal iframe mode: the portal owns date/location context, so the
+   *  date nav, location pills, and v1-board link are hidden. */
+  embedded?: boolean;
+}) {
   const theme = useBoardTheme();
   const waiverThresholds = DEFAULT_WAIVER_THRESHOLDS;
 
@@ -509,50 +517,54 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
             >
               Week
             </button>
-            <span style={{ width: 8 }} />
-            <button
-              type="button"
-              aria-label="Previous"
-              style={NAV_A}
-              onClick={() => go({ date: shiftDate(date, -step) })}
-            >
-              ‹
-            </button>
-            <button type="button" style={NAV_A} onClick={() => go({ date: today })}>
-              {view === "day" ? "Today" : "This week"}
-            </button>
-            <button
-              type="button"
-              aria-label="Next"
-              style={NAV_A}
-              onClick={() => go({ date: shiftDate(date, step) })}
-            >
-              ›
-            </button>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => e.target.value && go({ date: e.target.value })}
-              aria-label="Jump to date"
-              style={{
-                ...NAV_A,
-                colorScheme: theme,
-                color: "var(--ba-fg)",
-                backgroundColor: "var(--ba-input-bg)",
-                fontSize: "0.78rem",
-              }}
-            />
-            <span style={{ width: 8 }} />
-            {LOCATIONS.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                style={locationId === l.id ? NAV_LOC_ON : NAV_A}
-                onClick={() => go({ location: l.id })}
-              >
-                {l.short}
-              </button>
-            ))}
+            {!embedded && (
+              <>
+                <span style={{ width: 8 }} />
+                <button
+                  type="button"
+                  aria-label="Previous"
+                  style={NAV_A}
+                  onClick={() => go({ date: shiftDate(date, -step) })}
+                >
+                  ‹
+                </button>
+                <button type="button" style={NAV_A} onClick={() => go({ date: today })}>
+                  {view === "day" ? "Today" : "This week"}
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next"
+                  style={NAV_A}
+                  onClick={() => go({ date: shiftDate(date, step) })}
+                >
+                  ›
+                </button>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => e.target.value && go({ date: e.target.value })}
+                  aria-label="Jump to date"
+                  style={{
+                    ...NAV_A,
+                    colorScheme: theme,
+                    color: "var(--ba-fg)",
+                    backgroundColor: "var(--ba-input-bg)",
+                    fontSize: "0.78rem",
+                  }}
+                />
+                <span style={{ width: 8 }} />
+                {LOCATIONS.map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    style={locationId === l.id ? NAV_LOC_ON : NAV_A}
+                    onClick={() => go({ location: l.id })}
+                  >
+                    {l.short}
+                  </button>
+                ))}
+              </>
+            )}
             <span style={{ width: 8 }} />
             {cancelledCount > 0 && (
               <button
@@ -572,9 +584,11 @@ export default function DailyEventsBoardV2({ token }: { token: string }) {
                 Cancelled · {cancelledCount}
               </button>
             )}
-            <a href={`/admin/${token}/daily-events`} style={{ ...NAV_A, textDecoration: "none" }}>
-              v1 board
-            </a>
+            {!embedded && (
+              <a href={`/admin/${token}/daily-events`} style={{ ...NAV_A, textDecoration: "none" }}>
+                v1 board
+              </a>
+            )}
           </span>
         </div>
 
