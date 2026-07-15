@@ -1,0 +1,2169 @@
+openapi: 3.0.3
+
+# ============================================================================
+# Intercard Transaction Server — WS_ThirdPartyInterface (TPI)
+# ============================================================================
+# PROVENANCE
+# Reverse-engineered 2026-07-15 from the full source of
+# WS_ThirdPartyInterface.asmx.cs (legacy .NET Framework ASMX web service,
+# vendor: Intercard; version lineage v1.0.1 (2014) → 5.4.x / 6.0.x (2025)).
+# All 47 operation names and parameter lists below are read directly from the
+# [WebMethod] signatures — they are exact. Data-structure schemas are read
+# from the Serializable classes in the same file. Only these remain opaque
+# (defined in external vendor libraries, marked x-external-type):
+#   - ClassLibrary_Accounts.iTimeDate.TimeDateMap  (used property: whatIsDateTime)
+#   - ClassLibrary_Accounts.ConsolidateAccount
+#   - TransactionServerNotify / TransactionServerNotify_BB  (typed DataSets
+#     filled from ST_TransactionServerNotify[_AA|_BB])
+#
+# TRANSPORT — THIS IS SOAP, NOT REST
+# The service is an ASMX endpoint: POST a SOAP 1.1/1.2 envelope to
+# .../WS_ThirdPartyInterface.asmx with SOAPAction "http://tempuri.org/<Operation>"
+# (confirm namespace via ?WSDL). Because nearly every operation takes arrays
+# and complex objects, the ASMX form-POST binding is NOT usable — SOAP only.
+# This OpenAPI file is therefore a *readable catalog*: each path is one SOAP
+# operation, the request schema describes the operation's parameters (as they
+# appear inside the SOAP body), and the response schema describes the return
+# value plus any `out` parameters. Generate real client stubs from the WSDL.
+#
+# AUTH / TENANCY MODEL
+# There is no credential auth. EVERY operation takes `MAC_ID: string[]` — a
+# list of candidate device MAC addresses. The server strips ":", "-" and
+# spaces, then resolves each MAC against its registration database
+# (FEC_GeneralLibs.Security) to find the calling corp's connection strings
+# (DebitCard_Data, Merchandise, CustomerInfo, SEC databases) and CorpID.
+# First MAC that resolves wins. Unknown MAC → return -2 (or an exception).
+# So the MAC array is simultaneously identity, tenant selector, and routing.
+# Never expose this endpoint beyond the vendor VPN/LAN.
+#
+# RETURN CODE CONVENTION (observed consistently in source)
+#    0  success
+#   -1  exception during processing (details only in server log)
+#   -2  MAC_ID not found / could not resolve tenant database
+# Some newer methods (TPI_BulkEncodeAccounts_BB, TPI_PackageSale_CC/_DD)
+# instead THROW on failure → SOAP fault / HTTP 500. _CC/_DD return void:
+# no fault = success.
+#
+# IDEMPOTENCY
+# Transactional operations pass tpiTransactionID; the server calls
+# ST_IsThirdPartyPOS_TransProcessed inside the SQL transaction and, if the
+# id was already processed, returns 0 WITHOUT re-applying — a duplicate
+# retry looks identical to a success. Caveat: Az 11906–11909 (2025-03) fixed
+# cases where this check "did not roll back as expected"; on ambiguous
+# failures re-query account state rather than blind-retrying money moves.
+#
+# OTHER INTEGRATION WARNINGS (from vendor changelog in the source header)
+#   * ETPI bulk operations are queue-processed downstream — a 0 return means
+#     accepted, not that every card encoded. Verify card state after.
+#   * Money values were historically parsed with locale-sensitive CultureInfo
+#     (negative-balance bug, fixed 2025-01). Send invariant "12.50" decimals.
+#   * Account numbers are SQL bigint. In JavaScript treat them as strings
+#     end-to-end (same hazard class as BMI personId — tasks/lessons.md).
+#   * TPI_PayWithAccountsDebit and TPI_DebitUsingAccountCashAndCashBonus
+#     fire an outbound low-balance webhook (Main Event endpoint, AXF1459)
+#     when a debit drops an account below the configured minimum.
+# ============================================================================
+
+info:
+  title: Intercard Transaction Server — Third Party Interface (WS_ThirdPartyInterface)
+  version: "6.0.1"
+  description: |
+    Third-party POS / kiosk / enterprise (ETPI) integration surface for the
+    Intercard debit-card ("game card") system, plus the endpoints the on-prem
+    Transaction Server itself consumes (device/employee listings and the
+    cache-coherency notification queue).
+
+    **Value model** — an account carries: Cash, Bonus Cash (CashBonus),
+    Tokens, Bonus Tokens, Points, escrow Points, time-play Duration
+    (TP_Duration, minutes), an Activation/Expiration window, a
+    BlockedAccessID, optional MembershipID, Linked Products (redemption
+    entitlements by ProductTag), and Gate Access entitlements (device-tag
+    lists + actuations + time windows, optionally governed by a Gate Access
+    Profile).
+
+    **Method suffixes** — `_AA`/`_BB`/`_CC`/`_DD` are successive revisions of
+    the same operation kept so fielded readers/POS keep working. Integrate
+    against the highest suffix unless noted.
+
+    **TimeDateMap** — all LT_DateTime / GMT_DateTime / UTC_DateTime /
+    ActivationDate / ExpirationDate parameters are
+    `ClassLibrary_Accounts.iTimeDate.TimeDateMap` objects (external vendor
+    type; the service reads its `whatIsDateTime` DateTime). Callers always
+    send BOTH location-local (LT) and UTC/GMT wall-clock times.
+
+servers:
+  - url: "{scheme}://{host}/WS_ThirdPartyInterface/WS_ThirdPartyInterface.asmx"
+    description: Data-center hosted ASMX endpoint (path may vary per install)
+    variables:
+      scheme: { default: https, enum: [http, https] }
+      host: { default: transaction-server.example }
+
+tags:
+  - name: Reference Data
+    description: Reason-code lists, POS MAC listings.
+  - name: Account Lifecycle
+    description: Clear, lock, transfer, consolidate, split accounts; dates, membership, entitlements, time-play.
+  - name: Money Movement
+    description: Credits, comps, debits/payments, refunds, escrow points, voids.
+  - name: Sales & Encoding
+    description: Package sales (five generations), bulk encoding (three generations).
+  - name: Gate Access
+    description: Gate access (timed admission) sale, removal, ETPI variant.
+  - name: Customer
+    description: Customer registration tied to a card.
+  - name: TS Notifications
+    description: Poll/ack queue in DC_TransactionServerNotify — how the data center keeps each location's Transaction Server balance cache coherent.
+  - name: TS Listings
+    description: Device, location, employee and bonus-setting listings consumed by the on-prem Transaction Server.
+  - name: Diagnostics
+    description: Device version registration, failed-transaction logging, sweepstakes housekeeping.
+
+paths:
+  # ==========================================================================
+  # Reference Data
+  # ==========================================================================
+
+  /TPI_GetReasonCodeList:
+    post:
+      tags: [Reference Data]
+      operationId: TPI_GetReasonCodeList
+      summary: Retrieve lock / comp / transfer / refund reason-code lists
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+      responses:
+        "200":
+          description: Return code + reason code lists
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  reasonCodes: { $ref: "#/components/schemas/ReasonCodes" }
+
+  /TPI_POSMACForLocation:
+    post:
+      tags: [Reference Data]
+      operationId: TPI_POSMACForLocation
+      summary: List MAC ids + device tags of all POSs at a location
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, locationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                locationID: { type: integer }
+      responses:
+        "200":
+          description: Return code + MAC list
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  thirdPartyMAC: { $ref: "#/components/schemas/ThirdPartyMacList" }
+
+  # ==========================================================================
+  # Account Lifecycle
+  # ==========================================================================
+
+  /TPI_ClearAccount:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_ClearAccount
+      summary: Remove accounts from the system so the cards can be re-issued
+      description: Batch — takes an array of account numbers. No session/transaction id (not idempotency-guarded).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, Account, LocID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                Account:
+                  type: array
+                  items: { $ref: "#/components/schemas/AccountNumber" }
+                LT_DateTime: { $ref: "#/components/schemas/TimeDateMap" }
+                GMT_DateTime: { $ref: "#/components/schemas/TimeDateMap" }
+                LocID: { type: integer }
+                tpiEmployeeID: { type: string }
+                tpiEmployeeFirstName: { type: string }
+                tpiEmployeeLastName: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_LockAccount:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_LockAccount
+      summary: Lock an account with a reason code
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, Account, ReasonCode]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    Account: { $ref: "#/components/schemas/AccountNumber" }
+                    ReasonCode:
+                      {
+                        type: integer,
+                        description: From LockReasonCodeList (TPI_GetReasonCodeList),
+                      }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_PauseTimePlay:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_PauseTimePlay
+      summary: Pause time-play on an account
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, Account, Duration]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    Account: { $ref: "#/components/schemas/AccountNumber" }
+                    Duration: { type: integer, description: Pause duration (minutes) }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_ConsolidateAccounts:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_ConsolidateAccounts
+      summary: Consolidate all value from source accounts onto a target account
+      description: Batch — many source accounts into one target.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, sourceAccounts, targetAccount]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    sourceAccounts:
+                      type: array
+                      items: { $ref: "#/components/schemas/AccountNumber" }
+                    targetAccount: { $ref: "#/components/schemas/AccountNumber" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_ConsolidateAccounts_AA:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_ConsolidateAccounts_AA
+      summary: Consolidate with explicit source balance data (current)
+      description: |
+        2016-10 (Axosoft 268). Replaces the source-account array with a
+        `ConsolidateAccount` object (external vendor type — see WSDL for its
+        fields; carries the balances being moved).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, targetAccount, sourceBalanceData]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    targetAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    sourceBalanceData:
+                      type: object
+                      description: ClassLibrary_Accounts.ConsolidateAccount (x-external-type — fields not in this source file; see WSDL)
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_CardTransfer:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_CardTransfer
+      summary: Transfer balance + history to a new account (original)
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, SourceAccount, TargetAccount, ReasonCode]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    SourceAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    TargetAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    ReasonCode: { type: integer, description: From TransferReasonCodeList }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_CardTransfer_AA:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_CardTransfer_AA
+      summary: Transfer with explicit balances (current)
+      description: 2018-03 (Axosoft 439). Adds the balance amounts being transferred.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, SourceAccount, TargetAccount, ReasonCode]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    SourceAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    TargetAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    ReasonCode: { type: integer }
+                    cash: { $ref: "#/components/schemas/Money" }
+                    bonusCash: { $ref: "#/components/schemas/Money" }
+                    tokens: { type: integer }
+                    tokenBonus: { type: integer }
+                    points: { type: integer }
+                    duration: { type: integer }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_SplitCards:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_SplitCards
+      summary: Split value from one card onto other cards
+      description: Debit amounts leave the source; credit amounts land on EACH target.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, sourceAccount, targetAccounts]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    sourceAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    targetAccounts:
+                      type: array
+                      items: { $ref: "#/components/schemas/AccountNumber" }
+                    debitCash: { $ref: "#/components/schemas/Money" }
+                    debitBonus: { $ref: "#/components/schemas/Money" }
+                    debitTokens: { type: integer }
+                    debitTokenBonus: { type: integer }
+                    debitPoints: { type: integer }
+                    creditCash: { $ref: "#/components/schemas/Money" }
+                    creditBonus: { $ref: "#/components/schemas/Money" }
+                    creditTokens: { type: integer }
+                    creditTokenBonus: { type: integer }
+                    creditPoints: { type: integer }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_UpdateAccountActivationExpirationDates:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_UpdateAccountActivationExpirationDates
+      summary: Update an account's activation/expiration window
+      description: 2016-08 (SB-5, Feature 219). Kept separate from balance updates for backward compatibility.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, accountNumber]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                accountNumber: { $ref: "#/components/schemas/AccountNumber" }
+                ActivationDate: { $ref: "#/components/schemas/TimeDateMap" }
+                ExpirationDate: { $ref: "#/components/schemas/TimeDateMap" }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_UpdateAccountMembership:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_UpdateAccountMembership
+      summary: Update the membership on an account
+      description: 2017-11 (SB-12, Feature 297). Wraps ST_TPI_UpdateMembership / ST_DC_ClearMembership.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, accountNumber, membershipID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                accountNumber: { $ref: "#/components/schemas/AccountNumber" }
+                membershipID: { type: integer }
+                locationID: { type: integer }
+                deviceTag: { type: integer, format: int64 }
+                gmtDateMap: { $ref: "#/components/schemas/TimeDateMap" }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_EntitlementPaidOut:
+    post:
+      tags: [Account Lifecycle]
+      operationId: TPI_EntitlementPaidOut
+      summary: Mark a linked-product entitlement as paid out
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, accountNumber, productTag, paidOut, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                accountNumber: { $ref: "#/components/schemas/AccountNumber" }
+                productTag: { type: integer }
+                paidOut: { type: integer, description: Quantity paid out }
+                LocationID: { type: integer }
+                LT_DateTime: { $ref: "#/components/schemas/TimeDateMap" }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  # ==========================================================================
+  # Money Movement
+  # ==========================================================================
+
+  /TPI_CompAccount:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_CompAccount
+      summary: Comp cash / bonus / tokens / points onto an account
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, Account, ReasonCode]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    Account: { $ref: "#/components/schemas/AccountNumber" }
+                    CashComped: { $ref: "#/components/schemas/Money" }
+                    BonusComped: { $ref: "#/components/schemas/Money" }
+                    TokensComped: { type: integer }
+                    TokenBonusComped: { type: integer }
+                    PointsComped: { type: integer }
+                    ReasonCode: { type: integer, description: From CompReasonCodeList }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPICreditAccounts:
+    post:
+      tags: [Money Movement]
+      operationId: TPICreditAccounts
+      summary: Credit balances onto accounts via XML payload (current ETPI recharge path)
+      description: |
+        2022-08 (Axosoft 2607); since 2023-02 (Axosoft 3063, double-bonus fix)
+        wraps ST_ETPI_UpdateBalance. Whole batch runs in one SQL transaction;
+        also writes a POS transaction total (ST_TPI_UpdatePOSTransaction,
+        TransactionType 1 = Credit). Note: no underscore in the name.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, creditAccountsXML]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    creditAccountsXML:
+                      type: string
+                      description: |
+                        XML string. Verified sample from source:
+                        ```xml
+                        <CreditAccounts>
+                          <CreditAccount>
+                            <AccountNumber>1234567</AccountNumber>
+                            <Cash>10</Cash>
+                            <BonusCash>0</BonusCash>
+                            <Tokens>5</Tokens>
+                            <BonusTokens>10</BonusTokens>
+                            <Points>45</Points>
+                            <StartTime>2022-08-01 12:55:26</StartTime>
+                            <Duration>30</Duration>
+                            <EndTime>2022-08-01 13:25:26</EndTime>
+                            <BlockedAccessID>0</BlockedAccessID>
+                          </CreditAccount>
+                        </CreditAccounts>
+                        ```
+                        Dates are "yyyy-MM-dd HH:mm:ss".
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_CreditAccounts:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_CreditAccounts
+      summary: Credit balances onto accounts via typed objects
+      description: Typed-object sibling of TPICreditAccounts (CreditAccount[] instead of XML).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, creditAccounts]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    creditAccounts:
+                      type: array
+                      items: { $ref: "#/components/schemas/CreditAccount" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_CreditDebitEscrowPoints:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_CreditDebitEscrowPoints
+      summary: Credit or debit points held in escrow
+      description: 2015-09 (SB-3). Requires Transaction Server >= 5.5.3_16. Table DC_TPI_CreditDebitEscrow.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, accountNumber, points]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    accountNumber: { $ref: "#/components/schemas/AccountNumber" }
+                    points: { type: integer, description: Point delta (sign = direction) }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_PayWithAccountsDebit:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_PayWithAccountsDebit
+      summary: Debit account cash as payment tender (batch)
+      description: |
+        Wraps ST_TPI_DebitCardTransaction. Cash only per account (see
+        DebitAccount). Fires the low-balance webhook (AXF1459) when a debit
+        drops an account below the configured minimum.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, debitAccounts]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    debitAccounts:
+                      type: array
+                      items: { $ref: "#/components/schemas/DebitAccount" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_DebitUsingAccountCashAndCashBonus:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_DebitUsingAccountCashAndCashBonus
+      summary: Debit cash AND bonus cash as payment tender (batch)
+      description: |
+        2020-03 (Axosoft 1111/1112); wraps ST_TPI_DebitCashAndCashBonus.
+        Caller specifies how much comes from each bucket per account.
+        Fires the low-balance webhook (AXF1459).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, debitAccounts]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    debitAccounts:
+                      type: array
+                      items: { $ref: "#/components/schemas/DebitAccountCashAndCashBonus" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_RefundAccount:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_RefundAccount
+      summary: Refund — removes cash and bonus (original)
+      deprecated: true
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, RefundAccount, RefundReasonCode]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    RefundAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    RefundCash: { $ref: "#/components/schemas/Money" }
+                    RefundBonus: { $ref: "#/components/schemas/Money" }
+                    RefundReasonCode: { type: integer, description: From RefundReasonCodeList }
+                - $ref: "#/components/schemas/AuthEmployee"
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_RefundAccount_AA:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_RefundAccount_AA
+      summary: Refund — also removes tokens, token bonus and duration (current)
+      description: 2015-09 (SB-3). Requires Transaction Server >= 5.5.3_16.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, RefundAccount, RefundReasonCode]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    RefundAccount: { $ref: "#/components/schemas/AccountNumber" }
+                    RefundCash: { $ref: "#/components/schemas/Money" }
+                    RefundBonus: { $ref: "#/components/schemas/Money" }
+                    RefundToken: { type: integer }
+                    RefundTokenBonus: { type: integer }
+                    RefundDuration: { type: integer }
+                    RefundReasonCode: { type: integer }
+                - $ref: "#/components/schemas/AuthEmployee"
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_VoidTransaction:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_VoidTransaction
+      summary: Void a prior third-party transaction, re-crediting the affected cards
+      description: |
+        `VoidedTP_TransactionID` names the original transaction;
+        `voidedCards[]` states exactly what to restore per card.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, VoidedTP_TransactionID, voidedCards]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    VoidedTP_TransactionID: { type: string }
+                    voidedCards:
+                      type: array
+                      items: { $ref: "#/components/schemas/VoidedCard" }
+                - $ref: "#/components/schemas/AuthEmployee"
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_VoidPaymentViaCustomerCard:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_VoidPaymentViaCustomerCard
+      summary: Void a payment that was tendered with a customer card
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, VoidedTP_TransactionID]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    VoidedTP_TransactionID: { type: string }
+                - $ref: "#/components/schemas/AuthEmployee"
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_VoidCardUsedAsPayment:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_VoidCardUsedAsPayment
+      summary: Void a card-used-as-payment transaction (companion to TPI_DebitUsingAccountCashAndCashBonus)
+      description: 2020-03 (Axosoft 1111/1112); wraps ST_TPI_VoidCardUsedAsPaymentTransaction. Leaner context — no session id / LT time.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, LocationID, VoidedTP_TransactionID]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    LocationID: { type: integer }
+                    VoidedTP_TransactionID: { type: string }
+                    UTC_DateTime: { $ref: "#/components/schemas/TimeDateMap" }
+                - $ref: "#/components/schemas/AuthEmployee"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_VoidPackageSale:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_VoidPackageSale
+      summary: Void a package sale (original — LinkedGateAccess)
+      description: Caller restates the package contents (credits, gate access, products) so the server can reverse them precisely.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PackageSaleContents"
+                - type: object
+                  properties:
+                    GateAccess:
+                      type: array
+                      items: { $ref: "#/components/schemas/LinkedGateAccess" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_VoidPackageSale_AA:
+    post:
+      tags: [Money Movement]
+      operationId: TPI_VoidPackageSale_AA
+      summary: Void a package sale (current — LinkedGateAccess_AA)
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PackageSaleContents"
+                - type: object
+                  properties:
+                    GateAccess:
+                      type: array
+                      items: { $ref: "#/components/schemas/LinkedGateAccess_AA" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  # ==========================================================================
+  # Sales & Encoding
+  # ==========================================================================
+
+  /TPI_PackageSale:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_PackageSale
+      summary: Sell a package onto a card (gen 1 — LinkedGateAccess by DeviceTag)
+      deprecated: true
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PackageSaleCore"
+                - type: object
+                  properties:
+                    GateAccess:
+                      type: array
+                      items: { $ref: "#/components/schemas/LinkedGateAccess" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_PackageSale_AA:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_PackageSale_AA
+      summary: Sell a package (gen 2 — LinkedGateAccess_AA with GateAccessID/ProductTag)
+      deprecated: true
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PackageSaleCore"
+                - type: object
+                  properties:
+                    GateAccess:
+                      type: array
+                      items: { $ref: "#/components/schemas/LinkedGateAccess_AA" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_PackageSale_BB:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_PackageSale_BB
+      summary: Sell a package (gen 3 — LinkedGateAccess_BB adds StartDate/Expire)
+      deprecated: true
+      description: |
+        2020-08 (Axosoft 1680/1681). KNOWN BUG fixed in _CC (Az 8478): gate
+        access StartTime/Expire assignment was wrong here. Prefer _CC/_DD.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PackageSaleCore"
+                - type: object
+                  properties:
+                    gateAccess:
+                      type: array
+                      items: { $ref: "#/components/schemas/LinkedGateAccess_BB" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_PackageSale_CC:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_PackageSale_CC
+      summary: Sell a package (gen 4 — gate access as XML string; returns void)
+      description: |
+        2024-06 (Az 8478): fixes _BB's GA StartTime/Expire assignment and the
+        "deleted gate passes/readers → Account Not Active / won't populate in
+        TS cache" failure. RETURNS VOID — success is the absence of a SOAP
+        fault. `gateAccessXML` uses the LinkedGateAccess XML format (see
+        components/schemas/LinkedGateAccessXML).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PackageSaleCore"
+                - type: object
+                  properties:
+                    gateAccessXML: { $ref: "#/components/schemas/LinkedGateAccessXML" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200":
+          description: Void — no fault means success. Errors surface as SOAP faults (HTTP 500).
+
+  /TPI_PackageSale_DD:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_PackageSale_DD
+      summary: Sell a package (gen 5, current — adds membership promo + discount rate)
+      description: |
+        Latest generation. Same as _CC plus `membershipPromoID` and
+        `discountRate` (membership pricing — cf. Az 13553 membership fixes).
+        RETURNS VOID — no fault means success.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PackageSaleCore"
+                - type: object
+                  properties:
+                    membershipPromoID: { type: integer }
+                    discountRate: { type: integer }
+                    gateAccessXML: { $ref: "#/components/schemas/LinkedGateAccessXML" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200":
+          description: Void — no fault means success. Errors surface as SOAP faults (HTTP 500).
+
+  /TPI_BulkEncodeAccounts:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_BulkEncodeAccounts
+      summary: Bulk-encode a package onto many cards (gen 1)
+      deprecated: true
+      description: |
+        KNOWN BUG (Axosoft 2603): applied the wrong Gate Access Profile —
+        superseded by _BB. Active/expire date-range bug fixed 2015-06 (SB-2).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/BulkEncodeCore"
+                - type: object
+                  properties:
+                    GateAccess:
+                      type: array
+                      items: { $ref: "#/components/schemas/LinkedGateAccess" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_BulkEncodeAccounts_AA:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_BulkEncodeAccounts_AA
+      summary: Bulk-encode (gen 2 — LinkedGateAccess_AA)
+      deprecated: true
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/BulkEncodeCore"
+                - type: object
+                  properties:
+                    GateAccess:
+                      type: array
+                      items: { $ref: "#/components/schemas/LinkedGateAccess_AA" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_BulkEncodeAccounts_BB:
+    post:
+      tags: [Sales & Encoding]
+      operationId: TPI_BulkEncodeAccounts_BB
+      summary: Bulk-encode (gen 3, current — "ETPI Bulk Encode", gate access as XML)
+      description: |
+        2022-05 (Axosoft 2603). Gate access moves to `linkedGateAccessXML`
+        (see components/schemas/LinkedGateAccessXML) — activation-on-first-
+        swipe and GA-Profile behavior are expressed IN the XML
+        (IsFirstSwipe / HasGAProfile / ProfileExpire elements), which is how
+        the separate ActiveOnFirstSwipe parameter came to be removed
+        (Az 11181/11189/11190, 2025-01). Runs the whole batch in one SQL
+        transaction with rollback; ON ERROR THIS METHOD THROWS (SOAP fault)
+        instead of returning -1; success returns 0. Via ETPI the encode is
+        queue-processed downstream — verify card state after submit.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/BulkEncodeCore"
+                - type: object
+                  properties:
+                    linkedGateAccessXML: { $ref: "#/components/schemas/LinkedGateAccessXML" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  # ==========================================================================
+  # Gate Access
+  # ==========================================================================
+
+  /TPI_GateAccessSale:
+    post:
+      tags: [Gate Access]
+      operationId: TPI_GateAccessSale
+      summary: Sell gate access to one or more accounts (gen 1)
+      deprecated: true
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, gateAccessSaleList]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    gateAccessSaleList:
+                      type: object
+                      properties:
+                        GateAccessSaleItems:
+                          type: array
+                          items: { $ref: "#/components/schemas/GateAccessSale" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_GateAccessSale_BB:
+    post:
+      tags: [Gate Access]
+      operationId: TPI_GateAccessSale_BB
+      summary: Sell gate access (current typed revision — items carry StartDate/Expire)
+      description: 2020-08 (Axosoft 1680/1681). ActiveOnFirstSwipe not required when a GA Profile is present (Az 4035).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, gateAccessSaleList]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    gateAccessSaleList:
+                      type: object
+                      properties:
+                        GateAccessSaleItems:
+                          type: array
+                          items: { $ref: "#/components/schemas/GateAccessSale_BB" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /ETPI_GateAccessSale:
+    post:
+      tags: [Gate Access]
+      operationId: ETPI_GateAccessSale
+      summary: Gate access sale via the enterprise (ETPI) path — XML payload
+      description: |
+        2021-06 (Axosoft 1449). Payload root is `<TPIGateAccessSale>`
+        containing `<SaleItem>` elements; each SaleItem carries the account,
+        balance credits (Cash/BonusCash/Tokens/BonusTokens/Points),
+        BlockedAccessID, MembershipID, and one or more `<GateAccess>` blocks
+        in the LinkedGateAccess XML format (Product_Tag, DeviceTags/DeviceTag*,
+        PackageClusterID, Actuations, StartTime, Duration, Expire,
+        HasGAProfile, ExtendExpire{Minutes,Hours,Days}, ProfileExpire).
+        Queue-processed — verify downstream.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, ETPIGateAccessSaleXML]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    ETPIGateAccessSaleXML:
+                      {
+                        type: string,
+                        description: See operation description for the verified format.,
+                      }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TPI_GateAccessRemove:
+    post:
+      tags: [Gate Access]
+      operationId: TPI_GateAccessRemove
+      summary: Remove a gate access entitlement (and back out its credits)
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              allOf:
+                - type: object
+                  required: [MAC_ID, Account, GateAccessID]
+                  properties:
+                    MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                    Account: { $ref: "#/components/schemas/AccountNumber" }
+                    GateAccessID: { type: integer }
+                    BlockedAccessID: { type: integer }
+                    ProductTag: { type: integer }
+                    CreditCash: { $ref: "#/components/schemas/Money" }
+                    CreditBonus: { $ref: "#/components/schemas/Money" }
+                    CreditTokens: { type: integer }
+                    CreditTokenBonus: { type: integer }
+                    CreditPoints: { type: integer }
+                    TP_Duration: { type: integer }
+                    GateAccess: { $ref: "#/components/schemas/LinkedGateAccess_AA" }
+                - $ref: "#/components/schemas/TpiTransactionContext"
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  # ==========================================================================
+  # Customer
+  # ==========================================================================
+
+  /TPI_CustomerReg_AddUpdateByAccountNumber:
+    post:
+      tags: [Customer]
+      operationId: TPI_CustomerReg_AddUpdateByAccountNumber
+      summary: Add or update the customer registered to a card
+      description: Writes to the Customer Info database. Birthdate handling fixed 2016-06 (SB-4).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, Account, LocID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                Account: { $ref: "#/components/schemas/AccountNumber" }
+                FirstName: { type: string, maxLength: 50 }
+                LastName: { type: string, maxLength: 50 }
+                Phone: { type: string, maxLength: 20 }
+                Sex: { type: integer, description: Coded value (mapping not in source) }
+                EmailAddress: { type: string, maxLength: 60 }
+                PostalCode: { type: string, maxLength: 10 }
+                DateofBirth: { type: string, format: date-time }
+                LocID: { type: integer }
+                GMT_DateTime: { $ref: "#/components/schemas/TimeDateMap" }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  # ==========================================================================
+  # TS Notifications (cache coherency queue)
+  # ==========================================================================
+
+  /TransactionServerNotification:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerNotification
+      summary: Poll pending notifications (all locations for the corp)
+      description: |
+        The data center writes rows to DC_TransactionServerNotify; each
+        on-prem Transaction Server polls, processes (typically evicting the
+        named accounts from its balance cache), then acks with the matching
+        Clear method. Result is a typed DataSet (x-external-type).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+      responses:
+        "200":
+          description: Return code + TransactionServerNotify DataSet (table ST_TransactionServerNotify)
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  tsNotify: { type: object, description: Typed DataSet (x-external-type) }
+
+  /TransactionServerNotification_Location:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerNotification_Location
+      summary: Poll pending notifications for one location
+      description: 2017-08 (SB-11, Feature 320).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                LocationID: { type: integer }
+      responses:
+        "200":
+          description: Return code + TransactionServerNotify DataSet
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  tsNotify: { type: object, description: Typed DataSet (x-external-type) }
+
+  /TransactionServerNotification_Location_BB:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerNotification_Location_BB
+      summary: Poll notifications incl. in-cache credit/debit payloads (current)
+      description: |
+        2018-03 (SB-15, Feature 477). Adds the Data payload so a notification
+        can instruct the TS to credit/debit a cached account in place instead
+        of just evicting it. Payload value types (DC_Type codes):
+        25 crcash, 26 crbonus, 27 crtoken, 28 crbtoken, 29 crpoints,
+        30 debcash, 31 debbonus.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                LocationID: { type: integer }
+      responses:
+        "200":
+          description: Return code + TransactionServerNotify_BB DataSet (table ST_TransactionServerNotify_BB)
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  tsNotify: { type: object, description: Typed DataSet (x-external-type) }
+
+  /TransactionServerClearNotification:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerClearNotification
+      summary: Ack/clear processed notifications (all locations)
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TransactionServerClearNotification_Location:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerClearNotification_Location
+      summary: Ack/clear notifications for one location
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                LocationID: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TransactionServerClearNotification_ValueTypeLocation:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerClearNotification_ValueTypeLocation
+      summary: Clear notifications matching ValueType + Value + location
+      description: 2019-02 (SB-16).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, ValueType, Value, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                ValueType:
+                  {
+                    type: integer,
+                    format: int64,
+                    description: DC_Type code (see 25–31 table on the _BB poll),
+                  }
+                Value: { type: integer, format: int64 }
+                LocationID: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TransactionServerClearAccountAllOtherTS:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerClearAccountAllOtherTS
+      summary: Evict an account from cache at every location EXCEPT the one given
+      description: 2018-03 (SB-15). Wraps ST_TS_ClearAccountFromOtherTSCache.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, AccountNumber, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                AccountNumber: { $ref: "#/components/schemas/AccountNumber" }
+                LocationID: { type: integer, description: The location NOT to clear }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TransactionServerInsertClearAccountNotification:
+    post:
+      tags: [TS Notifications]
+      operationId: TransactionServerInsertClearAccountNotification
+      summary: Insert account-clear notifications for all unrelated locations
+      description: 2020-04 (Axosoft 477). Inserts NOTIFY_TYPE_ACCOUNTCLEAR rows for every location not in the exempt list.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, accountNumber, locationIDsToExempt]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                accountNumber: { $ref: "#/components/schemas/AccountNumber" }
+                locationIDsToExempt:
+                  type: array
+                  items: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /GetNotifications:
+    post:
+      tags: [TS Notifications]
+      operationId: GetNotifications
+      summary: Get notifications as an XML string (CCL Costa variant)
+      description: 2022-01 v1.0.9.31 (CCL Costa). String-returning sibling of the poll methods.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, selectAllNotifications, locationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                selectAllNotifications: { type: boolean }
+                locationID: { type: integer }
+      responses:
+        "200":
+          description: Notifications XML string
+          content:
+            text/xml:
+              schema: { type: string }
+
+  /RemoveNotification:
+    post:
+      tags: [TS Notifications]
+      operationId: RemoveNotification
+      summary: Remove one notification by valueType + value + timeKey + location
+      description: 2022-01 v1.0.9.31 (CCL Costa). Returns void.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, valueType, value, timeKey, locationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                valueType: { type: integer, format: int64 }
+                value: { type: integer, format: int64 }
+                timeKey: { type: string }
+                locationID: { type: integer }
+      responses:
+        "200":
+          description: Void — no fault means removed.
+
+  # ==========================================================================
+  # TS Listings
+  # ==========================================================================
+
+  /TransactionServerLocationDeviceListing:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationDeviceListing
+      summary: List games/devices at a location (gen 1)
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                LocationID: { type: integer }
+      responses:
+        "200":
+          description: Return code + device list
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationDeviceListing:
+                    type: object
+                    properties:
+                      LocationDevices:
+                        type: array
+                        items: { $ref: "#/components/schemas/LocationDevice" }
+
+  /TransactionServerLocationDeviceListing_AA:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationDeviceListing_AA
+      summary: List devices with IP addresses (gen 2)
+      description: 2017-02 (SB-8, Axosoft 287).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, LocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                LocationID: { type: integer }
+      responses:
+        "200":
+          description: Return code + device list (adds DeviceIP)
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationDeviceListing:
+                    type: object
+                    properties:
+                      LocationDevices:
+                        type: array
+                        items: { $ref: "#/components/schemas/LocationDevice_AA" }
+
+  /TransactionServerLocationDeviceListing_BB:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationDeviceListing_BB
+      summary: List devices across multiple locations (gen 3)
+      description: 2018-01 (SB-13, Feature 298). Takes an ARRAY of location ids.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, LocationIDs]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                LocationIDs:
+                  type: array
+                  items: { type: integer }
+      responses:
+        "200":
+          description: Return code + device list (adds LocationID/LocationDescription per device)
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationDeviceListing:
+                    type: object
+                    properties:
+                      LocationDevices:
+                        type: array
+                        items: { $ref: "#/components/schemas/LocationDevice_BB" }
+
+  /TransactionServerLocationDeviceListing_CC:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationDeviceListing_CC
+      summary: List devices (gen 4, current — adds ResetConfiguration flag)
+      description: 2020-07 (Axosoft 1327); ResetConfiguration signals a reader should reload config/price level (Axosoft 3101).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, LocationIDs]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                LocationIDs:
+                  type: array
+                  items: { type: integer }
+      responses:
+        "200":
+          description: Return code + device list (adds ResetConfiguration)
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationDeviceListing:
+                    type: object
+                    properties:
+                      LocationDevices:
+                        type: array
+                        items: { $ref: "#/components/schemas/LocationDevice_CC" }
+
+  /TransactionServerLocationInfoXML:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationInfoXML
+      summary: Location config info XML (LocationInfoMap.xml) for reader reset / price level
+      description: 2023-10 (5.4 build, Axosoft 3101).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, transactionServerLocationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                transactionServerLocationID: { type: integer }
+      responses:
+        "200":
+          description: XML document as a string
+          content:
+            text/xml:
+              schema: { type: string }
+
+  /TransactionServerLocationList:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationList
+      summary: List location codes + names
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+      responses:
+        "200":
+          description: Return code + locations
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationList:
+                    type: object
+                    properties:
+                      Locations:
+                        type: array
+                        items: { $ref: "#/components/schemas/Location" }
+
+  /TransactionServerEmployeeList:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerEmployeeList
+      summary: List employee pass cards for a location
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, locationID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                locationID: { type: integer }
+      responses:
+        "200":
+          description: Return code + employees
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationEmployeeList:
+                    type: object
+                    properties:
+                      LocationEmployees:
+                        type: array
+                        items: { $ref: "#/components/schemas/LocationEmployee" }
+
+  /TransactionServerEmployeeListAllLocations:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerEmployeeListAllLocations
+      summary: List employees across all related locations
+      description: 2019-07 (Axosoft 1096). Note the parameter is `MAC_IDs` (plural) on this and the two methods below.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_IDs, locationIDs]
+              properties:
+                MAC_IDs: { $ref: "#/components/schemas/MacIdArray" }
+                locationIDs:
+                  type: array
+                  items: { type: integer }
+      responses:
+        "200":
+          description: Return code + employees (incl. IsRedemptionGameAuthorized, CanAuthorizeMidwayGamePlay, AuthorizedLocations)
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationEmployeeList:
+                    type: object
+                    properties:
+                      LocationEmployees:
+                        type: array
+                        items: { $ref: "#/components/schemas/LocationEmployee" }
+
+  /TransactionServerEmployeeAllLocations:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerEmployeeAllLocations
+      summary: Look up one employee by card number (across locations)
+      description: 2020-01 (Axosoft 1357).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_IDs, locationIDs, cardNumber]
+              properties:
+                MAC_IDs: { $ref: "#/components/schemas/MacIdArray" }
+                locationIDs:
+                  type: array
+                  items: { type: integer }
+                cardNumber: { $ref: "#/components/schemas/AccountNumber" }
+      responses:
+        "200":
+          description: Return code + employee
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationEmployee: { $ref: "#/components/schemas/LocationEmployee" }
+
+  /TransactionServerLocationEmployeeByID:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationEmployeeByID
+      summary: Look up one employee by employee ID
+      description: 2020-01 (Axosoft 1357).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_IDs, locationIDs, employeeID]
+              properties:
+                MAC_IDs: { $ref: "#/components/schemas/MacIdArray" }
+                locationIDs:
+                  type: array
+                  items: { type: integer }
+                employeeID: { type: integer }
+      responses:
+        "200":
+          description: Return code + employee
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationEmployee: { $ref: "#/components/schemas/LocationEmployee" }
+
+  /TransactionServerLocationCashBonusList:
+    post:
+      tags: [TS Listings]
+      operationId: TransactionServerLocationCashBonusList
+      summary: Get the location's cash→bonus reward tiers
+      description: 2017-05 (SB-10). Location resolved from the MAC id.
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+      responses:
+        "200":
+          description: Return code + bonus tiers
+          content:
+            text/xml:
+              schema:
+                type: object
+                properties:
+                  result: { $ref: "#/components/schemas/ReturnCode" }
+                  locationCashBonusSettingList:
+                    type: object
+                    properties:
+                      LocationCashBonusSettings:
+                        type: array
+                        items: { $ref: "#/components/schemas/LocationCashBonusSetting" }
+
+  # ==========================================================================
+  # Diagnostics
+  # ==========================================================================
+
+  /TPI_UpdateDeviceVersion:
+    post:
+      tags: [Diagnostics]
+      operationId: TPI_UpdateDeviceVersion
+      summary: Register a Transaction Server / reader software version
+      description: |
+        2022-07 (Axosoft 2049/2051). Verified payload samples from source:
+        ```xml
+        <DeviceVersion>
+          <CorpID>6000</CorpID>
+          <MacID>14FEB5C1C377</MacID>
+          <LocationID>4</LocationID>
+          <IPAddress>192.168.23.2</IPAddress>
+          <DeviceType>TransactionServer</DeviceType>
+          <WindowsDeviceName>acarroll</WindowsDeviceName>
+          <CodeVersion>5.7.1 R119</CodeVersion>
+        </DeviceVersion>
+        ```
+        Reader variant adds `<DeviceTag>` and a `<Reader>` block:
+        ReaderBootLoaderVersion, ReaderWifiVersion, ReaderBoardRevVersion,
+        ReaderSignalStrength, ReaderChannelNumber, ReaderBootLoaderStatus,
+        ReaderCodeOrigin, ReaderConnection (all optional).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, deviceVersionXML]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                deviceVersionXML: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TransactionServerInsertFailedTransaction:
+    post:
+      tags: [Diagnostics]
+      operationId: TransactionServerInsertFailedTransaction
+      summary: Log a failed transaction for later analysis/replay
+      description: |
+        2022-04 (Axosoft 525). Verified payload sample:
+        ```xml
+        <FailedTransaction>
+          <Method>TestMethod</Method>
+          <FileName>c4f21d41-c8dd-4703-b845-a450dcc26edc</FileName>
+          <Data>...free text dump of the failed call...</Data>
+          <LocalDateTime>2022-04-22 16:52:16</LocalDateTime>
+          <UTCDateTime>2022-04-22 21:52:16</UTCDateTime>
+          <CorpID>6000</CorpID>
+          <LocationID>4</LocationID>
+          <MACAddress>14FEB5C1C377</MACAddress>
+          <DeviceTag>4346</DeviceTag>
+          <AccountNumber>128189</AccountNumber>
+        </FailedTransaction>
+        ```
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID, failedTransactionXML]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+                failedTransactionXML: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+  /TransactionServerCloseAllExpiredSweepstakes:
+    post:
+      tags: [Diagnostics]
+      operationId: TransactionServerCloseAllExpiredSweepstakes
+      summary: Close all expired sweepstakes (housekeeping)
+      description: 2020-08 (Axosoft 1333).
+      requestBody:
+        content:
+          text/xml:
+            schema:
+              type: object
+              required: [MAC_ID]
+              properties:
+                MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+      responses:
+        "200": { $ref: "#/components/responses/IntResult" }
+
+components:
+  schemas:
+    MacIdArray:
+      type: array
+      items: { type: string, example: "14FEB5C1C377" }
+      description: |
+        Candidate device MAC addresses — the API's identity/tenant/routing
+        key. Server strips ":", "-", spaces, then resolves the first
+        registered MAC to the corp's databases. Unknown MACs → -2/exception.
+
+    AccountNumber:
+      type: integer
+      format: int64
+      description: |
+        Card/account number (C# long / SQL bigint). In JavaScript clients
+        handle as a STRING end-to-end — may exceed Number.MAX_SAFE_INTEGER
+        (same hazard class as BMI personId; see tasks/lessons.md).
+      example: 128189
+
+    Money:
+      type: number
+      format: double
+      description: |
+        C# decimal. Send invariant-culture format ("12.50") — locale-
+        sensitive parsing caused the 2025-01 negative-balance incidents.
+
+    TimeDateMap:
+      type: object
+      description: |
+        ClassLibrary_Accounts.iTimeDate.TimeDateMap. CONFIRMED against the live
+        WSDL (2026-07-15): the serialized element is a struct of integer parts,
+        NOT a single dateTime. Send all seven fields. Verified working on a live
+        TPICreditAccounts call.
+      required: [Year, Month, Day, Hour, Minute, Second, Millisecond]
+      properties:
+        Year: { type: integer }
+        Month: { type: integer }
+        Day: { type: integer }
+        Hour: { type: integer }
+        Minute: { type: integer }
+        Second: { type: integer }
+        Millisecond: { type: integer }
+
+    ReasonCodeTables:
+      type: object
+      description: |
+        Live reason codes pulled from TPI_GetReasonCodeList (corp 6283, 2026-07-15).
+        Refund: 1 Returned Merchandise, 2 Bad Service, 3 Unhappy customer,
+        5 Damaged goods, 6 Other.
+        Comp: 1 Bad Service, 2 Good Customer, 3 Employee, 4 Relative, 5 friend, 6 Other.
+        Lock: 1 Locked Account, 2 Expired, 3 Not Active, 4 Employee Card, 5 Disabled.
+        Transfer: 0 NONE, 1001 default, 1003 Damaged Card.
+
+    ReturnCode:
+      type: integer
+      description: "0 = success; -1 = server exception (details in server log only); -2 = MAC_ID not resolved. Duplicate tpiTransactionID → 0 (idempotent no-op)."
+
+    TpiTransactionContext:
+      type: object
+      description: |
+        Standard context block on transactional operations. `tpiTransactionID`
+        is the idempotency key (ST_IsThirdPartyPOS_TransProcessed); a repeat
+        id returns 0 without re-applying. LocationID may appear as
+        `LocID`/`LocationID`/`locationID` per method — same meaning.
+      properties:
+        LocationID: { type: integer }
+        tpiSessionID: { type: string, maxLength: 50 }
+        tpiTransactionID:
+          { type: string, maxLength: 50, description: Caller-unique id — the idempotency key. }
+        tpiEmployeeID: { type: string, maxLength: 50 }
+        tpiEmployeeFirstName: { type: string, maxLength: 50 }
+        tpiEmployeeLastName: { type: string, maxLength: 50 }
+        LT_DateTime: { $ref: "#/components/schemas/TimeDateMap" }
+        UTC_DateTime:
+          allOf: [{ $ref: "#/components/schemas/TimeDateMap" }]
+          description: Some methods name this GMT_DateTime — same meaning.
+
+    AuthEmployee:
+      type: object
+      description: Authorizing (supervisor) employee on refunds/voids, distinct from the operating tpiEmployee.
+      properties:
+        AuthEmployeeID: { type: string }
+        AuthEmployeeFirstName: { type: string }
+        AuthEmployeeLastName: { type: string }
+
+    ReasonCodes:
+      type: object
+      properties:
+        LockReasonCodeList:
+          type: array
+          items: { $ref: "#/components/schemas/ReasonCode" }
+        CompReasonCodeList:
+          type: array
+          items: { $ref: "#/components/schemas/ReasonCode" }
+        TransferReasonCodeList:
+          type: array
+          items: { $ref: "#/components/schemas/ReasonCode" }
+        RefundReasonCodeList:
+          type: array
+          items: { $ref: "#/components/schemas/ReasonCode" }
+
+    ReasonCode:
+      type: object
+      properties:
+        ReasonCodeID: { type: integer }
+        Description: { type: string }
+        Order: { type: integer }
+
+    ThirdPartyMacList:
+      type: object
+      properties:
+        ThirdParyMACs:
+          type: array
+          description: (Field name misspelled in the vendor class — "ThirdParyMACs".)
+          items:
+            type: object
+            properties:
+              MAC: { type: string }
+              DeviceTag: { type: integer }
+
+    CreditAccount:
+      type: object
+      description: One account's credit line in TPI_CreditAccounts.
+      properties:
+        AccountNumber: { $ref: "#/components/schemas/AccountNumber" }
+        Cash: { $ref: "#/components/schemas/Money" }
+        CashBonus: { $ref: "#/components/schemas/Money" }
+        Token: { type: integer }
+        TokenBonus: { type: integer }
+        Points: { type: integer }
+        TP_Duration: { type: integer, description: Time-play minutes }
+        BlockedAccessID: { type: integer }
+
+    DebitAccount:
+      type: object
+      description: One account's debit line in TPI_PayWithAccountsDebit (cash only).
+      properties:
+        AccountNumber: { $ref: "#/components/schemas/AccountNumber" }
+        DebitCash: { $ref: "#/components/schemas/Money" }
+
+    DebitAccountCashAndCashBonus:
+      type: object
+      description: One account's debit line in TPI_DebitUsingAccountCashAndCashBonus.
+      properties:
+        AccountNumber: { $ref: "#/components/schemas/AccountNumber" }
+        DebitCash: { $ref: "#/components/schemas/Money" }
+        DebitCashBonus: { $ref: "#/components/schemas/Money" }
+
+    VoidedCard:
+      type: object
+      description: Per-card restoration amounts in TPI_VoidTransaction.
+      properties:
+        AccountNumber: { $ref: "#/components/schemas/AccountNumber" }
+        CreditedCash: { $ref: "#/components/schemas/Money" }
+        CreditedBonusCash: { $ref: "#/components/schemas/Money" }
+        CreditedTokens: { type: integer }
+        CreditedTokenBonus: { type: integer }
+        CreditedPoints: { type: integer }
+        CreditedDuration: { type: integer }
+
+    LinkedProducts:
+      type: object
+      description: Redemption/entitlement product linked to a card.
+      properties:
+        ProductTag: { type: integer }
+        QtyToPayout: { type: integer }
+
+    LinkedGateAccess:
+      type: object
+      description: Gen-1 gate access grant — device tag + actuation count.
+      properties:
+        DeviceTag: { type: integer, format: int64 }
+        Actuations: { type: integer }
+
+    LinkedGateAccess_AA:
+      type: object
+      description: Gen-2 gate access grant — profile-aware, multiple device tags.
+      properties:
+        GateAccessID: { type: integer }
+        Account: { $ref: "#/components/schemas/AccountNumber" }
+        ProductTag: { type: integer }
+        DeviceTag:
+          type: array
+          items: { type: integer, format: int64 }
+        Actuations: { type: integer }
+        LocID: { type: integer }
+
+    LinkedGateAccess_BB:
+      allOf:
+        - $ref: "#/components/schemas/LinkedGateAccess_AA"
+        - type: object
+          description: Gen-3 — adds the validity window.
+          properties:
+            StartDate: { type: string, format: date-time }
+            Expire: { type: string, format: date-time }
+
+    LinkedGateAccessXML:
+      type: string
+      description: |
+        XML string used by TPI_BulkEncodeAccounts_BB (linkedGateAccessXML)
+        and TPI_PackageSale_CC/_DD (gateAccessXML). Produced by the Java TS
+        (SystemUtilities.LinkedGateAccessItemsToXML). Verified format from
+        source comments:
+        ```xml
+        <LinkedGateAccess>
+          <GateAccessItems>
+            <GateAccess>
+              <Product_Tag>5472</Product_Tag>
+              <DeviceTags>
+                <DeviceTag>4346</DeviceTag>
+                <DeviceTag>4353</DeviceTag>
+              </DeviceTags>
+              <PackageClusterID>43762918</PackageClusterID>
+              <Actuations>3</Actuations>
+              <StartTime>2021-04-09 14:38:00</StartTime>
+              <Duration>0</Duration>
+              <Expire>2021-05-31 23:59:59</Expire>
+              <IsFirstSwipe>true</IsFirstSwipe>
+              <HasGAProfile>false</HasGAProfile>
+              <ExtendExpireMinutes>0</ExtendExpireMinutes>
+              <ExtendExpireHours>0</ExtendExpireHours>
+              <ExtendExpireDays>0</ExtendExpireDays>
+              <ProfileExpire></ProfileExpire>
+            </GateAccess>
+          </GateAccessItems>
+        </LinkedGateAccess>
+        ```
+        `IsFirstSwipe` = activate window on first swipe; when
+        `HasGAProfile` is true, `ProfileExpire` carries the profile's
+        expiry. Dates are "yyyy-MM-dd HH:mm:ss".
+
+    GateAccessSale:
+      type: object
+      description: One account's gate-access sale (gen 1) — balance credits + GA grants.
+      properties:
+        AccountNumber: { $ref: "#/components/schemas/AccountNumber" }
+        Cash: { $ref: "#/components/schemas/Money" }
+        CashBonus: { $ref: "#/components/schemas/Money" }
+        Token: { type: integer }
+        TokenBonus: { type: integer }
+        Points: { type: integer }
+        TP_Duration: { type: integer }
+        BlockedAccessID: { type: integer }
+        MembershipID: { type: integer }
+        PackageClusterID: { type: integer, format: int64 }
+        GateAccessList:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedGateAccess_AA" }
+
+    GateAccessSale_BB:
+      type: object
+      description: One account's gate-access sale (current) — GA items carry StartDate/Expire.
+      properties:
+        AccountNumber: { $ref: "#/components/schemas/AccountNumber" }
+        Cash: { $ref: "#/components/schemas/Money" }
+        CashBonus: { $ref: "#/components/schemas/Money" }
+        Token: { type: integer }
+        TokenBonus: { type: integer }
+        Points: { type: integer }
+        TP_Duration: { type: integer }
+        BlockedAccessID: { type: integer }
+        MembershipID: { type: integer }
+        PackageClusterID: { type: integer, format: int64 }
+        GateAccessList:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedGateAccess_BB" }
+
+    PackageSaleCore:
+      type: object
+      description: Parameters shared by every TPI_PackageSale generation.
+      required: [MAC_ID, Account, PackageID]
+      properties:
+        MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+        Account: { $ref: "#/components/schemas/AccountNumber" }
+        PackageID: { type: integer }
+        ProductTag: { type: integer }
+        PackageCost: { $ref: "#/components/schemas/Money" }
+        CreditCash: { $ref: "#/components/schemas/Money" }
+        CreditBonus: { $ref: "#/components/schemas/Money" }
+        CreditTokens: { type: integer }
+        CreditTokenBonus: { type: integer }
+        CreditPoints: { type: integer }
+        TP_Duration: { type: integer }
+        BlockedAccessID: { type: integer }
+        Products:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedProducts" }
+
+    PackageSaleContents:
+      type: object
+      description: Package contents restated on void operations.
+      required: [MAC_ID, Account, PackageID]
+      properties:
+        MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+        Account: { $ref: "#/components/schemas/AccountNumber" }
+        PackageID: { type: integer }
+        BlockedAccessID: { type: integer }
+        ProductTag: { type: integer }
+        CreditCash: { $ref: "#/components/schemas/Money" }
+        CreditBonus: { $ref: "#/components/schemas/Money" }
+        CreditTokens: { type: integer }
+        CreditTokenBonus: { type: integer }
+        CreditPoints: { type: integer }
+        TP_Duration: { type: integer }
+        Products:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedProducts" }
+
+    BulkEncodeCore:
+      type: object
+      description: |
+        Parameters shared by every TPI_BulkEncodeAccounts generation. One
+        encode header is created (ST_TPI_Encode_Insert), then each account is
+        attached with the same package contents. Explicit account list only —
+        no range input.
+      required: [MAC_ID, Accounts]
+      properties:
+        MAC_ID: { $ref: "#/components/schemas/MacIdArray" }
+        Accounts:
+          type: array
+          items: { $ref: "#/components/schemas/AccountNumber" }
+        EncodeDescription: { type: string }
+        TenderAmount: { $ref: "#/components/schemas/Money" }
+        CreditCash: { $ref: "#/components/schemas/Money" }
+        CreditBonus: { $ref: "#/components/schemas/Money" }
+        CreditTokens: { type: integer }
+        CreditTokenBonus: { type: integer }
+        CreditPoints: { type: integer }
+        TP_Duration: { type: integer }
+        Products:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedProducts" }
+        ActivationDate: { $ref: "#/components/schemas/TimeDateMap" }
+        ExpirationDate: { $ref: "#/components/schemas/TimeDateMap" }
+        BlockedAccessID: { type: integer }
+
+    LocationDevice:
+      type: object
+      properties:
+        DeviceTag: { type: integer, format: int64 }
+        DeviceName: { type: string }
+        DeviceMacID: { type: string }
+        DeviceType: { type: integer }
+
+    LocationDevice_AA:
+      allOf:
+        - $ref: "#/components/schemas/LocationDevice"
+        - type: object
+          properties:
+            DeviceIP: { type: string }
+
+    LocationDevice_BB:
+      allOf:
+        - $ref: "#/components/schemas/LocationDevice_AA"
+        - type: object
+          properties:
+            LocationID: { type: integer }
+            LocationDescription: { type: string }
+
+    LocationDevice_CC:
+      allOf:
+        - $ref: "#/components/schemas/LocationDevice_BB"
+        - type: object
+          properties:
+            ResetConfiguration:
+              {
+                type: boolean,
+                description: Reader should reload config / current price level (Axosoft 3101).,
+              }
+
+    Location:
+      type: object
+      properties:
+        LocationCode: { type: integer }
+        LocationDescription: { type: string }
+
+    LocationEmployee:
+      type: object
+      properties:
+        EmployeeID: { type: integer }
+        FirstName: { type: string }
+        LastName: { type: string }
+        EmployeeCardNumber: { type: integer, format: int64 }
+        IsRedemptionGameAuthorized: { type: boolean, description: Axosoft 1096 }
+        CanAuthorizeMidwayGamePlay: { type: boolean, description: Axosoft 1085 }
+        AuthorizedLocations:
+          type: array
+          items: { $ref: "#/components/schemas/Location" }
+
+    LocationCashBonusSetting:
+      type: object
+      description: One cash→bonus reward tier.
+      properties:
+        BonusID: { type: integer }
+        CashValue: { $ref: "#/components/schemas/Money" }
+        BonusReward: { $ref: "#/components/schemas/Money" }
+
+  responses:
+    IntResult:
+      description: |
+        Integer return code inside the SOAP response
+        (`<OperationName>Result`). 0 = success; -1 = server exception;
+        -2 = MAC_ID not resolved. Duplicate tpiTransactionID → 0 without
+        re-applying.
+      content:
+        text/xml:
+          schema:
+            $ref: "#/components/schemas/ReturnCode"

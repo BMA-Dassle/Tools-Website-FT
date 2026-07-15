@@ -58,6 +58,9 @@ const SQ = {
   SHUFFLY_1HR: "47RPZJOQU3VSIDFRFBPNZPED",
   SHUFFLY_BEER: "ZIGCPLUWE5KIZQYWAWDVYO4G",
   ATTR_REVENUE: "2PJWP7YOVO5QG6ZCJW62LMV7",
+  // Game-card token reloads — one item, price overridden per package
+  // (game-cards feature). Shared here to keep catalog IDs centralized.
+  GAME_TOKENS: "7DTI6O5RRGIRIUHAW2NO3S2U",
 } as const;
 
 export { SQ as SQUARE_CATALOG_IDS };

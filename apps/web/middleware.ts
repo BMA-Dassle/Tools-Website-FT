@@ -22,6 +22,20 @@ export async function middleware(request: NextRequest) {
   const devBrand = isDev ? request.cookies.get("dev-brand")?.value : undefined;
   const isHeadPinz = hostname.includes("headpinz.com") || devBrand === "headpinz";
 
+  // ── Game-card reload QR domain ────────────────────────────────────────────
+  // Printed cards carry a QR to swflpassport.com/?id=<cardNumber>. That domain
+  // points at this project purely to funnel scans into the reload flow — send
+  // every request to headpinz.com/reload, PRESERVING the card id. 308 keeps it
+  // permanent + method-safe. id is validated numeric; a missing/bad id just
+  // lands on /reload (typed entry).
+  const host = hostname.split(":")[0].toLowerCase();
+  if (host === "swflpassport.com" || host.endsWith(".swflpassport.com")) {
+    const id = request.nextUrl.searchParams.get("id") || "";
+    const target = new URL("https://headpinz.com/reload");
+    if (/^\d{1,19}$/.test(id)) target.searchParams.set("id", id);
+    return NextResponse.redirect(target, 308);
+  }
+
   // Apple Pay domain verification — rewrite to API route that serves per-domain file
   if (pathname === "/.well-known/apple-developer-merchantid-domain-association") {
     const url = request.nextUrl.clone();
@@ -532,7 +546,11 @@ export async function middleware(request: NextRequest) {
     // Self-hosted payment-difference links for reservation edits — SMS/email
     // links point at either brand domain; token-gated, brand-neutral page.
     // Without this the /hp rewrite turns it into a 404 on HeadPinz.
-    pathname.startsWith("/pay/");
+    pathname.startsWith("/pay/") ||
+    // Public game-card reload flow — QR scans land here on headpinz.com; brand
+    // chrome is host-aware. Without this the /hp rewrite 404s it on HeadPinz.
+    pathname === "/reload" ||
+    pathname.startsWith("/reload/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
