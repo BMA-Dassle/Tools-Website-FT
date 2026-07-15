@@ -27,6 +27,12 @@ function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 }
 
+/** Digits only, leading zeros dropped — the printed number often shows them but they aren't part of the account. */
+function normalizeCard(raw: string): string {
+  const digits = raw.replace(/\D/g, "").replace(/^0+/, "");
+  return digits;
+}
+
 function BalanceRow({ balance }: { balance: CardBalance }) {
   const cells = [
     { label: "Tokens", value: balance.tokens },
@@ -46,8 +52,9 @@ function BalanceRow({ balance }: { balance: CardBalance }) {
 }
 
 export default function ReloadFlow({ initialCardId }: { initialCardId?: string }) {
-  const [accountNumber, setAccountNumber] = useState(initialCardId ?? "");
-  const [entry, setEntry] = useState(initialCardId ?? "");
+  const initial = initialCardId ? normalizeCard(initialCardId) : "";
+  const [accountNumber, setAccountNumber] = useState(initial);
+  const [entry, setEntry] = useState(initial);
   const [center, setCenter] = useState<CenterConfig | null>(null);
   const [pkg, setPkg] = useState<TokenPackage | null>(null);
   const [email, setEmail] = useState("");
@@ -119,7 +126,10 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     return (
       <Card className="mx-auto max-w-md space-y-4 p-6">
         <h1 className="text-xl font-semibold text-white">Reload your game card</h1>
-        <p className="text-sm text-white/70">Enter your card number to get started.</p>
+        <p className="text-sm text-white/70">
+          Enter the number printed <span className="text-white">under the barcode</span> on your
+          card — not the QR code. Leading zeros aren&apos;t needed.
+        </p>
         <Input
           label="Card number"
           inputMode="numeric"
@@ -128,12 +138,15 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           error={verify.data && !verified ? "We couldn't find that card number." : undefined}
         />
         <Button
-          onClick={() => setAccountNumber(entry)}
-          disabled={!/^\d{1,19}$/.test(entry)}
+          onClick={() => setAccountNumber(normalizeCard(entry))}
+          disabled={normalizeCard(entry).length === 0}
           loading={verify.isFetching}
         >
           Look up card
         </Button>
+        <p className="text-center text-xs text-white/50">
+          Tip: scan the QR code on your card with your phone for a faster reload.
+        </p>
       </Card>
     );
   }
