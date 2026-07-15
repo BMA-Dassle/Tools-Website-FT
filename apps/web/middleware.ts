@@ -22,18 +22,20 @@ export async function middleware(request: NextRequest) {
   const devBrand = isDev ? request.cookies.get("dev-brand")?.value : undefined;
   const isHeadPinz = hostname.includes("headpinz.com") || devBrand === "headpinz";
 
-  // ── Game-card reload QR domain ────────────────────────────────────────────
-  // Printed cards carry a QR to swflpassport.com/?id=<cardNumber>. That domain
-  // points at this project purely to funnel scans into the reload flow — send
-  // every request to headpinz.com/reload, PRESERVING the card id. 308 keeps it
-  // permanent + method-safe. id is validated numeric; a missing/bad id just
-  // lands on /reload (typed entry).
+  // ── swflpassport.com is a pure redirector — never hosts anything ──────────
+  // Printed cards carry a QR to swflpassport.com/?id=<cardNumber>. The domain
+  // exists only to forward scans: a valid card id goes to the reload flow with
+  // the id preserved; anything else (bare visit, no/invalid id) goes to the
+  // HeadPinz home. 308 keeps it permanent + method-safe.
   const host = hostname.split(":")[0].toLowerCase();
   if (host === "swflpassport.com" || host.endsWith(".swflpassport.com")) {
     const id = request.nextUrl.searchParams.get("id") || "";
-    const target = new URL("https://headpinz.com/reload");
-    if (/^\d{1,19}$/.test(id)) target.searchParams.set("id", id);
-    return NextResponse.redirect(target, 308);
+    if (/^\d{1,19}$/.test(id)) {
+      const target = new URL("https://headpinz.com/reload");
+      target.searchParams.set("id", id);
+      return NextResponse.redirect(target, 308);
+    }
+    return NextResponse.redirect("https://headpinz.com/", 308);
   }
 
   // Apple Pay domain verification — rewrite to API route that serves per-domain file
