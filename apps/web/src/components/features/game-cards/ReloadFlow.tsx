@@ -106,6 +106,10 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
             <BalanceRow balance={result.balance} />
           </div>
         )}
+        <p className="text-[11px] leading-snug text-white/40">
+          Card balances sync from the game system — a reload can take a few minutes to appear on
+          your card and at the games.
+        </p>
         <Button
           variant="secondary"
           onClick={() => {
@@ -190,6 +194,12 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
         </button>
       </div>
       {balance && <BalanceRow balance={balance} />}
+      {balance && (
+        <p className="text-[11px] leading-snug text-white/40">
+          Balances sync from the game system and may take a few minutes to reflect recent play or
+          reloads.
+        </p>
+      )}
     </Card>
   );
 

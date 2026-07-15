@@ -216,27 +216,40 @@ export async function creditTokens(params: CreditTokensParams): Promise<{ code: 
 
 /**
  * Read-only account lookup for verify + balance display (Tokens / Bonus Tokens
- * / Time). Calls the balance web service.
+ * / Time). Uses the WEB service — WS_AccountHistory `AcountHistoryWithPhotoXML`
+ * (the op the Passport site used), NOT the on-prem socket BalanceInquiry.
  *
- * ⚠️ BUILD-TIME CONFIRM: the exact balance operation name and response field
- * names are not yet verified against the live WSDL (WS_Game_AccountBalance is
- * referenced in the vendor changelog). Confirm at
- * `${INTERCARD_BALANCE_URL}?WSDL` and adjust `opName` / field tags below.
- * Until confirmed, treat verify results as provisional.
+ * Field names + shape were captured off the LIVE service (2026-07-15) for a
+ * real card, not assumed: the response's <AccountBalance> carries
+ * <TokenBalance>, <TokenBonusBalance>, <TPLY_Duration> (time-play minutes),
+ * <statusText>, <Name>, plus cash/point balances. Result code 0 = ok.
+ *
+ * Element order in the request follows the WSDL sequence:
+ * MAC_ID, Account, LT_Datetime, GMT_StartPeriod, GMT_EndPeriod, LocID, LT_Diff.
  */
 export async function verifyAccount(
   accountNumber: string,
-  _locationCode?: number,
+  locationCode?: number,
 ): Promise<VerifyResult> {
-  const opName = "WS_Game_AccountBalance";
-  const inner = macXml() + `<AccountNumber>${accountNumber}</AccountNumber>`;
+  const now = new Date();
+  const isoNow = sqlDateTime(now, "UTC").replace(" ", "T");
+  const loc = locationCode ?? 12; // balance is account-global; LocID is just history context
 
-  const resp = await soapCall(INTERCARD_BALANCE_URL, opName, inner);
+  const inner =
+    macXml() +
+    `<Account>${accountNumber}</Account>` +
+    `<LT_Datetime>${isoNow}</LT_Datetime>` +
+    `<GMT_StartPeriod>2012-01-01T00:00:00</GMT_StartPeriod>` +
+    `<GMT_EndPeriod>2035-01-01T00:00:00</GMT_EndPeriod>` +
+    `<LocID>${loc}</LocID>` +
+    `<LT_Diff>-4</LT_Diff>`;
 
-  // The account is considered non-existent only when the service explicitly
-  // says so; a parse miss throws (VERIFY unavailable) so we never charge blind.
-  const notFound = /not\s*found|invalid\s*account|no\s*such/i.test(resp);
-  if (notFound) {
+  const resp = await soapCall(INTERCARD_BALANCE_URL, "AcountHistoryWithPhotoXML", inner);
+
+  const resultRaw = extractTag(resp, "AcountHistoryWithPhotoXMLResult");
+  const result = resultRaw == null ? NaN : Number(resultRaw);
+  // Non-zero result or no balance block → treat as not found (do not charge).
+  if (result !== 0 || !/<(?:\w+:)?AccountBalance\b/.test(resp)) {
     return { exists: false, accountNumber };
   }
 
@@ -247,11 +260,11 @@ export async function verifyAccount(
   };
 
   const balance: CardBalance = {
-    tokens: num("Tokens"),
-    bonusTokens: num("BonusTokens"),
-    timeMinutes: num("TimePlay") || num("Duration") || num("Minutes"),
+    tokens: num("TokenBalance"),
+    bonusTokens: num("TokenBonusBalance"),
+    timeMinutes: num("TPLY_Duration"),
   };
-  const name = extractTag(resp, "Name") || extractTag(resp, "CardHolder") || undefined;
+  const rawName = (extractTag(resp, "Name") || "").replace(/[\s,]+/g, " ").trim();
 
-  return { exists: true, accountNumber, balance, name: name ?? undefined };
+  return { exists: true, accountNumber, balance, name: rawName || undefined };
 }

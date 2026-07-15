@@ -25,7 +25,7 @@ export const INTERCARD_TPI_URL =
   "https://intercard.swflpassport.com/WS_ThirdPartyInterface/WS_ThirdPartyInterface.asmx";
 export const INTERCARD_BALANCE_URL =
   process.env.INTERCARD_BALANCE_URL ||
-  "https://intercard.swflpassport.com/WS_Game_AccountBalance/WS_Game_AccountBalance.asmx";
+  "https://intercard.swflpassport.com/WS_AccountHistory/WebServiceAccountHistory.asmx";
 
 export type Brand = "headpinz" | "fasttrax";
 
