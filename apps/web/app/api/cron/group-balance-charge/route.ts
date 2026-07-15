@@ -4,14 +4,16 @@ import {
   getQuotesNeedingBalanceCharge,
   claimGfBalanceCharge,
   updateGfBalanceCharged,
+  updateGfBalanceChargeCaptured,
   updateGfBalanceLinkSent,
   updateGfBalancePrepaid,
   updateGfGiftCardList,
+  appendAuditLog,
   parseGiftCardIds,
   parseGiftCardGans,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
-import { loadBalanceOntoGiftCards } from "@/lib/square-gift-card";
+import { loadBalanceOntoGiftCards, sumGiftCardLoadsForPayment } from "@/lib/square-gift-card";
 import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
 import { fetchProject } from "@/lib/bmi-office-actions";
@@ -149,74 +151,127 @@ async function processBalanceCharge(
 
   // Path A: auto-charge saved card
   if (quote.saved_card_id && quote.square_customer_id) {
+    let chargeCaptured = false;
     try {
-      // Create balance order
-      const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
-        method: "POST",
-        headers: sqHeaders(),
-        body: JSON.stringify({
-          idempotency_key: `gf-bal-order-${baseKey}`,
-          order: {
+      let balanceOrderId: string | undefined;
+      let balancePaymentId: string | undefined;
+      let resumedPayment = false;
+
+      // Resume: a prior run's charge CAPTURED but fulfillment failed (persist-first
+      // marker present, quote not marked paid). Re-charging would double-bill.
+      if (quote.square_balance_payment_id && !quote.balance_paid_at) {
+        try {
+          const pRes = await fetch(
+            `${SQUARE_BASE}/payments/${encodeURIComponent(quote.square_balance_payment_id)}`,
+            { headers: sqHeaders() },
+          );
+          const pData = await pRes.json();
+          if (
+            pRes.ok &&
+            pData.payment?.status === "COMPLETED" &&
+            (pData.payment.amount_money?.amount ?? 0) === quote.balance_cents
+          ) {
+            balancePaymentId = pData.payment.id as string;
+            balanceOrderId = quote.square_balance_order_id || (pData.payment.order_id as string);
+            resumedPayment = true;
+            chargeCaptured = true;
+            console.log(
+              `[group-balance-charge] RESUME quote=${quote.id} payment=${balancePaymentId} — skipping charge`,
+            );
+          }
+        } catch {
+          /* lookup failed — proceed with a fresh charge */
+        }
+      }
+
+      if (!balancePaymentId) {
+        // Create balance order
+        const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
+          method: "POST",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            idempotency_key: `gf-bal-order-${baseKey}`,
+            order: {
+              location_id: quote.square_location_id,
+              reference_id: `GF Balance: ${quote.event_number || ""}`.slice(0, 40),
+              line_items: buildPaymentLineItems(
+                "Group Event Balance",
+                quote.balance_cents,
+                balanceServiceCharge,
+              ),
+            },
+          }),
+        });
+        const orderData = await orderRes.json();
+        if (!orderRes.ok || !orderData.order?.id) {
+          throw new Error(`Balance order failed: ${JSON.stringify(orderData).slice(0, 200)}`);
+        }
+        balanceOrderId = orderData.order.id as string;
+
+        // Charge saved card
+        const payRes = await fetch(`${SQUARE_BASE}/payments`, {
+          method: "POST",
+          headers: sqHeaders(),
+          body: JSON.stringify({
+            idempotency_key: `gf-bal-pay-${baseKey}`,
+            source_id: quote.saved_card_id,
+            amount_money: { amount: quote.balance_cents, currency: "USD" },
+            order_id: balanceOrderId,
             location_id: quote.square_location_id,
-            reference_id: `GF Balance: ${quote.event_number || ""}`.slice(0, 40),
-            line_items: buildPaymentLineItems(
-              "Group Event Balance",
-              quote.balance_cents,
-              balanceServiceCharge,
-            ),
-          },
-        }),
-      });
-      const orderData = await orderRes.json();
-      if (!orderRes.ok || !orderData.order?.id) {
-        throw new Error(`Balance order failed: ${JSON.stringify(orderData).slice(0, 200)}`);
-      }
-      const balanceOrderId = orderData.order.id as string;
+            customer_id: quote.square_customer_id,
+            autocomplete: true,
+            note: `GF Balance: ${quote.event_name || ""} (${quote.event_number || ""})`,
+          }),
+        });
+        const payData = await payRes.json();
+        if (!payRes.ok || payData.errors) {
+          const sqErr = payData.errors?.[0];
+          declineCode = sqErr?.code || "CHARGE_FAILED";
+          declineDetail = sqErr?.detail || null;
+          throw new Error(`Balance charge failed: ${declineCode}`);
+        }
+        balancePaymentId = payData.payment?.id as string;
+        chargeCaptured = true;
 
-      // Charge saved card
-      const payRes = await fetch(`${SQUARE_BASE}/payments`, {
-        method: "POST",
-        headers: sqHeaders(),
-        body: JSON.stringify({
-          idempotency_key: `gf-bal-pay-${baseKey}`,
-          source_id: quote.saved_card_id,
-          amount_money: { amount: quote.balance_cents, currency: "USD" },
-          order_id: balanceOrderId,
-          location_id: quote.square_location_id,
-          customer_id: quote.square_customer_id,
-          autocomplete: true,
-          note: `GF Balance: ${quote.event_name || ""} (${quote.event_number || ""})`,
-        }),
-      });
-      const payData = await payRes.json();
-      if (!payRes.ok || payData.errors) {
-        const sqErr = payData.errors?.[0];
-        declineCode = sqErr?.code || "CHARGE_FAILED";
-        declineDetail = sqErr?.detail || null;
-        throw new Error(`Balance charge failed: ${declineCode}`);
-      }
-      const balancePaymentId = payData.payment?.id as string;
-
-      // LOAD gift cards with balance amount ($2k max per card; overflow → new cards)
-      const loaded = await loadBalanceOntoGiftCards({
-        giftCardIds: parseGiftCardIds(quote.square_gift_card_id),
-        locationId: quote.square_location_id,
-        amountCents: quote.balance_cents,
-        baseKey,
-        buyerPaymentInstrumentIds: [balancePaymentId],
-      });
-      if (loaded.createdCards.length) {
-        await updateGfGiftCardList(quote.id, {
-          giftCardIds: loaded.giftCardIds,
-          giftCardGans: [
-            ...parseGiftCardGans(quote.square_gift_card_gan),
-            ...loaded.createdCards.map((c) => c.gan ?? ""),
-          ],
+        // Persist-first: a fulfillment failure below resumes from THIS payment on
+        // the next run instead of re-charging the saved card.
+        await updateGfBalanceChargeCaptured(quote.id, {
+          square_balance_order_id: balanceOrderId,
+          square_balance_payment_id: balancePaymentId,
         });
       }
 
+      // LOAD gift cards with balance amount ($2k max per card; overflow → new cards).
+      // Resume-idempotent: only the portion this payment hasn't already loaded goes on.
+      const knownGiftCardIds = parseGiftCardIds(quote.square_gift_card_id);
+      const alreadyLoaded = resumedPayment
+        ? await sumGiftCardLoadsForPayment({
+            giftCardIds: knownGiftCardIds,
+            paymentId: balancePaymentId,
+          })
+        : 0;
+      const remainingToLoad = Math.max(0, quote.balance_cents - alreadyLoaded);
+      if (remainingToLoad > 0) {
+        const loaded = await loadBalanceOntoGiftCards({
+          giftCardIds: knownGiftCardIds,
+          locationId: quote.square_location_id,
+          amountCents: remainingToLoad,
+          baseKey,
+          buyerPaymentInstrumentIds: [balancePaymentId],
+        });
+        if (loaded.createdCards.length) {
+          await updateGfGiftCardList(quote.id, {
+            giftCardIds: loaded.giftCardIds,
+            giftCardGans: [
+              ...parseGiftCardGans(quote.square_gift_card_gan),
+              ...loaded.createdCards.map((c) => c.gan ?? ""),
+            ],
+          });
+        }
+      }
+
       await updateGfBalanceCharged(quote.id, {
-        square_balance_order_id: balanceOrderId,
+        square_balance_order_id: balanceOrderId ?? "",
         square_balance_payment_id: balancePaymentId,
         balance_paid_at: new Date().toISOString(),
         balance_payment_method: "auto_card",
@@ -301,6 +356,54 @@ async function processBalanceCharge(
       return "auto_charged";
     } catch (err) {
       console.error(`[group-balance-charge] auto-charge failed for quote=${quote.id}:`, err);
+
+      // Contract-history ledger row (surfaces on the admin Contract tab timeline).
+      {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const { isCardDeclineCode } = await import("@/lib/square-decline");
+        appendAuditLog({
+          quoteId: quote.id,
+          event:
+            declineCode && isCardDeclineCode(declineCode)
+              ? "balance_declined"
+              : "balance_payment_failed",
+          metadata: {
+            code: declineCode ?? "UNKNOWN",
+            error: (declineDetail || errMsg).slice(0, 300),
+            amountCents: quote.balance_cents,
+            attempt: (quote.balance_charge_attempts || 0) + 1,
+            chargeCaptured,
+            source: "auto_charge_cron",
+          },
+        }).catch((e) => console.error("[group-balance-charge] audit log error:", e));
+      }
+
+      if (chargeCaptured) {
+        // Money captured but fulfillment failed — do NOT send a "balance due"
+        // link (it invites a second payment). The persist-first marker makes the
+        // next cron run resume + finalize without charging; alert ops meanwhile.
+        try {
+          const { notifyDispatchError } = await import("@/lib/group-function-alert");
+          await notifyDispatchError({
+            reservationId: quote.bmi_reservation_id,
+            centerName: quote.center_name,
+            plannerEmail: quote.planner_email ?? undefined,
+            error: new Error(
+              `Balance CAPTURED for "${quote.event_name}" but fulfillment failed (will auto-resume next run): ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          });
+        } catch {
+          /* alert is best-effort */
+        }
+        const { sql } = await import("@/lib/db");
+        const q = sql();
+        await q`UPDATE group_function_quotes SET
+          balance_charge_attempts = balance_charge_attempts + 1,
+          balance_last_error = ${`CAPTURED_FINALIZE_FAILED: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500)},
+          updated_at = NOW()
+        WHERE id = ${quote.id}`.catch(() => {});
+        return "skipped";
+      }
       // Fall through to payment link
     }
   }

@@ -748,6 +748,53 @@ export async function updateGfDepositPaid(
   `;
 }
 
+/**
+ * Persist-first charge marker: written the moment a deposit charge CAPTURES,
+ * before any gift-card/fulfillment step runs. A later failure then leaves a
+ * findable record, and the retry path resumes from this payment instead of
+ * charging the guest again (the H3074 six-charge incident, 2026-07-14).
+ * `square_gift_card_id`/`gan` ride along when the cards were pre-created.
+ */
+export async function updateGfDepositChargeCaptured(
+  id: number,
+  fields: {
+    square_deposit_order_id: string;
+    square_deposit_payment_id: string;
+    square_gift_card_id?: string;
+    square_gift_card_gan?: string;
+    square_dayof_order_id?: string | null;
+  },
+): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    UPDATE group_function_quotes SET
+      square_deposit_order_id = ${fields.square_deposit_order_id},
+      square_deposit_payment_id = ${fields.square_deposit_payment_id},
+      square_gift_card_id = COALESCE(${fields.square_gift_card_id ?? null}, square_gift_card_id),
+      square_gift_card_gan = COALESCE(${fields.square_gift_card_gan ?? null}, square_gift_card_gan),
+      square_dayof_order_id = COALESCE(${fields.square_dayof_order_id ?? null}, square_dayof_order_id),
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+}
+
+/** Persist-first marker for the balance charge — same contract as the deposit one. */
+export async function updateGfBalanceChargeCaptured(
+  id: number,
+  fields: { square_balance_order_id: string; square_balance_payment_id: string },
+): Promise<void> {
+  await ensureGfSchema();
+  const q = sql();
+  await q`
+    UPDATE group_function_quotes SET
+      square_balance_order_id = ${fields.square_balance_order_id},
+      square_balance_payment_id = ${fields.square_balance_payment_id},
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+}
+
 export async function updateGfBalanceCharged(
   id: number,
   fields: {

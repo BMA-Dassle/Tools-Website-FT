@@ -1734,3 +1734,37 @@ the port is verified live.
 (b) dependencies that physically don't exist in the target (portal-DB reads → frozen constants),
 and call out every such deviation explicitly in the plan. Ask "is this port allowed to change
 behavior?" BEFORE designing, not after.
+
+## Never take money before every fallible non-money step (2026-07-14, H3074 six-charge incident)
+
+**Incident:** The GF deposit route charged the card FIRST, then created + activated the
+eGift card. Gift-card creation failed on a custom-GAN collision ("The Gift Card has
+already been created" - GANs derive deterministically from the BMI reservation id, and
+attempt #1 had already claimed it), so EVERY retry captured $973.07 and then died. One
+guest (Kelly Greens, contract 8caebedb) was charged 6x = $5,838.42 across 7/9-7/13 while
+the quote showed unpaid. Separately, the legacy-deposit path minted the prior BMI deposit
+onto ONE comp gift card - any prior over $2,000 blew Square's per-card cap
+(PAYMENT_LIMIT_EXCEEDED, the guest-visible "gift card exceeded value" error, event #3098).
+
+**Why:** Random per-request idempotency keys mean each retry is a brand-new Square
+payment; work ordered charge-before-fulfillment means any post-charge failure strands
+captured money with no DB record (violates persist-first); deterministic external ids
+(custom GANs) collide across retries/re-signs and must have a recovery path.
+
+**How to apply (now enforced in the GF payment routes - keep these invariants):**
+1. Idempotency keys derive from (quote id, attempt counter), never randomBytes, so a
+   double-click or replay dedups to the SAME payment.
+2. Everything fallible that does not need the payment happens BEFORE the charge (gift
+   cards are CREATED pre-charge; only ACTIVATE, which cannot take money, runs after).
+3. The instant a charge captures, persist its order/payment ids
+   (updateGf{Deposit,Balance}ChargeCaptured) - and every retry path checks that marker
+   and RESUMES fulfillment (verify payment COMPLETED via Square, then finish) instead of
+   re-charging. Resumed loads compute the remainder via sumGiftCardLoadsForPayment.
+4. Custom-GAN creation goes through createDigitalGiftCard: a colliding PENDING card is
+   reused; a colliding ACTIVE card is never merged - fall back to a Square-generated GAN.
+5. Any amount destined for gift cards must be chunked/headroom-checked against the $2k
+   cap (giftCardSaleChunks / loadBalanceOntoGiftCards) - including comp mints of prior
+   deposits (legacy path now mints one comp card per chunk).
+6. Every payment failure/decline is appended to contract_audit_log
+   (deposit_declined/deposit_payment_failed/balance_declined/balance_payment_failed) so
+   the admin Contract tab timeline shows what the guest experienced.

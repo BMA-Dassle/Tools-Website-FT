@@ -1107,6 +1107,130 @@ export async function loadGiftCard(params: {
 /** Square caps a single gift card at $2,000. */
 export const GIFT_CARD_MAX_CENTS = 200_000;
 
+/** Retrieve a gift card by its GAN. Returns null when no card exists for it. */
+export async function getGiftCardFromGan(
+  gan: string,
+): Promise<{ id: string; gan: string; state: string; balanceCents: number } | null> {
+  const res = await fetch(`${SQUARE_BASE}/gift-cards/from-gan`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({ gan }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.gift_card?.id) return null;
+  return {
+    id: data.gift_card.id as string,
+    gan: (data.gift_card.gan as string) ?? gan,
+    state: (data.gift_card.state as string) ?? "UNKNOWN",
+    balanceCents: data.gift_card.balance_money?.amount ?? 0,
+  };
+}
+
+/**
+ * Create a DIGITAL gift card, optionally with a custom GAN — surviving the
+ * "The Gift Card has already been created" collision that permanently bricked
+ * H3074's deposit retries (custom GANs are derived from the BMI reservation id,
+ * so a card created by an earlier failed attempt — or a prior contract version —
+ * blocks every subsequent create).
+ *
+ * Recovery: a colliding card that is still PENDING (created, never funded) is
+ * reused as-is. A colliding card that is ACTIVE already carries someone's money,
+ * so we NEVER merge into it — we fall back to a Square-generated GAN instead.
+ */
+export async function createDigitalGiftCard(params: {
+  locationId: string;
+  idempotencyKey: string;
+  customGan?: string;
+}): Promise<{ id: string; gan: string; reused: boolean }> {
+  const create = async (key: string, gan?: string) => {
+    const res = await fetch(`${SQUARE_BASE}/gift-cards`, {
+      method: "POST",
+      headers: sqHeaders(),
+      body: JSON.stringify({
+        idempotency_key: key,
+        location_id: params.locationId,
+        gift_card: { type: "DIGITAL", ...(gan ? { gan_source: "OTHER", gan } : {}) },
+      }),
+    });
+    return { res, data: await res.json() };
+  };
+
+  const first = await create(params.idempotencyKey, params.customGan);
+  if (first.res.ok && first.data.gift_card?.id) {
+    return {
+      id: first.data.gift_card.id as string,
+      gan: first.data.gift_card.gan as string,
+      reused: false,
+    };
+  }
+
+  const detail = (first.data.errors?.[0]?.detail as string) ?? "";
+  if (params.customGan && /already been created/i.test(detail)) {
+    const existing = await getGiftCardFromGan(params.customGan);
+    if (existing?.state === "PENDING") {
+      return { id: existing.id, gan: existing.gan, reused: true };
+    }
+    // ACTIVE (or unreadable) — never merge funds; take a Square-generated GAN.
+    const fallback = await create(`${params.idempotencyKey}-fb`);
+    if (fallback.res.ok && fallback.data.gift_card?.id) {
+      return {
+        id: fallback.data.gift_card.id as string,
+        gan: fallback.data.gift_card.gan as string,
+        reused: false,
+      };
+    }
+    throw new SquarePaymentError(
+      fallback.data.errors?.[0]?.code ?? "GIFT_CARD_CREATE_FAILED",
+      fallback.data.errors?.[0]?.detail ?? `status ${fallback.res.status}`,
+      fallback.res.status,
+    );
+  }
+
+  throw new SquarePaymentError(
+    first.data.errors?.[0]?.code ?? "GIFT_CARD_CREATE_FAILED",
+    detail || `status ${first.res.status}`,
+    first.res.status,
+  );
+}
+
+/**
+ * Total cents already LOADED/ACTIVATED onto the given gift cards by a specific
+ * Square payment (matched via buyer_payment_instrument_ids on each activity).
+ *
+ * This is what makes a RESUME after a mid-flow failure idempotent: a retry
+ * loads `amount - alreadyLoaded` instead of re-loading the full amount (which
+ * either double-funds the cards or blows the $2k cap — the guest-facing
+ * "gift card exceeded value" error).
+ */
+export async function sumGiftCardLoadsForPayment(params: {
+  giftCardIds: string[];
+  paymentId: string;
+}): Promise<number> {
+  let total = 0;
+  for (const gcId of params.giftCardIds) {
+    if (!gcId) continue;
+    let cursor: string | undefined;
+    do {
+      const url = new URL(`${SQUARE_BASE}/gift-cards/activities`);
+      url.searchParams.set("gift_card_id", gcId);
+      url.searchParams.set("limit", "100");
+      if (cursor) url.searchParams.set("cursor", cursor);
+      const res = await fetch(url.toString(), { headers: sqHeaders() });
+      const data = await res.json();
+      if (!res.ok) break;
+      for (const a of data.gift_card_activities ?? []) {
+        const det = a.load_activity_details ?? a.activate_activity_details;
+        const buyerIds: string[] = det?.buyer_payment_instrument_ids ?? [];
+        if (buyerIds.includes(params.paymentId)) {
+          total += det?.amount_money?.amount ?? 0;
+        }
+      }
+      cursor = data.cursor;
+    } while (cursor);
+  }
+  return total;
+}
+
 /** Current balance of a gift card, in cents. Throws on lookup failure. */
 export async function getGiftCardBalanceCents(giftCardId: string): Promise<number> {
   const res = await fetch(`${SQUARE_BASE}/gift-cards/${encodeURIComponent(giftCardId)}`, {

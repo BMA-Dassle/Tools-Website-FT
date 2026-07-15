@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getGfQuoteByShortId,
   updateGfBalanceCharged,
+  updateGfBalanceChargeCaptured,
   updateGfGiftCardList,
+  appendAuditLog,
   parseGiftCardIds,
   parseGiftCardGans,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
-import { loadBalanceOntoGiftCards, SquarePaymentError } from "@/lib/square-gift-card";
+import {
+  loadBalanceOntoGiftCards,
+  sumGiftCardLoadsForPayment,
+  SquarePaymentError,
+} from "@/lib/square-gift-card";
 import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { notifyBalanceReceipt } from "@/lib/group-function-notify";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
@@ -90,76 +96,133 @@ export async function POST(req: NextRequest) {
     serviceChargeCents - Math.min(serviceChargeCents, quote.deposit_due_cents),
   );
 
+  let chargeCaptured = false;
+  let resumedPayment = false;
+
   try {
-    const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `${baseKey}-order`,
-        order: {
+    let balanceOrderId: string | undefined;
+    let balancePaymentId: string | undefined;
+    let cardLast4: string | undefined;
+
+    // ═══ Resume: a prior attempt's charge CAPTURED but fulfillment failed. ═══
+    // The persist-first marker (square_balance_payment_id without balance_paid_at)
+    // means the guest's money is already taken — verify and finish, never re-charge.
+    if (quote.square_balance_payment_id && !quote.balance_paid_at) {
+      try {
+        const pRes = await fetch(
+          `${SQUARE_BASE}/payments/${encodeURIComponent(quote.square_balance_payment_id)}`,
+          { headers: sqHeaders() },
+        );
+        const pData = await pRes.json();
+        if (
+          pRes.ok &&
+          pData.payment?.status === "COMPLETED" &&
+          (pData.payment.amount_money?.amount ?? 0) === quote.balance_cents
+        ) {
+          balancePaymentId = pData.payment.id as string;
+          balanceOrderId = quote.square_balance_order_id || (pData.payment.order_id as string);
+          cardLast4 = pData.payment.card_details?.card?.last_4 as string | undefined;
+          resumedPayment = true;
+          chargeCaptured = true;
+          console.log(
+            `[gf-balance-pay] RESUME quote=${quote.id} payment=${balancePaymentId} — skipping charge`,
+          );
+        }
+      } catch {
+        /* lookup failed — proceed with a fresh charge */
+      }
+    }
+
+    if (!balancePaymentId) {
+      const orderRes = await fetch(`${SQUARE_BASE}/orders`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `${baseKey}-order`,
+          order: {
+            location_id: quote.square_location_id,
+            reference_id: `GF Balance: ${quote.event_number || ""}`.slice(0, 40),
+            line_items: buildPaymentLineItems(
+              "Group Event Balance",
+              quote.balance_cents,
+              balanceServiceCharge,
+            ),
+          },
+        }),
+      });
+      const orderData = await orderRes.json();
+      if (!orderRes.ok || !orderData.order?.id) {
+        throw new Error(`Balance order failed: ${JSON.stringify(orderData).slice(0, 200)}`);
+      }
+      balanceOrderId = orderData.order.id as string;
+
+      const payRes = await fetch(`${SQUARE_BASE}/payments`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          idempotency_key: `${baseKey}-pay`,
+          source_id: sourceId,
+          amount_money: { amount: quote.balance_cents, currency: "USD" },
+          order_id: balanceOrderId,
           location_id: quote.square_location_id,
-          reference_id: `GF Balance: ${quote.event_number || ""}`.slice(0, 40),
-          line_items: buildPaymentLineItems(
-            "Group Event Balance",
-            quote.balance_cents,
-            balanceServiceCharge,
-          ),
-        },
-      }),
-    });
-    const orderData = await orderRes.json();
-    if (!orderRes.ok || !orderData.order?.id) {
-      throw new Error(`Balance order failed: ${JSON.stringify(orderData).slice(0, 200)}`);
-    }
-    const balanceOrderId = orderData.order.id as string;
+          ...(quote.square_customer_id ? { customer_id: quote.square_customer_id } : {}),
+          autocomplete: true,
+          note: `GF Balance: ${quote.event_name || ""} (${quote.event_number || ""})`,
+        }),
+      });
+      const payData = await payRes.json();
+      if (!payRes.ok || payData.errors) {
+        const sqErr = payData.errors?.[0];
+        throw new SquarePaymentError(
+          sqErr?.code ?? "CHARGE_FAILED",
+          sqErr?.detail ?? "The card could not be charged.",
+          payRes.status,
+        );
+      }
+      balancePaymentId = payData.payment?.id as string;
+      cardLast4 = payData.payment?.card_details?.card?.last_4 as string | undefined;
+      chargeCaptured = true;
 
-    const payRes = await fetch(`${SQUARE_BASE}/payments`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `${baseKey}-pay`,
-        source_id: sourceId,
-        amount_money: { amount: quote.balance_cents, currency: "USD" },
-        order_id: balanceOrderId,
-        location_id: quote.square_location_id,
-        ...(quote.square_customer_id ? { customer_id: quote.square_customer_id } : {}),
-        autocomplete: true,
-        note: `GF Balance: ${quote.event_name || ""} (${quote.event_number || ""})`,
-      }),
-    });
-    const payData = await payRes.json();
-    if (!payRes.ok || payData.errors) {
-      const sqErr = payData.errors?.[0];
-      throw new SquarePaymentError(
-        sqErr?.code ?? "CHARGE_FAILED",
-        sqErr?.detail ?? "The card could not be charged.",
-        payRes.status,
-      );
-    }
-    const balancePaymentId = payData.payment?.id as string;
-    const cardLast4 = payData.payment?.card_details?.card?.last_4 as string | undefined;
-
-    // LOAD the balance onto the day-of gift cards ($2k balance cap per card;
-    // overflow mints new cards which MUST be persisted for the day-of payout).
-    const loaded = await loadBalanceOntoGiftCards({
-      giftCardIds: parseGiftCardIds(quote.square_gift_card_id),
-      locationId: quote.square_location_id,
-      amountCents: quote.balance_cents,
-      baseKey,
-      buyerPaymentInstrumentIds: [balancePaymentId],
-    });
-    if (loaded.createdCards.length) {
-      await updateGfGiftCardList(quote.id, {
-        giftCardIds: loaded.giftCardIds,
-        giftCardGans: [
-          ...parseGiftCardGans(quote.square_gift_card_gan),
-          ...loaded.createdCards.map((c) => c.gan ?? ""),
-        ],
+      // Persist-first: a fulfillment failure below must resume from THIS payment
+      // on the next attempt instead of charging the guest again.
+      await updateGfBalanceChargeCaptured(quote.id, {
+        square_balance_order_id: balanceOrderId,
+        square_balance_payment_id: balancePaymentId,
       });
     }
 
+    // LOAD the balance onto the day-of gift cards ($2k balance cap per card;
+    // overflow mints new cards which MUST be persisted for the day-of payout).
+    // Resume-idempotent: only the portion this payment hasn't already loaded goes on.
+    const knownGiftCardIds = parseGiftCardIds(quote.square_gift_card_id);
+    const alreadyLoaded = resumedPayment
+      ? await sumGiftCardLoadsForPayment({
+          giftCardIds: knownGiftCardIds,
+          paymentId: balancePaymentId,
+        })
+      : 0;
+    const remainingToLoad = Math.max(0, quote.balance_cents - alreadyLoaded);
+    if (remainingToLoad > 0) {
+      const loaded = await loadBalanceOntoGiftCards({
+        giftCardIds: knownGiftCardIds,
+        locationId: quote.square_location_id,
+        amountCents: remainingToLoad,
+        baseKey,
+        buyerPaymentInstrumentIds: [balancePaymentId],
+      });
+      if (loaded.createdCards.length) {
+        await updateGfGiftCardList(quote.id, {
+          giftCardIds: loaded.giftCardIds,
+          giftCardGans: [
+            ...parseGiftCardGans(quote.square_gift_card_gan),
+            ...loaded.createdCards.map((c) => c.gan ?? ""),
+          ],
+        });
+      }
+    }
+
     await updateGfBalanceCharged(quote.id, {
-      square_balance_order_id: balanceOrderId,
+      square_balance_order_id: balanceOrderId ?? "",
       square_balance_payment_id: balancePaymentId,
       balance_paid_at: new Date().toISOString(),
       balance_payment_method: "web",
@@ -250,6 +313,46 @@ export async function POST(req: NextRequest) {
       /* attempt tracking is best-effort */
     }
     console.error(`[gf-balance-pay] quote=${quote.id} failed:`, errCode, errMsg);
+
+    // Contract-history ledger row (surfaces on the admin Contract tab timeline).
+    {
+      const { isCardDeclineCode } = await import("@/lib/square-decline");
+      appendAuditLog({
+        quoteId: quote.id,
+        event: isCardDeclineCode(errCode) ? "balance_declined" : "balance_payment_failed",
+        metadata: {
+          code: errCode,
+          error: errMsg.slice(0, 300),
+          amountCents: quote.balance_cents,
+          attempt: (quote.balance_charge_attempts || 0) + 1,
+          chargeCaptured,
+          source: "pay_page",
+        },
+      }).catch((e) => console.error("[gf-balance-pay] audit log error:", e));
+    }
+
+    if (chargeCaptured) {
+      // The guest's money is captured; the persist-first marker lets the next
+      // attempt resume without re-charging — but be explicit so they don't panic.
+      const { notifyDispatchError } = await import("@/lib/group-function-alert");
+      notifyDispatchError({
+        reservationId: quote.bmi_reservation_id,
+        centerName: quote.center_name,
+        plannerEmail: quote.planner_email ?? undefined,
+        error: new Error(
+          `Balance CAPTURED for "${quote.event_name}" but fulfillment failed: ${errCode}: ${errMsg}`,
+        ),
+      }).catch(() => {});
+      return NextResponse.json(
+        {
+          error:
+            "Your payment was received, but we hit a snag finishing up. " +
+            "Please refresh this page in a moment — do not pay again. Our team has been notified.",
+          code: "CAPTURED_FINALIZE_FAILED",
+        },
+        { status: 500 },
+      );
+    }
 
     if (err instanceof SquarePaymentError) {
       // Persist the decline so the /pay page keeps showing the reason after reload.

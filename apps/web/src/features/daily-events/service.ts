@@ -688,6 +688,11 @@ const AUDIT_EVENT_LABELS: Record<string, string> = {
   legacy_winback_ingested: "Legacy win-back ingested",
   pdf_generated: "Signed PDF generated",
   pdf_generation_failed: "Signed PDF generation failed",
+  deposit_declined: "Deposit card DECLINED",
+  deposit_payment_failed: "Deposit payment FAILED",
+  balance_declined: "Balance card DECLINED",
+  balance_payment_failed: "Balance payment FAILED",
+  remediation_duplicate_charges: "Duplicate charges remediated (refunds issued)",
   "7day_waiver_sent": "7-day waiver reminder sent",
   "96hr_reminder_sent": "96-hour balance reminder sent",
   "re-signed": "Contract re-signed",
@@ -708,6 +713,9 @@ function auditDetail(metadata: Record<string, unknown>): string | null {
   if (!metadata || typeof metadata !== "object") return null;
   const parts: string[] = [];
   if (typeof metadata.reason === "string" && metadata.reason) parts.push(metadata.reason);
+  if (typeof metadata.code === "string" && metadata.code && metadata.code !== "UNKNOWN") {
+    parts.push(metadata.code);
+  }
   if (typeof metadata.error === "string" && metadata.error) parts.push(metadata.error);
   if (typeof metadata.signatureType === "string" && metadata.signatureType) {
     parts.push(`signature: ${metadata.signatureType}`);
@@ -793,12 +801,17 @@ export async function getContractHistory(projectId: string): Promise<ContractHis
   milestone(quote.deposit_paid_at, "deposit_paid", "Deposit paid");
   milestone(quote.balance_link_sent_at, "balance_link_sent", "Balance payment link sent");
   milestone(quote.balance_paid_at, "balance_paid", "Balance paid");
-  milestone(
-    quote.balance_declined_at,
-    "balance_declined",
-    "Balance charge declined",
-    [quote.balance_decline_code, quote.balance_decline_message].filter(Boolean).join(" — ") || null,
-  );
+  // Decline milestone only for pre-ledger rows — the audit ledger now records
+  // every decline as its own balance_declined event (the column keeps only the last).
+  if (!auditKinds.has("balance_declined")) {
+    milestone(
+      quote.balance_declined_at,
+      "balance_declined",
+      "Balance charge declined",
+      [quote.balance_decline_code, quote.balance_decline_message].filter(Boolean).join(" — ") ||
+        null,
+    );
+  }
   milestone(quote.dayof_paid_at, "dayof_paid", "Day-of charges settled");
 
   // Attach the exact PDF each signing produced (owner 2026-07-13): archived

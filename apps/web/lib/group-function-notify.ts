@@ -1490,7 +1490,9 @@ export async function notifyBalanceReceipt(
       ? (await import("@/lib/sms-retry")).voxSend(
           quote.guest_phone,
           [
-            `${quote.guest_first_name}, your payment of ${dollars(quote.balance_cents)} for ${quote.event_name || "your event"} is complete!`,
+            // Callers zero balance_cents before this receipt — the charged amount
+            // is total minus deposit (same math as the email receipt below).
+            `${quote.guest_first_name}, your payment of ${dollars(quote.total_cents - quote.deposit_due_cents)} for ${quote.event_name || "your event"} is complete!`,
             `You're all set for ${quote.event_date_display || "your event"}. See you at ${quote.center_name}!`,
           ].join("\n"),
         )
