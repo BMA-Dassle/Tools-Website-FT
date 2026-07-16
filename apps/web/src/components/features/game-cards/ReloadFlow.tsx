@@ -137,19 +137,24 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   const [payError, setPayError] = useState<string | null>(null);
   const [result, setResult] = useState<PurchaseResult | null>(null);
 
+  const [queue, setQueue] = useState<string[]>([]);
+
   const account = useGameCardAccount();
   const verify = useCardBalance(lookupAccount, center?.code, phase === "lookup" && !!lookupAccount);
   const purchase = usePurchase();
 
-  // Reload a saved game card straight from the account panel.
-  const reloadSavedCard = (accountNumber: string, locationCode: number | null) => {
-    setEntry(accountNumber);
-    setLookupAccount(accountNumber);
-    const c = CENTER_LIST.find((x) => x.code === locationCode);
-    if (c) setCenter(c);
-    setPhase("lookup");
+  // Reload one or more saved game cards from the account panel: seed a queue,
+  // pick a location once, then assign a package to each into the cart.
+  const reloadSavedCards = (accountNumbers: string[], locationCode: number | null) => {
+    if (accountNumbers.length === 0) return;
+    setCart([]);
+    setQueue(accountNumbers);
+    const c =
+      locationCode != null ? (CENTER_LIST.find((x) => x.code === locationCode) ?? null) : null;
+    setCenter(c);
+    setPhase(c ? "package" : "location");
   };
-  const accountPanel = <AccountPanel account={account} onReloadCard={reloadSavedCard} />;
+  const accountPanel = <AccountPanel account={account} onReloadCards={reloadSavedCards} />;
 
   const verifiedCard = verify.data?.exists ? verify.data : null;
   const totalCents = cart.reduce((s, l) => s + l.pkg.priceCents, 0);
@@ -316,24 +321,40 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     );
   }
 
-  // ── Package (for the card currently being added) ─────────────────────────
+  // ── Package (for the card currently being added; may be one of a queue) ──
   if (phase === "package") {
+    const target = queue[0] ?? lookupAccount;
+    const queuedTotal = queue.length + cart.length;
     return shell(
       <Card className="space-y-3 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Add tokens</h2>
-          <span className="text-xs text-white/50">Card {lookupAccount}</span>
+          <span className="text-xs text-white/50">
+            Card {target}
+            {queue.length > 1 ? ` · ${cart.length + 1} of ${queuedTotal}` : ""}
+          </span>
         </div>
         <div className="grid gap-2">
           {TOKEN_PACKAGES.map((p) => (
             <button
               key={p.id}
               onClick={() => {
+                const fromQueue = queue.length > 0;
                 setCart((c) => [
                   ...c,
-                  { accountNumber: lookupAccount, pkg: p, balance: verifiedCard?.balance },
+                  {
+                    accountNumber: target,
+                    pkg: p,
+                    balance: fromQueue ? undefined : verifiedCard?.balance,
+                  },
                 ]);
-                setPhase("cart");
+                if (fromQueue) {
+                  const rest = queue.slice(1);
+                  setQueue(rest);
+                  setPhase(rest.length ? "package" : "cart");
+                } else {
+                  setPhase("cart");
+                }
               }}
               className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left transition hover:border-white/30"
             >

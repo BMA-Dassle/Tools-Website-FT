@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "./account-api";
 
@@ -31,8 +31,17 @@ export function useGameCardAccount() {
     retry: false,
   });
 
-  // Default the selected customer to the first once cards load.
-  const effectiveCustomerId = selectedCustomerId ?? myCards.data?.customerId ?? null;
+  const accounts = myCards.data?.accounts ?? [];
+
+  // Auto-select ONLY when there's exactly one account. With multiple, the guest
+  // must pick — payment methods stay hidden until then.
+  useEffect(() => {
+    if (!selectedCustomerId && accounts.length === 1) {
+      setSelectedCustomerId(accounts[0].customerId);
+    }
+  }, [selectedCustomerId, accounts]);
+
+  const effectiveCustomerId = selectedCustomerId;
 
   const refreshCards = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["gc", "my-cards"] });
@@ -88,7 +97,8 @@ export function useGameCardAccount() {
     savedCards: myCards.data?.savedCards ?? [],
     gameCards: myCards.data?.gameCards ?? [],
     customerIds: myCards.data?.customerIds ?? [],
-    counts: myCards.data?.counts ?? {},
+    accounts,
+    rewardsPoints: myCards.data?.rewardsPoints ?? null,
     requestOtp,
     verifyOtp,
     logout,

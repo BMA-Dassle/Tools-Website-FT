@@ -1,10 +1,12 @@
 "use client";
 
 /**
- * Signed-in layer for the reload page: optional phone-OTP sign-in, multi-account
- * picker, the customer's linked game cards (reload / rename / remove / add), and
- * saved payment cards. Anonymous guests just don't open it. Built to be liftable
- * into the account dashboard later — all state comes from `useGameCardAccount`.
+ * Signed-in layer for the reload page: optional phone-OTP sign-in, a multi-
+ * account picker (name / rewards points / linked-card count), the selected
+ * account's linked game cards (multi-select reload, rename, remove, add), and
+ * its saved payment cards. Payment methods only appear once an account is
+ * selected. Anonymous guests just don't open it. Built to be liftable into the
+ * account dashboard — all state comes from `useGameCardAccount`.
  */
 import { useState } from "react";
 import Button from "~/components/ui/Button";
@@ -18,10 +20,10 @@ const PANEL = "space-y-3 p-5 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]";
 
 export default function AccountPanel({
   account,
-  onReloadCard,
+  onReloadCards,
 }: {
   account: GameCardAccount;
-  onReloadCard: (accountNumber: string, locationCode: number | null) => void;
+  onReloadCards: (accountNumbers: string[], locationCode: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<"contact" | "otp">("contact");
@@ -30,6 +32,7 @@ export default function AccountPanel({
   const [addEntry, setAddEntry] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [nick, setNick] = useState("");
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
 
   const { authed, session } = account;
 
@@ -106,8 +109,8 @@ export default function AccountPanel({
     );
   }
 
-  // ── Signed in, but no Square account yet → ask to create rewards account ──
-  const noAccount = account.customerIds.length === 0 && !account.myCards.data?.customerId;
+  // ── Signed in, no account yet → ask to create rewards account ────────────
+  const noAccount = account.accounts.length === 0 && account.customerIds.length === 0;
   if (noAccount) {
     return (
       <Card className={PANEL}>
@@ -134,48 +137,103 @@ export default function AccountPanel({
     );
   }
 
-  // ── Signed in with account(s) ─────────────────────────────────────────────
-  const multi = account.customerIds.length > 1;
+  const header = (
+    <div className="flex items-center justify-between">
+      <div>
+        <h2 className="text-base font-semibold text-white">Your cards</h2>
+        {account.rewardsPoints != null && (
+          <p className="text-xs text-[#00E2E5]">
+            {account.rewardsPoints.toLocaleString()} rewards points
+          </p>
+        )}
+      </div>
+      <button className="text-xs text-white/40 underline" onClick={() => account.logout.mutate()}>
+        Sign out
+      </button>
+    </div>
+  );
+
+  const acctLabel = (a: { customerId: string; name: string | null }) =>
+    a.name || `Account ••${a.customerId.slice(-4)}`;
+
+  // ── Multi-account, none selected → picker only ───────────────────────────
+  if (account.accounts.length > 1 && !account.selectedCustomerId) {
+    return (
+      <Card className={PANEL}>
+        {header}
+        <div className="text-[11px] uppercase tracking-wide text-white/40">Choose an account</div>
+        <div className="grid gap-1.5">
+          {account.accounts.map((a) => (
+            <button
+              key={a.customerId}
+              onClick={() => account.setSelectedCustomerId(a.customerId)}
+              className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2.5 text-left transition hover:border-white/30"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm text-white">{acctLabel(a)}</div>
+                {a.email && <div className="truncate text-xs text-white/40">{a.email}</div>}
+              </div>
+              <span className="shrink-0 text-xs text-white/40">
+                {a.cardCount} {a.cardCount === 1 ? "card" : "cards"}
+              </span>
+            </button>
+          ))}
+        </div>
+      </Card>
+    );
+  }
+
+  // ── Selected account (or single) → cards + saved payment methods ─────────
+  const toggle = (acct: string) =>
+    setSelectedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(acct)) next.delete(acct);
+      else next.add(acct);
+      return next;
+    });
+
+  const reloadSelected = () => {
+    const picked = account.gameCards.filter((c) => selectedCards.has(c.accountNumber));
+    if (!picked.length) return;
+    const locs = new Set(picked.map((c) => c.locationCode));
+    const commonLoc = locs.size === 1 ? (picked[0].locationCode ?? null) : null;
+    onReloadCards(
+      picked.map((c) => c.accountNumber),
+      commonLoc,
+    );
+  };
+
   return (
     <Card className={PANEL}>
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-white">Your cards</h2>
-        <button className="text-xs text-white/40 underline" onClick={() => account.logout.mutate()}>
-          Sign out
-        </button>
-      </div>
+      {header}
 
-      {multi && (
-        <div className="space-y-1">
-          <div className="text-[11px] uppercase tracking-wide text-white/40">Account</div>
-          <div className="grid gap-1">
-            {account.customerIds.map((id) => (
-              <button
-                key={id}
-                onClick={() => account.setSelectedCustomerId(id)}
-                className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                  account.selectedCustomerId === id
-                    ? "border-[#00E2E5]/60 text-white"
-                    : "border-white/10 text-white/70"
-                }`}
-              >
-                <span>Account ••{id.slice(-4)}</span>
-                <span className="text-white/40">{account.counts[id] ?? 0} cards</span>
-              </button>
-            ))}
-          </div>
-        </div>
+      {account.accounts.length > 1 && (
+        <button
+          className="text-xs text-white/40 underline"
+          onClick={() => {
+            account.setSelectedCustomerId(null);
+            setSelectedCards(new Set());
+          }}
+        >
+          ‹ Switch account
+        </button>
       )}
 
-      {/* Linked game cards */}
       <div className="space-y-2">
         {account.gameCards.length === 0 && (
           <p className="text-xs text-white/50">No saved game cards yet. Add one below.</p>
         )}
         {account.gameCards.map((c) => (
           <div key={c.accountNumber} className="space-y-1 rounded-lg bg-white/[0.04] px-3 py-2">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 shrink-0 accent-[#00E2E5]"
+                checked={selectedCards.has(c.accountNumber)}
+                onChange={() => toggle(c.accountNumber)}
+                aria-label={`Select ${c.label || c.accountNumber}`}
+              />
+              <div className="min-w-0 flex-1">
                 <div className="truncate text-sm text-white">
                   {c.label || `Card ${c.accountNumber}`}
                 </div>
@@ -186,14 +244,14 @@ export default function AccountPanel({
                 </div>
               </div>
               <button
-                className="shrink-0 rounded-md bg-[#00E2E5] px-3 py-1 text-xs font-semibold text-[#00131a]"
-                onClick={() => onReloadCard(c.accountNumber, c.locationCode)}
+                className="shrink-0 rounded-md border border-white/20 px-2.5 py-1 text-xs text-white/70"
+                onClick={() => onReloadCards([c.accountNumber], c.locationCode)}
               >
                 Reload
               </button>
             </div>
             {editing === c.accountNumber ? (
-              <div className="flex gap-1">
+              <div className="flex gap-1 pl-6">
                 <input
                   className="flex-1 rounded bg-white/10 px-2 py-1 text-xs text-white"
                   value={nick}
@@ -214,7 +272,7 @@ export default function AccountPanel({
                 </button>
               </div>
             ) : (
-              <div className="flex gap-3 text-[11px] text-white/40">
+              <div className="flex gap-3 pl-6 text-[11px] text-white/40">
                 <button
                   onClick={() => {
                     setEditing(c.accountNumber);
@@ -228,6 +286,11 @@ export default function AccountPanel({
             )}
           </div>
         ))}
+
+        {selectedCards.size > 0 && (
+          <Button onClick={reloadSelected}>Reload {selectedCards.size} selected</Button>
+        )}
+
         <div className="flex gap-1">
           <input
             className="flex-1 rounded bg-white/10 px-2 py-1.5 text-sm text-white"
@@ -252,7 +315,7 @@ export default function AccountPanel({
         )}
       </div>
 
-      {/* Saved payment cards */}
+      {/* Saved payment methods — only for the selected account */}
       {account.savedCards.length > 0 && (
         <div className="space-y-1 border-t border-white/10 pt-3">
           <div className="text-[11px] uppercase tracking-wide text-white/40">Payment methods</div>

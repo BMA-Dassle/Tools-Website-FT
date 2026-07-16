@@ -80,10 +80,17 @@ export interface SavedPaymentCard {
   expired: boolean;
   customerId: string;
 }
+export interface AccountOverview {
+  customerId: string;
+  name: string | null;
+  email: string | null;
+  cardCount: number;
+}
 export interface MyCardsResponse {
   customerId: string | null;
   customerIds: string[];
-  counts: Record<string, number>;
+  accounts: AccountOverview[];
+  rewardsPoints: number | null;
   gameCards: LinkedGameCard[];
   savedCards: SavedPaymentCard[];
 }

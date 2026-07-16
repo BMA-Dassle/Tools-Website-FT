@@ -15,6 +15,23 @@ import {
   listCardsForCustomer,
   countsByCustomer,
 } from "../data/customer-cards";
+import { getCustomerProfiles } from "../data/square-customer";
+
+export interface AccountOverview {
+  customerId: string;
+  name: string | null;
+  email: string | null;
+  cardCount: number;
+}
+
+/** Per-account summary for the multi-account picker (name/email + linked count). */
+export async function getAccountsOverview(customerIds: string[]): Promise<AccountOverview[]> {
+  const [profiles, counts] = await Promise.all([
+    getCustomerProfiles(customerIds),
+    countsByCustomer(customerIds),
+  ]);
+  return profiles.map((p) => ({ ...p, cardCount: counts[p.customerId] ?? 0 }));
+}
 
 export interface LinkedGameCard {
   accountNumber: string;
