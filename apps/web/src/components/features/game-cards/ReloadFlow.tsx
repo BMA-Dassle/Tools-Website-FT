@@ -23,6 +23,9 @@ import { CENTER_LIST, type CenterConfig } from "~/config/intercard-centers";
 import { TOKEN_PACKAGES, type TokenPackage } from "~/features/game-cards";
 import { useCardBalance, usePurchase } from "~/features/game-cards";
 import type { CardBalance, CardTxn, PurchaseResult } from "~/features/game-cards";
+import { normalizeCard } from "~/features/game-cards/normalize";
+import { useGameCardAccount } from "~/features/game-cards/account-hooks";
+import AccountPanel from "./AccountPanel";
 
 const GAME_ZONE_BG =
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp";
@@ -37,11 +40,6 @@ interface CartLine {
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
-}
-
-/** Digits only, leading zeros dropped (printed number often shows them). */
-function normalizeCard(raw: string): string {
-  return raw.replace(/\D/g, "").replace(/^0+/, "");
 }
 
 function GameZoneBackground() {
@@ -139,8 +137,19 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   const [payError, setPayError] = useState<string | null>(null);
   const [result, setResult] = useState<PurchaseResult | null>(null);
 
+  const account = useGameCardAccount();
   const verify = useCardBalance(lookupAccount, center?.code, phase === "lookup" && !!lookupAccount);
   const purchase = usePurchase();
+
+  // Reload a saved game card straight from the account panel.
+  const reloadSavedCard = (accountNumber: string, locationCode: number | null) => {
+    setEntry(accountNumber);
+    setLookupAccount(accountNumber);
+    const c = CENTER_LIST.find((x) => x.code === locationCode);
+    if (c) setCenter(c);
+    setPhase("lookup");
+  };
+  const accountPanel = <AccountPanel account={account} onReloadCard={reloadSavedCard} />;
 
   const verifiedCard = verify.data?.exists ? verify.data : null;
   const totalCents = cart.reduce((s, l) => s + l.pkg.priceCents, 0);
@@ -251,32 +260,35 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
         </Card>,
       );
     }
-    // No verified card yet → entry form.
+    // No verified card yet → account panel + entry form.
     return shell(
-      <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
-        <h1 className="text-xl font-semibold text-white">Check Balance or Reload</h1>
-        <p className="text-sm text-white/70">
-          Enter the number printed <span className="text-white">under the barcode</span> on your
-          card — not the QR code. Leading zeros aren&apos;t needed.
-        </p>
-        <Input
-          label="Card number"
-          inputMode="numeric"
-          value={entry}
-          onChange={(e) => setEntry(e.target.value.replace(/\D/g, ""))}
-          error={verify.data && !verifiedCard ? "We couldn't find that card number." : undefined}
-        />
-        <Button
-          onClick={() => setLookupAccount(normalizeCard(entry))}
-          disabled={normalizeCard(entry).length === 0}
-          loading={verify.isFetching}
-        >
-          Look up card
-        </Button>
-        <p className="text-center text-xs text-white/50">
-          Tip: scan the QR code on your card with your phone for a faster reload.
-        </p>
-      </Card>,
+      <>
+        {accountPanel}
+        <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
+          <h1 className="text-xl font-semibold text-white">Check Balance or Reload</h1>
+          <p className="text-sm text-white/70">
+            Enter the number printed <span className="text-white">under the barcode</span> on your
+            card — not the QR code. Leading zeros aren&apos;t needed.
+          </p>
+          <Input
+            label="Card number"
+            inputMode="numeric"
+            value={entry}
+            onChange={(e) => setEntry(e.target.value.replace(/\D/g, ""))}
+            error={verify.data && !verifiedCard ? "We couldn't find that card number." : undefined}
+          />
+          <Button
+            onClick={() => setLookupAccount(normalizeCard(entry))}
+            disabled={normalizeCard(entry).length === 0}
+            loading={verify.isFetching}
+          >
+            Look up card
+          </Button>
+          <p className="text-center text-xs text-white/50">
+            Tip: scan the QR code on your card with your phone for a faster reload.
+          </p>
+        </Card>
+      </>,
     );
   }
 
@@ -390,10 +402,12 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     cardNonce,
     savedCardId,
     giftCardNonce,
+    saveCardConsent,
   }: {
     cardNonce: string | null;
     savedCardId: string | null;
     giftCardNonce: string | null;
+    saveCardConsent: boolean;
   }) => {
     setPayError(null);
     try {
@@ -404,6 +418,10 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
         cardNonce: cardNonce ?? savedCardId ?? undefined,
         giftCardNonce: giftCardNonce ?? undefined,
         contact: email ? { email } : undefined,
+        // Signed-in extras: attribute + optionally vault + auto-link. The server
+        // ignores squareCustomerId unless it belongs to the session.
+        squareCustomerId: account.selectedCustomerId ?? undefined,
+        saveCard: saveCardConsent,
       });
       setResult(r);
     } catch (err) {
@@ -439,6 +457,9 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
         billId={cart[0]?.accountNumber ?? "reload"}
         contact={{ firstName: "", lastName: "", email, phone: "" }}
         locationId={center!.paymentFormKey}
+        squareCustomerId={account.selectedCustomerId ?? undefined}
+        savedCards={account.savedCards}
+        allowSaveCard={!!account.selectedCustomerId}
         onTokenize={handleTokenize}
         onSuccess={() => {}}
         onError={(msg) => setPayError(msg)}

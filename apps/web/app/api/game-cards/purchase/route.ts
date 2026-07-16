@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { getSession } from "~/features/account";
 import { PurchaseSchema } from "~/features/game-cards/schemas";
 import { purchase } from "~/features/game-cards/service/purchase";
 import { GameCardHttpError, jsonOk, toErrorResponse } from "~/features/game-cards/errors";
@@ -13,7 +14,17 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       throw new GameCardHttpError(400, "INVALID_INPUT", "Missing or invalid purchase details.");
     }
-    const result = await purchase(parsed.data);
+
+    // Optional login: if signed in AND the posted customer belongs to the
+    // session, save-card + auto-link run against that customer. Anonymous
+    // reload works with no session. Client-supplied customer id is never
+    // trusted beyond this membership check.
+    const session = await getSession();
+    const wanted = parsed.data.squareCustomerId;
+    const verifiedCustomerId =
+      session && wanted && session.squareCustomerIds.includes(wanted) ? wanted : undefined;
+
+    const result = await purchase(parsed.data, { verifiedCustomerId });
     return jsonOk({ ...result });
   } catch (err) {
     return toErrorResponse(err);

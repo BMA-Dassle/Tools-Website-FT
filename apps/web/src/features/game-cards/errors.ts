@@ -18,11 +18,32 @@ export class GameCardHttpError extends Error {
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
+/** Duck-types any HTTP-ish error carrying a numeric `status` + string `code`
+ *  — covers GameCardHttpError AND the account feature's AccountHttpError that
+ *  requireSession/requireCsrf throw (401/403), so those map correctly. */
+function asHttpError(
+  err: unknown,
+): { status: number; code: string; message: string; extra?: Record<string, unknown> } | null {
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    if (typeof e.status === "number" && typeof e.code === "string") {
+      return {
+        status: e.status,
+        code: e.code,
+        message: typeof e.message === "string" ? e.message : e.code,
+        extra: (e.extra as Record<string, unknown>) ?? undefined,
+      };
+    }
+  }
+  return null;
+}
+
 export function toErrorResponse(err: unknown): NextResponse {
-  if (err instanceof GameCardHttpError) {
+  const http = asHttpError(err);
+  if (http) {
     return NextResponse.json(
-      { error: err.message, code: err.code, ...(err.extra ?? {}) },
-      { status: err.status, headers: { ...NO_STORE } },
+      { error: http.message, code: http.code, ...(http.extra ?? {}) },
+      { status: http.status, headers: { ...NO_STORE } },
     );
   }
   console.error("[game-cards] unhandled error:", err);

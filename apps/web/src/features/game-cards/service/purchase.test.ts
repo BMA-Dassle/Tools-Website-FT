@@ -60,6 +60,19 @@ vi.mock("@/lib/square-gift-card", () => {
   };
 });
 
+vi.mock("../data/customer-cards", () => ({
+  linkCard: vi.fn(async () => {
+    order.push("link");
+  }),
+}));
+
+vi.mock("~/features/account/data/cards", () => ({
+  saveCardOnFile: vi.fn(async () => {
+    order.push("saveCard");
+    return { ok: true };
+  }),
+}));
+
 const single: PurchaseInput = {
   kind: "reload",
   locationCode: 12,
@@ -108,6 +121,48 @@ describe("purchase order engine (cart)", () => {
     expect(res.results).toHaveLength(1);
     expect(res.results[0]).toMatchObject({ accountNumber: "1038010", loaded: true, tokens: 500 });
     expect(order.indexOf("startTxn")).toBeLessThan(order.indexOf("charge"));
+  });
+
+  it("signed-in: auto-links each card and saves the payment card when opted in", async () => {
+    const { intercard } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: "1038010",
+      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+    });
+    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    const cards = await import("~/features/account/data/cards");
+    const link = await import("../data/customer-cards");
+    const { purchase } = await import("./purchase");
+
+    await purchase(
+      { ...single, saveCard: true, squareCustomerId: "cust_1" },
+      {
+        verifiedCustomerId: "cust_1",
+      },
+    );
+
+    expect(link.linkCard).toHaveBeenCalledTimes(1);
+    expect(cards.saveCardOnFile).toHaveBeenCalledTimes(1);
+    // link/save happen after the charge
+    expect(order.indexOf("charge")).toBeLessThan(order.indexOf("link"));
+  });
+
+  it("anonymous (no session): never links or saves a card", async () => {
+    const { intercard } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: "1038010",
+      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+    });
+    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    const cards = await import("~/features/account/data/cards");
+    const link = await import("../data/customer-cards");
+    const { purchase } = await import("./purchase");
+
+    await purchase({ ...single, saveCard: true }); // saveCard true but no verified session
+    expect(link.linkCard).not.toHaveBeenCalled();
+    expect(cards.saveCardOnFile).not.toHaveBeenCalled();
   });
 
   it("multi-card: one charge, per-card load; a single card failing leaves only it pending", async () => {

@@ -20,6 +20,17 @@ import type { CardLoadResult, PurchaseResult } from "../types";
 import { creditTokens, verifyAccount, IntercardError } from "../data/intercard";
 import { createReloadOrder } from "../data/square-order";
 import { startTxn, markCharged, markChargeFailed, markLoadState } from "../data/transactions-log";
+import { linkCard } from "../data/customer-cards";
+import { saveCardOnFile } from "~/features/account/data/cards";
+
+/**
+ * Optional signed-in context. `verifiedCustomerId` is resolved by the route
+ * from the session (validated ∈ session.squareCustomerIds) — NEVER trusted from
+ * the client. When present we can save the payment card + auto-link the cards.
+ */
+export interface PurchaseOptions {
+  verifiedCustomerId?: string;
+}
 
 const FRIENDLY_DECLINE: Record<string, string> = {
   INSUFFICIENT_FUNDS: "Card declined — insufficient funds. Try a different card.",
@@ -37,7 +48,10 @@ interface CartRow {
   tpiTransactionId: string;
 }
 
-export async function purchase(input: PurchaseInput): Promise<PurchaseResult> {
+export async function purchase(
+  input: PurchaseInput,
+  opts: PurchaseOptions = {},
+): Promise<PurchaseResult> {
   const center = getCenter(input.locationCode);
   if (!center) throw new GameCardHttpError(400, "UNKNOWN_LOCATION", "Pick a valid location.");
 
@@ -152,6 +166,39 @@ export async function purchase(input: PurchaseInput): Promise<PurchaseResult> {
   }
 
   for (const row of rows) await markCharged(row.txnId, orderId, paymentIds);
+
+  // ── 3b. Signed-in perks (best-effort; never block/undo a settled charge) ──
+  const customerId = opts.verifiedCustomerId;
+  if (customerId) {
+    // Save the payment card on file if the guest opted in (vault the card the
+    // payment was made with — the captured payment id, not the spent nonce).
+    if (input.saveCard && paymentIds.card) {
+      try {
+        await saveCardOnFile({
+          customerId,
+          cardToken: paymentIds.card,
+          idempotencyKey: `gc-savecard-${baseKey}`,
+        });
+      } catch (err) {
+        console.error(
+          "[game-cards] saveCardOnFile failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    // Auto-link every reloaded card to the customer so it's remembered.
+    for (const row of rows) {
+      try {
+        await linkCard({
+          squareCustomerId: customerId,
+          accountNumber: row.accountNumber,
+          locationCode: input.locationCode,
+        });
+      } catch (err) {
+        console.error("[game-cards] auto-link failed:", err instanceof Error ? err.message : err);
+      }
+    }
+  }
 
   // ── 4. Load each card independently (recover forward per card) ────────────
   const results: CardLoadResult[] = [];

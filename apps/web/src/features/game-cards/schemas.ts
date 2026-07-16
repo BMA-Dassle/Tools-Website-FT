@@ -31,6 +31,37 @@ export const PurchaseItemSchema = z.object({
 });
 export type PurchaseItemInput = z.infer<typeof PurchaseItemSchema>;
 
+const squareCustomerId = z.string().min(1).max(128);
+
+/** Link a game card to the signed-in, selected Square customer. */
+export const LinkCardSchema = z.object({
+  customerId: squareCustomerId,
+  accountNumber,
+  locationCode: z.number().int().optional(),
+});
+export type LinkCardInput = z.infer<typeof LinkCardSchema>;
+
+export const UnlinkCardSchema = z.object({
+  customerId: squareCustomerId,
+  accountNumber,
+});
+export type UnlinkCardInput = z.infer<typeof UnlinkCardSchema>;
+
+/** Nickname a saved game card ("" clears it). */
+export const RenameCardSchema = z.object({
+  customerId: squareCustomerId,
+  accountNumber,
+  nickname: z.string().trim().max(40),
+});
+export type RenameCardInput = z.infer<typeof RenameCardSchema>;
+
+/** Remove (disable) a saved payment card from the selected customer. */
+export const DisableSavedCardSchema = z.object({
+  customerId: squareCustomerId,
+  cardId: z.string().min(1).max(128),
+});
+export type DisableSavedCardInput = z.infer<typeof DisableSavedCardSchema>;
+
 export const PurchaseSchema = z
   .object({
     kind: z.literal("reload"),
