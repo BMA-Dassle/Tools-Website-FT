@@ -15,6 +15,8 @@ export type TxnKind = "reload" | "new_card";
 export interface CardBalance {
   tokens: number;
   bonusTokens: number;
+  /** eTickets balance (Intercard PointBalance). */
+  eTickets: number;
   /** Time-play balance in minutes. */
   timeMinutes: number;
 }

@@ -271,6 +271,7 @@ export async function verifyAccount(
   const balance: CardBalance = {
     tokens: num("TokenBalance"),
     bonusTokens: num("TokenBonusBalance"),
+    eTickets: num("PointBalance"),
     timeMinutes: num("TPLY_Duration"),
   };
   const rawName = (extractTag(resp, "Name") || "").replace(/[\s,]+/g, " ").trim();

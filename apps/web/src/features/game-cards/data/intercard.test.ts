@@ -98,6 +98,7 @@ describe("intercard verifyAccount — balance + history parse", () => {
     `<AcountHistoryWithPhotoXMLResult>0</AcountHistoryWithPhotoXMLResult>` +
     `<AccountBalance><Account>1038010</Account><Name> , </Name><statusText>Active</statusText>` +
     `<TokenBalance>480</TokenBalance><TokenBonusBalance>20</TokenBonusBalance>` +
+    `<PointBalance>90</PointBalance>` +
     `<TPLY_Duration>15</TPLY_Duration><CashBalance>0.0000</CashBalance>` +
     `<Trans>` +
     `<AccountTransactions><Device>Hot Wheels</Device><TransType>Game Play</TransType>` +
@@ -121,7 +122,7 @@ describe("intercard verifyAccount — balance + history parse", () => {
     const r = await verifyAccount("1038010", 12);
 
     expect(r.exists).toBe(true);
-    expect(r.balance).toEqual({ tokens: 480, bonusTokens: 20, timeMinutes: 15 });
+    expect(r.balance).toEqual({ tokens: 480, bonusTokens: 20, eTickets: 90, timeMinutes: 15 });
     expect(r.transactions).toHaveLength(2);
     expect(r.transactions?.[0]).toMatchObject({
       device: "Hot Wheels",

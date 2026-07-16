@@ -59,10 +59,11 @@ function BalanceRow({ balance }: { balance: CardBalance }) {
   const cells = [
     { label: "Tokens", value: balance.tokens },
     { label: "Bonus", value: balance.bonusTokens },
+    { label: "eTickets", value: balance.eTickets },
     { label: "Time (min)", value: balance.timeMinutes },
   ];
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {cells.map((c) => (
         <div key={c.label} className="rounded-lg bg-white/[0.04] px-3 py-2 text-center">
           <div className="text-lg font-semibold text-white">{c.value.toLocaleString()}</div>
@@ -96,7 +97,7 @@ function RecentActivity({ transactions }: { transactions: CardTxn[] }) {
             const detail = tok
               ? `${tok > 0 ? "+" : ""}${tok} tokens`
               : t.points
-                ? `${t.points > 0 ? "+" : ""}${t.points} pts`
+                ? `${t.points > 0 ? "+" : ""}${t.points} eTickets`
                 : "";
             return (
               <li
@@ -139,22 +140,29 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     return (
       <>
         <GameZoneBackground />
-        <Card className="mx-auto max-w-md space-y-4 p-6">
+        <Card className="mx-auto max-w-md space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
           <h1 className="text-xl font-semibold text-white">
             {result.anyPending ? "Payment received" : "Tokens added!"}
           </h1>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {result.results.map((r) => (
-              <div
-                key={r.accountNumber}
-                className="flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2 text-sm"
-              >
-                <span className="text-white/70">Card {r.accountNumber}</span>
-                <span className={r.loaded ? "text-[#00E2E5]" : "text-amber-300"}>
-                  {r.loaded
-                    ? `+${r.tokens}${r.bonusTokens ? ` +${r.bonusTokens} bonus` : ""} tokens`
-                    : "Credit pending"}
-                </span>
+              <div key={r.accountNumber} className="space-y-2 rounded-lg bg-white/[0.04] px-3 py-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/70">Card {r.accountNumber}</span>
+                  <span className={r.loaded ? "text-[#00E2E5]" : "text-amber-300"}>
+                    {r.loaded
+                      ? `+${r.tokens}${r.bonusTokens ? ` +${r.bonusTokens} bonus` : ""} tokens`
+                      : "Credit pending"}
+                  </span>
+                </div>
+                {r.balance && (
+                  <div>
+                    <div className="mb-1 text-[10px] uppercase tracking-wide text-white/40">
+                      New balance
+                    </div>
+                    <BalanceRow balance={r.balance} />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -198,10 +206,12 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     }
     if (verifiedCard) {
       return shell(
-        <Card className="space-y-4 p-6">
+        <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
           <div>
-            <h1 className="text-xl font-semibold text-white">Reload Your Game Card</h1>
-            <p className="text-sm text-white/60">Card {verifiedCard.accountNumber}</p>
+            <h1 className="text-xl font-semibold text-white">Your Game Card</h1>
+            <p className="text-sm text-white/60">
+              Card {verifiedCard.accountNumber} · current balance
+            </p>
           </div>
           {verifiedCard.balance && <BalanceRow balance={verifiedCard.balance} />}
           <p className="text-[11px] leading-snug text-white/40">{SYNC_NOTE}</p>
@@ -221,8 +231,8 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     }
     // No verified card yet → entry form.
     return shell(
-      <Card className="space-y-4 p-6">
-        <h1 className="text-xl font-semibold text-white">Reload Your Game Card</h1>
+      <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
+        <h1 className="text-xl font-semibold text-white">Check Balance or Reload</h1>
         <p className="text-sm text-white/70">
           Enter the number printed <span className="text-white">under the barcode</span> on your
           card — not the QR code. Leading zeros aren&apos;t needed.
@@ -251,7 +261,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   // ── Location (framed as part of reloading) ───────────────────────────────
   if (phase === "location") {
     return shell(
-      <Card className="space-y-3 p-6">
+      <Card className="space-y-3 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
         <h2 className="text-lg font-semibold text-white">Where are you reloading?</h2>
         <p className="text-sm text-white/60">Pick your location.</p>
         <div className="grid gap-2">
@@ -275,7 +285,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   // ── Package (for the card currently being added) ─────────────────────────
   if (phase === "package") {
     return shell(
-      <Card className="space-y-3 p-6">
+      <Card className="space-y-3 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Add tokens</h2>
           <span className="text-xs text-white/50">Card {lookupAccount}</span>
@@ -305,7 +315,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   // ── Cart (review, add more cards, pay) ───────────────────────────────────
   if (phase === "cart") {
     return shell(
-      <Card className="space-y-4 p-6">
+      <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
         <h2 className="text-lg font-semibold text-white">Your reload</h2>
         <div className="space-y-2">
           {cart.map((l, i) => (
@@ -381,7 +391,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   };
 
   return shell(
-    <Card className="space-y-4 p-6">
+    <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">
           {cart.length === 1 ? "Reload" : `${cart.length} cards`}

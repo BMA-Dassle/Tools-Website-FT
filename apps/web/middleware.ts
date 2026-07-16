@@ -29,13 +29,24 @@ export async function middleware(request: NextRequest) {
   // HeadPinz home. 308 keeps it permanent + method-safe.
   const host = hostname.split(":")[0].toLowerCase();
   if (host === "swflpassport.com" || host.endsWith(".swflpassport.com")) {
-    const id = request.nextUrl.searchParams.get("id") || "";
-    if (/^\d{1,19}$/.test(id)) {
-      const target = new URL("https://headpinz.com/reload");
-      target.searchParams.set("id", id);
-      return NextResponse.redirect(target, 308);
+    // Find the card id from the query (ANY case: id / ID / Id) or, failing
+    // that, a numeric path segment. Always land on the reload page — never the
+    // brand home — and carry the id when we have one. 307 (temporary) so we're
+    // not permanently cached in browsers while this is still being tuned.
+    let id = "";
+    for (const [k, v] of request.nextUrl.searchParams) {
+      if (k.toLowerCase() === "id") {
+        id = v.trim();
+        break;
+      }
     }
-    return NextResponse.redirect("https://headpinz.com/", 308);
+    if (!id) {
+      const m = pathname.match(/(\d{4,19})/);
+      if (m) id = m[1];
+    }
+    const target = new URL("https://headpinz.com/reload");
+    if (/^\d{1,19}$/.test(id)) target.searchParams.set("id", id);
+    return NextResponse.redirect(target, 307);
   }
 
   // Apple Pay domain verification — rewrite to API route that serves per-domain file
