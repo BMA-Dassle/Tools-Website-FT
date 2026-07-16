@@ -283,11 +283,14 @@ export async function verifyAccount(
     const n = v == null ? NaN : Number(v);
     return Number.isFinite(n) ? n : 0;
   };
+  // A web reload posts to Intercard as a "Consolidation" credit — show it to
+  // the guest as "Web" wherever it appears in history.
+  const webify = (s: string) => s.replace(/consolidation/gi, "Web");
   const transactions: CardTxn[] = extractAllBlocks(resp, "AccountTransactions")
     .slice(0, 50)
     .map((b) => ({
-      device: (extractTag(b, "Device") || "").trim(),
-      transType: (extractTag(b, "TransType") || "").trim(),
+      device: webify((extractTag(b, "Device") || "").trim()),
+      transType: webify((extractTag(b, "TransType") || "").trim()),
       tokens: numIn(b, "Tokens"),
       bonusTokens: numIn(b, "TokenBonus"),
       points: numIn(b, "Points"),

@@ -107,6 +107,9 @@ describe("intercard verifyAccount — balance + history parse", () => {
     `<AccountTransactions><Device>Hot Wheels</Device><TransType>Ticket Credits</TransType>` +
     `<Tokens>0</Tokens><TokenBonus>0</TokenBonus><Points>10</Points><Cash>0.0000</Cash>` +
     `<TimeStamp>2026-07-15 22:26:34</TimeStamp><Location>FastTrax Fort Myers</Location></AccountTransactions>` +
+    `<AccountTransactions><Device>Consolidation</Device><TransType>Credit</TransType>` +
+    `<Tokens>50</Tokens><TokenBonus>0</TokenBonus><Points>0</Points><Cash>0.0000</Cash>` +
+    `<TimeStamp>2026-07-15 22:25:00</TimeStamp><Location>FastTrax Fort Myers</Location></AccountTransactions>` +
     `</Trans></AccountBalance></AcountHistoryWithPhotoXMLResponse>`;
 
   it("maps TokenBalance/TokenBonusBalance/TPLY_Duration and parses each transaction", async () => {
@@ -123,7 +126,7 @@ describe("intercard verifyAccount — balance + history parse", () => {
 
     expect(r.exists).toBe(true);
     expect(r.balance).toEqual({ tokens: 480, bonusTokens: 20, eTickets: 90, timeMinutes: 15 });
-    expect(r.transactions).toHaveLength(2);
+    expect(r.transactions).toHaveLength(3);
     expect(r.transactions?.[0]).toMatchObject({
       device: "Hot Wheels",
       transType: "Game Play",
@@ -132,6 +135,8 @@ describe("intercard verifyAccount — balance + history parse", () => {
       location: "FastTrax Fort Myers",
     });
     expect(r.transactions?.[1]).toMatchObject({ transType: "Ticket Credits", points: 10 });
+    // "Consolidation" (how a web reload posts to Intercard) shows as "Web".
+    expect(r.transactions?.[2]).toMatchObject({ device: "Web", transType: "Credit", tokens: 50 });
   });
 
   it("treats a non-zero result as card-not-found (never charges downstream)", async () => {
