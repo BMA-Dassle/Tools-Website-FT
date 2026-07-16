@@ -207,11 +207,20 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     if (verifiedCard) {
       return shell(
         <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
-          <div>
-            <h1 className="text-xl font-semibold text-white">Your Game Card</h1>
-            <p className="text-sm text-white/60">
-              Card {verifiedCard.accountNumber} · current balance
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold text-white">Your Game Card</h1>
+              <p className="text-sm text-white/60">
+                Card {verifiedCard.accountNumber} · current balance
+              </p>
+            </div>
+            <button
+              onClick={() => verify.refetch()}
+              disabled={verify.isFetching}
+              className="shrink-0 rounded-lg border border-white/15 px-3 py-1.5 text-xs text-[#00E2E5] transition hover:border-white/30 disabled:opacity-50"
+            >
+              {verify.isFetching ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
           {verifiedCard.balance && <BalanceRow balance={verifiedCard.balance} />}
           <p className="text-[11px] leading-snug text-white/40">{SYNC_NOTE}</p>
