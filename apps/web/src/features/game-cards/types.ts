@@ -61,6 +61,8 @@ export interface CardLoadResult {
   creditPending: boolean;
   /** Fresh balance after a confirmed load, when re-read. */
   balance?: CardBalance;
+  /** Recent activity from the same post-load re-read (for the success-screen history). */
+  transactions?: CardTxn[];
 }
 
 /** Outcome returned to the client after a purchase attempt (one charge, N cards). */

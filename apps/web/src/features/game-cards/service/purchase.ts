@@ -183,10 +183,12 @@ export async function purchase(input: PurchaseInput): Promise<PurchaseResult> {
     );
 
     let balance;
+    let transactions;
     if (loaded) {
       try {
         const v = await verifyAccount(row.accountNumber, input.locationCode);
         balance = v.balance;
+        transactions = v.transactions;
       } catch {
         /* non-fatal */
       }
@@ -198,6 +200,7 @@ export async function purchase(input: PurchaseInput): Promise<PurchaseResult> {
       loaded,
       creditPending: !loaded,
       balance,
+      transactions,
     });
   }
 

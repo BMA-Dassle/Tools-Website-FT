@@ -18,6 +18,7 @@ import Card from "~/components/ui/Card";
 import Input from "~/components/ui/Input";
 import Spinner from "~/components/ui/Spinner";
 import ErrorBox from "~/components/ui/ErrorBox";
+import Modal from "~/components/ui/Modal";
 import { CENTER_LIST, type CenterConfig } from "~/config/intercard-centers";
 import { TOKEN_PACKAGES, type TokenPackage } from "~/features/game-cards";
 import { useCardBalance, usePurchase } from "~/features/game-cards";
@@ -84,35 +85,44 @@ function RecentActivity({ transactions }: { transactions: CardTxn[] }) {
     <div className="border-t border-white/10 pt-3">
       <button
         className="flex w-full items-center justify-between text-sm text-white/70"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
+        onClick={() => setOpen(true)}
       >
         <span>Recent activity</span>
-        <span className="text-white/40">{open ? "Hide" : "Show"}</span>
+        <span className="text-white/40">View →</span>
       </button>
       {open && (
-        <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto">
-          {transactions.map((t, i) => {
-            const tok = t.tokens || t.bonusTokens;
-            const detail = tok
-              ? `${tok > 0 ? "+" : ""}${tok} tokens`
-              : t.points
-                ? `${t.points > 0 ? "+" : ""}${t.points} eTickets`
-                : "";
-            return (
-              <li
-                key={i}
-                className="flex items-center justify-between rounded bg-white/[0.03] px-2 py-1.5 text-xs"
-              >
-                <span className="text-white/70">
-                  {t.transType || "Activity"}
-                  {t.device ? ` · ${t.device}` : ""}
-                </span>
-                <span className="text-white/50">{detail}</span>
-              </li>
-            );
-          })}
-        </ul>
+        <Modal title="Recent activity" onClose={() => setOpen(false)}>
+          <ul className="space-y-1">
+            {transactions.map((t, i) => {
+              const tok = t.tokens || t.bonusTokens;
+              const detail = tok
+                ? `${tok > 0 ? "+" : ""}${tok} tokens`
+                : t.points
+                  ? `${t.points > 0 ? "+" : ""}${t.points} eTickets`
+                  : "";
+              const when = t.timeStamp ? t.timeStamp.slice(0, 16) : "";
+              return (
+                <li
+                  key={i}
+                  className="flex items-start justify-between gap-3 rounded bg-white/[0.03] px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <div className="text-white/80">
+                      {t.transType || "Activity"}
+                      {t.device ? ` · ${t.device}` : ""}
+                    </div>
+                    <div className="text-xs text-white/40">
+                      {t.location || "—"}
+                      {when ? ` · ${when}` : ""}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-white/60">{detail}</span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-3 text-[11px] leading-snug text-white/40">{SYNC_NOTE}</p>
+        </Modal>
       )}
     </div>
   );
@@ -162,6 +172,9 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
                     </div>
                     <BalanceRow balance={r.balance} />
                   </div>
+                )}
+                {r.transactions && r.transactions.length > 0 && (
+                  <RecentActivity transactions={r.transactions} />
                 )}
               </div>
             ))}
