@@ -18,7 +18,9 @@ export type { PurchaseInput, VerifyCardInput } from "./schemas";
 
 export type {
   CardBalance,
+  CardTxn,
   VerifyResult,
+  CardLoadResult,
   PurchaseResult,
   PublicPackage,
   TxnKind,

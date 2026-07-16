@@ -24,12 +24,20 @@ export const VerifyCardSchema = z.object({
 });
 export type VerifyCardInput = z.infer<typeof VerifyCardSchema>;
 
+/** One line in the reload cart: a card + the package to load onto it. */
+export const PurchaseItemSchema = z.object({
+  accountNumber,
+  packageId: z.string().min(1).max(64),
+});
+export type PurchaseItemInput = z.infer<typeof PurchaseItemSchema>;
+
 export const PurchaseSchema = z
   .object({
     kind: z.literal("reload"),
+    // One location per transaction (one Square order books to one location).
     locationCode: z.number().int(),
-    packageId: z.string().min(1).max(64),
-    accountNumber,
+    // Cart of 1-10 cards, each with its own package (single card = cart of 1).
+    items: z.array(PurchaseItemSchema).min(1).max(10),
     cardNonce: z.string().min(1).max(4096).optional(),
     giftCardNonce: z.string().min(1).max(4096).optional(),
     saveCard: z.boolean().optional(),

@@ -54,25 +54,23 @@ vi.mock("@/lib/square-gift-card", () => {
         gcPaymentId: null,
         cardPaymentId: "pay-1",
         gcApprovedCents: 0,
-        cardApprovedCents: 5000,
+        cardApprovedCents: 6000,
       };
     }),
   };
 });
 
-const base: PurchaseInput = {
+const single: PurchaseInput = {
   kind: "reload",
   locationCode: 12,
-  packageId: "tok-500",
-  accountNumber: "1038010",
+  items: [{ accountNumber: "1038010", packageId: "tok-500" }],
   cardNonce: "cnon-1",
 };
 
 async function loadMocks() {
   const intercard = await import("../data/intercard");
-  const log = await import("../data/transactions-log");
   const sq = await import("@/lib/square-gift-card");
-  return { intercard, log, sq };
+  return { intercard, sq };
 }
 
 beforeEach(() => {
@@ -80,8 +78,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("purchase order engine", () => {
-  it("blocks a card that doesn't verify — never charges", async () => {
+describe("purchase order engine (cart)", () => {
+  it("blocks when any card doesn't verify — never charges", async () => {
     const { intercard, sq } = await loadMocks();
     (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
       exists: false,
@@ -89,12 +87,12 @@ describe("purchase order engine", () => {
     });
     const { purchase } = await import("./purchase");
 
-    await expect(purchase(base)).rejects.toMatchObject({ code: "CARD_NOT_FOUND" });
+    await expect(purchase(single)).rejects.toMatchObject({ code: "CARD_NOT_FOUND" });
     expect(sq.authorizeMultiTender).not.toHaveBeenCalled();
     expect(order).not.toContain("charge");
   });
 
-  it("persists the ledger row BEFORE charging (persist-first)", async () => {
+  it("persists all rows BEFORE charging, then loads (single card)", async () => {
     const { intercard } = await loadMocks();
     (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
       exists: true,
@@ -104,28 +102,48 @@ describe("purchase order engine", () => {
     (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
     const { purchase } = await import("./purchase");
 
-    const res = await purchase(base);
-    expect(res.loaded).toBe(true);
-    expect(res.creditPending).toBe(false);
-    expect(order.indexOf("startTxn")).toBeGreaterThanOrEqual(0);
+    const res = await purchase(single);
+    expect(res.charged).toBe(true);
+    expect(res.anyPending).toBe(false);
+    expect(res.results).toHaveLength(1);
+    expect(res.results[0]).toMatchObject({ accountNumber: "1038010", loaded: true, tokens: 500 });
     expect(order.indexOf("startTxn")).toBeLessThan(order.indexOf("charge"));
-    expect(order).toContain("markLoadState:loaded");
   });
 
-  it("leaves the load pending (recover forward) when Intercard doesn't confirm", async () => {
-    const { intercard } = await loadMocks();
+  it("multi-card: one charge, per-card load; a single card failing leaves only it pending", async () => {
+    const { intercard, sq } = await loadMocks();
     (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
       exists: true,
-      accountNumber: "1038010",
-      balance: { tokens: 10, bonusTokens: 0, timeMinutes: 0 },
+      accountNumber: "x",
+      balance: { tokens: 0, bonusTokens: 0, timeMinutes: 0 },
     });
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: -1 });
+    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockImplementation(
+      async ({ accountNumber }: { accountNumber: string }) =>
+        accountNumber === "222" ? { code: -1 } : { code: 0 },
+    );
     const { purchase } = await import("./purchase");
 
-    const res = await purchase(base);
-    expect(res.charged).toBe(true);
-    expect(res.loaded).toBe(false);
-    expect(res.creditPending).toBe(true);
+    const res = await purchase({
+      kind: "reload",
+      locationCode: 12,
+      items: [
+        { accountNumber: "111", packageId: "tok-500" },
+        { accountNumber: "222", packageId: "tok-100" },
+      ],
+      cardNonce: "cnon-1",
+    });
+
+    // exactly ONE Square charge for the whole cart
+    expect(sq.authorizeMultiTender).toHaveBeenCalledTimes(1);
+    // two ledger rows persisted before the charge
+    expect(order.filter((o) => o === "startTxn")).toHaveLength(2);
+    expect(order.lastIndexOf("startTxn")).toBeLessThan(order.indexOf("charge"));
+    // per-card outcome
+    const byAcct = Object.fromEntries(res.results.map((r) => [r.accountNumber, r]));
+    expect(byAcct["111"].loaded).toBe(true);
+    expect(byAcct["222"].creditPending).toBe(true);
+    expect(res.anyPending).toBe(true);
+    expect(order).toContain("markLoadState:loaded");
     expect(order).toContain("markLoadState:pending");
   });
 });

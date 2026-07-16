@@ -21,7 +21,7 @@ import {
   INTERCARD_TPI_URL,
   INTERCARD_BALANCE_URL,
 } from "~/config/intercard-centers";
-import type { CardBalance, VerifyResult } from "../types";
+import type { CardBalance, CardTxn, VerifyResult } from "../types";
 
 const TEMPURI = "http://tempuri.org/";
 const SOAP_TIMEOUT_MS = 20_000;
@@ -56,6 +56,15 @@ function extractTag(xml: string, tag: string): string | null {
 
 function soapFaultString(xml: string): string | null {
   return extractTag(xml, "faultstring");
+}
+
+/** All inner bodies of a repeated <tag>…</tag> element (namespace-insensitive). */
+function extractAllBlocks(xml: string, tag: string): string[] {
+  const re = new RegExp(`<(?:\\w+:)?${tag}\\b[^>]*>([\\s\\S]*?)</(?:\\w+:)?${tag}>`, "gi");
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) out.push(m[1]);
+  return out;
 }
 
 /** Wall-clock parts for a Date in a given IANA time zone. */
@@ -266,5 +275,25 @@ export async function verifyAccount(
   };
   const rawName = (extractTag(resp, "Name") || "").replace(/[\s,]+/g, " ").trim();
 
-  return { exists: true, accountNumber, balance, name: rawName || undefined };
+  // Recent activity: each <AccountTransactions> block carries per-transaction
+  // fields (confirmed live). Cap the list for display.
+  const numIn = (block: string, tag: string): number => {
+    const v = extractTag(block, tag);
+    const n = v == null ? NaN : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const transactions: CardTxn[] = extractAllBlocks(resp, "AccountTransactions")
+    .slice(0, 50)
+    .map((b) => ({
+      device: (extractTag(b, "Device") || "").trim(),
+      transType: (extractTag(b, "TransType") || "").trim(),
+      tokens: numIn(b, "Tokens"),
+      bonusTokens: numIn(b, "TokenBonus"),
+      points: numIn(b, "Points"),
+      cash: numIn(b, "Cash"),
+      timeStamp: (extractTag(b, "TimeStamp") || "").trim(),
+      location: (extractTag(b, "Location") || "").trim(),
+    }));
+
+  return { exists: true, accountNumber, balance, name: rawName || undefined, transactions };
 }

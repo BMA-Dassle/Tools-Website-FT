@@ -19,6 +19,8 @@ import type { LoadState, TxnKind, TxnState } from "../types";
 
 export interface TxnStart {
   txnId: string;
+  /** Shared across all cards paid for in one transaction (one Square order). */
+  groupId: string;
   kind: TxnKind;
   locationCode: number;
   accountNumber: string;
@@ -33,6 +35,7 @@ export interface TxnStart {
 export interface TxnRow {
   id: number;
   txnId: string;
+  groupId: string | null;
   kind: TxnKind;
   locationCode: number;
   accountNumber: string;
@@ -79,7 +82,10 @@ async function ensureSchema(): Promise<void> {
       completed_at TIMESTAMPTZ
     )
   `;
+  // Additive migration — table may already exist from round 1 (multi-card round 2).
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS group_id TEXT`;
   await q`CREATE INDEX IF NOT EXISTS ict_acct ON intercard_transactions (account_number)`;
+  await q`CREATE INDEX IF NOT EXISTS ict_group ON intercard_transactions (group_id)`;
   // Partial index the reconcile cron scans: charged-but-not-loaded rows.
   await q`
     CREATE INDEX IF NOT EXISTS ict_pending
@@ -98,11 +104,11 @@ export async function startTxn(ev: TxnStart): Promise<void> {
   const q = sql();
   await q`
     INSERT INTO intercard_transactions (
-      txn_id, kind, location_code, account_number, package_id,
+      txn_id, group_id, kind, location_code, account_number, package_id,
       tokens, bonus_tokens, amount_cents, tpi_transaction_id, contact,
       state, load_state
     ) VALUES (
-      ${ev.txnId}, ${ev.kind}, ${ev.locationCode}, ${ev.accountNumber}, ${ev.packageId},
+      ${ev.txnId}, ${ev.groupId}, ${ev.kind}, ${ev.locationCode}, ${ev.accountNumber}, ${ev.packageId},
       ${ev.tokens}, ${ev.bonusTokens}, ${ev.amountCents}, ${ev.tpiTransactionId},
       ${ev.contact ? JSON.stringify(ev.contact) : null}, 'started', 'pending'
     )
@@ -216,6 +222,7 @@ function rowToTxn(r: any): TxnRow {
   return {
     id: r.id,
     txnId: r.txn_id,
+    groupId: r.group_id ?? null,
     kind: r.kind,
     locationCode: r.location_code,
     accountNumber: r.account_number,

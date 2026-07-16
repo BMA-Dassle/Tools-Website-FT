@@ -89,3 +89,62 @@ describe("intercard SOAP client — creditTokens envelope", () => {
     expect(res.code).toBe(-2);
   });
 });
+
+describe("intercard verifyAccount — balance + history parse", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const HISTORY_RESPONSE =
+    `<AcountHistoryWithPhotoXMLResponse xmlns="http://tempuri.org/">` +
+    `<AcountHistoryWithPhotoXMLResult>0</AcountHistoryWithPhotoXMLResult>` +
+    `<AccountBalance><Account>1038010</Account><Name> , </Name><statusText>Active</statusText>` +
+    `<TokenBalance>480</TokenBalance><TokenBonusBalance>20</TokenBonusBalance>` +
+    `<TPLY_Duration>15</TPLY_Duration><CashBalance>0.0000</CashBalance>` +
+    `<Trans>` +
+    `<AccountTransactions><Device>Hot Wheels</Device><TransType>Game Play</TransType>` +
+    `<Tokens>-20</Tokens><TokenBonus>0</TokenBonus><Points>0</Points><Cash>0.0000</Cash>` +
+    `<TimeStamp>2026-07-15 22:26:08</TimeStamp><Location>FastTrax Fort Myers</Location></AccountTransactions>` +
+    `<AccountTransactions><Device>Hot Wheels</Device><TransType>Ticket Credits</TransType>` +
+    `<Tokens>0</Tokens><TokenBonus>0</TokenBonus><Points>10</Points><Cash>0.0000</Cash>` +
+    `<TimeStamp>2026-07-15 22:26:34</TimeStamp><Location>FastTrax Fort Myers</Location></AccountTransactions>` +
+    `</Trans></AccountBalance></AcountHistoryWithPhotoXMLResponse>`;
+
+  it("maps TokenBalance/TokenBonusBalance/TPLY_Duration and parses each transaction", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => HISTORY_RESPONSE,
+      })) as unknown as typeof fetch,
+    );
+    const { verifyAccount } = await import("./intercard");
+    const r = await verifyAccount("1038010", 12);
+
+    expect(r.exists).toBe(true);
+    expect(r.balance).toEqual({ tokens: 480, bonusTokens: 20, timeMinutes: 15 });
+    expect(r.transactions).toHaveLength(2);
+    expect(r.transactions?.[0]).toMatchObject({
+      device: "Hot Wheels",
+      transType: "Game Play",
+      tokens: -20,
+      points: 0,
+      location: "FastTrax Fort Myers",
+    });
+    expect(r.transactions?.[1]).toMatchObject({ transType: "Ticket Credits", points: 10 });
+  });
+
+  it("treats a non-zero result as card-not-found (never charges downstream)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () =>
+          `<AcountHistoryWithPhotoXMLResponse><AcountHistoryWithPhotoXMLResult>-1</AcountHistoryWithPhotoXMLResult></AcountHistoryWithPhotoXMLResponse>`,
+      })) as unknown as typeof fetch,
+    );
+    const { verifyAccount } = await import("./intercard");
+    const r = await verifyAccount("999", 12);
+    expect(r.exists).toBe(false);
+  });
+});
