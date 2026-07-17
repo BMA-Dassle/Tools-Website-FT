@@ -126,6 +126,13 @@ export function parseKioskConfigFromSearchParams(
   if (variant) out.variant = variant;
   const reader = first(sp.reader);
   if (typeof reader === "string" && reader.trim()) out.readerId = reader.trim();
+  // Kiosk number — lets a fresh/re-imaged device (or a new deploy URL, where
+  // localStorage doesn't carry over) recover its EXACT saved config from Neon by
+  // kioskId (`<center>:<kioskNumber>`). Without this the cloud fallback always
+  // assumed #1 and couldn't find e.g. fort-myers:4. Accept ?kiosk= or ?kioskNumber=.
+  const kioskNumRaw = first(sp.kiosk) ?? first(sp.kioskNumber);
+  const kioskNum = kioskNumRaw != null ? parseInt(kioskNumRaw, 10) : NaN;
+  if (Number.isFinite(kioskNum) && kioskNum > 0) out.kioskNumber = kioskNum;
   return out;
 }
 
