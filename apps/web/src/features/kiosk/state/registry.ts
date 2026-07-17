@@ -6,13 +6,18 @@
  * web registry — zero risk to the live booking flow.
  */
 import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/booking";
+import { KioskSlotStep } from "../steps/KioskSlotStep";
 
-export const KIOSK_SCHEMA_VERSION = 1;
+export const KIOSK_SCHEMA_VERSION = 2; // v2: attraction date+slot → KioskSlotStep (book-now)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   race: [...STEP_REGISTRY.race],
-  attraction: [...STEP_REGISTRY.attraction],
+  // Kiosk = walk-up: no date step (always today); the slot step leads with
+  // the next available time and keeps the full web grid as "later today".
+  attraction: STEP_REGISTRY.attraction
+    .filter((s) => s.id !== "attraction-date" && s.id !== "attraction-slot")
+    .concat([KioskSlotStep as StepDef]),
   bowling: [...STEP_REGISTRY.bowling],
   kbf: [...STEP_REGISTRY.kbf],
 };
