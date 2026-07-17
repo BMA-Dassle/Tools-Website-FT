@@ -239,14 +239,14 @@ function DeviceTab({
           className={selectClass}
         />
       </Field>
-      <Field label="Design variant">
+      <Field label="Theme / design">
         <select
           className={selectClass}
           value={draft.variant ?? "podium"}
           onChange={(e) => patch({ variant: e.target.value as KioskVariant })}
         >
-          <option value="podium">Podium (cinematic)</option>
-          <option value="pitcrew">Pit Crew (one question at a time)</option>
+          <option value="podium">Version A — Podium (cinematic)</option>
+          <option value="pitcrew">Version C — Pit Crew (one question at a time)</option>
         </select>
       </Field>
       <Field label="Card input method">
