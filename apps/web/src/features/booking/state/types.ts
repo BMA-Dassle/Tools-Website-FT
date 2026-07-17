@@ -92,6 +92,16 @@ export interface PartyMember {
    * (bmiPersonId && !isNewRacer). false/undefined = pay cash.
    */
   redeemCredits?: boolean;
+  /**
+   * Kiosk: for a MINOR participant (age < 18), the party member id of the adult
+   * who is their responsible guardian on the waiver (owner rule 2026-07-18 — a
+   * minor needs a registered adult guardian). Resolved to the guardian's
+   * bmiPersonId at Pandora onboard time. Ignored by the web flow.
+   */
+  guardianMemberId?: string;
+  /** Kiosk: true when this member is a minor (age < 18) — needs a guardian to
+   *  sign the waiver. Separate from `category` (racing tier bucket). */
+  isMinor?: boolean;
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */
@@ -665,6 +675,8 @@ export function newPartyMember(args: {
   memberships?: string[];
   waiverValid?: boolean;
   creditBalances?: Array<{ kind: string; balance: number }>;
+  guardianMemberId?: string;
+  isMinor?: boolean;
 }): PartyMember {
   return {
     id: newItemId(),
@@ -677,6 +689,8 @@ export function newPartyMember(args: {
     memberships: args.memberships,
     waiverValid: args.waiverValid,
     creditBalances: args.creditBalances,
+    guardianMemberId: args.guardianMemberId,
+    isMinor: args.isMinor,
   };
 }
 
