@@ -260,7 +260,7 @@ export function KioskGameZone({
     // New-card success (simulated dispense) shows every fresh card number.
     if (mode === "newcard") {
       return (
-        <div className="mx-auto max-w-md py-12 text-center">
+        <div className="mx-auto max-w-md py-12 text-center kiosk-zoom">
           <div className="font-heading text-6xl font-extrabold italic">
             {newCards.length === 1 ? "Card ready!" : "Cards ready!"}
           </div>
@@ -306,7 +306,7 @@ export function KioskGameZone({
       );
     }
     return (
-      <div className="mx-auto max-w-md py-16 text-center">
+      <div className="mx-auto max-w-md py-16 text-center kiosk-zoom">
         <div className="font-heading text-6xl font-extrabold italic">Tokens loaded!</div>
         <p className="mt-4 text-lg text-white/60">
           {cards.length === 1 ? "Your card is" : `All ${cards.length} cards are`} ready — tap in at
@@ -326,7 +326,7 @@ export function KioskGameZone({
   // ── New cards (simulated) — add 1–10 cards, pick a package each, "pay & dispense" ──
   if (mode === "newcard") {
     return (
-      <div className="mx-auto max-w-2xl px-2 py-6">
+      <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
           <h1 className="font-heading text-4xl font-extrabold italic">New cards</h1>
           <button

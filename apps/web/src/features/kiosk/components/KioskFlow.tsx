@@ -398,7 +398,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // ── Checkout ──
   if (checkoutActive) {
     return chrome(
-      <div ref={contentRef} className="k-flow-body kiosk-step-content">
+      // Zoomed to kiosk scale like the other reused web screens. `zoom` scales
+      // the Square card iframe like browser zoom (supported); the primary kiosk
+      // path is the card-present reader (no iframe) anyway.
+      <div ref={contentRef} className="k-flow-body kiosk-step-content kiosk-zoom">
         <CheckoutStep
           session={session}
           dispatch={dispatch}
