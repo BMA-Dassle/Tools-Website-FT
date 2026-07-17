@@ -56,6 +56,7 @@ import {
   KIOSK_STEP_REGISTRY,
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
+import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
 import { IdleWatcher } from "./IdleWatcher";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
@@ -105,6 +106,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);
   const [gzOpen, setGzOpen] = useState(false);
+  const [vipCombo, setVipCombo] = useState<ComboSpecial | null>(null);
   const [stepBusy, setStepBusy] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState("Holding your spot…");
@@ -136,17 +138,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           combo.center === config.center &&
           session.items.length === 0
         ) {
-          dispatch({ type: "setComboSpecial", id: combo.id });
-          const raceItem = stampToday(newItem("race"));
-          dispatch({ type: "addItem", item: raceItem });
-          const bowlComp = comboBowlingComponent(combo);
-          const bowlingItem: SessionItem = {
-            ...(newItem("bowling") as Extract<SessionItem, { kind: "bowling" }>),
-            variant: "hourly",
-            durationMinutes: bowlComp?.durationMinutes ?? null,
-          };
-          dispatch({ type: "addItem", item: bowlingItem });
-          dispatch({ type: "setActiveItem", id: raceItem.id });
+          setVipCombo(combo); // show the itinerary overview first
         }
       } else if (seed) {
         const already = session.items.find(
@@ -247,11 +239,17 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     dispatch({ type: "addItem", item });
   };
 
+  // Show the itinerary overview first (owner: the approved VIP overview screen).
   const pickCombo = (combo: ComboSpecial) => {
     if (session.items.length > 0) {
       setKioskError("Finish or remove your current activities before adding a bundled experience.");
       return;
     }
+    setVipCombo(combo);
+  };
+
+  // "Let's set it up" from the overview — seed the combo items + enter the flow.
+  const startCombo = (combo: ComboSpecial) => {
     dispatch({ type: "setComboSpecial", id: combo.id });
     const raceItem = stampToday(newItem("race"));
     dispatch({ type: "addItem", item: raceItem });
@@ -263,6 +261,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     };
     dispatch({ type: "addItem", item: bowlingItem });
     dispatch({ type: "setActiveItem", id: raceItem.id });
+    setVipCombo(null);
   };
 
   const handleRemoveCombo = async () => {
@@ -444,6 +443,18 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         />
       </div>,
       KIOSK_PHOTOS.arcade,
+    );
+  }
+
+  // ── VIP / Experiences overview (itinerary before entering the combo flow) ──
+  if (vipCombo && !activeItem) {
+    return chrome(
+      <KioskVipOverview
+        combo={vipCombo}
+        onStart={() => startCombo(vipCombo)}
+        onBack={() => setVipCombo(null)}
+      />,
+      KIOSK_PHOTOS.vip,
     );
   }
 
