@@ -47,3 +47,6 @@ next-env.d.ts
 # Temp email previews (generated from real DB data, not for repo)
 emails/_preview-real-*.html
 _preview-welcome.ts
+
+# Local-only recipient data (PII) for one-shot blasts — never commit
+scripts/.data/

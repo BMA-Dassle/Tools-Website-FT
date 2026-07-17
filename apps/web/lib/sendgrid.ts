@@ -25,6 +25,15 @@ export interface SendEmailOpts {
   html: string;
   /** Optional plain-text part. When omitted only HTML is sent (SendGrid allows this, but providing both is best practice). */
   text?: string;
+  /** SendGrid Unsubscribe Group (ASM). When set, SendGrid appends the group's
+   *  managed unsubscribe + enforces suppression. Required for compliant
+   *  marketing blasts; omit for transactional mail. The template can reference
+   *  `<%asm_group_unsubscribe_raw_url%>` for the unsubscribe link. */
+  asm?: { groupId: number; groupsToDisplay?: number[] };
+  /** Extra SMTP headers, e.g. List-Unsubscribe / List-Unsubscribe-Post for one-click. */
+  headers?: Record<string, string>;
+  /** SendGrid categories for reporting/segmentation (e.g. ["xmas_in_july"]). */
+  categories?: string[];
 }
 
 export interface SendEmailResult {
@@ -79,6 +88,18 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
     payload.reply_to = opts.replyToName
       ? { email: opts.replyTo, name: opts.replyToName }
       : { email: opts.replyTo };
+  }
+  if (opts.asm) {
+    payload.asm = {
+      group_id: opts.asm.groupId,
+      ...(opts.asm.groupsToDisplay ? { groups_to_display: opts.asm.groupsToDisplay } : {}),
+    };
+  }
+  if (opts.headers && Object.keys(opts.headers).length > 0) {
+    payload.headers = opts.headers;
+  }
+  if (opts.categories && opts.categories.length > 0) {
+    payload.categories = opts.categories;
   }
 
   try {

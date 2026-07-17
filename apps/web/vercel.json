@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/xmas-blast",
+      "schedule": "0 13 * * *"
+    },
+    {
       "path": "/api/cron/game-card-reconcile",
       "schedule": "*/5 * * * *"
     },
