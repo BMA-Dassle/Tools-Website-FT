@@ -9,9 +9,10 @@ import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/bookin
 import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
 import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
+import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 
-export const KIOSK_SCHEMA_VERSION = 7; // v7: unified people step (racing + attraction)
+export const KIOSK_SCHEMA_VERSION = 8; // v8: bowling leads with people/main-contact step
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -78,17 +79,24 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     ),
     KioskSlotStep as StepDef,
   ],
-  // Kiosk rules: today-only "bowl now" time step (replaces the calendar), and
-  // names/shoe sizes/bumpers REQUIRED in-flow (web collects them post-booking).
-  bowling: insertAfter(
-    replaceStep(
-      [...STEP_REGISTRY.bowling],
-      "bowling-slots",
-      hiddenInCombo(hiddenForWorldCup(KioskBowlingTimeStep as StepDef)),
+  // Kiosk rules: LEAD with the add-bowlers + main-contact step (owner: bowling
+  // should be the add-people screen, not a bare YOUR INFO form) — drops the web
+  // ContactStep + player-count stepper (the people step writes item.players +
+  // playerCount + session.contact, which is exactly what reserve reads). Then
+  // today-only "bowl now" time step (replaces the calendar), and names/shoe
+  // sizes/bumpers REQUIRED in-flow (web collects them post-booking).
+  bowling: [
+    hiddenInCombo(KioskBowlingPeopleStep as StepDef),
+    ...insertAfter(
+      replaceStep(
+        [...STEP_REGISTRY.bowling].filter((s) => s.id !== "contact" && s.id !== "bowling-players"),
+        "bowling-slots",
+        hiddenInCombo(hiddenForWorldCup(KioskBowlingTimeStep as StepDef)),
+      ),
+      "bowling-shoes",
+      hiddenInCombo(KioskBowlingDetailsStep as StepDef),
     ),
-    "bowling-shoes",
-    hiddenInCombo(KioskBowlingDetailsStep as StepDef),
-  ),
+  ],
   kbf: insertAfter(
     replaceStep([...STEP_REGISTRY.kbf], "bowling-slots", KioskBowlingTimeStep as StepDef),
     "bowling-shoes",

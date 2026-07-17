@@ -502,3 +502,11 @@
   background: var(--k-warn);
   box-shadow: 0 0 14px var(--k-warn);
 }
+
+/* Reused WEB components (cart) are designed at web rem sizes and read small on
+   the 1080px kiosk canvas. Chromium `zoom` scales them up to kiosk size +
+   reflows within the container — no logic/pricing touched. Kiosk-native steps
+   (which are already canvas-px) must NOT get this. */
+.kiosk-canvas .kiosk-zoom {
+  zoom: 1.3;
+}

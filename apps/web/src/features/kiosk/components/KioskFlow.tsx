@@ -417,7 +417,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // ── Cart ──
   if (cartActive || (!activeItem && session.items.length > 0)) {
     return chrome(
-      <div ref={contentRef} className="k-flow-body kiosk-step-content">
+      <div ref={contentRef} className="k-flow-body kiosk-step-content kiosk-zoom">
         <CartView
           session={session}
           urlCode={null}
