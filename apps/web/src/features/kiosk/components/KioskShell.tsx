@@ -23,6 +23,7 @@
  */
 import { useEffect, useRef } from "react";
 import { KioskConfigProvider, useKioskConfig } from "../KioskConfigContext";
+import { OnScreenKeyboardHost } from "./OnScreenKeyboard";
 
 function KioskChrome({ children }: { children: React.ReactNode }) {
   const { config } = useKioskConfig();
@@ -107,6 +108,7 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
       style={{ touchAction: "manipulation" }}
     >
       {children}
+      <OnScreenKeyboardHost />
     </div>
   );
 }
