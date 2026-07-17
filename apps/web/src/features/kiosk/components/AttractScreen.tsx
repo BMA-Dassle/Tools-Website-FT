@@ -179,7 +179,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         <span className="kiosk-pulse k-display grid h-[150px] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[44px] tracking-wide text-[#04252b]">
           Touch to get started
         </span>
-        <span className="flex flex-wrap items-center justify-center gap-[16px]">
+        {/* Balanced 2×2 grid — a flex-wrap left "See everything" orphaned on its
+            own row (uneven 3+1). Each chip stretches to fill its cell so the pairs
+            line up. */}
+        <span className="grid w-full max-w-[720px] grid-cols-2 gap-[16px]">
           <QuickChip label="Race now" onClick={() => start("race")} />
           <QuickChip label="Bowl now" onClick={() => start("bowl")} />
           <QuickChip label="VIP Experience" gold onClick={() => start("vip")} />
@@ -233,7 +236,7 @@ function QuickChip({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick();
       }}
-      className={`k-display inline-flex h-[92px] items-center rounded-2xl border-2 px-[32px] text-[30px] ${
+      className={`k-display flex h-[92px] w-full items-center justify-center rounded-2xl border-2 px-[32px] text-[30px] ${
         gold ? "border-[#e8b14c]/60 text-[#e8b14c]" : "border-white/15 text-white/60"
       }`}
     >
