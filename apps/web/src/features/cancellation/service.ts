@@ -150,7 +150,7 @@ export async function cancelReservationCascade(req: CancelRequest): Promise<Canc
           cascadeId: plan.cascadeId,
           tenderIndex: tenderIndex >= 0 ? tenderIndex : 0,
           paymentId: step.target,
-          reason: "Reservation cancelled — full refund",
+          reason: "Refund: Reservation Deposit",
         });
         if (r.refundId) refundIds.push(r.refundId);
         refundedCents += r.refundedCents;

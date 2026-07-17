@@ -459,7 +459,7 @@ describe("executeEditCascade — PRE decrease", () => {
         paymentId: "PAY_DEP",
         amountCents: 500,
         // Owner convention — exact reason on every reservation-money refund.
-        reason: "Reservation Deposit",
+        reason: "Refund: Reservation Deposit",
         skipGiftCardTender: true,
       }),
     );

@@ -354,7 +354,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               refundIndex: 90, // reserved namespace for the gift-card tender refund
               paymentId: anchor.dayofPaymentId,
               amountCents: step.amountCents ?? -plan.diffCents,
-              reason: "Reservation Deposit",
+              reason: "Refund: Reservation Deposit",
             });
             if (r.refundId) {
               refundIds.push(r.refundId);
@@ -405,7 +405,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 paymentId: tender.paymentId,
                 amountCents: tender.amountCents,
                 baseKey: `${editId}-t${n}`,
-                reason: "Reservation Deposit",
+                reason: "Refund: Reservation Deposit",
               });
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);
@@ -743,7 +743,7 @@ const refundAcrossTenders = async (
       amountCents: p.amountCents,
       // Owner convention (2026-07-11): reservation-money refunds carry this
       // exact reason so they read consistently in the Square dashboard/exports.
-      reason: "Reservation Deposit",
+      reason: "Refund: Reservation Deposit",
       skipGiftCardTender: true,
     });
     if (r.skippedGiftCard) giftCardTendersSkipped++;

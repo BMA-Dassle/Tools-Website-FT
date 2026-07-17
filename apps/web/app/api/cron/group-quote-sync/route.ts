@@ -227,7 +227,7 @@ async function syncQuote(
             idempotency_key: `gf-cancel-dep-${quote.id}`,
             payment_id: quote.square_deposit_payment_id,
             amount_money: { amount: quote.deposit_due_cents, currency: "USD" },
-            reason: "Event cancelled by event planner",
+            reason: "Refund: Group Event Deposit",
           }),
         });
         const refundData = await refundRes.json();
@@ -258,7 +258,7 @@ async function syncQuote(
             idempotency_key: `gf-cancel-bal-${quote.id}`,
             payment_id: quote.square_balance_payment_id,
             amount_money: { amount: balanceAmount, currency: "USD" },
-            reason: "Event cancelled by event planner",
+            reason: "Refund: Group Event Deposit",
           }),
         });
         const refundData = await refundRes.json();

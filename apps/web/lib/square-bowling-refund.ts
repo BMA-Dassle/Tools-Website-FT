@@ -161,7 +161,7 @@ export async function processSquareBowlingRefund(opts: {
         idempotency_key: idemKey,
         payment_id: r.paymentId,
         amount_money: { amount: r.amountCents, currency: "USD" },
-        reason: "Customer cancellation — full refund",
+        reason: "Refund: Reservation Deposit",
       }),
     });
     const refundData = (await refundRes.json()) as {
