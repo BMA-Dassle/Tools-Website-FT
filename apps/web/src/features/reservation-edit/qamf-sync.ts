@@ -13,7 +13,8 @@
  *     PATCH 400s) with the new "(Np)" count.
  *   - lane-count changes REBOOK: availability-check the same bookedAt for the
  *     new TotalPlayers (fatal guard — never charge for lanes we can't get),
- *     then delete→verify→create→confirm via rescheduleQamfReservation.
+ *     then delete→verify→create→confirm via rescheduleQamfReservation with
+ *     intent "rebook" (the in-place lanes PATCH can't change lane count).
  */
 
 import {
@@ -237,6 +238,9 @@ export const rebookQamfForLaneChange = async (params: {
     webOfferId: params.webOfferId,
     optionId: params.optionId,
     optionType: params.optionType,
+    // Lane STRUCTURE changes — the in-place lanes PATCH would be a same-time
+    // no-op that skips the rebuild. Force delete+create.
+    intent: "rebook",
     logTag: "[reservation-edit/qamf]",
   });
   if (!outcome.ok) {

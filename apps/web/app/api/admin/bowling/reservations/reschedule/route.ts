@@ -29,11 +29,10 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
  *
  * Flow:
  *   1. Load Neon reservation
- *   2. Delete old QAMF reservation (best-effort — may have expired)
- *   3. Create new QAMF reservation at the new time
- *   4. Confirm the new QAMF reservation — MUST succeed or we fail
- *   5. Update Neon (booked_at + qamf_reservation_id + status → confirmed)
- *   6. Resend confirmation email + SMS (fire-and-forget)
+ *   2. Move the QAMF reservation in place (v1.3 lanes PATCH — keeps id,
+ *      title, notes, players); falls back to delete→create→confirm
+ *   3. Update Neon (booked_at + qamf_reservation_id + status → confirmed)
+ *   4. Resend confirmation email + SMS (fire-and-forget)
  *
  * Payment (Square deposit / day-of order) is NOT touched — the price
  * doesn't change for a time-only reschedule within the same web offer.
@@ -151,8 +150,9 @@ export async function POST(req: NextRequest) {
     await cancelBmiAttractions(existing.centerCode, existing.attractionBookings);
   }
 
-  // ── Shared QAMF delete->create->confirm core (title/memo preserving,
-  //    double-book guarded) — see ~/features/booking/service/qamf-reschedule.
+  // ── Shared QAMF reschedule core: in-place lanes PATCH first, then the
+  //    delete->create->confirm fallback (title/memo preserving, double-book
+  //    guarded) — see ~/features/booking/service/qamf-reschedule.
   const shift = await rescheduleQamfReservation({
     neonId,
     qamfCenterId,
