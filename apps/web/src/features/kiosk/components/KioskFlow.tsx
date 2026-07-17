@@ -56,6 +56,7 @@ import {
   KIOSK_STEP_REGISTRY,
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
+import { KioskGameZone } from "./KioskGameZone";
 import { IdleWatcher } from "./IdleWatcher";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
@@ -103,6 +104,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
 
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);
+  const [gzOpen, setGzOpen] = useState(false);
   const [stepBusy, setStepBusy] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState("Holding your spot…");
@@ -389,6 +391,13 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     );
   }
 
+  // ── Game Zone (multi-card token reload — its own money rail, not booking) ──
+  if (gzOpen) {
+    return chrome(
+      <KioskGameZone center={config.center} brand={config.brand} onExit={() => setGzOpen(false)} />,
+    );
+  }
+
   // ── Category chooser (no active item) ──
   if (!activeItem) {
     return chrome(
@@ -399,6 +408,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         onPickOffering={pickOffering}
         onPickCombo={pickCombo}
         onOpenCart={() => setCartActive(true)}
+        onOpenGameZone={() => setGzOpen(true)}
       />,
     );
   }

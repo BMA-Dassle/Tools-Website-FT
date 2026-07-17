@@ -30,6 +30,7 @@ export interface KioskCategoriesProps {
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
   onOpenCart: () => void;
+  onOpenGameZone: () => void;
 }
 
 export function KioskCategories({
@@ -39,6 +40,7 @@ export function KioskCategories({
   onPickOffering,
   onPickCombo,
   onOpenCart,
+  onOpenGameZone,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
   const offerings = landingOfferingsFor(brand, center);
@@ -91,12 +93,12 @@ export function KioskCategories({
           />
           <CategoryCard
             photo={KIOSK_PHOTOS.arcade}
-            eyebrow="New card or reload"
+            eyebrow="Reload — 1 to 10 cards"
             eyebrowColor="#f800c6"
             title="Game Zone"
-            blurb="Arcade cards & token reloads — no waiting"
+            blurb="Add arcade tokens to your cards — no waiting"
             border="border-white/10"
-            onClick={() => setCat("gz")}
+            onClick={onOpenGameZone}
           />
         </div>
       </div>
