@@ -293,6 +293,15 @@ interface BowlingCommon {
   durationMultiplier: number;
   /** Shoe rental selections: bowling_square_products.id → quantity. */
   shoeSelections: Record<number, number>;
+  /**
+   * Per-bowler roster collected UP FRONT (kiosk requirement 2026-07-17:
+   * names, shoe sizes, and bumpers are mandatory in-flow on the kiosk;
+   * the web keeps collecting them post-booking). Optional so persisted web
+   * sessions hydrate unchanged; when present, the reserve paths use real
+   * names for the QAMF lane setup and persist the roster with the
+   * reservation (persist-at-capture).
+   */
+  players?: Array<{ name: string; shoeSize: string | null; bumpers: boolean | null }>;
   /** Laser tag / gel blaster add-ons booked via BMI. */
   attractionAddons: BowlingAttractionAddon[];
   /** Pizza bowl per-lane modifier selections. Each entry = one lane. */

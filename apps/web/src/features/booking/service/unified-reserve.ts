@@ -54,6 +54,7 @@ import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import {
   insertBowlingReservation,
+  insertReservationPlayers,
   updateBowlingReservationNotes,
   updateBowlingReservationShortCode,
   findReusableReservation,
@@ -874,9 +875,22 @@ async function unifiedReserveInner(
         ? (item as BowlingItem).playerCount
         : (item as KbfItem).bowlers.length + (item as KbfItem).paidAdults;
 
-    const players = Array.from({ length: playerCount }, (_, i) => ({
-      name: `Bowler ${i + 1}`,
-    }));
+    // Kiosk flows collect the roster (names/shoe sizes/bumpers) UP FRONT —
+    // when it's on the item, use it (QAMF lane setup + Neon persist below);
+    // web keeps the placeholder names, updated post-booking as today.
+    const rosterPlayers = (item as BowlingItem).players;
+    const players =
+      rosterPlayers && rosterPlayers.length > 0
+        ? rosterPlayers.map((p, i) => ({
+            name: p.name.trim() || `Bowler ${i + 1}`,
+            shoeSize: p.shoeSize || null, // "" = own shoes
+            bumpers: p.bumpers ?? null,
+          }))
+        : Array.from({ length: playerCount }, (_, i) => ({
+            name: `Bowler ${i + 1}`,
+            shoeSize: null as string | null,
+            bumpers: null as boolean | null,
+          }));
 
     const guest = {
       name: `${contact.firstName} ${contact.lastName}`.trim(),
@@ -990,7 +1004,7 @@ async function unifiedReserveInner(
         }
       }
 
-      // Push player names to QAMF
+      // Push player names to QAMF (kiosk rosters carry real bumper choices)
       if (qamfLanes.length > 0) {
         const lane = qamfLanes[0];
         const laneId = lane.Id ?? String(lane.LaneNumber);
@@ -998,7 +1012,11 @@ async function unifiedReserveInner(
           centerId,
           qamfReservationId,
           laneId,
-          players.map((p) => ({ Name: p.name || "Bowler", ActivateBumpers: false })),
+          players.map((p) => ({
+            Name: p.name || "Bowler",
+            ...(p.shoeSize ? { ShoeSize: p.shoeSize } : {}),
+            ActivateBumpers: p.bumpers ?? false,
+          })),
         ).catch(() => {});
       }
 
@@ -1102,6 +1120,25 @@ async function unifiedReserveInner(
         );
         neonIds.push(reservation.id);
         bowlingNeonId = reservation.id;
+
+        // Persist the roster with the reservation when we actually HAVE one
+        // (kiosk collects names/shoes/bumpers up front — persist-at-capture);
+        // placeholder-only rosters skip this and fill in post-booking as today.
+        if (rosterPlayers && rosterPlayers.length > 0) {
+          try {
+            await insertReservationPlayers(
+              reservation.id,
+              players.map((p, i) => ({
+                slot: i + 1,
+                name: p.name,
+                shoeSize: p.shoeSize ?? null,
+                bumpers: p.bumpers ?? null,
+              })),
+            );
+          } catch (err) {
+            log(`[unified-reserve] insertReservationPlayers failed (non-fatal): ${String(err)}`);
+          }
+        }
 
         // Generate short code for confirmation URL (same as v1 bowling reserve)
         try {

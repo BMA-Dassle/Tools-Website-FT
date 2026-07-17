@@ -181,7 +181,11 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
   //   - enforce the per-day free-games cap + save shoe prefs (kbfPassId/slot).
   // The roster lives in session.kbfIdentity.members; item.bowlers holds the
   // selected free-bowler ids; item.paidAdults is the guest-adult count.
-  const players =
+  // Kiosk rosters (item.players) carry real names/shoe sizes/bumpers collected
+  // up front; the reserve route persists them to Neon + QAMF at booking time.
+  // Web items have no roster → placeholder names, filled in post-booking.
+  const roster = item.players;
+  const basePlayers =
     item.kind === "kbf"
       ? [
           ...item.bowlers.map((id, i) => {
@@ -201,6 +205,17 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
           })),
         ]
       : Array.from({ length: playerCount }, (_, i) => ({ name: `Bowler ${i + 1}` }));
+  const players = basePlayers.map((p, i) => {
+    const r = roster?.[i];
+    if (!r) return p;
+    return {
+      ...p,
+      // KBF keeps its pass-derived names; open bowling takes the typed name.
+      name: item.kind === "kbf" ? p.name : r.name.trim() || p.name,
+      shoeSize: r.shoeSize || null, // "" = own shoes → no rental size recorded
+      bumpers: r.bumpers ?? null,
+    };
+  });
 
   const kind = item.kind === "kbf" ? "kbf" : item.variant === "hourly" ? "hourly" : "open";
   const locationId = centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7";

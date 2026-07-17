@@ -31,6 +31,18 @@ export function qamfCenterIdForCode(center: CenterCode | null | undefined): numb
   return center === "naples" ? 3148 : center === "fort-myers" ? 9172 : null;
 }
 
+/**
+ * True when `id` is a real BMI bill/order id — an all-digit string (17-digit
+ * bigint). QAMF reservation ids are X-prefixed (e.g. "X157161"); checkout's
+ * hold-id fallback can leak one into a bill-id slot, and BMI endpoints raw-inject
+ * the id into JSON, so a non-digit id produces invalid JSON and a 500 AFTER the
+ * card is charged (2026-07-03 double-charge incident). Every BMI call site must
+ * gate on this.
+ */
+export function isBmiBillId(id: string | null | undefined): id is string {
+  return typeof id === "string" && /^\d+$/.test(id);
+}
+
 /** Square Order lifecycle state, mirrored from the Square API. */
 export type SquareOrderStatus = "DRAFT" | "OPEN" | "COMPLETED" | "CANCELED";
 
