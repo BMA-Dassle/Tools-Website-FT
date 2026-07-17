@@ -69,6 +69,12 @@ export interface EntryContext {
    * Ignored when the feature window is over or the center's flag is off.
    */
   worldCup?: true;
+  /**
+   * Session started on an in-center self-service kiosk (/kiosk). Read by the
+   * reserve path to stamp bookingSource="kiosk" (admin board badge) and by
+   * steps that behave differently on a shared public device.
+   */
+  kiosk?: true;
 }
 
 /** Convenience: an empty context. Used when the entry URL carried nothing. */

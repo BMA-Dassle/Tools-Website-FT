@@ -22,15 +22,15 @@ interface PersistedEnvelope {
   session: BookingSession;
 }
 
-function readSession(): BookingSession | null {
+function readSession(storageKey: string, schemaVersion: number): BookingSession | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedEnvelope>;
-    if (parsed?.v !== SCHEMA_VERSION || !parsed.session) {
+    if (parsed?.v !== schemaVersion || !parsed.session) {
       // Older build (or pre-versioning raw session) — discard so the customer
       // starts the current flow cleanly rather than mid-way with stale data.
-      sessionStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(storageKey);
       return null;
     }
     return parsed.session;
@@ -39,18 +39,18 @@ function readSession(): BookingSession | null {
   }
 }
 
-function writeSession(session: BookingSession): void {
+function writeSession(session: BookingSession, storageKey: string, schemaVersion: number): void {
   try {
-    const envelope: PersistedEnvelope = { v: SCHEMA_VERSION, session };
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
+    const envelope: PersistedEnvelope = { v: schemaVersion, session };
+    sessionStorage.setItem(storageKey, JSON.stringify(envelope));
   } catch {
     /* storage full or disabled — non-fatal */
   }
 }
 
-export function clearBookingSession(): void {
+export function clearBookingSession(storageKey: string = STORAGE_KEY): void {
   try {
-    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(storageKey);
   } catch {
     /* non-fatal */
   }
@@ -68,12 +68,26 @@ export function clearBookingSession(): void {
  */
 export function peekBookingSession(): BookingSession | null {
   if (typeof window === "undefined") return null;
-  return readSession();
+  return readSession(STORAGE_KEY, SCHEMA_VERSION);
+}
+
+/**
+ * Optional per-surface persistence config. The KIOSK passes its own
+ * storageKey + schemaVersion so kiosk registry churn never invalidates web
+ * sessions (and vice versa); web callers pass nothing and keep the exact
+ * historical behavior.
+ */
+export interface PersistOptions {
+  storageKey?: string;
+  schemaVersion?: number;
 }
 
 export function usePersistedReducer(
   fallbackInitial: BookingSession,
+  opts?: PersistOptions,
 ): [BookingSession, React.Dispatch<Action>, boolean] {
+  const storageKey = opts?.storageKey ?? STORAGE_KEY;
+  const schemaVersion = opts?.schemaVersion ?? SCHEMA_VERSION;
   const [session, dispatch] = useReducer(reducer, fallbackInitial);
   const [hydrated, setHydrated] = useState(false);
   const didRestore = useRef(false);
@@ -82,19 +96,19 @@ export function usePersistedReducer(
   useEffect(() => {
     if (didRestore.current) return;
     didRestore.current = true;
-    const stored = readSession();
+    const stored = readSession(storageKey, schemaVersion);
     if (stored) {
       dispatch({ type: "restoreSession", session: stored });
     }
     setHydrated(true);
-  }, []);
+  }, [storageKey, schemaVersion]);
 
   // Persist on every state change, but only after hydration is complete
   useEffect(() => {
     if (hydrated) {
-      writeSession(session);
+      writeSession(session, storageKey, schemaVersion);
     }
-  }, [session, hydrated]);
+  }, [session, hydrated, storageKey, schemaVersion]);
 
   return [session, dispatch, hydrated];
 }
