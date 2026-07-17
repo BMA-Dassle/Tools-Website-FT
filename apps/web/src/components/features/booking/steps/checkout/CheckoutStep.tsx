@@ -555,8 +555,11 @@ export function CheckoutStep({
       return;
     }
 
-    // Cash order — resolve Square customer for saved cards
-    const hasReturning = reserveSession.party.some((m) => !!m.bmiPersonId);
+    // Cash order — resolve Square customer for saved cards. Skipped entirely on
+    // the kiosk (allowCardVault === false): a shared public device must not fetch
+    // or charge anyone's stored card-on-file — every kiosk payment is a fresh
+    // typed/card-present entry (owner 2026-07-18).
+    const hasReturning = allowCardVault && reserveSession.party.some((m) => !!m.bmiPersonId);
     let sqCustomer: Awaited<ReturnType<typeof resolveSquareCustomer>> = {};
     if (hasReturning) {
       sqCustomer = await resolveSquareCustomer(contact);

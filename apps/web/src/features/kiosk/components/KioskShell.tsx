@@ -86,6 +86,27 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
 
     const onContextMenu = (e: Event) => e.preventDefault();
 
+    // Kill browser autofill/autocomplete on EVERY kiosk field — a shared public
+    // device must never surface a previous guest's saved name/phone/email/card
+    // suggestions. Applied to all inputs (kiosk-native AND reused web ones) here
+    // so shared web components keep their normal autofill off-kiosk.
+    const killAutofill = (el: Element) => {
+      if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
+      el.setAttribute("autocomplete", "off");
+      el.setAttribute("autocorrect", "off");
+      el.setAttribute("autocapitalize", "off");
+      el.setAttribute("spellcheck", "false");
+    };
+    const scan = (root: ParentNode) => {
+      if (root instanceof Element) killAutofill(root);
+      root.querySelectorAll?.("input, textarea").forEach(killAutofill);
+    };
+    scan(document.body);
+    const autofillObserver = new MutationObserver((muts) => {
+      for (const m of muts) m.addedNodes.forEach((n) => scan(n as ParentNode));
+    });
+    autofillObserver.observe(document.body, { childList: true, subtree: true });
+
     document.addEventListener("pointerdown", onPointerDown, { passive: true });
     document.addEventListener("visibilitychange", onVisibility);
     document.addEventListener("click", onClickCapture, true);
@@ -95,6 +116,7 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
       document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("contextmenu", onContextMenu);
+      autofillObserver.disconnect();
       void wakeLock?.release().catch(() => {});
     };
   }, []);
