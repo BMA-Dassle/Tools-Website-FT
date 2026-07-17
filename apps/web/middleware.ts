@@ -533,6 +533,8 @@ export async function middleware(request: NextRequest) {
     pathname === "/july4" ||
     // Short check-in shortlink (redirects into /event/healthnet-2026/confirm).
     pathname === "/healthnet" ||
+    // Short SMS shortlink for the Christmas in July blast (redirects into /event/xmas-in-july).
+    pathname === "/j" ||
     // Guest-survey landing pages (PR-GS2). Bowling surveys are HP-branded
     // and racing surveys are FT-branded, but the page lives at /survey/*
     // (not /hp/survey/* nor /ft/survey/*) — the route reads the center
