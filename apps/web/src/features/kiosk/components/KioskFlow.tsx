@@ -58,6 +58,15 @@ import {
 import { KioskCategories } from "./KioskCategories";
 import { IdleWatcher } from "./IdleWatcher";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
+import { todayYmd } from "../service/first-available";
+
+/** Walk-up device: every dated item starts on today (kiosk drops date steps). */
+function stampToday(item: SessionItem): SessionItem {
+  if (item.kind === "race" || item.kind === "attraction") {
+    return { ...item, date: todayYmd() };
+  }
+  return item;
+}
 
 const IDLE_FLOW_MS = 120_000;
 const IDLE_CHECKOUT_MS = 180_000;
@@ -125,7 +134,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           session.items.length === 0
         ) {
           dispatch({ type: "setComboSpecial", id: combo.id });
-          const raceItem = newItem("race");
+          const raceItem = stampToday(newItem("race"));
           dispatch({ type: "addItem", item: raceItem });
           const bowlComp = comboBowlingComponent(combo);
           const bowlingItem: SessionItem = {
@@ -145,7 +154,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         if (already) {
           dispatch({ type: "setActiveItem", id: already.id });
         } else {
-          const item = newItem(seed.kind);
+          const item = stampToday(newItem(seed.kind));
           if (item.kind === "attraction" && seed.slug) (item as AttractionItem).slug = seed.slug;
           dispatch({ type: "addItem", item });
         }
@@ -223,7 +232,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       dispatch({ type: "setActiveItem", id: existing.id });
       return;
     }
-    const item = newItem(offering.kind);
+    const item = stampToday(newItem(offering.kind));
     if (item.kind === "attraction" && offering.attractionSlug) {
       (item as AttractionItem).slug = offering.attractionSlug;
     }
@@ -236,7 +245,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       return;
     }
     dispatch({ type: "setComboSpecial", id: combo.id });
-    const raceItem = newItem("race");
+    const raceItem = stampToday(newItem("race"));
     dispatch({ type: "addItem", item: raceItem });
     const bowlComp = comboBowlingComponent(combo);
     const bowlingItem: SessionItem = {

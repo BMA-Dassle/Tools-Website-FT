@@ -45,7 +45,10 @@ function insertAfter(steps: StepDef[], afterId: string, step: StepDef): StepDef[
 }
 
 export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
-  race: [...STEP_REGISTRY.race],
+  // Kiosk = walk-up: no race date step — KioskFlow stamps item.date = today
+  // at creation; the (fully reused) heat picker then shows today's heats,
+  // sorted earliest-first with the complete restriction-rule gating.
+  race: STEP_REGISTRY.race.filter((s) => s.id !== "race-date"),
   // Kiosk = walk-up: no date step (always today); the slot step leads with
   // the next available time and keeps the full web grid as "later today".
   attraction: STEP_REGISTRY.attraction
