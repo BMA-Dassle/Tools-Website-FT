@@ -160,6 +160,57 @@ const KioskWhoStepComponent: StepDef<AttractionItem>["Component"] = ({
     }
   };
 
+  /** Pull the verified account's LINKED family members onto the roster too
+   *  (web booking v2 parity — RacePartyStep.fetchLinkedPersons). They land
+   *  as toggleable cards with their stored waiver status, NOT auto-included:
+   *  the guest picks who's actually playing. */
+  const importLinked = async (personId: string, alreadyIds: Set<string>) => {
+    try {
+      const res = await fetch(`/api/pandora?personId=${personId}&picture=false`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const rawRelated: unknown[] = data.related || [];
+      const relatedIds: string[] = rawRelated
+        .map((r) => (typeof r === "string" ? r : ((r as { id?: string })?.id ?? "")))
+        .filter(Boolean);
+      await Promise.all(
+        relatedIds.map(async (rid) => {
+          if (alreadyIds.has(rid)) return;
+          try {
+            const r = await fetch(`/api/pandora?personId=${rid}&picture=false`);
+            if (!r.ok) return;
+            const p = await r.json();
+            const first = p.firstName || "";
+            const last = p.lastName || "";
+            if (!first && !last) return;
+            // Pandora birthdate is ISO — age drives the junior tag.
+            const isoAge = (() => {
+              if (!p.birthdate) return null;
+              const dob = new Date(p.birthdate);
+              if (Number.isNaN(dob.getTime())) return null;
+              return Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000));
+            })();
+            dispatch({
+              type: "addPartyMember",
+              member: newPartyMember({
+                firstName: first,
+                lastName: last || undefined,
+                isNewRacer: false,
+                category: isoAge !== null && isoAge < 13 ? "junior" : "adult",
+                bmiPersonId: rid,
+                waiverValid: p.valid === true,
+              }),
+            });
+          } catch {
+            /* skip this relative — non-fatal */
+          }
+        }),
+      );
+    } catch {
+      /* non-fatal — the verified account itself is already on the roster */
+    }
+  };
+
   const handleVerified = (person: PersonData) => {
     const [first, ...rest] = person.fullName.trim().split(/\s+/);
     const member = newPartyMember({
@@ -174,6 +225,10 @@ const KioskWhoStepComponent: StepDef<AttractionItem>["Component"] = ({
     dispatch({ type: "addPartyMember", member });
     setIncluded(new Set([...included, member.id]));
     setLookupOpen(false);
+    const alreadyIds = new Set(
+      [person.personId, ...party.map((m) => m.bmiPersonId)].filter(Boolean) as string[],
+    );
+    void importLinked(person.personId, alreadyIds);
   };
 
   return (

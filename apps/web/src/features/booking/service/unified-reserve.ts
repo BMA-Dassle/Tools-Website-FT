@@ -1348,7 +1348,26 @@ async function unifiedReserveInner(
     if (attractionItems.length > 0) {
       bookingMetadata.attractions = attractionItems
         .filter((a) => a.slot)
-        .map((a) => ({ slug: a.slug, slot: a.slot, qty: a.qty }));
+        .map((a) => ({
+          slug: a.slug,
+          slot: a.slot,
+          qty: a.qty,
+          // Kiosk who's-playing roster (waiver-gated attractions): persist the
+          // participant names with the reservation (persist-at-capture) so
+          // staff can see who's signed on for the session.
+          ...(a.participants && a.participants.length > 0
+            ? {
+                participants: a.participants
+                  .map((id) => session.party.find((m) => m.id === id))
+                  .filter((m): m is NonNullable<typeof m> => Boolean(m))
+                  .map((m) => ({
+                    name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
+                    bmiPersonId: m.bmiPersonId ?? null,
+                    waiverValid: m.waiverValid ?? false,
+                  })),
+              }
+            : {}),
+        }));
     }
 
     // ── Durable anchor (confirm_pending) BEFORE BMI confirm ───────────
