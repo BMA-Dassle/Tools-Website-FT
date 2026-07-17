@@ -133,6 +133,21 @@ export const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
 };
 
 // ── Core: create deposit + charge + gift card ───────────────────────────
+//
+// CARD-PRESENT (kiosk reader) last-mile — the ONLY correct wiring, do NOT
+// mint from a comp discount (that double-books captured cash + a comp):
+//   1. Split this into prepare()/finalize() around the async terminal tap.
+//   2. prepare(): create the deposit order (step 1 below) → return
+//      {depositOrderId, depositLineItemUid}.
+//   3. client: createTerminalCheckout({ orderId: depositOrderId, deviceId })
+//      (square-terminal.ts already supports orderId) → poll to COMPLETED so
+//      the Terminal pays OUR order.
+//   4. finalize(): skip authorizeMultiTender (already captured) and run
+//      steps 3+4 (activateGiftCardForDeposit) UNCHANGED — the GC stays
+//      order+line-item linked exactly like the typed-card path.
+// This must ship WITH a live card-present smoke (production Square money
+// rail — see the H3074 six-charge lesson). Manual card entry (below) is the
+// proven kiosk path until then.
 
 export async function createDepositAndCharge(params: DepositParams): Promise<DepositResult> {
   const {

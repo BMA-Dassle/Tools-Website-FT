@@ -112,23 +112,32 @@ export async function createTerminalCheckout(args: {
   amountCents: number;
   referenceId: string;
   note?: string;
+  /**
+   * Pay an EXISTING Square order (Mercury pattern). When set, the Terminal
+   * pays this order so downstream gift-card activation stays order+line-item
+   * linked exactly like the typed-card deposit path — no money-rail fork.
+   * When omitted, Square creates an implicit order for the amount.
+   */
+  orderId?: string;
 }): Promise<TerminalCheckoutResult | null> {
   if (!SQUARE_TOKEN) return null;
+  const checkout: Record<string, unknown> = {
+    device_options: { device_id: args.deviceId, skip_receipt_screen: true },
+    payment_options: { autocomplete: true },
+    reference_id: args.referenceId.slice(0, 40),
+    note: args.note?.slice(0, 500),
+  };
+  if (args.orderId) {
+    checkout.order_id = args.orderId;
+    // With an order, Square derives the amount from the order's net due, but
+    // the API still requires amount_money — send the same amount.
+    checkout.amount_money = { amount: args.amountCents, currency: "USD" };
+  } else {
+    checkout.amount_money = { amount: args.amountCents, currency: "USD" };
+  }
   const { body } = await sq<{ checkout?: { id?: string; status?: string } }>(
     "/terminals/checkouts",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        idempotency_key: crypto.randomUUID(),
-        checkout: {
-          amount_money: { amount: args.amountCents, currency: "USD" },
-          device_options: { device_id: args.deviceId, skip_receipt_screen: true },
-          payment_options: { autocomplete: true },
-          reference_id: args.referenceId.slice(0, 40),
-          note: args.note?.slice(0, 500),
-        },
-      }),
-    },
+    { method: "POST", body: JSON.stringify({ idempotency_key: crypto.randomUUID(), checkout }) },
   );
   const c = body.checkout;
   return c?.id ? { checkoutId: c.id, status: c.status ?? "PENDING" } : null;
