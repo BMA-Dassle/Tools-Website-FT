@@ -170,3 +170,62 @@ export async function pingReader(deviceId: string, locationId: string): Promise<
   const readers = await listReaders(locationId);
   return readers.some((r) => r.deviceId === deviceId && r.status === "PAIRED");
 }
+
+// ── SAVE_CARD terminal action ────────────────────────────────────────────
+//
+// The KIOSK card-present path uses SAVE_CARD (not a Terminal checkout) so the
+// existing reserve money rail is reused UNCHANGED: the guest dips/taps on the
+// reader, Square vaults the card to a card-on-file id, and reserveAll charges
+// that id exactly like a "saved card" (cardSourceId). No deposit split, no
+// pause/resume of the multi-vendor reserve — the only new surface is capturing
+// the card. Requires a Square customer to attach the card to.
+
+export interface TerminalActionResult {
+  actionId: string;
+  status: string; // PENDING | IN_PROGRESS | COMPLETED | CANCELED
+  cardId?: string; // card-on-file id, present when a SAVE_CARD action COMPLETED
+}
+
+export async function createSaveCardAction(args: {
+  deviceId: string;
+  customerId: string;
+  referenceId: string;
+}): Promise<TerminalActionResult | null> {
+  if (!SQUARE_TOKEN) return null;
+  const { body } = await sq<{ action?: { id?: string; status?: string } }>("/terminals/actions", {
+    method: "POST",
+    body: JSON.stringify({
+      idempotency_key: crypto.randomUUID(),
+      action: {
+        type: "SAVE_CARD",
+        device_id: args.deviceId,
+        save_card_options: {
+          customer_id: args.customerId,
+          reference_id: args.referenceId.slice(0, 40),
+        },
+      },
+    }),
+  });
+  const a = body.action;
+  return a?.id ? { actionId: a.id, status: a.status ?? "PENDING" } : null;
+}
+
+export async function getTerminalAction(id: string): Promise<TerminalActionResult | null> {
+  if (!SQUARE_TOKEN) return null;
+  const { body } = await sq<{
+    action?: { id?: string; status?: string; save_card_action_details?: { card_id?: string } };
+  }>(`/terminals/actions/${encodeURIComponent(id)}`);
+  const a = body.action;
+  return a?.id
+    ? { actionId: a.id, status: a.status ?? "UNKNOWN", cardId: a.save_card_action_details?.card_id }
+    : null;
+}
+
+export async function dismissTerminalAction(id: string): Promise<boolean> {
+  if (!SQUARE_TOKEN) return false;
+  const { status } = await sq(`/terminals/actions/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    body: "{}",
+  });
+  return status < 400;
+}

@@ -39,6 +39,14 @@ import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import { contactIsComplete } from "../ContactStep";
+import dynamic from "next/dynamic";
+
+// Kiosk-only card-present capture. Dynamically imported so the kiosk feature
+// isn't bundled into the web checkout and there's no booking↔kiosk import cycle.
+const KioskReaderPayment = dynamic(
+  () => import("~/features/kiosk/components/KioskReaderPayment").then((m) => m.KioskReaderPayment),
+  { ssr: false },
+);
 
 interface CheckoutStepProps {
   session: BookingSession;
@@ -60,6 +68,13 @@ interface CheckoutStepProps {
   allowCardVault?: boolean;
   /** sessionStorage key to clear after a successful reserve (kiosk uses its own). */
   storageKey?: string;
+  /**
+   * Kiosk card-present: when set (device cardInputMethod "reader"/"swipe"),
+   * the paying phase captures the card on this Square reader (SAVE_CARD) and
+   * charges it through the SAME reserve rail as a saved card — instead of the
+   * typed-card iframe.
+   */
+  readerDeviceId?: string | null;
 }
 
 type Phase =
@@ -97,6 +112,7 @@ export function CheckoutStep({
   navigate,
   allowCardVault = true,
   storageKey,
+  readerDeviceId,
 }: CheckoutStepProps) {
   // Post-payment redirect — kiosk overrides this to stay inside /kiosk.
   const go =
@@ -1102,8 +1118,12 @@ export function CheckoutStep({
       sourceKind: "card" | "wallet" | "saved" | "gift_card";
       /** "Save this card to my account for faster checkout" opt-in. */
       saveCardConsent: boolean;
+      /** Kiosk reader: the card-on-file's owning Square customer (SAVE_CARD). */
+      squareCustomerIdOverride?: string;
     }) {
       setPhase({ step: "confirming", bmiBillId });
+      const effectiveCustomerId =
+        params.squareCustomerIdOverride ?? squareCustomerId ?? session.loyalty?.customerId;
       try {
         const bowlingOnly = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
 
@@ -1117,11 +1137,13 @@ export function CheckoutStep({
             session,
             item: bowlingItem,
             contact,
-            cardToken: params.cardNonce ?? undefined,
+            // A kiosk-reader card-on-file id (SAVE_CARD) charges as a source_id
+            // with the customer set — same as a nonce for Square CreatePayment.
+            cardToken: params.cardNonce ?? params.savedCardId ?? undefined,
             giftCardNonce: params.giftCardNonce ?? undefined,
             sourceKind: params.sourceKind,
             saveCardConsent: params.saveCardConsent,
-            squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
+            squareCustomerId: effectiveCustomerId,
             loyaltyAccountId: session.loyalty?.accountId,
             loyaltyAction: session.loyalty
               ? session.loyalty.isNewSignup
@@ -1189,7 +1211,7 @@ export function CheckoutStep({
             giftCardNonce: params.giftCardNonce ?? undefined,
             sourceKind: params.sourceKind,
             saveCardConsent: params.saveCardConsent,
-            squareCustomerId: squareCustomerId ?? session.loyalty?.customerId,
+            squareCustomerId: effectiveCustomerId,
             loyaltyAccountId: session.loyalty?.accountId,
             rewardTierId: session.loyalty?.selectedRewardTier?.id,
             rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
@@ -1233,6 +1255,34 @@ export function CheckoutStep({
           message: err instanceof Error ? err.message : "Reservation failed",
         });
       }
+    }
+
+    // Kiosk card-present: capture the card on the reader (SAVE_CARD → card
+    // on file), then charge it via the SAME reserve rail as a saved card.
+    if (readerDeviceId) {
+      return (
+        <div className="mx-auto max-w-md">
+          <KioskReaderPayment
+            brand={session.entryBrand}
+            deviceId={readerDeviceId}
+            referenceId={bmiBillId}
+            amountLabelCents={Math.round(overview.cashOwed * 100)}
+            contact={contact}
+            onCaptured={({ cardId, customerId }) =>
+              void handleTokenize({
+                cardNonce: null,
+                savedCardId: cardId,
+                giftCardNonce: null,
+                sourceKind: "saved",
+                saveCardConsent: false,
+                squareCustomerIdOverride: customerId,
+              })
+            }
+            onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
+          />
+          {cancelControl}
+        </div>
+      );
     }
 
     return (
