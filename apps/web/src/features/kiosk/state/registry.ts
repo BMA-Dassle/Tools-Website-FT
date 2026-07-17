@@ -9,6 +9,7 @@ import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/bookin
 import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
 import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
+import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 
@@ -85,18 +86,25 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // playerCount + session.contact, which is exactly what reserve reads). Then
   // today-only "bowl now" time step (replaces the calendar), and names/shoe
   // sizes/bumpers REQUIRED in-flow (web collects them post-booking).
-  bowling: [
-    hiddenInCombo(KioskBowlingPeopleStep as StepDef),
-    ...insertAfter(
-      replaceStep(
-        [...STEP_REGISTRY.bowling].filter((s) => s.id !== "contact" && s.id !== "bowling-players"),
-        "bowling-slots",
-        hiddenInCombo(hiddenForWorldCup(KioskBowlingTimeStep as StepDef)),
-      ),
-      "bowling-shoes",
-      hiddenInCombo(KioskBowlingDetailsStep as StepDef),
-    ),
-  ],
+  bowling: (() => {
+    let steps = [...STEP_REGISTRY.bowling].filter(
+      (s) => s.id !== "contact" && s.id !== "bowling-players",
+    );
+    steps = replaceStep(
+      steps,
+      "bowling-slots",
+      hiddenInCombo(hiddenForWorldCup(KioskBowlingTimeStep as StepDef)),
+    );
+    // Classic vs VIP Suites — kiosk-native Podium reskin (writes only item.tier;
+    // the offer step still does duration + slot + hold).
+    steps = replaceStep(
+      steps,
+      "bowling-tier",
+      hiddenInCombo(hiddenForWorldCup(KioskBowlingTierStep as StepDef)),
+    );
+    steps = insertAfter(steps, "bowling-shoes", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
+    return [hiddenInCombo(KioskBowlingPeopleStep as StepDef), ...steps];
+  })(),
   kbf: insertAfter(
     replaceStep([...STEP_REGISTRY.kbf], "bowling-slots", KioskBowlingTimeStep as StepDef),
     "bowling-shoes",
