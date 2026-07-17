@@ -74,6 +74,19 @@ function stampToday(item: SessionItem): SessionItem {
 const IDLE_FLOW_MS = 120_000;
 const IDLE_CHECKOUT_MS = 180_000;
 
+/** Kiosk-native steps are already authored at canvas px. Every OTHER (reused web)
+ *  wizard step is web-rem-sized and reads small on the 1080px canvas, so it gets
+ *  the Chromium `zoom` bump to fit the kiosk theme (see .kiosk-zoom). */
+const NATIVE_STEP_IDS = new Set([
+  "race-party",
+  "kiosk-who",
+  "attraction-slot",
+  "bowling-slots",
+  "bowling-tier",
+  "kiosk-bowling-details",
+  "kiosk-bowling-people",
+]);
+
 /** ?goto= deep links from the attract screen's quick chips. */
 function seedForGoto(goto: string): { kind: SessionItem["kind"]; slug?: string } | "vip" | null {
   if (goto === "race") return { kind: "race" };
@@ -679,13 +692,17 @@ export function KioskFlow({ goto }: { goto: string | null }) {
 
       {/* body scroll zone */}
       <div ref={contentRef} className="k-flow-body kiosk-step-content">
-        <currentStep.Component
-          item={activeItem}
-          session={session}
-          onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
-          dispatch={dispatch}
-          setBusy={setStepBusy}
-        />
+        {/* Reused web steps are web-rem-sized → zoom them up to the kiosk scale;
+            kiosk-native steps are already canvas px, so they render unzoomed. */}
+        <div className={NATIVE_STEP_IDS.has(currentStep.id) ? undefined : "kiosk-zoom"}>
+          <currentStep.Component
+            item={activeItem}
+            session={session}
+            onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
+            dispatch={dispatch}
+            setBusy={setStepBusy}
+          />
+        </div>
 
         {kioskError && (
           <div className="mt-8 rounded-2xl border border-red-500/40 bg-red-500/10 px-6 py-5 text-[26px] text-red-100">
