@@ -43,19 +43,31 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.date, today]);
 
-  const hours =
+  // 15-minute granularity from the ACTUAL current time — never show a past slot
+  // as "next open" (owner: it showed 2:00 PM at 2:18 PM). Exact lane
+  // availability is confirmed on the next step; this just offers real,
+  // not-yet-passed start times. `new Date()` on the kiosk PC = center-local (ET).
+  const openHours =
     item.date === today ? operatingHours(center.hpSlug, today, item.kind === "kbf") : [];
-  const firstHour = hours.length > 0 ? hours[0] : null;
-  const heroSelected = firstHour != null && item.hour === firstHour;
+  const now = new Date();
+  const nextQuarter = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
+  type Slot = { hour: number; minute: number };
+  const slots: Slot[] = openHours
+    .flatMap((h) => [0, 15, 30, 45].map((minute) => ({ hour: h, minute })))
+    .filter((s) => s.hour * 60 + s.minute >= nextQuarter);
+  const first = slots[0] ?? null;
+  const isSel = (s: Slot) => item.hour === s.hour && item.minute === s.minute;
+  const heroSelected = first != null && isSel(first);
 
-  const pick = (h: number) => onChange({ hour: h, minute: 0 } as Partial<BowlingLikeItem>);
+  const pick = (s: Slot) =>
+    onChange({ hour: s.hour, minute: s.minute } as Partial<BowlingLikeItem>);
 
   return (
     <div className="space-y-[32px]">
-      {firstHour != null ? (
+      {first != null ? (
         <button
           type="button"
-          onClick={() => pick(firstHour)}
+          onClick={() => pick(first)}
           className="k-glass k-tap w-full p-[40px] text-left"
           style={{ borderLeft: `8px solid ${heroSelected ? "#fd5b56" : "rgba(255,255,255,0.15)"}` }}
         >
@@ -63,7 +75,7 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             Next open lanes · today at {center.name}
           </div>
           <div className="k-display mt-[10px] text-[150px] leading-none tabular-nums">
-            {bowlingTimeLabel(firstHour, 0)}
+            {bowlingTimeLabel(first.hour, first.minute)}
           </div>
           <div className="mt-[12px] text-[28px] text-white/60">
             {heroSelected
@@ -77,24 +89,24 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         </div>
       )}
 
-      {hours.length > 1 && (
+      {slots.length > 1 && (
         <div>
           <div className="k-eyebrow mb-[16px] text-white/40">Or pick another time today</div>
           <div className="grid grid-cols-4 gap-[14px]">
-            {hours.map((h) => (
+            {slots.map((s) => (
               <button
-                key={h}
+                key={`${s.hour}:${s.minute}`}
                 type="button"
-                onClick={() => pick(h)}
-                className={`k-chip k-tap ${item.hour === h ? "sel" : ""}`}
+                onClick={() => pick(s)}
+                className={`k-chip k-tap ${isSel(s) ? "sel" : ""}`}
               >
-                {bowlingTimeLabel(h, 0)}
+                {bowlingTimeLabel(s.hour, s.minute)}
               </button>
             ))}
           </div>
           <p className="mt-[16px] text-[24px] text-white/40">
-            Exact lane availability is confirmed on the next step — if an hour just filled,
-            we&rsquo;ll offer the closest open time.
+            Exact lane availability is confirmed on the next step — if a time just filled,
+            we&rsquo;ll offer the closest open one.
           </p>
         </div>
       )}

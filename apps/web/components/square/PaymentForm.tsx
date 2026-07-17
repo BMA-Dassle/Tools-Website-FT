@@ -125,6 +125,9 @@ interface PaymentFormProps {
     sourceKind: "card" | "wallet" | "saved" | "gift_card";
     saveCardConsent: boolean;
   }) => Promise<void>;
+  /** Kiosk: hide Apple/Google Pay (shared public device — wallets aren't used).
+   *  Skips wallet init so the buttons never render. Web default = wallets on. */
+  hideWallets?: boolean;
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -179,6 +182,7 @@ export default function PaymentForm({
   lineItem,
   postPaymentAction,
   onTokenize,
+  hideWallets = false,
 }: PaymentFormProps) {
   const squareLocationId = detectSquareLocationId(locationIdProp);
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">(
@@ -252,49 +256,53 @@ export default function PaymentForm({
         cardRef.current = card;
         serverLog("[PaymentForm] card form attached OK");
 
-        // Initialize Apple Pay (Safari/iOS only)
-        try {
-          serverLog("[PaymentForm] initializing Apple Pay...");
-          const amountStr = amount.toFixed(2);
-          const applePayRequest = payments.paymentRequest({
-            countryCode: "US",
-            currencyCode: "USD",
-            total: { amount: amountStr, label: itemName || "FastTrax Booking" },
-          });
-          serverLog(`[PaymentForm] Apple Pay request created, amount=${amountStr}`);
-          const applePay = await payments.applePay(applePayRequest);
-          serverLog(
-            `[PaymentForm] Apple Pay created, methods=[${Object.keys(applePay).join(",")}]`,
-          );
-          // Apple Pay has no attach() — it uses native sheet via tokenize()
-          // Just store the reference and mark ready
-          applePayRef.current = applePay as unknown as SquareDigitalWallet;
-          setApplePayReady(true);
-          serverLog("[PaymentForm] Apple Pay ready");
-        } catch (apErr) {
-          serverLog(
-            `[PaymentForm] Apple Pay not available: ${apErr instanceof Error ? apErr.message : String(apErr)}`,
-          );
-        }
+        // Digital wallets (Apple/Google Pay) — skipped on the kiosk, a shared
+        // public device where wallets aren't used (owner 2026-07-18).
+        if (!hideWallets) {
+          // Initialize Apple Pay (Safari/iOS only)
+          try {
+            serverLog("[PaymentForm] initializing Apple Pay...");
+            const amountStr = amount.toFixed(2);
+            const applePayRequest = payments.paymentRequest({
+              countryCode: "US",
+              currencyCode: "USD",
+              total: { amount: amountStr, label: itemName || "FastTrax Booking" },
+            });
+            serverLog(`[PaymentForm] Apple Pay request created, amount=${amountStr}`);
+            const applePay = await payments.applePay(applePayRequest);
+            serverLog(
+              `[PaymentForm] Apple Pay created, methods=[${Object.keys(applePay).join(",")}]`,
+            );
+            // Apple Pay has no attach() — it uses native sheet via tokenize()
+            // Just store the reference and mark ready
+            applePayRef.current = applePay as unknown as SquareDigitalWallet;
+            setApplePayReady(true);
+            serverLog("[PaymentForm] Apple Pay ready");
+          } catch (apErr) {
+            serverLog(
+              `[PaymentForm] Apple Pay not available: ${apErr instanceof Error ? apErr.message : String(apErr)}`,
+            );
+          }
 
-        // Initialize Google Pay
-        try {
-          serverLog("[PaymentForm] initializing Google Pay...");
-          const googlePayRequest = payments.paymentRequest({
-            countryCode: "US",
-            currencyCode: "USD",
-            total: { amount: amount.toFixed(2), label: itemName || "FastTrax Booking" },
-          });
-          const googlePay = await payments.googlePay(googlePayRequest);
-          serverLog("[PaymentForm] Google Pay created, attaching...");
-          await googlePay.attach("#sq-google-pay");
-          googlePayRef.current = googlePay;
-          setGooglePayReady(true);
-          serverLog("[PaymentForm] Google Pay ready");
-        } catch (gpErr) {
-          serverLog(
-            `[PaymentForm] Google Pay not available: ${gpErr instanceof Error ? gpErr.message : String(gpErr)}`,
-          );
+          // Initialize Google Pay
+          try {
+            serverLog("[PaymentForm] initializing Google Pay...");
+            const googlePayRequest = payments.paymentRequest({
+              countryCode: "US",
+              currencyCode: "USD",
+              total: { amount: amount.toFixed(2), label: itemName || "FastTrax Booking" },
+            });
+            const googlePay = await payments.googlePay(googlePayRequest);
+            serverLog("[PaymentForm] Google Pay created, attaching...");
+            await googlePay.attach("#sq-google-pay");
+            googlePayRef.current = googlePay;
+            setGooglePayReady(true);
+            serverLog("[PaymentForm] Google Pay ready");
+          } catch (gpErr) {
+            serverLog(
+              `[PaymentForm] Google Pay not available: ${gpErr instanceof Error ? gpErr.message : String(gpErr)}`,
+            );
+          }
         }
 
         setStatus("ready");

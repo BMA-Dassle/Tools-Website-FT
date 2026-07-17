@@ -398,6 +398,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           }}
           // Shared public device: never show or store anyone's card.
           allowCardVault={false}
+          // Wallets + loyalty happen at the Square reader, not on the kiosk.
+          hideWallets
+          hideRewards
           storageKey={KIOSK_SESSION_STORAGE_KEY}
           // Card-present: when a reader is configured, capture on it (SAVE_CARD)
           // instead of the typed-card iframe. Manual entry when unset.

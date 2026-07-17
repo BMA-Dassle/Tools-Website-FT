@@ -57,7 +57,12 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // read session.party (isNewRacer/memberships/category) directly and already
   // span tiers for a mixed party, Starter-gating the new racers at heats.
   race: replaceStep(
-    STEP_REGISTRY.race.filter((s) => s.id !== "race-date" && s.id !== "race-experience"),
+    // Drop the web combo OVERVIEW step (combo-intro) — the kiosk shows its own
+    // readable KioskVipOverview BEFORE the flow, so the in-flow one was a
+    // duplicate (owner: "not sure why we have two steps").
+    STEP_REGISTRY.race.filter(
+      (s) => s.id !== "race-date" && s.id !== "race-experience" && s.id !== "combo-intro",
+    ),
     "race-party",
     KioskRacePeopleStep as StepDef,
   ),

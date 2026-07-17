@@ -75,6 +75,13 @@ interface CheckoutStepProps {
    * typed-card iframe.
    */
   readerDeviceId?: string | null;
+  /**
+   * Kiosk: hide HeadPinz/FastTrax Rewards — loyalty is handled at the Square
+   * reader, not on the kiosk (owner 2026-07-18). Web default = shown.
+   */
+  hideRewards?: boolean;
+  /** Kiosk: hide Apple/Google Pay (shared public device). Web default = shown. */
+  hideWallets?: boolean;
 }
 
 type Phase =
@@ -113,6 +120,8 @@ export function CheckoutStep({
   allowCardVault = true,
   storageKey,
   readerDeviceId,
+  hideRewards = false,
+  hideWallets = false,
 }: CheckoutStepProps) {
   // Post-payment redirect — kiosk overrides this to stay inside /kiosk.
   const go =
@@ -777,8 +786,9 @@ export function CheckoutStep({
 
         {/* HeadPinz / FastTrax Rewards — the focus of this step. One Square loyalty
             program spans both brands (same merchant); points earn and $-off rewards
-            redeem regardless of brand. LoyaltySection labels itself per session brand. */}
-        <LoyaltySection session={session} dispatch={dispatch} phone={phone} />
+            redeem regardless of brand. LoyaltySection labels itself per session brand.
+            Kiosk hides it — loyalty is applied at the Square reader instead. */}
+        {!hideRewards && <LoyaltySection session={session} dispatch={dispatch} phone={phone} />}
 
         {/* USA250-style promo entry. The ?promo= URL seed sets this too; this
             field lets a guest who hears the code apply it at checkout. The savings
@@ -1286,7 +1296,7 @@ export function CheckoutStep({
     }
 
     return (
-      <div className="mx-auto max-w-md">
+      <div className={hideWallets ? "mx-auto max-w-2xl" : "mx-auto max-w-md"}>
         <PaymentForm
           amount={overview.cashOwed}
           itemName="Deposit"
@@ -1296,6 +1306,7 @@ export function CheckoutStep({
           squareCustomerId={squareCustomerId}
           savedCards={allowCardVault ? savedCards : undefined}
           allowSaveCard={allowCardVault && !!squareCustomerId}
+          hideWallets={hideWallets}
           onTokenize={handleTokenize}
           onSuccess={(result) => handlePaymentSuccess(result, bmiBillId)}
           onError={(msg) => setPhase({ step: "error", message: msg })}

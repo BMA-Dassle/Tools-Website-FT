@@ -45,6 +45,7 @@ export function KioskVipOverview({
 }) {
   const perPerson = comboPriceCentsForDate(combo, todayYmd());
   const minHead = comboMinHeadcount(combo);
+  const included = combo.includes ?? [];
 
   return (
     <>
@@ -53,8 +54,17 @@ export function KioskVipOverview({
           <span className="k-eyebrow" style={{ color: "#e8b14c" }}>
             Experience
           </span>
+          {combo.durationLabel ? (
+            <span className="k-chip" style={{ height: 60, fontSize: 24 }}>
+              {combo.durationLabel}
+            </span>
+          ) : null}
         </div>
         <h1 className="k-display k-fh-title mt-[16px]">{combo.name}</h1>
+        <div className="mt-[12px] text-[26px] font-semibold text-white/70 tabular-nums">
+          ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
+          {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun
+        </div>
       </div>
 
       <div className="k-flow-body">
@@ -82,6 +92,21 @@ export function KioskVipOverview({
             );
           })}
         </div>
+
+        {included.length > 0 && (
+          <div className="k-glass mt-[28px] p-[28px]">
+            <div className="k-eyebrow mb-[16px] text-[#46d68c]">All included in the price</div>
+            <div className="grid grid-cols-2 gap-x-[24px] gap-y-[12px]">
+              {included.map((inc, i) => (
+                <div key={i} className="flex items-start gap-[12px] text-[24px] text-white/75">
+                  <span className="mt-[2px] text-[#46d68c]">✓</span>
+                  <span>{inc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {minHead > 1 && (
           <p className="mt-[24px] text-center text-[24px] text-[#e8b14c]/80">
             This experience is for {minHead}+ guests.
