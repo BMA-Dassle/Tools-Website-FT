@@ -135,17 +135,18 @@ export function OnScreenKeyboardHost() {
 
   return (
     <div
-      // z-[90]: ABOVE the in-flow modals (DOB prompt z-75, waiver sheet z-76) so
-      // the keyboard is never hidden behind a modal on those typing steps — the
-      // "missing keyboard on several steps" bug. It docks over the modal's
-      // bottom, which is where a bottom-sheet keyboard belongs.
-      className="fixed inset-x-0 bottom-0 z-[90] border-t border-white/10 bg-[#060d22]/97 px-[2%] pb-[1.6%] pt-[1.2%] backdrop-blur-xl"
+      // Docks to the bottom of the SCALED 1080×1920 canvas (the canvas transform
+      // is the containing block for position:fixed here), so sizes are canvas px
+      // — they scale with everything else. z-[90]: ABOVE the in-flow modals (DOB
+      // prompt z-75, waiver sheet z-76) so the keyboard is never hidden behind a
+      // modal on those typing steps ("missing keyboard on several steps").
+      className="fixed inset-x-0 bottom-0 z-[90] border-t border-white/10 bg-[#060d22]/97 px-[40px] pb-[32px] pt-[26px] backdrop-blur-xl"
       // Keep focus in the field: the keyboard itself is never focusable.
       onPointerDown={(e) => e.preventDefault()}
     >
-      <div className="mx-auto flex max-w-[1000px] flex-col gap-[0.7vh]">
+      <div className="mx-auto flex max-w-[1000px] flex-col gap-[12px]">
         {rows.map((row, ri) => (
-          <div key={ri} className="flex justify-center gap-[0.7vh]">
+          <div key={ri} className="flex justify-center gap-[12px]">
             {row.map((k) => {
               const isDone = k.code === OSK_DONE;
               const isShift = k.code === OSK_SHIFT;
@@ -161,7 +162,7 @@ export function OnScreenKeyboardHost() {
                     press(k.code);
                   }}
                   style={{ flexGrow: k.w ?? 1, flexBasis: 0 }}
-                  className={`h-[6.2vh] min-w-0 rounded-xl border text-[2.4vh] font-semibold active:bg-[#00e2e5] active:text-[#04252b] ${
+                  className={`h-[90px] min-w-0 rounded-xl border text-[34px] font-semibold active:bg-[#00e2e5] active:text-[#04252b] ${
                     isDone
                       ? "font-heading border-transparent bg-[#00e2e5] font-extrabold italic text-[#04252b]"
                       : isShift && shift

@@ -60,7 +60,7 @@ import { KioskGameZone } from "./KioskGameZone";
 import { IdleWatcher } from "./IdleWatcher";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
-import { KIOSK_PHOTOS } from "../assets";
+import { KIOSK_PHOTOS, KIOSK_LOGOS } from "../assets";
 
 /** Walk-up device: every dated item starts on today (kiosk drops date steps). */
 function stampToday(item: SessionItem): SessionItem {
@@ -217,7 +217,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
 
   if (!hydrated || !config) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#000418]">
+      <div className="absolute inset-0 flex items-center justify-center bg-[#000418]">
         <BrandedLoader brand={config?.brand ?? "fasttrax"} label="Warming up…" />
       </div>
     );
@@ -305,40 +305,68 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     await releaseHeatBmiLines(session, removed);
   };
 
+  const cartCount = session.items.length;
+  const openCart = () => {
+    setCheckoutActive(false);
+    setCartActive(true);
+    dispatch({ type: "setActiveItem", id: null });
+  };
+
+  // Podium utility strip — pinned bottom zone (Start over · help · cart pill).
   const utilityStrip = (
-    <div className="fixed inset-x-0 bottom-0 z-[60] flex h-[7.5vh] items-center gap-4 border-t border-white/10 bg-[#000418]/85 px-6 backdrop-blur-lg">
-      <button
-        type="button"
-        onClick={() => void handleStartOver()}
-        className="font-heading h-[4.8vh] rounded-full border border-white/15 px-6 text-[1.7vh] font-bold uppercase tracking-widest text-white/55"
-      >
-        ⟲ Start over
+    <div className="k-z-util">
+      <button type="button" onClick={() => void handleStartOver()} className="k-util-btn k-tap">
+        <svg
+          className="h-[26px] w-[26px]"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+          <path d="M3 3v5h5" />
+        </svg>
+        Start over
       </button>
-      <div className="flex-1 text-center text-[1.6vh] text-white/40">
-        Need help? A team member at the front desk can assist
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          setCheckoutActive(false);
-          setCartActive(true);
-          dispatch({ type: "setActiveItem", id: null });
-        }}
-        className="font-heading flex h-[4.8vh] items-center gap-3 rounded-full border border-[#00e2e5]/50 px-6 text-[1.9vh] font-bold text-[#00e2e5]"
-      >
-        Cart
-        <span className="grid h-[3vh] min-w-[3vh] place-items-center rounded-full bg-[#00e2e5] px-1 text-[1.6vh] font-bold text-[#04252b] tabular-nums">
-          {session.items.length}
-        </span>
-      </button>
+      <div className="k-util-help">Need help? A team member at the front desk can assist</div>
+      {cartCount > 0 && (
+        <button type="button" onClick={openCart} className="k-cart-pill k-tap">
+          <svg
+            className="h-[28px] w-[28px]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="9" cy="20" r="1.4" />
+            <circle cx="18" cy="20" r="1.4" />
+            <path d="M2 3h3l2.4 12.4a1.6 1.6 0 0 0 1.6 1.3h8.2a1.6 1.6 0 0 0 1.6-1.3L22 7H6" />
+          </svg>
+          Cart
+          <span className="k-cart-badge k-num">{cartCount}</span>
+        </button>
+      )}
     </div>
   );
 
-  const chrome = (children: React.ReactNode) => (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-[#000418]">
-      <div ref={contentRef} className="kiosk-scroll min-h-0 flex-1 pb-[9vh]">
-        {children}
-      </div>
+  // Podium chrome — the fixed canvas as a flex column: optional full-bleed photo
+  // backdrop (z0) · content region (z2) · pinned util strip · overlays.
+  const chrome = (children: React.ReactNode, bg?: string | null) => (
+    <div className="k-flow">
+      {bg ? (
+        <div
+          className="k-flow-bg k-ph soft"
+          style={{ ["--k-img"]: `url(${bg})` } as React.CSSProperties}
+          aria-hidden="true"
+        />
+      ) : null}
+      <div className="relative z-[2] flex min-h-0 flex-1 flex-col">{children}</div>
       {utilityStrip}
       <IdleWatcher
         timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
@@ -355,7 +383,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // ── Checkout ──
   if (checkoutActive) {
     return chrome(
-      <div className="mx-auto max-w-4xl px-4 py-8">
+      <div ref={contentRef} className="k-flow-body kiosk-step-content">
         <CheckoutStep
           session={session}
           dispatch={dispatch}
@@ -364,7 +392,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           // Stay inside the kiosk shell after payment — the web confirmation
           // URL rides along so the kiosk confirmation can surface its code.
           navigate={(url) => {
-            window.location.href = `/kiosk/confirmation?src=${encodeURIComponent(url)}`;
+            router.replace(`/kiosk/confirmation?src=${encodeURIComponent(url)}`);
           }}
           // Shared public device: never show or store anyone's card.
           allowCardVault={false}
@@ -384,29 +412,38 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // ── Cart ──
   if (cartActive || (!activeItem && session.items.length > 0)) {
     return chrome(
-      <CartView
-        session={session}
-        urlCode={null}
-        onEditItem={(id) => {
-          setCartActive(false);
-          dispatch({ type: "setActiveItem", id });
-        }}
-        onRemoveItem={handleRemoveItem}
-        onRemoveHeat={handleRemoveHeat}
-        onCheckout={() => {
-          setCartActive(false);
-          setCheckoutActive(true);
-        }}
-        onNewBooking={handleStartOver}
-        onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
-      />,
+      <div ref={contentRef} className="k-flow-body kiosk-step-content">
+        <CartView
+          session={session}
+          urlCode={null}
+          onEditItem={(id) => {
+            setCartActive(false);
+            dispatch({ type: "setActiveItem", id });
+          }}
+          onRemoveItem={handleRemoveItem}
+          onRemoveHeat={handleRemoveHeat}
+          onCheckout={() => {
+            setCartActive(false);
+            setCheckoutActive(true);
+          }}
+          onNewBooking={handleStartOver}
+          onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
+        />
+      </div>,
     );
   }
 
   // ── Game Zone (multi-card token reload — its own money rail, not booking) ──
   if (gzOpen) {
     return chrome(
-      <KioskGameZone center={config.center} brand={config.brand} onExit={() => setGzOpen(false)} />,
+      <div ref={contentRef} className="flex min-h-0 flex-1 flex-col">
+        <KioskGameZone
+          center={config.center}
+          brand={config.brand}
+          onExit={() => setGzOpen(false)}
+        />
+      </div>,
+      KIOSK_PHOTOS.arcade,
     );
   }
 
@@ -560,9 +597,8 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     advanceToNextStep();
   };
 
-  // ── Pit Crew variant: photo backdrop + left progress rail + question-style
-  // header over the SAME shared step components (presentation-only diff).
-  const isPitcrew = config.variant === "pitcrew";
+  // Full-bleed activity photo backdrop — Podium renders every step over its
+  // activity photography with the house navy scrim.
   const backdropPhoto = (() => {
     if (activeItem.kind === "race") return KIOSK_PHOTOS.race;
     if (activeItem.kind === "bowling") return KIOSK_PHOTOS.bowl;
@@ -575,70 +611,57 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     return KIOSK_PHOTOS.race;
   })();
 
+  const activityLabel = (() => {
+    if (activeItem.kind === "race") return "Racing";
+    if (activeItem.kind === "bowling") return "Bowling";
+    if (activeItem.kind === "kbf") return "Kids Bowl Free";
+    const slug = (activeItem as AttractionItem).slug ?? "";
+    return (
+      (
+        {
+          "gel-blaster": "Gel Blaster",
+          "laser-tag": "Laser Tag",
+          "duck-pin": "Duckpin",
+          shuffly: "Shuffleboard",
+        } as Record<string, string>
+      )[slug] ?? "Attraction"
+    );
+  })();
+
+  const logo = KIOSK_LOGOS[config.brand === "headpinz" ? "headpinz" : "fasttrax"];
+  const ctaLabel = isLastStep ? "Add to my visit" : "Continue";
+
   return chrome(
-    <div className={`relative mx-auto max-w-4xl px-4 pb-8 ${isPitcrew ? "pl-16" : ""}`}>
-      {isPitcrew && (
-        <>
-          {/* Blurred activity photo backdrop (fixed, behind everything) */}
-          <div className="pointer-events-none fixed inset-0 -z-10" aria-hidden="true">
-            <div
-              className="absolute -inset-[4%] bg-cover bg-center [filter:blur(7px)_saturate(0.6)_brightness(0.55)]"
-              style={{ backgroundImage: `url(${backdropPhoto})` }}
+    <>
+      {/* header zone: logo · activity · hold timer · progress · big title */}
+      <div className="k-flow-head">
+        <div className="k-fh-top">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logo} alt="" className="h-[60px] w-auto" />
+          <div className="flex items-center gap-5">
+            <span className="k-fh-activity">{activityLabel}</span>
+            <ReservationTimer
+              ref={timerRef}
+              bmiBillId={session.bmiBillId}
+              qamfHoldId={qamfHoldId}
+              qamfCenterId={qamfCenterId}
+              onExpired={handleReservationExpired}
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#000418] from-[22%] via-[#000418]/90 to-[#020a22]/80" />
           </div>
-          {/* Left progress rail */}
-          <div className="pointer-events-none fixed bottom-[12vh] left-4 top-[16vh] z-20 flex w-8 flex-col items-center">
-            <div className="relative w-1.5 flex-1 rounded-full bg-white/10">
-              <div
-                className="absolute inset-x-0 top-0 rounded-full bg-[#00e2e5] shadow-[0_0_14px_rgba(0,226,229,0.5)]"
-                style={{ height: `${((stepIndex + 1) / steps.length) * 100}%` }}
-              />
-            </div>
-          </div>
-        </>
-      )}
-      {/* Kiosk step header: progress segments + hold timer */}
-      <div className="sticky top-0 z-30 -mx-4 border-b border-white/10 bg-[#000418]/95 px-4 pb-3 pt-5 backdrop-blur">
-        <div className="flex items-center justify-between gap-4">
-          <button
-            type="button"
-            onClick={() =>
-              session.items.length > 1
-                ? dispatch({ type: "setActiveItem", id: null })
-                : void handleStartOver()
-            }
-            className="font-heading rounded-full border border-white/15 px-5 py-2.5 text-sm font-bold uppercase tracking-widest text-white/60"
-          >
-            {session.items.length > 1 ? "‹ Cart" : "‹ Activities"}
-          </button>
-          <div className="font-heading text-sm font-bold uppercase tracking-[0.2em] text-white/45">
-            Step {stepIndex + 1} of {steps.length} · {currentStep.title}
-          </div>
-          <ReservationTimer
-            ref={timerRef}
-            bmiBillId={session.bmiBillId}
-            qamfHoldId={qamfHoldId}
-            qamfCenterId={qamfCenterId}
-            onExpired={handleReservationExpired}
-          />
         </div>
-        <div className="mt-3 flex gap-2">
+        <div className="k-prog">
           {steps.map((s, i) => (
-            <span
-              key={s.id}
-              className={`h-1.5 flex-1 rounded-full ${i <= stepIndex ? "bg-[#00e2e5]" : "bg-white/10"}`}
-            />
+            <span key={s.id} className={i <= stepIndex ? "done" : ""} />
           ))}
         </div>
+        <div className="k-prog-label k-num">
+          Step {stepIndex + 1} of {steps.length}
+        </div>
+        <h1 className="k-display k-fh-title">{currentStep.title}</h1>
       </div>
 
-      {isPitcrew && (
-        <div className="font-heading pt-8 text-6xl font-extrabold italic leading-none">
-          {currentStep.title}.
-        </div>
-      )}
-      <div className="kiosk-step-content pt-6">
+      {/* body scroll zone */}
+      <div ref={contentRef} className="k-flow-body kiosk-step-content">
         <currentStep.Component
           item={activeItem}
           session={session}
@@ -646,22 +669,27 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           dispatch={dispatch}
           setBusy={setStepBusy}
         />
+
+        {kioskError && (
+          <div className="mt-8 rounded-2xl border border-red-500/40 bg-red-500/10 px-6 py-5 text-[26px] text-red-100">
+            {kioskError}
+          </div>
+        )}
+
+        {bookingHeats && (
+          <div className="mt-8 flex items-center justify-center gap-4 rounded-2xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-6">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+            <span className="text-[26px] font-medium text-white/80">{bookingHeatsProgress}</span>
+          </div>
+        )}
+
+        {!advanceOk && typeof canAdvance === "object" && (
+          <p className="mt-6 text-center text-[24px] text-white/45">{canAdvance.reason}</p>
+        )}
       </div>
 
-      {kioskError && (
-        <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 px-6 py-5 text-lg text-red-100">
-          {kioskError}
-        </div>
-      )}
-
-      {bookingHeats && (
-        <div className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-6">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
-          <span className="text-sm font-medium text-white/80">{bookingHeatsProgress}</span>
-        </div>
-      )}
-
-      <div className="mt-6 flex items-center justify-between gap-4">
+      {/* pinned action zone */}
+      <div className="k-z-actions">
         <button
           type="button"
           onClick={() => {
@@ -672,7 +700,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
               dispatch({ type: "back" });
             }
           }}
-          className="font-heading h-16 rounded-full border-2 border-white/15 px-10 text-lg font-bold uppercase tracking-widest text-white/65"
+          className="k-btn-ghost k-tap"
         >
           Back
         </button>
@@ -680,21 +708,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           type="button"
           onClick={() => void handleNext()}
           disabled={!advanceOk || bookingHeats || stepBusy}
-          title={
-            bookingHeats || stepBusy
-              ? "Holding your spot…"
-              : advanceOk
-                ? undefined
-                : canAdvance.reason
-          }
-          className="font-heading h-16 flex-1 rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic tracking-wide text-[#04252b] disabled:cursor-not-allowed disabled:opacity-40"
+          className="k-btn-primary k-tap"
         >
-          {isLastStep ? "Add to my visit" : "Next"}
+          {ctaLabel}
         </button>
       </div>
-      {!advanceOk && typeof canAdvance === "object" && (
-        <p className="mt-3 text-center text-base text-white/45">{canAdvance.reason}</p>
-      )}
 
       {showHeightConfirm && (
         <HeightAgeConfirmModal
@@ -709,6 +727,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           onChangeParty={() => setShowHeightConfirm(false)}
         />
       )}
-    </div>,
+    </>,
+    backdropPhoto,
   );
 }

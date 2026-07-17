@@ -24,10 +24,10 @@
 import { useEffect, useRef } from "react";
 import { KioskConfigProvider, useKioskConfig } from "../KioskConfigContext";
 import { OnScreenKeyboardHost } from "./OnScreenKeyboard";
+import { KioskStage } from "./KioskStage";
 
 function KioskChrome({ children }: { children: React.ReactNode }) {
   const { config } = useKioskConfig();
-  const rootRef = useRef<HTMLDivElement>(null);
   const wantsFullscreenRef = useRef(false);
 
   useEffect(() => {
@@ -102,13 +102,11 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
   const brandClass = config?.brand === "headpinz" ? "brand-headpinz" : "brand-fasttrax";
 
   return (
-    <div
-      ref={rootRef}
-      className={`${brandClass} kiosk-root min-h-screen select-none bg-[#000418] text-[#f5ecee]`}
-      style={{ touchAction: "manipulation" }}
-    >
-      {children}
-      <OnScreenKeyboardHost />
+    <div className="select-none" style={{ touchAction: "manipulation" }}>
+      <KioskStage className={brandClass}>
+        {children}
+        <OnScreenKeyboardHost />
+      </KioskStage>
     </div>
   );
 }

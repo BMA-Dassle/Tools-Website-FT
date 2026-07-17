@@ -7,6 +7,10 @@
  * giant list. Anything already in the cart shows as an itinerary strip
  * so multi-activity stacking is one tap per item.
  *
+ * Authored to the fixed 1080×1920 kiosk canvas (px, not rem) so it fills the
+ * portrait screen with the Podium photo + glass look — matches the approved
+ * prototype's S.cats screen.
+ *
  * Catalog sources are the SAME ones the website uses (activities-catalog +
  * combo registry): anything enabled online is automatically on the kiosk.
  */
@@ -21,7 +25,7 @@ import {
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { KIOSK_PHOTOS } from "../assets";
 
-type CategoryKey = "exp" | "attr" | "gz";
+type CategoryKey = "exp" | "attr";
 
 export interface KioskCategoriesProps {
   brand: Brand;
@@ -51,53 +55,48 @@ export function KioskCategories({
     <button
       type="button"
       onClick={onOpenCart}
-      className="mb-5 flex w-full items-center justify-between gap-4 rounded-2xl border border-[#00e2e5]/35 bg-white/[0.04] px-6 py-4 text-left backdrop-blur"
+      className="k-glass k-tap mb-[28px] flex w-full items-center justify-between gap-6 px-[32px] py-[24px] text-left"
     >
       <div className="min-w-0">
-        <div className="font-heading text-xs font-bold uppercase tracking-[0.24em] text-[#00e2e5]">
-          Your visit so far
-        </div>
-        <div className="truncate text-lg text-white/70">
+        <div className="k-eyebrow">Your visit so far</div>
+        <div className="mt-[6px] truncate text-[28px] text-white/70">
           {session.items.map((i) => labelForItem(i.kind)).join(" · ")}
         </div>
       </div>
-      <span className="font-heading shrink-0 text-base font-bold text-[#00e2e5]">View cart ›</span>
+      <span className="k-display shrink-0 text-[28px] text-[#00e2e5]">View cart ›</span>
     </button>
   ) : null;
 
   if (cat === null) {
     return (
-      <div className="mx-auto flex h-full max-w-4xl flex-col px-6 pb-4 pt-8">
-        <h1 className="font-heading mb-6 text-6xl font-extrabold italic leading-none">
+      <div className="flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+        <h1 className="k-display mb-[32px] text-[82px]">
           {hasCart ? "Add anything else?" : "What are we doing today?"}
         </h1>
         {strip}
-        <div className="flex min-h-0 flex-1 flex-col gap-5">
+        <div className="flex min-h-0 flex-1 flex-col gap-[28px]">
           <CategoryCard
             photo={KIOSK_PHOTOS.vip}
             eyebrow={combos.map((c) => c.name).join(" · ") || "Bundled experiences"}
-            eyebrowColor="#e8b14c"
+            accent="#e8b14c"
             title="Experiences"
             blurb="Multiple attractions combined into one easy price"
-            border="border-[#e8b14c]/50"
             onClick={() => setCat("exp")}
           />
           <CategoryCard
             photo={KIOSK_PHOTOS.race}
             eyebrow={`${offerings.length} attractions`}
-            eyebrowColor="#00e2e5"
+            accent="#00e2e5"
             title="Attractions"
             blurb="Racing, bowling, blasters & more — pick a time and go"
-            border="border-white/10"
             onClick={() => setCat("attr")}
           />
           <CategoryCard
             photo={KIOSK_PHOTOS.arcade}
-            eyebrow="Reload — 1 to 10 cards"
-            eyebrowColor="#f800c6"
+            eyebrow="Reload · buy · 1 to 10 cards"
+            accent="#f800c6"
             title="Game Zone"
-            blurb="Add arcade tokens to your cards — no waiting"
-            border="border-white/10"
+            blurb="Buy or reload arcade tokens — no waiting"
             onClick={onOpenGameZone}
           />
         </div>
@@ -106,51 +105,47 @@ export function KioskCategories({
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-4xl flex-col px-6 pb-4 pt-8">
+    <div className="flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
       <button
         type="button"
         onClick={() => setCat(null)}
-        className="font-heading mb-4 self-start rounded-full border-2 border-white/15 px-6 py-3 text-sm font-bold uppercase tracking-widest text-white/60"
+        className="k-btn-ghost k-tap mb-[28px] h-[76px] self-start px-[32px] text-[24px]"
       >
         ‹ All categories
       </button>
-      <h1 className="font-heading mb-6 text-5xl font-extrabold italic leading-none">
-        {cat === "exp"
-          ? "Pick your experience"
-          : cat === "attr"
-            ? "Pick an attraction"
-            : "Game Zone"}
+      <h1 className="k-display mb-[28px] text-[74px]">
+        {cat === "exp" ? "Pick your experience" : "Pick an attraction"}
       </h1>
       {strip}
-      <div className="kiosk-scroll min-h-0 flex-1 pb-24">
-        {cat === "exp" && (
-          <div className="flex flex-col gap-5">
-            {combos.map((combo) => (
-              <ShelfBanner
-                key={combo.id}
-                photo={combo.heroImage || KIOSK_PHOTOS.vip}
-                eyebrow="Most popular"
-                eyebrowColor="#e8b14c"
-                title={combo.name}
-                blurb={`From $${(combo.price.weekday / 100).toFixed(0)} per person`}
-                onClick={() => onPickCombo(combo)}
-              />
-            ))}
-            {combos.length === 0 && (
-              <EmptyShelf note="No bundled experiences are running at this location today." />
-            )}
-          </div>
-        )}
-        {cat === "attr" && (
-          <div className="grid grid-cols-2 gap-4">
-            {offerings.map((o) => (
-              <OfferingTile key={o.slug} offering={o} onClick={() => onPickOffering(o)} />
-            ))}
-          </div>
-        )}
-        {cat === "gz" && (
-          <EmptyShelf note="Game Zone cards & token reloads are coming to this kiosk soon — the Game Zone kiosk by the arcade has you covered today." />
-        )}
+      <div className="relative min-h-0 flex-1">
+        <div className="kiosk-scroll h-full pb-[24px]">
+          {cat === "exp" && (
+            <div className="flex flex-col gap-[24px]">
+              {combos.map((combo) => (
+                <ShelfBanner
+                  key={combo.id}
+                  photo={combo.heroImage || KIOSK_PHOTOS.vip}
+                  eyebrow="Most popular"
+                  accent="#e8b14c"
+                  title={combo.name}
+                  blurb={`From $${(combo.price.weekday / 100).toFixed(0)} per person`}
+                  onClick={() => onPickCombo(combo)}
+                />
+              ))}
+              {combos.length === 0 && (
+                <EmptyShelf note="No bundled experiences are running at this location today." />
+              )}
+            </div>
+          )}
+          {cat === "attr" && (
+            <div className="grid grid-cols-2 gap-[24px]">
+              {offerings.map((o) => (
+                <OfferingTile key={o.slug} offering={o} onClick={() => onPickOffering(o)} />
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="k-scroll-fade" />
       </div>
     </div>
   );
@@ -158,9 +153,7 @@ export function KioskCategories({
 
 function EmptyShelf({ note }: { note: string }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.03] px-8 py-12 text-center text-xl text-white/55">
-      {note}
-    </div>
+    <div className="k-glass px-[40px] py-[64px] text-center text-[28px] text-white/55">{note}</div>
   );
 }
 
@@ -174,47 +167,40 @@ function labelForItem(kind: string): string {
 function CategoryCard({
   photo,
   eyebrow,
-  eyebrowColor,
+  accent,
   title,
   blurb,
-  border,
   onClick,
 }: {
   photo: string;
   eyebrow: string;
-  eyebrowColor: string;
+  accent: string;
   title: string;
   blurb: string;
-  border: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`relative min-h-0 flex-1 overflow-hidden rounded-3xl border ${border} text-left`}
+      aria-label={title}
+      className="k-ph k-tap relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10 text-left"
+      style={{ ["--k-img"]: `url(${photo})` } as React.CSSProperties}
     >
-      <div
-        className="absolute inset-0 bg-cover bg-center [filter:saturate(0.78)_brightness(0.82)]"
-        style={{ backgroundImage: `url(${photo})` }}
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#040e2c]/60 to-[#071440]/45" />
-      <div className="absolute bottom-6 left-8 right-24">
-        <div
-          className="font-heading text-sm font-bold uppercase tracking-[0.22em]"
-          style={{ color: eyebrowColor }}
-        >
+      <div className="absolute bottom-[40px] left-[48px] right-[120px]">
+        <div className="k-eyebrow" style={{ color: accent }}>
           {eyebrow}
         </div>
-        <div className="font-heading mt-1 text-5xl font-extrabold italic leading-none">{title}</div>
-        <div className="mt-2 text-lg text-white/60">{blurb}</div>
+        <div className="k-display mt-[8px] text-[74px]">{title}</div>
+        <div className="mt-[10px] text-[28px] text-white/65">{blurb}</div>
       </div>
       <span
-        className="absolute bottom-8 right-8 text-4xl font-bold"
-        style={{ color: eyebrowColor }}
+        className="k-display absolute bottom-[44px] right-[48px] text-[56px]"
+        style={{ color: accent }}
       >
         ›
       </span>
+      <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
     </button>
   );
 }
@@ -222,14 +208,14 @@ function CategoryCard({
 function ShelfBanner({
   photo,
   eyebrow,
-  eyebrowColor,
+  accent,
   title,
   blurb,
   onClick,
 }: {
   photo: string;
   eyebrow: string;
-  eyebrowColor: string;
+  accent: string;
   title: string;
   blurb: string;
   onClick: () => void;
@@ -238,59 +224,47 @@ function ShelfBanner({
     <button
       type="button"
       onClick={onClick}
-      className="relative h-44 overflow-hidden rounded-3xl border border-[#e8b14c]/45 text-left"
+      aria-label={title}
+      className="k-ph k-tap relative h-[280px] overflow-hidden rounded-[28px] border border-white/10 text-left"
+      style={{ ["--k-img"]: `url(${photo})` } as React.CSSProperties}
     >
-      <div
-        className="absolute inset-0 bg-cover bg-center [filter:saturate(0.78)_brightness(0.82)]"
-        style={{ backgroundImage: `url(${photo})` }}
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#040e2c]/60 to-[#071440]/45" />
-      <div className="absolute inset-y-0 left-8 flex flex-col justify-center">
-        <div
-          className="font-heading text-sm font-bold uppercase tracking-[0.22em]"
-          style={{ color: eyebrowColor }}
-        >
+      <div className="absolute inset-y-0 left-[48px] right-[110px] flex flex-col justify-center">
+        <div className="k-eyebrow" style={{ color: accent }}>
           {eyebrow}
         </div>
-        <div className="font-heading mt-1 text-4xl font-extrabold italic">{title}</div>
-        <div className="mt-1 text-lg text-white/60">{blurb}</div>
+        <div className="k-display mt-[8px] text-[56px]">{title}</div>
+        <div className="mt-[8px] text-[28px] text-white/65">{blurb}</div>
       </div>
       <span
-        className="absolute right-8 top-1/2 -translate-y-1/2 text-4xl"
-        style={{ color: eyebrowColor }}
+        className="k-display absolute right-[48px] top-1/2 -translate-y-1/2 text-[52px]"
+        style={{ color: accent }}
       >
         ›
       </span>
+      <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
     </button>
   );
 }
 
 function OfferingTile({ offering, onClick }: { offering: ActivityOffering; onClick: () => void }) {
+  const accent = offering.accentColor ?? "#00e2e5";
   return (
     <button
       type="button"
       onClick={onClick}
-      className="relative h-56 overflow-hidden rounded-3xl border border-white/10 text-left"
+      aria-label={offering.displayName}
+      className="k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left"
+      style={
+        offering.heroImage
+          ? ({ ["--k-img"]: `url(${offering.heroImage})` } as React.CSSProperties)
+          : undefined
+      }
     >
-      {offering.heroImage ? (
-        <div
-          className="absolute inset-0 bg-cover bg-center [filter:saturate(0.78)_brightness(0.82)]"
-          style={{ backgroundImage: `url(${offering.heroImage})` }}
-        />
-      ) : (
-        <div className="absolute inset-0 bg-[#071027]" />
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#040e2c]/60 to-[#071440]/45" />
-      <div className="absolute bottom-5 left-6 right-6">
-        <div className="font-heading text-3xl font-extrabold italic leading-none">
-          {offering.displayName}
-        </div>
-        <div className="mt-1 line-clamp-1 text-base text-white/60">{offering.blurb}</div>
+      <div className="absolute bottom-[40px] left-[36px] right-[36px]">
+        <div className="k-display text-[40px] leading-none">{offering.displayName}</div>
+        <div className="mt-[8px] line-clamp-1 text-[24px] text-white/65">{offering.blurb}</div>
       </div>
-      <div
-        className="absolute inset-x-0 bottom-0 h-1.5"
-        style={{ background: offering.accentColor ?? "#00e2e5" }}
-      />
+      <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
     </button>
   );
 }
