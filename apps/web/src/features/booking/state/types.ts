@@ -102,6 +102,11 @@ export interface PartyMember {
   /** Kiosk: true when this member is a minor (age < 18) — needs a guardian to
    *  sign the waiver. Separate from `category` (racing tier bucket). */
   isMinor?: boolean;
+  /** Kiosk: this person's mobile phone (owner rule 2026-07-18 — every new player
+   *  gives one; stored on their Pandora person as mobile). The MAIN person's
+   *  phone/email become session.contact so there's no separate contact step. */
+  phone?: string;
+  email?: string;
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */
@@ -677,6 +682,8 @@ export function newPartyMember(args: {
   creditBalances?: Array<{ kind: string; balance: number }>;
   guardianMemberId?: string;
   isMinor?: boolean;
+  phone?: string;
+  email?: string;
 }): PartyMember {
   return {
     id: newItemId(),
@@ -691,6 +698,8 @@ export function newPartyMember(args: {
     creditBalances: args.creditBalances,
     guardianMemberId: args.guardianMemberId,
     isMinor: args.isMinor,
+    phone: args.phone,
+    email: args.email,
   };
 }
 

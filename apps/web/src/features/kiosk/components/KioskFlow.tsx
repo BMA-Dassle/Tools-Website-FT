@@ -360,7 +360,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     <div className="k-flow">
       {bg ? (
         <div
-          className="k-flow-bg k-ph soft"
+          // "wizard" = near-solid navy scrim so reused web step bodies (dark
+          // cards) stay readable over the activity photo — the photo reads as a
+          // faint texture; bright photography lives in the cards/heroes.
+          className="k-flow-bg k-ph wizard"
           style={{ ["--k-img"]: `url(${bg})` } as React.CSSProperties}
           aria-hidden="true"
         />

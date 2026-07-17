@@ -251,6 +251,17 @@
     rgba(0, 4, 24, 0.5)
   );
 }
+/* Flow backdrop: near-solid navy so REUSED web steps (dark cards) stay fully
+   readable over the activity photo — the photo lives in the cards/heroes, not
+   behind the text (matches the approved preview's dark-ground flow screens). */
+.kiosk-canvas .k-ph.wizard::after {
+  background: linear-gradient(
+    to top,
+    rgba(0, 4, 24, 0.975),
+    rgba(0, 4, 24, 0.93) 55%,
+    rgba(0, 4, 24, 0.88)
+  );
+}
 .kiosk-canvas .k-ph > * {
   position: relative;
   z-index: 1;

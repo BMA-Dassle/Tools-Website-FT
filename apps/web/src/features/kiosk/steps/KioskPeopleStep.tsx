@@ -25,6 +25,7 @@ import { useState } from "react";
 import type { AttractionItem, PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
+import { getComboSpecial, comboMinHeadcount } from "~/features/combos/combo-specials";
 import WaiverSigning from "@/components/pandora/WaiverSigning";
 import {
   pandoraOnboardGuest,
@@ -65,6 +66,15 @@ function needsSetup(m: PartyMember): boolean {
 
 type FormState = { mode: "new" } | { mode: "setup"; member: PartyMember } | null;
 
+/** A linked-family suggestion (opt-in — NOT auto-added to the party). */
+interface LinkedSuggestion {
+  id: string; // Pandora person id
+  firstName: string;
+  lastName: string;
+  age: number | null;
+  waiverValid: boolean;
+}
+
 const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   item,
   session,
@@ -87,6 +97,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [dob, setDob] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [guardianId, setGuardianId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusyLocal] = useState(false);
@@ -95,6 +107,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     personId: string;
     template: PandoraWaiverTemplate;
   } | null>(null);
+  // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
+  const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
 
   const adults = party.filter((m) => !m.isMinor);
   const setBusyAll = (b: boolean) => {
@@ -117,6 +131,20 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setIncluded(next);
   };
 
+  // The main person IS the booking contact — push their name + mobile + email
+  // into session.contact so there's no separate YOUR INFO step (owner rule).
+  const setContactFrom = (m: PartyMember) => {
+    dispatch({
+      type: "setContact",
+      patch: {
+        firstName: m.firstName,
+        lastName: m.lastName ?? "",
+        ...(m.phone ? { phone: m.phone } : {}),
+        ...(m.email ? { email: m.email } : {}),
+      },
+    });
+  };
+
   const markMain = (id: string) => {
     party.forEach((m) => {
       const shouldBe = m.id === id;
@@ -125,12 +153,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       }
     });
     const m = party.find((x) => x.id === id);
-    if (m) {
-      dispatch({
-        type: "setContact",
-        patch: { firstName: m.firstName, lastName: m.lastName ?? "" },
-      });
-    }
+    if (m) setContactFrom(m);
   };
 
   const removeMember = (id: string) => {
@@ -153,19 +176,35 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setFirstName("");
     setLastName("");
     setDob("");
+    setPhone("");
+    setEmail("");
     setGuardianId("");
     setFormError(null);
   };
 
-  /** Add a brand-NEW person (name + DOB [+ guardian if minor]) → onboard → waiver. */
+  const isMainDefault = party.length === 0; // first person added becomes main
+
+  /** Add a brand-NEW person (name + DOB + mobile [+ guardian if minor]) → onboard → waiver. */
   const submitNew = async () => {
     const age = ageFromDob(dob);
+    const isMain = party.length === 0;
     if (!firstName.trim() || !lastName.trim()) {
       setFormError("Enter a first and last name.");
       return;
     }
     if (age === null) {
       setFormError("Enter the birthday as MM/DD/YYYY.");
+      return;
+    }
+    // Every new player gives a mobile number (owner rule); the main person also
+    // gives an email so their contact is complete and no YOUR INFO step is needed.
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setFormError("Enter a mobile phone number.");
+      return;
+    }
+    if (isMain && !email.includes("@")) {
+      setFormError("The main person needs an email for the confirmation.");
       return;
     }
     const minor = age < 18;
@@ -187,8 +226,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
-          email: session.contact.email ?? "",
-          phone: session.contact.phone ?? "",
+          email: email.trim() || session.contact.email || "",
+          phone: phone.trim(),
           birthdate: toIsoDob(dob),
           guardianID: guardianPersonId,
         },
@@ -203,9 +242,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         guardianMemberId: minor ? guardianId : undefined,
         bmiPersonId: result.personId,
         waiverValid: result.waiverValid,
-        isBillingCustomer: party.length === 0, // first person is main by default
+        isBillingCustomer: isMain, // first person is main by default
+        phone: phone.trim(),
+        email: email.trim() || undefined,
       });
       dispatch({ type: "addPartyMember", member });
+      if (isMain) setContactFrom(member); // main person → booking contact
       if (!isRace) setIncluded(new Set([...included, member.id]));
       resetForm();
       if (!result.waiverValid && result.template) {
@@ -300,8 +342,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     }
   };
 
-  /** Pull the verified account's LINKED family members onto the roster too
-   *  (web parity), as toggleable cards with their stored waiver status. */
+  /** Fetch the verified account's LINKED family as OPT-IN suggestions — they are
+   *  NOT added to the party (racing races the whole party, so auto-adding pulled
+   *  everyone into the race — owner bug). The guest taps a suggestion to add. */
   const importLinked = async (personId: string, alreadyIds: Set<string>) => {
     try {
       const res = await fetch(`/api/pandora?personId=${personId}&picture=false`);
@@ -310,6 +353,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       const relatedIds: string[] = (data.related || [])
         .map((r: unknown) => (typeof r === "string" ? r : ((r as { id?: string })?.id ?? "")))
         .filter(Boolean);
+      const collected: LinkedSuggestion[] = [];
       await Promise.all(
         relatedIds.map(async (rid) => {
           if (alreadyIds.has(rid)) return;
@@ -323,30 +367,52 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             const isoAge = p.birthdate
               ? Math.floor((Date.now() - new Date(p.birthdate).getTime()) / (365.25 * 864e5))
               : null;
-            dispatch({
-              type: "addPartyMember",
-              member: newPartyMember({
-                firstName: first,
-                lastName: last || undefined,
-                isNewRacer: false,
-                category: isoAge !== null && isoAge < 13 ? "junior" : "adult",
-                isMinor: isoAge !== null && isoAge < 18,
-                bmiPersonId: rid,
-                waiverValid: p.valid === true,
-              }),
+            collected.push({
+              id: rid,
+              firstName: first,
+              lastName: last,
+              age: isoAge,
+              waiverValid: p.valid === true,
             });
           } catch {
             /* skip this relative — non-fatal */
           }
         }),
       );
+      if (collected.length) {
+        setLinked((prev) => {
+          const have = new Set(
+            [...prev.map((l) => l.id), ...party.map((m) => m.bmiPersonId)].filter(
+              Boolean,
+            ) as string[],
+          );
+          return [...prev, ...collected.filter((l) => !have.has(l.id))];
+        });
+      }
     } catch {
       /* non-fatal */
     }
   };
 
+  /** Add a linked-family suggestion to the party (opt-in tap). */
+  const addLinked = (lp: LinkedSuggestion) => {
+    const member = newPartyMember({
+      firstName: lp.firstName,
+      lastName: lp.lastName || undefined,
+      isNewRacer: false,
+      category: lp.age !== null && lp.age < 13 ? "junior" : "adult",
+      isMinor: lp.age !== null && lp.age < 18,
+      bmiPersonId: lp.id,
+      waiverValid: lp.waiverValid,
+    });
+    dispatch({ type: "addPartyMember", member });
+    if (!isRace) setIncluded(new Set([...included, member.id]));
+    setLinked((prev) => prev.filter((l) => l.id !== lp.id));
+  };
+
   const handleVerified = (person: PersonData) => {
     const [first, ...rest] = person.fullName.trim().split(/\s+/);
+    const isMain = party.length === 0;
     const member = newPartyMember({
       firstName: first || person.fullName,
       lastName: rest.join(" ") || undefined,
@@ -356,21 +422,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       memberships: person.memberships,
       waiverValid: person.waiverValid,
       creditBalances: person.creditBalances,
-      isBillingCustomer: party.length === 0,
+      isBillingCustomer: isMain,
+      phone: person.phone || undefined,
+      email: person.email || undefined,
     });
     dispatch({ type: "addPartyMember", member });
     if (!isRace) setIncluded(new Set([...included, member.id]));
-    if (party.length === 0) {
-      dispatch({
-        type: "setContact",
-        patch: {
-          firstName: member.firstName,
-          lastName: member.lastName ?? "",
-          email: person.email || undefined,
-          phone: person.phone || undefined,
-        },
-      });
-    }
+    if (isMain) setContactFrom(member); // main person → booking contact
     setLookupOpen(false);
     const alreadyIds = new Set(
       [person.personId, ...party.map((m) => m.bmiPersonId)].filter(Boolean) as string[],
@@ -545,6 +603,31 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         </div>
       )}
 
+      {/* Linked family — OPT-IN suggestions (tap to add), never auto-added */}
+      {linked.length > 0 && form === null && !lookupOpen && (
+        <div>
+          <div className="k-eyebrow mb-[12px] text-white/40">On this account — tap to add</div>
+          <div className="flex flex-wrap gap-[12px]">
+            {linked.map((lp) => (
+              <button
+                key={lp.id}
+                type="button"
+                onClick={() => addLinked(lp)}
+                className="k-tap rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/5 px-[24px] py-[16px] text-left"
+              >
+                <div className="text-[26px] font-bold text-white">
+                  + {lp.firstName} {lp.lastName}
+                </div>
+                <div className="text-[20px] text-white/50">
+                  {lp.age !== null ? `Age ${lp.age}` : "Family"}
+                  {lp.waiverValid ? " · waiver on file" : " · needs waiver"}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* person form (new OR setup) */}
       {form !== null && (
         <div className="k-glass space-y-[20px] p-[28px]">
@@ -584,6 +667,30 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             placeholder="Birthday MM/DD/YYYY"
             className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
           />
+          {/* Every new player gives a mobile number; the main person (first added)
+              also gives an email so we never need a separate YOUR INFO step. */}
+          {form.mode === "new" && (
+            <>
+              <input
+                type="tel"
+                inputMode="tel"
+                data-osk-layout="phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Mobile phone"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+              />
+              <input
+                type="email"
+                inputMode="email"
+                data-osk-layout="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={isMainDefault ? "Email (for your confirmation)" : "Email (optional)"}
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+              />
+            </>
+          )}
           {/* Guardian picker appears once we know they're a minor */}
           {ageFromDob(dob) !== null && (ageFromDob(dob) as number) < 18 && (
             <div>
@@ -724,11 +831,25 @@ export const KioskRacePeopleStep: StepDef<RaceItem> = {
   title: "Who's racing?",
   Component: PeopleStepComponent as StepDef<RaceItem>["Component"],
   isVisible: () => true,
-  canAdvance: (_item, session) =>
-    peopleReady(
+  canAdvance: (_item, session) => {
+    const base = peopleReady(
       session.party,
       session.party.map((m) => m.id),
-    ),
+    );
+    if (base !== true) return base;
+    // Combo minimum headcount (e.g. the Ultimate VIP is 2+ guests) — was not
+    // enforced, so a 1-person combo could advance (owner bug).
+    const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+    if (combo) {
+      const min = comboMinHeadcount(combo);
+      if (session.party.length < min) {
+        return {
+          reason: `The ${combo.name} is for ${min}+ guests — add ${min - session.party.length} more.`,
+        };
+      }
+    }
+    return true;
+  },
 };
 
 /** Waiver-gated attractions (gel/laser/shuf): toggle who's in this one. */
