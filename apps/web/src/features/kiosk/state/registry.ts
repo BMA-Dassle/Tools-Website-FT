@@ -9,8 +9,9 @@ import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/bookin
 import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
 import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
+import { KioskWhoStep } from "../steps/KioskWhoStep";
 
-export const KIOSK_SCHEMA_VERSION = 4; // v4: today-only "bowl now" time step
+export const KIOSK_SCHEMA_VERSION = 5; // v5: who's-playing + waiver gate on attractions
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -49,11 +50,12 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // at creation; the (fully reused) heat picker then shows today's heats,
   // sorted earliest-first with the complete restriction-rule gating.
   race: STEP_REGISTRY.race.filter((s) => s.id !== "race-date"),
-  // Kiosk = walk-up: no date step (always today); the slot step leads with
-  // the next available time and keeps the full web grid as "later today".
+  // Kiosk = walk-up: no date step (always today); who's-playing + waivers
+  // gate before the time step (self-hides for duckpin); the slot step leads
+  // with the next available time and keeps the full web grid as "later today".
   attraction: STEP_REGISTRY.attraction
     .filter((s) => s.id !== "attraction-date" && s.id !== "attraction-slot")
-    .concat([KioskSlotStep as StepDef]),
+    .concat([KioskWhoStep as StepDef, KioskSlotStep as StepDef]),
   // Kiosk rules: today-only "bowl now" time step (replaces the calendar), and
   // names/shoe sizes/bumpers REQUIRED in-flow (web collects them post-booking).
   bowling: insertAfter(

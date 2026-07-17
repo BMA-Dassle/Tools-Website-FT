@@ -236,6 +236,14 @@ export interface AttractionItem extends BookingItemBase {
   date: string | null;
   slot: string | null;
   qty: number;
+  /**
+   * KIOSK-ONLY (optional — web never writes it): session.party member ids
+   * participating in THIS attraction. Waiver-gated attractions (everything
+   * except duckpin, owner rule 2026-07-17) require every participant to be
+   * registered with a signed waiver in-flow; qty is kept in sync with the
+   * selection.
+   */
+  participants?: string[];
   /** BMI productId for the selected product variant. */
   productId: string | null;
   /** BMI pageId (from ATTRACTIONS config). */
