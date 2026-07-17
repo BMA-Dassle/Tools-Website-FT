@@ -194,6 +194,9 @@ interface ReserveBody {
   /** Experience slug (e.g. "world-cup-vip-mon-thur") — drives the World Cup
    *  fixture/center validation + staff banner when it's a world-cup-* slug. */
   experienceSlug?: string;
+  /** Where the booking originated. Only "kiosk" is accepted from the client
+   *  (in-center self-service kiosk); anything else records as "web". */
+  bookingSource?: string;
   /** ISO 8601 with UTC offset, e.g. "2026-05-15T14:00:00-04:00" */
   bookedAt: string;
   /** 'BookForLater' for advance reservations (default); 'PlayNow' for walk-in */
@@ -1333,6 +1336,8 @@ export async function POST(req: NextRequest) {
         guestEmail: guest.email,
         guestPhone: guest.phone,
         notes,
+        // In-center kiosk bookings get a distinct source (admin board badge).
+        ...(body.bookingSource === "kiosk" ? { bookingSource: "kiosk" as const } : {}),
         squareDepositOrderId,
         squareDepositPaymentId,
         squareDayofOrderId,

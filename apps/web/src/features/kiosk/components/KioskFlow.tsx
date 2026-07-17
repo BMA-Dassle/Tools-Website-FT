@@ -344,6 +344,14 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           dispatch={dispatch}
           onBack={() => setCheckoutActive(false)}
           onStartOver={handleStartOver}
+          // Stay inside the kiosk shell after payment — the web confirmation
+          // URL rides along so the kiosk confirmation can surface its code.
+          navigate={(url) => {
+            window.location.href = `/kiosk/confirmation?src=${encodeURIComponent(url)}`;
+          }}
+          // Shared public device: never show or store anyone's card.
+          allowCardVault={false}
+          storageKey={KIOSK_SESSION_STORAGE_KEY}
         />
       </div>,
     );

@@ -46,6 +46,20 @@ interface CheckoutStepProps {
   onBack: () => void;
   /** Abandon the booking: release vendor holds + clear the cart, then leave. */
   onStartOver: () => void | Promise<void>;
+  /**
+   * Post-payment navigation override. Default = window.location.href (the web
+   * confirmation pages). The KIOSK passes a mapper that wraps the same URL in
+   * /kiosk/confirmation so guests never leave the kiosk shell.
+   */
+  navigate?: (url: string) => void;
+  /**
+   * Card-on-file surfaces (saved-card list + "save this card" consent).
+   * Default true (web). The kiosk passes FALSE — a shared public device must
+   * never show or store anyone's card.
+   */
+  allowCardVault?: boolean;
+  /** sessionStorage key to clear after a successful reserve (kiosk uses its own). */
+  storageKey?: string;
 }
 
 type Phase =
@@ -75,7 +89,21 @@ function formatTime(iso: string): string {
   });
 }
 
-export function CheckoutStep({ session, dispatch, onBack, onStartOver }: CheckoutStepProps) {
+export function CheckoutStep({
+  session,
+  dispatch,
+  onBack,
+  onStartOver,
+  navigate,
+  allowCardVault = true,
+  storageKey,
+}: CheckoutStepProps) {
+  // Post-payment redirect — kiosk overrides this to stay inside /kiosk.
+  const go =
+    navigate ??
+    ((url: string) => {
+      window.location.href = url;
+    });
   const [phase, setPhase] = useState<Phase>({ step: "contact" });
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
@@ -491,8 +519,8 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
           overview,
           contact,
         });
-        clearBookingSession();
-        window.location.href = buildConfirmationUrl(reserveSession, bmiBillId, true);
+        clearBookingSession(storageKey);
+        go(buildConfirmationUrl(reserveSession, bmiBillId, true));
       } catch (err) {
         setPhase({
           step: "error",
@@ -1115,15 +1143,17 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
           });
 
           await saveBookingDetails(session, `bowl-${result.qamfReservationId}`, overview, contact);
-          clearBookingSession();
+          clearBookingSession(storageKey);
 
           const confirmBase =
             bowlingItem.kind === "kbf"
               ? "/hp/book/kids-bowl-free/confirmation"
               : "/hp/book/bowling/confirmation";
-          window.location.href = result.shortCode
-            ? `${confirmBase}?code=${result.shortCode}&neonId=${result.neonId}`
-            : `${confirmBase}?neonId=${result.neonId}`;
+          go(
+            result.shortCode
+              ? `${confirmBase}?code=${result.shortCode}&neonId=${result.neonId}`
+              : `${confirmBase}?neonId=${result.neonId}`,
+          );
         } else {
           // Mixed or BMI-only: unified reserve (one Square order for everything).
           // sessionForReserve carries each racer's credit-redemption choice so the
@@ -1175,18 +1205,18 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
           });
 
           await saveBookingDetails(sessionForReserve, effectiveBillId, overview, contact);
-          clearBookingSession();
+          clearBookingSession(storageKey);
 
           // Mixed cart: use /book/confirmation (race confirmation) which shows all items
           if (hasBmi && effectiveBillId) {
-            window.location.href = buildConfirmationUrl(sessionForReserve, effectiveBillId, true);
+            go(buildConfirmationUrl(sessionForReserve, effectiveBillId, true));
           } else if (result.shortCodes.length > 0) {
             const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
             const confirmBase =
               bowlingItem?.kind === "kbf"
                 ? "/hp/book/kids-bowl-free/confirmation"
                 : "/hp/book/bowling/confirmation";
-            window.location.href = `${confirmBase}?code=${result.shortCodes[0]}`;
+            go(`${confirmBase}?code=${result.shortCodes[0]}`);
           } else {
             // Fallback: bowling confirmation with neonId
             const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
@@ -1194,7 +1224,7 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
               bowlingItem?.kind === "kbf"
                 ? "/hp/book/kids-bowl-free/confirmation"
                 : "/hp/book/bowling/confirmation";
-            window.location.href = `${confirmBase}?neonId=${result.neonIds[0] ?? ""}`;
+            go(`${confirmBase}?neonId=${result.neonIds[0] ?? ""}`);
           }
         }
       } catch (err) {
@@ -1214,8 +1244,8 @@ export function CheckoutStep({ session, dispatch, onBack, onStartOver }: Checkou
           contact={contact}
           locationId={locationId}
           squareCustomerId={squareCustomerId}
-          savedCards={savedCards}
-          allowSaveCard={!!squareCustomerId}
+          savedCards={allowCardVault ? savedCards : undefined}
+          allowSaveCard={allowCardVault && !!squareCustomerId}
           onTokenize={handleTokenize}
           onSuccess={(result) => handlePaymentSuccess(result, bmiBillId)}
           onError={(msg) => setPhase({ step: "error", message: msg })}

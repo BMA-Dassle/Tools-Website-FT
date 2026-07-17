@@ -228,6 +228,8 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
       // fallback path (quote failed → no dayofOrderId) charges the discounted
       // price too, and the redemption is recorded on both paths.
       ...(session.appliedPromo ? { promoCode: session.appliedPromo.code } : {}),
+      // Kiosk sessions stamp their source so the admin board can badge them.
+      ...(session.context?.kiosk ? { bookingSource: "kiosk" } : {}),
       // World Cup match-mode bookings: the slug lets the route run the
       // fixture/center validation + staff title/banner (bowling-only carts
       // reserve through this route, not unified-reserve).
