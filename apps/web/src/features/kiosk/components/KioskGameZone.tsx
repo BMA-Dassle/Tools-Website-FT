@@ -180,35 +180,37 @@ export function KioskGameZone({
   // ── Mode chooser: New card vs Reload ──
   if (mode === "choose") {
     return (
-      <div className="mx-auto max-w-2xl px-2 py-6">
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="font-heading text-4xl font-extrabold italic">Game Zone cards</h1>
+      <div className="w-full">
+        <div className="mb-[32px] flex items-center justify-between">
+          <h1 className="k-display text-[74px]">Game Zone cards</h1>
           <button
             type="button"
             onClick={onExit}
-            className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
+            className="rounded-full border border-white/15 px-[28px] py-[12px] text-[24px] text-white/60"
           >
             Cancel
           </button>
         </div>
-        <div className="grid gap-5">
+        <div className="grid gap-[24px]">
           <button
             type="button"
             onClick={() => setMode("newcard")}
-            className="rounded-3xl border border-[#f800c6]/40 bg-white/[0.03] p-8 text-left"
+            className="k-glass k-tap p-[40px] text-left"
+            style={{ borderLeft: "8px solid #f800c6" }}
           >
-            <div className="font-heading text-3xl font-extrabold italic">New Game Zone cards</div>
-            <div className="mt-2 text-lg text-white/55">
+            <div className="k-display text-[48px]">New Game Zone cards</div>
+            <div className="mt-[10px] text-[28px] text-white/55">
               Set up 1–10 fresh cards — pick a token package for each
             </div>
           </button>
           <button
             type="button"
             onClick={() => setMode("reload")}
-            className="rounded-3xl border border-[#00e2e5]/40 bg-white/[0.03] p-8 text-left"
+            className="k-glass k-tap p-[40px] text-left"
+            style={{ borderLeft: "8px solid #00e2e5" }}
           >
-            <div className="font-heading text-3xl font-extrabold italic">Reload existing cards</div>
-            <div className="mt-2 text-lg text-white/55">
+            <div className="k-display text-[48px]">Reload existing cards</div>
+            <div className="mt-[10px] text-[28px] text-white/55">
               Add tokens to 1–10 cards you already have
             </div>
           </button>

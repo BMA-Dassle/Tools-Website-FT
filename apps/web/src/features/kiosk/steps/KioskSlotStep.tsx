@@ -152,10 +152,10 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
   const heroSelected = !!firstPick && item.slot === firstPick.block.start;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-[32px]">
       {/* Book-now hero */}
       {scanState === "loading" ? (
-        <div className="flex justify-center py-10">
+        <div className="flex justify-center py-[48px]">
           <BrandedLoader
             brand={session.entryBrand}
             size={180}
@@ -167,53 +167,46 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
           type="button"
           onClick={() => void bookFirst()}
           disabled={holding}
-          className={`relative w-full overflow-hidden rounded-3xl border-2 px-8 py-8 text-left transition-colors ${
-            heroSelected ? "bg-white/[0.06]" : "bg-white/[0.03]"
-          }`}
-          style={{ borderColor: heroSelected ? accent : "rgba(255,255,255,0.15)" }}
+          className="k-glass k-tap relative w-full overflow-hidden p-[40px] text-left"
+          style={{ borderLeft: `8px solid ${heroSelected ? accent : "rgba(255,255,255,0.15)"}` }}
         >
-          <div
-            className="font-heading text-sm font-bold uppercase tracking-[0.28em]"
-            style={{ color: accent }}
-          >
+          <div className="k-eyebrow" style={{ color: accent }}>
             Next available · today
           </div>
-          <div className="font-heading mt-2 text-7xl font-extrabold italic leading-none tabular-nums">
+          <div className="k-display mt-[10px] text-[150px] leading-none tabular-nums">
             {slotLabel(firstPick.block.start)}
           </div>
-          <div className="mt-3 text-lg text-white/60">
+          <div className="mt-[12px] text-[28px] text-white/60">
             {holding
               ? "Holding your spot…"
               : heroSelected
-                ? "Held for you — hit Next to keep going"
+                ? "Held for you — hit Continue to keep going"
                 : `${firstPick.block.freeSpots} spots open — tap to grab it`}
           </div>
           {holding && (
-            <div className="absolute right-8 top-1/2 h-8 w-8 -translate-y-1/2 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+            <div className="absolute right-[40px] top-1/2 h-[40px] w-[40px] -translate-y-1/2 animate-spin rounded-full border-4 border-white/20 border-t-[#00E2E5]" />
           )}
         </button>
       ) : scanState === "error" ? (
-        <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 text-center text-red-200">
+        <div className="k-glass p-[28px] text-center text-[26px] text-red-200">
           Couldn&rsquo;t check today&rsquo;s times — pick from the list below.
         </div>
       ) : (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center text-lg text-white/55">
+        <div className="k-glass p-[32px] text-center text-[28px] text-white/55">
           Nothing bookable for your group in the next few hours — today&rsquo;s remaining times are
           below, or ask the front desk about walk-ins.
         </div>
       )}
 
       {holdError && (
-        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-amber-100">
+        <div className="rounded-[24px] border border-amber-500/40 bg-amber-500/10 px-[28px] py-[20px] text-[26px] text-amber-100">
           {holdError}
         </div>
       )}
 
       {/* Later-today path — the full web slot grid with all its rules */}
       <div>
-        <div className="font-heading mb-3 text-sm font-bold uppercase tracking-[0.24em] text-white/40">
-          Or pick another time today
-        </div>
+        <div className="k-eyebrow mb-[16px] text-white/40">Or pick another time today</div>
         <AttractionSlotStep.Component {...props} />
       </div>
     </div>

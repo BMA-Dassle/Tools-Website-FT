@@ -51,56 +51,48 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const pick = (h: number) => onChange({ hour: h, minute: 0 } as Partial<BowlingLikeItem>);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-[32px]">
       {firstHour != null ? (
         <button
           type="button"
           onClick={() => pick(firstHour)}
-          className={`w-full rounded-3xl border-2 px-8 py-8 text-left transition-colors ${
-            heroSelected ? "bg-white/[0.06]" : "bg-white/[0.03]"
-          }`}
-          style={{ borderColor: heroSelected ? "#fd5b56" : "rgba(255,255,255,0.15)" }}
+          className="k-glass k-tap w-full p-[40px] text-left"
+          style={{ borderLeft: `8px solid ${heroSelected ? "#fd5b56" : "rgba(255,255,255,0.15)"}` }}
         >
-          <div className="font-heading text-sm font-bold uppercase tracking-[0.28em] text-[#fd5b56]">
+          <div className="k-eyebrow" style={{ color: "#fd5b56" }}>
             Next open lanes · today at {center.name}
           </div>
-          <div className="font-heading mt-2 text-7xl font-extrabold italic leading-none tabular-nums">
+          <div className="k-display mt-[10px] text-[150px] leading-none tabular-nums">
             {bowlingTimeLabel(firstHour, 0)}
           </div>
-          <div className="mt-3 text-lg text-white/60">
+          <div className="mt-[12px] text-[28px] text-white/60">
             {heroSelected
-              ? "Locked in — hit Next to pick your lane package"
+              ? "Locked in — hit Continue to pick your lane package"
               : "Tap to bowl as soon as you're ready"}
           </div>
         </button>
       ) : (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center text-lg text-white/55">
+        <div className="k-glass p-[32px] text-center text-[28px] text-white/55">
           No more lane times today — the front desk can help with walk-in availability.
         </div>
       )}
 
       {hours.length > 1 && (
         <div>
-          <div className="font-heading mb-3 text-sm font-bold uppercase tracking-[0.24em] text-white/40">
-            Or pick another time today
-          </div>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+          <div className="k-eyebrow mb-[16px] text-white/40">Or pick another time today</div>
+          <div className="grid grid-cols-4 gap-[14px]">
             {hours.map((h) => (
               <button
                 key={h}
                 type="button"
                 onClick={() => pick(h)}
-                className={`rounded-2xl border-2 px-4 py-4 text-lg font-bold tabular-nums transition-colors ${
-                  item.hour === h
-                    ? "border-[#fd5b56] bg-[#fd5b56]/10 text-white"
-                    : "border-white/10 bg-white/[0.02] text-white/60"
-                }`}
+                className={`k-chip k-tap ${item.hour === h ? "sel" : ""}`}
               >
                 {bowlingTimeLabel(h, 0)}
               </button>
             ))}
           </div>
-          <p className="mt-3 text-sm text-white/40">
+          <p className="mt-[16px] text-[24px] text-white/40">
             Exact lane availability is confirmed on the next step — if an hour just filled,
             we&rsquo;ll offer the closest open time.
           </p>
