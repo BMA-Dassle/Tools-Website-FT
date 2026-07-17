@@ -36,6 +36,7 @@ interface CartCard {
 }
 
 type Phase = "cart" | "paying" | "loading" | "done" | "error";
+type Mode = "choose" | "reload" | "newcard";
 
 export function KioskGameZone({
   center,
@@ -46,11 +47,15 @@ export function KioskGameZone({
   brand: Brand;
   onExit: () => void;
 }) {
+  const [mode, setMode] = useState<Mode>("choose");
   const [cards, setCards] = useState<CartCard[]>([
     { accountNumber: "", packageId: TOKEN_PACKAGES[1].id, status: "unverified" },
   ]);
   const [phase, setPhase] = useState<Phase>("cart");
   const [error, setError] = useState<string | null>(null);
+  // New-card (simulated): one package pick, no account number to verify.
+  const [newCardPkg, setNewCardPkg] = useState<string>(TOKEN_PACKAGES[1].id);
+  const [simCardNumber, setSimCardNumber] = useState<string>("");
   const locationCode = intercardLocationCode(center, brand);
 
   const totalCents = cards.reduce((sum, c) => {
@@ -96,6 +101,28 @@ export function KioskGameZone({
     );
   const removeCard = (i: number) => setCards((cs) => cs.filter((_, idx) => idx !== i));
 
+  // New card (SIMULATED dispense): full UX — pick package, pay, "dispense" — but
+  // no physical card is ejected and no real charge/account is created yet
+  // (owner 2026-07-18: build the full flow, simulate the dispense until the
+  // dispenser + Intercard new-account issuance are wired). Swap simDispense()
+  // for the real create-account + purchase + hardware dispense later.
+  const newCardPkgObj = TOKEN_PACKAGES.find((p) => p.id === newCardPkg) ?? TOKEN_PACKAGES[1];
+  const simDispense = async () => {
+    setPhase("loading");
+    setError(null);
+    // Simulate the dispense + activation delay.
+    await new Promise((r) => setTimeout(r, 1400));
+    // Mock a plausible new card number for the confirmation screen.
+    const n = Array.from({ length: 16 }, (_, i) => "seed".charCodeAt(i % 4) * (i + 7));
+    setSimCardNumber(
+      n
+        .map((x) => x % 10)
+        .join("")
+        .slice(0, 16),
+    );
+    setPhase("done");
+  };
+
   const pay = async (cardNonce: string) => {
     setPhase("loading");
     setError(null);
@@ -128,19 +155,88 @@ export function KioskGameZone({
     }
   };
 
+  // ── Mode chooser: New card vs Reload ──
+  if (mode === "choose") {
+    return (
+      <div className="mx-auto max-w-2xl px-2 py-6">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="font-heading text-4xl font-extrabold italic">Game Zone cards</h1>
+          <button
+            type="button"
+            onClick={onExit}
+            className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
+          >
+            Cancel
+          </button>
+        </div>
+        <div className="grid gap-5">
+          <button
+            type="button"
+            onClick={() => setMode("newcard")}
+            className="rounded-3xl border border-[#f800c6]/40 bg-white/[0.03] p-8 text-left"
+          >
+            <div className="font-heading text-3xl font-extrabold italic">New Game Zone card</div>
+            <div className="mt-2 text-lg text-white/55">
+              Pick a token package — we&rsquo;ll set up a fresh card
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("reload")}
+            className="rounded-3xl border border-[#00e2e5]/40 bg-white/[0.03] p-8 text-left"
+          >
+            <div className="font-heading text-3xl font-extrabold italic">Reload existing cards</div>
+            <div className="mt-2 text-lg text-white/55">
+              Add tokens to 1–10 cards you already have
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (phase === "loading") {
     return (
       <div className="flex h-full items-center justify-center py-16">
         <BrandedLoader
           brand={brand}
-          label="Loading your tokens…"
-          sublabel="Charging once, loading each card"
+          label={mode === "newcard" ? "Setting up your card…" : "Loading your tokens…"}
+          sublabel={
+            mode === "newcard" ? "Dispensing (simulated)" : "Charging once, loading each card"
+          }
         />
       </div>
     );
   }
 
   if (phase === "done") {
+    // New-card success (simulated dispense) shows the fresh card number.
+    if (mode === "newcard") {
+      return (
+        <div className="mx-auto max-w-md py-16 text-center">
+          <div className="font-heading text-6xl font-extrabold italic">Card ready!</div>
+          <p className="mt-4 text-lg text-white/60">
+            {newCardPkgObj.tokens + (newCardPkgObj.bonusTokens || 0)} tokens loaded.
+          </p>
+          <div className="mt-6 rounded-2xl border border-white/15 bg-white/[0.04] px-8 py-5">
+            <div className="font-heading text-xs font-bold uppercase tracking-[0.3em] text-white/45">
+              New card number
+            </div>
+            <div className="font-heading text-3xl font-extrabold tabular-nums">{simCardNumber}</div>
+          </div>
+          <p className="mt-4 text-sm text-amber-300">
+            Simulated dispense — grab your card from the attendant.
+          </p>
+          <button
+            type="button"
+            onClick={onExit}
+            className="font-heading mt-8 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
+          >
+            Done
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="mx-auto max-w-md py-16 text-center">
         <div className="font-heading text-6xl font-extrabold italic">Tokens loaded!</div>
@@ -155,6 +251,60 @@ export function KioskGameZone({
         >
           Done
         </button>
+      </div>
+    );
+  }
+
+  // ── New card (simulated) — pick a package, "pay & dispense" ──
+  if (mode === "newcard") {
+    return (
+      <div className="mx-auto max-w-2xl px-2 py-6">
+        <div className="mb-5 flex items-center justify-between">
+          <h1 className="font-heading text-4xl font-extrabold italic">New card</h1>
+          <button
+            type="button"
+            onClick={() => setMode("choose")}
+            className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
+          >
+            Back
+          </button>
+        </div>
+        <p className="mb-4 text-white/55">Pick a token package for the new card.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {TOKEN_PACKAGES.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setNewCardPkg(p.id)}
+              className={`rounded-xl border-2 px-3 py-4 text-center ${
+                newCardPkg === p.id
+                  ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
+                  : "border-white/10 bg-white/[0.02] text-white/60"
+              }`}
+            >
+              <div className="font-heading text-2xl font-extrabold tabular-nums">
+                {p.tokens}
+                {p.bonusTokens ? <span className="text-[#46d68c]"> +{p.bonusTokens}</span> : ""}
+              </div>
+              <div className="text-xs text-white/45">${(p.priceCents / 100).toFixed(0)}</div>
+            </button>
+          ))}
+        </div>
+        <div className="mt-6 flex items-center justify-between rounded-2xl border border-[#00e2e5]/35 bg-white/[0.04] px-6 py-4">
+          <div className="font-heading text-2xl font-extrabold tabular-nums">
+            ${(newCardPkgObj.priceCents / 100).toFixed(2)}
+          </div>
+          <button
+            type="button"
+            onClick={() => void simDispense()}
+            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b]"
+          >
+            Pay &amp; dispense
+          </button>
+        </div>
+        <p className="mt-2 text-center text-sm text-amber-300/80">
+          Dispensing is simulated for now — no physical card is ejected.
+        </p>
       </div>
     );
   }

@@ -33,6 +33,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const { config } = useKioskConfig();
   const [adIndex, setAdIndex] = useState(0);
   const [booting, setBooting] = useState(true);
+  // Hidden staff gesture ref — declared with the other hooks (BEFORE any early
+  // return) so hook order is stable when config transitions null→set.
+  const cornerTaps = useRef<number[]>([]);
 
   // Boot: merge provisioning URL params over stored config; if the device has
   // no local config yet but the URL names a venue, pull the saved setup from
@@ -95,7 +98,6 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   };
 
   // Hidden staff gesture: 5 taps within 3s on the top-left corner → admin.
-  const cornerTaps = useRef<number[]>([]);
   const cornerHit = () => {
     const now = Date.now();
     cornerTaps.current = [...cornerTaps.current.filter((t) => now - t < 3000), now];
