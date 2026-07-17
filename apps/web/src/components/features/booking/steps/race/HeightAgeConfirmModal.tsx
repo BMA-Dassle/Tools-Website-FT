@@ -8,6 +8,10 @@ interface HeightAgeConfirmModalProps {
   juniors: number;
   onConfirm: () => void;
   onChangeParty: () => void;
+  /** Kiosk overrides the copy — it has no date step (always today), so it says
+   *  "pick a time" not "pick a date". Web keeps its defaults. */
+  subheading?: string;
+  confirmLabel?: string;
 }
 
 export function HeightAgeConfirmModal({
@@ -15,6 +19,8 @@ export function HeightAgeConfirmModal({
   juniors,
   onConfirm,
   onChangeParty,
+  subheading = "Please confirm each requirement below before picking a date.",
+  confirmLabel = "Confirm & Pick a Date →",
 }: HeightAgeConfirmModalProps) {
   const disclaimers: string[] = [];
   if (adults > 0) {
@@ -72,9 +78,7 @@ export function HeightAgeConfirmModal({
       <div className="relative max-h-[80vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/15 bg-[#0a1628] shadow-2xl">
         <div className="p-5 sm:p-6">
           <h2 className="mb-1 text-lg font-bold text-white">Confirm Height &amp; Age</h2>
-          <p className="mb-5 text-xs text-white/50">
-            Please confirm each requirement below before picking a date.
-          </p>
+          <p className="mb-5 text-xs text-white/50">{subheading}</p>
 
           <div className="space-y-3">
             {disclaimers.map((text, i) => (
@@ -136,7 +140,7 @@ export function HeightAgeConfirmModal({
               onClick={handleConfirm}
               className="flex-1 rounded-xl bg-[#00E2E5] px-6 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Confirm &amp; Pick a Date →
+              {confirmLabel}
             </button>
             <button
               type="button"

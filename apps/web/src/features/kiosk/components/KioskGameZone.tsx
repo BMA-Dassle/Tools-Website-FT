@@ -48,6 +48,23 @@ interface NewCard {
 type Phase = "cart" | "paying" | "loading" | "done" | "error";
 type Mode = "choose" | "reload" | "newcard";
 
+/** Token-package tile body — labels the amount as TOKENS and calls out the free
+ *  bonus clearly (owner ask 2026-07-18). Shared by the reload + new-card grids. */
+function TokenTileBody({ p }: { p: (typeof TOKEN_PACKAGES)[number] }) {
+  return (
+    <>
+      <div className="font-heading text-3xl font-extrabold leading-none tabular-nums">
+        {p.tokens}
+      </div>
+      <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">tokens</div>
+      {p.bonusTokens ? (
+        <div className="mt-1 text-base font-extrabold text-[#46d68c]">+{p.bonusTokens} free</div>
+      ) : null}
+      <div className="mt-1.5 text-sm text-white/55">${(p.priceCents / 100).toFixed(0)}</div>
+    </>
+  );
+}
+
 /** Plausible 16-digit card number for the simulated dispense — not a real Intercard account. */
 function mockCardNumber(i: number): string {
   const digits = (7000000000000000 + i * 1234567).toString().slice(0, 16);
@@ -346,21 +363,13 @@ export function KioskGameZone({
                     key={p.id}
                     type="button"
                     onClick={() => setNewCard(i, { packageId: p.id })}
-                    className={`rounded-xl border-2 px-3 py-3 text-center ${
+                    className={`rounded-xl border-2 px-3 py-4 text-center ${
                       c.packageId === p.id
                         ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
                         : "border-white/10 bg-white/[0.02] text-white/60"
                     }`}
                   >
-                    <div className="font-heading text-xl font-extrabold tabular-nums">
-                      {p.tokens}
-                      {p.bonusTokens ? (
-                        <span className="text-[#46d68c]"> +{p.bonusTokens}</span>
-                      ) : (
-                        ""
-                      )}
-                    </div>
-                    <div className="text-xs text-white/45">${(p.priceCents / 100).toFixed(0)}</div>
+                    <TokenTileBody p={p} />
                   </button>
                 ))}
               </div>
@@ -514,17 +523,13 @@ export function KioskGameZone({
                   key={p.id}
                   type="button"
                   onClick={() => setCard(i, { packageId: p.id })}
-                  className={`rounded-xl border-2 px-3 py-3 text-center ${
+                  className={`rounded-xl border-2 px-3 py-4 text-center ${
                     c.packageId === p.id
                       ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
                       : "border-white/10 bg-white/[0.02] text-white/60"
                   }`}
                 >
-                  <div className="font-heading text-xl font-extrabold tabular-nums">
-                    {p.tokens}
-                    {p.bonusTokens ? <span className="text-[#46d68c]"> +{p.bonusTokens}</span> : ""}
-                  </div>
-                  <div className="text-xs text-white/45">${(p.priceCents / 100).toFixed(0)}</div>
+                  <TokenTileBody p={p} />
                 </button>
               ))}
             </div>

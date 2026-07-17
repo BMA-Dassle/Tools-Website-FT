@@ -41,7 +41,7 @@ export const KIOSK_AD_SLIDES: KioskAdSlide[] = [
   },
   {
     title: "MEGA TRACK TUESDAYS",
-    sub: "The big track opens after 6 PM",
+    sub: "The big track runs all day",
     accent: "#e53935",
     photo: KIOSK_PHOTOS.redTrack,
   },
