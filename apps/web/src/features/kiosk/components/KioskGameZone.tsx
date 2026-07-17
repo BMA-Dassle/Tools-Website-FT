@@ -65,6 +65,13 @@ function TokenTileBody({ p }: { p: (typeof TOKEN_PACKAGES)[number] }) {
   );
 }
 
+/** One-line package summary for a COLLAPSED card row (owner: minimize after pick). */
+function pkgLabel(packageId: string): string {
+  const p = TOKEN_PACKAGES.find((x) => x.id === packageId);
+  if (!p) return "";
+  return `${p.tokens} tokens${p.bonusTokens ? ` +${p.bonusTokens} free` : ""} · $${(p.priceCents / 100).toFixed(0)}`;
+}
+
 /** Plausible 16-digit card number for the simulated dispense — not a real Intercard account. */
 function mockCardNumber(i: number): string {
   const digits = (7000000000000000 + i * 1234567).toString().slice(0, 16);
@@ -89,6 +96,10 @@ export function KioskGameZone({
   // New-card (simulated): a cart of 1–10 fresh cards, each with its own package.
   // No account number to verify — these don't exist until "dispensed."
   const [newCards, setNewCards] = useState<NewCard[]>([{ packageId: TOKEN_PACKAGES[1].id }]);
+  // Which card is EXPANDED (showing the package grid); the rest collapse to a
+  // one-line summary + Edit so more cards fit on screen (owner ask 2026-07-18).
+  const [newEditIdx, setNewEditIdx] = useState<number | null>(0);
+  const [reloadEditIdx, setReloadEditIdx] = useState<number | null>(0);
   const locationCode = intercardLocationCode(center, brand);
 
   const totalCents = cards.reduce((sum, c) => {
@@ -343,44 +354,73 @@ export function KioskGameZone({
         </p>
 
         <div className="space-y-4">
-          {newCards.map((c, i) => (
-            <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="font-heading text-lg font-extrabold italic">Card {i + 1}</span>
-                {newCards.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeNewCard(i)}
-                    className="text-sm text-white/45"
-                  >
-                    Remove
-                  </button>
+          {newCards.map((c, i) => {
+            const expanded = newEditIdx === i;
+            return (
+              <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="flex items-center justify-between">
+                  <span className="font-heading text-lg font-extrabold italic">Card {i + 1}</span>
+                  <div className="flex items-center gap-4">
+                    {!expanded && (
+                      <button
+                        type="button"
+                        onClick={() => setNewEditIdx(i)}
+                        className="text-sm font-bold text-[#00e2e5]"
+                      >
+                        Edit
+                      </button>
+                    )}
+                    {newCards.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          removeNewCard(i);
+                          setNewEditIdx(null);
+                        }}
+                        className="text-sm text-white/45"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {expanded ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {TOKEN_PACKAGES.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setNewCard(i, { packageId: p.id });
+                          setNewEditIdx(null); // collapse after picking
+                        }}
+                        className={`rounded-xl border-2 px-3 py-4 text-center ${
+                          c.packageId === p.id
+                            ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
+                            : "border-white/10 bg-white/[0.02] text-white/60"
+                        }`}
+                      >
+                        <TokenTileBody p={p} />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-lg font-semibold text-white/80">
+                    {pkgLabel(c.packageId)}
+                  </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {TOKEN_PACKAGES.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setNewCard(i, { packageId: p.id })}
-                    className={`rounded-xl border-2 px-3 py-4 text-center ${
-                      c.packageId === p.id
-                        ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
-                        : "border-white/10 bg-white/[0.02] text-white/60"
-                    }`}
-                  >
-                    <TokenTileBody p={p} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {newCards.length < 10 && (
           <button
             type="button"
-            onClick={addNewCard}
+            onClick={() => {
+              addNewCard();
+              setNewEditIdx(newCards.length); // expand the newly added card
+            }}
             className="mt-4 w-full rounded-2xl border-2 border-dashed border-[#f800c6]/40 px-5 py-4 font-bold text-[#f800c6]"
           >
             + Add another card
@@ -475,72 +515,117 @@ export function KioskGameZone({
       )}
 
       <div className="space-y-4">
-        {cards.map((c, i) => (
-          <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="font-heading text-lg font-extrabold italic">Card {i + 1}</span>
-              {cards.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeCard(i)}
-                  className="text-sm text-white/45"
-                >
-                  Remove
-                </button>
+        {cards.map((c, i) => {
+          const expanded = reloadEditIdx === i;
+          return (
+            <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <div className="flex items-center justify-between">
+                <span className="font-heading text-lg font-extrabold italic">Card {i + 1}</span>
+                <div className="flex items-center gap-4">
+                  {!expanded && (
+                    <button
+                      type="button"
+                      onClick={() => setReloadEditIdx(i)}
+                      className="text-sm font-bold text-[#00e2e5]"
+                    >
+                      Edit
+                    </button>
+                  )}
+                  {cards.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        removeCard(i);
+                        setReloadEditIdx(null);
+                      }}
+                      className="text-sm text-white/45"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {expanded ? (
+                <>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={c.accountNumber}
+                      onChange={(e) =>
+                        setCard(i, { accountNumber: e.target.value, status: "unverified" })
+                      }
+                      onBlur={() =>
+                        c.accountNumber.trim() && c.status === "unverified" && verify(i)
+                      }
+                      placeholder="Card number (scan or type)"
+                      className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => verify(i)}
+                      className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
+                    >
+                      {c.status === "verifying" ? "…" : "Check"}
+                    </button>
+                  </div>
+                  {c.status === "ok" && (
+                    <div className="mt-2 text-sm text-[#46d68c]">
+                      {c.holderName ? `${c.holderName} · ` : ""}balance {c.balance?.tokens ?? 0}{" "}
+                      tokens
+                    </div>
+                  )}
+                  {c.status === "bad" && (
+                    <div className="mt-2 text-sm text-red-300">
+                      Card not found — check the number.
+                    </div>
+                  )}
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {TOKEN_PACKAGES.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setCard(i, { packageId: p.id });
+                          // Collapse after picking IF the card is verified; keep it
+                          // open when the number still needs checking.
+                          if (c.status === "ok") setReloadEditIdx(null);
+                        }}
+                        className={`rounded-xl border-2 px-3 py-4 text-center ${
+                          c.packageId === p.id
+                            ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
+                            : "border-white/10 bg-white/[0.02] text-white/60"
+                        }`}
+                      >
+                        <TokenTileBody p={p} />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 text-lg font-semibold text-white/80">
+                  {c.accountNumber.trim() ? `#${c.accountNumber.trim()}` : "No card number"} ·{" "}
+                  {pkgLabel(c.packageId)}
+                  {c.status === "ok" ? (
+                    <span className="text-[#46d68c]"> · ✓</span>
+                  ) : (
+                    <span className="text-[#f0b341]"> · needs check</span>
+                  )}
+                </div>
               )}
             </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                inputMode="numeric"
-                value={c.accountNumber}
-                onChange={(e) =>
-                  setCard(i, { accountNumber: e.target.value, status: "unverified" })
-                }
-                onBlur={() => c.accountNumber.trim() && c.status === "unverified" && verify(i)}
-                placeholder="Card number (scan or type)"
-                className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => verify(i)}
-                className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
-              >
-                {c.status === "verifying" ? "…" : "Check"}
-              </button>
-            </div>
-            {c.status === "ok" && (
-              <div className="mt-2 text-sm text-[#46d68c]">
-                {c.holderName ? `${c.holderName} · ` : ""}balance {c.balance?.tokens ?? 0} tokens
-              </div>
-            )}
-            {c.status === "bad" && (
-              <div className="mt-2 text-sm text-red-300">Card not found — check the number.</div>
-            )}
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {TOKEN_PACKAGES.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setCard(i, { packageId: p.id })}
-                  className={`rounded-xl border-2 px-3 py-4 text-center ${
-                    c.packageId === p.id
-                      ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
-                      : "border-white/10 bg-white/[0.02] text-white/60"
-                  }`}
-                >
-                  <TokenTileBody p={p} />
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {cards.length < 10 && (
         <button
           type="button"
-          onClick={addCard}
+          onClick={() => {
+            addCard();
+            setReloadEditIdx(cards.length); // expand the newly added card
+          }}
           className="mt-4 w-full rounded-2xl border-2 border-dashed border-[#00e2e5]/40 px-5 py-4 font-bold text-[#00e2e5]"
         >
           + Add another card
