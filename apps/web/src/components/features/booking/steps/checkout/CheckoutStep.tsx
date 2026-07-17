@@ -1149,7 +1149,12 @@ export function CheckoutStep({
             contact,
             // A kiosk-reader card-on-file id (SAVE_CARD) charges as a source_id
             // with the customer set — same as a nonce for Square CreatePayment.
-            cardToken: params.cardNonce ?? params.savedCardId ?? undefined,
+            // Kiosk reader (SAVE_CARD → card-on-file id) charges via savedCardId.
+            // Gated to the reader path so WEB behavior is byte-identical to main
+            // (a web saved-card bowling deposit keeps its prior path — no
+            // untested web money change on merge).
+            cardToken:
+              params.cardNonce ?? (readerDeviceId ? (params.savedCardId ?? undefined) : undefined),
             giftCardNonce: params.giftCardNonce ?? undefined,
             sourceKind: params.sourceKind,
             saveCardConsent: params.saveCardConsent,

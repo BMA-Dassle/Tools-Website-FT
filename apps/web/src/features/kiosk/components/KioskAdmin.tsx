@@ -58,6 +58,35 @@ export function KioskAdmin() {
 
   const patch = (p: Partial<KioskConfig>) => setDraft((d) => ({ ...d, ...p }));
 
+  /** Persist the draft (+ optional change) to BOTH localStorage and Neon in one
+   *  step — so selecting a reader (or any change) actually saves, no separate
+   *  "go to Device tab and Save" trap (owner: settings didn't seem to save). */
+  const persist = async (extra: Partial<KioskConfig> = {}) => {
+    const merged = { ...draft, ...extra };
+    setDraft(merged);
+    const resolved = resolveKioskConfig(merged);
+    if (!resolved) {
+      setMsg("Pick a location on the Device tab first.");
+      return;
+    }
+    setConfig(resolved); // localStorage (fast boot) + notifies the store
+    const { ok } = await adminFetch(pin, "/api/kiosk/admin", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "save-config",
+        center: resolved.center,
+        brand: resolved.brand,
+        kioskNumber: resolved.kioskNumber,
+        config: resolved,
+      }),
+    });
+    setMsg(
+      ok
+        ? `Saved — kiosk ${kioskId(resolved)} (this device + cloud).`
+        : "Saved on this device; cloud save failed (check DB).",
+    );
+  };
+
   const tryAuth = async () => {
     setAuthError(null);
     // "devices" is a cheap authed GET — use it to validate the PIN.
@@ -129,6 +158,21 @@ export function KioskAdmin() {
           ))}
         </div>
 
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-2 text-xs text-white/55">
+          {config ? (
+            <>
+              Currently saved on this device:{" "}
+              <span className="font-semibold text-white/80">
+                {config.brand}/{config.center} #{config.kioskNumber ?? 1}
+              </span>{" "}
+              · {config.readerId ? `reader ${config.readerId}` : "no reader"} ·{" "}
+              {config.cardInputMethod ?? "manual"} · {config.variant}
+            </>
+          ) : (
+            "Nothing saved on this device yet — pick a location on the Device tab and Save."
+          )}
+        </div>
+
         {msg && (
           <div className="rounded-xl border border-[#00e2e5]/40 bg-[#00e2e5]/10 px-4 py-3 text-sm">
             {msg}
@@ -136,33 +180,7 @@ export function KioskAdmin() {
         )}
 
         {tab === "device" && (
-          <DeviceTab
-            draft={draft}
-            patch={patch}
-            onSave={async () => {
-              const resolved = resolveKioskConfig(draft);
-              if (!resolved) {
-                setMsg("Pick a location first.");
-                return;
-              }
-              setConfig(resolved); // localStorage (fast boot)
-              const { ok } = await adminFetch(pin, "/api/kiosk/admin", {
-                method: "POST",
-                body: JSON.stringify({
-                  action: "save-config",
-                  center: resolved.center,
-                  brand: resolved.brand,
-                  kioskNumber: resolved.kioskNumber,
-                  config: resolved,
-                }),
-              });
-              setMsg(
-                ok
-                  ? `Saved — kiosk ${kioskId(resolved)} (local + cloud).`
-                  : "Saved locally; cloud save failed.",
-              );
-            }}
-          />
+          <DeviceTab draft={draft} patch={patch} onSave={() => void persist()} />
         )}
 
         {tab === "readers" && (
@@ -171,10 +189,7 @@ export function KioskAdmin() {
             brand={draft.brand ?? "fasttrax"}
             selected={draft.readerId ?? null}
             pin={pin}
-            onSelect={(id) => {
-              patch({ readerId: id, cardInputMethod: "reader" });
-              setMsg(`Reader ${id} selected — save on the Device tab to persist.`);
-            }}
+            onSelect={(id) => void persist({ readerId: id, cardInputMethod: "reader" })}
             setMsg={setMsg}
           />
         )}
