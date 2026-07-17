@@ -12,8 +12,12 @@
  *
  * No booking/deposit money rail here — it's the straightforward game-card
  * purchase path used by the public /reload page, so it's safe to reuse as-is.
- * New physical cards need a dispenser (owner decision pending) — this screen
- * is reload/add-value, which needs no dispenser.
+ *
+ * NEW cards (1–10 in one order) run through the same UX — pick a package per
+ * card, pay, "dispense" — but the dispense is SIMULATED for now (owner
+ * 2026-07-18): no physical card is ejected and no real charge/account is
+ * created. Swap simDispense() for real create-account + purchase + hardware
+ * dispense once the dispenser + Intercard new-account issuance are wired.
  */
 import { useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
@@ -35,8 +39,20 @@ interface CartCard {
   holderName?: string;
 }
 
+/** A brand-new card being purchased (SIMULATED dispense — no account yet). */
+interface NewCard {
+  packageId: string;
+  simNumber?: string; // filled once the simulated dispense "prints" a number
+}
+
 type Phase = "cart" | "paying" | "loading" | "done" | "error";
 type Mode = "choose" | "reload" | "newcard";
+
+/** Plausible 16-digit card number for the simulated dispense — not a real Intercard account. */
+function mockCardNumber(i: number): string {
+  const digits = (7000000000000000 + i * 1234567).toString().slice(0, 16);
+  return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+}
 
 export function KioskGameZone({
   center,
@@ -53,9 +69,9 @@ export function KioskGameZone({
   ]);
   const [phase, setPhase] = useState<Phase>("cart");
   const [error, setError] = useState<string | null>(null);
-  // New-card (simulated): one package pick, no account number to verify.
-  const [newCardPkg, setNewCardPkg] = useState<string>(TOKEN_PACKAGES[1].id);
-  const [simCardNumber, setSimCardNumber] = useState<string>("");
+  // New-card (simulated): a cart of 1–10 fresh cards, each with its own package.
+  // No account number to verify — these don't exist until "dispensed."
+  const [newCards, setNewCards] = useState<NewCard[]>([{ packageId: TOKEN_PACKAGES[1].id }]);
   const locationCode = intercardLocationCode(center, brand);
 
   const totalCents = cards.reduce((sum, c) => {
@@ -63,6 +79,16 @@ export function KioskGameZone({
     return sum + (pkg?.priceCents ?? 0);
   }, 0);
   const allReady = cards.length > 0 && cards.every((c) => c.status === "ok" && c.packageId);
+
+  const newTotalCents = newCards.reduce((sum, c) => {
+    const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
+    return sum + (pkg?.priceCents ?? 0);
+  }, 0);
+  const setNewCard = (i: number, patch: Partial<NewCard>) =>
+    setNewCards((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  const addNewCard = () =>
+    setNewCards((cs) => (cs.length >= 10 ? cs : [...cs, { packageId: TOKEN_PACKAGES[1].id }]));
+  const removeNewCard = (i: number) => setNewCards((cs) => cs.filter((_, idx) => idx !== i));
 
   const setCard = (i: number, patch: Partial<CartCard>) =>
     setCards((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
@@ -101,25 +127,21 @@ export function KioskGameZone({
     );
   const removeCard = (i: number) => setCards((cs) => cs.filter((_, idx) => idx !== i));
 
-  // New card (SIMULATED dispense): full UX — pick package, pay, "dispense" — but
-  // no physical card is ejected and no real charge/account is created yet
-  // (owner 2026-07-18: build the full flow, simulate the dispense until the
-  // dispenser + Intercard new-account issuance are wired). Swap simDispense()
-  // for the real create-account + purchase + hardware dispense later.
-  const newCardPkgObj = TOKEN_PACKAGES.find((p) => p.id === newCardPkg) ?? TOKEN_PACKAGES[1];
+  // New card (SIMULATED dispense): full UX — pick packages, pay, "dispense" one
+  // card per package — but no physical card is ejected and no real charge/account
+  // is created yet (owner 2026-07-18: build the full flow, simulate the dispense
+  // until the dispenser + Intercard new-account issuance are wired). Swap
+  // simDispense() for the real create-account + purchase + hardware dispense later.
+  const newTokensTotal = newCards.reduce((sum, c) => {
+    const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
+    return sum + (pkg ? pkg.tokens + (pkg.bonusTokens || 0) : 0);
+  }, 0);
   const simDispense = async () => {
     setPhase("loading");
     setError(null);
-    // Simulate the dispense + activation delay.
+    // Simulate the dispense + activation delay, then "print" a number per card.
     await new Promise((r) => setTimeout(r, 1400));
-    // Mock a plausible new card number for the confirmation screen.
-    const n = Array.from({ length: 16 }, (_, i) => "seed".charCodeAt(i % 4) * (i + 7));
-    setSimCardNumber(
-      n
-        .map((x) => x % 10)
-        .join("")
-        .slice(0, 16),
-    );
+    setNewCards((cs) => cs.map((c, i) => ({ ...c, simNumber: mockCardNumber(i) })));
     setPhase("done");
   };
 
@@ -175,9 +197,9 @@ export function KioskGameZone({
             onClick={() => setMode("newcard")}
             className="rounded-3xl border border-[#f800c6]/40 bg-white/[0.03] p-8 text-left"
           >
-            <div className="font-heading text-3xl font-extrabold italic">New Game Zone card</div>
+            <div className="font-heading text-3xl font-extrabold italic">New Game Zone cards</div>
             <div className="mt-2 text-lg text-white/55">
-              Pick a token package — we&rsquo;ll set up a fresh card
+              Set up 1–10 fresh cards — pick a token package for each
             </div>
           </button>
           <button
@@ -200,7 +222,13 @@ export function KioskGameZone({
       <div className="flex h-full items-center justify-center py-16">
         <BrandedLoader
           brand={brand}
-          label={mode === "newcard" ? "Setting up your card…" : "Loading your tokens…"}
+          label={
+            mode === "newcard"
+              ? newCards.length > 1
+                ? "Setting up your cards…"
+                : "Setting up your card…"
+              : "Loading your tokens…"
+          }
           sublabel={
             mode === "newcard" ? "Dispensing (simulated)" : "Charging once, loading each card"
           }
@@ -210,22 +238,43 @@ export function KioskGameZone({
   }
 
   if (phase === "done") {
-    // New-card success (simulated dispense) shows the fresh card number.
+    // New-card success (simulated dispense) shows every fresh card number.
     if (mode === "newcard") {
       return (
-        <div className="mx-auto max-w-md py-16 text-center">
-          <div className="font-heading text-6xl font-extrabold italic">Card ready!</div>
+        <div className="mx-auto max-w-md py-12 text-center">
+          <div className="font-heading text-6xl font-extrabold italic">
+            {newCards.length === 1 ? "Card ready!" : "Cards ready!"}
+          </div>
           <p className="mt-4 text-lg text-white/60">
-            {newCardPkgObj.tokens + (newCardPkgObj.bonusTokens || 0)} tokens loaded.
+            {newTokensTotal} tokens across {newCards.length} card
+            {newCards.length > 1 ? "s" : ""}.
           </p>
-          <div className="mt-6 rounded-2xl border border-white/15 bg-white/[0.04] px-8 py-5">
-            <div className="font-heading text-xs font-bold uppercase tracking-[0.3em] text-white/45">
-              New card number
-            </div>
-            <div className="font-heading text-3xl font-extrabold tabular-nums">{simCardNumber}</div>
+          <div className="mt-6 space-y-3 text-left">
+            {newCards.map((c, i) => {
+              const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
+              const toks = pkg ? pkg.tokens + (pkg.bonusTokens || 0) : 0;
+              return (
+                <div
+                  key={i}
+                  className="flex items-center justify-between rounded-2xl border border-white/15 bg-white/[0.04] px-6 py-4"
+                >
+                  <div>
+                    <div className="font-heading text-[0.65rem] font-bold uppercase tracking-[0.3em] text-white/45">
+                      Card {i + 1}
+                    </div>
+                    <div className="font-heading text-xl font-extrabold tabular-nums">
+                      {c.simNumber}
+                    </div>
+                  </div>
+                  <div className="font-heading text-lg font-extrabold tabular-nums text-[#46d68c]">
+                    {toks} tk
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <p className="mt-4 text-sm text-amber-300">
-            Simulated dispense — grab your card from the attendant.
+            Simulated dispense — grab your card{newCards.length > 1 ? "s" : ""} from the attendant.
           </p>
           <button
             type="button"
@@ -255,12 +304,12 @@ export function KioskGameZone({
     );
   }
 
-  // ── New card (simulated) — pick a package, "pay & dispense" ──
+  // ── New cards (simulated) — add 1–10 cards, pick a package each, "pay & dispense" ──
   if (mode === "newcard") {
     return (
       <div className="mx-auto max-w-2xl px-2 py-6">
         <div className="mb-5 flex items-center justify-between">
-          <h1 className="font-heading text-4xl font-extrabold italic">New card</h1>
+          <h1 className="font-heading text-4xl font-extrabold italic">New cards</h1>
           <button
             type="button"
             onClick={() => setMode("choose")}
@@ -269,30 +318,67 @@ export function KioskGameZone({
             Back
           </button>
         </div>
-        <p className="mb-4 text-white/55">Pick a token package for the new card.</p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {TOKEN_PACKAGES.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setNewCardPkg(p.id)}
-              className={`rounded-xl border-2 px-3 py-4 text-center ${
-                newCardPkg === p.id
-                  ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
-                  : "border-white/10 bg-white/[0.02] text-white/60"
-              }`}
-            >
-              <div className="font-heading text-2xl font-extrabold tabular-nums">
-                {p.tokens}
-                {p.bonusTokens ? <span className="text-[#46d68c]"> +{p.bonusTokens}</span> : ""}
+        <p className="mb-5 text-white/55">
+          Add a card for everyone in your group and pick each one&rsquo;s token package. One payment
+          covers them all.
+        </p>
+
+        <div className="space-y-4">
+          {newCards.map((c, i) => (
+            <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="font-heading text-lg font-extrabold italic">Card {i + 1}</span>
+                {newCards.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeNewCard(i)}
+                    className="text-sm text-white/45"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
-              <div className="text-xs text-white/45">${(p.priceCents / 100).toFixed(0)}</div>
-            </button>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {TOKEN_PACKAGES.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setNewCard(i, { packageId: p.id })}
+                    className={`rounded-xl border-2 px-3 py-3 text-center ${
+                      c.packageId === p.id
+                        ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
+                        : "border-white/10 bg-white/[0.02] text-white/60"
+                    }`}
+                  >
+                    <div className="font-heading text-xl font-extrabold tabular-nums">
+                      {p.tokens}
+                      {p.bonusTokens ? (
+                        <span className="text-[#46d68c]"> +{p.bonusTokens}</span>
+                      ) : (
+                        ""
+                      )}
+                    </div>
+                    <div className="text-xs text-white/45">${(p.priceCents / 100).toFixed(0)}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
+
+        {newCards.length < 10 && (
+          <button
+            type="button"
+            onClick={addNewCard}
+            className="mt-4 w-full rounded-2xl border-2 border-dashed border-[#f800c6]/40 px-5 py-4 font-bold text-[#f800c6]"
+          >
+            + Add another card
+          </button>
+        )}
+
         <div className="mt-6 flex items-center justify-between rounded-2xl border border-[#00e2e5]/35 bg-white/[0.04] px-6 py-4">
           <div className="font-heading text-2xl font-extrabold tabular-nums">
-            ${(newCardPkgObj.priceCents / 100).toFixed(2)}
+            ${(newTotalCents / 100).toFixed(2)}
           </div>
           <button
             type="button"
