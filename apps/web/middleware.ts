@@ -496,6 +496,19 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // In-center self-service kiosk — chrome-free, brand comes from the device
+  // config (not the host), serves identically on BOTH domains. Early return
+  // so no rewrite/redirect logic below can touch it. x-kiosk lets the root
+  // layout drop MiniCarts + analytics (staff/guest shared device).
+  if (pathname === "/kiosk" || pathname.startsWith("/kiosk/")) {
+    const kioskHeaders = new Headers(request.headers);
+    kioskHeaders.set("x-no-chrome", "1");
+    kioskHeaders.set("x-no-mobile-bar", "1");
+    kioskHeaders.set("x-kiosk", "1");
+    if (isHeadPinz) kioskHeaders.set("x-brand", "headpinz");
+    return NextResponse.next({ request: { headers: kioskHeaders } });
+  }
+
   // Root-level metadata / static paths that must bypass the /hp rewrite.
   // Without this, Next.js serves /hp/robots.txt → 404 for crawlers hitting
   // headpinz.com/robots.txt. Same story for sitemap, favicon, manifest,
@@ -565,7 +578,12 @@ export async function middleware(request: NextRequest) {
     // Public game-card reload flow — QR scans land here on headpinz.com; brand
     // chrome is host-aware. Without this the /hp rewrite 404s it on HeadPinz.
     pathname === "/reload" ||
-    pathname.startsWith("/reload/");
+    pathname.startsWith("/reload/") ||
+    // In-center kiosk (defensive — the early-return block above normally
+    // handles /kiosk before we get here; this keeps a future reorder from
+    // /hp-rewriting the kiosk into a 404).
+    pathname === "/kiosk" ||
+    pathname.startsWith("/kiosk/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&

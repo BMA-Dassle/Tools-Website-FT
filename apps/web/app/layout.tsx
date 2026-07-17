@@ -242,24 +242,29 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // Cross-brand pages (e.g. the /july4 promo landing) carry their own self-
   // contained hero + logos and want NO site nav/footer on either domain.
   const noChrome = hdrs.get("x-no-chrome") === "1";
+  // In-center kiosk (/kiosk/*): shared public device — no carts, no GA/Ads
+  // (attribution comes from bookingSource="kiosk" on the reservation instead).
+  const isKiosk = hdrs.get("x-kiosk") === "1";
   const showChrome = !isHeadPinz && !isAdmin && !noChrome;
   const showHpChrome = isHeadPinz && !isAdmin && !noHpChrome && !noChrome;
   const showMobileBar = showChrome && !noMobileBar;
   const showHpMobileBar = showHpChrome && !noMobileBar;
   // GA4 measurement ID, brand-aware. Admin routes opt out (PII / staff
   // tools). Falsy ID short-circuits the GoogleAnalytics component.
-  const gaId = isAdmin
-    ? undefined
-    : isHeadPinz
-      ? process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_HP
-      : process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_FT;
+  const gaId =
+    isAdmin || isKiosk
+      ? undefined
+      : isHeadPinz
+        ? process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_HP
+        : process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID_FT;
   // Google Ads conversion tag — FastTrax only (the HP campaigns run separately
   // from a different account, and admin routes always opt out of tracking).
   // Lives alongside GA4: both use gtag.js, but configured for different
   // products. Loading gtag.js twice is the canonical Google "multiple
   // products" pattern — the script is idempotent on dataLayer.
   // Env: NEXT_PUBLIC_GOOGLE_ADS_ID_FT, e.g. "AW-18178586532".
-  const adsId = isAdmin || isHeadPinz ? undefined : process.env.NEXT_PUBLIC_GOOGLE_ADS_ID_FT;
+  const adsId =
+    isAdmin || isKiosk || isHeadPinz ? undefined : process.env.NEXT_PUBLIC_GOOGLE_ADS_ID_FT;
 
   return (
     <html
@@ -274,8 +279,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       >
         {showChrome && <Nav />}
         {showHpChrome && <HeadPinzNav />}
-        {!isAdmin && <MiniCart />}
-        {!isAdmin && <MiniCartV2 />}
+        {!isAdmin && !isKiosk && <MiniCart />}
+        {!isAdmin && !isKiosk && <MiniCartV2 />}
         <main>{children}</main>
         {showChrome && <Footer />}
         {showHpChrome && <HeadPinzFooter />}

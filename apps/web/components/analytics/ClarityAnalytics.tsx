@@ -29,7 +29,15 @@ export default function ClarityAnalytics() {
   useEffect(() => {
     // Never record /admin (staff PII views) or /account (customer subscription
     // + card last4 are rendered text — Strict input-masking does NOT hide them).
-    if (!pathname || pathname.startsWith("/admin") || pathname.startsWith("/account")) return;
+    // /kiosk is excluded too: a shared in-center device would flood Clarity
+    // with junk always-on sessions and capture bystander interactions.
+    if (
+      !pathname ||
+      pathname.startsWith("/admin") ||
+      pathname.startsWith("/account") ||
+      pathname.startsWith("/kiosk")
+    )
+      return;
     if (typeof window === "undefined") return;
 
     const win = window as unknown as {
