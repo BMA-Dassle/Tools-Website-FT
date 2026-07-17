@@ -116,14 +116,24 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           className="h-[13vh] w-auto object-contain [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
           draggable={false}
         />
-        <div className="font-heading bg-gradient-to-r from-[#f5ecee] from-55% to-[#00e2e5] bg-clip-text text-[13vh] font-extrabold italic leading-none text-transparent">
-          Let&rsquo;s play.
-        </div>
+        {config.variant === "pitcrew" ? (
+          <div className="font-heading text-[10vh] font-extrabold italic leading-[0.98]">
+            Hi there.
+            <br />
+            <span className="text-[#00e2e5]">Ready to play?</span>
+          </div>
+        ) : (
+          <div className="font-heading bg-gradient-to-r from-[#f5ecee] from-55% to-[#00e2e5] bg-clip-text text-[13vh] font-extrabold italic leading-none text-transparent">
+            Let&rsquo;s play.
+          </div>
+        )}
         <div className="max-w-[24ch] text-[2.6vh] text-white/55">
-          Book racing, bowling &amp; attractions right here — takes about a minute.
+          {config.variant === "pitcrew"
+            ? "I'll walk you through it — one quick question at a time."
+            : "Book racing, bowling & attractions right here — takes about a minute."}
         </div>
         <span className="kiosk-pulse font-heading grid h-[10.5vh] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[3.6vh] font-extrabold uppercase italic tracking-wide text-[#04252b]">
-          Touch to get started
+          {config.variant === "pitcrew" ? "Let's go" : "Touch to get started"}
         </span>
         <span className="flex flex-wrap items-center justify-center gap-3">
           <QuickChip label="Race now" onClick={() => start("race")} />

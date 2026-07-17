@@ -59,6 +59,7 @@ import { KioskCategories } from "./KioskCategories";
 import { IdleWatcher } from "./IdleWatcher";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
+import { KIOSK_PHOTOS } from "../assets";
 
 /** Walk-up device: every dated item starts on today (kiosk drops date steps). */
 function stampToday(item: SessionItem): SessionItem {
@@ -537,8 +538,44 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     advanceToNextStep();
   };
 
+  // ── Pit Crew variant: photo backdrop + left progress rail + question-style
+  // header over the SAME shared step components (presentation-only diff).
+  const isPitcrew = config.variant === "pitcrew";
+  const backdropPhoto = (() => {
+    if (activeItem.kind === "race") return KIOSK_PHOTOS.race;
+    if (activeItem.kind === "bowling") return KIOSK_PHOTOS.bowl;
+    if (activeItem.kind === "kbf") return KIOSK_PHOTOS.kbf;
+    const slug = (activeItem as AttractionItem).slug ?? "";
+    if (slug === "gel-blaster") return KIOSK_PHOTOS.gel;
+    if (slug === "laser-tag") return KIOSK_PHOTOS.laser;
+    if (slug === "duck-pin") return KIOSK_PHOTOS.duck;
+    if (slug === "shuffly") return KIOSK_PHOTOS.shuf;
+    return KIOSK_PHOTOS.race;
+  })();
+
   return chrome(
-    <div className="mx-auto max-w-4xl px-4 pb-8">
+    <div className={`relative mx-auto max-w-4xl px-4 pb-8 ${isPitcrew ? "pl-16" : ""}`}>
+      {isPitcrew && (
+        <>
+          {/* Blurred activity photo backdrop (fixed, behind everything) */}
+          <div className="pointer-events-none fixed inset-0 -z-10" aria-hidden="true">
+            <div
+              className="absolute -inset-[4%] bg-cover bg-center [filter:blur(7px)_saturate(0.6)_brightness(0.55)]"
+              style={{ backgroundImage: `url(${backdropPhoto})` }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#000418] from-[22%] via-[#000418]/90 to-[#020a22]/80" />
+          </div>
+          {/* Left progress rail */}
+          <div className="pointer-events-none fixed bottom-[12vh] left-4 top-[16vh] z-20 flex w-8 flex-col items-center">
+            <div className="relative w-1.5 flex-1 rounded-full bg-white/10">
+              <div
+                className="absolute inset-x-0 top-0 rounded-full bg-[#00e2e5] shadow-[0_0_14px_rgba(0,226,229,0.5)]"
+                style={{ height: `${((stepIndex + 1) / steps.length) * 100}%` }}
+              />
+            </div>
+          </div>
+        </>
+      )}
       {/* Kiosk step header: progress segments + hold timer */}
       <div className="sticky top-0 z-30 -mx-4 border-b border-white/10 bg-[#000418]/95 px-4 pb-3 pt-5 backdrop-blur">
         <div className="flex items-center justify-between gap-4">
@@ -574,6 +611,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         </div>
       </div>
 
+      {isPitcrew && (
+        <div className="font-heading pt-8 text-6xl font-extrabold italic leading-none">
+          {currentStep.title}.
+        </div>
+      )}
       <div className="pt-6">
         <currentStep.Component
           item={activeItem}
