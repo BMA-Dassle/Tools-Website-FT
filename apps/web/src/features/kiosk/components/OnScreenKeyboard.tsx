@@ -135,7 +135,11 @@ export function OnScreenKeyboardHost() {
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-[70] border-t border-white/10 bg-[#060d22]/97 px-[2%] pb-[1.6%] pt-[1.2%] backdrop-blur-xl"
+      // z-[90]: ABOVE the in-flow modals (DOB prompt z-75, waiver sheet z-76) so
+      // the keyboard is never hidden behind a modal on those typing steps — the
+      // "missing keyboard on several steps" bug. It docks over the modal's
+      // bottom, which is where a bottom-sheet keyboard belongs.
+      className="fixed inset-x-0 bottom-0 z-[90] border-t border-white/10 bg-[#060d22]/97 px-[2%] pb-[1.6%] pt-[1.2%] backdrop-blur-xl"
       // Keep focus in the field: the keyboard itself is never focusable.
       onPointerDown={(e) => e.preventDefault()}
     >

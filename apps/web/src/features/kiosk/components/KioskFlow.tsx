@@ -166,7 +166,12 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, config]);
 
-  /** Release every vendor hold, wipe the guest session + PII, back to attract. */
+  /** Release every vendor hold, wipe the guest session + PII, back to attract.
+   *  Soft-navigate (NOT window.location) so the fullscreen the guest engaged
+   *  survives — a hard reload drops fullscreen and the browser won't re-enter
+   *  without a fresh tap (the "Start Over loses fullscreen" bug). State is
+   *  still clean between guests: KioskFlow unmounts on the route change and the
+   *  reducer re-inits from the sessionStorage we just cleared. */
   const handleStartOver = useCallback(async () => {
     setResetting(true);
     try {
@@ -175,8 +180,8 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       /* best-effort — BMI bills self-expire in ~20 min as the backstop */
     }
     clearBookingSession(KIOSK_SESSION_STORAGE_KEY);
-    window.location.href = "/kiosk"; // full reload = zero React state carryover between guests
-  }, [session]);
+    router.replace("/kiosk");
+  }, [session, router]);
 
   const handleReservationExpired = useCallback(() => setReservationExpired(true), []);
   const handleExtendReservation = useCallback(async (): Promise<boolean> => {

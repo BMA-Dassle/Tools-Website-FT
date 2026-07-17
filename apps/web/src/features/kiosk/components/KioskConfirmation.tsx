@@ -11,6 +11,7 @@
  * keep a stable seam for the bowl-now live-lane display to hook into.
  */
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_LOGOS } from "../assets";
 
@@ -27,6 +28,7 @@ function codeFromSrc(src: string | null): string | null {
 }
 
 export function KioskConfirmation({ src }: { src: string | null }) {
+  const router = useRouter();
   const { config } = useKioskConfig();
   const [secondsLeft, setSecondsLeft] = useState(AUTO_RESET_SECONDS);
   const code = codeFromSrc(src);
@@ -36,7 +38,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       setSecondsLeft((s) => {
         if (s <= 1) {
           clearInterval(iv);
-          window.location.href = "/kiosk";
+          router.replace("/kiosk"); // soft nav keeps fullscreen (see KioskFlow.handleStartOver)
           return 0;
         }
         return s - 1;
@@ -48,7 +50,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       clearInterval(iv);
       document.removeEventListener("pointerdown", onTouch);
     };
-  }, []);
+  }, [router]);
 
   return (
     <div className="relative flex h-screen w-screen flex-col items-center justify-center gap-8 overflow-hidden bg-[#000418] px-10 text-center">
@@ -90,9 +92,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       ) : null}
       <button
         type="button"
-        onClick={() => {
-          window.location.href = "/kiosk";
-        }}
+        onClick={() => router.replace("/kiosk")}
         className="font-heading relative mt-4 h-[9vh] w-full max-w-[70%] rounded-full bg-[#00e2e5] text-[3vh] font-extrabold uppercase italic tracking-wide text-[#04252b]"
       >
         Done — start over
