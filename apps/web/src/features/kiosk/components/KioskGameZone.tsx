@@ -408,7 +408,7 @@ export function KioskGameZone({
 
   if (phase === "paying") {
     return (
-      <div className="mx-auto max-w-md py-8">
+      <div className="mx-auto max-w-md py-8 kiosk-zoom">
         <div className="mb-6 text-center">
           <div className="font-heading text-3xl font-extrabold italic">
             Pay ${(totalCents / 100).toFixed(2)}
