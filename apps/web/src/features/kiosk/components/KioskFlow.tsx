@@ -436,7 +436,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // ── Game Zone (multi-card token reload — its own money rail, not booking) ──
   if (gzOpen) {
     return chrome(
-      <div ref={contentRef} className="flex min-h-0 flex-1 flex-col">
+      <div ref={contentRef} className="k-flow-body">
         <KioskGameZone
           center={config.center}
           brand={config.brand}

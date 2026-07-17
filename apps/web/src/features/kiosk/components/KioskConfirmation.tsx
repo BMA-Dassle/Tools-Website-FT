@@ -12,6 +12,7 @@
  */
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_LOGOS } from "../assets";
 
@@ -31,7 +32,23 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   const router = useRouter();
   const { config } = useKioskConfig();
   const [secondsLeft, setSecondsLeft] = useState(AUTO_RESET_SECONDS);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const code = codeFromSrc(src);
+
+  // Encode the booking code as a QR so staff can scan it at check-in (the SMS +
+  // email carry the full link; this is the on-screen fallback).
+  useEffect(() => {
+    if (!code) return;
+    let cancelled = false;
+    QRCode.toDataURL(code, { width: 360, margin: 1, color: { dark: "#04252b", light: "#ffffff" } })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
 
   useEffect(() => {
     const iv = setInterval(() => {
@@ -53,7 +70,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   }, [router]);
 
   return (
-    <div className="relative flex h-screen w-screen flex-col items-center justify-center gap-8 overflow-hidden bg-[#000418] px-10 text-center">
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-[36px] overflow-hidden bg-[#000418] px-[64px] text-center">
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -75,36 +92,38 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         <circle cx="12" cy="12" r="10" />
         <path d="m7.5 12.5 3 3 6-7" />
       </svg>
-      <h1 className="font-heading relative text-[9vh] font-extrabold italic leading-none">
-        You&rsquo;re booked.
-      </h1>
-      <p className="relative max-w-[30ch] text-[2.6vh] text-white/60">
+      <h1 className="k-display relative text-[124px] leading-none">You&rsquo;re booked.</h1>
+      <p className="relative max-w-[30ch] text-[34px] text-white/60">
         Your confirmation and check-in links were just texted and emailed to you — that&rsquo;s your
         ticket, nothing to print.
       </p>
+      {qrDataUrl ? (
+        <div className="relative rounded-[24px] bg-white p-[20px]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qrDataUrl} alt="Check-in code" width={300} height={300} className="block" />
+        </div>
+      ) : null}
       {code ? (
-        <div className="relative rounded-2xl border border-white/15 bg-white/[0.04] px-10 py-5">
-          <div className="font-heading text-[1.6vh] font-bold uppercase tracking-[0.3em] text-white/45">
-            Booking code
-          </div>
-          <div className="font-heading text-[5vh] font-extrabold tracking-widest">{code}</div>
+        <div className="relative rounded-[24px] border border-white/15 bg-white/[0.04] px-[48px] py-[24px]">
+          <div className="k-eyebrow text-white/45">Booking code</div>
+          <div className="k-display text-[64px] tracking-widest">{code}</div>
         </div>
       ) : null}
       <button
         type="button"
         onClick={() => router.replace("/kiosk")}
-        className="font-heading relative mt-4 h-[9vh] w-full max-w-[70%] rounded-full bg-[#00e2e5] text-[3vh] font-extrabold uppercase italic tracking-wide text-[#04252b]"
+        className="k-btn-primary k-tap relative mt-[16px] w-full max-w-[70%] text-[36px]"
       >
         Done — start over
       </button>
-      <p className="relative text-[1.9vh] text-white/40 tabular-nums">
+      <p className="relative text-[24px] text-white/40 tabular-nums">
         Returning to start in {secondsLeft}s — touch anywhere to stay
       </p>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={KIOSK_LOGOS[config?.brand ?? "fasttrax"]}
         alt=""
-        className="relative h-[5vh] opacity-70"
+        className="relative h-[52px] opacity-70"
         draggable={false}
       />
     </div>
