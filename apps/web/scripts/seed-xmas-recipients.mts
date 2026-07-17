@@ -20,8 +20,11 @@ const DRY = process.argv.includes("--dry-run");
 const DATA = resolve(process.cwd(), "scripts/.data/xmas-recipients.json");
 
 const redis = (await import("@/lib/redis")).default;
-const { seedRecipient } = await import("@/lib/xmas-blast");
 import type { XmasSegment, XmasRecipient } from "@/lib/xmas-blast";
+
+const AUDIENCE_TTL = 60 * 60 * 24 * 30; // keep in sync with lib/xmas-blast.ts
+const idxKey = (s: XmasSegment) => `xmasblast:idx:${s}`;
+const recKey = (e: string) => `xmasblast:rec:${e.toLowerCase()}`;
 
 interface Row {
   segment: string;
@@ -35,6 +38,7 @@ const rows = JSON.parse(readFileSync(DATA, "utf8")) as Row[];
 
 const seen: Record<XmasSegment, Set<string>> = { naples: new Set(), fortmyers: new Set() };
 const withPhone: Record<XmasSegment, number> = { naples: 0, fortmyers: 0 };
+const toSeed: XmasRecipient[] = [];
 let skipped = 0;
 let seeded = 0;
 
@@ -53,15 +57,33 @@ for (const row of rows) {
   if (row.phone && row.phone.trim()) withPhone[seg]++;
 
   if (!DRY) {
-    const rec: XmasRecipient = {
+    toSeed.push({
       email,
       name: (row.name || "").trim(),
       phone: (row.phone || "").trim(),
       segment: seg,
-    };
-    await seedRecipient(rec);
-    seeded++;
+    });
   }
+}
+
+// Pipelined write — batches thousands of ops into a handful of round-trips.
+if (!DRY && toSeed.length) {
+  const CHUNK = 400;
+  for (let i = 0; i < toSeed.length; i += CHUNK) {
+    const batch = toSeed.slice(i, i + CHUNK);
+    const pipe = redis.pipeline();
+    for (const r of batch) {
+      pipe.sadd(idxKey(r.segment), r.email);
+      pipe.set(recKey(r.email), JSON.stringify(r), "EX", AUDIENCE_TTL);
+    }
+    await pipe.exec();
+    seeded += batch.length;
+    console.log(`  seeded ${seeded}/${toSeed.length}`);
+  }
+  const pipe2 = redis.pipeline();
+  pipe2.expire(idxKey("naples"), AUDIENCE_TTL);
+  pipe2.expire(idxKey("fortmyers"), AUDIENCE_TTL);
+  await pipe2.exec();
 }
 
 console.log(DRY ? "[DRY RUN — nothing written]" : "[SEEDED]");
