@@ -57,7 +57,20 @@ function scoreSearchResult(desc: string): number {
   return s;
 }
 
-async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
+interface SearchCandidate {
+  localId: string;
+  description: string;
+  score: number;
+}
+
+/**
+ * SECURITY (2026-07-18): the lookup is split so NO PII is fetched before the
+ * OTP verifies. searchCandidates() only hits the (rate-limited) search
+ * action; fetchAccountDetails() runs AFTER /api/sms-verify PUT succeeds and
+ * carries the verified identifier (`verify=phone:…|email:…`) or the typed
+ * login code (`code=…`) so the server-side gate on person/deposits admits it.
+ */
+async function searchCandidates(query: string): Promise<SearchCandidate[]> {
   const searchRes = await fetch(
     `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
   );
@@ -67,7 +80,7 @@ async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
     description: string;
   }>;
 
-  const byName = new Map<string, { localId: string; description: string; score: number }>();
+  const byName = new Map<string, SearchCandidate>();
   for (const r of results) {
     const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
     const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
@@ -77,12 +90,22 @@ async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
       byName.set(name, { localId: r.localId, description: r.description, score });
     }
   }
+  return [...byName.values()].slice(0, 10);
+}
 
-  const unique = [...byName.values()].slice(0, 10);
+async function fetchAccountDetails(
+  unique: SearchCandidate[],
+  proof: { verify?: string; code?: string },
+): Promise<FoundAccount[]> {
+  const proofQs = proof.verify
+    ? `&verify=${encodeURIComponent(proof.verify)}`
+    : proof.code
+      ? `&code=${encodeURIComponent(proof.code)}`
+      : "";
   const details = await Promise.all(
     unique.map(async (r) => {
       try {
-        const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
+        const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}${proofQs}`);
         if (!res.ok) return null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = (await res.json()) as any;
@@ -101,7 +124,7 @@ async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
 
         let creditBalances: FoundAccount["creditBalances"] = [];
         try {
-          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
+          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}${proofQs}`);
           if (depRes.ok) {
             creditBalances = creditBalancesFromDeposits(await depRes.json());
           }
@@ -151,6 +174,9 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
   const [smsError, setSmsError] = useState("");
   const [codeError, setCodeError] = useState("");
   const [accounts, setAccounts] = useState<FoundAccount[]>([]);
+  // Search hits held between "code sent" and "code verified" — PII details
+  // are only fetched once the OTP verifies (server enforces this too).
+  const [candidates, setCandidates] = useState<SearchCandidate[]>([]);
 
   const autoCodeUsed = useRef(false);
 
@@ -196,12 +222,12 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
     setPhase("looking");
     setSmsError("");
     try {
-      const found = await searchAndFetchAccounts(digits);
+      const found = await searchCandidates(digits);
       if (found.length === 0) {
         setPhase("not-found");
         return;
       }
-      setAccounts(found);
+      setCandidates(found);
       const smsRes = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -226,12 +252,12 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
     setPhase("looking");
     setSmsError("");
     try {
-      const found = await searchAndFetchAccounts(trimmed);
+      const found = await searchCandidates(trimmed);
       if (found.length === 0) {
         setPhase("not-found");
         return;
       }
-      setAccounts(found);
+      setCandidates(found);
       const otpRes = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -268,6 +294,19 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
       });
       const data = await res.json();
       if (data.verified) {
+        // Verified — NOW fetch the account details (PII) with proof attached.
+        setPhase("verifying");
+        const proof =
+          mode === "phone"
+            ? { verify: `phone:${phone.replace(/\D/g, "").replace(/^1/, "")}` }
+            : { verify: `email:${email.trim().toLowerCase()}` };
+        const found = await fetchAccountDetails(candidates, proof);
+        if (found.length === 0) {
+          setSmsError("We couldn't load that account — please try again.");
+          setPhase("sms-sent");
+          return;
+        }
+        setAccounts(found);
         setPhase("phone-verified");
       } else {
         setSmsError(data.error || "Incorrect code");
@@ -293,7 +332,9 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
       );
       const results = (await searchRes.json()) as Array<{ localId: string; description: string }>;
       if (Array.isArray(results) && results.length > 0) {
-        const detailRes = await fetch(`/api/bmi-office?action=person&id=${results[0].localId}`);
+        const detailRes = await fetch(
+          `/api/bmi-office?action=person&id=${results[0].localId}&code=${encodeURIComponent(trimmed)}`,
+        );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = (await detailRes.json()) as any;
         const tags = (p.tags || []).sort((a: { lastSeen?: string }, b: { lastSeen?: string }) =>

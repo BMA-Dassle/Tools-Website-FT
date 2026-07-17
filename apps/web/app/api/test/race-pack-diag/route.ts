@@ -61,7 +61,9 @@ function baseUrl(req: NextRequest) {
 }
 
 async function depositSnapshot(base: string, personId: string) {
-  const res = await fetch(`${base}/api/bmi-office?action=deposits&personId=${personId}`);
+  const res = await fetch(`${base}/api/bmi-office?action=deposits&personId=${personId}`, {
+    headers: { "x-internal-key": process.env.CRON_SECRET ?? "" },
+  });
   if (!res.ok) return { error: `deposit history HTTP ${res.status}` };
   const json = await res.json();
   // history is usually an array of entries

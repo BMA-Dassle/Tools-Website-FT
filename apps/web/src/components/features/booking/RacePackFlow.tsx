@@ -61,6 +61,12 @@ export function RacePackFlow() {
   // Recipient identity
   const [racerMode, setRacerMode] = useState<"lookup" | "new">("lookup");
   const [lookupInput, setLookupInput] = useState("");
+  // SECURITY (2026-07-18): PII (account details/credits) only loads AFTER an
+  // OTP verifies — /api/bmi-office enforces this server-side. Search hits
+  // wait here between "code sent" and "code verified".
+  const [otpPhase, setOtpPhase] = useState<"none" | "sent">("none");
+  const [otpCode, setOtpCode] = useState("");
+  const [pendingIds, setPendingIds] = useState<Array<{ localId: string }>>([]);
   const [looking, setLooking] = useState(false);
   const [searchResults, setSearchResults] = useState<FoundAccount[]>([]);
   const [recipient, setRecipient] = useState<FoundAccount | null>(null);
@@ -89,100 +95,188 @@ export function RacePackFlow() {
   const total = selectedPack ? calculateTotal(selectedPack.price) : 0;
   const packLabel = selectedPack ? racePackLabel(selectedPack) : "";
 
-  // ── Returning-racer search (trimmed from v1 searchAndFetchAccounts) ──────
+  // ── Returning-racer lookup ───────────────────────────────────────────────
+  // Order (security 2026-07-18): search (rate-limited, no PII) → OTP to the
+  // typed phone/email → verify → fetch details WITH proof. A typed login
+  // code skips OTP: the server only returns the person whose BMI tag matches
+  // the code (the code IS the secret, enforced server-side).
+
+  function dedupeSearch(results: { localId: string; description: string }[]) {
+    const scoreDesc = (d: string): number =>
+      (/\(\d/.test(d) ? 100 : 0) +
+      (d.includes("Memberships:") ? 50 : 0) +
+      (d.includes("zip:") ? 25 : 0) +
+      (d.includes("Last seen:") ? 10 : 0);
+    const byName = new Map<string, { localId: string; score: number }>();
+    for (const r of results) {
+      const m = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
+      const name = m ? m[1].trim() : r.description.split(" phone:")[0].trim();
+      const score = scoreDesc(r.description);
+      const ex = byName.get(name);
+      if (!ex || score > ex.score) byName.set(name, { localId: r.localId, score });
+    }
+    return [...byName.values()].slice(0, 8);
+  }
+
+  async function fetchDetails(
+    ids: Array<{ localId: string }>,
+    proofQs: string,
+  ): Promise<FoundAccount[]> {
+    const details = await Promise.all(
+      ids.map(async (r): Promise<FoundAccount | null> => {
+        try {
+          const p = await (
+            await fetch(`/api/bmi-office?action=person&id=${r.localId}${proofQs}`)
+          ).json();
+          const memberships: string[] = (p.memberships || [])
+            .filter(
+              (m: { stops: string; name: string }) =>
+                (!m.stops || new Date(m.stops) > new Date()) && isRelevantMembership(m.name),
+            )
+            .map((m: { name: string }) => m.name)
+            .filter((n: string, i: number, arr: string[]) => arr.indexOf(n) === i);
+          let creditBalances: { kind: string; balance: number }[] = [];
+          try {
+            const depRes = await fetch(
+              `/api/bmi-office?action=deposits&personId=${p.id}${proofQs}`,
+            );
+            if (depRes.ok) {
+              const deposits: { depositKind: string; balance: number }[] = await depRes.json();
+              creditBalances = deposits
+                .filter(
+                  (d) =>
+                    d.balance > 0 &&
+                    (d.depositKind.toLowerCase().includes("credit") ||
+                      d.depositKind.toLowerCase().includes("pass")),
+                )
+                .map((d) => ({ kind: d.depositKind, balance: d.balance }));
+            }
+          } catch {
+            /* deposits are best-effort */
+          }
+          const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
+            (b.lastSeen || "").localeCompare(a.lastSeen || ""),
+          );
+          return {
+            personId: String(p.id),
+            fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
+            email: p.addresses?.[0]?.email || "",
+            lastSeen: p.lastLineUp
+              ? new Date(p.lastLineUp).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : "",
+            loginCode: tags[0]?.tag || "",
+            races: tags.length,
+            memberships,
+            creditBalances,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return details
+      .filter((d): d is FoundAccount => d !== null)
+      .sort((a, b) => {
+        if (a.memberships.length !== b.memberships.length)
+          return b.memberships.length - a.memberships.length;
+        return (b.lastSeen || "").localeCompare(a.lastSeen || "");
+      })
+      .slice(0, 5);
+  }
+
   async function runSearch() {
     const query = lookupInput.trim();
     if (!query) return;
     setError("");
+    setOtpPhase("none");
+    setOtpCode("");
+    setSearchResults([]);
     setLooking(true);
     try {
+      const digits = query.replace(/\D/g, "").replace(/^1/, "");
+      const isPhone = digits.length === 10 && /^[\d\s()+.-]+$/.test(query);
+      const isEmail = query.includes("@");
+
       const res = await fetch(
-        `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
+        `/api/bmi-office?action=search&q=${encodeURIComponent(isPhone ? digits : query)}&max=500`,
       );
       const results = await res.json();
       if (!Array.isArray(results) || results.length === 0) {
-        setSearchResults([]);
         setError("No accounts found. Add as a new racer below.");
         return;
       }
-      // Dedupe per name, keeping the richest description (v1 scoring heuristic).
-      const scoreDesc = (d: string): number =>
-        (/\(\d/.test(d) ? 100 : 0) +
-        (d.includes("Memberships:") ? 50 : 0) +
-        (d.includes("zip:") ? 25 : 0) +
-        (d.includes("Last seen:") ? 10 : 0);
-      const byName = new Map<string, { localId: string; score: number }>();
-      for (const r of results as { localId: string; description: string }[]) {
-        const m = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-        const name = m ? m[1].trim() : r.description.split(" phone:")[0].trim();
-        const score = scoreDesc(r.description);
-        const ex = byName.get(name);
-        if (!ex || score > ex.score) byName.set(name, { localId: r.localId, score });
+      const ids = dedupeSearch(results as { localId: string; description: string }[]);
+
+      if (isPhone || isEmail) {
+        // Send the OTP first — details load only after it verifies.
+        setPendingIds(ids);
+        const otpRes = await fetch("/api/sms-verify", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(isPhone ? { phone: digits } : { email: query.toLowerCase() }),
+        });
+        const otpData = await otpRes.json();
+        if (!otpData.sent) {
+          setError(otpData.error || "Couldn't send a verification code. Try again.");
+          return;
+        }
+        setOtpPhase("sent");
+        return;
       }
-      const details = await Promise.all(
-        [...byName.values()].slice(0, 8).map(async (r): Promise<FoundAccount | null> => {
-          try {
-            const p = await (await fetch(`/api/bmi-office?action=person&id=${r.localId}`)).json();
-            const memberships: string[] = (p.memberships || [])
-              .filter(
-                (m: { stops: string; name: string }) =>
-                  (!m.stops || new Date(m.stops) > new Date()) && isRelevantMembership(m.name),
-              )
-              .map((m: { name: string }) => m.name)
-              .filter((n: string, i: number, arr: string[]) => arr.indexOf(n) === i);
-            let creditBalances: { kind: string; balance: number }[] = [];
-            try {
-              const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
-              if (depRes.ok) {
-                const deposits: { depositKind: string; balance: number }[] = await depRes.json();
-                creditBalances = deposits
-                  .filter(
-                    (d) =>
-                      d.balance > 0 &&
-                      (d.depositKind.toLowerCase().includes("credit") ||
-                        d.depositKind.toLowerCase().includes("pass")),
-                  )
-                  .map((d) => ({ kind: d.depositKind, balance: d.balance }));
-              }
-            } catch {
-              /* deposits are best-effort */
-            }
-            const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-              (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-            );
-            return {
-              personId: String(p.id),
-              fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
-              email: p.addresses?.[0]?.email || "",
-              lastSeen: p.lastLineUp
-                ? new Date(p.lastLineUp).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })
-                : "",
-              loginCode: tags[0]?.tag || "",
-              races: tags.length,
-              memberships,
-              creditBalances,
-            };
-          } catch {
-            return null;
-          }
-        }),
+
+      // Login-code path: the server validates the code against the person's
+      // BMI tag — a wrong code returns nothing.
+      const accounts = await fetchDetails(
+        ids.slice(0, 1),
+        `&code=${encodeURIComponent(query.toLowerCase())}`,
       );
-      const accounts = details
-        .filter((d): d is FoundAccount => d !== null)
-        .sort((a, b) => {
-          if (a.memberships.length !== b.memberships.length)
-            return b.memberships.length - a.memberships.length;
-          return (b.lastSeen || "").localeCompare(a.lastSeen || "");
-        })
-        .slice(0, 5);
       setSearchResults(accounts);
-      if (accounts.length === 0) setError("No accounts found. Add as a new racer below.");
+      if (accounts.length === 0) setError("Code not recognized. Check your email and try again.");
     } catch {
       setError("Search failed. Please try again.");
+    } finally {
+      setLooking(false);
+    }
+  }
+
+  async function verifyOtpAndFetch() {
+    const trimmed = otpCode.trim();
+    if (trimmed.length !== 6) {
+      setError("Enter the 6-digit code");
+      return;
+    }
+    setError("");
+    setLooking(true);
+    try {
+      const query = lookupInput.trim();
+      const digits = query.replace(/\D/g, "").replace(/^1/, "");
+      const isPhone = digits.length === 10 && /^[\d\s()+.-]+$/.test(query);
+      const body = isPhone
+        ? { phone: digits, code: trimmed }
+        : { email: query.toLowerCase(), code: trimmed };
+      const res = await fetch("/api/sms-verify", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!data.verified) {
+        setError(data.error || "Incorrect code");
+        return;
+      }
+      const proofQs = isPhone
+        ? `&verify=${encodeURIComponent(`phone:${digits}`)}`
+        : `&verify=${encodeURIComponent(`email:${query.toLowerCase()}`)}`;
+      const accounts = await fetchDetails(pendingIds, proofQs);
+      setSearchResults(accounts);
+      setOtpPhase("none");
+      if (accounts.length === 0) setError("No accounts found. Add as a new racer below.");
+    } catch {
+      setError("Verification failed. Please try again.");
     } finally {
       setLooking(false);
     }
@@ -418,6 +512,34 @@ export function RacePackFlow() {
                     {looking ? "…" : "Find"}
                   </button>
                 </div>
+                {otpPhase === "sent" && (
+                  <div className="space-y-2 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-4">
+                    <p className="text-sm text-white/70">
+                      We sent a 6-digit code to{" "}
+                      <span className="text-white">{lookupInput.trim()}</span> — enter it to see
+                      your account.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        onKeyDown={(e) => e.key === "Enter" && verifyOtpAndFetch()}
+                        placeholder="6-digit code"
+                        className={inputClass}
+                      />
+                      <button
+                        type="button"
+                        onClick={verifyOtpAndFetch}
+                        disabled={looking || otpCode.trim().length !== 6}
+                        className="rounded-lg bg-[#00E2E5] px-5 py-2.5 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:opacity-40"
+                      >
+                        {looking ? "…" : "Verify"}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {searchResults.map((acct) => (
                   <button
                     key={acct.personId}

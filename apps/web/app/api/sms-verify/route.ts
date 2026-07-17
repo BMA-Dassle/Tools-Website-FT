@@ -184,9 +184,14 @@ export async function PUT(req: NextRequest) {
     if (data.code === code.trim()) {
       await redis.del(redisKey);
 
-      // Mark phone as verified (5 min TTL) so downstream APIs can gate PII on it
+      // Mark the identifier as verified (5 min TTL) so downstream APIs can
+      // gate PII on it (/api/bmi-office reads both flags).
       if (phone) {
         await redis.set(`verified:${normalizePhone(phone)}`, "1", "EX", 300).catch(() => {});
+      } else if (email) {
+        await redis
+          .set(`verified:email:${email.trim().toLowerCase()}`, "1", "EX", 300)
+          .catch(() => {});
       }
 
       // Phone verified — now safe to return customer PII if requested

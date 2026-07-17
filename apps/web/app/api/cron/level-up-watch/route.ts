@@ -73,7 +73,9 @@ async function hasMembership(
   loginCode: string;
 } | null> {
   try {
-    const res = await fetch(`${BASE_URL}/api/bmi-office?action=person&id=${persId}`);
+    const res = await fetch(`${BASE_URL}/api/bmi-office?action=person&id=${persId}`, {
+      headers: { "x-internal-key": process.env.CRON_SECRET ?? "" },
+    });
     if (!res.ok) return null;
     const p = await res.json();
     const target = `Qualified ${levelName}`;

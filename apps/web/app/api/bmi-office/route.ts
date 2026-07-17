@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import { randomUUID } from "crypto";
+import redis from "@/lib/redis";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,126 @@ function apiHeaders(token: string): Record<string, string> {
   };
 }
 
+// ── Guest-verification gate (2026-07-18) ────────────────────────────────────
+//
+// This proxy exposes racer PII (names, birthdates, phones, emails, login
+// codes, credit balances). It used to be fully unauthenticated — anyone could
+// enumerate `?action=person&id=…`. Now:
+//
+//   search   — open (the lookup UIs must find the account BEFORE the OTP is
+//              sent) but rate-limited per IP.
+//   person   — requires ONE of:
+//                • x-internal-key header === CRON_SECRET (server-to-server),
+//                • a verified-session cookie (issued below),
+//                • ?verify=phone:<digits> / email:<addr> matching the Redis
+//                  flag `sms-verify` PUT sets on a successful OTP,
+//                • ?code=<loginCode> that MATCHES the fetched person's BMI
+//                  login-code tag (validated server-side AFTER the upstream
+//                  fetch; on mismatch nothing is returned). Keeps the
+//                  web/kiosk login-code mode working — the code itself is
+//                  the secret, now actually enforced.
+//              A successful person fetch marks `verified:person:<id>` and
+//              issues the session cookie, so follow-up deposits + the
+//              post-verification flows (linked family, credit refetches)
+//              work without re-proving.
+//   deposits — requires internal key, session cookie, verify flag, or a
+//              prior verified person fetch (`verified:person:<personId>`).
+//   project  — open (no customer PII; used by post-payment confirmations).
+//
+// Client lookup flows were reordered to match (OTP verify BEFORE the
+// person/deposits fetch) — see ReturningRacerLookup + RacePackFlow.
+
+const VERIFIED_SESSION_COOKIE = "bmi_lookup_session";
+const SESSION_TTL_S = 900; // 15 min — covers account pick + linked-family adds
+const RATE_LIMITS: Record<string, number> = { search: 30, person: 60, deposits: 60 };
+
+function normalizePhoneDigits(raw: string): string {
+  return raw.replace(/\D/g, "").replace(/^1/, "");
+}
+
+function clientIp(req: NextRequest): string {
+  const fwd = req.headers.get("x-forwarded-for");
+  return (fwd ? fwd.split(",")[0] : null)?.trim() || "unknown";
+}
+
+/** Sliding 5-minute per-IP counter. Fails OPEN on Redis errors. */
+async function rateLimited(req: NextRequest, action: string): Promise<boolean> {
+  const limit = RATE_LIMITS[action];
+  if (!limit) return false;
+  try {
+    const key = `rl:bmi-office:${action}:${clientIp(req)}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, 300);
+    return count > limit;
+  } catch {
+    return false;
+  }
+}
+
+function isInternal(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  return !!secret && req.headers.get("x-internal-key") === secret;
+}
+
+async function hasVerifiedSession(req: NextRequest): Promise<boolean> {
+  const tok = req.cookies.get(VERIFIED_SESSION_COOKIE)?.value;
+  if (!tok || !/^[a-f0-9][a-f0-9-]{10,40}$/i.test(tok)) return false;
+  try {
+    return (await redis.get(`verified:session:${tok}`)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** ?verify=phone:<digits> | email:<addr> → the flag sms-verify PUT wrote. */
+async function verifyParamOk(searchParams: URLSearchParams): Promise<boolean> {
+  const verify = searchParams.get("verify") || "";
+  try {
+    if (verify.startsWith("phone:")) {
+      const digits = normalizePhoneDigits(verify.slice(6));
+      return digits.length >= 10 && (await redis.get(`verified:${digits}`)) === "1";
+    }
+    if (verify.startsWith("email:")) {
+      const email = verify.slice(6).trim().toLowerCase();
+      return email.includes("@") && (await redis.get(`verified:email:${email}`)) === "1";
+    }
+  } catch {
+    /* fall through */
+  }
+  return false;
+}
+
+/** Issue (or renew) the verified-session cookie on a response. */
+async function grantSession(req: NextRequest, res: NextResponse): Promise<void> {
+  try {
+    let tok = req.cookies.get(VERIFIED_SESSION_COOKIE)?.value;
+    if (!tok || !/^[a-f0-9][a-f0-9-]{10,40}$/i.test(tok)) tok = randomUUID();
+    await redis.set(`verified:session:${tok}`, "1", "EX", SESSION_TTL_S);
+    res.cookies.set(VERIFIED_SESSION_COOKIE, tok, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: SESSION_TTL_S,
+      path: "/",
+    });
+  } catch {
+    /* cookie grant is best-effort — the verify flag still covers this request */
+  }
+}
+
+/** Extract the person's login-code tags (BMI person.tags[].tag). */
+function personLoginCodes(person: unknown): string[] {
+  const tags = (person as { tags?: Array<{ tag?: unknown }> })?.tags;
+  if (!Array.isArray(tags)) return [];
+  return tags
+    .map((t) =>
+      String(t?.tag ?? "")
+        .trim()
+        .toLowerCase(),
+    )
+    .filter(Boolean);
+}
+
 // ── GET handler ─────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -110,8 +231,15 @@ export async function GET(req: NextRequest) {
   try {
     const token = await getOfficeToken();
 
-    // Person search by email/name
+    // Person search by email/name — open (pre-OTP account discovery) but
+    // rate-limited: enumeration now costs 30 requests per 5 min per IP.
     if (action === "search") {
+      if (await rateLimited(req, "search")) {
+        return NextResponse.json(
+          { error: "Too many lookups — try again shortly" },
+          { status: 429 },
+        );
+      }
       const query = searchParams.get("q") || "";
       const max = searchParams.get("max") || "20";
       if (!query) {
@@ -136,16 +264,51 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(JSON.parse(res.body));
     }
 
-    // Person details by ID
+    // Person details by ID — full PII: verification required (see gate doc).
     if (action === "person") {
       const id = searchParams.get("id") || "";
       if (!id) {
         return NextResponse.json({ error: "Missing id parameter" }, { status: 400 });
       }
+      if (await rateLimited(req, "person")) {
+        return NextResponse.json(
+          { error: "Too many lookups — try again shortly" },
+          { status: 429 },
+        );
+      }
+
+      const internal = isInternal(req);
+      const loginCode = (searchParams.get("code") || "").trim().toLowerCase();
+      const preAuthed =
+        internal || (await hasVerifiedSession(req)) || (await verifyParamOk(searchParams));
+      if (!preAuthed && !loginCode) {
+        return NextResponse.json(
+          { error: "Verification required", verificationRequired: true },
+          { status: 403 },
+        );
+      }
 
       const path = `/api/${CLIENT_KEY}/person/${id}`;
       const res = await httpsGet(path, apiHeaders(token));
-      return NextResponse.json(JSON.parse(res.body), { status: res.status >= 400 ? 500 : 200 });
+      if (res.status >= 400) {
+        return NextResponse.json(JSON.parse(res.body), { status: 500 });
+      }
+      const person = JSON.parse(res.body);
+
+      // Login-code mode: the typed code must MATCH this person's BMI tag —
+      // otherwise nothing is returned (a wrong code can't harvest PII).
+      if (!preAuthed && loginCode && !personLoginCodes(person).includes(loginCode)) {
+        return NextResponse.json(
+          { error: "Verification required", verificationRequired: true },
+          { status: 403 },
+        );
+      }
+
+      // Success → deposits for this person + follow-up lookups may proceed.
+      await redis.set(`verified:person:${id}`, "1", "EX", SESSION_TTL_S).catch(() => {});
+      const response = NextResponse.json(person);
+      if (!internal) await grantSession(req, response);
+      return response;
     }
 
     // Project details by ID (returns projectReference for waiver link)
@@ -170,11 +333,28 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(JSON.parse(res.body));
     }
 
-    // Deposit history — check credit balance for a person
+    // Deposit history — credit balances: verification required (see gate doc).
     if (action === "deposits") {
       const personId = searchParams.get("personId") || "";
       if (!personId) {
         return NextResponse.json({ error: "Missing personId parameter" }, { status: 400 });
+      }
+      if (await rateLimited(req, "deposits")) {
+        return NextResponse.json(
+          { error: "Too many lookups — try again shortly" },
+          { status: 429 },
+        );
+      }
+      const depositsAuthed =
+        isInternal(req) ||
+        (await hasVerifiedSession(req)) ||
+        (await verifyParamOk(searchParams)) ||
+        (await redis.get(`verified:person:${personId}`).catch(() => null)) === "1";
+      if (!depositsAuthed) {
+        return NextResponse.json(
+          { error: "Verification required", verificationRequired: true },
+          { status: 403 },
+        );
       }
       // Default: look back 2 years
       const now = new Date();
