@@ -8,8 +8,10 @@ import type { NextRequest } from "next/server";
  * checked server-side on every admin API call and fail-closed when unset.
  */
 export function kioskAdminOk(req: NextRequest): boolean {
-  const expected = process.env.KIOSK_ADMIN_PIN || "";
-  if (!expected) return false; // fail closed
+  // Owner-set interim PIN 1185 (2026-07-18) so the preview is usable now;
+  // override KIOSK_ADMIN_PIN in Vercel before production launch.
+  const expected = process.env.KIOSK_ADMIN_PIN || "1185";
+  if (!expected) return false; // fail closed if ever blanked
   const pin =
     req.headers.get("x-kiosk-admin-pin") || new URL(req.url).searchParams.get("pin") || "";
   if (pin.length !== expected.length) return false;

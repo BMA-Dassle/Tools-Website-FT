@@ -18,11 +18,13 @@ import {
   mergeKioskConfig,
   loadKioskConfig,
   saveKioskConfig,
+  kioskId,
   type KioskConfig,
   type KioskVariant,
 } from "../config";
 import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
+import { BrandedLoader } from "./BrandedLoader";
 
 const AD_ROTATE_MS = 8000;
 
@@ -30,15 +32,43 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const router = useRouter();
   const { config } = useKioskConfig();
   const [adIndex, setAdIndex] = useState(0);
+  const [booting, setBooting] = useState(true);
 
-  // Merge provisioning params over the stored config once per mount.
-  // saveKioskConfig notifies the external store — no component setState here.
+  // Boot: merge provisioning URL params over stored config; if the device has
+  // no local config yet but the URL names a venue, pull the saved setup from
+  // Neon by kioskId (a reimaged kiosk recovers its reader/dispenser/scanner
+  // with just ?center=…&kiosk=…). saveKioskConfig notifies the store.
   useEffect(() => {
-    if (Object.keys(urlConfig).length === 0) return;
-    const merged = mergeKioskConfig(loadKioskConfig(), urlConfig);
-    if (merged) saveKioskConfig(merged);
-    // Clean the provisioning params off the address bar.
-    window.history.replaceState(null, "", "/kiosk");
+    let cancelled = false;
+    (async () => {
+      const stored = loadKioskConfig();
+      let merged = mergeKioskConfig(stored, urlConfig);
+      // No usable local config but we know the venue → try the cloud fallback.
+      if (!stored && merged?.center) {
+        try {
+          const id = kioskId(merged);
+          const res = await fetch(`/api/kiosk/device?kioskId=${encodeURIComponent(id)}`);
+          if (res.ok) {
+            const { device } = await res.json();
+            if (device?.config) {
+              // Saved config is the base; URL params still win on top.
+              merged = mergeKioskConfig(device.config as KioskConfig, urlConfig);
+            }
+          }
+        } catch {
+          /* offline / no DB — fall back to whatever the URL gave us */
+        }
+      }
+      if (cancelled) return;
+      if (merged) saveKioskConfig(merged);
+      if (Object.keys(urlConfig).length > 0) {
+        window.history.replaceState(null, "", "/kiosk");
+      }
+      setBooting(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [urlConfig]);
 
   useEffect(() => {
@@ -48,6 +78,15 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     return () => clearInterval(iv);
   }, []);
 
+  // While the cloud fallback resolves, hold the loader instead of flashing
+  // the staff setup card at a guest.
+  if (booting && !config) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#000418]">
+        <BrandedLoader brand="fasttrax" label="Starting up…" />
+      </div>
+    );
+  }
   if (!config) return <SetupCard />;
 
   const ad = KIOSK_AD_SLIDES[adIndex];

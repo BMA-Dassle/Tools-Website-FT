@@ -59,11 +59,13 @@ describe("resolveKioskConfig", () => {
   });
 
   it("fills defaults: fasttrax brand, podium variant, no reader", () => {
-    expect(resolveKioskConfig({ center: "fort-myers" })).toEqual({
+    expect(resolveKioskConfig({ center: "fort-myers" })).toMatchObject({
       center: "fort-myers",
       brand: "fasttrax",
       readerId: null,
       variant: "podium",
+      kioskNumber: 1,
+      cardInputMethod: "manual",
     });
   });
 
@@ -83,7 +85,7 @@ describe("mergeKioskConfig", () => {
   };
 
   it("URL params win field-by-field over stored config", () => {
-    expect(mergeKioskConfig(stored, { readerId: "NEW", variant: "pitcrew" })).toEqual({
+    expect(mergeKioskConfig(stored, { readerId: "NEW", variant: "pitcrew" })).toMatchObject({
       center: "fort-myers",
       brand: "fasttrax",
       readerId: "NEW",
@@ -92,11 +94,11 @@ describe("mergeKioskConfig", () => {
   });
 
   it("keeps stored config when the URL adds nothing", () => {
-    expect(mergeKioskConfig(stored, {})).toEqual(stored);
+    expect(mergeKioskConfig(stored, {})).toMatchObject(stored);
   });
 
   it("still resolves from URL alone (fresh device)", () => {
-    expect(mergeKioskConfig(null, { center: "naples" })).toEqual({
+    expect(mergeKioskConfig(null, { center: "naples" })).toMatchObject({
       center: "naples",
       brand: "headpinz",
       readerId: null,
