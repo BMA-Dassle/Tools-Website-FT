@@ -21,7 +21,7 @@
  *   - a MINOR (age < 18) needs a registered ADULT guardian picked from the
  *     roster; the guardian's person id rides Pandora onboarding.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AttractionItem, PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
@@ -111,10 +111,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
 
   const adults = party.filter((m) => !m.isMinor);
-  const setBusyAll = (b: boolean) => {
-    setBusyLocal(b);
-    setBusy?.(b);
-  };
+  const setBusyAll = (b: boolean) => setBusyLocal(b);
+
+  // Block the wizard's "Continue" whenever a sign-in lookup, add-player form, or
+  // onboarding is in progress — otherwise tapping Continue (or OSK "Done" then
+  // Continue) advances PAST the OTP step without verifying (owner: entering the
+  // phone jumped to the next page). Finish or cancel the lookup to continue.
+  useEffect(() => {
+    setBusy?.(lookupOpen || form !== null || busy);
+    return () => setBusy?.(false);
+  }, [lookupOpen, form, busy, setBusy]);
 
   const setIncluded = (ids: Set<string>) => {
     if (isRace) return;

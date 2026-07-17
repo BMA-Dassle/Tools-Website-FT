@@ -515,6 +515,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
           name="one-time-code"
           autoComplete="one-time-code"
           inputMode="numeric"
+          data-osk-layout="numeric"
           maxLength={6}
           value={smsCode}
           onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -574,6 +575,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
               type="tel"
               name="phone"
               autoComplete="tel"
+              data-osk-layout="phone"
               value={phone}
               onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
               placeholder="(555) 555-1234"

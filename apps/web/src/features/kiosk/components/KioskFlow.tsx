@@ -431,7 +431,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   }
 
   // ── Cart ──
-  if (cartActive || (!activeItem && session.items.length > 0)) {
+  // Cart shows ONLY when explicitly opened (the cart pill). After adding an
+  // activity we return to the CATEGORY chooser (the "main screen"), not the cart
+  // (owner 2026-07-18) — the category chooser carries a "your visit so far" strip
+  // to reach the cart.
+  if (cartActive) {
     return chrome(
       <div ref={contentRef} className="k-flow-body kiosk-step-content kiosk-zoom">
         <CartView
@@ -731,8 +735,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           type="button"
           onClick={() => {
             if (stepIndex === 0) {
-              if (session.items.length > 1) dispatch({ type: "setActiveItem", id: null });
-              else void handleStartOver();
+              // First step → back to the category chooser ("all activities"),
+              // NOT a full Start Over (owner: couldn't get back to activities).
+              // The draft item stays in the cart; Start Over (util strip) resets.
+              dispatch({ type: "setActiveItem", id: null });
             } else {
               dispatch({ type: "back" });
             }
