@@ -10,8 +10,9 @@ import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
 import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
 import { KioskWhoStep } from "../steps/KioskWhoStep";
+import { KioskRacePartyStep } from "../steps/KioskRacePartyStep";
 
-export const KIOSK_SCHEMA_VERSION = 5; // v5: who's-playing + waiver gate on attractions
+export const KIOSK_SCHEMA_VERSION = 6; // v6: race party account+waiver gate
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -48,8 +49,14 @@ function insertAfter(steps: StepDef[], afterId: string, step: StepDef): StepDef[
 export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // Kiosk = walk-up: no race date step — KioskFlow stamps item.date = today
   // at creation; the (fully reused) heat picker then shows today's heats,
-  // sorted earliest-first with the complete restriction-rule gating.
-  race: STEP_REGISTRY.race.filter((s) => s.id !== "race-date"),
+  // sorted earliest-first with the complete restriction-rule gating. The
+  // party step is wrapped with the kiosk account+waiver gate (owner rule:
+  // NEW racers create real accounts + sign waivers at the kiosk).
+  race: replaceStep(
+    STEP_REGISTRY.race.filter((s) => s.id !== "race-date"),
+    "race-party",
+    KioskRacePartyStep as StepDef,
+  ),
   // Kiosk = walk-up: no date step (always today); who's-playing + waivers
   // gate before the time step (self-hides for duckpin); the slot step leads
   // with the next available time and keeps the full web grid as "later today".
