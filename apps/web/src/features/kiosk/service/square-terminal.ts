@@ -59,11 +59,20 @@ export async function listReaders(locationId: string): Promise<PairedReader[]> {
     const qs = new URLSearchParams({ location_id: locationId, product_type: "TERMINAL_API" });
     if (cursor) qs.set("cursor", cursor);
     const { body } = await sq<{
-      device_codes?: Array<{ device_id?: string; name?: string; code?: string; status?: string }>;
+      device_codes?: Array<{
+        device_id?: string;
+        name?: string;
+        code?: string;
+        status?: string;
+        location_id?: string;
+      }>;
       cursor?: string;
     }>(`/devices/codes?${qs.toString()}`);
     for (const dc of body.device_codes ?? []) {
-      if (dc.device_id) {
+      // Strictly this location's readers only — Square's location_id query param
+      // can still surface codes from other locations, so re-filter (owner: "only
+      // show readers from the center it's set to").
+      if (dc.device_id && dc.location_id === locationId) {
         out.push({
           deviceId: dc.device_id,
           name: dc.name ?? "Reader",

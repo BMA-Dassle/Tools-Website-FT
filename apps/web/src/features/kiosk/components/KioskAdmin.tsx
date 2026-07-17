@@ -68,7 +68,7 @@ export function KioskAdmin() {
 
   if (!authed) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#000418] px-8">
+      <div className="absolute inset-0 flex items-center justify-center bg-[#000418] px-8">
         <div className="w-full max-w-sm space-y-5 rounded-3xl border border-white/10 bg-[#0d1a36] p-8 text-center">
           <div className="font-heading text-3xl font-extrabold italic">Kiosk admin</div>
           <p className="text-sm text-white/55">Staff PIN required.</p>
@@ -99,8 +99,11 @@ export function KioskAdmin() {
   }
 
   return (
-    <div className="min-h-screen bg-[#000418] px-6 py-8 text-white">
-      <div className="mx-auto max-w-2xl space-y-6">
+    // absolute inset-0 + scroll: the admin lives inside the fixed 1080×1920
+    // canvas (overflow-hidden), so it needs its OWN scroll or long lists (the
+    // reader picker) get clipped — the "can't scroll down" bug.
+    <div className="absolute inset-0 overflow-y-auto bg-[#000418] px-6 py-8 text-white">
+      <div className="mx-auto max-w-2xl space-y-6 pb-16">
         <div className="flex items-center justify-between">
           <div className="font-heading text-3xl font-extrabold italic">Kiosk admin</div>
           <a
