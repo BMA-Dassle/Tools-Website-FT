@@ -96,10 +96,14 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                 )}
               </div>
 
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-white/40">
+              <label
+                htmlFor={`kiosk-bowler-name-${i}`}
+                className="mb-1 block text-xs font-semibold uppercase tracking-widest text-white/40"
+              >
                 Name
               </label>
               <input
+                id={`kiosk-bowler-name-${i}`}
                 type="text"
                 value={p.name}
                 onChange={(e) => update(i, { name: e.target.value })}
@@ -108,9 +112,9 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                 className="mb-4 w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
 
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-white/40">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-widest text-white/40">
                 Shoe size
-              </label>
+              </span>
               <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
                 <button
                   type="button"
