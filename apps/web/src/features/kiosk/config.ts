@@ -28,14 +28,38 @@ export type KioskVariant = "podium" | "pitcrew";
 export interface KioskConfig {
   center: CenterCode;
   brand: Brand;
+  /** Square Terminal/reader device id for card-present checkouts (Devices API). */
   readerId: string | null;
   variant: KioskVariant;
+  /** Staff-assigned kiosk number at this location (e.g. 1, 2). */
+  kioskNumber?: number | null;
+  /** Connected card-dispenser device id (null = none / type-in card). */
+  dispenserId?: string | null;
+  /** Whether a keyboard-wedge QR/barcode scanner is attached (login codes + vouchers). */
+  scannerEnabled?: boolean;
+  /**
+   * How the guest pays.
+   *  - "reader"  — paired Square Terminal/reader (readerId), card-present.
+   *  - "swipe"   — attached USB magstripe swipe (keyboard-wedge/HID).
+   *  - "manual"  — typed into the Square Web Payments card iframe (default; the
+   *                Windows touch keyboard handles it).
+   * PCI note: raw magstripe track data must never be parsed in our JS — a
+   * "swipe" device is fed into Square's own card entry / manual-entry path.
+   */
+  cardInputMethod?: "reader" | "swipe" | "manual";
+  /** Whether a USB card swipe is attached (enables the "swipe" method). */
+  swipeEnabled?: boolean;
+}
+
+/** Stable per-device id used to pull the saved setup back from Neon. */
+export function kioskId(cfg: Pick<KioskConfig, "center" | "kioskNumber">): string {
+  return `${cfg.center}:${cfg.kioskNumber ?? 1}`;
 }
 
 const STORAGE_KEY = "kiosk_config";
 
 /** Bump when the persisted SHAPE changes — older envelopes are discarded. */
-const CONFIG_VERSION = 1;
+const CONFIG_VERSION = 2;
 
 interface PersistedEnvelope {
   v: number;
@@ -118,6 +142,11 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     brand,
     readerId: partial.readerId ?? null,
     variant: partial.variant ?? "podium",
+    kioskNumber: partial.kioskNumber ?? 1,
+    dispenserId: partial.dispenserId ?? null,
+    scannerEnabled: partial.scannerEnabled ?? false,
+    cardInputMethod: partial.cardInputMethod ?? (partial.readerId ? "reader" : "manual"),
+    swipeEnabled: partial.swipeEnabled ?? false,
   };
 }
 

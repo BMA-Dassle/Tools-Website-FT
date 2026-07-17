@@ -1,0 +1,102 @@
+/**
+ * Kiosk device registry (Neon) — durable per-device provisioning.
+ *
+ * A kiosk saves its full config to BOTH localStorage (fast boot,
+ * offline-tolerant) and here. After a reimage / browser reset / new machine
+ * at the same spot, the kiosk pulls its previous setup by kioskId
+ * (`<center>:<kioskNumber>`) so staff don't re-provision from scratch.
+ *
+ * Raw SQL via @/lib/db (no ORM — house rule). Self-creating schema, matching
+ * the bowling-db pattern.
+ */
+import { sql, isDbConfigured } from "@/lib/db";
+
+export interface KioskDeviceRow {
+  kioskId: string;
+  center: string;
+  kioskNumber: number;
+  brand: string;
+  config: Record<string, unknown>;
+  updatedAt: string;
+}
+
+let schemaReady = false;
+async function ensureSchema(): Promise<void> {
+  if (schemaReady || !isDbConfigured()) return;
+  const q = sql();
+  await q`
+    CREATE TABLE IF NOT EXISTS kiosk_devices (
+      kiosk_id      TEXT PRIMARY KEY,
+      center        TEXT NOT NULL,
+      kiosk_number  INTEGER NOT NULL DEFAULT 1,
+      brand         TEXT NOT NULL,
+      config        JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  schemaReady = true;
+}
+
+/** Upsert the full device config (called from the admin save + on reserve boot). */
+export async function saveKioskDevice(args: {
+  kioskId: string;
+  center: string;
+  kioskNumber: number;
+  brand: string;
+  config: Record<string, unknown>;
+}): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureSchema();
+  const q = sql();
+  await q`
+    INSERT INTO kiosk_devices (kiosk_id, center, kiosk_number, brand, config, updated_at)
+    VALUES (${args.kioskId}, ${args.center}, ${args.kioskNumber}, ${args.brand},
+            ${JSON.stringify(args.config)}::jsonb, now())
+    ON CONFLICT (kiosk_id) DO UPDATE SET
+      center = EXCLUDED.center,
+      kiosk_number = EXCLUDED.kiosk_number,
+      brand = EXCLUDED.brand,
+      config = EXCLUDED.config,
+      updated_at = now()
+  `;
+}
+
+/** Pull a saved device config by kioskId (fallback when localStorage is empty). */
+export async function loadKioskDevice(kioskId: string): Promise<KioskDeviceRow | null> {
+  if (!isDbConfigured()) return null;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT kiosk_id, center, kiosk_number, brand, config, updated_at
+    FROM kiosk_devices WHERE kiosk_id = ${kioskId} LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    kioskId: String(r.kiosk_id),
+    center: String(r.center),
+    kioskNumber: Number(r.kiosk_number),
+    brand: String(r.brand),
+    config: (r.config as Record<string, unknown>) ?? {},
+    updatedAt: String(r.updated_at),
+  };
+}
+
+/** List every provisioned kiosk (admin overview). */
+export async function listKioskDevices(): Promise<KioskDeviceRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT kiosk_id, center, kiosk_number, brand, config, updated_at
+    FROM kiosk_devices ORDER BY center, kiosk_number
+  `) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    kioskId: String(r.kiosk_id),
+    center: String(r.center),
+    kioskNumber: Number(r.kiosk_number),
+    brand: String(r.brand),
+    config: (r.config as Record<string, unknown>) ?? {},
+    updatedAt: String(r.updated_at),
+  }));
+}

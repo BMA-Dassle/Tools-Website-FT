@@ -12,7 +12,7 @@
  * the stored device config and persist. A kiosk with no config shows the
  * one-time setup card instead of the attract loop.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   mergeKioskConfig,
@@ -55,8 +55,27 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     router.push(goto ? `/kiosk/flow?goto=${goto}` : "/kiosk/flow");
   };
 
+  // Hidden staff gesture: 5 taps within 3s on the top-left corner → admin.
+  const cornerTaps = useRef<number[]>([]);
+  const cornerHit = () => {
+    const now = Date.now();
+    cornerTaps.current = [...cornerTaps.current.filter((t) => now - t < 3000), now];
+    if (cornerTaps.current.length >= 5) {
+      cornerTaps.current = [];
+      router.push("/kiosk/admin");
+    }
+  };
+
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[#000418]">
+      {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
+      <button
+        type="button"
+        aria-hidden="true"
+        tabIndex={-1}
+        onClick={cornerHit}
+        className="absolute left-0 top-0 z-30 h-24 w-24 opacity-0"
+      />
       {/* Cinematic backdrop — photo + navy scrim + light sweep (video later) */}
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
         <div
