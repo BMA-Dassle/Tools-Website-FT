@@ -107,6 +107,10 @@ export interface PartyMember {
    *  phone/email become session.contact so there's no separate contact step. */
   phone?: string;
   email?: string;
+  /** Kiosk race packs: slugs of RACE_PACKS assigned to THIS person (owner
+   *  2026-07-18 — assign packs per person). Each grants that person's credits at
+   *  checkout. Flag-gated (kioskPacksEnabled) money path — see tasks/kiosk-race-packs.md. */
+  pendingPacks?: string[];
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */
@@ -684,6 +688,7 @@ export function newPartyMember(args: {
   isMinor?: boolean;
   phone?: string;
   email?: string;
+  pendingPacks?: string[];
 }): PartyMember {
   return {
     id: newItemId(),
@@ -700,6 +705,7 @@ export function newPartyMember(args: {
     isMinor: args.isMinor,
     phone: args.phone,
     email: args.email,
+    pendingPacks: args.pendingPacks,
   };
 }
 

@@ -12,3 +12,14 @@
 export function kioskEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_ENABLED !== "false";
 }
+
+/**
+ * Race packs on the kiosk — OPT-IN (defaults OFF). Race packs charge a customer
+ * and grant Pandora credits, and the owner-chosen "fund today" model re-sequences
+ * charge/grant/redeem — a money path that must ship WITH a live payment smoke
+ * (H3074 rule). The pack step stays hidden and no pack charge/grant runs until
+ * this is set to "true" in Vercel + redeployed, after the smoke.
+ */
+export function kioskPacksEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_PACKS_ENABLED === "true";
+}

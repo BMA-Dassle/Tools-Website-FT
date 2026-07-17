@@ -12,8 +12,9 @@ import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
 import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
+import { KioskRacePackStep } from "../steps/KioskRacePackStep";
 
-export const KIOSK_SCHEMA_VERSION = 8; // v8: bowling leads with people/main-contact step
+export const KIOSK_SCHEMA_VERSION = 9; // v9: race-pack step (flag-gated, off by default)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -58,15 +59,22 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // new/returning fork (race-experience) is dropped — the product/heat steps
   // read session.party (isNewRacer/memberships/category) directly and already
   // span tiers for a mixed party, Starter-gating the new racers at heats.
-  race: replaceStep(
-    // Drop the web combo OVERVIEW step (combo-intro) — the kiosk shows its own
-    // readable KioskVipOverview BEFORE the flow, so the in-flow one was a
-    // duplicate (owner: "not sure why we have two steps").
-    STEP_REGISTRY.race.filter(
-      (s) => s.id !== "race-date" && s.id !== "race-experience" && s.id !== "combo-intro",
+  race: insertAfter(
+    replaceStep(
+      // Drop the web combo OVERVIEW step (combo-intro) — the kiosk shows its own
+      // readable KioskVipOverview BEFORE the flow, so the in-flow one was a
+      // duplicate (owner: "not sure why we have two steps").
+      STEP_REGISTRY.race.filter(
+        (s) => s.id !== "race-date" && s.id !== "race-experience" && s.id !== "combo-intro",
+      ),
+      "race-party",
+      KioskRacePeopleStep as StepDef,
     ),
+    // Optional per-person race packs right after the people list (everyone has a
+    // bmiPersonId by now). Self-hides via kioskPacksEnabled() (OFF until the
+    // pack money path ships + is smoked).
     "race-party",
-    KioskRacePeopleStep as StepDef,
+    KioskRacePackStep as StepDef,
   ),
   // Kiosk = walk-up: no date step (always today). LEAD with the same people
   // list (owner: "add people new or returning", not a bare YOUR INFO form) —

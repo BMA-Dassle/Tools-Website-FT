@@ -25,15 +25,29 @@ live-smoked, and needs the owner's product decisions first.
   real `bmiPersonId` (new + returning) before advancing — so a pack can attach to
   any `PartyMember.bmiPersonId` with no extra account creation.
 
-## Owner decisions needed (recommended defaults in brackets)
-1. **Banked vs same-day** — [BANKED: pack grants credits only; it does NOT fund a
-   race in the SAME checkout]. Same-day is a sequencing hazard: `addDeposit` runs
-   in `postPaymentAction` AFTER the charge, but credit redemption validates the
-   live balance at charge time, so a just-bought pack isn't on the ledger yet.
-   Matches the standalone flow's "This does not book you a race" disclaimer.
-2. **One pack = one person?** — [YES: the credit model is non-transferable, keyed
-   to one `bmiPersonId`. "Split 6 across two kids" = two 3-packs, one each.]
-3. **Which of the 6 packs to sell on the kiosk** — [all 6, or a curated touch set].
+## Owner decisions (CONFIRMED 2026-07-18)
+1. **Same-day funding = YES ("fund today too").** A pack bought at the kiosk must
+   be able to pay for TODAY's race in the same checkout — NOT just bank credits.
+   ⚠️ This is the harder path. `addDeposit` grants AFTER the Square charge, but
+   `validateCreditRedemptions` checks the LIVE balance at charge time, so a
+   just-bought pack isn't on the ledger when today's heats validate. Options to
+   make it correct (pick during build): (a) treat the assigned pack as DIRECT
+   payment for that person's heats today (the pack covers up to `raceCount` heats;
+   remainder banked) so no chicken-and-egg; or (b) re-sequence charge → grant →
+   re-validate → book so the granted credits are live before redemption. Prefer
+   (a) — it avoids mutating the shared redemption validator. MUST live-smoke.
+2. **One pack → one person = YES.** Non-transferable; a 3-pack = 3 credits to one
+   racer. Split = buy two packs.
+3. **Sell all 6 packs** (weekday & anytime × 3/5/10).
+
+## Build discipline (owner + repo rules)
+- Flag-gated `NEXT_PUBLIC_KIOSK_PACKS_ENABLED` (default OFF) — the pack step is
+  hidden and no pack charge/grant code runs until the flag is on.
+- Additive `/api/square/pay` change only (accept an ARRAY of addDeposit grants;
+  single-grant form unchanged).
+- Persist the pack selection to Neon at capture (persist-first).
+- LIVE payment smoke (real card, real grant, verify credits + heats) BEFORE the
+  flag goes on — no untested money path (H3074).
 
 ## Implementation plan (build flag-gated: NEW `NEXT_PUBLIC_KIOSK_PACKS_ENABLED`, default off)
 1. `SessionItem`: add `CreditPackItem { kind:"credit-pack"; packSlug; assignedTo: PartyMember.id }`
