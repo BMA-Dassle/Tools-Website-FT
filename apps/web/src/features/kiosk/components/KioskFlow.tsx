@@ -616,7 +616,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           {currentStep.title}.
         </div>
       )}
-      <div className="pt-6">
+      <div className="kiosk-step-content pt-6">
         <currentStep.Component
           item={activeItem}
           session={session}

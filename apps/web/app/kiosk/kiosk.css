@@ -80,6 +80,26 @@
   display: none;
 }
 
+/* Touch-target floor for the REUSED web step components rendered inside the
+   kiosk wizard: never let an interactive control drop below comfortable
+   touch size (WCAG 2.5.5 / kiosk ergonomics). Conservative: min sizes only —
+   no layout, color, or typography overrides, so web-designed steps keep
+   their look and simply grow where they were too small for fingers. */
+.kiosk-step-content button,
+.kiosk-step-content [role="button"],
+.kiosk-step-content input:not([type="checkbox"]):not([type="radio"]),
+.kiosk-step-content select {
+  min-height: 48px;
+}
+.kiosk-step-content input[type="checkbox"],
+.kiosk-step-content input[type="radio"] {
+  min-width: 28px;
+  min-height: 28px;
+}
+.kiosk-step-content {
+  font-size: 1.0625rem; /* nudge base copy up for arm's-length reading */
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kiosk-orbit,
   .kiosk-breathe,
