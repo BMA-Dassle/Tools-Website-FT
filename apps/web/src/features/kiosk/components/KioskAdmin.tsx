@@ -261,6 +261,14 @@ function DeviceTab({
           <option value="reader">Square reader (card-present)</option>
           <option value="swipe">USB card swipe</option>
         </select>
+        {draft.cardInputMethod === "reader" && !draft.readerId && (
+          <p className="mt-2 text-xs text-amber-300">
+            Pick a reader on the Readers tab — that also sets this to “Square reader”.
+          </p>
+        )}
+        {draft.cardInputMethod === "reader" && draft.readerId && (
+          <p className="mt-2 text-xs text-white/40">Reader: {draft.readerId}</p>
+        )}
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Toggle
