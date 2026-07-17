@@ -40,7 +40,7 @@ function wallClockLabel(iso: string): string {
     hour12: true,
   });
 }
-function bowlingTimeLabel(hour: number, minute: number | null): string {
+export function bowlingTimeLabel(hour: number, minute: number | null): string {
   const ampm = hour % 24 >= 12 ? "PM" : "AM";
   const hr = hour % 12 || 12;
   return `${hr}:${String(minute ?? 0).padStart(2, "0")} ${ampm}`;
@@ -97,7 +97,7 @@ function otherActivitiesOnDate(
   return out.sort((a, b) => (a.hour ?? 99) - (b.hour ?? 99));
 }
 
-const CENTERS: Record<number, { hpSlug: string; name: string }> = {
+export const CENTERS: Record<number, { hpSlug: string; name: string }> = {
   9172: { hpSlug: "fort-myers", name: "HeadPinz Fort Myers" },
   3148: { hpSlug: "naples", name: "HeadPinz Naples" },
 };
@@ -168,7 +168,7 @@ function parseHoursRange(hoursStr: string): { open: number; close: number } {
  * so the chips load instantly. (v1 parity: time chips are static operating
  * hours; availability is resolved on selection.)
  */
-function operatingHours(centerHpSlug: string, dateStr: string, isKbf: boolean): number[] {
+export function operatingHours(centerHpSlug: string, dateStr: string, isKbf: boolean): number[] {
   const dow = new Date(`${dateStr}T12:00:00`).getDay();
   const isWeekend = dow === 5 || dow === 6;
   const loc = HP_LOCATIONS[centerHpSlug];

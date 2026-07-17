@@ -8,9 +8,25 @@
 import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/booking";
 import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
+import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
 
-export const KIOSK_SCHEMA_VERSION = 3; // v3: required bowler roster step (names/shoes/bumpers)
+export const KIOSK_SCHEMA_VERSION = 4; // v4: today-only "bowl now" time step
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
+
+/** Match the web registry's World Cup gating for bowling time steps. */
+function hiddenForWorldCup(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) =>
+      !(item.kind === "bowling" && (item as { isWorldCup?: boolean }).isWorldCup) &&
+      step.isVisible(item, session),
+  };
+}
+
+/** Replace the entry whose id matches with `step` (keeps position). */
+function replaceStep(steps: StepDef[], id: string, step: StepDef): StepDef[] {
+  return steps.map((s) => (s.id === id ? step : s));
+}
 
 /** Combo bowling items are configured programmatically — hide kiosk-added
  *  bowling steps on combo sessions, matching the web registry's gating. */
@@ -35,12 +51,20 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   attraction: STEP_REGISTRY.attraction
     .filter((s) => s.id !== "attraction-date" && s.id !== "attraction-slot")
     .concat([KioskSlotStep as StepDef]),
-  // Kiosk rule: names/shoe sizes/bumpers are REQUIRED in-flow (web collects
-  // them post-booking). Roster lands right after the shoe-rental step.
+  // Kiosk rules: today-only "bowl now" time step (replaces the calendar), and
+  // names/shoe sizes/bumpers REQUIRED in-flow (web collects them post-booking).
   bowling: insertAfter(
-    [...STEP_REGISTRY.bowling],
+    replaceStep(
+      [...STEP_REGISTRY.bowling],
+      "bowling-slots",
+      hiddenInCombo(hiddenForWorldCup(KioskBowlingTimeStep as StepDef)),
+    ),
     "bowling-shoes",
     hiddenInCombo(KioskBowlingDetailsStep as StepDef),
   ),
-  kbf: insertAfter([...STEP_REGISTRY.kbf], "bowling-shoes", KioskBowlingDetailsStep as StepDef),
+  kbf: insertAfter(
+    replaceStep([...STEP_REGISTRY.kbf], "bowling-slots", KioskBowlingTimeStep as StepDef),
+    "bowling-shoes",
+    KioskBowlingDetailsStep as StepDef,
+  ),
 };
