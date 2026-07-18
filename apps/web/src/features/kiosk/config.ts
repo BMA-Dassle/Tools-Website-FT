@@ -49,6 +49,16 @@ export interface KioskConfig {
   cardInputMethod?: "reader" | "swipe" | "manual";
   /** Whether a USB card swipe is attached (enables the "swipe" method). */
   swipeEnabled?: boolean;
+  /**
+   * CRT-591 card reader/dispenser attached over COM (Web Serial). The unit's
+   * serial number lands in `dispenserId` on first connect; these fields carry
+   * the link parameters. See docs/crt-591/README.md.
+   */
+  cardReaderEnabled?: boolean;
+  /** Last working baud (auto-detected; makes reconnect one attempt). */
+  cardReaderBaud?: number | null;
+  /** USB vendor/product of the granted serial adapter — reconnect matching. */
+  cardReaderPortInfo?: { usbVendorId?: number; usbProductId?: number } | null;
 }
 
 /** Stable per-device id used to pull the saved setup back from Neon. */
@@ -154,6 +164,9 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     scannerEnabled: partial.scannerEnabled ?? false,
     cardInputMethod: partial.cardInputMethod ?? (partial.readerId ? "reader" : "manual"),
     swipeEnabled: partial.swipeEnabled ?? false,
+    cardReaderEnabled: partial.cardReaderEnabled ?? false,
+    cardReaderBaud: partial.cardReaderBaud ?? null,
+    cardReaderPortInfo: partial.cardReaderPortInfo ?? null,
   };
 }
 
