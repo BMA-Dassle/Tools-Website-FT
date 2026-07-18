@@ -6,8 +6,14 @@ import {
   BillExpiredError,
   ExistingBookingConflictError,
 } from "~/features/booking/service/unified-reserve";
-import { DepositPaymentError } from "~/features/booking/service/deposit";
+import {
+  DepositPaymentError,
+  TerminalPaymentUnverifiedError,
+  TerminalAmountMismatchError,
+  type ExternalTerminalPayment,
+} from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
+import { kioskTerminalEnabled } from "~/features/kiosk/flags";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
@@ -33,6 +39,8 @@ export async function POST(req: NextRequest) {
       loyaltyAccountId?: string;
       rewardTierId?: string;
       rewardDiscountCents?: number;
+      /** Kiosk direct-Terminal charge (owner: NO saved card). Flag-gated. */
+      externalPayment?: ExternalTerminalPayment;
     };
 
     if (!body.session?.items?.length) {
@@ -40,6 +48,21 @@ export async function POST(req: NextRequest) {
     }
     if (!body.contact?.firstName || !body.contact?.email) {
       return NextResponse.json({ error: "Contact info required" }, { status: 400 });
+    }
+
+    // Fail-closed: an externalPayment (kiosk reader charge) is only honored when
+    // the terminal flag is on. With the flag off the seam is dormant, so a stale
+    // client carrying one is rejected before any money is touched.
+    if (body.externalPayment && !kioskTerminalEnabled()) {
+      return NextResponse.json({ error: "Terminal payments are not enabled" }, { status: 400 });
+    }
+    // A request must never carry BOTH a card token and a pre-captured reader
+    // payment — reject the ambiguity rather than risk a double charge.
+    if (body.externalPayment && body.cardSourceId) {
+      return NextResponse.json(
+        { error: "Cannot combine a saved card and a terminal payment" },
+        { status: 400 },
+      );
     }
 
     const result = await unifiedReserve({
@@ -53,6 +76,7 @@ export async function POST(req: NextRequest) {
       loyaltyAccountId: body.loyaltyAccountId,
       rewardTierId: body.rewardTierId,
       rewardDiscountCents: body.rewardDiscountCents,
+      externalPayment: body.externalPayment,
     });
 
     return NextResponse.json(result);
@@ -83,6 +107,23 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof DepositPaymentError) {
       return NextResponse.json({ error: err.friendlyMessage, code: err.code }, { status: 400 });
+    }
+    if (
+      err instanceof TerminalPaymentUnverifiedError ||
+      err instanceof TerminalAmountMismatchError
+    ) {
+      // The reader ALREADY captured the card but the payment failed server-side
+      // verification (not COMPLETED / wrong order / amount mismatch). The funds
+      // are captured + the paymentId is stamped on the anchor for the reconcile;
+      // 500 so it pages on-call. NEVER retried as a fresh charge by the client.
+      console.error("[reserve-all] TERMINAL payment verification failed (paging):", err);
+      return NextResponse.json(
+        {
+          error: "Payment needs staff review — please see the front desk.",
+          code: "TERMINAL_UNVERIFIED",
+        },
+        { status: 500 },
+      );
     }
     const msg = err instanceof Error ? err.message : "Reservation failed";
     console.error("[reserve-all] error:", err);

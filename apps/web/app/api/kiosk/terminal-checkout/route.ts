@@ -4,6 +4,7 @@ import {
   getTerminalCheckout,
   dismissTerminalCheckout,
 } from "~/features/kiosk/service/square-terminal";
+import { stampTerminalPaymentOnAnchor } from "~/features/booking/service/unified-reserve";
 
 /**
  * Card-present checkout on a paired Square reader (kiosk cardInputMethod
@@ -20,7 +21,16 @@ import {
  */
 
 export async function POST(req: NextRequest) {
-  let body: { deviceId?: string; amountCents?: number; referenceId?: string; note?: string };
+  let body: {
+    deviceId?: string;
+    amountCents?: number;
+    referenceId?: string;
+    note?: string;
+    /** Pay OUR prepared deposit order (direct-Terminal money path). */
+    orderId?: string;
+    /** Deterministic key so a retry replays the SAME checkout (reader armed once). */
+    idempotencyKey?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -38,6 +48,8 @@ export async function POST(req: NextRequest) {
       amountCents: Math.round(body.amountCents),
       referenceId: body.referenceId,
       note: body.note,
+      orderId: body.orderId,
+      idempotencyKey: body.idempotencyKey,
     });
     if (!result) {
       return NextResponse.json({ error: "Square not configured" }, { status: 500 });
@@ -52,11 +64,19 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const id = new URL(req.url).searchParams.get("id") || "";
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id") || "";
+  const seed = url.searchParams.get("seed") || "";
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
   try {
     const result = await getTerminalCheckout(id);
     if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Persist-at-capture: the instant the reader reports COMPLETED, stamp the
+    // paymentId onto the prepare anchor so a browser death before reserve still
+    // leaves a recoverable pointer for the terminal-orphan reconcile.
+    if (seed && result.status === "COMPLETED" && result.paymentIds?.[0]) {
+      await stampTerminalPaymentOnAnchor(seed, result.paymentIds[0]).catch(() => {});
+    }
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
