@@ -91,9 +91,20 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     replaceStep(
       // Drop the web combo OVERVIEW step (combo-intro) — the kiosk shows its own
       // readable KioskVipOverview BEFORE the flow, so the in-flow one was a
-      // duplicate (owner: "not sure why we have two steps").
+      // duplicate (owner: "not sure why we have two steps"). Also drop the combo
+      // "Your Schedule" REVIEW step (combo-itinerary): the schedule-confirm modal
+      // already showed + booked the whole itinerary, so on the kiosk it was a
+      // dead extra tap (owner 2026-07-18: "shouldn't exist — just return to main
+      // menu"); KioskFlow treats the cursor landing past combo-start as
+      // combo-complete and returns to the category chooser.
       STEP_REGISTRY.race
-        .filter((s) => s.id !== "race-date" && s.id !== "race-experience" && s.id !== "combo-intro")
+        .filter(
+          (s) =>
+            s.id !== "race-date" &&
+            s.id !== "race-experience" &&
+            s.id !== "combo-intro" &&
+            s.id !== "combo-itinerary",
+        )
         // Preselected-package launch (Experiences → Ultimate Qualifier tile) skips
         // the product step so the guest doesn't reselect what they just tapped.
         .map((s) =>

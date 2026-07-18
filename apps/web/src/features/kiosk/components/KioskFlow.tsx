@@ -49,8 +49,6 @@ import {
 } from "~/features/booking/service/checkout";
 import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
 import { eligiblePackages, scheduleForDate } from "@/lib/packages";
-import { holdComboBowling } from "~/features/combos/combo-booking";
-import { qamfCenterIdForCode } from "~/features/booking/types";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
 import {
@@ -563,6 +561,25 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     s.isVisible(activeItem, session),
   );
   const rawCursor = session.cursors[activeItem.id] ?? 0;
+
+  // Combo: the schedule-confirm modal books the races + lane and self-advances
+  // (dispatch "next"). With the redundant "Your Schedule" review dropped from the
+  // kiosk registry (owner 2026-07-18: "shouldn't exist — just return to main
+  // menu"), that advance lands the cursor past the last visible step. Treat it as
+  // combo-flow-complete: normalize the cursor (so a later cart Edit reopens the
+  // time picker) and return to the category chooser. Render-phase update — same
+  // pattern as the !currentStep fallback below. Non-combo items keep the clamp.
+  if (
+    session.comboSpecialId &&
+    activeItem.kind === "race" &&
+    steps.length > 0 &&
+    rawCursor >= steps.length
+  ) {
+    dispatch({ type: "goto", index: steps.length - 1 });
+    dispatch({ type: "setActiveItem", id: null });
+    return chrome(null);
+  }
+
   const stepIndex = Math.min(rawCursor, Math.max(0, steps.length - 1));
   const currentStep = steps[stepIndex] as StepDef | undefined;
   const isLastStep = stepIndex >= steps.length - 1;
@@ -632,42 +649,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       return;
     }
 
-    if (currentStep.id === "combo-itinerary" && activeItem.kind === "race") {
-      const raceItem = activeItem as RaceItem;
-      setBookingHeatsProgress("Reserving your races…");
-      setBookingHeats(true);
-      try {
-        await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
-        const bowlingItem = session.items.find((i) => i.kind === "bowling") as
-          | BowlingItem
-          | undefined;
-        if (bowlingItem && !bowlingItem.qamfReservationId) {
-          setBookingHeatsProgress("Holding your bowling lane…");
-          const centerId = bowlingItem.qamfCenterId ?? qamfCenterIdForCode(session.center) ?? 9172;
-          const qamfReservationId = await holdComboBowling({
-            session,
-            item: bowlingItem,
-            centerId,
-          });
-          dispatch({
-            type: "setBowlingHold",
-            itemId: bowlingItem.id,
-            qamfReservationId,
-            qamfCenterId: centerId,
-          });
-        }
-        advanceToNextStep();
-      } catch (err) {
-        setKioskError(
-          err instanceof Error
-            ? `Couldn't lock in your schedule: ${err.message}`
-            : "Couldn't lock in your schedule. Please try again.",
-        );
-      } finally {
-        setBookingHeats(false);
-      }
-      return;
-    }
+    // (combo-itinerary advance branch removed — the step is dropped from the
+    // kiosk registry; the schedule-confirm modal is the ONE place a combo books,
+    // and the overflow redirect above returns the guest to the main menu.)
 
     if (currentStep.id === "attraction-slot" && activeItem.kind === "attraction") {
       const attractionItem = activeItem as AttractionItem;
