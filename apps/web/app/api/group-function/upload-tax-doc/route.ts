@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { getGfQuoteByShortId } from "@/lib/group-function-db";
+import { getGfQuoteByShortId, appendAuditLog } from "@/lib/group-function-db";
+import { sql } from "@/lib/db";
 
 /**
  * Upload DR-14 tax exempt letter to Vercel Blob.
@@ -32,8 +33,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "File must be under 10MB" }, { status: 400 });
   }
 
+  // allowOverwrite: the path is deterministic per quote, so any re-upload
+  // (retry, replacement doc, page refresh) targets an existing blob and
+  // @vercel/blob v2 throws without it.
   const filename = `tax-exempt/${shortId}-dr14.${ext}`;
-  const blob = await put(filename, file, { access: "public" });
+  try {
+    const blob = await put(filename, file, { access: "public", allowOverwrite: true });
 
-  return NextResponse.json({ url: blob.url });
+    // Serve via the brand domain (next.config /tax-exempt/* rewrite), not the
+    // raw blob-store hostname.
+    const docUrl = `${quote.base_url || "https://headpinz.com"}/${blob.pathname}`;
+
+    // Persist at capture — the doc must survive even if the guest never
+    // completes signing (sign/route.ts re-stamps it later).
+    const q = sql();
+    await q`
+      UPDATE group_function_quotes SET
+        tax_file_url = ${docUrl},
+        updated_at = NOW()
+      WHERE id = ${quote.id}
+    `;
+    appendAuditLog({
+      quoteId: quote.id,
+      event: "tax_doc_uploaded",
+      metadata: { url: docUrl, originalName: file.name, size: file.size },
+    }).catch(() => {});
+
+    return NextResponse.json({ url: docUrl });
+  } catch (err) {
+    console.error(`[upload-tax-doc] blob put failed for ${shortId}:`, err);
+    return NextResponse.json(
+      { error: "Upload failed. Please try again or contact us." },
+      { status: 500 },
+    );
+  }
 }
