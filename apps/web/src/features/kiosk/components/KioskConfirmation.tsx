@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
+import { resetToKiosk } from "../version";
 import { KIOSK_LOGOS } from "../assets";
 
 const AUTO_RESET_SECONDS = 60;
@@ -55,7 +56,8 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       setSecondsLeft((s) => {
         if (s <= 1) {
           clearInterval(iv);
-          router.replace("/kiosk"); // soft nav keeps fullscreen (see KioskFlow.handleStartOver)
+          // Self-update if a newer deploy is live, else soft nav (keeps fullscreen).
+          void resetToKiosk(() => router.replace("/kiosk"));
           return 0;
         }
         return s - 1;
@@ -111,7 +113,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       ) : null}
       <button
         type="button"
-        onClick={() => router.replace("/kiosk")}
+        onClick={() => void resetToKiosk(() => router.replace("/kiosk"))}
         // k-btn-primary is flex:1 for the wizard's action ROW; here it sits in a
         // flex COLUMN, where flex:1 stretched it into a full-height arch. Reset to
         // its intended fixed height (inline wins over the .kiosk-canvas selector).

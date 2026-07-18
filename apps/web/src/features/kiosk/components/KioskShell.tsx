@@ -23,12 +23,19 @@
  */
 import { useEffect, useRef } from "react";
 import { KioskConfigProvider, useKioskConfig } from "../KioskConfigContext";
+import { captureKioskBootVersion } from "../version";
 import { OnScreenKeyboardHost } from "./OnScreenKeyboard";
 import { KioskStage } from "./KioskStage";
 
 function KioskChrome({ children }: { children: React.ReactNode }) {
   const { config } = useKioskConfig();
   const wantsFullscreenRef = useRef(false);
+
+  // Record the deploy this tab booted on, so a between-guest reset can detect a
+  // newer deploy and self-update (see version.ts / handleStartOver).
+  useEffect(() => {
+    void captureKioskBootVersion();
+  }, []);
 
   useEffect(() => {
     const isLocal =

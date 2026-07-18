@@ -30,6 +30,7 @@ import {
   type StepDef,
 } from "~/features/booking";
 import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
+import { resetToKiosk } from "../version";
 import { CartView } from "~/components/features/booking/CartView";
 import { CheckoutStep } from "~/components/features/booking/steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "~/components/features/booking/steps/race/HeightAgeConfirmModal";
@@ -186,7 +187,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       /* best-effort — BMI bills self-expire in ~20 min as the backstop */
     }
     clearBookingSession(KIOSK_SESSION_STORAGE_KEY);
-    router.replace("/kiosk");
+    // Self-update between guests: if a newer deploy is live, hard-reload to load
+    // it (fullscreen re-engages on the first attract tap); otherwise soft-nav so
+    // the engaged fullscreen survives. Owner 2026-07-19: no more close+reopen.
+    await resetToKiosk(() => router.replace("/kiosk"));
   }, [session, router]);
 
   const handleReservationExpired = useCallback(() => setReservationExpired(true), []);

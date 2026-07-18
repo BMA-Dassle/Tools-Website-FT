@@ -1,0 +1,56 @@
+/**
+ * Kiosk self-update check. A kiosk browser stays open for days; when we deploy a
+ * new build it otherwise keeps running the old JS until someone closes + reopens
+ * it. Instead, record the deploy this tab BOOTED on, and on each between-guest
+ * reset (Start Over / post-booking auto-reset) compare it to what the server is
+ * serving now — if a newer deploy is live, HARD-reload to pick it up; otherwise
+ * soft-nav (which preserves the engaged fullscreen). Owner 2026-07-19.
+ *
+ * Module-level state is per JS context: a hard reload re-captures the boot
+ * version against the new deploy, so it never reload-loops.
+ */
+
+let bootVersion: string | null = null;
+let captured = false;
+
+async function fetchVersion(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/kiosk/version", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { version?: unknown };
+    return typeof data.version === "string" ? data.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Record the deploy this tab booted on. Idempotent — safe to call on every mount. */
+export async function captureKioskBootVersion(): Promise<void> {
+  if (captured) return;
+  captured = true;
+  bootVersion = await fetchVersion();
+}
+
+/**
+ * True when the server is serving a DIFFERENT (newer) deploy than this tab booted
+ * on, so a reset should hard-reload. Fails safe to false — unknown boot version,
+ * a dev build, or a fetch error never forces a reload (and never loops).
+ */
+export async function kioskUpdateAvailable(): Promise<boolean> {
+  if (!bootVersion || bootVersion === "dev") return false;
+  const current = await fetchVersion();
+  return !!current && current !== "dev" && current !== bootVersion;
+}
+
+/**
+ * Reset to the attract screen, self-updating if a newer deploy is live: hard
+ * reload to load the new build (fullscreen re-engages on the first attract tap),
+ * else soft-nav via the caller's router.replace so fullscreen is preserved.
+ */
+export async function resetToKiosk(softNav: () => void, path = "/kiosk"): Promise<void> {
+  if (await kioskUpdateAvailable()) {
+    window.location.href = path;
+  } else {
+    softNav();
+  }
+}
