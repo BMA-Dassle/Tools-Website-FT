@@ -625,9 +625,10 @@ export default function BookRacePage() {
         ),
       );
     });
-    // Fetch related persons from Pandora (family members)
+    // Fetch related persons from Pandora (family members) — allRelated=true so
+    // the family array comes back (the route defaults it off for speed).
     setLinkedFetching(true);
-    fetch(`/api/pandora?personId=${person.personId}&picture=false`)
+    fetch(`/api/pandora?personId=${person.personId}&picture=false&allRelated=true`)
       .then(async (res) => {
         if (!res.ok) {
           setLinkedFetching(false);

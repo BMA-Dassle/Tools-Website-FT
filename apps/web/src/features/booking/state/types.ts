@@ -111,6 +111,10 @@ export interface PartyMember {
    *  2026-07-18 — assign packs per person). Each grants that person's credits at
    *  checkout. Flag-gated (kioskPacksEnabled) money path — see tasks/kiosk-race-packs.md. */
   pendingPacks?: string[];
+  /** Kiosk: this person's date of birth as an ISO "YYYY-MM-DD" string, captured
+   *  from a returning-racer lookup so the setup form never re-asks a birthday we
+   *  already have on file (owner 2026-07-19). Ignored by the web flow. */
+  dobIso?: string;
 }
 
 /* ───────────────────────── BookingItems ────────────────────────── */
@@ -689,6 +693,7 @@ export function newPartyMember(args: {
   phone?: string;
   email?: string;
   pendingPacks?: string[];
+  dobIso?: string;
 }): PartyMember {
   return {
     id: newItemId(),
@@ -706,6 +711,7 @@ export function newPartyMember(args: {
     phone: args.phone,
     email: args.email,
     pendingPacks: args.pendingPacks,
+    dobIso: args.dobIso,
   };
 }
 

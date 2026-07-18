@@ -348,14 +348,42 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     }
   };
 
-  /** Fetch the verified account's LINKED family as OPT-IN suggestions — they are
-   *  NOT added to the party (racing races the whole party, so auto-adding pulled
-   *  everyone into the race — owner bug). The guest taps a suggestion to add. */
-  const importLinked = async (personId: string, alreadyIds: Set<string>) => {
+  /** Fetch the verified account's waiver status + LINKED family in ONE call.
+   *  - The main person's waiver status (`data.valid`) patches their roster card
+   *    so a returning racer with a current waiver is NOT asked to sign again
+   *    (owner bug 2026-07-19 — the Office lookup can't see waiverExpiry, so this
+   *    Pandora check is the only source of truth; web does the exact same patch).
+   *  - `data.related` becomes OPT-IN family suggestions — NOT auto-added to the
+   *    party (racing races the whole party, so auto-adding pulled everyone in).
+   *  allRelated=true here (the ONE call that needs the family array); the
+   *  per-relative detail fetches below stay fast (route default allRelated=false). */
+  const importLinked = async (personId: string, memberId: string, alreadyIds: Set<string>) => {
     try {
-      const res = await fetch(`/api/pandora?personId=${personId}&picture=false`);
+      const res = await fetch(
+        `/api/pandora?personId=${personId}&picture=false&allRelated=true&location=${brandLocation}`,
+      );
       if (!res.ok) return;
       const data = await res.json();
+      // Patch the main person's waiver validity from the authoritative check.
+      if (typeof data.valid === "boolean") {
+        dispatch({ type: "updatePartyMember", id: memberId, patch: { waiverValid: data.valid } });
+      }
+      // Backfill DOB → age bucket if the Office lookup didn't carry a birthday.
+      if (data.birthdate) {
+        const iso = String(data.birthdate).slice(0, 10);
+        const yrs = Math.floor(
+          (Date.now() - new Date(data.birthdate).getTime()) / (365.25 * 864e5),
+        );
+        dispatch({
+          type: "updatePartyMember",
+          id: memberId,
+          patch: {
+            dobIso: iso,
+            isMinor: yrs < 18,
+            category: yrs < 13 ? "junior" : "adult",
+          },
+        });
+      }
       const relatedIds: string[] = (data.related || [])
         .map((r: unknown) => (typeof r === "string" ? r : ((r as { id?: string })?.id ?? "")))
         .filter(Boolean);
@@ -419,11 +447,20 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const handleVerified = (person: PersonData) => {
     const [first, ...rest] = person.fullName.trim().split(/\s+/);
     const isMain = party.length === 0;
+    // Capture the returning racer's saved birthday so we never re-ask it (owner
+    // bug 2026-07-19). Office lookup returns birthDate; drive the age bucket from
+    // it. importLinked backfills from Pandora if the Office record lacked one.
+    const bdIso = person.birthDate ? String(person.birthDate).slice(0, 10) : undefined;
+    const bdYears = bdIso
+      ? Math.floor((Date.now() - new Date(bdIso).getTime()) / (365.25 * 864e5))
+      : null;
     const member = newPartyMember({
       firstName: first || person.fullName,
       lastName: rest.join(" ") || undefined,
       isNewRacer: false,
-      category: "adult",
+      category: bdYears !== null && bdYears < 13 ? "junior" : "adult",
+      isMinor: bdYears !== null ? bdYears < 18 : undefined,
+      dobIso: bdIso,
       bmiPersonId: person.personId,
       memberships: person.memberships,
       waiverValid: person.waiverValid,
@@ -439,12 +476,17 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     const alreadyIds = new Set(
       [person.personId, ...party.map((m) => m.bmiPersonId)].filter(Boolean) as string[],
     );
-    void importLinked(person.personId, alreadyIds);
+    // Authoritative waiver check + linked family (mirrors web RacePartyStep).
+    void importLinked(person.personId, member.id, alreadyIds);
   };
 
   const openSetup = (member: PartyMember) => {
     setForm({ mode: "setup", member });
-    setDob("");
+    // Prefill the birthday we already have on file (returning racer) so the guest
+    // isn't asked for a saved DOB again (owner 2026-07-19). dobIso "YYYY-MM-DD" →
+    // the MM/DD/YYYY the form uses.
+    const iso = member.dobIso?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    setDob(iso ? `${iso[2]}/${iso[3]}/${iso[1]}` : "");
     setGuardianId(member.guardianMemberId ?? "");
     setFormError(null);
   };

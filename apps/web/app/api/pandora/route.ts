@@ -12,13 +12,20 @@ export async function GET(req: NextRequest) {
   const locKey = searchParams.get("location");
   const locationId = (locKey && LOCATION_MAP[locKey]) || DEFAULT_LOCATION_ID;
 
+  // `allRelated=true` makes Firebird join+return every linked family member —
+  // expensive. Default it OFF so the common paths (waiver check, per-relative
+  // detail fetch) are fast; only the ONE call that needs the family array opts
+  // in. (Owner 2026-07-19: returning-racer sign-in took ~a minute because every
+  // per-relative /person call was paying the family join.)
+  const allRelated = searchParams.get("allRelated") === "true";
+
   if (!personId) {
     return NextResponse.json({ error: "Missing personId" }, { status: 400 });
   }
 
   try {
     const res = await fetch(
-      `${PANDORA_URL}/bmi/person/${locationId}/${personId}?picture=false&allRelated=true`,
+      `${PANDORA_URL}/bmi/person/${locationId}/${personId}?picture=false&allRelated=${allRelated}`,
       {
         headers: { Authorization: `Bearer ${API_KEY}` },
         cache: "no-store",

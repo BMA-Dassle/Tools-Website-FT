@@ -211,7 +211,8 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
   async function fetchLinkedPersons(personId: string) {
     setLinkedLoading(true);
     try {
-      const res = await fetch(`/api/pandora?personId=${personId}&picture=false`);
+      // allRelated=true so the family array comes back (route defaults it off).
+      const res = await fetch(`/api/pandora?personId=${personId}&picture=false&allRelated=true`);
       if (!res.ok) return;
       const data = await res.json();
       const rawRelated: unknown[] = data.related || [];
