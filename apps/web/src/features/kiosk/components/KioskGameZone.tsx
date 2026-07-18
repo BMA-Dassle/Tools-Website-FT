@@ -367,6 +367,10 @@ export function KioskGameZone({
       setPhase("error");
     };
     let blanksBad = 0; // consecutive bad-blank captures (bounded before abort)
+    // Every dispensed blank has a UNIQUE pre-encoded account. A repeat means the
+    // reader handed back a stale/duplicate read (the "2124 on four cards" bug) —
+    // treat it as a bad read so we never load the same account twice.
+    const usedAccounts = new Set<string>();
 
     for (let i = 0; i < newCards.length; i++) {
       const txnId = rows[i]?.txnId;
@@ -395,8 +399,20 @@ export function KioskGameZone({
           f.kind === "abort" ? f.message : `${r.info.message}. ${SEE_ATTENDANT_SAFE}`,
         );
       }
-      blanksBad = 0;
       const account = r.value;
+
+      // Stale/duplicate read guard — bin this blank and re-dispense rather than
+      // credit an account we already loaded this session.
+      if (usedAccounts.has(account)) {
+        await dispenser.capture();
+        if (++blanksBad > 3) {
+          return abort(i, `Couldn't get a clean read from the dispenser. ${SEE_ATTENDANT_SAFE}`);
+        }
+        i--;
+        continue;
+      }
+      blanksBad = 0;
+      usedAccounts.add(account);
 
       setDispenseMsg(`Loading tokens onto card ${i + 1}…`);
       let loaded = false;

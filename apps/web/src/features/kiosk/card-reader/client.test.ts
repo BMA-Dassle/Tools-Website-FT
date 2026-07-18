@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeTransport } from "./engine/fake-transport";
 import { CrtReaderClient, type TransportFactory } from "./client";
 import { CM, EOT, STX } from "./protocol/constants";
-import { CrtError, CrtLinkError } from "./protocol/errors";
+import { CrtError, CrtLinkError, CrtReadError } from "./protocol/errors";
 import { buildNegativeResponse, buildPositiveResponse } from "./protocol/testing";
 
 const ACK = 0x06;
@@ -347,16 +347,38 @@ describe("CrtReaderClient — composed and typed operations", () => {
     await client.close();
   });
 
-  it("magRead throws a positioning hint when the device rejects it (no tracks)", async () => {
+  it("magRead throws a CARD read fault when the reply has no clean account", async () => {
     const dev = new ScriptedDevice((cmd, device) => {
       if (cmd.cm === 0x36) {
-        // e=00 "undefined command" with no track payload — wrong position.
+        // e=00 with no track payload — wrong position / partial read.
         return [[ACK], buildNegativeResponse({ cm: 0x36, pm: 0x37, code: "00" })];
       }
       return healthyScript(cmd, device);
     });
     const client = await CrtReaderClient.connect(factoryFor({ 115200: dev }, []));
-    await expect(client.magRead()).rejects.toThrow(/no track data.*read station/i);
+    await expect(client.magRead()).rejects.toBeInstanceOf(CrtReadError);
+    await client.close();
+  });
+
+  it("magRead rejects a garbage/partial read (no 16-digit account) as a CARD fault", async () => {
+    const dev = new ScriptedDevice((cmd, device) => {
+      if (cmd.cm === 0x36) {
+        // Only a short digit run ("2124") — the stale/partial-read bug.
+        const junk = "P6283=2124~";
+        return [
+          [ACK],
+          buildNegativeResponse({
+            cm: 0x36,
+            pm: 0x37,
+            code: "02",
+            data: [...junk].map((c) => c.charCodeAt(0)),
+          }),
+        ];
+      }
+      return healthyScript(cmd, device);
+    });
+    const client = await CrtReaderClient.connect(factoryFor({ 115200: dev }, []));
+    await expect(client.magRead()).rejects.toBeInstanceOf(CrtReadError);
     await client.close();
   });
 

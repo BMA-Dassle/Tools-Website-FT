@@ -25,6 +25,7 @@ export {
   CrtCardSwError,
   CrtError,
   CrtLinkError,
+  CrtReadError,
   CrtTimeoutError,
   decodeError,
   type CrtErrorCategory,

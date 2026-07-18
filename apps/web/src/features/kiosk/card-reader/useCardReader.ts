@@ -10,6 +10,7 @@ import {
   CrtCardSwError,
   CrtError,
   CrtLinkError,
+  CrtReadError,
   CrtTimeoutError,
   type CrtErrorInfo,
 } from "./protocol/errors";
@@ -50,6 +51,14 @@ function toErrorInfo(err: unknown): CrtErrorInfo {
   if (err instanceof CrtError) return err.info;
   if (err instanceof CrtCardSwError) {
     return { code: err.sw, message: err.message, category: "cardError" };
+  }
+  if (err instanceof CrtReadError) {
+    return {
+      code: "READ",
+      message: "Couldn't read the card cleanly.",
+      category: "cardError",
+      hint: "Reposition or re-insert the card and try again.",
+    };
   }
   if (err instanceof CrtTimeoutError) {
     return {
